@@ -18,3 +18,6 @@ coverage/
 *.log
 pnpm-debug.log*
 .env.production
+
+# Claude Code local state (worktrees, agent transcripts)
+.claude/
