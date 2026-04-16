@@ -37,7 +37,7 @@ export default async function PortfolioPage() {
         <ul className="space-y-3">
           {tracks.map((track) => (
             <li key={track.id}>
-              <article className="flex items-start justify-between gap-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-surface))] p-4">
+              <article className="flex items-start justify-between gap-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
                 <div className="min-w-0">
                   <h2 className="font-medium text-[rgb(var(--fg-primary))] truncate">
                     {track.title}

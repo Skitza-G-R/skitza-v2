@@ -52,7 +52,7 @@ function AddTrackForm({ onClose }: AddTrackFormProps) {
   return (
     <form
       onSubmit={onSubmit}
-      className="space-y-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-surface))] p-4"
+      className="space-y-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4"
     >
       <div>
         <label htmlFor="title" className={labelClass}>Title</label>
