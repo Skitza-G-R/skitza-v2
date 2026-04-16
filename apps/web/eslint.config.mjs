@@ -34,4 +34,14 @@ export default tseslint.config(
       ...nextPlugin.flatConfig.coreWebVitals.rules,
     },
   },
+  {
+    // tRPC Context starts empty and gets extended by future routers
+    // (e.g. Clerk auth in Task 8). Allow empty interfaces project-wide.
+    rules: {
+      "@typescript-eslint/no-empty-object-type": [
+        "error",
+        { allowInterfaces: "always" },
+      ],
+    },
+  },
 );
