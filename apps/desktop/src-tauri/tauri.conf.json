@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "corepack pnpm --filter web dev",
     "devUrl": "http://localhost:3000",
-    "frontendDist": "../web/.next"
+    "frontendDist": "https://skitza-v2-web.vercel.app"
   },
   "app": {
     "windows": [
