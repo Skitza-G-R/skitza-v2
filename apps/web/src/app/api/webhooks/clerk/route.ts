@@ -14,21 +14,29 @@ export async function POST(req: Request) {
     "svix-signature": req.headers.get("svix-signature") ?? "",
   };
 
-  let evt: { type: string; data: { id: string; email_addresses: { email_address: string }[]; first_name?: string } };
+  // Webhook.verify returns `unknown`; treat the result as untrusted data
+  // and pull each field defensively. A malformed event (e.g. { type } with
+  // no data block) must produce a 4xx — Clerk retries 5xx forever.
+  type ClerkEvent = {
+    type?: string;
+    data?: { id?: string; email_addresses?: { email_address?: string }[]; first_name?: string | null };
+  };
+  let evt: ClerkEvent;
   try {
-    evt = new Webhook(secret).verify(payload, headers) as typeof evt;
+    evt = new Webhook(secret).verify(payload, headers) as ClerkEvent;
   } catch {
     return new Response("invalid signature", { status: 400 });
   }
 
   if (evt.type === "user.created") {
-    const email = evt.data.email_addresses[0]?.email_address;
-    if (!email) return new Response("no email", { status: 400 });
+    const id = evt.data?.id;
+    const email = evt.data?.email_addresses?.[0]?.email_address;
+    if (!id || !email) return new Response("invalid payload", { status: 400 });
     const db = createDb(dbUrl);
     await db.insert(producers).values({
-      clerkUserId: evt.data.id,
+      clerkUserId: id,
       email,
-      displayName: evt.data.first_name ?? null,
+      displayName: evt.data?.first_name ?? null,
       slug: emailToSlug(email),
     }).onConflictDoNothing().returning();
   }
