@@ -91,6 +91,42 @@
     color: rgb(var(--fg-primary));
   }
 
+  /* Screen-reader-only text. Used for labels on icon-only buttons where
+     we don't want visible text but still need content for AT. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* Skip-to-content anchor — visible on focus, top-left. Keyboard-only
+     users tab past the header straight into main content. */
+  .skip-to-content {
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 100;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-md);
+    background: rgb(var(--brand-primary));
+    color: rgb(var(--fg-inverse));
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    transform: translateY(-200%);
+    transition: transform 0.15s ease-out;
+  }
+  .skip-to-content:focus-visible {
+    transform: translateY(0);
+    outline: none;
+  }
+
   /* Ambient grain for dark surfaces — extremely subtle, adds film. */
   .noise-grain {
     position: relative;

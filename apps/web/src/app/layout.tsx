@@ -111,6 +111,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         className={`${fraunces.variable} ${plexSans.variable} ${plexMono.variable}`}
       >
         <body>
+          {/* Skip-to-content link — keyboard-only users hit Tab on page
+              load, see this first, and jump past the shell navigation
+              straight to the main content. */}
+          <a href="#main-content" className="skip-to-content">
+            Skip to content
+          </a>
           <ToastProvider>{children}</ToastProvider>
         </body>
       </html>

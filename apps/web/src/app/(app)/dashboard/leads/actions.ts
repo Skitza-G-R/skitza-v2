@@ -49,6 +49,10 @@ function toMessage(err: unknown): string {
         return "Lead link not found.";
       case "BAD_REQUEST":
         return err.message || "Invalid input.";
+      case "TOO_MANY_REQUESTS":
+        // Carry the rate-limit message verbatim so the producer sees
+        // the exact retry window the router computed.
+        return err.message || "Too many requests — try again in a moment.";
       default:
         return "Something went wrong. Please try again.";
     }

@@ -6,6 +6,14 @@ import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { issueMagicToken } from "~/lib/magic-links/token";
+import { checkRateLimit } from "~/lib/rate-limit/in-memory";
+
+// Per-producer issue cap. Real producers issue a few links a day; >20
+// per minute is either a bug or abuse. The limiter is in-memory so this
+// is best-effort per container — cross-instance limiting lands when we
+// move to Upstash (Phase 2). For now the cap catches scripted loops.
+const ISSUE_LIMIT = 20;
+const ISSUE_WINDOW_MS = 60_000;
 
 // `target` is `text` in the DB (forward-compat for "project:<uuid>"),
 // but the router gates the input to the only two values v1 supports.
@@ -50,6 +58,17 @@ export const magicLinkRouter = router({
   issue: producerProcedure
     .input(IssueInput)
     .mutation(async ({ ctx, input }) => {
+      // Rate limit per producer. Raises TOO_MANY_REQUESTS (mapped to a
+      // user-readable error in the Server Action). See comment on
+      // ISSUE_LIMIT above for rationale.
+      const rl = checkRateLimit(`issue:${ctx.producerId}`, ISSUE_LIMIT, ISSUE_WINDOW_MS);
+      if (!rl.ok) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Slow down — try again in ${String(Math.ceil(rl.resetMs / 1000))}s.`,
+        });
+      }
+
       const siteUrlRaw = process.env.SITE_URL;
       if (!siteUrlRaw) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "missing SITE_URL" });

@@ -44,6 +44,25 @@ export default async function SettingsPage() {
             brand: profile.brand,
           }}
         />
+
+        <section className="mt-12 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6">
+          <header className="mb-4">
+            <h2 className="font-display text-xl tracking-tight">Your data</h2>
+            <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
+              Download everything Skitza has about you — profile, tracks, leads, magic links,
+              and all analytics — as a single JSON file.
+            </p>
+          </header>
+          <a
+            href="/api/export"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-4 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
+          >
+            Download export (.json)
+          </a>
+          <p className="mt-3 font-mono text-xs text-[rgb(var(--fg-muted))]">
+            Token hashes are excluded — they&apos;re one-way and of no use to you.
+          </p>
+        </section>
       </div>
     </AppShell>
   );

@@ -83,7 +83,7 @@ export async function AppShell({
         {/* Signal-bar: a 1px gradient hairline evoking a VU meter. */}
         <div className="h-px w-full bg-gradient-to-r from-transparent via-[rgb(var(--brand-primary)/0.45)] to-transparent" />
       </header>
-      <main>{children}</main>
+      <main id="main-content">{children}</main>
     </div>
   );
 }

@@ -1,5 +1,12 @@
 import { TRPCError } from "@trpc/server";
-import { eq, producers } from "@skitza/db";
+import {
+  eq,
+  leads,
+  magicLinks,
+  magicLinkViews,
+  portfolioTracks,
+  producers,
+} from "@skitza/db";
 import { z } from "zod";
 
 import { router } from "../init";
@@ -65,6 +72,75 @@ export const producerRouter = router({
       defaultCurrency: row.defaultCurrency,
       timezone: row.timezone,
       brand: row.brand ?? {},
+    };
+  }),
+
+  // Full data export — everything Skitza stores tied to this producer.
+  // GDPR-friendly: the producer can hit this at any time, get their
+  // data as a self-contained JSON, and walk away. Explicitly excludes
+  // the token hashes (they're one-way; no value in the export) and
+  // internal IDs that only matter to Skitza's join graph.
+  export: producerProcedure.query(async ({ ctx }) => {
+    const [profile] = await ctx.db
+      .select()
+      .from(producers)
+      .where(eq(producers.id, ctx.producerId))
+      .limit(1);
+    if (!profile) throw new TRPCError({ code: "NOT_FOUND" });
+
+    const [tracks, leadRows, links, views] = await Promise.all([
+      ctx.db
+        .select()
+        .from(portfolioTracks)
+        .where(eq(portfolioTracks.producerId, ctx.producerId))
+        .orderBy(portfolioTracks.position),
+      ctx.db.select().from(leads).where(eq(leads.producerId, ctx.producerId)),
+      ctx.db.select().from(magicLinks).where(eq(magicLinks.producerId, ctx.producerId)),
+      // Views are joined through the links to keep the export
+      // producer-scoped; we're not SELECTing every view row in the db.
+      ctx.db
+        .select({
+          id: magicLinkViews.id,
+          magicLinkId: magicLinkViews.magicLinkId,
+          ip: magicLinkViews.ip,
+          userAgent: magicLinkViews.userAgent,
+          referer: magicLinkViews.referer,
+          dwellMs: magicLinkViews.dwellMs,
+          viewedAt: magicLinkViews.viewedAt,
+        })
+        .from(magicLinkViews)
+        .innerJoin(magicLinks, eq(magicLinks.id, magicLinkViews.magicLinkId))
+        .where(eq(magicLinks.producerId, ctx.producerId)),
+    ]);
+
+    return {
+      exportedAt: new Date().toISOString(),
+      schema: "skitza-export-v1",
+      profile: {
+        id: profile.id,
+        email: profile.email,
+        displayName: profile.displayName,
+        slug: profile.slug,
+        defaultCurrency: profile.defaultCurrency,
+        timezone: profile.timezone,
+        brand: profile.brand ?? {},
+        createdAt: profile.createdAt,
+        updatedAt: profile.updatedAt,
+      },
+      portfolioTracks: tracks,
+      leads: leadRows,
+      magicLinks: links.map((l) => ({
+        id: l.id,
+        leadId: l.leadId,
+        target: l.target,
+        expiresAt: l.expiresAt,
+        revokedAt: l.revokedAt,
+        createdAt: l.createdAt,
+        // tokenHash deliberately omitted — it's one-way, no value to
+        // the producer, and surfacing it would invite "decode this for
+        // me" questions that would never succeed.
+      })),
+      magicLinkViews: views,
     };
   }),
 
