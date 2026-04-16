@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "~/components/ui/button";
 import { Input, Label } from "~/components/ui/input";
+import { useToast } from "~/components/ui/toast";
 import { createTrack, deleteTrack } from "./actions";
 
 interface AddTrackFormProps {
@@ -13,6 +14,7 @@ interface AddTrackFormProps {
 
 function AddTrackForm({ onClose }: AddTrackFormProps) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -31,6 +33,7 @@ function AddTrackForm({ onClose }: AddTrackFormProps) {
         ...(artworkUrl ? { artworkUrl } : {}),
       });
       if (res.ok) {
+        toast(`"${title}" added to your portfolio.`, "success");
         setTitle("");
         setArtist("");
         setAudioUrl("");
@@ -39,6 +42,7 @@ function AddTrackForm({ onClose }: AddTrackFormProps) {
         router.refresh();
       } else {
         setError(res.error);
+        toast(res.error, "error");
       }
     });
   }
@@ -111,6 +115,7 @@ function AddTrackForm({ onClose }: AddTrackFormProps) {
 
 function DeleteTrackButton({ trackId }: { trackId: string }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -120,9 +125,11 @@ function DeleteTrackButton({ trackId }: { trackId: string }) {
     startTransition(async () => {
       const res = await deleteTrack({ id: trackId });
       if (res.ok) {
+        toast("Track removed.", "success");
         router.refresh();
       } else {
         setError(res.error);
+        toast(res.error, "error");
       }
     });
   }

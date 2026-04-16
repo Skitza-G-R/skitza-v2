@@ -1,19 +1,42 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { UserButton } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
+import { createDb, eq, producers } from "@skitza/db";
 
 // App shell used by /dashboard and its children.
-// Header: Skitza wordmark + primary tabs + UserButton.
+// Header: Skitza wordmark + primary tabs + "View public" link + UserButton.
 // Mobile: tabs wrap below the wordmark; UserButton stays right-aligned on both.
 // Studio Monitor signature: a hairline glow under the header (like a
 // rack-unit's power LED bar) in brand-primary.
-export function AppShell({
+//
+// Slug lookup here is additive — the parent layout already runs the full
+// gate check. We just need the slug string for the public-page shortcut,
+// and Neon's pg driver is cheap enough for an extra SELECT on every app
+// route (no N+1; one query per render, cached by React's request-scoped
+// cache if the layout also queried it).
+async function getProducerSlug(): Promise<string | null> {
+  const { userId } = await auth();
+  if (!userId) return null;
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return null;
+  const db = createDb(dbUrl);
+  const [row] = await db
+    .select({ slug: producers.slug })
+    .from(producers)
+    .where(eq(producers.clerkUserId, userId))
+    .limit(1);
+  return row?.slug ?? null;
+}
+
+export async function AppShell({
   active,
   children,
 }: {
   active: "overview" | "portfolio" | "leads";
   children: ReactNode;
 }) {
+  const slug = await getProducerSlug();
   return (
     <div className="min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
       <header className="sticky top-0 z-20 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base)/0.78)] backdrop-blur">
@@ -30,6 +53,17 @@ export function AppShell({
             <ShellTab href="/dashboard/leads" active={active === "leads"}>Lead Links</ShellTab>
           </nav>
           <div className="flex items-center gap-3">
+            {slug ? (
+              <Link
+                href={`/p/${slug}`}
+                target="_blank"
+                rel="noreferrer"
+                className="hidden items-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 py-1 font-mono text-xs text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--brand-primary)/0.5)] hover:text-[rgb(var(--brand-primary))] sm:inline-flex"
+              >
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]" />
+                View public
+              </Link>
+            ) : null}
             <UserButton
               appearance={{
                 elements: {

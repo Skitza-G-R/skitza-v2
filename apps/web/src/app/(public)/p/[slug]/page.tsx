@@ -4,9 +4,18 @@ import type { Metadata } from "next";
 
 import { resolveBrandStyle } from "~/lib/branding/theme-resolver";
 import { loadProducerPortfolio } from "./load-portfolio";
+import { DwellBeacon } from "./dwell-beacon";
 
-// Next 15: route params arrive as a Promise.
-type PageProps = { params: Promise<{ slug: string }> };
+// Next 15: route params + searchParams arrive as Promises.
+type PageProps = {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+// Basic UUID v4 validator — we don't want the beacon fired with a
+// client-controlled garbage `via` value. If the format is wrong we
+// silently drop it.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
@@ -35,8 +44,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 // display type set in Fraunces at max optical size, an atmospheric hero
 // gradient tuned to the producer's brand hue, and the tracks as a numbered
 // magazine-style list rather than a grid.
-export default async function PublicPortfolioPage({ params }: PageProps) {
+export default async function PublicPortfolioPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
+  const { via } = await searchParams;
+  const viewId = typeof via === "string" && UUID_RE.test(via) ? via : null;
   const data = await loadProducerPortfolio(slug);
   if (!data) notFound();
 
@@ -54,6 +65,7 @@ export default async function PublicPortfolioPage({ params }: PageProps) {
 
   return (
     <div style={brandStyle} className="relative min-h-dvh overflow-hidden">
+      {viewId ? <DwellBeacon viewId={viewId} /> : null}
       {/* Atmospheric hero backdrop — brand hues bloom behind the title. */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div className="absolute -left-40 top-[-8rem] h-[40rem] w-[40rem] rounded-full bg-[rgb(var(--brand-primary)/0.14)] blur-[140px]" />

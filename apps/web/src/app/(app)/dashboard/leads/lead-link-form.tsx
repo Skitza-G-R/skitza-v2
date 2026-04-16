@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input, Label, Select } from "~/components/ui/input";
+import { useToast } from "~/components/ui/toast";
 import { issueLeadLink, revokeLeadLink } from "./actions";
 import { type LinkStatus } from "./status";
 
@@ -35,6 +36,7 @@ interface IssuedBanner {
 
 export function IssueForm() {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [target, setTarget] = useState<Target>("portfolio");
@@ -44,6 +46,17 @@ export function IssueForm() {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref for the just-issued banner — scrolled into view after issue so
+  // a producer who submitted while scrolled doesn't miss the one-shot URL.
+  const bannerRef = useRef<HTMLDivElement | null>(null);
+
+  // Scroll the banner into view whenever a new URL is issued. `smooth`
+  // is polite; `block: "nearest"` avoids jumping if already visible.
+  useEffect(() => {
+    if (issued && bannerRef.current) {
+      bannerRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [issued]);
 
   useEffect(() => {
     return () => {
@@ -72,6 +85,7 @@ export function IssueForm() {
         router.refresh();
       } else {
         setError(res.error);
+        toast(res.error, "error");
       }
     });
   }
@@ -93,6 +107,7 @@ export function IssueForm() {
     }
     setCopyError(null);
     setCopied(true);
+    toast("URL copied — paste it wherever.", "success");
     if (copyResetTimer.current !== null) clearTimeout(copyResetTimer.current);
     copyResetTimer.current = setTimeout(() => {
       setCopied(false);
@@ -106,6 +121,7 @@ export function IssueForm() {
         // Microcopy is load-bearing: the table cannot redisplay this URL,
         // so the producer MUST be told copying is one-shot.
         <div
+          ref={bannerRef}
           role="status"
           className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.5)] bg-[rgb(var(--brand-primary)/0.07)] p-4 reveal-up"
         >
@@ -205,32 +221,67 @@ export function IssueForm() {
 
 export function RevokeButton({ id, disabled }: { id: string; disabled: boolean }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Two-step revoke to match the portfolio Delete pattern. Revoke is
+  // destructive (404s all in-flight holders of the URL) so a single
+  // click shouldn't be enough.
+  const [confirm, setConfirm] = useState(false);
 
   function onRevoke() {
     setError(null);
     startTransition(async () => {
       const res = await revokeLeadLink({ id });
       if (res.ok) {
+        toast("Link revoked. Any outstanding opens will 404.", "success");
+        setConfirm(false);
         router.refresh();
       } else {
         setError(res.error);
+        toast(res.error, "error");
       }
     });
   }
 
   return (
     <div className="inline-flex flex-col items-end gap-1">
-      <Button
-        type="button"
-        variant="destructive"
-        size="sm"
-        onClick={onRevoke}
-        disabled={pending || disabled}
-      >
-        {pending ? "Revoking…" : "Revoke"}
-      </Button>
+      {confirm ? (
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            onClick={onRevoke}
+            disabled={pending || disabled}
+          >
+            {pending ? "Revoking…" : "Confirm"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setConfirm(false);
+            }}
+            disabled={pending}
+          >
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          onClick={() => {
+            setConfirm(true);
+          }}
+          disabled={disabled}
+        >
+          Revoke
+        </Button>
+      )}
       {error ? (
         <p role="alert" className="text-xs text-[rgb(var(--fg-danger))]">
           {error}

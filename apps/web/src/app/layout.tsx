@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
+import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 
+import { ToastProvider } from "~/components/ui/toast";
 import "./globals.css";
 
 // Studio Monitor typography stack.
@@ -27,13 +29,45 @@ const plexMono = IBM_Plex_Mono({
   variable: "--font-mono",
 });
 
-export const metadata = {
+export const metadata: Metadata = {
+  metadataBase: new URL(process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app"),
   title: {
     default: "Skitza — the studio in one link",
     template: "%s — Skitza",
   },
   description:
     "Skitza is the all-in-one studio business platform for independent music producers: booking, contracts, portfolio, collaboration, and smart lead links — in one tool.",
+  applicationName: "Skitza",
+  authors: [{ name: "Skitza" }],
+  keywords: [
+    "music producer",
+    "studio",
+    "booking",
+    "portfolio",
+    "lead link",
+    "CRM",
+    "audio collaboration",
+  ],
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    siteName: "Skitza",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Skitza — the studio in one link",
+    description:
+      "Booking, portfolio, contracts, collaboration, payments — all behind a single magic link.",
+  },
+};
+
+// Viewport + theme-color — Chrome/Safari use theme-color for the browser
+// chrome on mobile, matching our obsidian bg so the status bar blends in.
+export const viewport: Viewport = {
+  themeColor: "#0b0b0d",
+  colorScheme: "dark",
+  width: "device-width",
+  initialScale: 1,
 };
 
 // Clerk theming via `variables` keeps us off @clerk/themes (no new dep).
@@ -76,7 +110,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         lang="en"
         className={`${fraunces.variable} ${plexSans.variable} ${plexMono.variable}`}
       >
-        <body>{children}</body>
+        <body>
+          <ToastProvider>{children}</ToastProvider>
+        </body>
       </html>
     </ClerkProvider>
   );
