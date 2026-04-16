@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "packageManager": "pnpm@9.12.0",
   "scripts": {
-    "dev": "pnpm --filter web dev",
-    "build": "pnpm -r build",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "dev": "corepack pnpm --filter web dev",
+    "build": "corepack pnpm -r build",
+    "lint": "corepack pnpm -r lint",
+    "typecheck": "corepack pnpm -r typecheck",
+    "test": "corepack pnpm -r test",
     "tauri:dev": "corepack pnpm --filter desktop tauri dev",
     "tauri:build": "corepack pnpm --filter desktop tauri build"
   },
