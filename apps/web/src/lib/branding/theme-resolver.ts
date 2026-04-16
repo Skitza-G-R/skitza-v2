@@ -11,12 +11,29 @@
  * alpha-channel idiom keeps working downstream.
  */
 
+import type { CSSProperties } from "react";
+
 export const defaultBrand = {
   primary: "29 185 84",
   accent: "224 122 95",
 } as const;
 
+/**
+ * Brand input is producer-controlled (sourced from the DB in Task 7+). The
+ * HEX6 regex IS the injection sanitizer: any input that fails it falls back
+ * to `defaultBrand`, never reaching the inline style. Broadening this regex
+ * without re-validating the output (e.g. allowing `rgb(...)` strings) would
+ * open a CSS-injection vector — every consumer pipes the result straight
+ * into a `style` prop.
+ */
 const HEX6 = /^#([0-9a-f]{6})$/i;
+
+/**
+ * Brand-aware style object. Intersects React's `CSSProperties` with the
+ * template-literal-keyed brand contract so consumers can spread it directly
+ * into `<div style={...}>` (and merge with other style fields) without casts.
+ */
+export type BrandStyle = CSSProperties & Record<`--brand-${string}`, string>;
 
 function hexToRgbTriplet(hex: string): string | null {
   const match = HEX6.exec(hex);
@@ -32,7 +49,7 @@ function hexToRgbTriplet(hex: string): string | null {
 export function resolveBrandStyle(brand: {
   primary?: string;
   accent?: string;
-}): Record<`--brand-${string}`, string> {
+}): BrandStyle {
   const primary =
     brand.primary !== undefined ? hexToRgbTriplet(brand.primary) : null;
   const accent =
