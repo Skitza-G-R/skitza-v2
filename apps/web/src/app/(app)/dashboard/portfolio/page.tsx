@@ -2,9 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { AppShell } from "~/components/shell/app-shell";
-import { Badge } from "~/components/ui/badge";
 import { EmptyState } from "~/components/ui/empty-state";
-import { PortfolioToolbar, DeleteTrackButton } from "./track-form";
+import { PortfolioToolbar, DeleteTrackButton, ReorderButtons } from "./track-form";
 import { createDb, eq, producers } from "@skitza/db";
 
 // Server Component. Auth & producer-existence are guaranteed by (app)/layout
@@ -56,10 +55,14 @@ export default async function PortfolioPage() {
         </header>
 
         <div className="mt-3 flex items-center gap-2">
-          <Badge>Reorder coming soon</Badge>
           <span className="font-mono text-xs text-[rgb(var(--fg-muted))]">
             {tracks.length} track{tracks.length === 1 ? "" : "s"}
           </span>
+          {tracks.length > 1 ? (
+            <span className="font-mono text-xs text-[rgb(var(--fg-muted))]">
+              · reorder with the arrows
+            </span>
+          ) : null}
         </div>
 
         <section className="mt-8">
@@ -108,6 +111,9 @@ export default async function PortfolioPage() {
                         {track.audioUrl}
                       </p>
                     </div>
+                    {tracks.length > 1 ? (
+                      <ReorderButtons trackId={track.id} orderedIds={tracks.map((t) => t.id)} />
+                    ) : null}
                     <DeleteTrackButton trackId={track.id} />
                   </article>
                 </li>

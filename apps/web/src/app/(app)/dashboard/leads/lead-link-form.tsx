@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input, Label, Select } from "~/components/ui/input";
+import { QrCode } from "~/components/ui/qr-code";
 import { useToast } from "~/components/ui/toast";
 import { issueLeadLink, revokeLeadLink } from "./actions";
 import { type LinkStatus } from "./status";
@@ -148,13 +149,25 @@ export function IssueForm() {
               ✕
             </button>
           </div>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <code className="flex-1 truncate rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 py-2 font-mono text-xs text-[rgb(var(--fg-primary))]">
-              {issued.url}
-            </code>
-            <Button type="button" size="sm" onClick={() => void onCopy()} className="shrink-0">
-              {copied ? "✓ Copied" : "Copy URL"}
-            </Button>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
+            {/* URL + copy */}
+            <div className="flex flex-1 flex-col gap-2">
+              <code className="flex-1 truncate rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 py-2 font-mono text-xs text-[rgb(var(--fg-primary))]">
+                {issued.url}
+              </code>
+              <Button type="button" size="sm" onClick={() => void onCopy()} className="self-start">
+                {copied ? "✓ Copied" : "Copy URL"}
+              </Button>
+              <p className="font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
+                Or scan the code → ships the link straight to a phone.
+              </p>
+            </div>
+            {/* QR — scan-ready, shipped for IRL hand-offs (print, a
+                screen-to-screen pass, etc). Wrapped in a muted card so
+                it reads as a secondary surface to the primary URL. */}
+            <div className="flex shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-2">
+              <QrCode value={issued.url} size={96} />
+            </div>
           </div>
           {copyError ? (
             <p role="alert" className="mt-2 text-sm text-[rgb(var(--fg-danger))]">

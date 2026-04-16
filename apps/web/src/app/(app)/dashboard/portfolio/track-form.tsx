@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "~/components/ui/button";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
-import { createTrack, deleteTrack } from "./actions";
+import { createTrack, deleteTrack, reorderTracks } from "./actions";
 
 interface AddTrackFormProps {
   onClose: () => void;
@@ -206,4 +206,74 @@ function InlineFormPortal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export { DeleteTrackButton, PortfolioToolbar };
+// Up/down reorder controls. Takes the FULL list of ordered IDs and the
+// index of the track to move — builds a new ordered array, sends to the
+// reorderTracks action. Backend (`portfolio.reorder`) filters by
+// producerId so a stale ID list (e.g. another tab added a track between
+// render and click) is a partial no-op, not a leak.
+function ReorderButtons({
+  trackId,
+  orderedIds,
+}: {
+  trackId: string;
+  orderedIds: string[];
+}) {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [pending, startTransition] = useTransition();
+
+  const idx = orderedIds.indexOf(trackId);
+  const atTop = idx <= 0;
+  const atBottom = idx === orderedIds.length - 1;
+
+  function move(direction: -1 | 1) {
+    if (idx < 0) return;
+    const target = idx + direction;
+    if (target < 0 || target >= orderedIds.length) return;
+    const next = [...orderedIds];
+    const [removed] = next.splice(idx, 1);
+    if (!removed) return;
+    next.splice(target, 0, removed);
+    startTransition(async () => {
+      const res = await reorderTracks({ orderedIds: next });
+      if (res.ok) {
+        router.refresh();
+      } else {
+        toast(res.error, "error");
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        aria-label="Move track up"
+        disabled={atTop || pending}
+        onClick={() => {
+          move(-1);
+        }}
+        className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30"
+      >
+        <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden>
+          <path d="M6 3L2 8h8z" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        aria-label="Move track down"
+        disabled={atBottom || pending}
+        onClick={() => {
+          move(1);
+        }}
+        className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30"
+      >
+        <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden>
+          <path d="M6 9L2 4h8z" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+export { DeleteTrackButton, PortfolioToolbar, ReorderButtons };

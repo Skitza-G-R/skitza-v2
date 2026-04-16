@@ -95,3 +95,19 @@ export async function deleteTrack(input: { id: string }): Promise<ActionResult> 
     return { ok: false, error: toMessage(err) };
   }
 }
+
+// Reorder: accepts the full desired sequence of track IDs. The router's
+// reorder procedure (portfolio.reorder) filters by producerId on every
+// row update, so an alien id slipped into the list is a silent no-op
+// (not a cross-tenant leak). The happy path assigns positions in order.
+export async function reorderTracks(input: { orderedIds: string[] }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.portfolio.reorder(input);
+    revalidatePath(PORTFOLIO_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
