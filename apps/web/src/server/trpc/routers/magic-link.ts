@@ -89,7 +89,12 @@ export const magicLinkRouter = router({
     // LEFT JOIN + max(viewedAt) so links with zero views still appear
     // (their lastViewedAt comes back as null). GROUP BY the link's
     // primary key so the projected non-aggregated columns are legal.
-    return ctx.db
+    //
+    // Neon's pg driver parses non-aggregate timestamptz columns into
+    // Date, but `MAX(timestamptz)` inside a raw `sql` template comes
+    // back as an ISO string. Coerce at the edge so consumers can rely
+    // on the declared `Date | null` return type.
+    const rows = await ctx.db
       .select({
         id: magicLinks.id,
         target: magicLinks.target,
@@ -97,13 +102,17 @@ export const magicLinkRouter = router({
         expiresAt: magicLinks.expiresAt,
         revokedAt: magicLinks.revokedAt,
         createdAt: magicLinks.createdAt,
-        lastViewedAt: sql<Date | null>`max(${magicLinkViews.viewedAt})`,
+        lastViewedAt: sql<Date | string | null>`max(${magicLinkViews.viewedAt})`,
       })
       .from(magicLinks)
       .leftJoin(magicLinkViews, eq(magicLinkViews.magicLinkId, magicLinks.id))
       .where(eq(magicLinks.producerId, ctx.producerId))
       .groupBy(magicLinks.id)
       .orderBy(desc(magicLinks.createdAt));
+    return rows.map((r) => ({
+      ...r,
+      lastViewedAt: r.lastViewedAt == null ? null : new Date(r.lastViewedAt),
+    }));
   }),
 
   analytics: producerProcedure.query(async ({ ctx }) => {
@@ -124,11 +133,13 @@ export const magicLinkRouter = router({
     //   the UI can distinguish "no data" from "0ms".
     // - GROUP BY just magicLinks.id — PG infers the rest of the
     //   selected magic_links columns via PK functional dependency.
-    return ctx.db
+    // Same MAX(timestamptz)-returns-string quirk as magicLink.list —
+    // coerce lastViewedAt at the edge.
+    const rows = await ctx.db
       .select({
         id: magicLinks.id,
         viewCount: sql<number>`count(${magicLinkViews.id})::int`,
-        lastViewedAt: sql<Date | null>`max(${magicLinkViews.viewedAt})`,
+        lastViewedAt: sql<Date | string | null>`max(${magicLinkViews.viewedAt})`,
         medianDwellMs: sql<number | null>`percentile_cont(0.5) within group (order by ${magicLinkViews.dwellMs})::int`,
       })
       .from(magicLinks)
@@ -136,6 +147,10 @@ export const magicLinkRouter = router({
       .where(eq(magicLinks.producerId, ctx.producerId))
       .groupBy(magicLinks.id)
       .orderBy(desc(magicLinks.createdAt));
+    return rows.map((r) => ({
+      ...r,
+      lastViewedAt: r.lastViewedAt == null ? null : new Date(r.lastViewedAt),
+    }));
   }),
 
   revoke: producerProcedure
