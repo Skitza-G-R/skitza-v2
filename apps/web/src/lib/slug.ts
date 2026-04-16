@@ -10,3 +10,5 @@ export function emailToSlug(email: string): string {
   const hash = createHash("sha256").update(email).digest("hex").slice(0, 4);
   return `${cleaned}-${hash}`;
 }
+
+export const isAutoSlug = (slug: string, email: string): boolean => slug === emailToSlug(email);
