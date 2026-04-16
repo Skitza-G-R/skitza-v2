@@ -38,21 +38,27 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      # `DATABASE_URL_TEST` will be empty until Task 7 (Neon account) lands.
-      # The current 9 vitest specs do not touch a DB, so an empty value is OK.
-      # The slot is wired now so future DB-touching tests pick it up automatically.
+      # Wired-ahead env vars for tests:
+      # - `DATABASE_URL_TEST` is empty until Task 7 (Neon) lands. Current 9 specs
+      #   do not touch a DB; the slot is here so future DB-touching tests pick
+      #   it up automatically.
+      # - `MAGIC_LINK_SECRET` is forwarded so future token tests that drop their
+      #   own `beforeAll` override fall back to a CI-provided value instead of
+      #   failing. Today's token.test.ts overrides locally, so this is unused.
       - name: Test
         env:
           DATABASE_URL_TEST: ${{ secrets.DATABASE_URL_TEST }}
+          MAGIC_LINK_SECRET: ${{ secrets.MAGIC_LINK_SECRET }}
         run: pnpm test
 
       # Build only the web app from CI. The root `pnpm build` is `pnpm -r build`
       # which would also invoke `tauri build` in apps/desktop — that is macOS-only
-      # and handled by desktop-build.yml. `MAGIC_LINK_SECRET` is forwarded as a
-      # safety belt: today the magic-link module reads it lazily at call-time,
-      # but pinning it here keeps CI green if a future change accidentally moves
-      # the read to module top-level.
+      # and handled by desktop-build.yml.
+      #
+      # Why no MAGIC_LINK_SECRET here? `next build` does not invoke the token
+      # module, and the module reads its secret lazily at call-time. If a future
+      # change introduces top-level secret access, the failure surfaces at
+      # request time (production) — the right place to catch it is the test
+      # step above, not here.
       - name: Build web
-        env:
-          MAGIC_LINK_SECRET: ${{ secrets.MAGIC_LINK_SECRET }}
         run: pnpm --filter web build

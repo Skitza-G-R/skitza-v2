@@ -6,6 +6,8 @@ on:
     paths:
       - "apps/desktop/**"
       - "apps/web/**"
+      - "pnpm-lock.yaml"
+      - "package.json"
       - ".github/workflows/desktop-build.yml"
   workflow_dispatch:
 
@@ -46,6 +48,9 @@ jobs:
       # Unsigned bundle: no Apple Developer cert wired yet. The resulting .dmg
       # will be Gatekeeper-blocked on clean Macs, which is acceptable for the
       # closed beta. Code-signing hookup is deferred to Phase 2.
+      - name: Note unsigned bundle
+        run: echo "::warning::This .dmg is unsigned and will trigger Gatekeeper warnings on clean Macs. Code-signing lands in Phase 2."
+
       - name: Build Tauri bundle
         run: pnpm tauri:build
 
