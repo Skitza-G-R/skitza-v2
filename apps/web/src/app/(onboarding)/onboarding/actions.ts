@@ -20,8 +20,16 @@ export async function completeOnboarding(input: z.infer<typeof Input>) {
   const parsed = Input.parse(input);
   const db = createDb(dbUrl);
   // updatedAt bumped explicitly; producers.updatedAt only defaults on insert.
-  await db
+  // .returning() so we can detect the webhook race: if the Clerk webhook
+  // hasn't inserted the row yet, the UPDATE affects 0 rows and the user
+  // would otherwise see a silent "success" with no DB change. Throwing
+  // here lets the form surface "try again in a moment".
+  const updated = await db
     .update(producers)
     .set({ ...parsed, updatedAt: new Date() })
-    .where(eq(producers.clerkUserId, userId));
+    .where(eq(producers.clerkUserId, userId))
+    .returning({ id: producers.id });
+  if (updated.length === 0) {
+    throw new Error("profile not provisioned yet — please try again in a moment");
+  }
 }
