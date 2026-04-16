@@ -2,7 +2,8 @@ import { initTRPC } from "@trpc/server";
 import superjson from "superjson";
 
 export interface Context {
-  // Future: userId?: string from Clerk auth(); db: Db; etc.
+  // TODO(task-7): db: NeonHttpDatabase from Drizzle.
+  // TODO(task-8): userId: string | null from Clerk auth().
 }
 
 const t = initTRPC.context<Context>().create({

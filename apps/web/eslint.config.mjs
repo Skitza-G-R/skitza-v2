@@ -35,8 +35,10 @@ export default tseslint.config(
     },
   },
   {
-    // tRPC Context starts empty and gets extended by future routers
-    // (e.g. Clerk auth in Task 8). Allow empty interfaces project-wide.
+    // tRPC Context starts empty and gets extended in Task 8 (Clerk session)
+    // and Task 7 (Drizzle db). Scope the relaxation to the trpc directory so
+    // empty interfaces stay disallowed everywhere else.
+    files: ["src/server/trpc/**/*.ts"],
     rules: {
       "@typescript-eslint/no-empty-object-type": [
         "error",
