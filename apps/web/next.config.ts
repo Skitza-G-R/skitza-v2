@@ -40,7 +40,9 @@ const SECURITY_HEADERS = [
 
 const config: NextConfig = {
   reactStrictMode: true,
-  experimental: { typedRoutes: true },
+  // Moved out of `experimental` in Next 15.5. Keeps the typed <Link /> so
+  // typos in href strings fail the typecheck instead of shipping.
+  typedRoutes: true,
 
   // Hide the X-Powered-By banner — one less fingerprinting bit.
   poweredByHeader: false,

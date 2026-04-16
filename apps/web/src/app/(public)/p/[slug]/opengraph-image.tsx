@@ -27,8 +27,12 @@ export default async function ProducerOgImage({ params }: { params: { slug: stri
           flexDirection: "column",
           justifyContent: "space-between",
           padding: 80,
-          background:
-            "radial-gradient(ellipse at 15% 15%, rgba(34,197,94,0.22) 0%, transparent 55%), radial-gradient(ellipse at 90% 90%, rgba(245,158,11,0.20) 0%, transparent 55%), #0b0b0d",
+          // Satori (the engine under ImageResponse) supports only one
+          // background-image layer at a time — use backgroundColor for
+          // the solid base, backgroundImage for a single gradient.
+          backgroundColor: "#0b0b0d",
+          backgroundImage:
+            "radial-gradient(ellipse at 15% 15%, rgba(34,197,94,0.28) 0%, transparent 55%)",
           color: "#f5f4f0",
         }}
       >

@@ -22,7 +22,12 @@ export default function OgImage() {
           flexDirection: "column",
           justifyContent: "space-between",
           padding: 72,
-          background: "radial-gradient(ellipse at 20% 10%, rgba(34,197,94,0.18) 0%, transparent 55%), radial-gradient(ellipse at 95% 85%, rgba(245,158,11,0.15) 0%, transparent 55%), #0b0b0d",
+          // Satori (the engine under ImageResponse) supports only one
+          // background-image layer at a time. Use backgroundColor for
+          // the solid base, backgroundImage for a single gradient.
+          backgroundColor: "#0b0b0d",
+          backgroundImage:
+            "radial-gradient(ellipse at 20% 10%, rgba(34,197,94,0.22) 0%, transparent 55%)",
           color: "#f5f4f0",
         }}
       >
