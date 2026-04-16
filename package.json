@@ -9,8 +9,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "tauri:dev": "pnpm --filter desktop tauri dev",
-    "tauri:build": "pnpm --filter desktop tauri build"
+    "tauri:dev": "corepack pnpm --filter desktop tauri dev",
+    "tauri:build": "corepack pnpm --filter desktop tauri build"
   },
   "engines": {
     "node": ">=20.11",
@@ -19,6 +19,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@next/eslint-plugin-next": "^15.5.15",
+    "@tauri-apps/cli": "^2",
     "eslint": "^9",
     "eslint-config-next": "^15.5.15",
     "prettier": "^3.3.3",
