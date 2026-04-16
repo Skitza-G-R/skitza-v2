@@ -1,26 +1,9 @@
 import { TRPCError } from "@trpc/server";
-import { and, createDb, eq, portfolioTracks, producers } from "@skitza/db";
+import { and, eq, portfolioTracks } from "@skitza/db";
 import { z } from "zod";
-import { publicProcedure, router } from "../init";
-
-// Resolve the caller's Producer.id once per call. Throws UNAUTHORIZED
-// if no userId in context (caller didn't sign in), or NOT_FOUND if the
-// Clerk user has no Producer row yet (webhook race — see onboarding).
-const producerProcedure = publicProcedure.use(async ({ ctx, next }) => {
-  if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "missing DATABASE_URL" });
-  }
-  const db = createDb(dbUrl);
-  const [row] = await db
-    .select({ id: producers.id })
-    .from(producers)
-    .where(eq(producers.clerkUserId, ctx.userId))
-    .limit(1);
-  if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "producer not provisioned" });
-  return next({ ctx: { ...ctx, producerId: row.id, db } });
-});
+import { router } from "../init";
+import { producerProcedure } from "../producer-procedure";
+import { stripUndefined } from "../strip-undefined";
 
 const TrackInput = z.object({
   title: z.string().min(1).max(200),
@@ -29,21 +12,6 @@ const TrackInput = z.object({
   artworkUrl: z.string().url().optional(),
   position: z.number().int().min(0).optional(),
 });
-
-// zod `.optional()` produces `string | undefined`, but with
-// `exactOptionalPropertyTypes` Drizzle's insert/update types refuse
-// the explicit `undefined`. Strip undefined keys so optional columns
-// are simply omitted (and take their DB default / stay unchanged).
-// The mapped return type drops `undefined` from each value union so
-// the result is assignable to drizzle's strict insert/update shape.
-type Defined<T> = { [K in keyof T]: Exclude<T[K], undefined> };
-const stripUndefined = <T extends Record<string, unknown>>(obj: T): Defined<T> => {
-  const out = {} as Defined<T>;
-  for (const k in obj) {
-    if (obj[k] !== undefined) out[k] = obj[k] as Defined<T>[typeof k];
-  }
-  return out;
-};
 
 export const portfolioRouter = router({
   list: producerProcedure.query(async ({ ctx }) => {

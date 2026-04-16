@@ -6,4 +6,8 @@ export * from "./client";
 // - `eq`: equality predicate (used everywhere)
 // - `and`: combine predicates, e.g. tenant-scoped row-level filters
 //   in portfolio.reorder
-export { eq, and } from "drizzle-orm";
+// - `desc`: ORDER BY direction for magicLink.list (newest first)
+// - `sql`: tagged-template escape hatch for aggregates
+//   (max(viewedAt)) in magicLink.list — drizzle has no first-class
+//   helper for arbitrary SQL fragments yet
+export { eq, and, desc, sql } from "drizzle-orm";
