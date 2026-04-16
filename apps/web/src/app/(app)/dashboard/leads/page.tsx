@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -122,7 +123,12 @@ export default async function LeadsPage() {
                           className="border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] transition-colors hover:bg-[rgb(var(--bg-elevated))]"
                         >
                           <td className="px-4 py-3 text-[rgb(var(--fg-secondary))]">
-                            {formatDate(row.createdAt)}
+                            <Link
+                              href={`/dashboard/leads/${row.id}`}
+                              className="hover:text-[rgb(var(--fg-primary))] hover:underline underline-offset-4"
+                            >
+                              {formatDate(row.createdAt)}
+                            </Link>
                           </td>
                           <td className="px-4 py-3 capitalize">{row.target}</td>
                           <td className="px-4 py-3 font-mono text-xs text-[rgb(var(--fg-muted))]">
@@ -158,14 +164,14 @@ export default async function LeadsPage() {
                       className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
+                        <Link href={`/dashboard/leads/${row.id}`} className="flex-1">
                           <p className="text-xs text-[rgb(var(--fg-muted))]">
                             {formatDate(row.createdAt)}
                           </p>
                           <p className="mt-1 font-display text-lg capitalize leading-none">
                             {row.target}
                           </p>
-                        </div>
+                        </Link>
                         <StatusPill status={status} />
                       </div>
                       <dl className="mt-4 grid grid-cols-3 gap-3 text-center">

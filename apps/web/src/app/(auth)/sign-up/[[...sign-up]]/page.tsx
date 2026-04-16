@@ -1,7 +1,14 @@
 import { SignUp } from "@clerk/nextjs";
 
-// TODO(phase-2): pass `appearance={{ baseTheme: dark }}` from @clerk/themes
-// once the chrome-dark token set lands; default Clerk light fights our shell.
+// `afterSignUpUrl` and `afterSignInUrl` send the user straight to the
+// dashboard post-auth. Without them, Clerk dumps them back on `/` which
+// redirects to `/dashboard` anyway — but that's an extra hop. Explicit.
 export default function Page() {
-  return <SignUp />;
+  return (
+    <SignUp
+      signInUrl="/sign-in"
+      fallbackRedirectUrl="/dashboard"
+      forceRedirectUrl="/dashboard"
+    />
+  );
 }

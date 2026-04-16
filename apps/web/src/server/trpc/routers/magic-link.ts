@@ -42,6 +42,10 @@ const stripTokenHash = (row: typeof magicLinks.$inferSelect): MagicLinkPublic =>
   };
 };
 
+// Per-link view detail input — callers identify the link by its ID
+// (which is already public-visible in the dashboard table).
+const ViewsInput = z.object({ id: z.string().uuid() });
+
 export const magicLinkRouter = router({
   issue: producerProcedure
     .input(IssueInput)
@@ -151,6 +155,63 @@ export const magicLinkRouter = router({
       ...r,
       lastViewedAt: r.lastViewedAt == null ? null : new Date(r.lastViewedAt),
     }));
+  }),
+
+  // Detail view: one magic_link + its full view timeline. Scoped to
+  // the caller's producer (cross-tenant drill-in returns NOT_FOUND, not
+  // FORBIDDEN — we prefer not to confirm existence of another
+  // producer's link IDs even to an authenticated caller).
+  detail: producerProcedure.input(ViewsInput).query(async ({ ctx, input }) => {
+    const [link] = await ctx.db
+      .select()
+      .from(magicLinks)
+      .where(eq(magicLinks.id, input.id))
+      .limit(1);
+    if (!link || link.producerId !== ctx.producerId) {
+      throw new TRPCError({ code: "NOT_FOUND" });
+    }
+    // Views ordered newest-first so the most recent open is at the top
+    // of the timeline. Cap at 200 — dashboards don't benefit from
+    // infinite scroll in v1, and the producer can tell their top lead
+    // by looking at the top row.
+    const views = await ctx.db
+      .select()
+      .from(magicLinkViews)
+      .where(eq(magicLinkViews.magicLinkId, input.id))
+      .orderBy(desc(magicLinkViews.viewedAt))
+      .limit(200);
+    return {
+      link: stripTokenHash(link),
+      views: views.map((v) => ({
+        id: v.id,
+        ip: v.ip,
+        userAgent: v.userAgent,
+        referer: v.referer,
+        dwellMs: v.dwellMs,
+        viewedAt: v.viewedAt,
+      })),
+    };
+  }),
+
+  // "Recent opens" feed across ALL of the caller's links — shown on
+  // the dashboard overview so producers see fresh activity without
+  // drilling into a single link. Same tenant-scoping as analytics.
+  recentViews: producerProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db
+      .select({
+        id: magicLinkViews.id,
+        magicLinkId: magicLinkViews.magicLinkId,
+        target: magicLinks.target,
+        viewedAt: magicLinkViews.viewedAt,
+        dwellMs: magicLinkViews.dwellMs,
+        referer: magicLinkViews.referer,
+      })
+      .from(magicLinkViews)
+      .innerJoin(magicLinks, eq(magicLinks.id, magicLinkViews.magicLinkId))
+      .where(eq(magicLinks.producerId, ctx.producerId))
+      .orderBy(desc(magicLinkViews.viewedAt))
+      .limit(10);
+    return rows;
   }),
 
   revoke: producerProcedure

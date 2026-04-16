@@ -112,10 +112,15 @@ export default async function HomePage() {
           </div>
         </section>
 
-        <footer className="border-t border-[rgb(var(--border-subtle))] py-10">
+        <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-[rgb(var(--border-subtle))] py-10">
           <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
             © {new Date().getFullYear()} Skitza · Made for producers who ship
           </p>
+          <nav className="flex items-center gap-4 font-mono text-xs text-[rgb(var(--fg-secondary))]">
+            <Link href="/about" className="hover:text-[rgb(var(--fg-primary))]">About</Link>
+            <Link href="/privacy" className="hover:text-[rgb(var(--fg-primary))]">Privacy</Link>
+            <Link href="/terms" className="hover:text-[rgb(var(--fg-primary))]">Terms</Link>
+          </nav>
         </footer>
       </main>
     </div>

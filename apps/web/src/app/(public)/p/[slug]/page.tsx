@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
+import { TrackPlayer } from "~/components/audio/track-player";
 import { resolveBrandStyle } from "~/lib/branding/theme-resolver";
 import { loadProducerPortfolio } from "./load-portfolio";
 import { DwellBeacon } from "./dwell-beacon";
@@ -128,8 +129,9 @@ export default async function PublicPortfolioPage({ params, searchParams }: Page
                       {String(idx + 1).padStart(2, "0")}
                     </span>
 
-                    {/* Artwork — square, prominent. Falls back to gradient. */}
-                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] sm:h-28 sm:w-28">
+                    {/* Artwork — square, prominent. Scales on row hover
+                        for a subtle "lift" cue. Falls back to gradient. */}
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] transition-transform duration-200 ease-out group-hover:scale-[1.03] group-hover:shadow-[var(--shadow-md)] sm:h-28 sm:w-28">
                       {track.artworkUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -161,16 +163,14 @@ export default async function PublicPortfolioPage({ params, searchParams }: Page
                         </p>
                       ) : null}
                       {/*
-                        preload="none" — we don't want N tracks all hitting R2 on page load
-                        just so the player can show its duration. Waveform UI lands in
-                        weeks 6-8 (wavesurfer.js) and will replace this native <audio>.
+                        TrackPlayer uses a hidden <audio preload="none"> under the hood
+                        (no N tracks hammering R2/CDN on first paint) and lays our own
+                        brand-tinted transport on top of it. Wavesurfer lands in
+                        weeks 6-8 as a drop-in replacement on this same interface.
                       */}
-                      <audio
-                        controls
-                        preload="none"
-                        src={track.audioUrl}
-                        className="mt-4 w-full max-w-md"
-                      />
+                      <div className="mt-4 max-w-md">
+                        <TrackPlayer src={track.audioUrl} label={track.title} />
+                      </div>
                     </div>
                   </div>
                 </li>

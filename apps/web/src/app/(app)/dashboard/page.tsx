@@ -1,15 +1,27 @@
 import Link from "next/link";
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser, auth } from "@clerk/nextjs/server";
 import { createDb, eq, producers } from "@skitza/db";
 import { AppShell } from "~/components/shell/app-shell";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardTitle } from "~/components/ui/card";
+import { appRouter } from "~/server/trpc/routers/_app";
+
+const relFmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+function formatRelative(d: Date): string {
+  const diffMs = d.getTime() - Date.now();
+  const abs = Math.abs(diffMs);
+  if (abs < 60_000) return "just now";
+  if (abs < 3_600_000) return relFmt.format(Math.round(diffMs / 60_000), "minute");
+  if (abs < 86_400_000) return relFmt.format(Math.round(diffMs / 3_600_000), "hour");
+  return relFmt.format(Math.round(diffMs / 86_400_000), "day");
+}
 
 // Dashboard overview — the first surface a producer sees every login.
 // Goal: show identity + a short list of useful actions, feel warm, not sterile.
 export default async function Dashboard() {
   const user = await currentUser();
+  const { userId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
   const db = createDb(dbUrl);
@@ -24,6 +36,28 @@ export default async function Dashboard() {
     .limit(1);
   const displayName = row?.displayName ?? user.firstName ?? "producer";
   const slug = row?.slug ?? "";
+
+  // Recent opens feed — surfaces activity across all lead links so the
+  // producer sees movement on the first surface after login. Empty on
+  // first day; fills naturally as leads click through.
+  type RecentView = {
+    id: string;
+    magicLinkId: string;
+    target: string;
+    viewedAt: Date;
+    dwellMs: number | null;
+    referer: string | null;
+  };
+  let recentViews: RecentView[] = [];
+  if (userId) {
+    try {
+      recentViews = await appRouter.createCaller({ userId }).magicLink.recentViews();
+    } catch {
+      // Non-fatal — the dashboard shouldn't crash if the analytics
+      // pipeline is down. Show the empty state instead.
+      recentViews = [];
+    }
+  }
 
   return (
     <AppShell active="overview">
@@ -72,6 +106,52 @@ export default async function Dashboard() {
             accent="accent"
           />
         </section>
+
+        {/* Recent opens — real activity feed. If empty on first day,
+            shows a nudge to send a link. */}
+        {recentViews.length > 0 ? (
+          <section className="mt-10 reveal-up-delay-2">
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+                Recent opens
+              </p>
+              <Link
+                href="/dashboard/leads"
+                className="font-mono text-xs text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--brand-primary))]"
+              >
+                All leads →
+              </Link>
+            </div>
+            <ol className="mt-4 flex flex-col gap-px rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-px">
+              {recentViews.map((v) => (
+                <li
+                  key={v.id}
+                  className="grid grid-cols-[1fr_auto_auto] items-center gap-4 bg-[rgb(var(--bg-elevated))] px-4 py-3 first:rounded-t-[calc(var(--radius-lg)-1px)] last:rounded-b-[calc(var(--radius-lg)-1px)]"
+                >
+                  <Link
+                    href={`/dashboard/leads/${v.magicLinkId}`}
+                    className="flex items-center gap-3 min-w-0"
+                  >
+                    <span
+                      aria-hidden
+                      className="h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
+                    />
+                    <span className="truncate text-sm">
+                      Someone opened your{" "}
+                      <span className="font-medium capitalize">{v.target}</span> link
+                    </span>
+                  </Link>
+                  <span className="shrink-0 font-mono text-[0.7rem] text-[rgb(var(--fg-muted))]">
+                    {v.dwellMs !== null ? `${(v.dwellMs / 1000).toFixed(1)}s` : "—"}
+                  </span>
+                  <span className="shrink-0 font-mono text-[0.7rem] text-[rgb(var(--fg-secondary))]">
+                    {formatRelative(v.viewedAt)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
 
         {/* Coming-soon rail: sets expectations for Phase 2+ features. */}
         <section className="mt-10">
