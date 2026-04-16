@@ -10,6 +10,7 @@ const portfolioTracksMarker = { __table: "portfolio_tracks" };
 
 type ProducerRow = {
   id: string;
+  email: string;
   displayName: string | null;
   slug: string;
   brand: { logoUrl?: string; primary?: string; accent?: string; font?: string } | null;
@@ -44,6 +45,7 @@ beforeEach(() => {
   producerSelectMock.mockReset().mockResolvedValue([
     {
       id: PRODUCER_ID,
+      email: "ada@example.com",
       displayName: "Ada Lovelace",
       slug: "ada",
       brand: { primary: "#ff0066", accent: "#33ccff" },
@@ -75,10 +77,30 @@ describe("loadProducerPortfolio", () => {
 
   it("returns null when the producer has not finished onboarding (displayName null)", async () => {
     producerSelectMock.mockResolvedValueOnce([
-      { id: PRODUCER_ID, displayName: null, slug: "draft", brand: {} },
+      { id: PRODUCER_ID, email: "draft@example.com", displayName: null, slug: "draft", brand: {} },
     ]);
     const { loadProducerPortfolio } = await import("../load-portfolio");
     const result = await loadProducerPortfolio("draft");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when slug is still the email-derived auto-slug", async () => {
+    // Mirrors the (app)/layout.tsx onboarding gate: a producer who set a
+    // displayName but never customized the auto-generated slug shouldn't
+    // be reachable at /p/<auto-slug>.
+    const { emailToSlug } = await import("~/lib/slug");
+    const email = "halfdone@example.com";
+    producerSelectMock.mockResolvedValueOnce([
+      {
+        id: PRODUCER_ID,
+        email,
+        displayName: "Half Done",
+        slug: emailToSlug(email),
+        brand: {},
+      },
+    ]);
+    const { loadProducerPortfolio } = await import("../load-portfolio");
+    const result = await loadProducerPortfolio(emailToSlug(email));
     expect(result).toBeNull();
   });
 

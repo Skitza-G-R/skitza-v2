@@ -9,13 +9,13 @@ type PageProps = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  // Next dedupes within a single request, so the loader runs once per
-  // /p/[slug] hit even though both generateMetadata and the page invoke it.
+  // Loader is wrapped in React.cache, so this and the page render share one
+  // round-trip per request.
   const data = await loadProducerPortfolio(slug);
   if (!data) return { title: "Not found" };
 
   const { producer } = data;
-  const title = `${producer.displayName ?? producer.slug} — Portfolio`;
+  const title = `${producer.displayName} — Portfolio`;
   const logoUrl = producer.brand?.logoUrl;
   const openGraph: NonNullable<Metadata["openGraph"]> = {
     title,
@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
   return {
     title,
-    description: `Music portfolio by ${producer.displayName ?? producer.slug}.`,
+    description: `Music portfolio by ${producer.displayName}.`,
     openGraph,
   };
 }
@@ -39,15 +39,12 @@ export default async function PublicPortfolioPage({ params }: PageProps) {
     ...(producer.brand?.primary !== undefined ? { primary: producer.brand.primary } : {}),
     ...(producer.brand?.accent !== undefined ? { accent: producer.brand.accent } : {}),
   });
-  // displayName is non-null here (loader filters out incomplete profiles)
-  // but the schema type still allows null — narrow once for the JSX.
-  const displayName = producer.displayName ?? producer.slug;
 
   return (
     <main style={brandStyle} className="p-8 max-w-3xl mx-auto">
       <header className="mb-8">
         <h1 className="text-3xl font-semibold text-[rgb(var(--brand-accent))]">
-          {displayName}
+          {producer.displayName}
         </h1>
         <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">Portfolio</p>
       </header>
