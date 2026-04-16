@@ -13,3 +13,8 @@ apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
 .pnpm-store/
 coverage/
+.idea/
+.vscode/
+*.log
+pnpm-debug.log*
+.env.production
