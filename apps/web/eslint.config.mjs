@@ -11,6 +11,7 @@ export default tseslint.config(
       "next-env.d.ts",
       "eslint.config.mjs",
       "next.config.ts",
+      "postcss.config.mjs",
       "vitest.config.ts",
     ],
   },

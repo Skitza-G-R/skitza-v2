@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-base: 12 12 14;
+    --bg-elevated: 22 22 26;
+    --fg-primary: 245 245 247;
+    --fg-secondary: 168 168 176;
+    --brand-primary: 29 185 84;
+    --brand-accent: 224 122 95;
+    --border-subtle: 42 42 48;
+    --radius-md: 0.5rem;
+  }
+  [data-theme="room-paper"] {
+    --bg-base: 252 252 250;
+    --bg-elevated: 255 255 255;
+    --fg-primary: 32 32 36;
+    --fg-secondary: 110 110 118;
+    --brand-primary: 29 122 84;
+    --brand-accent: 196 86 56;
+    --border-subtle: 230 230 232;
+  }
+  body {
+    background: rgb(var(--bg-base));
+    color: rgb(var(--fg-primary));
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+}

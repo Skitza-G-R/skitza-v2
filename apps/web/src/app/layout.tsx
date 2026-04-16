@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import "./globals.css";
+
 export const metadata = {
   title: "Skitza",
   description: "Studio business platform for music producers",
