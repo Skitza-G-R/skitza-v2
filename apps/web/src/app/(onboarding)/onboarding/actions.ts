@@ -1,7 +1,7 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
-import { createDb, eq, producers } from "@skitza/db";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { createDb, producers } from "@skitza/db";
 import { z } from "zod";
 
 const Input = z.object({
@@ -19,17 +19,48 @@ export async function completeOnboarding(input: z.infer<typeof Input>) {
 
   const parsed = Input.parse(input);
   const db = createDb(dbUrl);
-  // updatedAt bumped explicitly; producers.updatedAt only defaults on insert.
-  // .returning() so we can detect the webhook race: if the Clerk webhook
-  // hasn't inserted the row yet, the UPDATE affects 0 rows and the user
-  // would otherwise see a silent "success" with no DB change. Throwing
-  // here lets the form surface "try again in a moment".
-  const updated = await db
-    .update(producers)
-    .set({ ...parsed, updatedAt: new Date() })
-    .where(eq(producers.clerkUserId, userId))
-    .returning({ id: producers.id });
-  if (updated.length === 0) {
-    throw new Error("profile not provisioned yet — please try again in a moment");
+
+  // Upsert by clerkUserId so onboarding works whether the Clerk webhook
+  // fired first or not — if the webhook hasn't run (not configured,
+  // delayed, or failed delivery), the row is inserted fresh using the
+  // email from Clerk's session; otherwise the auto-seeded row is
+  // updated in place. This removes the webhook as a hard dependency
+  // for the happy path: it becomes an optimisation, not a gate.
+  const user = await currentUser();
+  const email = user?.emailAddresses[0]?.emailAddress;
+  if (!email) throw new Error("unable to resolve email from Clerk session");
+
+  try {
+    await db
+      .insert(producers)
+      .values({
+        clerkUserId: userId,
+        email,
+        displayName: parsed.displayName,
+        slug: parsed.slug,
+        defaultCurrency: parsed.defaultCurrency,
+        timezone: parsed.timezone,
+      })
+      .onConflictDoUpdate({
+        target: producers.clerkUserId,
+        set: {
+          displayName: parsed.displayName,
+          slug: parsed.slug,
+          defaultCurrency: parsed.defaultCurrency,
+          timezone: parsed.timezone,
+          updatedAt: new Date(),
+        },
+      });
+  } catch (err) {
+    // Slug uniqueness is enforced at the DB level; surface a friendly
+    // message instead of the raw postgres constraint error.
+    if (
+      err instanceof Error &&
+      /duplicate key value/.test(err.message) &&
+      /slug/.test(err.message)
+    ) {
+      throw new Error("that slug is already taken — please choose another");
+    }
+    throw err;
   }
 }
