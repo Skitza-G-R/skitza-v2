@@ -1,0 +1,58 @@
+name: Desktop Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "apps/web/**"
+      - ".github/workflows/desktop-build.yml"
+  workflow_dispatch:
+
+jobs:
+  tauri-build:
+    name: tauri-build
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cache cargo registry + target dir keyed on Cargo.lock so subsequent
+      # runs reuse compiled deps (cold build is ~5 min, cached is ~1-2 min).
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          cache-on-failure: true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Unsigned bundle: no Apple Developer cert wired yet. The resulting .dmg
+      # will be Gatekeeper-blocked on clean Macs, which is acceptable for the
+      # closed beta. Code-signing hookup is deferred to Phase 2.
+      - name: Build Tauri bundle
+        run: pnpm tauri:build
+
+      - name: Upload .dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skitza-desktop-macos-dmg
+          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # pnpm/action-setup puts pnpm on PATH for the runner. We still call it
+      # via `corepack pnpm` in scripts on the dev box; in CI either is fine,
+      # so we use the bare `pnpm` shim here for readability and rely on
+      # corepack inside the root scripts that delegate to workspaces.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      # `DATABASE_URL_TEST` will be empty until Task 7 (Neon account) lands.
+      # The current 9 vitest specs do not touch a DB, so an empty value is OK.
+      # The slot is wired now so future DB-touching tests pick it up automatically.
+      - name: Test
+        env:
+          DATABASE_URL_TEST: ${{ secrets.DATABASE_URL_TEST }}
+        run: pnpm test
+
+      # Build only the web app from CI. The root `pnpm build` is `pnpm -r build`
+      # which would also invoke `tauri build` in apps/desktop — that is macOS-only
+      # and handled by desktop-build.yml. `MAGIC_LINK_SECRET` is forwarded as a
+      # safety belt: today the magic-link module reads it lazily at call-time,
+      # but pinning it here keeps CI green if a future change accidentally moves
+      # the read to module top-level.
+      - name: Build web
+        env:
+          MAGIC_LINK_SECRET: ${{ secrets.MAGIC_LINK_SECRET }}
+        run: pnpm --filter web build
