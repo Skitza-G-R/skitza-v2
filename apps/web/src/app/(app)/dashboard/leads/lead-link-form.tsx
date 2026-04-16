@@ -1,10 +1,14 @@
 "use client";
 
-import { type SyntheticEvent, useState, useTransition } from "react";
+import { type SyntheticEvent, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { issueLeadLink, revokeLeadLink } from "./actions";
 import { type LinkStatus } from "./status";
+
+// "Copied" pill auto-reverts after this many ms. Long enough to register
+// visually, short enough that a second copy click feels responsive.
+const COPIED_RESET_MS = 2000;
 
 // keep in sync with magic-link.ts:14 TargetEnum — duplicated as a literal
 // so the client bundle doesn't pull in the server router file.
@@ -51,11 +55,26 @@ export function IssueForm() {
   const [leadId, setLeadId] = useState("");
   const [issued, setIssued] = useState<IssuedBanner | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  // Track the active "Copied" auto-reset timer so we can cancel it on
+  // rapid re-clicks (no leaked timeouts) and on unmount (no setState
+  // on an unmounted component).
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current !== null) {
+        clearTimeout(copyResetTimer.current);
+        copyResetTimer.current = null;
+      }
+    };
+  }, []);
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setCopied(false);
+    setCopyError(null);
     startTransition(async () => {
       const trimmedLead = leadId.trim();
       const res = await issueLeadLink({
@@ -77,8 +96,29 @@ export function IssueForm() {
 
   async function onCopy() {
     if (!issued) return;
-    await navigator.clipboard.writeText(issued.url);
+    // The URL is one-shot — only sha256(token) is persisted, so a silent
+    // clipboard failure (permissions denial, insecure context, focus
+    // loss) means the producer loses the URL entirely with no way to
+    // recover it. Always surface the failure and direct them to copy
+    // the visible <code> block manually.
+    try {
+      await navigator.clipboard.writeText(issued.url);
+    } catch {
+      setCopied(false);
+      setCopyError(
+        "Copy failed — select the URL above and copy it manually before dismissing this banner.",
+      );
+      return;
+    }
+    setCopyError(null);
     setCopied(true);
+    if (copyResetTimer.current !== null) {
+      clearTimeout(copyResetTimer.current);
+    }
+    copyResetTimer.current = setTimeout(() => {
+      setCopied(false);
+      copyResetTimer.current = null;
+    }, COPIED_RESET_MS);
   }
 
   return (
@@ -108,12 +148,20 @@ export function IssueForm() {
             </button>
             <button
               type="button"
-              onClick={() => { setIssued(null); setCopied(false); }}
+              onClick={() => { setIssued(null); setCopied(false); setCopyError(null); }}
               className="text-xs text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]"
             >
               Dismiss
             </button>
           </div>
+          {copyError && (
+            <p
+              role="alert"
+              className="mt-2 text-sm text-[rgb(var(--fg-danger,239_68_68))]"
+            >
+              {copyError}
+            </p>
+          )}
         </div>
       )}
 

@@ -6,12 +6,14 @@ import { ZodError } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-// Two shapes share the same discriminator so callers can `if (res.ok)`
-// uniformly. The data-bearing variant is used by issueLeadLink (which
-// returns the one-shot URL); revokeLeadLink uses the bare variant.
-export type ActionResult<T = undefined> = T extends undefined
-  ? { ok: true } | { ok: false; error: string }
-  : { ok: true; data: T } | { ok: false; error: string };
+// Two flat shapes (mirrors portfolio/actions.ts house style). Both share
+// the `ok` discriminator so callers can `if (res.ok)` uniformly. The
+// data-bearing variant is used by issueLeadLink (which returns the
+// one-shot URL); revokeLeadLink uses the bare variant.
+export type ActionResult = { ok: true } | { ok: false; error: string };
+export type ActionDataResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
 
 const LEADS_PATH = "/dashboard/leads";
 
@@ -58,7 +60,7 @@ export async function issueLeadLink(input: {
   target: "portfolio" | "booking";
   leadId?: string;
   ttlHours: number;
-}): Promise<ActionResult<{ url: string; linkId: string }>> {
+}): Promise<ActionDataResult<{ url: string; linkId: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
