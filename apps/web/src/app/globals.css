@@ -1,5 +1,20 @@
 @import "tailwindcss";
 
+/*
+ * Theme cascade strategy
+ * ----------------------
+ * Token resolution order (lowest to highest precedence):
+ *   1. :root (chrome-dark default)
+ *   2. [data-theme="room-paper"] (theme override on a workspace root)
+ *   3. inline style="--brand-primary: ..." on the workspace root (per-producer brand)
+ *
+ * Per-producer "white-label-lite" overrides MUST be emitted as inline styles
+ * (Task 10), not as additional selectors. [data-theme="room-paper"] and any
+ * [data-producer="..."] selector both have specificity (0,1,0) — selector-based
+ * producer rules would resolve by source order rather than DOM hierarchy and
+ * silently lose to the room-paper block whenever loaded earlier. Inline styles
+ * sidestep specificity entirely and always win at the workspace root.
+ */
 @layer base {
   :root {
     --bg-base: 12 12 14;
