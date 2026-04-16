@@ -24,12 +24,21 @@ export interface MagicTokenPayload {
   context?: unknown;
 }
 
-const MIN_SECRET_HEX_CHARS = 32;
+// 64 hex chars = 32 bytes = 256 bits, matching HMAC-SHA256 output length
+// per NIST SP 800-107 §5.3.4. Anything shorter underwhelms the primitive.
+const MIN_SECRET_HEX_CHARS = 64;
+
+// `verifyMagicToken` runs on unauthenticated requests. Cap input length so
+// a large attacker-supplied string can't force expensive base64/JSON work.
+// Real tokens fit comfortably under 1 KB; 4 KB leaves headroom for `context`.
+const MAX_TOKEN_LENGTH = 4096;
 
 function loadKey(): Buffer {
   const secret = process.env.MAGIC_LINK_SECRET;
   if (typeof secret !== "string" || secret.length < MIN_SECRET_HEX_CHARS) {
-    throw new MagicTokenInvalid("MAGIC_LINK_SECRET is missing or too short");
+    throw new MagicTokenInvalid(
+      `MAGIC_LINK_SECRET must be at least ${String(MIN_SECRET_HEX_CHARS)} hex chars (256 bits)`,
+    );
   }
   if (!/^[0-9a-fA-F]+$/.test(secret) || secret.length % 2 !== 0) {
     throw new MagicTokenInvalid("MAGIC_LINK_SECRET must be hex-encoded");
@@ -67,6 +76,9 @@ export function issueMagicToken(input: IssueMagicTokenInput): string {
 }
 
 export function verifyMagicToken(token: string): MagicTokenPayload {
+  if (token.length > MAX_TOKEN_LENGTH) {
+    throw new MagicTokenInvalid("token exceeds maximum length");
+  }
   const key = loadKey();
   const parts = token.split(".");
   if (parts.length !== 2) {
@@ -86,8 +98,10 @@ export function verifyMagicToken(token: string): MagicTokenPayload {
   const expectedSignature = sign(encodedPayload, key);
   const expectedBuf = Buffer.from(expectedSignature, "base64url");
   const providedBuf = Buffer.from(providedSignature, "base64url");
+  // HMAC-SHA256 always returns 32 bytes, so `expectedBuf` is never empty;
+  // the length-equality guard is required because `timingSafeEqual` throws
+  // on length mismatch (it can't compare in constant time otherwise).
   if (
-    expectedBuf.length === 0 ||
     expectedBuf.length !== providedBuf.length ||
     !timingSafeEqual(expectedBuf, providedBuf)
   ) {
