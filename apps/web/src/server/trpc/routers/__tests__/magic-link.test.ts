@@ -255,6 +255,10 @@ describe("magicLink.analytics", () => {
       lastViewedAt: new Date("2026-04-15T18:00:00Z"),
       medianDwellMs: 4200,
     });
+    // Guards the ::int cast on percentile_cont — pg can surface
+    // double precision as a string depending on driver parse config,
+    // which would silently break the declared `number | null` type.
+    expect(typeof (rows[0] as { medianDwellMs: unknown }).medianDwellMs).toBe("number");
     expect(rows[1]).toEqual({
       id: OTHER_LINK_ID,
       viewCount: 1,
