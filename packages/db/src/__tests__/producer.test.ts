@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, it, expect, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, producers } from "../index";
@@ -6,7 +7,9 @@ const url = process.env.DATABASE_URL_TEST;
 const describeIfDb = url ? describe : describe.skip;
 
 describeIfDb("Producer table", () => {
-  const testClerkId = `test_${Date.now()}`;
+  // randomUUID (not Date.now) so parallel CI workers can't collide on the
+  // clerk_user_id UNIQUE constraint and surface as duplicate-key errors.
+  const testClerkId = `test_${randomUUID()}`;
   const db = url ? createDb(url) : null;
 
   afterAll(async () => {
