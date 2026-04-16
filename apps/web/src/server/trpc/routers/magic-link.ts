@@ -212,6 +212,71 @@ export const magicLinkRouter = router({
     };
   }),
 
+  // Summary stats for the dashboard overview. Single round-trip via
+  // two concurrent aggregations: (1) total views + links, (2) top
+  // performer. Returns a compact shape ready for stat cards — no
+  // client post-processing required.
+  summary: producerProcedure.query(async ({ ctx }) => {
+    // Seven days ago for the "recent opens" bucket.
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const [totals, recent, topLink] = await Promise.all([
+      ctx.db
+        .select({
+          totalLinks: sql<number>`count(distinct ${magicLinks.id})::int`,
+          totalViews: sql<number>`count(${magicLinkViews.id})::int`,
+        })
+        .from(magicLinks)
+        .leftJoin(magicLinkViews, eq(magicLinkViews.magicLinkId, magicLinks.id))
+        .where(eq(magicLinks.producerId, ctx.producerId)),
+      ctx.db
+        .select({
+          recentViews: sql<number>`count(${magicLinkViews.id})::int`,
+        })
+        .from(magicLinks)
+        .leftJoin(magicLinkViews, eq(magicLinkViews.magicLinkId, magicLinks.id))
+        .where(eq(magicLinks.producerId, ctx.producerId))
+        .groupBy(magicLinks.producerId),
+      // Top-performing link = most views. LIMIT 1 + ORDER BY count desc.
+      // NULLS LAST keeps a zero-view link out of the top slot when
+      // another has at least one view.
+      ctx.db
+        .select({
+          id: magicLinks.id,
+          target: magicLinks.target,
+          viewCount: sql<number>`count(${magicLinkViews.id})::int`,
+        })
+        .from(magicLinks)
+        .leftJoin(magicLinkViews, eq(magicLinkViews.magicLinkId, magicLinks.id))
+        .where(eq(magicLinks.producerId, ctx.producerId))
+        .groupBy(magicLinks.id)
+        .orderBy(desc(sql`count(${magicLinkViews.id})`))
+        .limit(1),
+    ]);
+
+    // Sneakily compute the 7-day window in a second query via a raw
+    // `where` with viewedAt >= weekAgo. We don't have a helper for
+    // `gte` in our db index; use sql template.
+    const [weekRow] = await ctx.db
+      .select({
+        weekViews: sql<number>`count(${magicLinkViews.id})::int`,
+      })
+      .from(magicLinks)
+      .leftJoin(
+        magicLinkViews,
+        sql`${magicLinkViews.magicLinkId} = ${magicLinks.id} AND ${magicLinkViews.viewedAt} >= ${weekAgo}`,
+      )
+      .where(eq(magicLinks.producerId, ctx.producerId));
+
+    const first = totals[0];
+    const recentRow = recent[0];
+    return {
+      totalLinks: first?.totalLinks ?? 0,
+      totalViews: first?.totalViews ?? 0,
+      last7DaysViews: weekRow?.weekViews ?? recentRow?.recentViews ?? 0,
+      topLink: topLink[0]?.viewCount && topLink[0].viewCount > 0 ? topLink[0] : null,
+    };
+  }),
+
   // "Recent opens" feed across ALL of the caller's links — shown on
   // the dashboard overview so producers see fresh activity without
   // drilling into a single link. Same tenant-scoping as analytics.

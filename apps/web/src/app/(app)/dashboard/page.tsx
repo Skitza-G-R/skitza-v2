@@ -48,10 +48,21 @@ export default async function Dashboard() {
     dwellMs: number | null;
     referer: string | null;
   };
+  type Summary = {
+    totalLinks: number;
+    totalViews: number;
+    last7DaysViews: number;
+    topLink: { id: string; target: string; viewCount: number } | null;
+  };
   let recentViews: RecentView[] = [];
+  let summary: Summary = { totalLinks: 0, totalViews: 0, last7DaysViews: 0, topLink: null };
   if (userId) {
     try {
-      recentViews = await appRouter.createCaller({ userId }).magicLink.recentViews();
+      const caller = appRouter.createCaller({ userId });
+      [recentViews, summary] = await Promise.all([
+        caller.magicLink.recentViews(),
+        caller.magicLink.summary(),
+      ]);
     } catch {
       // Non-fatal — the dashboard shouldn't crash if the analytics
       // pipeline is down. Show the empty state instead.
@@ -85,6 +96,16 @@ export default async function Dashboard() {
             </p>
           ) : null}
         </header>
+
+        {/* Stats strip — only rendered when there's any activity. On
+            first day, skip it (nothing to show + distracting empty). */}
+        {summary.totalLinks > 0 ? (
+          <section className="mt-10 grid gap-3 reveal-up-delay-1 sm:grid-cols-3">
+            <StatCard label="Total links" value={summary.totalLinks} />
+            <StatCard label="Total opens" value={summary.totalViews} />
+            <StatCard label="Last 7 days" value={summary.last7DaysViews} emphasis />
+          </section>
+        ) : null}
 
         {/* Primary action cards — each is a rack-unit-style card with a
             subtle top border in the tile's accent hue. */}
@@ -213,6 +234,35 @@ function ActionCard({
         </CardContent>
       </Card>
     </Link>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  emphasis,
+}: {
+  label: string;
+  value: number;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
+      <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+        {label}
+      </p>
+      <p
+        className={[
+          "mt-2 font-display leading-none tracking-tight",
+          emphasis
+            ? "text-4xl text-[rgb(var(--brand-primary))]"
+            : "text-3xl text-[rgb(var(--fg-primary))]",
+        ].join(" ")}
+        style={{ fontVariationSettings: '"opsz" 96' }}
+      >
+        {value.toLocaleString()}
+      </p>
+    </div>
   );
 }
 
