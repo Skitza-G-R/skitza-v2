@@ -106,6 +106,36 @@ export const magicLinkRouter = router({
       .orderBy(desc(magicLinks.createdAt));
   }),
 
+  analytics: producerProcedure.query(async ({ ctx }) => {
+    // Single LEFT JOIN aggregation — one row per link, including links
+    // with zero views. Notes:
+    // - COUNT(views.id) (not COUNT(*)) so unmatched LEFT JOIN rows
+    //   yield 0, not 1.
+    // - COUNT returns bigint, which the pg driver hands back as a
+    //   string; ::int cast keeps the wire type a JS number (safe — a
+    //   single producer's view tally won't exceed 2^31).
+    // - PERCENTILE_CONT(0.5) is the only ordered-set aggregate that
+    //   gives true median (AVG would be skewed by a few long tails);
+    //   over an empty set it returns NULL, which we propagate as-is so
+    //   the UI can distinguish "no data" from "0ms".
+    // - GROUP BY just magicLinks.id — PG infers the rest of the
+    //   selected magic_links columns via PK functional dependency.
+    //   (None are selected here, but the same rule lets us add them
+    //   later without touching GROUP BY.)
+    return ctx.db
+      .select({
+        id: magicLinks.id,
+        viewCount: sql<number>`count(${magicLinkViews.id})::int`,
+        lastViewedAt: sql<Date | null>`max(${magicLinkViews.viewedAt})`,
+        medianDwellMs: sql<number | null>`percentile_cont(0.5) within group (order by ${magicLinkViews.dwellMs})`,
+      })
+      .from(magicLinks)
+      .leftJoin(magicLinkViews, eq(magicLinkViews.magicLinkId, magicLinks.id))
+      .where(eq(magicLinks.producerId, ctx.producerId))
+      .groupBy(magicLinks.id)
+      .orderBy(desc(magicLinks.createdAt));
+  }),
+
   revoke: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {

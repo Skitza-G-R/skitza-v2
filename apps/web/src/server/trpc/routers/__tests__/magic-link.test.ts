@@ -17,8 +17,14 @@ type Row = Record<string, unknown>;
 const producerSelectFromMock = vi.fn<() => Promise<Array<{ id: string }>>>();
 const linkSelectByIdMock = vi.fn<() => Promise<Array<Row>>>();
 const linkListMock = vi.fn<() => Promise<Row[]>>();
+const linkAnalyticsMock = vi.fn<() => Promise<Row[]>>();
 const linkInsertReturningMock = vi.fn<() => Promise<Row[]>>();
 const linkUpdateReturningMock = vi.fn<() => Promise<Row[]>>();
+
+// `list` and `analytics` issue identically-shaped chains
+// (.leftJoin().where().groupBy().orderBy()), so the dbMock disambiguates
+// by inspecting the projection keys passed to `select(...)`.
+let lastSelectProjectionKeys: string[] = [];
 
 // Captures so individual tests can assert the values drizzle saw.
 let lastInsertValues: Row | undefined;
@@ -26,21 +32,29 @@ let lastUpdateSet: Row | undefined;
 
 const dbMock = {
   // `select()` accepts an optional column-projection arg in real drizzle
-  // (used by magicLink.list); the mock ignores it.
-  select: () => ({
+  // (used by magicLink.list and magicLink.analytics); the mock captures
+  // the projection keys so the leftJoin chain can route to the right
+  // per-procedure mock fn.
+  select: (projection?: Record<string, unknown>) => ({
     from: (table: unknown) => {
+      lastSelectProjectionKeys = projection ? Object.keys(projection) : [];
       if (table === producersMarker) {
         return { where: () => ({ limit: () => producerSelectFromMock() }) };
       }
-      // magicLinks: by-id lookup uses .where().limit(1); .list uses
-      // .leftJoin().where().groupBy().orderBy() — terminal both ways.
+      // magicLinks: by-id lookup uses .where().limit(1); aggregating
+      // procedures use .leftJoin().where().groupBy().orderBy() —
+      // terminal both ways.
+      const aggregate = () =>
+        lastSelectProjectionKeys.includes("viewCount")
+          ? linkAnalyticsMock()
+          : linkListMock();
       return {
         where: () => ({
           limit: () => linkSelectByIdMock(),
         }),
         leftJoin: () => ({
           where: () => ({
-            groupBy: () => ({ orderBy: () => linkListMock() }),
+            groupBy: () => ({ orderBy: () => aggregate() }),
           }),
         }),
       };
@@ -72,9 +86,10 @@ vi.mock("@skitza/db", () => ({
   and: (...conds: unknown[]) => ({ and: conds }),
   desc: (col: unknown) => ({ desc: col }),
   // sql is a tagged-template tag in real drizzle; the router uses
-  // sql<T>`max(${magicLinkViews.viewedAt})` only as a column projection
-  // in select() — the dbMock's select() ignores its argument, so we just
-  // need a function that doesn't throw when called as a tag.
+  // sql<T>`...` only as a column projection in select(). The dbMock
+  // reads the projection's *keys* (not values) for routing, so any
+  // marker object suffices — it just needs to not throw when called
+  // as a tag.
   sql: () => ({ sql: true }),
 }));
 vi.mock("~/lib/magic-links/token", () => ({
@@ -85,6 +100,8 @@ beforeEach(() => {
   producerSelectFromMock.mockReset().mockResolvedValue([{ id: PRODUCER_ID }]);
   linkSelectByIdMock.mockReset().mockResolvedValue([]);
   linkListMock.mockReset().mockResolvedValue([]);
+  linkAnalyticsMock.mockReset().mockResolvedValue([]);
+  lastSelectProjectionKeys = [];
   linkInsertReturningMock
     .mockReset()
     .mockResolvedValue([
@@ -208,6 +225,62 @@ describe("magicLink.list", () => {
   it("throws UNAUTHORIZED when ctx.userId is null", async () => {
     const caller = await buildCaller(null);
     await expect(caller.magicLink.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+});
+
+describe("magicLink.analytics", () => {
+  it("returns per-link aggregates for links with views", async () => {
+    // Two links so the GROUP BY is meaningful — drizzle returns one row
+    // per group, the procedure must surface both untouched.
+    linkAnalyticsMock.mockResolvedValueOnce([
+      {
+        id: LINK_ID,
+        viewCount: 3,
+        lastViewedAt: new Date("2026-04-15T18:00:00Z"),
+        medianDwellMs: 4200,
+      },
+      {
+        id: OTHER_LINK_ID,
+        viewCount: 1,
+        lastViewedAt: new Date("2026-04-14T09:30:00Z"),
+        medianDwellMs: 1100,
+      },
+    ]);
+    const caller = await buildCaller();
+    const rows = await caller.magicLink.analytics();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({
+      id: LINK_ID,
+      viewCount: 3,
+      lastViewedAt: new Date("2026-04-15T18:00:00Z"),
+      medianDwellMs: 4200,
+    });
+    expect(rows[1]).toEqual({
+      id: OTHER_LINK_ID,
+      viewCount: 1,
+      lastViewedAt: new Date("2026-04-14T09:30:00Z"),
+      medianDwellMs: 1100,
+    });
+  });
+
+  it("returns viewCount:0 with null aggregates for a link with no views", async () => {
+    // LEFT JOIN keeps the link row; COUNT(views.id) must be 0 (not 1
+    // from COUNT(*)), and PERCENTILE_CONT over the empty set is NULL.
+    linkAnalyticsMock.mockResolvedValueOnce([
+      { id: LINK_ID, viewCount: 0, lastViewedAt: null, medianDwellMs: null },
+    ]);
+    const caller = await buildCaller();
+    const rows = await caller.magicLink.analytics();
+    expect(rows).toEqual([
+      { id: LINK_ID, viewCount: 0, lastViewedAt: null, medianDwellMs: null },
+    ]);
+  });
+
+  it("throws UNAUTHORIZED when ctx.userId is null", async () => {
+    const caller = await buildCaller(null);
+    await expect(caller.magicLink.analytics()).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
   });
 });
 
