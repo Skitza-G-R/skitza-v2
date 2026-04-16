@@ -13,6 +13,12 @@ export default async function Dashboard() {
       >
         Manage portfolio &rarr;
       </Link>
+      <Link
+        href="/dashboard/leads"
+        className="mt-4 inline-block text-sm font-medium text-[rgb(var(--brand-primary))] hover:underline"
+      >
+        Lead links &rarr;
+      </Link>
     </main>
   );
 }
