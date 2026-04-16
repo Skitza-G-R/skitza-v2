@@ -7,9 +7,11 @@ export default tseslint.config(
     ignores: [
       ".next/**",
       "node_modules/**",
+      "coverage/**",
       "next-env.d.ts",
       "eslint.config.mjs",
       "next.config.ts",
+      "vitest.config.ts",
     ],
   },
   js.configs.recommended,
