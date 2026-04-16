@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
@@ -9,8 +10,8 @@ type PageProps = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  // Loader is wrapped in React.cache, so this and the page render share one
-  // round-trip per request.
+  // Loader is wrapped in React.cache, so this and the page render share
+  // one round-trip per request.
   const data = await loadProducerPortfolio(slug);
   if (!data) return { title: "Not found" };
 
@@ -29,6 +30,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
+// This is the signature surface of the app — the page that makes a cold
+// lead say "this is who I want to work with". Deliberately editorial: big
+// display type set in Fraunces at max optical size, an atmospheric hero
+// gradient tuned to the producer's brand hue, and the tracks as a numbered
+// magazine-style list rather than a grid.
 export default async function PublicPortfolioPage({ params }: PageProps) {
   const { slug } = await params;
   const data = await loadProducerPortfolio(slug);
@@ -40,50 +46,145 @@ export default async function PublicPortfolioPage({ params }: PageProps) {
     ...(producer.brand?.accent !== undefined ? { accent: producer.brand.accent } : {}),
   });
 
-  return (
-    <main style={brandStyle} className="p-8 max-w-3xl mx-auto">
-      <header className="mb-8">
-        <h1 className="text-3xl font-semibold text-[rgb(var(--brand-accent))]">
-          {producer.displayName}
-        </h1>
-        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">Portfolio</p>
-      </header>
+  const initials = producer.displayName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
 
-      {tracks.length === 0 ? (
-        <p className="text-[rgb(var(--fg-secondary))]">
-          No tracks yet.
-        </p>
-      ) : (
-        <ul className="space-y-4">
-          {tracks.map((track) => (
-            <li
-              key={track.id}
-              className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4"
-            >
-              <h2 className="font-medium text-[rgb(var(--fg-primary))]">
-                {track.title}
-              </h2>
-              {track.artist && (
-                <p className="text-sm text-[rgb(var(--fg-secondary))]">
-                  {track.artist}
-                </p>
-              )}
-              {/*
-                preload="none" — we don't want N tracks all hitting R2 on page
-                load just so the player can show its duration. Waveform UI
-                lands in weeks 6-8 (wavesurfer.js) and will replace this
-                native <audio> element entirely.
-              */}
-              <audio
-                controls
-                preload="none"
-                src={track.audioUrl}
-                className="mt-3 w-full"
+  return (
+    <div style={brandStyle} className="relative min-h-dvh overflow-hidden">
+      {/* Atmospheric hero backdrop — brand hues bloom behind the title. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-40 top-[-8rem] h-[40rem] w-[40rem] rounded-full bg-[rgb(var(--brand-primary)/0.14)] blur-[140px]" />
+        <div className="absolute right-[-18rem] top-[28rem] h-[32rem] w-[32rem] rounded-full bg-[rgb(var(--brand-accent)/0.12)] blur-[140px]" />
+      </div>
+
+      <main className="relative z-10 mx-auto max-w-4xl px-6 pb-24 pt-14 sm:px-10 sm:pt-20">
+        {/* Hero */}
+        <header className="reveal-up">
+          <div className="flex items-center gap-4">
+            {producer.brand?.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={producer.brand.logoUrl}
+                alt=""
+                className="h-12 w-12 rounded-full border border-[rgb(var(--border-subtle))] object-cover"
               />
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+            ) : (
+              <div
+                aria-hidden
+                className="flex h-12 w-12 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-gradient-to-br from-[rgb(var(--brand-primary)/0.6)] to-[rgb(var(--brand-accent)/0.5)] font-display text-sm text-[rgb(var(--fg-inverse))]"
+              >
+                {initials || "S"}
+              </div>
+            )}
+            <p className="font-mono text-[0.72rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+              Portfolio · {tracks.length} track{tracks.length === 1 ? "" : "s"}
+            </p>
+          </div>
+
+          <h1
+            className="mt-8 font-display text-[clamp(3rem,11vw,7rem)] leading-[0.94] tracking-tight"
+            style={{ fontVariationSettings: '"opsz" 144, "SOFT" 0' }}
+          >
+            {producer.displayName}
+          </h1>
+
+          <div className="mt-8 h-px w-16 bg-[rgb(var(--brand-primary))]" />
+        </header>
+
+        {/* Tracks — editorial numbered list, not a grid. */}
+        <section className="mt-14 reveal-up-delay-1">
+          {tracks.length === 0 ? (
+            <p className="font-mono text-sm text-[rgb(var(--fg-muted))]">
+              No tracks yet — come back soon.
+            </p>
+          ) : (
+            <ol className="flex flex-col divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
+              {tracks.map((track, idx) => (
+                <li
+                  key={track.id}
+                  className="group py-6 transition-colors hover:bg-[rgb(var(--bg-elevated)/0.6)]"
+                >
+                  <div className="flex items-start gap-5 sm:gap-8">
+                    {/* Track number — display face, large. */}
+                    <span
+                      className="font-display text-4xl leading-none text-[rgb(var(--fg-muted))] transition-colors group-hover:text-[rgb(var(--brand-primary))] sm:text-5xl"
+                      style={{ fontVariationSettings: '"opsz" 144' }}
+                    >
+                      {String(idx + 1).padStart(2, "0")}
+                    </span>
+
+                    {/* Artwork — square, prominent. Falls back to gradient. */}
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] sm:h-28 sm:w-28">
+                      {track.artworkUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={track.artworkUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          loading={idx < 3 ? undefined : "lazy"}
+                        />
+                      ) : (
+                        <div
+                          aria-hidden
+                          className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[rgb(var(--brand-primary)/0.5)] to-[rgb(var(--brand-accent)/0.4)] font-display text-2xl text-[rgb(var(--fg-inverse))]"
+                        >
+                          ♪
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <h2
+                        className="font-display text-2xl leading-tight tracking-tight sm:text-3xl"
+                        style={{ fontVariationSettings: '"opsz" 96' }}
+                      >
+                        {track.title}
+                      </h2>
+                      {track.artist ? (
+                        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
+                          {track.artist}
+                        </p>
+                      ) : null}
+                      {/*
+                        preload="none" — we don't want N tracks all hitting R2 on page load
+                        just so the player can show its duration. Waveform UI lands in
+                        weeks 6-8 (wavesurfer.js) and will replace this native <audio>.
+                      */}
+                      <audio
+                        controls
+                        preload="none"
+                        src={track.audioUrl}
+                        className="mt-4 w-full max-w-md"
+                      />
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+
+        <footer className="mt-16 flex items-center justify-between text-xs reveal-up-delay-2">
+          <p className="font-mono text-[rgb(var(--fg-muted))]">
+            {producer.displayName} · presented by{" "}
+            <Link
+              href="/"
+              className="underline-offset-4 hover:text-[rgb(var(--fg-primary))] hover:underline"
+            >
+              Skitza
+            </Link>
+          </p>
+          <Link
+            href="/sign-up"
+            className="font-mono text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--brand-primary))]"
+          >
+            Make yours →
+          </Link>
+        </footer>
+      </main>
+    </div>
   );
 }

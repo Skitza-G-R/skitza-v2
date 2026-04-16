@@ -1,44 +1,183 @@
 @import "tailwindcss";
 
 /*
- * Theme cascade strategy
- * ----------------------
- * Token resolution order (lowest to highest precedence):
- *   1. :root (chrome-dark default)
- *   2. [data-theme="room-paper"] (theme override on a workspace root)
- *   3. inline style="--brand-primary: ..." on the workspace root (per-producer brand)
+ * Skitza — Studio Monitor theme
+ * ------------------------------
+ * Aesthetic: premium audio studio console × editorial music publication.
  *
- * Per-producer "white-label-lite" overrides MUST be emitted as inline styles
- * (Task 10), not as additional selectors. [data-theme="room-paper"] and any
- * [data-producer="..."] selector both have specificity (0,1,0) — selector-based
- * producer rules would resolve by source order rather than DOM hierarchy and
- * silently lose to the room-paper block whenever loaded earlier. Inline styles
- * sidestep specificity entirely and always win at the workspace root.
+ * Token resolution order (lowest → highest precedence):
+ *   1. :root (chrome-dark default — the producer's workspace + public showcase)
+ *   2. [data-theme="room-paper"] (warm Notion-feel rooms)
+ *   3. inline style on the workspace root (per-producer brand overrides, Task 10)
+ *
+ * Per-producer overrides MUST be emitted inline (not selector rules) so
+ * they sidestep specificity ties with [data-theme="..."] blocks.
  */
 @layer base {
   :root {
-    --bg-base: 12 12 14;
+    /* Background ladder — obsidian/warm-black, not pitch. */
+    --bg-base: 11 11 13;
     --bg-elevated: 22 22 26;
-    --fg-primary: 245 245 247;
-    --fg-secondary: 168 168 176;
-    --brand-primary: 29 185 84;
-    --brand-accent: 224 122 95;
-    --border-subtle: 42 42 48;
+    --bg-sunken: 7 7 9;
+    --bg-overlay: 28 28 33;
+
+    /* Foreground — off-white (not #fff, too harsh against warm-black). */
+    --fg-primary: 245 244 240;
+    --fg-secondary: 168 166 160;
+    --fg-muted: 110 108 104;
+    --fg-inverse: 18 18 20;
+
+    /* Brand. Signal-green (VU-meter LED) + tube-amp amber. */
+    --brand-primary: 34 197 94;
+    --brand-primary-soft: 34 197 94;
+    --brand-accent: 245 158 11;
+    --brand-accent-soft: 245 158 11;
+
+    /* Status hues. */
+    --fg-danger: 239 68 68;
+    --fg-warning: 234 179 8;
+    --fg-success: 34 197 94;
+
+    /* Borders — hairline, warm. */
+    --border-subtle: 38 38 44;
+    --border-strong: 60 60 68;
+
+    /* Radii — sparing. */
+    --radius-sm: 0.25rem;
     --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    --radius-xl: 1rem;
+
+    /* Shadows with a touch of green for the "signal" feel. */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
+    --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.6);
+    --shadow-glow: 0 0 0 1px rgb(var(--brand-primary) / 0.4), 0 8px 24px -4px rgb(var(--brand-primary) / 0.25);
   }
   [data-theme="room-paper"] {
-    --bg-base: 252 252 250;
-    --bg-elevated: 255 255 255;
-    --fg-primary: 32 32 36;
-    --fg-secondary: 110 110 118;
-    --brand-primary: 29 122 84;
-    --brand-accent: 196 86 56;
-    --border-subtle: 230 230 232;
+    --bg-base: 250 248 243;
+    --bg-elevated: 255 254 250;
+    --bg-sunken: 244 241 235;
+    --bg-overlay: 255 255 252;
+    --fg-primary: 23 22 20;
+    --fg-secondary: 89 86 81;
+    --fg-muted: 140 136 128;
+    --fg-inverse: 255 254 250;
+    --brand-primary: 21 128 61;
+    --brand-accent: 180 83 9;
+    --border-subtle: 225 221 213;
+    --border-strong: 195 189 178;
+    --shadow-sm: 0 1px 2px 0 rgb(23 22 20 / 0.06);
+    --shadow-md: 0 4px 12px -2px rgb(23 22 20 / 0.08);
+    --shadow-lg: 0 16px 40px -8px rgb(23 22 20 / 0.1);
+    --shadow-glow: 0 0 0 1px rgb(var(--brand-primary) / 0.2), 0 8px 24px -4px rgb(var(--brand-primary) / 0.15);
   }
+
+  html { color-scheme: dark; }
+  [data-theme="room-paper"] { color-scheme: light; }
+
   body {
     background: rgb(var(--bg-base));
     color: rgb(var(--fg-primary));
-    font-family:
-      ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-feature-settings: "ss01", "cv05", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
+
+  /* Selection with brand tint instead of browser default. */
+  ::selection {
+    background: rgb(var(--brand-primary) / 0.35);
+    color: rgb(var(--fg-primary));
+  }
+
+  /* Ambient grain for dark surfaces — extremely subtle, adds film. */
+  .noise-grain {
+    position: relative;
+    isolation: isolate;
+  }
+  .noise-grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    opacity: 0.4;
+    mix-blend-mode: overlay;
+    z-index: 0;
+  }
+  .noise-grain > * { position: relative; z-index: 1; }
+
+  /* Utility: the signature hairline rule between editorial sections. */
+  .hairline {
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      rgb(var(--border-strong)) 20%,
+      rgb(var(--border-strong)) 80%,
+      transparent
+    );
+  }
+
+  /* Input reset — our ui/input wraps this, but bare selectors cover Clerk + unstyled forms. */
+  input[type="text"],
+  input[type="email"],
+  input[type="url"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"],
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  /* Focus ring — green, crisp. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--brand-primary));
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Keyframes used across the app. */
+  @keyframes skitza-reveal-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes skitza-pulse-green {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0.5); }
+    50%      { box-shadow: 0 0 0 8px rgb(var(--brand-primary) / 0); }
+  }
+  @keyframes skitza-shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  .reveal-up { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .reveal-up-delay-1 { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both; }
+  .reveal-up-delay-2 { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.16s both; }
+  .reveal-up-delay-3 { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.24s both; }
+  .reveal-up-delay-4 { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.32s both; }
+
+  .pulse-green { animation: skitza-pulse-green 1.4s cubic-bezier(0.4, 0, 0.6, 1) 1; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal-up,
+    .reveal-up-delay-1,
+    .reveal-up-delay-2,
+    .reveal-up-delay-3,
+    .reveal-up-delay-4,
+    .pulse-green { animation: none; }
+  }
+}
+
+@utility font-display {
+  font-family: var(--font-display), ui-serif, Georgia, serif;
+  font-optical-sizing: auto;
+  letter-spacing: -0.02em;
+}
+
+@utility font-mono {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-feature-settings: "ss02", "zero";
 }

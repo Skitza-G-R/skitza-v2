@@ -3,11 +3,13 @@
 import { type SyntheticEvent, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Input, Label, Select } from "~/components/ui/input";
 import { issueLeadLink, revokeLeadLink } from "./actions";
 import { type LinkStatus } from "./status";
 
-// "Copied" pill auto-reverts after this many ms. Long enough to register
-// visually, short enough that a second copy click feels responsive.
+// "Copied" pill auto-reverts after this many ms.
 const COPIED_RESET_MS = 2000;
 
 // keep in sync with magic-link.ts:14 TargetEnum — duplicated as a literal
@@ -15,30 +17,15 @@ const COPIED_RESET_MS = 2000;
 const TARGETS = ["portfolio", "booking"] as const;
 type Target = (typeof TARGETS)[number];
 
-// Server zod caps ttlHours at [1, 720]. These bounds are UX hints only;
-// the server is the source of truth (see magic-link.ts IssueInput).
+// Server zod caps ttlHours at [1, 720]. UX hints only — server is the source of truth.
 const TTL_MIN_HOURS = 1;
 const TTL_MAX_HOURS = 720;
 const TTL_DEFAULT_HOURS = 24;
 
-const inputClass =
-  "w-full rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--fg-primary))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary))]";
-
-const labelClass =
-  "block text-sm font-medium text-[rgb(var(--fg-primary))] mb-1";
-
 export function StatusPill({ status }: { status: LinkStatus }) {
-  const tone =
-    status === "active"
-      ? "border-[rgb(var(--brand-primary))] text-[rgb(var(--brand-primary))]"
-      : "border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-secondary))]";
-  return (
-    <span
-      className={`inline-block rounded-full border px-2 py-0.5 text-xs ${tone}`}
-    >
-      {status}
-    </span>
-  );
+  if (status === "active") return <Badge variant="active" dot>Active</Badge>;
+  if (status === "expired") return <Badge variant="warning" dot>Expired</Badge>;
+  return <Badge variant="danger" dot>Revoked</Badge>;
 }
 
 interface IssuedBanner {
@@ -56,9 +43,6 @@ export function IssueForm() {
   const [issued, setIssued] = useState<IssuedBanner | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
-  // Track the active "Copied" auto-reset timer so we can cancel it on
-  // rapid re-clicks (no leaked timeouts) and on unmount (no setState
-  // on an unmounted component).
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -80,8 +64,6 @@ export function IssueForm() {
       const res = await issueLeadLink({
         target,
         ttlHours,
-        // Empty string means "no lead attached" — the server's zod schema
-        // expects a UUID or omission, not "".
         ...(trimmedLead ? { leadId: trimmedLead } : {}),
       });
       if (res.ok) {
@@ -97,10 +79,9 @@ export function IssueForm() {
   async function onCopy() {
     if (!issued) return;
     // The URL is one-shot — only sha256(token) is persisted, so a silent
-    // clipboard failure (permissions denial, insecure context, focus
-    // loss) means the producer loses the URL entirely with no way to
-    // recover it. Always surface the failure and direct them to copy
-    // the visible <code> block manually.
+    // clipboard failure means the producer loses the URL entirely with no
+    // way to recover it. Always surface the failure and direct them to
+    // copy the visible <code> block manually.
     try {
       await navigator.clipboard.writeText(issued.url);
     } catch {
@@ -112,9 +93,7 @@ export function IssueForm() {
     }
     setCopyError(null);
     setCopied(true);
-    if (copyResetTimer.current !== null) {
-      clearTimeout(copyResetTimer.current);
-    }
+    if (copyResetTimer.current !== null) clearTimeout(copyResetTimer.current);
     copyResetTimer.current = setTimeout(() => {
       setCopied(false);
       copyResetTimer.current = null;
@@ -123,104 +102,102 @@ export function IssueForm() {
 
   return (
     <div className="space-y-4">
-      {issued && (
-        // Microcopy is load-bearing: the table cannot redisplay this URL
-        // (only sha256(token) is in the DB), so the producer MUST be told
-        // copying is one-shot. Without this wording they will assume they
-        // can come back later.
+      {issued ? (
+        // Microcopy is load-bearing: the table cannot redisplay this URL,
+        // so the producer MUST be told copying is one-shot.
         <div
           role="status"
-          className="rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary))] bg-[rgb(var(--bg-elevated))] p-4"
+          className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.5)] bg-[rgb(var(--brand-primary)/0.07)] p-4 reveal-up"
         >
-          <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
-            Link issued. Copy this URL — it cannot be shown again.
-          </p>
-          <div className="mt-2 flex items-center gap-2">
-            <code className="flex-1 truncate rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-1 font-mono text-xs text-[rgb(var(--fg-primary))]">
-              {issued.url}
-            </code>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="flex items-center gap-2 font-mono text-[0.72rem] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))] pulse-green" />
+                New link issued
+              </p>
+              <p className="mt-2 text-sm text-[rgb(var(--fg-primary))]">
+                Copy this URL now — we never store the raw token, so we can&apos;t show it to you again.
+              </p>
+            </div>
             <button
               type="button"
-              onClick={() => { void onCopy(); }}
-              className="inline-flex items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-3 py-1 text-xs font-medium text-[rgb(var(--fg-primary))]"
+              onClick={() => {
+                setIssued(null);
+                setCopied(false);
+                setCopyError(null);
+              }}
+              aria-label="Dismiss banner"
+              className="shrink-0 font-mono text-xs text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]"
             >
-              {copied ? "Copied" : "Copy"}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setIssued(null); setCopied(false); setCopyError(null); }}
-              className="text-xs text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]"
-            >
-              Dismiss
+              ✕
             </button>
           </div>
-          {copyError && (
-            <p
-              role="alert"
-              className="mt-2 text-sm text-[rgb(var(--fg-danger,239_68_68))]"
-            >
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <code className="flex-1 truncate rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 py-2 font-mono text-xs text-[rgb(var(--fg-primary))]">
+              {issued.url}
+            </code>
+            <Button type="button" size="sm" onClick={() => void onCopy()} className="shrink-0">
+              {copied ? "✓ Copied" : "Copy URL"}
+            </Button>
+          </div>
+          {copyError ? (
+            <p role="alert" className="mt-2 text-sm text-[rgb(var(--fg-danger))]">
               {copyError}
             </p>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       <form
         onSubmit={onSubmit}
-        className="grid gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end"
+        className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5"
       >
-        <div>
-          <label htmlFor="target" className={labelClass}>Target</label>
-          <select
-            id="target"
-            value={target}
-            onChange={(e) => { setTarget(e.target.value as Target); }}
-            className={inputClass}
-          >
-            {TARGETS.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+        <div className="grid gap-4 sm:grid-cols-[1fr_1fr_1.5fr_auto] sm:items-end">
+          <div>
+            <Label htmlFor="target">Target</Label>
+            <Select
+              id="target"
+              value={target}
+              onChange={(e) => { setTarget(e.target.value as Target); }}
+            >
+              {TARGETS.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="ttlHours">TTL · hours</Label>
+            <Input
+              id="ttlHours"
+              type="number"
+              min={TTL_MIN_HOURS}
+              max={TTL_MAX_HOURS}
+              value={ttlHours}
+              onChange={(e) => { setTtlHours(Number(e.target.value)); }}
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="leadId">Lead ID · optional</Label>
+            <Input
+              id="leadId"
+              type="text"
+              value={leadId}
+              onChange={(e) => { setLeadId(e.target.value); }}
+              placeholder="attach a lead UUID"
+            />
+          </div>
+          <Button type="submit" disabled={pending}>
+            {pending ? "Issuing…" : "Issue link"}
+          </Button>
         </div>
-        <div>
-          <label htmlFor="ttlHours" className={labelClass}>TTL (hours)</label>
-          <input
-            id="ttlHours"
-            type="number"
-            min={TTL_MIN_HOURS}
-            max={TTL_MAX_HOURS}
-            value={ttlHours}
-            onChange={(e) => { setTtlHours(Number(e.target.value)); }}
-            className={inputClass}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="leadId" className={labelClass}>Lead ID (optional)</label>
-          <input
-            id="leadId"
-            type="text"
-            value={leadId}
-            onChange={(e) => { setLeadId(e.target.value); }}
-            placeholder="Lead UUID (optional)"
-            className={inputClass}
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={pending}
-          className="inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-medium text-[rgb(var(--bg-base))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.9)] disabled:opacity-50"
-        >
-          {pending ? "Issuing..." : "Issue link"}
-        </button>
-        {error && (
-          <p
-            role="alert"
-            className="text-sm text-[rgb(var(--fg-danger,239_68_68))] sm:col-span-4"
-          >
+        {error ? (
+          <p role="alert" className="mt-3 text-sm text-[rgb(var(--fg-danger))]">
             {error}
           </p>
-        )}
+        ) : null}
       </form>
     </div>
   );
@@ -244,20 +221,21 @@ export function RevokeButton({ id, disabled }: { id: string; disabled: boolean }
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <button
+    <div className="inline-flex flex-col items-end gap-1">
+      <Button
         type="button"
+        variant="destructive"
+        size="sm"
         onClick={onRevoke}
         disabled={pending || disabled}
-        className="text-sm text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-danger,239_68_68))] disabled:opacity-40"
       >
-        {pending ? "Revoking..." : "Revoke"}
-      </button>
-      {error && (
-        <p role="alert" className="text-xs text-[rgb(var(--fg-danger,239_68_68))]">
+        {pending ? "Revoking…" : "Revoke"}
+      </Button>
+      {error ? (
+        <p role="alert" className="text-xs text-[rgb(var(--fg-danger))]">
           {error}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

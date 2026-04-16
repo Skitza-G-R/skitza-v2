@@ -21,3 +21,4 @@ pnpm-debug.log*
 
 # Claude Code local state (worktrees, agent transcripts)
 .claude/
+.playwright-mcp/
