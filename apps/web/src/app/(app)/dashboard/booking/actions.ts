@@ -51,6 +51,12 @@ function toMessage(err: unknown): string {
 
 // ─── Package actions ────────────────────────────────────────────────
 
+// Shared narrow types for the v2 package fields so the form,
+// action, and router all stay in sync. Kind/location are gated to
+// the preset list; description is plain free-text.
+export type PackageKind = "session" | "mixing" | "mastering" | "producing" | "other";
+export type PackageLocationType = "studio" | "remote" | "client_space";
+
 export async function createPackage(input: {
   name: string;
   description?: string;
@@ -59,6 +65,10 @@ export async function createPackage(input: {
   priceCents?: number;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
   depositPct?: number;
+  kind?: PackageKind;
+  locationType?: PackageLocationType;
+  bufferMinutes?: number;
+  minLeadHours?: number;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -80,6 +90,10 @@ export async function updatePackage(input: {
   priceCents?: number;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
   depositPct?: number;
+  kind?: PackageKind;
+  locationType?: PackageLocationType;
+  bufferMinutes?: number;
+  minLeadHours?: number;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -113,6 +127,36 @@ export async function setAvailabilityWeek(input: {
   if (!c.ok) return c;
   try {
     await c.caller.booking.availability.setWeek(input);
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// ─── Blackouts ──────────────────────────────────────────────────────
+
+export async function addBlackoutAction(input: {
+  startDate: string;
+  endDate: string;
+  reason?: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.blackouts.create(input);
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function removeBlackoutAction(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.blackouts.remove(input);
     revalidatePath(PATH);
     return { ok: true };
   } catch (err) {
