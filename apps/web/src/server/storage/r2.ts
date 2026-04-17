@@ -27,7 +27,11 @@ export const BUCKETS = {
 } as const;
 
 function sanitize(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.\.+/g, "_");
+  const cleaned = name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.\.+/g, "_");
+  if (!cleaned || /^_+$/.test(cleaned)) {
+    throw new Error("Invalid filename after sanitization");
+  }
+  return cleaned;
 }
 
 export function buildAudioKey(args: { producerId: string; trackVersionId: string; filename: string }) {
@@ -39,5 +43,6 @@ export function buildDocKey(args: { producerId: string; contractId: string; file
 }
 
 export function publicUrl(bucket: keyof typeof BUCKETS, key: string) {
-  return `${requireEnv("R2_PUBLIC_BASE")}/${BUCKETS[bucket]}/${key}`;
+  const base = requireEnv("R2_PUBLIC_BASE").replace(/\/+$/, "");
+  return `${base}/${BUCKETS[bucket]}/${key}`;
 }

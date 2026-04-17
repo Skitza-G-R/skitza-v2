@@ -15,3 +15,14 @@ describe("r2 key builders", () => {
     expect(key).not.toMatch(/\.\./);
   });
 });
+
+describe("r2 sanitize safety", () => {
+  it("throws on empty filename", () => {
+    expect(() => buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "" }))
+      .toThrow(/invalid/i);
+  });
+  it("throws when filename sanitizes to all underscores", () => {
+    expect(() => buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "///" }))
+      .toThrow(/invalid/i);
+  });
+});
