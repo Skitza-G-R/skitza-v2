@@ -92,9 +92,18 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         },
       },
       {
+        id: "goto-library",
+        label: "Go to library",
+        shortcut: "G L",
+        run: () => {
+          onClose();
+          router.push("/dashboard/library");
+        },
+      },
+      {
         id: "goto-contracts",
         label: "Go to contracts",
-        shortcut: "G C",
+        shortcut: "G N",
         run: () => {
           onClose();
           router.push("/dashboard/contracts");
@@ -252,6 +261,30 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     </span>
                     <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
                       {c.email}
+                    </span>
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            ) : null}
+
+            {result?.tracks.length ? (
+              <Command.Group heading={`Tracks (${String(result.tracks.length)})`}>
+                {result.tracks.map((t) => (
+                  <Command.Item
+                    key={t.id}
+                    value={`track ${t.title} ${t.label}`}
+                    onSelect={() => {
+                      onClose();
+                      router.push(`/dashboard/library?v=${t.id}`);
+                    }}
+                    className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-[rgb(var(--fg-muted))]">♪</span>
+                      {t.title}
+                    </span>
+                    <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
+                      {t.label}
                     </span>
                   </Command.Item>
                 ))}
