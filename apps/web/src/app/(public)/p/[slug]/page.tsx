@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 
 import { TrackPlayer } from "~/components/audio/track-player";
 import { resolveBrandStyle } from "~/lib/branding/theme-resolver";
+import { parseEmbedUrl } from "~/lib/portfolio/embed-url";
 import { loadProducerPortfolio } from "./load-portfolio";
 import { DwellBeacon } from "./dwell-beacon";
 
@@ -177,13 +178,10 @@ export default async function PublicPortfolioPage({ params, searchParams }: Page
                         weeks 6-8 as a drop-in replacement on this same interface.
                       */}
                       <div className="mt-4 max-w-md">
-                        {track.audioUrl ? (
-                          <TrackPlayer src={track.audioUrl} label={track.title} />
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                            Processing
-                          </span>
-                        )}
+                        <PortfolioAudio
+                          audioUrl={track.audioUrl}
+                          title={track.title}
+                        />
                       </div>
                     </div>
                   </div>
@@ -213,4 +211,45 @@ export default async function PublicPortfolioPage({ params, searchParams }: Page
       </main>
     </div>
   );
+}
+
+// Renders the right player for a portfolio track:
+//   - recognized streaming URL (Spotify/SoundCloud/YouTube/Apple)
+//     → platform's official embed iframe
+//   - direct audio URL (R2 or elsewhere) → our native TrackPlayer
+//   - null (still processing an upload) → "Processing" chip
+//
+// YouTube and Apple are video-ish; they need a taller frame (352px
+// is the canonical size for both). Spotify/SoundCloud are audio-only
+// and look best at the compact 152px widget height.
+function PortfolioAudio({
+  audioUrl,
+  title,
+}: {
+  audioUrl: string | null;
+  title: string;
+}) {
+  if (!audioUrl) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+        Processing
+      </span>
+    );
+  }
+  const embed = parseEmbedUrl(audioUrl);
+  if (embed) {
+    const tall = embed.source === "youtube" || embed.source === "apple";
+    return (
+      <iframe
+        src={embed.embedUrl}
+        title={`${title} — ${embed.source} player`}
+        width="100%"
+        height={tall ? 352 : 152}
+        allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; fullscreen"
+        loading="lazy"
+        className="w-full rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))]"
+      />
+    );
+  }
+  return <TrackPlayer src={audioUrl} label={title} />;
 }

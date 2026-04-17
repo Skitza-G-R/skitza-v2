@@ -1,16 +1,19 @@
 "use client";
 
-import { type SyntheticEvent, useState, useTransition } from "react";
+import { type SyntheticEvent, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "~/components/ui/button";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
+import { embedSourceLabel, parseEmbedUrl } from "~/lib/portfolio/embed-url";
 import { createTrack, deleteTrack, reorderTracks } from "./actions";
 
 interface AddTrackFormProps {
   onClose: () => void;
 }
+
+type AudioMode = "upload" | "link";
 
 // TODO(A.8.1): Wire AudioUploader into the portfolio create flow.
 // Blocker: the audio tRPC router (A.4) + useMultipartUpload hook (A.5) +
@@ -20,26 +23,54 @@ interface AddTrackFormProps {
 //   (a) a discriminator (`kind: "trackVersion" | "portfolio"`) threaded
 //       through the router/hook/component, or
 //   (b) a parallel `portfolioAudio.*` router.
-// For A.8 we keep the URL input; the dashboard list gracefully handles
-// audioUrl=null via the "— processing" placeholder already.
+// Until that lands the "Upload audio" tab also accepts a direct URL —
+// the new "Paste a link" tab (G.10) is the polished alternative for
+// Spotify / SoundCloud / YouTube / Apple Music shares (no R2 at all).
 function AddTrackForm({ onClose }: AddTrackFormProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<AudioMode>("upload");
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
   const [artworkUrl, setArtworkUrl] = useState("");
+
+  // Detect the embed source on every keystroke — we need the chip
+  // ("Recognized: Spotify track") to light up as soon as the user
+  // finishes pasting without waiting for a blur event.
+  const embed = useMemo(() => parseEmbedUrl(linkUrl), [linkUrl]);
+  const trimmedLink = linkUrl.trim();
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    // Decide which URL to persist based on the active tab. If the user
+    // pasted a Spotify/YouTube/etc link we save it verbatim — the
+    // public portfolio page will detect it again via parseEmbedUrl()
+    // and render the platform's iframe instead of TrackPlayer.
+    const urlToSave = mode === "link" ? trimmedLink : audioUrl;
+    if (!urlToSave) {
+      setError(
+        mode === "link"
+          ? "Paste a Spotify, SoundCloud, YouTube, or Apple Music link."
+          : "Enter an audio URL.",
+      );
+      return;
+    }
+    if (mode === "link" && !embed) {
+      setError(
+        "We don't recognize that URL. We support Spotify, SoundCloud, YouTube, and Apple Music links.",
+      );
+      return;
+    }
     startTransition(async () => {
       const res = await createTrack({
         title,
         ...(artist ? { artist } : {}),
-        audioUrl,
+        audioUrl: urlToSave,
         ...(artworkUrl ? { artworkUrl } : {}),
       });
       if (res.ok) {
@@ -47,6 +78,7 @@ function AddTrackForm({ onClose }: AddTrackFormProps) {
         setTitle("");
         setArtist("");
         setAudioUrl("");
+        setLinkUrl("");
         setArtworkUrl("");
         onClose();
         router.refresh();
@@ -74,6 +106,31 @@ function AddTrackForm({ onClose }: AddTrackFormProps) {
             required
           />
         </div>
+        <div className="sm:col-span-2">
+          <Label>Audio source</Label>
+          {/*
+            Segmented control. Each option is 44px tall so the tap
+            target is fat-finger-proof; the active state is the
+            brand-primary gradient so the user can see at a glance
+            whether we're about to save an upload URL or an embed link.
+          */}
+          <div
+            role="tablist"
+            aria-label="Audio source"
+            className="mt-1 grid grid-cols-2 gap-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-1"
+          >
+            <SegmentedButton
+              active={mode === "upload"}
+              onClick={() => { setMode("upload"); setError(null); }}
+              label="Upload audio"
+            />
+            <SegmentedButton
+              active={mode === "link"}
+              onClick={() => { setMode("link"); setError(null); }}
+              label="Paste a link"
+            />
+          </div>
+        </div>
         <div>
           <Label htmlFor="artist">Artist (optional)</Label>
           <Input
@@ -84,17 +141,48 @@ function AddTrackForm({ onClose }: AddTrackFormProps) {
             placeholder="Featured artist"
           />
         </div>
-        <div>
-          <Label htmlFor="audioUrl">Audio URL</Label>
-          <Input
-            id="audioUrl"
-            type="url"
-            value={audioUrl}
-            onChange={(e) => { setAudioUrl(e.target.value); }}
-            placeholder="https://…"
-            required
-          />
-        </div>
+        {mode === "upload" ? (
+          <div>
+            <Label htmlFor="audioUrl">Audio URL</Label>
+            <Input
+              id="audioUrl"
+              type="url"
+              value={audioUrl}
+              onChange={(e) => { setAudioUrl(e.target.value); }}
+              placeholder="https://…"
+              required
+            />
+          </div>
+        ) : (
+          <div>
+            <Label htmlFor="linkUrl">Streaming link</Label>
+            <Input
+              id="linkUrl"
+              type="url"
+              value={linkUrl}
+              onChange={(e) => { setLinkUrl(e.target.value); }}
+              placeholder="https://open.spotify.com/track/…"
+              required
+              aria-describedby="linkUrlHelp"
+            />
+            <div id="linkUrlHelp" className="mt-2 min-h-[1.25rem] text-xs">
+              {trimmedLink === "" ? (
+                <span className="font-mono text-[rgb(var(--fg-muted))]">
+                  Spotify · SoundCloud · YouTube · Apple Music
+                </span>
+              ) : embed ? (
+                <span className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-0.5 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--brand-primary))]">
+                  ♪ {embedSourceLabel(embed.source)} · ready
+                </span>
+              ) : (
+                <span className="text-[rgb(var(--fg-danger))]">
+                  We don&apos;t recognize that URL. We support Spotify, SoundCloud,
+                  YouTube, Apple Music links.
+                </span>
+              )}
+            </div>
+          </div>
+        )}
         <div className="sm:col-span-2">
           <Label htmlFor="artworkUrl">Artwork URL (optional)</Label>
           <Input
@@ -120,6 +208,33 @@ function AddTrackForm({ onClose }: AddTrackFormProps) {
         </Button>
       </div>
     </form>
+  );
+}
+
+function SegmentedButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={[
+        "flex h-11 items-center justify-center rounded-[var(--radius-sm)] px-3 text-sm font-medium transition-colors",
+        active
+          ? "bg-[rgb(var(--brand-primary)/0.16)] text-[rgb(var(--fg-primary))] shadow-[inset_0_0_0_1px_rgb(var(--brand-primary)/0.4)]"
+          : "text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
+      ].join(" ")}
+    >
+      {label}
+    </button>
   );
 }
 
