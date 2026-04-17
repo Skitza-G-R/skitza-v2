@@ -1,52 +1,48 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
-import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import { Syne, Outfit } from "next/font/google";
 
 import { ToastProvider } from "~/components/ui/toast";
 import "./globals.css";
 
-// Studio Monitor typography stack.
-// - Fraunces: variable serif with optical-size axis — editorial headline face.
-// - IBM Plex Sans: body workhorse; less cliché than Inter.
-// - IBM Plex Mono: technical labels (UIDs, tokens, keyboard shortcuts).
-const fraunces = Fraunces({
+// Warm cream typography stack (Phase A).
+// - Syne: distinctive geometric display face (700/800). Used for all
+//   editorial headings via the `.font-display` utility.
+// - Outfit: clean modern sans body (300–600). Default via CSS var.
+// - Mono: system stack (no branded mono — reduces font weight).
+const syne = Syne({
   subsets: ["latin"],
-  axes: ["opsz", "SOFT"],
+  weight: ["700", "800"],
   display: "swap",
   variable: "--font-display",
 });
-const plexSans = IBM_Plex_Sans({
+const outfit = Outfit({
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["300", "400", "500", "600"],
   display: "swap",
   variable: "--font-body",
-});
-const plexMono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  display: "swap",
-  variable: "--font-mono",
 });
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app"),
   title: {
-    default: "Skitza — the studio in one link",
+    default: "Skitza — Business automation for music producers",
     template: "%s — Skitza",
   },
   description:
-    "Skitza is the all-in-one studio business platform for independent music producers: booking, contracts, portfolio, collaboration, and smart lead links — in one tool.",
+    "Stop chasing payments. Just make music. Skitza is the only link you need — clients book sessions, sign contracts, and pay automatically, and your final mixes stay locked until the invoice is cleared.",
   applicationName: "Skitza",
   authors: [{ name: "Skitza" }],
   keywords: [
     "music producer",
-    "studio",
-    "booking",
-    "portfolio",
-    "lead link",
-    "CRM",
-    "audio collaboration",
+    "studio business",
+    "booking automation",
+    "session management",
+    "invoice automation",
+    "contract e-sign",
+    "studio CRM",
+    "producer storefront",
   ],
   openGraph: {
     type: "website",
@@ -55,41 +51,42 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Skitza — the studio in one link",
+    title: "Skitza — Business automation for music producers",
     description:
-      "Booking, portfolio, contracts, collaboration, payments — all behind a single magic link.",
+      "Stop chasing payments. Just make music. Skitza is the only link you need.",
   },
 };
 
-// Viewport + theme-color — Chrome/Safari use theme-color for the browser
-// chrome on mobile, matching our obsidian bg so the status bar blends in.
+// Viewport + theme-color — matches the warm cream body so the browser
+// chrome blends in on mobile. :root is now light by default.
 export const viewport: Viewport = {
-  themeColor: "#0b0b0d",
-  colorScheme: "dark",
+  themeColor: "#F2EDE6",
+  colorScheme: "light",
   width: "device-width",
   initialScale: 1,
 };
 
-// Clerk theming via `variables` keeps us off @clerk/themes (no new dep).
-// Values are hex because Clerk's CSS variables don't accept rgb space-separated channel syntax.
+// Clerk theming via `appearance.variables` so we don't add @clerk/themes.
+// Hex values match the new :root (warm cream + amber). Clerk doesn't
+// support rgb space-separated channel syntax in `variables`, so hex.
 const clerkAppearance = {
   variables: {
-    colorPrimary: "#22c55e",
-    colorBackground: "#0b0b0d",
-    colorInputBackground: "#16161a",
-    colorInputText: "#f5f4f0",
-    colorText: "#f5f4f0",
-    colorTextSecondary: "#a8a6a0",
-    colorNeutral: "#a8a6a0",
-    colorDanger: "#ef4444",
-    colorSuccess: "#22c55e",
-    colorWarning: "#eab308",
+    colorPrimary: "#D4960A",
+    colorBackground: "#FFFBF5",
+    colorInputBackground: "#FFFBF5",
+    colorInputText: "#1A1714",
+    colorText: "#1A1714",
+    colorTextSecondary: "#6B6560",
+    colorNeutral: "#6B6560",
+    colorDanger: "#CC3A2E",
+    colorSuccess: "#468C46",
+    colorWarning: "#D4960A",
     borderRadius: "0.5rem",
     fontFamily: "var(--font-body)",
     fontFamilyButtons: "var(--font-body)",
   },
   elements: {
-    card: "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] shadow-none",
+    card: "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] shadow-[var(--shadow-md)]",
     headerTitle: "font-display text-[rgb(var(--fg-primary))]",
     headerSubtitle: "text-[rgb(var(--fg-secondary))]",
     formButtonPrimary:
@@ -108,7 +105,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <ClerkProvider appearance={clerkAppearance}>
       <html
         lang="en"
-        className={`${fraunces.variable} ${plexSans.variable} ${plexMono.variable}`}
+        className={`${syne.variable} ${outfit.variable}`}
       >
         <body>
           {/* Skip-to-content link — keyboard-only users hit Tab on page
