@@ -1,94 +1,96 @@
 @import "tailwindcss";
 
 /*
- * Skitza — Warm Cream + Amber theme (Phase A, 2026-04-17)
+ * Skitza — Warm Cream + Amber theme (Phase D, 2026-04-17)
  * --------------------------------------------------------
  * The producer's workspace + landing default to LIGHT (warm cream).
  * Public content pages opt into [data-theme="chrome-dark"] so the
- * /p/<slug> storefront reads like a record sleeve.
+ * /p/<slug> storefront reads like a record sleeve. A global dark mode
+ * is also available — next-themes owns the attribute on <html> and
+ * flips to the same "chrome-dark" token set on user preference.
  *
  * Token resolution order (lowest → highest precedence):
- *   1. :root (LIGHT warm-cream default)
- *   2. [data-theme="chrome-dark"] (DARK alt for public content)
+ *   1. :root (LIGHT warm-cream default, WCAG AA sharpened)
+ *   2. [data-theme="chrome-dark"] (DARK — warm charcoal, not pure)
  *   3. inline style on the workspace root (per-producer brand overrides)
  *
  * Token *names* are identical to the prior dark-first scheme so every
  * `bg-[rgb(var(--bg-elevated))]` call-site keeps working — only the
- * values flipped. Retired entirely: [data-theme="room-paper"].
+ * values flipped. Retired entirely: [data-theme="room-paper"] and
+ * [data-theme="chrome-light"] (light is :root now).
  */
 @layer base {
   :root {
-    /* LIGHT default — warm cream, matches user-supplied index.html. */
-    --bg-base: 242 237 230;        /* #F2EDE6 */
-    --bg-elevated: 255 251 245;
-    --bg-sunken: 232 224 214;
-    --bg-overlay: 255 254 250;
+    /* Warm cream — slightly warmer than #F2EDE6, avoids gray-cast on OLED */
+    --bg-base: 244 239 231;           /* #F4EFE7 */
+    --bg-elevated: 251 247 240;       /* #FBF7F0 */
+    --bg-overlay: 246 240 231;
+    --bg-sunken: 232 226 217;
 
-    --fg-primary: 26 23 20;        /* #1A1714 */
-    --fg-secondary: 107 101 96;    /* #6B6560 */
-    --fg-muted: 140 132 124;
-    --fg-inverse: 242 237 230;
+    --fg-primary: 26 23 20;           /* #1A1714 — warm near-black, not pure */
+    --fg-secondary: 61 55 48;
+    --fg-muted: 107 97 88;
+    --fg-inverse: 251 247 240;
 
-    /* Brand — amber (#D4960A) + copper (#B06830). Signal-green retired. */
-    --brand-primary: 212 150 10;
-    --brand-primary-soft: 212 150 10;
-    --brand-accent: 176 104 48;
-    --brand-accent-soft: 176 104 48;
+    --fg-success: 63 125 78;          /* warm sage */
+    --fg-danger: 179 50 28;
+    --fg-warning: 201 138 10;
 
-    --fg-danger: 204 58 46;
-    --fg-warning: 212 150 10;
-    --fg-success: 70 140 70;
+    --brand-primary: 201 138 10;      /* #C98A0A — WCAG AA on cream at 14px */
+    --brand-primary-soft: 201 138 10;
+    --brand-accent: 162 90 40;        /* #A25A28 — deeper copper, reads 'serious' */
+    --brand-accent-soft: 162 90 40;
 
     /* Borders carry their own alpha so `rgb(var(--border-subtle))` at
        existing call-sites stays valid (`rgb(0 0 0 / 0.08)` is legal
        CSS). Keeps a token-swap from cascading into every consumer. */
     --border-subtle: 0 0 0 / 0.08;
-    --border-strong: 0 0 0 / 0.18;
+    --border-strong: 0 0 0 / 0.14;
 
-    --radius-sm: 0.25rem;
-    --radius-md: 0.5rem;
-    --radius-lg: 0.75rem;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
     --radius-xl: 1rem;
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
     --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08);
     --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.12);
     --shadow-glow: 0 0 0 1px rgb(var(--brand-primary) / 0.35), 0 8px 24px -4px rgb(var(--brand-primary) / 0.25);
-  }
 
-  [data-theme="chrome-light"] {
-    /* Explicit LIGHT opt-in — used by legal/about pages that are nested
-       inside a dark parent layout and need to re-assert warm cream. */
-    --bg-base: 242 237 230;
-    --bg-elevated: 255 251 245;
-    --bg-sunken: 232 224 214;
-    --bg-overlay: 255 254 250;
-    --fg-primary: 26 23 20;
-    --fg-secondary: 107 101 96;
-    --fg-muted: 140 132 124;
-    --fg-inverse: 242 237 230;
-    --border-subtle: 0 0 0 / 0.08;
-    --border-strong: 0 0 0 / 0.18;
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08);
-    --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.12);
-    color-scheme: light;
+    /* Font-family aliases: --font-display resolves to Fraunces (variable
+       axes SOFT + opsz + WONK), --font-body to Outfit, --font-mono to
+       JetBrains Mono. The Next.js `next/font/google` helper injects the
+       per-font CSS variables `--font-fraunces`, `--font-outfit`,
+       `--font-jetbrains-mono` on <html>, and we alias here so consumers
+       keep using the semantic names. */
+    --font-display: var(--font-fraunces);
+    --font-body: var(--font-outfit);
+    --font-mono: var(--font-jetbrains-mono);
   }
 
   [data-theme="chrome-dark"] {
-    /* DARK alt — the "studio interior" / public-content world. */
-    --bg-base: 17 16 9;            /* #111009 */
-    --bg-elevated: 26 24 20;       /* #1A1814 */
-    --bg-sunken: 12 10 5;
-    --bg-overlay: 34 32 24;        /* #222018 */
+    /* Warm charcoal — NOT pure black. Nobody in music-SaaS owns warm-dark. */
+    --bg-base: 20 17 14;              /* #14110E */
+    --bg-elevated: 31 26 21;          /* #1F1A15 */
+    --bg-overlay: 42 36 32;
+    --bg-sunken: 13 11 9;
 
-    --fg-primary: 237 232 226;     /* #EDE8E2 */
-    --fg-secondary: 122 114 104;   /* #7A7268 */
-    --fg-muted: 89 82 76;
-    --fg-inverse: 17 16 9;
+    --fg-primary: 242 237 230;        /* cream stays for text */
+    --fg-secondary: 215 206 194;
+    --fg-muted: 168 154 139;
+    --fg-inverse: 31 26 21;
 
-    --border-subtle: 255 255 255 / 0.07;
-    --border-strong: 255 255 255 / 0.18;
+    --fg-success: 120 180 130;
+    --fg-danger: 230 110 90;
+    --fg-warning: 229 163 36;
+
+    --brand-primary: 229 163 36;      /* #E5A324 — amber brightens on dark */
+    --brand-primary-soft: 229 163 36;
+    --brand-accent: 201 122 66;       /* #C97A42 */
+    --brand-accent-soft: 201 122 66;
+
+    --border-subtle: 255 255 255 / 0.09;
+    --border-strong: 255 255 255 / 0.17;
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
     --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
@@ -234,14 +236,125 @@
     .pulse-green,
     .pulse-glow { animation: none; }
   }
+
+  /*
+   * D.7 — Dense Linear-grade list primitives.
+   *
+   * These utilities standardise the visual rhythm of every list/table in
+   * the dashboard. Ref: Linear issue rows, Spotify-for-Artists stats.
+   *
+   *   .sk-table  — flex column container; strips the last row's divider.
+   *   .sk-row    — 44px tap-target-friendly row; subtle hover tint, no
+   *                layout jitter (background only, never borders).
+   *   .sk-row-active — inset 2px copper left-border for the focused row.
+   *   .sk-num    — tabular-nums without switching fonts; use on prices,
+   *                durations, counts, dates.
+   *   .sk-chip-bar / .sk-chip — sticky filter bar with pill toggles; set
+   *                aria-pressed="true" on the active chip.
+   *
+   * Colour tokens come from :root + [data-theme="chrome-dark"], so these
+   * degrade gracefully on dark mode without further tweaks.
+   */
+  .sk-table {
+    display: flex;
+    flex-direction: column;
+  }
+  .sk-table .sk-row:last-child {
+    border-bottom: none;
+  }
+  .sk-row {
+    min-height: 44px;
+    padding: 0 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 13px;
+    line-height: 1.3;
+    color: rgb(var(--fg-primary));
+    border-bottom: 1px solid rgb(var(--border-subtle));
+    transition: background-color 140ms ease-out;
+  }
+  .sk-row:hover {
+    background: rgb(var(--bg-overlay));
+  }
+  .sk-row-active {
+    background: rgb(var(--bg-overlay));
+    box-shadow: inset 2px 0 0 rgb(var(--brand-primary));
+  }
+  .sk-num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+  .sk-chip-bar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    gap: 0.375rem;
+    padding: 0.75rem 0;
+    background: rgb(var(--bg-base));
+    border-bottom: 1px solid rgb(var(--border-subtle));
+  }
+  .sk-chip {
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    border: 1px solid rgb(var(--border-subtle));
+    font-size: 12px;
+    color: rgb(var(--fg-muted));
+    background: transparent;
+    cursor: pointer;
+    transition: color 140ms ease-out, border-color 140ms ease-out, background-color 140ms ease-out;
+  }
+  .sk-chip:hover {
+    color: rgb(var(--fg-primary));
+    border-color: rgb(var(--border-strong));
+  }
+  .sk-chip[aria-pressed="true"] {
+    color: rgb(var(--fg-inverse));
+    background: rgb(var(--brand-primary));
+    border-color: transparent;
+  }
+
+  /*
+   * D.8 — Motion polish primitives.
+   *
+   * Subtle by default: 140ms ease-out with a gentle asymmetric curve.
+   * Use .sk-trans on anything that already has a `hover:` or state
+   * transition tailwind class; use .sk-trans-slow for larger movements
+   * (panel slides, sidebar width). Everything degrades to 0ms under
+   * prefers-reduced-motion, same as .reveal-up above. The single
+   * expressive moment — the copper seal on contract sign — lives in
+   * B.7 and is not managed here.
+   */
+  .sk-trans {
+    transition-duration: 140ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0.1, 1);
+  }
+  .sk-trans-slow {
+    transition-duration: 220ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0.1, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sk-trans,
+    .sk-trans-slow {
+      transition-duration: 0ms !important;
+    }
+    .sk-row {
+      transition-duration: 0ms !important;
+    }
+    .sk-chip {
+      transition-duration: 0ms !important;
+    }
+  }
 }
 
 @utility font-display {
-  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-display), ui-serif, Georgia, Cambria, "Times New Roman", serif;
   letter-spacing: -0.02em;
 }
 
 @utility font-mono {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
   font-feature-settings: "ss02", "zero";
 }

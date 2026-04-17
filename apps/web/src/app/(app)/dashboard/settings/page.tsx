@@ -17,7 +17,7 @@ export default async function SettingsPage() {
   const profile = await caller.producer.me();
 
   return (
-    <AppShell active="overview">
+    <AppShell active="settings">
       <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
         <header className="reveal-up mb-10">
           <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">

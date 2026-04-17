@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useDropzone, type FileRejection } from "react-dropzone";
 
 import { cn } from "~/lib/cn";
 import { useMultipartUpload } from "~/lib/audio/use-multipart-upload";
+import { onTauriFileDrop, readFileAsBlob } from "~/lib/desktop/bridge";
 
 // AudioUploader — a drop-zone card wrapping `useMultipartUpload`.
 //
@@ -69,6 +70,56 @@ export function AudioUploader({
     maxSize: MAX_SIZE_BYTES,
     multiple: false,
   });
+
+  // Tauri: Finder drag-drop bypasses the HTML drop zone and surfaces as
+  // a window-level event carrying absolute file paths. We read the
+  // first dropped file off disk via the Tauri fs plugin and feed it
+  // into the existing multipart pipeline so the code path is identical
+  // to a browser drop. No-op outside the desktop shell.
+  useEffect(() => {
+    // Ref-boxed unlisten handle: the subscribe call is async, so the
+    // effect cleanup may run before we have a handle. The cleanup just
+    // invokes whatever is in the box at teardown time; if the async
+    // subscribe completes after cleanup, the handler stored there is
+    // called immediately inside the `.then` below.
+    const state: { cancelled: boolean; unlisten: (() => void) | null } = {
+      cancelled: false,
+      unlisten: null,
+    };
+    onTauriFileDrop((paths) => {
+      const firstPath = paths[0];
+      if (firstPath === undefined) return;
+      void (async () => {
+        const file = await readFileAsBlob(firstPath);
+        if (!file) {
+          setRejectError("Couldn't read that file from disk. Try again.");
+          return;
+        }
+        if (file.size > MAX_SIZE_BYTES) {
+          setRejectError("File is too large. Max 500 MB.");
+          return;
+        }
+        setRejectError(null);
+        void upload({ file, trackVersionId, onComplete });
+      })();
+    }).then(
+      (handler) => {
+        if (state.cancelled) {
+          handler();
+        } else {
+          state.unlisten = handler;
+        }
+      },
+      () => {
+        // Subscription failed (e.g. outside Tauri it's a no-op, so this
+        // path should not hit in practice). Silently ignore.
+      },
+    );
+    return () => {
+      state.cancelled = true;
+      if (state.unlisten) state.unlisten();
+    };
+  }, [upload, trackVersionId, onComplete]);
 
   const busy =
     state.kind === "signing" ||

@@ -6,7 +6,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { TRPCError } from "@trpc/server";
-import { eq, projectTracks, projects, trackVersions, type Db } from "@skitza/db";
+import { dealTracks, deals, eq, trackVersions, type Db } from "@skitza/db";
 import { z } from "zod";
 
 import { router } from "../init";
@@ -65,28 +65,28 @@ export function validateUploadInput(input: {
 async function assertOwnsVersion(
   ctx: { db: Db; producerId: string },
   trackVersionId: string,
-): Promise<{ projectId: string }> {
+): Promise<{ dealId: string }> {
   const [tv] = await ctx.db
     .select({ id: trackVersions.id, trackId: trackVersions.trackId })
     .from(trackVersions)
     .where(eq(trackVersions.id, trackVersionId))
     .limit(1);
   if (!tv) throw new TRPCError({ code: "NOT_FOUND" });
-  const [pt] = await ctx.db
-    .select({ projectId: projectTracks.projectId })
-    .from(projectTracks)
-    .where(eq(projectTracks.id, tv.trackId))
+  const [dt] = await ctx.db
+    .select({ dealId: dealTracks.dealId })
+    .from(dealTracks)
+    .where(eq(dealTracks.id, tv.trackId))
     .limit(1);
-  if (!pt) throw new TRPCError({ code: "NOT_FOUND" });
-  const [proj] = await ctx.db
-    .select({ producerId: projects.producerId })
-    .from(projects)
-    .where(eq(projects.id, pt.projectId))
+  if (!dt) throw new TRPCError({ code: "NOT_FOUND" });
+  const [deal] = await ctx.db
+    .select({ producerId: deals.producerId })
+    .from(deals)
+    .where(eq(deals.id, dt.dealId))
     .limit(1);
-  if (!proj || proj.producerId !== ctx.producerId) {
+  if (!deal || deal.producerId !== ctx.producerId) {
     throw new TRPCError({ code: "FORBIDDEN" });
   }
-  return { projectId: pt.projectId };
+  return { dealId: dt.dealId };
 }
 
 export const audioRouter = router({
@@ -173,7 +173,7 @@ export const audioRouter = router({
       if (!input.key.startsWith(`producers/${ctx.producerId}/`)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      const { projectId } = await assertOwnsVersion(ctx, input.trackVersionId);
+      const { dealId } = await assertOwnsVersion(ctx, input.trackVersionId);
 
       await getR2().send(
         new CompleteMultipartUploadCommand({
@@ -200,9 +200,9 @@ export const audioRouter = router({
         })
         .where(eq(trackVersions.id, input.trackVersionId));
       await ctx.db
-        .update(projects)
+        .update(deals)
         .set({ updatedAt: new Date() })
-        .where(eq(projects.id, projectId));
+        .where(eq(deals.id, dealId));
       return { url, key: input.key };
     }),
 

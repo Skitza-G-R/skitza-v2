@@ -3,5 +3,24 @@
   "identifier": "default",
   "description": "Capabilities for the Skitza desktop shell",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:event:default",
+    "fs:default",
+    "fs:allow-read-file",
+    "fs:allow-home-read-recursive",
+    "fs:allow-desktop-read-recursive",
+    "fs:allow-document-read-recursive",
+    "fs:allow-download-read-recursive",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "global-shortcut:allow-is-registered",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister"
+  ]
 }
