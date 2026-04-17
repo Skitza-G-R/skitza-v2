@@ -99,12 +99,20 @@ export default async function PublicPortfolioPage({ params, searchParams }: Page
 
           <h1
             className="mt-8 font-display text-[clamp(3rem,11vw,7rem)] leading-[0.94] tracking-tight"
-            style={{ fontVariationSettings: '"opsz" 144, "SOFT" 0' }}
+            style={{ fontWeight: 800 }}
           >
             {producer.displayName}
           </h1>
 
-          <div className="mt-8 h-px w-16 bg-[rgb(var(--brand-primary))]" />
+          <div className="mt-8 flex flex-wrap items-center gap-4">
+            <Link
+              href={`/p/${slug}/book`}
+              className="pulse-glow inline-flex items-center justify-center gap-2 rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-5 py-3 text-sm font-semibold text-[#0C0A07] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.35)] transition-transform hover:scale-[1.03] active:translate-y-[1px]"
+            >
+              Book a session →
+            </Link>
+            <div className="h-px flex-1 bg-[rgb(var(--brand-primary))] sm:flex-none sm:w-16" />
+          </div>
         </header>
 
         {/* Tracks — editorial numbered list, not a grid. */}
