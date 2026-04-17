@@ -33,7 +33,7 @@ export async function AppShell({
   active,
   children,
 }: {
-  active: "overview" | "portfolio" | "leads" | "booking" | "settings";
+  active: "overview" | "portfolio" | "leads" | "booking" | "projects" | "settings";
   children: ReactNode;
 }) {
   const slug = await getProducerSlug();
@@ -50,6 +50,7 @@ export async function AppShell({
           <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
             <ShellTab href="/dashboard" active={active === "overview"}>Overview</ShellTab>
             <ShellTab href="/dashboard/booking" active={active === "booking"}>Booking</ShellTab>
+            <ShellTab href="/dashboard/projects" active={active === "projects"}>Projects</ShellTab>
             <ShellTab href="/dashboard/portfolio" active={active === "portfolio"}>Portfolio</ShellTab>
             <ShellTab href="/dashboard/leads" active={active === "leads"}>Lead Links</ShellTab>
             <ShellTab href="/dashboard/settings" active={active === "settings"}>Settings</ShellTab>
