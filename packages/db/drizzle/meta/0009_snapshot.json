@@ -1,6 +1,6 @@
 {
-  "id": "33ea55ba-fd62-4c36-ad9b-1bfc047f6d0f",
-  "prevId": "2c557b26-2cd2-476c-8183-e4f2c1536942",
+  "id": "4e5438fc-2b25-4f11-8be7-99393df9b42d",
+  "prevId": "3422b954-b699-4460-864f-7df4692fb079",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -91,6 +91,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "deal_id": {
+          "name": "deal_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "artist_name": {
           "name": "artist_name",
           "type": "text",
@@ -176,10 +182,104 @@
           ],
           "onDelete": "set null",
           "onUpdate": "no action"
+        },
+        "bookings_deal_id_deals_id_fk": {
+          "name": "bookings_deal_id_deals_id_fk",
+          "tableFrom": "bookings",
+          "tableTo": "deals",
+          "columnsFrom": [
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.client_contacts": {
+      "name": "client_contacts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "producer_id": {
+          "name": "producer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_hash": {
+          "name": "email_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "client_contacts_producer_id_producers_id_fk": {
+          "name": "client_contacts_producer_id_producers_id_fk",
+          "tableFrom": "client_contacts",
+          "tableTo": "producers",
+          "columnsFrom": [
+            "producer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "client_contacts_producer_email_unique": {
+          "name": "client_contacts_producer_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "producer_id",
+            "email_hash"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -201,14 +301,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "recipient_id": {
-          "name": "recipient_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "event": {
-          "name": "event",
+        "kind": {
+          "name": "kind",
           "type": "contract_event_kind",
           "typeSchema": "public",
           "primaryKey": false,
@@ -223,12 +317,6 @@
         "user_agent": {
           "name": "user_agent",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -254,19 +342,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "contract_events_recipient_id_contract_recipients_id_fk": {
-          "name": "contract_events_recipient_id_contract_recipients_id_fk",
-          "tableFrom": "contract_events",
-          "tableTo": "contract_recipients",
-          "columnsFrom": [
-            "recipient_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -275,8 +350,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.contract_fields": {
-      "name": "contract_fields",
+    "public.contract_templates": {
+      "name": "contract_templates",
       "schema": "",
       "columns": {
         "id": {
@@ -286,142 +361,9 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "contract_id": {
-          "name": "contract_id",
+        "producer_id": {
+          "name": "producer_id",
           "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "recipient_id": {
-          "name": "recipient_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "page": {
-          "name": "page",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "x": {
-          "name": "x",
-          "type": "numeric(5, 2)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "y": {
-          "name": "y",
-          "type": "numeric(5, 2)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "w": {
-          "name": "w",
-          "type": "numeric(5, 2)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "h": {
-          "name": "h",
-          "type": "numeric(5, 2)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "name": "type",
-          "type": "contract_field_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "required": {
-          "name": "required",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "prefilled_value": {
-          "name": "prefilled_value",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "signed_value": {
-          "name": "signed_value",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "signed_at": {
-          "name": "signed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "options": {
-          "name": "options",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "contract_fields_contract_id_contracts_id_fk": {
-          "name": "contract_fields_contract_id_contracts_id_fk",
-          "tableFrom": "contract_fields",
-          "tableTo": "contracts",
-          "columnsFrom": [
-            "contract_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "contract_fields_recipient_id_contract_recipients_id_fk": {
-          "name": "contract_fields_recipient_id_contract_recipients_id_fk",
-          "tableFrom": "contract_fields",
-          "tableTo": "contract_recipients",
-          "columnsFrom": [
-            "recipient_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.contract_recipients": {
-      "name": "contract_recipients",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "contract_id": {
-          "name": "contract_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -431,52 +373,28 @@
           "primaryKey": false,
           "notNull": true
         },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'signer'"
-        },
-        "routing_order": {
-          "name": "routing_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "signing_token_hash": {
-          "name": "signing_token_hash",
+        "body": {
+          "name": "body",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "viewed_at": {
-          "name": "viewed_at",
-          "type": "timestamp with time zone",
+        "active": {
+          "name": "active",
+          "type": "boolean",
           "primaryKey": false,
-          "notNull": false
-        },
-        "signed_at": {
-          "name": "signed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ip_hash": {
-          "name": "ip_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "user_agent": {
-          "name": "user_agent",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": true
         },
         "created_at": {
           "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -485,12 +403,12 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "contract_recipients_contract_id_contracts_id_fk": {
-          "name": "contract_recipients_contract_id_contracts_id_fk",
-          "tableFrom": "contract_recipients",
-          "tableTo": "contracts",
+        "contract_templates_producer_id_producers_id_fk": {
+          "name": "contract_templates_producer_id_producers_id_fk",
+          "tableFrom": "contract_templates",
+          "tableTo": "producers",
           "columnsFrom": [
-            "contract_id"
+            "producer_id"
           ],
           "columnsTo": [
             "id"
@@ -500,15 +418,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "contract_recipients_signing_token_hash_unique": {
-          "name": "contract_recipients_signing_token_hash_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "signing_token_hash"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -530,8 +440,20 @@
           "primaryKey": false,
           "notNull": true
         },
-        "deal_id": {
-          "name": "deal_id",
+        "booking_id": {
+          "name": "booking_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "template_id": {
+          "name": "template_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -542,17 +464,29 @@
           "primaryKey": false,
           "notNull": true
         },
-        "pdf_r2_key": {
-          "name": "pdf_r2_key",
+        "body_resolved": {
+          "name": "body_resolved",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "final_pdf_r2_key": {
-          "name": "final_pdf_r2_key",
+        "artist_name": {
+          "name": "artist_name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
+        },
+        "artist_email": {
+          "name": "artist_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "share_token_hash": {
+          "name": "share_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         },
         "status": {
           "name": "status",
@@ -560,23 +494,11 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'draft'"
+          "default": "'sent'"
         },
-        "share_token_hash": {
-          "name": "share_token_hash",
+        "signature_data_url": {
+          "name": "signature_data_url",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "viewed_at": {
-          "name": "viewed_at",
-          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -586,21 +508,20 @@
           "primaryKey": false,
           "notNull": false
         },
-        "cancelled_at": {
-          "name": "cancelled_at",
-          "type": "timestamp with time zone",
+        "signed_ip_hash": {
+          "name": "signed_ip_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "signed_user_agent": {
+          "name": "signed_user_agent",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -621,12 +542,256 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "contracts_booking_id_bookings_id_fk": {
+          "name": "contracts_booking_id_bookings_id_fk",
+          "tableFrom": "contracts",
+          "tableTo": "bookings",
+          "columnsFrom": [
+            "booking_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "contracts_project_id_deals_id_fk": {
+          "name": "contracts_project_id_deals_id_fk",
+          "tableFrom": "contracts",
+          "tableTo": "deals",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "contracts_template_id_contract_templates_id_fk": {
+          "name": "contracts_template_id_contract_templates_id_fk",
+          "tableFrom": "contracts",
+          "tableTo": "contract_templates",
+          "columnsFrom": [
+            "template_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "contracts_share_token_hash_unique": {
           "name": "contracts_share_token_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "share_token_hash"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.deal_tracks": {
+      "name": "deal_tracks",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "deal_id": {
+          "name": "deal_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artist": {
+          "name": "artist",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "deal_tracks_deal_id_deals_id_fk": {
+          "name": "deal_tracks_deal_id_deals_id_fk",
+          "tableFrom": "deal_tracks",
+          "tableTo": "deals",
+          "columnsFrom": [
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.deals": {
+      "name": "deals",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "producer_id": {
+          "name": "producer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "booking_id": {
+          "name": "booking_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stage": {
+          "name": "stage",
+          "type": "deal_stage",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'lead'"
+        },
+        "client_name": {
+          "name": "client_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "client_email": {
+          "name": "client_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "share_token_hash": {
+          "name": "share_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artist_name": {
+          "name": "artist_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artist_email": {
+          "name": "artist_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deposit_paid": {
+          "name": "deposit_paid",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "final_paid": {
+          "name": "final_paid",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "deals_producer_id_producers_id_fk": {
+          "name": "deals_producer_id_producers_id_fk",
+          "tableFrom": "deals",
+          "tableTo": "producers",
+          "columnsFrom": [
+            "producer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "deals_booking_id_bookings_id_fk": {
+          "name": "deals_booking_id_bookings_id_fk",
+          "tableFrom": "deals",
+          "tableTo": "bookings",
+          "columnsFrom": [
+            "booking_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "deals_share_token_hash_unique": {
+          "name": "deals_share_token_hash_unique",
           "nullsNotDistinct": false,
           "columns": [
             "share_token_hash"
@@ -1192,191 +1357,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.project_tracks": {
-      "name": "project_tracks",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "artist": {
-          "name": "artist",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "project_tracks_project_id_projects_id_fk": {
-          "name": "project_tracks_project_id_projects_id_fk",
-          "tableFrom": "project_tracks",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.projects": {
-      "name": "projects",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "producer_id": {
-          "name": "producer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "booking_id": {
-          "name": "booking_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "share_token_hash": {
-          "name": "share_token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "artist_name": {
-          "name": "artist_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "artist_email": {
-          "name": "artist_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deposit_paid": {
-          "name": "deposit_paid",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "final_paid": {
-          "name": "final_paid",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "projects_producer_id_producers_id_fk": {
-          "name": "projects_producer_id_producers_id_fk",
-          "tableFrom": "projects",
-          "tableTo": "producers",
-          "columnsFrom": [
-            "producer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "projects_booking_id_bookings_id_fk": {
-          "name": "projects_booking_id_bookings_id_fk",
-          "tableFrom": "projects",
-          "tableTo": "bookings",
-          "columnsFrom": [
-            "booking_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "projects_share_token_hash_unique": {
-          "name": "projects_share_token_hash_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "share_token_hash"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.track_comments": {
       "name": "track_comments",
       "schema": "",
@@ -1524,10 +1504,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "track_versions_track_id_project_tracks_id_fk": {
-          "name": "track_versions_track_id_project_tracks_id_fk",
+        "track_versions_track_id_deal_tracks_id_fk": {
+          "name": "track_versions_track_id_deal_tracks_id_fk",
           "tableFrom": "track_versions",
-          "tableTo": "project_tracks",
+          "tableTo": "deal_tracks",
           "columnsFrom": [
             "track_id"
           ],
@@ -1622,24 +1602,9 @@
         "created",
         "sent",
         "viewed",
-        "field_filled",
         "signed",
-        "completed",
-        "cancelled",
-        "downloaded"
-      ]
-    },
-    "public.contract_field_type": {
-      "name": "contract_field_type",
-      "schema": "public",
-      "values": [
-        "signature",
-        "initial",
-        "date",
-        "text",
-        "checkbox",
-        "dropdown",
-        "number"
+        "downloaded",
+        "cancelled"
       ]
     },
     "public.contract_status": {
@@ -1650,9 +1615,21 @@
         "sent",
         "viewed",
         "signed",
-        "completed",
-        "cancelled",
-        "expired"
+        "expired",
+        "cancelled"
+      ]
+    },
+    "public.deal_stage": {
+      "name": "deal_stage",
+      "schema": "public",
+      "values": [
+        "lead",
+        "booked",
+        "contract_sent",
+        "in_production",
+        "final_review",
+        "paid",
+        "archived"
       ]
     }
   },

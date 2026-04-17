@@ -64,6 +64,20 @@ export function Hero() {
           Share one link. Your clients handle everything else.
         </p>
 
+        {/* Desktop app CTA — lands users on the GitHub Releases page.
+            Pre-v1.0.0 releases may be empty; that's acceptable for beta. */}
+        <div className="reveal-up-delay-4 mt-5 flex justify-center">
+          <a
+            href="https://github.com/giasraf/skitza-v2/releases/latest"
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))]"
+          >
+            <span aria-hidden="true">⌘</span>
+            Download Mac app
+          </a>
+        </div>
+
         <p className="mt-3 text-sm text-[rgb(var(--fg-secondary))]">
           ★★★★★ Joined by 1,200+ producers on the waitlist
         </p>

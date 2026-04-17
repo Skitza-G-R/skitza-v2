@@ -1,27 +1,37 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
-import { Syne, Outfit } from "next/font/google";
+import { Fraunces, Outfit, JetBrains_Mono } from "next/font/google";
+import { ThemeProvider } from "next-themes";
 
 import { ToastProvider } from "~/components/ui/toast";
 import "./globals.css";
 
-// Warm cream typography stack (Phase A).
-// - Syne: distinctive geometric display face (700/800). Used for all
-//   editorial headings via the `.font-display` utility.
-// - Outfit: clean modern sans body (300–600). Default via CSS var.
-// - Mono: system stack (no branded mono — reduces font weight).
-const syne = Syne({
+// Warm cream typography stack (Phase D).
+// - Fraunces: variable-axis display serif (SOFT + opsz + WONK) — replaces
+//   Syne. Used for all editorial headings via the `.font-display` utility.
+// - Outfit: clean modern sans body. Default via CSS var.
+// - JetBrains Mono: numerics + code — used via `.font-mono` utility.
+//
+// Each Next/font loader attaches a CSS variable on <html>. globals.css
+// aliases the semantic names (`--font-display` etc.) to these, so every
+// existing `var(--font-display)` / `var(--font-body)` consumer keeps
+// working without renames.
+const fraunces = Fraunces({
   subsets: ["latin"],
-  weight: ["700", "800"],
+  variable: "--font-fraunces",
   display: "swap",
-  variable: "--font-display",
+  axes: ["SOFT", "opsz", "WONK"],
 });
 const outfit = Outfit({
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
+  variable: "--font-outfit",
   display: "swap",
-  variable: "--font-body",
+});
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -58,9 +68,10 @@ export const metadata: Metadata = {
 };
 
 // Viewport + theme-color — matches the warm cream body so the browser
-// chrome blends in on mobile. :root is now light by default.
+// chrome blends in on mobile. :root is now light by default; dark mode
+// is an opt-in flip via next-themes (Phase D).
 export const viewport: Viewport = {
-  themeColor: "#F2EDE6",
+  themeColor: "#F4EFE7",
   colorScheme: "light",
   width: "device-width",
   initialScale: 1,
@@ -69,18 +80,22 @@ export const viewport: Viewport = {
 // Clerk theming via `appearance.variables` so we don't add @clerk/themes.
 // Hex values match the new :root (warm cream + amber). Clerk doesn't
 // support rgb space-separated channel syntax in `variables`, so hex.
+// NOTE: Clerk's appearance is static here — it doesn't track the
+// next-themes toggle at runtime (Clerk initialises once). When dark
+// mode lands fully, a client-side ClerkProvider wrapper keyed off the
+// resolved theme would make these colours track. Minor; out of scope.
 const clerkAppearance = {
   variables: {
-    colorPrimary: "#D4960A",
-    colorBackground: "#FFFBF5",
-    colorInputBackground: "#FFFBF5",
+    colorPrimary: "#C98A0A",
+    colorBackground: "#FBF7F0",
+    colorInputBackground: "#FBF7F0",
     colorInputText: "#1A1714",
     colorText: "#1A1714",
-    colorTextSecondary: "#6B6560",
-    colorNeutral: "#6B6560",
-    colorDanger: "#CC3A2E",
-    colorSuccess: "#468C46",
-    colorWarning: "#D4960A",
+    colorTextSecondary: "#3D3730",
+    colorNeutral: "#6B6158",
+    colorDanger: "#B3321C",
+    colorSuccess: "#3F7D4E",
+    colorWarning: "#C98A0A",
     borderRadius: "0.5rem",
     fontFamily: "var(--font-body)",
     fontFamilyButtons: "var(--font-body)",
@@ -103,18 +118,41 @@ const clerkAppearance = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <ClerkProvider appearance={clerkAppearance}>
+      {/* `suppressHydrationWarning` is required because next-themes sets
+          the `data-theme` attribute via an inline script before React
+          hydrates, and React would otherwise warn on attribute
+          mismatch. The warning is suppressed only on <html>, not on
+          child elements. */}
       <html
         lang="en"
-        className={`${syne.variable} ${outfit.variable}`}
+        className={`${fraunces.variable} ${outfit.variable} ${jetbrainsMono.variable}`}
+        suppressHydrationWarning
       >
         <body>
-          {/* Skip-to-content link — keyboard-only users hit Tab on page
-              load, see this first, and jump past the shell navigation
-              straight to the main content. */}
-          <a href="#main-content" className="skip-to-content">
-            Skip to content
-          </a>
-          <ToastProvider>{children}</ToastProvider>
+          {/* ThemeProvider owns the `data-theme` attribute on <html>.
+              - `light: ""` → in light mode the attribute is empty so the
+                 `:root` rules apply unmodified (no class conflict).
+              - `dark:  "chrome-dark"` → matches the existing scoped
+                 selector so dark-mode tokens apply globally.
+              - `enableSystem` respects `prefers-color-scheme` on first
+                 visit.
+              - `disableTransitionOnChange` prevents mid-transition
+                 flicker when flipping themes. */}
+          <ThemeProvider
+            attribute="data-theme"
+            value={{ light: "", dark: "chrome-dark" }}
+            defaultTheme="light"
+            enableSystem
+            disableTransitionOnChange
+          >
+            {/* Skip-to-content link — keyboard-only users hit Tab on page
+                load, see this first, and jump past the shell navigation
+                straight to the main content. */}
+            <a href="#main-content" className="skip-to-content">
+              Skip to content
+            </a>
+            <ToastProvider>{children}</ToastProvider>
+          </ThemeProvider>
         </body>
       </html>
     </ClerkProvider>

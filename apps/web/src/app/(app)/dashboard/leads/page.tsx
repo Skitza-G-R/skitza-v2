@@ -99,19 +99,21 @@ export default async function LeadsPage() {
             />
           ) : (
             <>
-              {/* Desktop table */}
+              {/* Desktop table — dense Linear-grade rows via shared utility
+                  tokens (.sk-row density is mirrored on table rows by
+                  keeping cells ~44px tall with py-0 + h-11). */}
               <div className="hidden overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] md:block">
-                <table className="w-full text-sm">
+                <table className="w-full text-[13px] leading-[1.3]">
                   <thead className="bg-[rgb(var(--bg-elevated))] text-left font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
                     <tr>
-                      <th className="px-4 py-3 font-medium">Created</th>
-                      <th className="px-4 py-3 font-medium">Target</th>
-                      <th className="px-4 py-3 font-medium">Lead</th>
-                      <th className="px-4 py-3 font-medium">Opens</th>
-                      <th className="px-4 py-3 font-medium">Last</th>
-                      <th className="px-4 py-3 font-medium">Dwell</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 text-right font-medium">Actions</th>
+                      <th className="px-3 py-2 font-medium">Created</th>
+                      <th className="px-3 py-2 font-medium">Target</th>
+                      <th className="px-3 py-2 font-medium">Lead</th>
+                      <th className="px-3 py-2 font-medium sk-num">Opens</th>
+                      <th className="px-3 py-2 font-medium">Last</th>
+                      <th className="px-3 py-2 font-medium sk-num">Dwell</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 text-right font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -120,9 +122,9 @@ export default async function LeadsPage() {
                       return (
                         <tr
                           key={row.id}
-                          className="border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] transition-colors hover:bg-[rgb(var(--bg-elevated))]"
+                          className="h-11 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] transition-colors duration-[140ms] ease-out hover:bg-[rgb(var(--bg-overlay))]"
                         >
-                          <td className="px-4 py-3 text-[rgb(var(--fg-secondary))]">
+                          <td className="px-3 py-0 text-[rgb(var(--fg-secondary))]">
                             <Link
                               href={`/dashboard/leads/${row.id}`}
                               className="hover:text-[rgb(var(--fg-primary))] hover:underline underline-offset-4"
@@ -130,21 +132,21 @@ export default async function LeadsPage() {
                               {formatDate(row.createdAt)}
                             </Link>
                           </td>
-                          <td className="px-4 py-3 capitalize">{row.target}</td>
-                          <td className="px-4 py-3 font-mono text-xs text-[rgb(var(--fg-muted))]">
+                          <td className="px-3 py-0 capitalize">{row.target}</td>
+                          <td className="px-3 py-0 font-mono text-xs text-[rgb(var(--fg-muted))]">
                             {row.leadId ? `${row.leadId.slice(0, 8)}…` : "—"}
                           </td>
-                          <td className="px-4 py-3 font-mono tabular-nums">{row.viewCount}</td>
-                          <td className="px-4 py-3 text-[rgb(var(--fg-secondary))]">
+                          <td className="px-3 py-0 sk-num">{row.viewCount}</td>
+                          <td className="px-3 py-0 text-[rgb(var(--fg-secondary))]">
                             {formatRelative(row.lastViewedAt)}
                           </td>
-                          <td className="px-4 py-3 font-mono tabular-nums text-[rgb(var(--fg-secondary))]">
+                          <td className="px-3 py-0 sk-num text-[rgb(var(--fg-secondary))]">
                             {formatDwell(row.medianDwellMs)}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-0">
                             <StatusPill status={status} />
                           </td>
-                          <td className="px-4 py-3 text-right">
+                          <td className="px-3 py-0 text-right">
                             <RevokeButton id={row.id} disabled={status !== "active"} />
                           </td>
                         </tr>
@@ -210,7 +212,7 @@ function Stat({ label, value }: { label: string; value: string }) {
       <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
         {label}
       </dt>
-      <dd className="mt-1 font-display text-base leading-tight">{value}</dd>
+      <dd className="sk-num mt-1 font-display text-base leading-tight">{value}</dd>
     </div>
   );
 }

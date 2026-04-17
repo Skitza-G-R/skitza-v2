@@ -8,7 +8,6 @@ import { WaitlistForm } from "./waitlist-form";
 export function FinalCTA() {
   return (
     <section
-      data-theme="chrome-light"
       className="relative bg-[rgb(var(--bg-base))] py-24 text-[rgb(var(--fg-primary))] sm:py-32"
     >
       <div aria-hidden className="pointer-events-none absolute inset-0">
