@@ -31,6 +31,7 @@ import { z } from "zod";
 
 import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
+import { flattenAndSeal } from "~/server/contracts/flatten";
 import { BUCKETS, getR2 } from "~/server/storage/r2";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -726,8 +727,22 @@ export const contractRouter = router({
           .set({ status: "signed", signedAt: now, updatedAt: now })
           .where(eq(contracts.id, recipient.contractId));
         await logEvent(db, { contractId: recipient.contractId, event: "signed" });
-        // TODO(B.5): Enqueue flatten+seal job: await flattenAndSeal(recipient.contractId);
-        // After flatten completes, status advances to "completed" and finalPdfR2Key is set.
+        // B.5: Run flatten+seal synchronously. MVP — for ~50KB PDFs
+        // this is fine. Phase 2+ should move to a queued job (Trigger.dev).
+        // Failures here DON'T fail the sign mutation — the contract is
+        // recorded as signed in the DB regardless; flatten can be
+        // re-run on demand. Log the failure for the producer to see.
+        try {
+          await flattenAndSeal(recipient.contractId);
+        } catch (e) {
+          await logEvent(db, {
+            contractId: recipient.contractId,
+            event: "signed",
+            metadata: {
+              flattenError: e instanceof Error ? e.message : String(e),
+            },
+          });
+        }
       }
       return { ok: true as const, allSigned };
     }),
