@@ -4,6 +4,7 @@ import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { createDb, eq, producers } from "@skitza/db";
 
+import { CommandPalette } from "./command-palette";
 import { ThemeToggle } from "./theme-toggle";
 
 // App shell used by /dashboard and its children.
@@ -95,6 +96,7 @@ export async function AppShell({
         <div className="h-px w-full bg-gradient-to-r from-transparent via-[rgb(var(--brand-primary)/0.45)] to-transparent" />
       </header>
       <main id="main-content">{children}</main>
+      <CommandPalette />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { contractRouter } from "./contract";
 import { dealRouter } from "./deal";
 import { healthRouter } from "./health";
 import { magicLinkRouter } from "./magic-link";
+import { paletteRouter } from "./palette";
 import { portfolioRouter } from "./portfolio";
 import { producerRouter } from "./producer";
 
@@ -17,6 +18,7 @@ export const appRouter = router({
   deal: dealRouter,
   health: healthRouter,
   magicLink: magicLinkRouter,
+  palette: paletteRouter,
   portfolio: portfolioRouter,
   producer: producerRouter,
 });

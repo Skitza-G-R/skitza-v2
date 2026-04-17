@@ -13,4 +13,6 @@ export * from "./client";
 // - `asc`: ORDER BY direction for packages.list (by position ASC)
 // - `gte/lte`: range filters on booking.startsAt in slot computation
 // - `inArray`: WHERE status IN (...) for filtering confirmed+pending
-export { eq, and, desc, asc, sql, gte, lte, inArray } from "drizzle-orm";
+// - `or`: disjunction for the palette's multi-field fuzzy search
+// - `ilike`: case-insensitive LIKE for the same
+export { eq, and, or, desc, asc, sql, gte, lte, inArray, ilike } from "drizzle-orm";
