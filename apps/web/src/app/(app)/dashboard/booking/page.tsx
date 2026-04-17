@@ -103,7 +103,7 @@ export default async function BookingPage({ searchParams }: PageProps) {
               >
                 {t.label}
                 {t.count > 0 ? (
-                  <span className="font-mono text-xs text-[rgb(var(--fg-muted))]">
+                  <span className="sk-num font-mono text-xs text-[rgb(var(--fg-muted))]">
                     {t.count}
                   </span>
                 ) : null}
@@ -224,16 +224,16 @@ function PackagesTab({
               </div>
               <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1">
                 <span
-                  className="font-display text-2xl leading-none text-[rgb(var(--brand-primary))]"
+                  className="sk-num font-display text-2xl leading-none text-[rgb(var(--brand-primary))]"
                   style={{ fontWeight: 800 }}
                 >
                   {formatMoney(p.priceCents, p.currency)}
                 </span>
-                <span className="font-mono text-xs text-[rgb(var(--fg-muted))]">
+                <span className="sk-num font-mono text-xs text-[rgb(var(--fg-muted))]">
                   {p.durationMin}min · {p.sessionCount} session{p.sessionCount === 1 ? "" : "s"}
                 </span>
                 {p.depositPct > 0 ? (
-                  <span className="font-mono text-xs text-[rgb(var(--fg-secondary))]">
+                  <span className="sk-num font-mono text-xs text-[rgb(var(--fg-secondary))]">
                     {String(p.depositPct)}% deposit
                   </span>
                 ) : null}
@@ -274,31 +274,33 @@ function RequestsTab({
     );
   }
   return (
-    <ul className="grid gap-3">
-      {items.map((b) => (
+    <ul className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
+      {items.map((b, idx) => (
         <li
           key={b.id}
-          className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5"
+          className={[
+            "px-4 py-3 transition-colors duration-[140ms] ease-out hover:bg-[rgb(var(--bg-overlay))]",
+            idx === 0 ? "" : "border-t border-[rgb(var(--border-subtle))]",
+          ].join(" ")}
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h3
-                  className="font-display text-lg leading-tight"
-                  style={{ fontWeight: 700 }}
-                >
+                <h3 className="font-display text-base leading-tight" style={{ fontWeight: 700 }}>
                   {b.artistName}
                 </h3>
                 <Badge variant="warning" dot>
                   Pending
                 </Badge>
               </div>
-              <p className="mt-1 font-mono text-xs text-[rgb(var(--fg-secondary))]">
+              <p className="mt-0.5 font-mono text-xs text-[rgb(var(--fg-secondary))]">
                 {b.artistEmail}
                 {b.artistPhone ? ` · ${b.artistPhone}` : ""}
               </p>
-              <p className="mt-2 text-sm text-[rgb(var(--fg-primary))]">
-                {b.packageName ?? "Session"} · {b.durationMin}min · {dateFmt.format(b.startsAt)}
+              <p className="mt-1 text-[13px] text-[rgb(var(--fg-primary))]">
+                {b.packageName ?? "Session"} ·{" "}
+                <span className="sk-num">{b.durationMin}min</span> ·{" "}
+                <span className="sk-num">{dateFmt.format(b.startsAt)}</span>
               </p>
               {b.notes ? (
                 <p className="mt-2 rounded-[var(--radius-sm)] bg-[rgb(var(--bg-base))] p-3 text-sm text-[rgb(var(--fg-secondary))]">
@@ -336,22 +338,27 @@ function UpcomingTab({
     );
   }
   return (
-    <ol className="grid gap-3">
-      {future.map((b) => (
+    <ol className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
+      {future.map((b, idx) => (
         <li
           key={b.id}
-          className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4"
+          className={[
+            "px-4 py-3 transition-colors duration-[140ms] ease-out hover:bg-[rgb(var(--bg-overlay))]",
+            idx === 0 ? "" : "border-t border-[rgb(var(--border-subtle))]",
+          ].join(" ")}
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="font-display text-lg leading-tight" style={{ fontWeight: 700 }}>
+              <p className="font-display text-base leading-tight" style={{ fontWeight: 700 }}>
                 {b.artistName}
               </p>
-              <p className="mt-1 font-mono text-xs text-[rgb(var(--fg-secondary))]">
+              <p className="mt-0.5 font-mono text-xs text-[rgb(var(--fg-secondary))]">
                 {b.artistEmail}
               </p>
-              <p className="mt-2 text-sm text-[rgb(var(--fg-primary))]">
-                {b.packageName ?? "Session"} · {b.durationMin}min · {dateFmt.format(b.startsAt)}
+              <p className="mt-1 text-[13px] text-[rgb(var(--fg-primary))]">
+                {b.packageName ?? "Session"} ·{" "}
+                <span className="sk-num">{b.durationMin}min</span> ·{" "}
+                <span className="sk-num">{dateFmt.format(b.startsAt)}</span>
               </p>
             </div>
             <Badge variant="active" dot>

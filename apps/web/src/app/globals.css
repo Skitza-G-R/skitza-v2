@@ -236,6 +236,117 @@
     .pulse-green,
     .pulse-glow { animation: none; }
   }
+
+  /*
+   * D.7 — Dense Linear-grade list primitives.
+   *
+   * These utilities standardise the visual rhythm of every list/table in
+   * the dashboard. Ref: Linear issue rows, Spotify-for-Artists stats.
+   *
+   *   .sk-table  — flex column container; strips the last row's divider.
+   *   .sk-row    — 44px tap-target-friendly row; subtle hover tint, no
+   *                layout jitter (background only, never borders).
+   *   .sk-row-active — inset 2px copper left-border for the focused row.
+   *   .sk-num    — tabular-nums without switching fonts; use on prices,
+   *                durations, counts, dates.
+   *   .sk-chip-bar / .sk-chip — sticky filter bar with pill toggles; set
+   *                aria-pressed="true" on the active chip.
+   *
+   * Colour tokens come from :root + [data-theme="chrome-dark"], so these
+   * degrade gracefully on dark mode without further tweaks.
+   */
+  .sk-table {
+    display: flex;
+    flex-direction: column;
+  }
+  .sk-table .sk-row:last-child {
+    border-bottom: none;
+  }
+  .sk-row {
+    min-height: 44px;
+    padding: 0 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 13px;
+    line-height: 1.3;
+    color: rgb(var(--fg-primary));
+    border-bottom: 1px solid rgb(var(--border-subtle));
+    transition: background-color 140ms ease-out;
+  }
+  .sk-row:hover {
+    background: rgb(var(--bg-overlay));
+  }
+  .sk-row-active {
+    background: rgb(var(--bg-overlay));
+    box-shadow: inset 2px 0 0 rgb(var(--brand-primary));
+  }
+  .sk-num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+  .sk-chip-bar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    gap: 0.375rem;
+    padding: 0.75rem 0;
+    background: rgb(var(--bg-base));
+    border-bottom: 1px solid rgb(var(--border-subtle));
+  }
+  .sk-chip {
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    border: 1px solid rgb(var(--border-subtle));
+    font-size: 12px;
+    color: rgb(var(--fg-muted));
+    background: transparent;
+    cursor: pointer;
+    transition: color 140ms ease-out, border-color 140ms ease-out, background-color 140ms ease-out;
+  }
+  .sk-chip:hover {
+    color: rgb(var(--fg-primary));
+    border-color: rgb(var(--border-strong));
+  }
+  .sk-chip[aria-pressed="true"] {
+    color: rgb(var(--fg-inverse));
+    background: rgb(var(--brand-primary));
+    border-color: transparent;
+  }
+
+  /*
+   * D.8 — Motion polish primitives.
+   *
+   * Subtle by default: 140ms ease-out with a gentle asymmetric curve.
+   * Use .sk-trans on anything that already has a `hover:` or state
+   * transition tailwind class; use .sk-trans-slow for larger movements
+   * (panel slides, sidebar width). Everything degrades to 0ms under
+   * prefers-reduced-motion, same as .reveal-up above. The single
+   * expressive moment — the copper seal on contract sign — lives in
+   * B.7 and is not managed here.
+   */
+  .sk-trans {
+    transition-duration: 140ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0.1, 1);
+  }
+  .sk-trans-slow {
+    transition-duration: 220ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0.1, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sk-trans,
+    .sk-trans-slow {
+      transition-duration: 0ms !important;
+    }
+    .sk-row {
+      transition-duration: 0ms !important;
+    }
+    .sk-chip {
+      transition-duration: 0ms !important;
+    }
+  }
 }
 
 @utility font-display {
