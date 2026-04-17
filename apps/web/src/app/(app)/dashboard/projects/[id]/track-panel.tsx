@@ -3,7 +3,7 @@
 import { type SyntheticEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { TrackPlayer } from "~/components/audio/track-player";
+import { WaveformPlayer } from "~/components/audio/waveform-player";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { Input, Label } from "~/components/ui/input";
@@ -218,7 +218,7 @@ export function TrackPanel({
             {/* Player */}
             {selectedVersion ? (
               <div className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-3">
-                <TrackPlayer src={selectedVersion.audioUrl} label={t.title} />
+                <WaveformPlayer src={selectedVersion.audioUrl} label={t.title} />
                 <p className="mt-2 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
                   <span className="text-[rgb(var(--fg-secondary))]">{selectedVersion.label}</span>
                   {" · "}

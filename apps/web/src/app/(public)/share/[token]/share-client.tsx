@@ -2,7 +2,7 @@
 
 import { type SyntheticEvent, useRef, useState, useTransition } from "react";
 
-import { TrackPlayer } from "~/components/audio/track-player";
+import { WaveformPlayer } from "~/components/audio/waveform-player";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { Input, Label } from "~/components/ui/input";
@@ -258,7 +258,7 @@ function PlayerPanel({
 }) {
   return (
     <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-3">
-      <TrackPlayer src={src} label={title} />
+      <WaveformPlayer src={src} label={title} />
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
           <span className="text-[rgb(var(--fg-secondary))]">{version.label}</span>
