@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 
 import { EmptyState } from "~/components/ui/empty-state";
 import { useToast } from "~/components/ui/toast";
+import { desktopNotify } from "~/lib/desktop/notifications";
 import { isTypingTarget } from "~/lib/keyboard/use-shortcuts";
 
 import { formatRelativeTime } from "../kanban-helpers";
@@ -82,6 +83,46 @@ export function InboxList({
   useEffect(() => {
     setItems(initial);
     setSelectedId(null);
+  }, [initial]);
+
+  // Desktop (Tauri) only: fire a native OS notification for unread items
+  // that landed in the last 60 seconds. De-duped via localStorage so a
+  // page refresh doesn't replay old alerts. No-op in browsers.
+  //
+  // TODO (phase G+): migrate to a global SSE / realtime channel so
+  // notifications fire regardless of whether the inbox tab is open.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const NOTIFIED_KEY = "skitza:notified-inbox-ids";
+    let seen: string[] = [];
+    try {
+      const raw = window.localStorage.getItem(NOTIFIED_KEY);
+      if (raw !== null) {
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          seen = parsed.filter((v): v is string => typeof v === "string");
+        }
+      }
+    } catch {
+      seen = [];
+    }
+    const cutoff = Date.now() - 60_000;
+    const fresh = initial.filter((i) => {
+      if (i.readAt !== null || i.archivedAt !== null) return false;
+      if (seen.includes(i.id)) return false;
+      const createdMs = Date.parse(i.createdAt);
+      return Number.isFinite(createdMs) && createdMs > cutoff;
+    });
+    if (fresh.length === 0) return;
+    for (const item of fresh) {
+      void desktopNotify(item.title, item.body);
+    }
+    const nextSeen = [...seen, ...fresh.map((i) => i.id)].slice(-200);
+    try {
+      window.localStorage.setItem(NOTIFIED_KEY, JSON.stringify(nextSeen));
+    } catch {
+      // Ignore quota errors; the next mount will retry with its own slice.
+    }
   }, [initial]);
 
   const unreadCount = useMemo(

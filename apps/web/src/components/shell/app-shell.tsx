@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { and, createDb, eq, isNull, notifications, producers } from "@skitza/db";
 
 import { CommandPalette } from "./command-palette";
+import { DesktopMenuBridge } from "./desktop-menu-bridge";
 import { ShortcutsBridge } from "./shortcuts-bridge";
 import { Sidebar } from "./sidebar";
 
@@ -61,6 +62,7 @@ export async function AppShell({
       </main>
       <CommandPalette />
       <ShortcutsBridge />
+      <DesktopMenuBridge />
     </div>
   );
 }

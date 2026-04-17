@@ -53,6 +53,19 @@ export function CommandPalette() {
     };
   }, []);
 
+  // Desktop-only: the Tauri ⌥⌘Space global shortcut emits a window
+  // event that the desktop menu bridge converts into this one. Opens
+  // the palette even when the window was backgrounded.
+  useEffect(() => {
+    const onOpen = () => {
+      setOpen(true);
+    };
+    window.addEventListener("skitza:open-palette", onOpen);
+    return () => {
+      window.removeEventListener("skitza:open-palette", onOpen);
+    };
+  }, []);
+
   // Debounced search fires whenever the palette is open and the
   // query changes. Cleared on close to drop the stale results.
   useEffect(() => {

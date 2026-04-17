@@ -18,7 +18,8 @@
         "minWidth": 960,
         "minHeight": 600,
         "resizable": true,
-        "center": true
+        "center": true,
+        "dragDropEnabled": true
       }
     ],
     "security": {
@@ -27,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app"],
+    "targets": ["dmg", "app", "msi"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
