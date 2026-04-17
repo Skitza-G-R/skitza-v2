@@ -15,4 +15,6 @@ export * from "./client";
 // - `inArray`: WHERE status IN (...) for filtering confirmed+pending
 // - `or`: disjunction for the palette's multi-field fuzzy search
 // - `ilike`: case-insensitive LIKE for the same
-export { eq, and, or, desc, asc, sql, gte, lte, inArray, ilike } from "drizzle-orm";
+// - `isNull`/`isNotNull`: nullness predicates for the inbox router —
+//   active = archivedAt IS NULL, archived = archivedAt IS NOT NULL.
+export { eq, and, or, desc, asc, sql, gte, lte, inArray, ilike, isNull, isNotNull } from "drizzle-orm";

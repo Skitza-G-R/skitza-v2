@@ -5,6 +5,7 @@ import { clientContactsRouter } from "./client-contacts";
 import { contractRouter } from "./contract";
 import { dealRouter } from "./deal";
 import { healthRouter } from "./health";
+import { inboxRouter } from "./inbox";
 import { magicLinkRouter } from "./magic-link";
 import { paletteRouter } from "./palette";
 import { portfolioRouter } from "./portfolio";
@@ -17,6 +18,7 @@ export const appRouter = router({
   contract: contractRouter,
   deal: dealRouter,
   health: healthRouter,
+  inbox: inboxRouter,
   magicLink: magicLinkRouter,
   palette: paletteRouter,
   portfolio: portfolioRouter,

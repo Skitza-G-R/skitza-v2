@@ -21,6 +21,7 @@ import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { recordContact } from "~/server/contacts/record";
+import { emitBookingRequested } from "~/server/notifications/emit";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 
 // Public procedures need their own `db` handle + an ipHash for
@@ -648,6 +649,19 @@ export const bookingRouter = router({
         });
       } catch (err) {
         console.warn("[contacts] recordContact failed in booking.publicRequest", err);
+      }
+
+      // Best-effort inbox notification — same guard as above.
+      try {
+        await emitBookingRequested(db, {
+          producerId: producer.id,
+          bookingId: row.id,
+          artistName: input.artistName,
+          artistEmail: input.artistEmail.toLowerCase(),
+          when: startsAt,
+        });
+      } catch (err) {
+        console.warn("[notify] emitBookingRequested failed in booking.publicRequest", err);
       }
 
       return { id: row.id };

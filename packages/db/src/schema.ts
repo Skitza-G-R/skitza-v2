@@ -9,6 +9,7 @@ import {
   boolean,
   pgEnum,
   unique,
+  index,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -368,3 +369,45 @@ export const clientContacts = pgTable("client_contacts", {
 
 export type ClientContact = typeof clientContacts.$inferSelect;
 export type NewClientContact = typeof clientContacts.$inferInsert;
+
+// ─── Notifications / Inbox (Phase E) ────────────────────────────────
+// One unified feed of everything that needs the producer's attention:
+// artist comments on track versions, new booking requests, contract
+// status changes, paid invoices. The inbox at /dashboard/inbox reads
+// from this single table and supports j/k navigation, read/archive
+// state, and click-through to the source context. Emit helpers in
+// apps/web/src/server/notifications/emit.ts insert rows fire-and-
+// forget so a notify failure can never block the primary flow.
+export const notificationKind = pgEnum("notification_kind", [
+  "comment_created",     // visitor commented on a track version
+  "contract_signed",     // all-signers-complete OR an individual signer
+  "booking_requested",   // visitor submitted a booking
+  "contract_viewed",     // signer opened the contract link (optional; could be noisy)
+  "track_approved",      // (future) artist marked a version approved
+]);
+
+export const notifications = pgTable("notifications", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  kind: notificationKind("kind").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  // Related refs — nullable FKs for click-through. Only one is
+  // populated per row; the UI routes to the right page based on
+  // which id is present.
+  dealId: uuid("deal_id").references(() => deals.id, { onDelete: "cascade" }),
+  trackVersionId: uuid("track_version_id").references(() => trackVersions.id, { onDelete: "cascade" }),
+  commentId: uuid("comment_id").references(() => trackComments.id, { onDelete: "cascade" }),
+  contractId: uuid("contract_id").references(() => contracts.id, { onDelete: "cascade" }),
+  bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "cascade" }),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Covers the inbox list query: filter by producer + active/archived
+  // bucket, order by createdAt desc.
+  producerActiveIdx: index("notifications_producer_active_idx").on(t.producerId, t.archivedAt, t.createdAt),
+}));
+
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;

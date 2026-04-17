@@ -17,7 +17,14 @@ import { ThemeToggle } from "./theme-toggle";
 // so we always render expanded first, then the mount effect nudges
 // to collapsed if stored. 200ms transition smooths the change.
 
-type ActiveKey = "pipeline" | "portfolio" | "leads" | "booking" | "contracts" | "settings";
+type ActiveKey =
+  | "pipeline"
+  | "portfolio"
+  | "leads"
+  | "booking"
+  | "contracts"
+  | "settings"
+  | "inbox";
 
 type NavItem = { id: ActiveKey; label: string; href: string; icon: ReactNode };
 
@@ -26,9 +33,11 @@ const STORAGE_KEY = "skitza-sidebar-collapsed";
 export function Sidebar({
   active,
   producerSlug,
+  unreadCount = 0,
 }: {
   active: ActiveKey;
   producerSlug: string | null;
+  unreadCount?: number;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -67,8 +76,11 @@ export function Sidebar({
     };
   }, [toggle]);
 
+  // Inbox sits between Pipeline and Contracts: it's the producer's
+  // first-thing-in-the-morning view once the app has enough data.
   const items: NavItem[] = [
     { id: "pipeline", label: "Pipeline", href: "/dashboard", icon: <PipelineIcon /> },
+    { id: "inbox", label: "Inbox", href: "/dashboard/inbox", icon: <InboxIcon /> },
     { id: "contracts", label: "Contracts", href: "/dashboard/contracts", icon: <ContractIcon /> },
     { id: "booking", label: "Bookings", href: "/dashboard/booking", icon: <CalendarIcon /> },
     { id: "leads", label: "Leads", href: "/dashboard/leads", icon: <UsersIcon /> },
@@ -111,6 +123,7 @@ export function Sidebar({
               active={active}
               collapsed={false}
               producerSlug={producerSlug}
+              unreadCount={unreadCount}
               onItemClick={() => {
                 setMobileOpen(false);
               }}
@@ -129,6 +142,7 @@ export function Sidebar({
           active={active}
           collapsed={effectiveCollapsed}
           producerSlug={producerSlug}
+          unreadCount={unreadCount}
           onToggle={toggle}
         />
       </aside>
@@ -141,6 +155,7 @@ function SidebarBody({
   active,
   collapsed,
   producerSlug,
+  unreadCount,
   onToggle,
   onItemClick,
 }: {
@@ -148,6 +163,7 @@ function SidebarBody({
   active: ActiveKey;
   collapsed: boolean;
   producerSlug: string | null;
+  unreadCount: number;
   onToggle?: () => void;
   onItemClick?: () => void;
 }) {
@@ -180,6 +196,7 @@ function SidebarBody({
             item={item}
             isActive={active === item.id}
             collapsed={collapsed}
+            badgeCount={item.id === "inbox" ? unreadCount : 0}
             {...(onItemClick ? { onClick: onItemClick } : {})}
           />
         ))}
@@ -212,13 +229,18 @@ function SidebarItem({
   item,
   isActive,
   collapsed,
+  badgeCount,
   onClick,
 }: {
   item: NavItem;
   isActive: boolean;
   collapsed: boolean;
+  badgeCount: number;
   onClick?: () => void;
 }) {
+  // Cap large counts visually so a thousand-comment neglected account
+  // doesn't break the rail layout. Matches the Superhuman/Gmail pattern.
+  const badgeLabel = badgeCount > 99 ? "99+" : badgeCount.toString();
   return (
     <Link
       href={item.href}
@@ -231,8 +253,28 @@ function SidebarItem({
           : "text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
       }`}
     >
-      <span className="shrink-0">{item.icon}</span>
-      {!collapsed && <span className="truncate">{item.label}</span>}
+      <span className="relative shrink-0">
+        {item.icon}
+        {collapsed && badgeCount > 0 ? (
+          <span
+            aria-hidden
+            className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))] ring-2 ring-[rgb(var(--bg-elevated))]"
+          />
+        ) : null}
+      </span>
+      {!collapsed && (
+        <>
+          <span className="truncate">{item.label}</span>
+          {badgeCount > 0 ? (
+            <span
+              aria-label={`${badgeCount.toString()} unread`}
+              className="ml-auto rounded-full bg-[rgb(var(--brand-primary))] px-1.5 py-[1px] font-mono text-[0.625rem] font-semibold text-[rgb(var(--fg-inverse))]"
+            >
+              {badgeLabel}
+            </span>
+          ) : null}
+        </>
+      )}
     </Link>
   );
 }
@@ -263,6 +305,17 @@ function PipelineIcon() {
       <rect x="1.5" y="3" width="3.5" height="10" rx="1" />
       <rect x="6.25" y="5.5" width="3.5" height="7" rx="1" />
       <rect x="11" y="2" width="3.5" height="12" rx="1" />
+    </svg>
+  );
+}
+
+function InboxIcon() {
+  // Inbox tray — rectangle floor with a scooped lid suggesting a
+  // landing surface. 16x16, stroke=currentColor to inherit active/hover.
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 9.5h3.5l1 2h3l1-2H14" />
+      <path d="M2 9.5 3.5 3h9L14 9.5v3.25A.75.75 0 0 1 13.25 13.5h-10.5A.75.75 0 0 1 2 12.75Z" />
     </svg>
   );
 }

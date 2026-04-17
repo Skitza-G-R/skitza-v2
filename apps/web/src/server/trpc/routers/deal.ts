@@ -20,6 +20,7 @@ import { z } from "zod";
 import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { recordContact } from "~/server/contacts/record";
+import { emitCommentCreated } from "~/server/notifications/emit";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -619,6 +620,21 @@ export const dealRouter = router({
         });
       } catch (err) {
         console.warn("[contacts] recordContact failed in deal.publicComment", err);
+      }
+
+      // Best-effort inbox notification. Must never block the
+      // comment insert above — wrapped in try/catch.
+      try {
+        await emitCommentCreated(db, {
+          producerId: deal.producerId,
+          commentId: row.id,
+          trackVersionId: input.versionId,
+          dealId: deal.id,
+          authorName: input.authorName,
+          preview: input.body,
+        });
+      } catch (err) {
+        console.warn("[notify] emitCommentCreated failed in deal.publicComment", err);
       }
 
       return { id: row.id };
