@@ -128,35 +128,112 @@ const MIN_LEAD_HOURS = 12;
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 /**
- * Given a producer's weekly availability + existing non-cancelled
- * bookings, compute available slot start times (ISO strings) for the
- * next `days` days starting at the producer's "today" (UTC-aware).
+ * Given producer weekly availability + non-cancelled bookings + the
+ * producer's IANA timezone, compute slot starts as UTC ISO strings
+ * for the next `days` days.
  *
- * Semantics:
- * - Slots are generated inside each availability block at 15-min
- *   increments, starting at each block's startMin and fitting the
- *   package's full durationMin within the block.
- * - A slot is excluded if it overlaps ANY non-cancelled booking for
- *   the same producer (pending + confirmed both block the slot —
- *   we're optimistic-hold; a rejected request frees the slot again).
- * - Slots inside the min-lead-time cutoff are excluded.
+ * Availability is authored in the producer's LOCAL time (e.g. "10:00
+ * Berlin"). We must materialize that as the correct UTC instant on
+ * each day (respecting DST). Approach:
  *
- * Timezone strategy: v1 uses the PRODUCER's timezone for slot labels
- * and storage. The caller (public page) renders the producer's TZ
- * with a banner; visitor-TZ conversion lands in v2.
+ *   1. Take a guessed UTC timestamp = `Date.UTC(Y, M, D, hour, min)`
+ *      where Y/M/D/hour/min are the values we *want* to see in the
+ *      target tz.
+ *   2. Format that guess `in` the target tz via Intl.DateTimeFormat
+ *      and read the offset between what we wanted and what we got.
+ *   3. Apply the offset to the guess — that's the correct UTC instant.
+ *
+ * This is the standard approach for "local wall-clock → UTC" in
+ * stdlib-only JS, used by date-fns-tz and friends. It handles DST
+ * transitions correctly because the offset calculation happens per-
+ * day at the specific wall-clock time.
+ */
+function wallClockInTzToUtc(
+  year: number,
+  month: number, // 0-indexed (JS convention)
+  day: number,
+  hour: number,
+  minute: number,
+  tz: string,
+): Date {
+  const guess = new Date(Date.UTC(year, month, day, hour, minute));
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(guess);
+  const lookup: Record<string, string> = {};
+  for (const p of parts) lookup[p.type] = p.value;
+  const shownUtcEquivalent = Date.UTC(
+    Number(lookup.year),
+    Number(lookup.month) - 1,
+    Number(lookup.day),
+    // Intl emits "24" for midnight in some locales; coerce to 0.
+    Number(lookup.hour) % 24,
+    Number(lookup.minute),
+  );
+  const offset = guess.getTime() - shownUtcEquivalent;
+  return new Date(guess.getTime() + offset);
+}
+
+/**
+ * Given `now` (a UTC instant) and a tz, return { year, month, day,
+ * weekday } as they appear in that tz. Used to iterate calendar days
+ * in the producer's local time, not UTC's.
+ */
+function calendarDayInTz(
+  instant: Date,
+  tz: string,
+): { year: number; month: number; day: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).formatToParts(instant);
+  const lookup: Record<string, string> = {};
+  for (const p of parts) lookup[p.type] = p.value;
+  // Intl short-weekday: "Sun", "Mon", ...
+  const weekdayMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+  return {
+    year: Number(lookup.year),
+    month: Number(lookup.month) - 1,
+    day: Number(lookup.day),
+    weekday: weekdayMap[lookup.weekday ?? "Sun"] ?? 0,
+  };
+}
+
+/**
+ * Compute available slot start times as UTC ISO strings for the next
+ * `days` days, from the producer's weekly availability (in producer
+ * local time) minus existing non-cancelled bookings.
+ *
+ * - 15-min increments inside each availability block.
+ * - durationMin must fit entirely inside the block.
+ * - pending + confirmed bookings both block slots (optimistic hold);
+ *   rejected/cancelled free the slot again.
+ * - Slots inside the MIN_LEAD_HOURS cutoff are excluded.
  */
 function computeSlots(
   weekBlocks: readonly { weekday: number; startMin: number; endMin: number }[],
   existingBookings: readonly { startsAt: Date; durationMin: number }[],
   durationMin: number,
   days: number,
+  tz: string,
   now: Date = new Date(),
 ): string[] {
   const out: string[] = [];
-  const minLeadMs = MIN_LEAD_HOURS * 60 * 60 * 1000;
-  const earliestAllowed = new Date(now.getTime() + minLeadMs);
+  const earliestAllowed = new Date(now.getTime() + MIN_LEAD_HOURS * 60 * 60 * 1000);
 
-  // Group availability blocks by weekday for O(1) lookup during the day loop.
+  // Group availability blocks by weekday for O(1) lookup.
   const blocksByDay = new Map<number, { startMin: number; endMin: number }[]>();
   for (const b of weekBlocks) {
     const list = blocksByDay.get(b.weekday) ?? [];
@@ -164,26 +241,29 @@ function computeSlots(
     blocksByDay.set(b.weekday, list);
   }
 
-  // Pre-sort existing bookings by startsAt for quick overlap check.
-  const sortedBookings = [...existingBookings].sort(
-    (a, b) => a.startsAt.getTime() - b.startsAt.getTime(),
-  );
+  // Start from today in the producer's tz — not UTC — so "this week"
+  // matches what the producer sees in their calendar.
+  const today = calendarDayInTz(now, tz);
 
   for (let dayOffset = 0; dayOffset < days; dayOffset++) {
-    const day = new Date(now);
-    day.setUTCDate(day.getUTCDate() + dayOffset);
-    day.setUTCHours(0, 0, 0, 0);
-    const weekday = day.getUTCDay(); // 0..6
-    const todayBlocks = blocksByDay.get(weekday) ?? [];
+    // Add dayOffset days to the producer-tz date. Use UTC math on a
+    // tz-day-midnight anchor to move day-by-day safely across DST.
+    const anchor = wallClockInTzToUtc(today.year, today.month, today.day, 0, 0, tz);
+    const dayInstant = new Date(anchor.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const dayCal = calendarDayInTz(dayInstant, tz);
+    const todayBlocks = blocksByDay.get(dayCal.weekday) ?? [];
     for (const block of todayBlocks) {
-      // Walk 15-min steps within the block. `durationMin` must fit.
-      for (let start = block.startMin; start + durationMin <= block.endMin; start += SLOT_INCREMENT_MIN) {
-        const slotStart = new Date(day.getTime() + start * 60 * 1000);
+      for (
+        let startMin = block.startMin;
+        startMin + durationMin <= block.endMin;
+        startMin += SLOT_INCREMENT_MIN
+      ) {
+        const h = Math.floor(startMin / 60);
+        const m = startMin % 60;
+        const slotStart = wallClockInTzToUtc(dayCal.year, dayCal.month, dayCal.day, h, m, tz);
         if (slotStart < earliestAllowed) continue;
         const slotEnd = new Date(slotStart.getTime() + durationMin * 60 * 1000);
-        // Overlap check — any booking (pending OR confirmed) with
-        // overlapping time blocks the slot.
-        const overlaps = sortedBookings.some((b) => {
+        const overlaps = existingBookings.some((b) => {
           const bEnd = new Date(b.startsAt.getTime() + b.durationMin * 60 * 1000);
           return slotStart < bEnd && b.startsAt < slotEnd;
         });
@@ -415,7 +495,7 @@ export const bookingRouter = router({
       if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
 
       const [producer] = await db
-        .select({ id: producers.id })
+        .select({ id: producers.id, timezone: producers.timezone })
         .from(producers)
         .where(eq(producers.slug, input.slug))
         .limit(1);
@@ -461,7 +541,14 @@ export const bookingRouter = router({
 
       return {
         durationMin: pkg.durationMin,
-        slots: computeSlots(weekBlocks, existing, pkg.durationMin, input.days, now),
+        slots: computeSlots(
+          weekBlocks,
+          existing,
+          pkg.durationMin,
+          input.days,
+          producer.timezone,
+          now,
+        ),
       };
     }),
 
