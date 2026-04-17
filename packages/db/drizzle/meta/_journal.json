@@ -43,6 +43,13 @@
       "when": 1776412858907,
       "tag": "0005_strange_mephistopheles",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776434206638,
+      "tag": "0006_nebulous_wild_pack",
+      "breakpoints": true
     }
   ]
 }

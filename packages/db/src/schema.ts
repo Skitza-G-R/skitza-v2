@@ -5,6 +5,7 @@ import {
   jsonb,
   uuid,
   integer,
+  bigint,
   boolean,
   pgEnum,
 } from "drizzle-orm/pg-core";
@@ -49,6 +50,10 @@ export const portfolioTracks = pgTable("portfolio_tracks", {
   audioUrl: text("audio_url").notNull(),  // for v1, an external URL (Spotify CDN, R2 later)
   artworkUrl: text("artwork_url"),
   position: integer("position").notNull().default(0), // for ordering
+  audioR2Key: text("audio_r2_key"),
+  sizeBytes: bigint("size_bytes", { mode: "number" }),
+  durationMs: integer("duration_ms"),
+  peaksR2Key: text("peaks_r2_key"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type PortfolioTrack = typeof portfolioTracks.$inferSelect;
@@ -206,6 +211,9 @@ export const trackVersions = pgTable("track_versions", {
   label: text("label").notNull(),
   audioUrl: text("audio_url").notNull(),   // v1: external URL; R2 comes later
   durationMs: integer("duration_ms"),       // optional; we populate when known
+  audioR2Key: text("audio_r2_key"),
+  sizeBytes: bigint("size_bytes", { mode: "number" }),
+  peaksR2Key: text("peaks_r2_key"),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type TrackVersion = typeof trackVersions.$inferSelect;
