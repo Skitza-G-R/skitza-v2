@@ -108,7 +108,7 @@ export default async function PortfolioPage() {
                         </p>
                       ) : null}
                       <p className="mt-2 font-mono text-[0.7rem] text-[rgb(var(--fg-muted))] line-clamp-1">
-                        {track.audioUrl}
+                        {track.audioUrl ?? "— processing"}
                       </p>
                     </div>
                     {tracks.length > 1 ? (

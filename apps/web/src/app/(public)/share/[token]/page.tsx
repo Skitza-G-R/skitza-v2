@@ -82,6 +82,7 @@ export default async function SharePage({ params }: PageProps) {
             id: v.id,
             trackId: v.trackId,
             label: v.label,
+            // Nullable: share-client shows an "upload pending" placeholder.
             audioUrl: v.audioUrl,
             uploadedAt: v.uploadedAt,
           }))}

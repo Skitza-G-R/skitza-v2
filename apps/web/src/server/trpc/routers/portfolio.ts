@@ -8,7 +8,9 @@ import { stripUndefined } from "../strip-undefined";
 const TrackInput = z.object({
   title: z.string().min(1).max(200),
   artist: z.string().max(200).optional(),
-  audioUrl: z.string().url(),
+  // Nullable: when creating a row for "upload pending" the audioUrl is
+  // filled later by audio.completeMultipart patching the same row.
+  audioUrl: z.string().url().nullable(),
   artworkUrl: z.string().url().optional(),
   position: z.number().int().min(0).optional(),
 });

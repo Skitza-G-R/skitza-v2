@@ -3,6 +3,7 @@
 import { type SyntheticEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { AudioUploader } from "~/components/audio/audio-uploader";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
@@ -14,7 +15,10 @@ interface Version {
   id: string;
   trackId: string;
   label: string;
-  audioUrl: string;
+  // Nullable while a multipart upload is still pending; audio.completeMultipart
+  // patches the row once the last part uploads. UI renders the uploader in the
+  // player slot whenever audioUrl is null.
+  audioUrl: string | null;
   uploadedAt: Date;
 }
 
@@ -63,10 +67,10 @@ export function TrackPanel({
   const [newTrackTitle, setNewTrackTitle] = useState("");
   const [newTrackArtist, setNewTrackArtist] = useState("");
 
-  // Add-version form state (per track)
+  // Add-version form state (per track). No URL input: we create the row
+  // with audioUrl=null, then AudioUploader fills it in the player slot.
   const [versionFor, setVersionFor] = useState<string | null>(null);
   const [newVersionLabel, setNewVersionLabel] = useState("");
-  const [newVersionUrl, setNewVersionUrl] = useState("");
 
   // Which version is the producer currently viewing per track
   const initialSelected = Object.fromEntries(
@@ -102,14 +106,15 @@ export function TrackPanel({
   function onCreateVersion(e: SyntheticEvent<HTMLFormElement>, trackId: string) {
     e.preventDefault();
     const label = newVersionLabel.trim();
-    const url = newVersionUrl.trim();
-    if (!label || !url) return;
+    if (!label) return;
     startTransition(async () => {
-      const res = await addVersion({ projectId, trackId, label, audioUrl: url });
+      // Create the row with audioUrl=null. The render loop below will
+      // notice the null audioUrl and swap the player for an AudioUploader,
+      // which fills the row via audio.completeMultipart on drop.
+      const res = await addVersion({ projectId, trackId, label, audioUrl: null });
       if (res.ok) {
-        toast(`Version "${label}" added.`, "success");
+        toast(`Version "${label}" added — drop your file to upload.`, "success");
         setNewVersionLabel("");
-        setNewVersionUrl("");
         setVersionFor(null);
         router.refresh();
       } else {
@@ -215,25 +220,39 @@ export function TrackPanel({
               </p>
             )}
 
-            {/* Player */}
+            {/* Player — or uploader if the version is still pending audio */}
             {selectedVersion ? (
               <div className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-3">
-                <WaveformPlayer src={selectedVersion.audioUrl} label={t.title} />
+                {selectedVersion.audioUrl ? (
+                  <WaveformPlayer src={selectedVersion.audioUrl} label={t.title} />
+                ) : (
+                  <AudioUploader
+                    trackVersionId={selectedVersion.id}
+                    onComplete={() => {
+                      toast("Upload complete.", "success");
+                      router.refresh();
+                    }}
+                  />
+                )}
                 <p className="mt-2 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
                   <span className="text-[rgb(var(--fg-secondary))]">{selectedVersion.label}</span>
                   {" · "}
-                  uploaded {new Date(selectedVersion.uploadedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                  {selectedVersion.audioUrl
+                    ? `uploaded ${new Date(selectedVersion.uploadedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+                    : "upload pending"}
                 </p>
               </div>
             ) : null}
 
-            {/* Inline add-version form */}
+            {/* Inline add-version form. Label only — we create the row
+                with audioUrl=null; the player slot flips to the uploader
+                automatically once the new version is selected. */}
             {versionFor === t.id ? (
               <form
                 onSubmit={(e) => {
                   onCreateVersion(e, t.id);
                 }}
-                className="mb-4 grid gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3 sm:grid-cols-[auto_1fr_auto_auto]"
+                className="mb-4 grid gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3 sm:grid-cols-[1fr_auto_auto]"
               >
                 <div>
                   <Label htmlFor={`label-${t.id}`}>Label</Label>
@@ -250,21 +269,8 @@ export function TrackPanel({
                     autoFocus
                   />
                 </div>
-                <div>
-                  <Label htmlFor={`url-${t.id}`}>Audio URL</Label>
-                  <Input
-                    id={`url-${t.id}`}
-                    type="url"
-                    value={newVersionUrl}
-                    onChange={(e) => {
-                      setNewVersionUrl(e.target.value);
-                    }}
-                    placeholder="https://…"
-                    required
-                  />
-                </div>
                 <Button type="submit" disabled={pending}>
-                  {pending ? "…" : "Add"}
+                  {pending ? "…" : "Create"}
                 </Button>
                 <Button
                   type="button"

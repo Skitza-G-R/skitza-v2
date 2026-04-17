@@ -87,18 +87,20 @@ export async function addVersion(input: {
   projectId: string;
   trackId: string;
   label: string;
-  audioUrl: string;
-}): Promise<ActionResult> {
+  // Nullable: "create row first, upload into it" flow passes null and
+  // the AudioUploader fills audioUrl via audio.completeMultipart.
+  audioUrl: string | null;
+}): Promise<ActionDataResult<{ id: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.project.addVersion({
+    const row = await c.caller.project.addVersion({
       trackId: input.trackId,
       label: input.label,
       audioUrl: input.audioUrl,
     });
     revalidatePath(pathDetail(input.projectId));
-    return { ok: true };
+    return { ok: true, data: { id: row.id } };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }

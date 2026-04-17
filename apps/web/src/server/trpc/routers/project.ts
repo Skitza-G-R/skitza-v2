@@ -83,7 +83,9 @@ const AddTrackInput = z.object({
 const AddVersionInput = z.object({
   trackId: z.string().uuid(),
   label: z.string().min(1).max(40),
-  audioUrl: z.string().url(),
+  // Nullable: when creating a row for "upload pending" the audioUrl is
+  // filled later by audio.completeMultipart patching the same row.
+  audioUrl: z.string().url().nullable(),
   durationMs: z.number().int().min(1).max(1000 * 60 * 60 * 3).optional(), // cap 3h
 });
 

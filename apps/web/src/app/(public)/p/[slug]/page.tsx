@@ -177,7 +177,13 @@ export default async function PublicPortfolioPage({ params, searchParams }: Page
                         weeks 6-8 as a drop-in replacement on this same interface.
                       */}
                       <div className="mt-4 max-w-md">
-                        <TrackPlayer src={track.audioUrl} label={track.title} />
+                        {track.audioUrl ? (
+                          <TrackPlayer src={track.audioUrl} label={track.title} />
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+                            Processing
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

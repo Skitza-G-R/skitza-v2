@@ -20,7 +20,8 @@ export interface Version {
   id: string;
   trackId: string;
   label: string;
-  audioUrl: string;
+  // Nullable while producer's upload is still in flight.
+  audioUrl: string | null;
   uploadedAt: Date;
 }
 
@@ -178,14 +179,27 @@ export function ShareClient({ token, project, tracks, versions, comments }: Prop
               </p>
             )}
 
-            {/* Player + download button */}
+            {/* Player + download button. If the producer hasn't finished
+                uploading yet, show a friendly placeholder (no artist-side
+                uploader — only the producer can fill this slot). */}
             {selectedVersion ? (
-              <PlayerPanel
-                src={selectedVersion.audioUrl}
-                title={t.title}
-                version={selectedVersion}
-                finalPaid={project.finalPaid}
-              />
+              selectedVersion.audioUrl ? (
+                <PlayerPanel
+                  src={selectedVersion.audioUrl}
+                  title={t.title}
+                  version={selectedVersion}
+                  finalPaid={project.finalPaid}
+                />
+              ) : (
+                <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-4 py-6 text-center">
+                  <p className="font-mono text-xs uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+                    Upload pending
+                  </p>
+                  <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
+                    {project.producerName} is still uploading this version.
+                  </p>
+                </div>
+              )
             ) : null}
 
             {/* Comments */}

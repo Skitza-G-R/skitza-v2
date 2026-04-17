@@ -52,7 +52,9 @@ function toMessage(err: unknown): string {
 export async function createTrack(input: {
   title: string;
   artist?: string;
-  audioUrl: string;
+  // Nullable: "create row first, upload into it" flow. Current UI still
+  // passes a URL string (TODO A.8.1: wire AudioUploader into portfolio).
+  audioUrl: string | null;
   artworkUrl?: string;
 }): Promise<ActionResult> {
   const c = await callerOrError();
@@ -70,7 +72,7 @@ export async function updateTrack(input: {
   id: string;
   title?: string;
   artist?: string;
-  audioUrl?: string;
+  audioUrl?: string | null;
   artworkUrl?: string;
 }): Promise<ActionResult> {
   const c = await callerOrError();

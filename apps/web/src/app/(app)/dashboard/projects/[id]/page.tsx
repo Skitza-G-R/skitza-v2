@@ -98,6 +98,8 @@ export default async function ProjectDetail({ params }: PageProps) {
               id: v.id,
               trackId: v.trackId,
               label: v.label,
+              // audioUrl is nullable while a multipart upload is pending;
+              // track-panel swaps in the uploader when it's null.
               audioUrl: v.audioUrl,
               uploadedAt: v.uploadedAt,
             }))}

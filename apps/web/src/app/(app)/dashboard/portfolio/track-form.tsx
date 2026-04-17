@@ -12,6 +12,16 @@ interface AddTrackFormProps {
   onClose: () => void;
 }
 
+// TODO(A.8.1): Wire AudioUploader into the portfolio create flow.
+// Blocker: the audio tRPC router (A.4) + useMultipartUpload hook (A.5) +
+// AudioUploader component (A.6) are all scoped to `trackVersionId`
+// (R2 key builder uses it; audio.completeMultipart patches the
+// trackVersions table). Porting to portfolioTracks needs either
+//   (a) a discriminator (`kind: "trackVersion" | "portfolio"`) threaded
+//       through the router/hook/component, or
+//   (b) a parallel `portfolioAudio.*` router.
+// For A.8 we keep the URL input; the dashboard list gracefully handles
+// audioUrl=null via the "— processing" placeholder already.
 function AddTrackForm({ onClose }: AddTrackFormProps) {
   const router = useRouter();
   const { toast } = useToast();

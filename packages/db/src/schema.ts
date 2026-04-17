@@ -47,7 +47,7 @@ export const portfolioTracks = pgTable("portfolio_tracks", {
   producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   artist: text("artist"),                 // optional credit line
-  audioUrl: text("audio_url").notNull(),  // for v1, an external URL (Spotify CDN, R2 later)
+  audioUrl: text("audio_url"),            // nullable during upload — filled by audio.completeMultipart
   artworkUrl: text("artwork_url"),
   position: integer("position").notNull().default(0), // for ordering
   audioR2Key: text("audio_r2_key"),
@@ -209,7 +209,7 @@ export const trackVersions = pgTable("track_versions", {
   id: uuid("id").defaultRandom().primaryKey(),
   trackId: uuid("track_id").notNull().references(() => projectTracks.id, { onDelete: "cascade" }),
   label: text("label").notNull(),
-  audioUrl: text("audio_url").notNull(),   // v1: external URL; R2 comes later
+  audioUrl: text("audio_url"),             // nullable during upload — filled by audio.completeMultipart
   durationMs: integer("duration_ms"),       // optional; we populate when known
   audioR2Key: text("audio_r2_key"),
   sizeBytes: bigint("size_bytes", { mode: "number" }),
