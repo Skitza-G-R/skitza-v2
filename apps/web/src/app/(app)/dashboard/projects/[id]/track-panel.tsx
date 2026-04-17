@@ -116,6 +116,11 @@ export function TrackPanel({
         toast(`Version "${label}" added — drop your file to upload.`, "success");
         setNewVersionLabel("");
         setVersionFor(null);
+        // Auto-select the freshly-created version so the in-place
+        // AudioUploader renders immediately (audioUrl is null on the new
+        // row, which flips the player slot to the drop zone). Without
+        // this, the producer would have to click the new pill manually.
+        setSelected((s) => ({ ...s, [trackId]: res.data.id }));
         router.refresh();
       } else {
         toast(res.error, "error");
