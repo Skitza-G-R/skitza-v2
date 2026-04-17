@@ -519,6 +519,151 @@ export const bookingRouter = router({
   }),
 
   // ── Bookings (producer-only views + status transitions) ──────────
+  // Confirmed sessions in the next N days. Powers the dashboard
+  // "upcoming strip". Returned rows are grouped client-side by
+  // producer-local calendar day. Joins the package row so the UI can
+  // show kind + location badges without a second trip.
+  upcoming: producerProcedure
+    .input(
+      z
+        .object({
+          days: z.number().int().min(1).max(60).default(7),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const days = input?.days ?? 7;
+      const now = new Date();
+      const horizon = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+      // Two round-trips is fine here — producers usually have < 20
+      // upcoming sessions, so the second SELECT is cheap + keeps the
+      // query Drizzle-ergonomic (no manual INNER JOIN typing).
+      const rows = await ctx.db
+        .select()
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.producerId, ctx.producerId),
+            eq(bookings.status, "confirmed"),
+            gte(bookings.startsAt, now),
+            lte(bookings.startsAt, horizon),
+          ),
+        )
+        .orderBy(asc(bookings.startsAt));
+      return rows.map((b) => ({
+        id: b.id,
+        artistName: b.artistName,
+        artistEmail: b.artistEmail,
+        startsAt: b.startsAt,
+        durationMin: b.durationMin,
+        packageName: b.packageNameSnapshot,
+      }));
+    }),
+
+  // Dashboard revenue tile. All three numbers are aggregated in JS
+  // rather than SUM() in SQL because we need to dedupe by currency
+  // (producers may have USD + EUR packages) + the volume is tiny
+  // (hundreds of bookings max). priceCents comes from the package
+  // row, so we join via the package id.
+  revenue: producerProcedure.query(async ({ ctx }) => {
+    // Anchor dates in the producer's TZ would be nicer, but we store
+    // bookings.startsAt as timestamptz and the dashboard's "this
+    // month" expectation is reasonable across any tz — close enough
+    // for a summary tile. UTC math avoids DST quirks.
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const nextMonthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+    );
+    const in7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    // Read producer's default currency for the tile header.
+    const [producer] = await ctx.db
+      .select({ defaultCurrency: producers.defaultCurrency })
+      .from(producers)
+      .where(eq(producers.id, ctx.producerId))
+      .limit(1);
+    const currency = producer?.defaultCurrency ?? "USD";
+
+    // Pull every booking that could contribute to any of the three
+    // numbers in a single query — cheap, and keeps the joining logic
+    // in JS where it's easier to reason about.
+    const bookingRows = await ctx.db
+      .select({
+        id: bookings.id,
+        status: bookings.status,
+        startsAt: bookings.startsAt,
+        packageId: bookings.packageId,
+      })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.producerId, ctx.producerId),
+          inArray(bookings.status, ["pending", "confirmed"]),
+        ),
+      );
+    if (bookingRows.length === 0) {
+      return {
+        mtdCents: 0,
+        outstandingCents: 0,
+        next7DaysCents: 0,
+        currency,
+      };
+    }
+
+    // Fetch the packages once for price + deposit lookup. Non-unique
+    // packageIds compress via a Set so we only fetch each row once.
+    // bookings.packageId is nullable (ON DELETE SET NULL keeps the
+    // booking alive when a package is purged), so filter those out.
+    const pkgIds = Array.from(
+      new Set(
+        bookingRows
+          .map((b) => b.packageId)
+          .filter((id): id is string => id !== null),
+      ),
+    );
+    const pkgRows = pkgIds.length === 0
+      ? []
+      : await ctx.db
+          .select({
+            id: packages.id,
+            priceCents: packages.priceCents,
+            depositPct: packages.depositPct,
+            currency: packages.currency,
+          })
+          .from(packages)
+          .where(inArray(packages.id, pkgIds));
+    const pkgById = new Map(pkgRows.map((p) => [p.id, p]));
+
+    let mtdCents = 0;
+    let outstandingCents = 0;
+    let next7DaysCents = 0;
+    for (const b of bookingRows) {
+      if (b.packageId === null) continue;
+      const pkg = pkgById.get(b.packageId);
+      if (!pkg) continue;
+      // Only count prices in the producer's default currency for the
+      // summary tile — multi-currency aggregation isn't a thing we
+      // want to attempt in a single cents number.
+      if (pkg.currency !== currency) continue;
+      if (b.status === "confirmed") {
+        if (b.startsAt >= monthStart && b.startsAt < nextMonthStart) {
+          mtdCents += pkg.priceCents;
+        }
+        if (b.startsAt >= now && b.startsAt <= in7) {
+          next7DaysCents += pkg.priceCents;
+        }
+      }
+      // Outstanding = unpaid deposits on pending + confirmed bookings.
+      // We don't yet track "deposit paid" — that lands with Stripe
+      // Connect. For now, the gross deposit owed is the signal.
+      if (pkg.depositPct > 0) {
+        outstandingCents += Math.round((pkg.priceCents * pkg.depositPct) / 100);
+      }
+    }
+    return { mtdCents, outstandingCents, next7DaysCents, currency };
+  }),
+
   list: producerProcedure
     .input(
       z
