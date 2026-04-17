@@ -272,6 +272,7 @@ function DealCard({ deal }: { deal: KanbanDeal }) {
         </span>
         <Link
           href={`/dashboard/deals/${deal.id}`}
+          prefetch
           onPointerDown={(e) => { e.stopPropagation(); }}
           onClick={(e) => { e.stopPropagation(); }}
           className="font-mono text-[0.66rem] text-[rgb(var(--fg-secondary))] underline-offset-4 hover:text-[rgb(var(--brand-primary))] hover:underline"
