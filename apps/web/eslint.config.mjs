@@ -14,9 +14,6 @@ export default tseslint.config(
       "next.config.ts",
       "postcss.config.mjs",
       "vitest.config.ts",
-      // Disabled during Phase C rewrite — revived in C.2/C.3 as /deals.
-      "src/app/(app)/dashboard/_projects.disabled/**",
-      "src/app/(public)/_share.disabled/**",
     ],
   },
   js.configs.recommended,
