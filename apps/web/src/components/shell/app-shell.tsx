@@ -38,7 +38,7 @@ export async function AppShell({
     | "portfolio"
     | "leads"
     | "booking"
-    | "projects"
+    | "deals"
     | "contracts"
     | "settings";
   children: ReactNode;
@@ -57,7 +57,7 @@ export async function AppShell({
           <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
             <ShellTab href="/dashboard" active={active === "overview"}>Overview</ShellTab>
             <ShellTab href="/dashboard/booking" active={active === "booking"}>Booking</ShellTab>
-            <ShellTab href="/dashboard/projects" active={active === "projects"}>Projects</ShellTab>
+            <ShellTab href="/dashboard/deals" active={active === "deals"}>Deals</ShellTab>
             <ShellTab href="/dashboard/contracts" active={active === "contracts"}>Contracts</ShellTab>
             <ShellTab href="/dashboard/portfolio" active={active === "portfolio"}>Portfolio</ShellTab>
             <ShellTab href="/dashboard/leads" active={active === "leads"}>Lead Links</ShellTab>
