@@ -23,8 +23,8 @@ interface ProducerProfile {
 // Defaults matching globals.css :root — used as placeholders on the
 // color inputs when the producer hasn't set their own. Mirrors the
 // Studio Monitor palette so the color pickers land somewhere sensible.
-const DEFAULT_PRIMARY = "#22c55e";
-const DEFAULT_ACCENT = "#f59e0b";
+const DEFAULT_PRIMARY = "#D4960A";
+const DEFAULT_ACCENT = "#B06830";
 
 function sanitizeSlug(v: string): string {
   return v

@@ -34,7 +34,9 @@ export function QrCode({
       // sets its own backdrop so the QR plays well on light or dark
       // surfaces.
       color: {
-        dark: "#f5f4f0",
+        // Dark modules on transparent so the QR reads on both LIGHT
+        // dashboards (where the banner sits) and DARK surfaces alike.
+        dark: "#1A1714",
         light: "#00000000",
       },
     })

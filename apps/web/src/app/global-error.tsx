@@ -17,8 +17,8 @@ export default function GlobalError({ reset }: { reset: () => void }) {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#0b0b0d",
-          color: "#f5f4f0",
+          background: "#F2EDE6",
+          color: "#1A1714",
           fontFamily:
             'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
           padding: "2rem",
@@ -32,7 +32,7 @@ export default function GlobalError({ reset }: { reset: () => void }) {
               fontSize: "0.7rem",
               letterSpacing: "0.18em",
               textTransform: "uppercase",
-              color: "#6e6c68",
+              color: "#8C8880",
             }}
           >
             Critical failure
@@ -41,14 +41,14 @@ export default function GlobalError({ reset }: { reset: () => void }) {
             style={{
               marginTop: "0.75rem",
               fontSize: "3rem",
-              fontWeight: 700,
+              fontWeight: 800,
               letterSpacing: "-0.04em",
               lineHeight: 0.95,
             }}
           >
             Signal cut.
           </h1>
-          <p style={{ marginTop: "1.5rem", color: "#a8a6a0" }}>
+          <p style={{ marginTop: "1.5rem", color: "#6B6560" }}>
             Skitza couldn&apos;t boot this page. Reload to retry.
           </p>
           <button
@@ -57,12 +57,13 @@ export default function GlobalError({ reset }: { reset: () => void }) {
               marginTop: "2rem",
               padding: "0.75rem 1.5rem",
               borderRadius: "0.5rem",
-              background: "#22c55e",
-              color: "#0b0b0d",
+              background: "linear-gradient(135deg, #D4960A, #B06830)",
+              color: "#0C0A07",
               border: "none",
               fontSize: "0.95rem",
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: "pointer",
+              boxShadow: "0 8px 24px -4px rgba(212,150,10,0.35)",
             }}
           >
             Reload

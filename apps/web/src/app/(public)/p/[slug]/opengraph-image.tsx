@@ -30,10 +30,10 @@ export default async function ProducerOgImage({ params }: { params: { slug: stri
           // Satori (the engine under ImageResponse) supports only one
           // background-image layer at a time — use backgroundColor for
           // the solid base, backgroundImage for a single gradient.
-          backgroundColor: "#0b0b0d",
+          backgroundColor: "#111009",
           backgroundImage:
-            "radial-gradient(ellipse at 15% 15%, rgba(34,197,94,0.28) 0%, transparent 55%)",
-          color: "#f5f4f0",
+            "radial-gradient(ellipse at 15% 15%, rgba(212,150,10,0.28) 0%, transparent 55%)",
+          color: "#EDE8E2",
         }}
       >
         <div
@@ -41,7 +41,7 @@ export default async function ProducerOgImage({ params }: { params: { slug: stri
             fontSize: 22,
             letterSpacing: 6,
             textTransform: "uppercase",
-            color: "#a8a6a0",
+            color: "#7A7268",
             display: "flex",
             alignItems: "center",
             gap: 20,
@@ -52,7 +52,7 @@ export default async function ProducerOgImage({ params }: { params: { slug: stri
               width: 10,
               height: 10,
               borderRadius: 5,
-              background: "#22c55e",
+              background: "#D4960A",
             }}
           />
           Portfolio · {trackCount} track{trackCount === 1 ? "" : "s"}
@@ -74,7 +74,7 @@ export default async function ProducerOgImage({ params }: { params: { slug: stri
             justifyContent: "space-between",
             alignItems: "center",
             fontSize: 22,
-            color: "#6e6c68",
+            color: "#595550",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -95,13 +95,13 @@ export default async function ProducerOgImage({ params }: { params: { slug: stri
                   width: 14,
                   height: 14,
                   borderRadius: 7,
-                  border: "2px solid #22c55e",
+                  border: "2px solid #D4960A",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <div style={{ width: 4, height: 4, borderRadius: 2, background: "#22c55e" }} />
+                <div style={{ width: 4, height: 4, borderRadius: 2, background: "#D4960A" }} />
               </div>
             </div>
             <div>Skitza</div>
