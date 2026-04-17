@@ -57,6 +57,13 @@
       "when": 1776435728527,
       "tag": "0007_bizarre_leper_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1776440438470,
+      "tag": "0008_nervous_blockbuster",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import {
   bigint,
   boolean,
   pgEnum,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 export const producers = pgTable("producers", {
@@ -149,6 +150,11 @@ export const bookings = pgTable("bookings", {
   // the booking row (see packageNameSnapshot) to preserve history too.
   packageId: uuid("package_id").references(() => packages.id, { onDelete: "set null" }),
   packageNameSnapshot: text("package_name_snapshot"),
+  // Nullable link to the Deal this booking feeds. Existing rows are
+  // back-filled to NULL; C.2 will wire confirm → createDeal so new
+  // confirmed bookings get a deal attached automatically. SET NULL on
+  // deal delete so the booking history survives.
+  dealId: uuid("deal_id").references((): AnyPgColumn => deals.id, { onDelete: "set null" }),
   artistName: text("artist_name").notNull(),
   artistEmail: text("artist_email").notNull(),
   artistPhone: text("artist_phone"),
@@ -162,22 +168,42 @@ export const bookings = pgTable("bookings", {
 export type Booking = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
 
-// ─── Project Rooms (Samply-equivalent) ──────────────────────────────
-// A project room is the post-booking collaboration surface. One
-// confirmed booking → one project room; the artist accesses it via
-// a signed share_token (shareable URL). The token's sha256 is stored,
-// never the raw token itself — matches magicLinks privacy posture.
-//
-// depositPaid + finalPaid are v1 proxies for Stripe state (Phase C
-// wires the actual flip). Download buttons on the artist side are
-// gated by finalPaid; the deposit gate is informational only.
-export const projects = pgTable("projects", {
+// ─── Deals (unified Booking + Contract + Project Room) ─────────────
+// A Deal ties every artifact for one engagement under a single row:
+// the booking that kicked it off, the contract that formalised it,
+// the project room where files + feedback live, and the client cache
+// (name/email snapshot so we can display a recent-activity feed even
+// after a booking is deleted). `stage` moves the deal through a
+// lightweight funnel (lead → booked → contract_sent → in_production →
+// final_review → paid → archived). We rename the legacy `projects`
+// table (and its child `project_tracks`) to `deals` / `deal_tracks`
+// so the data model matches the language. The share_token surface
+// and depositPaid/finalPaid v1 proxies survive verbatim.
+export const dealStage = pgEnum("deal_stage", [
+  "lead",          // potential, not yet booked
+  "booked",        // booking created
+  "contract_sent", // contract sent to artist
+  "in_production", // actively working
+  "final_review",  // final mix sent, awaiting approval
+  "paid",          // final invoice paid
+  "archived",      // closed
+]);
+
+export const deals = pgTable("deals", {
   id: uuid("id").defaultRandom().primaryKey(),
   producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
   // SET NULL so a booking delete doesn't nuke the collab history.
   bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
   title: text("title").notNull(),
+  stage: dealStage("stage").notNull().default("lead"),
+  // Client identity snapshot — duplicated onto the deal so the feed
+  // still renders a sensible row after a booking row is purged.
+  clientName: text("client_name"),
+  clientEmail: text("client_email"),
   shareTokenHash: text("share_token_hash").notNull().unique(),
+  // Legacy artistName/artistEmail kept for now — C.2 will fold them
+  // into clientName/clientEmail, but today they're required by the
+  // share-page render path and we avoid churning them here.
   artistName: text("artist_name").notNull(),
   artistEmail: text("artist_email").notNull(),
   depositPaid: boolean("deposit_paid").notNull().default(false),
@@ -185,21 +211,21 @@ export const projects = pgTable("projects", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
-export type Project = typeof projects.$inferSelect;
-export type NewProject = typeof projects.$inferInsert;
+export type Deal = typeof deals.$inferSelect;
+export type NewDeal = typeof deals.$inferInsert;
 
-// One named track within a project. `artist` is optional credit line
+// One named track within a deal. `artist` is optional credit line
 // (e.g. "feat. Someone"). Position orders tracks on the share page.
-export const projectTracks = pgTable("project_tracks", {
+export const dealTracks = pgTable("deal_tracks", {
   id: uuid("id").defaultRandom().primaryKey(),
-  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  dealId: uuid("deal_id").notNull().references(() => deals.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   artist: text("artist"),
   position: integer("position").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-export type ProjectTrack = typeof projectTracks.$inferSelect;
-export type NewProjectTrack = typeof projectTracks.$inferInsert;
+export type DealTrack = typeof dealTracks.$inferSelect;
+export type NewDealTrack = typeof dealTracks.$inferInsert;
 
 // Versions stacked under a track. Producers upload V1 → V2 → master.
 // The UI sorts by `uploadedAt` desc so the latest is top-of-stack,
@@ -207,7 +233,7 @@ export type NewProjectTrack = typeof projectTracks.$inferInsert;
 // (e.g. "Rough Mix", "Mix v2", "Master", "Instrumental").
 export const trackVersions = pgTable("track_versions", {
   id: uuid("id").defaultRandom().primaryKey(),
-  trackId: uuid("track_id").notNull().references(() => projectTracks.id, { onDelete: "cascade" }),
+  trackId: uuid("track_id").notNull().references(() => dealTracks.id, { onDelete: "cascade" }),
   label: text("label").notNull(),
   audioUrl: text("audio_url"),             // nullable during upload — filled by audio.completeMultipart
   durationMs: integer("duration_ms"),       // optional; we populate when known
@@ -276,7 +302,7 @@ export const contracts = pgTable("contracts", {
   // Source linkage. `bookingId` is nullable for standalone contracts
   // (e.g. a pre-session NDA). SET NULL on delete to preserve history.
   bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
-  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  projectId: uuid("project_id").references(() => deals.id, { onDelete: "set null" }),
   // Snapshot: template id at send time (for provenance) + the
   // resolved body (so later template edits don't rewrite history).
   templateId: uuid("template_id").references(() => contractTemplates.id, { onDelete: "set null" }),
