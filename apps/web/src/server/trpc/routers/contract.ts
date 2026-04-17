@@ -287,6 +287,18 @@ export const contractRouter = router({
         input.fields.filter((f) => f.id !== undefined).map((f) => f.id as string),
       );
 
+      // Pre-flight: any f.id that's provided must belong to THIS contract.
+      // Reject before we mutate anything so a bad payload can't leave the
+      // DB in a partially-applied state (e.g. deletes already fired).
+      for (const f of input.fields) {
+        if (f.id !== undefined && !existingIds.has(f.id)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Field id does not belong to this contract.",
+          });
+        }
+      }
+
       // Delete fields no longer in payload.
       for (const row of existing) {
         if (!keepIds.has(row.id)) {
@@ -309,13 +321,20 @@ export const contractRouter = router({
           prefilledValue: f.prefilledValue ?? null,
           options: f.options ?? null,
         };
-        if (f.id !== undefined && existingIds.has(f.id)) {
+        if (f.id === undefined) {
+          await ctx.db.insert(contractFields).values(base);
+        } else if (existingIds.has(f.id)) {
           await ctx.db
             .update(contractFields)
             .set(base)
             .where(eq(contractFields.id, f.id));
         } else {
-          await ctx.db.insert(contractFields).values(base);
+          // Pre-flight above already rejected this case; defensive guard
+          // keeps the branch exhaustive without silent fall-through.
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Field id does not belong to this contract.",
+          });
         }
       }
 
