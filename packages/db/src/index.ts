@@ -10,4 +10,7 @@ export * from "./client";
 // - `sql`: tagged-template escape hatch for aggregates
 //   (max(viewedAt)) in magicLink.list — drizzle has no first-class
 //   helper for arbitrary SQL fragments yet
-export { eq, and, desc, sql } from "drizzle-orm";
+// - `asc`: ORDER BY direction for packages.list (by position ASC)
+// - `gte/lte`: range filters on booking.startsAt in slot computation
+// - `inArray`: WHERE status IN (...) for filtering confirmed+pending
+export { eq, and, desc, asc, sql, gte, lte, inArray } from "drizzle-orm";
