@@ -29,6 +29,13 @@
       "when": 1776410352598,
       "tag": "0003_nosy_vision",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776412261571,
+      "tag": "0004_dashing_piledriver",
+      "breakpoints": true
     }
   ]
 }

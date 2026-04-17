@@ -156,3 +156,77 @@ export const bookings = pgTable("bookings", {
 });
 export type Booking = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
+
+// ─── Project Rooms (Samply-equivalent) ──────────────────────────────
+// A project room is the post-booking collaboration surface. One
+// confirmed booking → one project room; the artist accesses it via
+// a signed share_token (shareable URL). The token's sha256 is stored,
+// never the raw token itself — matches magicLinks privacy posture.
+//
+// depositPaid + finalPaid are v1 proxies for Stripe state (Phase C
+// wires the actual flip). Download buttons on the artist side are
+// gated by finalPaid; the deposit gate is informational only.
+export const projects = pgTable("projects", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  // SET NULL so a booking delete doesn't nuke the collab history.
+  bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  shareTokenHash: text("share_token_hash").notNull().unique(),
+  artistName: text("artist_name").notNull(),
+  artistEmail: text("artist_email").notNull(),
+  depositPaid: boolean("deposit_paid").notNull().default(false),
+  finalPaid: boolean("final_paid").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type Project = typeof projects.$inferSelect;
+export type NewProject = typeof projects.$inferInsert;
+
+// One named track within a project. `artist` is optional credit line
+// (e.g. "feat. Someone"). Position orders tracks on the share page.
+export const projectTracks = pgTable("project_tracks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  artist: text("artist"),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type ProjectTrack = typeof projectTracks.$inferSelect;
+export type NewProjectTrack = typeof projectTracks.$inferInsert;
+
+// Versions stacked under a track. Producers upload V1 → V2 → master.
+// The UI sorts by `uploadedAt` desc so the latest is top-of-stack,
+// matching Samply's "latest on top" convention. Label is free-text
+// (e.g. "Rough Mix", "Mix v2", "Master", "Instrumental").
+export const trackVersions = pgTable("track_versions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  trackId: uuid("track_id").notNull().references(() => projectTracks.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  audioUrl: text("audio_url").notNull(),   // v1: external URL; R2 comes later
+  durationMs: integer("duration_ms"),       // optional; we populate when known
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type TrackVersion = typeof trackVersions.$inferSelect;
+export type NewTrackVersion = typeof trackVersions.$inferInsert;
+
+// Timestamped comments on a version. `timestampMs` is the ms offset
+// into the track where the pin sits. Author is free-text (no Artist
+// accounts). Producers can resolve comments from the producer UI —
+// `resolvedAt` is the audit trail + the UI filter.
+export const trackComments = pgTable("track_comments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  versionId: uuid("version_id").notNull().references(() => trackVersions.id, { onDelete: "cascade" }),
+  authorName: text("author_name").notNull(),
+  authorEmail: text("author_email").notNull(),
+  body: text("body").notNull(),
+  timestampMs: integer("timestamp_ms").notNull(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  // Tracks which side posted — producer (internal) vs. artist
+  // (from the share page). Lets the UI style them differently.
+  fromProducer: boolean("from_producer").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type TrackComment = typeof trackComments.$inferSelect;
+export type NewTrackComment = typeof trackComments.$inferInsert;
