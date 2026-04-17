@@ -19,6 +19,7 @@ import { z } from "zod";
 
 import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
+import { recordContact } from "~/server/contacts/record";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -235,6 +236,19 @@ export const dealRouter = router({
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+    // Best-effort contact cache upsert. A failure MUST NOT break the
+    // deal create flow — the deal row is already persisted above.
+    try {
+      await recordContact(ctx.db, {
+        producerId: ctx.producerId,
+        email: input.artistEmail,
+        name: input.artistName,
+      });
+    } catch (err) {
+      console.warn("[contacts] recordContact failed in deal.create", err);
+    }
+
     // Return the RAW token exactly once — caller must persist/share
     // it immediately; we don't store it and can't regenerate an
     // existing deal's link without rotating.
@@ -555,7 +569,7 @@ export const dealRouter = router({
 
       const tokenHash = createHash("sha256").update(input.token).digest("hex");
       const [deal] = await db
-        .select({ id: deals.id })
+        .select({ id: deals.id, producerId: deals.producerId })
         .from(deals)
         .where(eq(deals.shareTokenHash, tokenHash))
         .limit(1);
@@ -593,6 +607,20 @@ export const dealRouter = router({
         .update(deals)
         .set({ updatedAt: new Date() })
         .where(eq(deals.id, deal.id));
+
+      // Best-effort contact cache upsert. The artist identified
+      // themselves via the comment form; treat that as a touch so
+      // the producer sees them in autocomplete next time.
+      try {
+        await recordContact(db, {
+          producerId: deal.producerId,
+          email: input.authorEmail,
+          name: input.authorName,
+        });
+      } catch (err) {
+        console.warn("[contacts] recordContact failed in deal.publicComment", err);
+      }
+
       return { id: row.id };
     }),
 });

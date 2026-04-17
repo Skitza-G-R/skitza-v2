@@ -8,6 +8,7 @@ import {
   bigint,
   boolean,
   pgEnum,
+  unique,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -346,3 +347,24 @@ export const contractEvents = pgTable("contract_events", {
 });
 export type ContractEvent = typeof contractEvents.$inferSelect;
 export type NewContractEvent = typeof contractEvents.$inferInsert;
+
+// ─── Client contacts cache ──────────────────────────────────────────
+// When an artist signs a contract, submits a booking request, or the
+// producer creates a deal, we upsert an entry here so send-forms can
+// pre-fill returning-artist details. `emailHash` is sha256(lower) and
+// is the dedupe key alongside producerId; the raw lowercase email is
+// kept for display. Scoped per-producer so contacts don't leak.
+export const clientContacts = pgTable("client_contacts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  emailHash: text("email_hash").notNull(),       // sha256 of lowercased email — privacy + dedupe key
+  email: text("email").notNull(),                 // raw lowercase email — displayed in UI
+  name: text("name").notNull(),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
+}));
+
+export type ClientContact = typeof clientContacts.$inferSelect;
+export type NewClientContact = typeof clientContacts.$inferInsert;

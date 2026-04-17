@@ -20,6 +20,7 @@ import { z } from "zod";
 import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
+import { recordContact } from "~/server/contacts/record";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 
 // Public procedures need their own `db` handle + an ipHash for
@@ -635,6 +636,20 @@ export const bookingRouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Best-effort contact cache update. A failure here (e.g. a
+      // transient DB issue on the upsert) MUST NOT break the booking
+      // request — the row above is the source of truth.
+      try {
+        await recordContact(db, {
+          producerId: producer.id,
+          email: input.artistEmail,
+          name: input.artistName,
+        });
+      } catch (err) {
+        console.warn("[contacts] recordContact failed in booking.publicRequest", err);
+      }
+
       return { id: row.id };
     }),
 });

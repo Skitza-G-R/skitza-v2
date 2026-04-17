@@ -3,12 +3,26 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
 import { AppShell } from "~/components/shell/app-shell";
+import { appRouter } from "~/server/trpc/routers/_app";
 import { NewDealForm } from "./new-deal-form";
 
 export default async function NewDealPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const siteUrl = process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
+
+  // Pre-fetch the producer's known client contacts so the form can
+  // offer returning-artist autocomplete without a client-side RPC
+  // round-trip on mount. Failure here is non-fatal — the form
+  // degrades to no autocomplete.
+  let contacts: { id: string; email: string; name: string }[] = [];
+  try {
+    const caller = appRouter.createCaller({ userId });
+    const rows = await caller.clientContacts.list();
+    contacts = rows.map((r) => ({ id: r.id, email: r.email, name: r.name }));
+  } catch {
+    contacts = [];
+  }
 
   return (
     <AppShell active="pipeline">
@@ -33,7 +47,7 @@ export default async function NewDealPage() {
         </header>
 
         <section className="mt-8">
-          <NewDealForm siteUrl={siteUrl} />
+          <NewDealForm siteUrl={siteUrl} contacts={contacts} />
         </section>
       </div>
     </AppShell>

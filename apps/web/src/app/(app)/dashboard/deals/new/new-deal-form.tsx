@@ -1,12 +1,14 @@
 "use client";
 
-import { type SyntheticEvent, useState, useTransition } from "react";
+import { type SyntheticEvent, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "~/components/ui/button";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import { createDeal } from "../actions";
+
+type Contact = { id: string; email: string; name: string };
 
 // After-create banner: producer sees the raw share URL ONCE. Same
 // one-shot discipline as Lead Links magic URLs.
@@ -76,7 +78,13 @@ function IssuedBanner({
   );
 }
 
-export function NewDealForm({ siteUrl }: { siteUrl: string }) {
+export function NewDealForm({
+  siteUrl,
+  contacts = [],
+}: {
+  siteUrl: string;
+  contacts?: Contact[];
+}) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
@@ -85,6 +93,22 @@ export function NewDealForm({ siteUrl }: { siteUrl: string }) {
   const [artistName, setArtistName] = useState("");
   const [artistEmail, setArtistEmail] = useState("");
   const [issued, setIssued] = useState<{ url: string; id: string } | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Client-side fuzzy match against the server-fetched contact list.
+  // Cheap (typical producer has dozens, not thousands) and avoids a
+  // per-keystroke RPC. Match on either email or name so the producer
+  // can type "maya" or "maya@" and find the same row.
+  const suggestions = useMemo(() => {
+    const q = artistEmail.trim().toLowerCase();
+    if (!q || contacts.length === 0) return [];
+    return contacts
+      .filter(
+        (c) =>
+          c.email.toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
+      )
+      .slice(0, 6);
+  }, [artistEmail, contacts]);
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -156,7 +180,7 @@ export function NewDealForm({ siteUrl }: { siteUrl: string }) {
               maxLength={80}
             />
           </div>
-          <div>
+          <div className="relative">
             <Label htmlFor="artistEmail">Artist email</Label>
             <Input
               id="artistEmail"
@@ -164,9 +188,51 @@ export function NewDealForm({ siteUrl }: { siteUrl: string }) {
               value={artistEmail}
               onChange={(e) => {
                 setArtistEmail(e.target.value);
+                setShowSuggestions(true);
               }}
+              onFocus={() => {
+                setShowSuggestions(true);
+              }}
+              onBlur={() => {
+                // Delay so mousedown on a suggestion has time to fire.
+                window.setTimeout(() => {
+                  setShowSuggestions(false);
+                }, 120);
+              }}
+              autoComplete="off"
               required
             />
+            {showSuggestions && suggestions.length > 0 ? (
+              <ul
+                role="listbox"
+                className="absolute z-10 mt-1 w-full overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-lg"
+              >
+                {suggestions.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onMouseDown={(ev) => {
+                        // onMouseDown (not onClick) so selecting the
+                        // row beats the input's onBlur that would hide
+                        // the list before a click fires.
+                        ev.preventDefault();
+                        setArtistName(c.name);
+                        setArtistEmail(c.email);
+                        setShowSuggestions(false);
+                      }}
+                      className="flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[rgb(var(--bg-base))]"
+                    >
+                      <span className="truncate text-[rgb(var(--fg-primary))]">
+                        {c.name}
+                      </span>
+                      <span className="truncate font-mono text-xs text-[rgb(var(--fg-muted))]">
+                        {c.email}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         </div>
         {error ? (
