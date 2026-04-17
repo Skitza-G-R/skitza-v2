@@ -17,7 +17,24 @@ export interface BookingPackage {
   priceCents: number;
   currency: string;
   depositPct: number;
+  kind: string;
+  locationType: string;
+  minLeadHours: number;
 }
+
+// Display labels. Public-friendly wording, not the DB enum values.
+const KIND_SECTION: Record<string, string> = {
+  session: "Sessions",
+  mixing: "Mixing",
+  mastering: "Mastering",
+  producing: "Producing",
+  other: "Other",
+};
+const LOCATION_PILL: Record<string, { label: string; tone: "studio" | "remote" | "travel" }> = {
+  studio: { label: "In studio", tone: "studio" },
+  remote: { label: "Remote", tone: "remote" },
+  client_space: { label: "Your space", tone: "travel" },
+};
 
 interface Props {
   slug: string;
@@ -166,45 +183,95 @@ export function BookingClient({
         </span>
       </div>
 
-      {/* Step 1: package picker */}
+      {/* Step 1: package picker.
+          Grouped by `kind` when the producer offers ≥2 distinct kinds
+          (e.g. Mixing + Producing), otherwise rendered as a single
+          grid to avoid an awkward solo section header. */}
       {step === "package" ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {packages.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => {
-                setPkgId(p.id);
-              }}
-              className="group relative rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 text-left transition-all hover:border-[rgb(var(--brand-primary)/0.5)] hover:shadow-[0_8px_24px_-4px_rgb(var(--brand-primary)/0.15)]"
-            >
-              <h3 className="font-display text-xl leading-tight" style={{ fontWeight: 700 }}>
-                {p.name}
-              </h3>
-              {p.description ? (
-                <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))] line-clamp-2">
-                  {p.description}
-                </p>
-              ) : null}
-              <div className="mt-4 flex items-baseline gap-3">
-                <span
-                  className="font-display text-2xl leading-none text-[rgb(var(--brand-primary))]"
-                  style={{ fontWeight: 800 }}
-                >
-                  {formatMoney(p.priceCents, p.currency)}
-                </span>
-                <span className="font-mono text-xs text-[rgb(var(--fg-muted))]">
-                  {p.durationMin}min · {p.sessionCount} session
-                  {p.sessionCount === 1 ? "" : "s"}
-                </span>
-              </div>
-              {p.depositPct > 0 ? (
-                <p className="mt-3 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--brand-accent))]">
-                  {String(p.depositPct)}% deposit at booking
-                </p>
-              ) : null}
-            </button>
-          ))}
+        <div className="space-y-8">
+          {(() => {
+            // Preserve the producer's `position` ordering inside each
+            // kind bucket.
+            const byKind = new Map<string, BookingPackage[]>();
+            for (const p of packages) {
+              const list = byKind.get(p.kind) ?? [];
+              list.push(p);
+              byKind.set(p.kind, list);
+            }
+            const shouldGroup = byKind.size >= 2;
+            const kinds = shouldGroup
+              ? Array.from(byKind.keys())
+              : ["__all__"];
+            return kinds.map((k) => {
+              const items = shouldGroup ? (byKind.get(k) ?? []) : packages;
+              return (
+                <section key={k}>
+                  {shouldGroup ? (
+                    <h2 className="mb-3 font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+                      {KIND_SECTION[k] ?? k}
+                    </h2>
+                  ) : null}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {items.map((p) => {
+                      const loc = LOCATION_PILL[p.locationType];
+                      const isPack = p.sessionCount > 1;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setPkgId(p.id);
+                          }}
+                          className="group relative flex min-h-[44px] flex-col rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 text-left transition-all hover:border-[rgb(var(--brand-primary)/0.5)] hover:shadow-[0_8px_24px_-4px_rgb(var(--brand-primary)/0.15)]"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <h3 className="font-display text-xl leading-tight" style={{ fontWeight: 700 }}>
+                              {p.name}
+                            </h3>
+                            {loc ? (
+                              <span
+                                className={[
+                                  "shrink-0 rounded-full px-2 py-0.5 font-mono text-[0.62rem] uppercase tracking-wider",
+                                  loc.tone === "studio"
+                                    ? "bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]"
+                                    : loc.tone === "remote"
+                                    ? "bg-[rgb(var(--fg-muted)/0.15)] text-[rgb(var(--fg-secondary))]"
+                                    : "bg-[rgb(var(--brand-accent)/0.15)] text-[rgb(var(--brand-accent))]",
+                                ].join(" ")}
+                              >
+                                {loc.label}
+                              </span>
+                            ) : null}
+                          </div>
+                          {p.description ? (
+                            <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))] line-clamp-3">
+                              {p.description}
+                            </p>
+                          ) : null}
+                          <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <span
+                              className="font-display text-2xl leading-none text-[rgb(var(--brand-primary))]"
+                              style={{ fontWeight: 800 }}
+                            >
+                              {formatMoney(p.priceCents, p.currency)}
+                            </span>
+                            <span className="font-mono text-xs text-[rgb(var(--fg-muted))]">
+                              {p.durationMin}min · {isPack ? `${String(p.sessionCount)}-pack` : "1 session"}
+                            </span>
+                          </div>
+                          {p.depositPct > 0 ? (
+                            <p className="mt-3 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--brand-accent))]">
+                              {String(p.depositPct)}% deposit at booking
+                            </p>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            });
+          })()}
         </div>
       ) : null}
 
@@ -217,7 +284,12 @@ export function BookingClient({
                 Selected: <span className="font-semibold text-[rgb(var(--fg-primary))]">{pkg.name}</span>
               </p>
               <p className="mt-1 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
-                Times shown in <span className="text-[rgb(var(--fg-secondary))]">{timezone}</span> (producer&apos;s studio)
+                Times shown in <span className="text-[rgb(var(--fg-secondary))]">{timezone}</span>
+                {pkg.locationType === "remote"
+                  ? " (remote session — no physical location)"
+                  : pkg.locationType === "client_space"
+                  ? " (producer travels to you)"
+                  : " (producer's studio)"}
               </p>
             </div>
             <Button
