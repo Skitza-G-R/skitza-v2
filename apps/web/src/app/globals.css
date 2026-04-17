@@ -56,6 +56,25 @@
     --shadow-glow: 0 0 0 1px rgb(var(--brand-primary) / 0.35), 0 8px 24px -4px rgb(var(--brand-primary) / 0.25);
   }
 
+  [data-theme="chrome-light"] {
+    /* Explicit LIGHT opt-in — used by legal/about pages that are nested
+       inside a dark parent layout and need to re-assert warm cream. */
+    --bg-base: 242 237 230;
+    --bg-elevated: 255 251 245;
+    --bg-sunken: 232 224 214;
+    --bg-overlay: 255 254 250;
+    --fg-primary: 26 23 20;
+    --fg-secondary: 107 101 96;
+    --fg-muted: 140 132 124;
+    --fg-inverse: 242 237 230;
+    --border-subtle: 0 0 0 / 0.08;
+    --border-strong: 0 0 0 / 0.18;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08);
+    --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.12);
+    color-scheme: light;
+  }
+
   [data-theme="chrome-dark"] {
     /* DARK alt — the "studio interior" / public-content world. */
     --bg-base: 17 16 9;            /* #111009 */

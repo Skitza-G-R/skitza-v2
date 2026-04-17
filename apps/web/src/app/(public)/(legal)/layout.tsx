@@ -2,10 +2,15 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 // Shared shell for the legal / informational pages: privacy, terms,
-// about. Shows a lightweight header so visitors can navigate back.
+// about. These nest inside the (public) dark wrapper but shouldn't
+// render dark — they're marketing-adjacent, not content-consumption.
+// Explicit `data-theme="chrome-light"` re-asserts the warm-cream palette.
 export default function LegalLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="relative min-h-dvh overflow-hidden bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
+    <div
+      data-theme="chrome-light"
+      className="relative min-h-dvh overflow-hidden bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]"
+    >
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-[-8rem] h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-[rgb(var(--brand-primary)/0.08)] blur-[120px]" />
       </div>

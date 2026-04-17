@@ -1,17 +1,19 @@
 import type { ReactNode } from "react";
 
-// Public route group (`/p/[slug]`, future short-link landings, etc.).
+// Public route group (`/p/[slug]`, `/m/[token]`, legal pages).
 //
-// The chrome-dark theme is the `:root` default in globals.css, so this
-// wrapper doesn't need a `data-theme` selector to opt in. We tag the wrapper
-// `data-theme="chrome-dark"` purely as intent (and a hook for future
-// per-page overrides) — it has no visual effect on its own. We can't set
-// the theme on `<body>` here: Next.js App Router only allows ONE
-// `<html>`/`<body>` and that lives in apps/web/src/app/layout.tsx.
+// `:root` in globals.css is LIGHT (warm cream) — that's the landing +
+// producer workspace default. This wrapper opts public CONTENT pages
+// into `data-theme="chrome-dark"` so a visitor who clicks a producer's
+// magic link lands on a record-sleeve dark page, not the marketing
+// cream. Matches the landing's own light → dark dramaturgy.
 //
-// Background and text colors are bound to the resolved CSS tokens so any
-// per-producer brand overrides applied deeper in the tree (Task 10) win
-// via inline-style specificity at the workspace root.
+// Set on a wrapper `<div>` because Next's App Router allows exactly
+// one `<html>` / `<body>`, which lives in app/layout.tsx.
+//
+// Bg + text are bound to the tokens so per-producer brand overrides
+// (inline-style at a deeper workspace root, Task 10) still win via
+// specificity.
 export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <div
