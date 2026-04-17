@@ -1,4 +1,13 @@
-import { pgTable, text, timestamp, jsonb, uuid, integer } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  timestamp,
+  jsonb,
+  uuid,
+  integer,
+  boolean,
+  pgEnum,
+} from "drizzle-orm/pg-core";
 
 export const producers = pgTable("producers", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -80,3 +89,70 @@ export const waitlist = pgTable("waitlist", {
 });
 export type WaitlistEntry = typeof waitlist.$inferSelect;
 export type NewWaitlistEntry = typeof waitlist.$inferInsert;
+
+// ─── Booking v1 ─────────────────────────────────────────────────────
+// A producer's offered services. Price in minor units (cents). `active`
+// is a soft-delete (false = hidden from public + dashboard lists) so
+// we never lose historical bookings' package names. `position` gives
+// drag-free ordering.
+export const packages = pgTable("packages", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  durationMin: integer("duration_min").notNull(),            // per session
+  sessionCount: integer("session_count").notNull().default(1),
+  priceCents: integer("price_cents").notNull().default(0),   // 0 = free / discovery
+  currency: text("currency").notNull().default("USD"),       // ISO 4217
+  depositPct: integer("deposit_pct").notNull().default(0),   // 0..100
+  active: boolean("active").notNull().default(true),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type Package = typeof packages.$inferSelect;
+export type NewPackage = typeof packages.$inferInsert;
+
+// Weekly recurring availability. One row per (producer, weekday, block)
+// — max 2 blocks per weekday (morning/evening). weekday uses JS's
+// Date.getDay() numbering: 0 = Sunday … 6 = Saturday. Minutes from
+// start of day: 0..1440 (inclusive start, exclusive end).
+export const availabilityBlocks = pgTable("availability_blocks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  weekday: integer("weekday").notNull(),
+  startMin: integer("start_min").notNull(),
+  endMin: integer("end_min").notNull(),
+});
+export type AvailabilityBlock = typeof availabilityBlocks.$inferSelect;
+export type NewAvailabilityBlock = typeof availabilityBlocks.$inferInsert;
+
+// Booking status — enum so typos can't drift into the column. Holding
+// all statuses in one table (vs. a separate `booking_requests`) keeps
+// the audit trail + producer dashboard single-source-of-truth.
+export const bookingStatus = pgEnum("booking_status", [
+  "pending",
+  "confirmed",
+  "rejected",
+  "cancelled",
+]);
+
+export const bookings = pgTable("bookings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  // packageId nullable + SET NULL on delete so a package purge doesn't
+  // obliterate the historical booking. We copy package snapshots onto
+  // the booking row (see packageNameSnapshot) to preserve history too.
+  packageId: uuid("package_id").references(() => packages.id, { onDelete: "set null" }),
+  packageNameSnapshot: text("package_name_snapshot"),
+  artistName: text("artist_name").notNull(),
+  artistEmail: text("artist_email").notNull(),
+  artistPhone: text("artist_phone"),
+  notes: text("notes"),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  durationMin: integer("duration_min").notNull(),
+  status: bookingStatus("status").notNull().default("pending"),
+  statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type Booking = typeof bookings.$inferSelect;
+export type NewBooking = typeof bookings.$inferInsert;

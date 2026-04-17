@@ -22,6 +22,13 @@
       "when": 1776405174939,
       "tag": "0002_skinny_eternals",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776410352598,
+      "tag": "0003_nosy_vision",
+      "breakpoints": true
     }
   ]
 }
