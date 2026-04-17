@@ -74,6 +74,7 @@ export default async function DealDetail({ params }: PageProps) {
           label: v.label,
           audioUrl: v.audioUrl,
           uploadedAt: v.uploadedAt,
+          approvedAt: v.approvedAt,
         }))}
         comments={data.comments.map((c) => ({
           id: c.id,

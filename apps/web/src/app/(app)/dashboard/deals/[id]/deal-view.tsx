@@ -15,6 +15,7 @@ import {
   addDealTrack,
   addProducerComment,
   addTrackVersion,
+  approveVersionAction,
   resolveVersionComment,
   setDealPaid,
   setStageAction,
@@ -69,6 +70,7 @@ interface Version {
   label: string;
   audioUrl: string | null;
   uploadedAt: Date;
+  approvedAt: Date | null;
 }
 
 interface CommentRow {
@@ -112,6 +114,36 @@ function formatMs(ms: number): string {
 
 function fmtDateTime(d: Date): string {
   return new Date(d).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+// Rough "x ago" string for the approved badge. We only care about this
+// at coarse resolution (the user's sense of "is this recent?"), so
+// rounding to the nearest unit is fine.
+function fmtAgo(d: Date): string {
+  const diff = Date.now() - new Date(d).getTime();
+  if (diff < 60_000) return "just now";
+  const m = Math.floor(diff / 60_000);
+  if (m < 60) return `${String(m)}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${String(h)}h ago`;
+  const days = Math.floor(h / 24);
+  return `${String(days)}d ago`;
+}
+
+// Detect whether a sibling version looks like a stems upload so we
+// don't nag the producer with the "Stems?" prompt after they've
+// already sent them. Heuristic: the label OR the audio URL contains
+// the word "stem". Case-insensitive. `stems.zip` / `stems (final)` /
+// `mix + stems` all match.
+export function hasStemsSibling(
+  approvedId: string,
+  siblingVersions: { id: string; label: string; audioUrl: string | null }[],
+): boolean {
+  const re = /stems?/i;
+  return siblingVersions.some(
+    (v) =>
+      v.id !== approvedId && (re.test(v.label) || (v.audioUrl !== null && re.test(v.audioUrl))),
+  );
 }
 
 // ─── Main ────────────────────────────────────────────────────────────
@@ -629,13 +661,20 @@ function AudioTab({
                     }}
                   />
                 )}
-                <p className="mt-2 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
-                  <span className="text-[rgb(var(--fg-secondary))]">{selectedVersion.label}</span>
-                  {" · "}
-                  {selectedVersion.audioUrl
-                    ? `uploaded ${fmtDateTime(selectedVersion.uploadedAt)}`
-                    : "upload pending"}
-                </p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
+                    <span className="text-[rgb(var(--fg-secondary))]">{selectedVersion.label}</span>
+                    {" · "}
+                    {selectedVersion.audioUrl
+                      ? `uploaded ${fmtDateTime(selectedVersion.uploadedAt)}`
+                      : "upload pending"}
+                  </p>
+                  <ApproveControl
+                    dealId={deal.id}
+                    version={selectedVersion}
+                    siblings={tVersions}
+                  />
+                </div>
               </div>
             ) : null}
 
@@ -886,6 +925,106 @@ function ProducerReplyForm({
         {pending ? "…" : "Post"}
       </Button>
     </form>
+  );
+}
+
+// ─── Approve control ─────────────────────────────────────────────────
+// Producer-side "mark this version final". Approving emits a
+// notification nudging the producer to upload stems. Once the heuristic
+// detects a stems sibling already exists, the "Stems?" link hides (the
+// notification is already resolved from the UX's perspective).
+function ApproveControl({
+  dealId,
+  version,
+  siblings,
+}: {
+  dealId: string;
+  version: Version;
+  siblings: Version[];
+}) {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [pending, startTransition] = useTransition();
+
+  function toggle(approved: boolean) {
+    startTransition(async () => {
+      const res = await approveVersionAction({
+        dealId,
+        versionId: version.id,
+        approved,
+      });
+      if (res.ok) {
+        toast(
+          approved
+            ? "Version approved — we'll remind you about stems."
+            : "Approval cleared.",
+          "success",
+        );
+        router.refresh();
+      } else {
+        toast(res.error, "error");
+      }
+    });
+  }
+
+  if (!version.approvedAt) {
+    return (
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        onClick={() => {
+          toggle(true);
+        }}
+        disabled={pending || !version.audioUrl}
+        // If there's no uploaded audio yet the button is disabled —
+        // approving a still-uploading version is nonsensical.
+        title={version.audioUrl ? "Mark this version as final" : "Upload audio before approving"}
+      >
+        {pending ? "…" : "Approve"}
+      </Button>
+    );
+  }
+
+  const stemsSibling = hasStemsSibling(version.id, siblings);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge variant="active" dot>
+        Approved {fmtAgo(version.approvedAt)}
+      </Badge>
+      {!stemsSibling ? (
+        <span className="font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
+          ·{" "}
+          <button
+            type="button"
+            onClick={() => {
+              // Scroll the version uploader into view and nudge the
+              // producer to add a "stems" labelled version. Selecting
+              // the + Version button focus-wise is more involved;
+              // for MVP we simply scroll + toast an instruction.
+              toast(
+                "Add a new version labelled \"stems\" under this track.",
+                "success",
+              );
+            }}
+            className="underline-offset-2 hover:text-[rgb(var(--brand-primary))] hover:underline"
+          >
+            Stems?
+          </button>
+        </span>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => {
+          toggle(false);
+        }}
+        disabled={pending}
+        className="font-mono text-[0.66rem] text-[rgb(var(--fg-muted))] underline-offset-2 hover:text-[rgb(var(--fg-primary))] hover:underline"
+      >
+        Undo
+      </button>
+    </div>
   );
 }
 

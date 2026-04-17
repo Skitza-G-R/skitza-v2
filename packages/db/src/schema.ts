@@ -286,6 +286,11 @@ export const trackVersions = pgTable("track_versions", {
   sizeBytes: bigint("size_bytes", { mode: "number" }),
   peaksR2Key: text("peaks_r2_key"),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  // G.11 — producer marks a version "final/approved". Presence of a
+  // timestamp is the approved flag; null means unapproved. When the
+  // producer sets this we also emit a `track_approved` notification
+  // ("don't forget to send Maya the stems").
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
 });
 export type TrackVersion = typeof trackVersions.$inferSelect;
 export type NewTrackVersion = typeof trackVersions.$inferInsert;
