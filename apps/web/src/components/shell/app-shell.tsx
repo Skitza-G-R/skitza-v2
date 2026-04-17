@@ -4,6 +4,8 @@ import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { createDb, eq, producers } from "@skitza/db";
 
+import { ThemeToggle } from "./theme-toggle";
+
 // App shell used by /dashboard and its children.
 // Header: Skitza wordmark + primary tabs + "View public" link + UserButton.
 // Mobile: tabs wrap below the wordmark; UserButton stays right-aligned on both.
@@ -73,6 +75,7 @@ export async function AppShell({
                 View public
               </Link>
             ) : null}
+            <ThemeToggle />
             <UserButton
               appearance={{
                 elements: {

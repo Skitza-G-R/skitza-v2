@@ -1,14 +1,36 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 // Shared shell for the legal / informational pages: privacy, terms,
-// about. These nest inside the (public) dark wrapper but shouldn't
-// render dark — they're marketing-adjacent, not content-consumption.
-// Explicit `data-theme="chrome-light"` re-asserts the warm-cream palette.
+// about. These nest inside the (public) `data-theme="chrome-dark"`
+// wrapper but shouldn't render dark — they're marketing-adjacent, not
+// content-consumption.
+//
+// Phase D retired the `[data-theme="chrome-light"]` escape-hatch
+// selector (light is :root now). To re-assert warm cream inside a
+// dark-scoped parent, we inline-override the palette tokens on this
+// wrapper. Token *names* stay identical, so every nested
+// `rgb(var(--bg-base))` call-site keeps working unchanged. This is
+// independent of the global next-themes toggle — legal pages are
+// deliberately a fixed editorial surface.
+const LIGHT_TOKENS: CSSProperties & Record<string, string> = {
+  "--bg-base": "244 239 231",
+  "--bg-elevated": "251 247 240",
+  "--bg-overlay": "246 240 231",
+  "--bg-sunken": "232 226 217",
+  "--fg-primary": "26 23 20",
+  "--fg-secondary": "61 55 48",
+  "--fg-muted": "107 97 88",
+  "--fg-inverse": "251 247 240",
+  "--border-subtle": "0 0 0 / 0.08",
+  "--border-strong": "0 0 0 / 0.14",
+  colorScheme: "light",
+};
+
 export default function LegalLayout({ children }: { children: ReactNode }) {
   return (
     <div
-      data-theme="chrome-light"
+      style={LIGHT_TOKENS}
       className="relative min-h-dvh overflow-hidden bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]"
     >
       <div aria-hidden className="pointer-events-none absolute inset-0">
