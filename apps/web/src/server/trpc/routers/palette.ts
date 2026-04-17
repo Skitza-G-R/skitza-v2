@@ -98,11 +98,10 @@ export const paletteRouter = router({
           .where(
             and(
               eq(contracts.producerId, ctx.producerId),
-              or(
-                ilike(contracts.title, pattern),
-                ilike(contracts.artistName, pattern),
-                ilike(contracts.artistEmail, pattern),
-              ),
+              // PDF contracts (post-B.2) scope artist identity per
+              // recipient in contract_recipients — title is the only
+              // searchable field on the contracts row itself.
+              ilike(contracts.title, pattern),
             ),
           )
           .orderBy(desc(contracts.createdAt))

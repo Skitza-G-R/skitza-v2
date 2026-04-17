@@ -85,7 +85,6 @@ interface CommentRow {
 interface ContractRow {
   id: string;
   title: string;
-  artistName: string;
   status: string;
   createdAt: Date;
   signedAt: Date | null;
@@ -938,7 +937,7 @@ function ContractTab({
                       {c.title}
                     </p>
                     <p className="mt-0.5 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
-                      {c.artistName} · created {fmtDateTime(c.createdAt)}
+                      Created {fmtDateTime(c.createdAt)}
                       {c.signedAt ? ` · signed ${fmtDateTime(c.signedAt)}` : ""}
                     </p>
                   </div>

@@ -3,60 +3,36 @@ import { auth } from "@clerk/nextjs/server";
 
 import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
-import { ContractsClient } from "./contracts-client";
+import { ContractsList, type ContractRow } from "./contracts-list";
 
+// Contracts list — producer's dashboard index for the new PDF-editor
+// contract flow. B.8 keeps this page deliberately simple: `contract.list()`
+// returns a summary row per contract (no joins). Recipient counts are a
+// later polish — the router either needs a dedicated listWithMeta() or
+// the client can fold `detail()` N+1. Neither is worth it for MVP.
+//
+// TODO(contracts-v2): add caller.contract.listWithMeta() so the row can
+// show "(X recipients)" without an N+1 storm.
 export default async function ContractsPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [templates, contractsList] = await Promise.all([
-    caller.contract.templates.list(),
-    caller.contract.list(),
-  ]);
-  const siteUrl = process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
+  const rows = await caller.contract.list();
+
+  // Drizzle returns Date objects for timestamps; serialise to ISO strings
+  // so we can pass plain data across the server/client boundary without
+  // Next's "Only plain objects" warning.
+  const contracts: ContractRow[] = rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    status: r.status,
+    createdAt: r.createdAt.toISOString(),
+  }));
 
   return (
     <AppShell active="contracts">
-      <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
-        <header className="reveal-up">
-          <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Contracts
-          </p>
-          <h1
-            className="mt-2 font-display text-4xl leading-tight tracking-tight sm:text-5xl"
-            style={{ fontWeight: 800 }}
-          >
-            Sign before you start.
-          </h1>
-          <p className="mt-3 max-w-xl text-sm text-[rgb(var(--fg-secondary))]">
-            Reusable templates with merge fields. One signing URL per artist. Audit trail
-            on every view + sign.
-          </p>
-        </header>
-
-        <div className="mt-8">
-          <ContractsClient
-            templates={templates.map((t) => ({
-              id: t.id,
-              name: t.name,
-              body: t.body,
-              active: t.active,
-              updatedAt: t.updatedAt,
-            }))}
-            contracts={contractsList.map((c) => ({
-              id: c.id,
-              title: c.title,
-              artistName: c.artistName,
-              artistEmail: c.artistEmail,
-              status: c.status,
-              createdAt: c.createdAt,
-              signedAt: c.signedAt,
-            }))}
-            siteUrl={siteUrl}
-          />
-        </div>
-      </div>
+      <ContractsList contracts={contracts} />
     </AppShell>
   );
 }

@@ -27,7 +27,6 @@ export default async function DealDetail({ params }: PageProps) {
   let contractsForDeal: {
     id: string;
     title: string;
-    artistName: string;
     status: string;
     createdAt: Date;
     signedAt: Date | null;
@@ -35,11 +34,10 @@ export default async function DealDetail({ params }: PageProps) {
   try {
     const all = await caller.contract.list();
     contractsForDeal = all
-      .filter((c) => c.projectId === id)
+      .filter((c) => c.dealId === id)
       .map((c) => ({
         id: c.id,
         title: c.title,
-        artistName: c.artistName,
         status: c.status,
         createdAt: c.createdAt,
         signedAt: c.signedAt,
