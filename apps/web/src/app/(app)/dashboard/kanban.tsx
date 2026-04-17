@@ -74,41 +74,62 @@ export function Kanban({ initial }: KanbanProps) {
       const targetStage = stageFromDroppableId(over.id as string);
       if (!targetStage) return;
 
-      // Locate the card + its current stage.
-      let sourceStage: Stage | null = null;
-      let card: KanbanDeal | null = null;
-      for (const s of STAGES) {
-        const found = grouped[s].find((d) => d.id === dealId);
-        if (found) {
-          sourceStage = s;
-          card = found;
-          break;
+      // Determine sourceStage by scanning the CURRENT state inside the
+      // functional updater — avoids a stale closure over `grouped` that
+      // could point at a pre-drag snapshot when drags are queued.
+      // `capturedSource` is typed via a ref-like object so TS doesn't
+      // narrow it to the initializer's `null` after the callback runs.
+      const captured: { stage: Stage | null } = { stage: null };
+      setGrouped((cur) => {
+        let sourceStage: Stage | null = null;
+        for (const s of STAGES) {
+          if (cur[s].some((d) => d.id === dealId)) {
+            sourceStage = s;
+            break;
+          }
         }
-      }
-      if (!card || !sourceStage || sourceStage === targetStage) return;
+        if (sourceStage === null || sourceStage === targetStage) return cur;
+        const card = cur[sourceStage].find((d) => d.id === dealId);
+        if (!card) return cur;
+        captured.stage = sourceStage;
+        // Optimistic move: prepend to target (mirrors server's
+        // desc(updatedAt) ordering — the moved card was just touched).
+        return {
+          ...cur,
+          [sourceStage]: cur[sourceStage].filter((d) => d.id !== dealId),
+          [targetStage]: [
+            { ...card, stage: targetStage, updatedAt: new Date() },
+            ...cur[targetStage],
+          ],
+        };
+      });
 
-      // Optimistic update: remove from source, prepend to target
-      // (mirrors the server's desc(updatedAt) ordering — the moved
-      // card has just been touched so it belongs at the top).
-      const optimistic = { ...grouped };
-      optimistic[sourceStage] = optimistic[sourceStage].filter((d) => d.id !== dealId);
-      optimistic[targetStage] = [
-        { ...card, stage: targetStage, updatedAt: new Date() },
-        ...optimistic[targetStage],
-      ];
-      setGrouped(optimistic);
+      const revertStage = captured.stage;
+      if (revertStage === null) return;
 
       startTransition(() => {
         void setStageAction({ id: dealId, stage: targetStage }).then((res) => {
           if (!res.ok) {
-            // Revert on failure.
-            setGrouped(grouped);
+            // Revert ONLY this card, against current state — not a stale
+            // snapshot that could clobber other successful moves.
+            setGrouped((cur) => {
+              const card = cur[targetStage].find((d) => d.id === dealId);
+              if (!card) return cur; // Already moved elsewhere; leave alone.
+              return {
+                ...cur,
+                [targetStage]: cur[targetStage].filter((d) => d.id !== dealId),
+                [revertStage]: [
+                  { ...card, stage: revertStage },
+                  ...cur[revertStage],
+                ],
+              };
+            });
             toast(res.error, "error");
           }
         });
       });
     },
-    [grouped, toast],
+    [toast],
   );
 
   if (total === 0) {
