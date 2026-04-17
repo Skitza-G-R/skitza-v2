@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { PersistentPlayer } from "~/components/audio/persistent-player";
 import { getShellState } from "~/server/shell-data";
 
 import { CommandPaletteTrigger } from "./command-palette-trigger";
@@ -34,6 +35,7 @@ export async function AppShell({
     | "booking"
     | "contracts"
     | "clients"
+    | "library"
     | "settings"
     | "inbox";
   children: ReactNode;
@@ -48,6 +50,7 @@ export async function AppShell({
       <CommandPaletteTrigger />
       <ShortcutsBridge />
       <DesktopMenuBridge />
+      <PersistentPlayer />
     </div>
   );
 }
