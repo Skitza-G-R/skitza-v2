@@ -1,12 +1,7 @@
 import { ImageResponse } from "next/og";
 
-// Dynamic favicon — rendered at build time into PNG via Next's ImageResponse.
-// Using the same motif as the wordmark in app-shell.tsx so the tab icon
-// matches what's in the header.
-//
-// 32x32 is Next's convention for the default `icon` file export; it auto-
-// emits a link rel="icon" tag in the HTML. See:
-// https://nextjs.org/docs/app/api-reference/file-conventions/metadata/app-icons
+// Favicon — dynamic ImageResponse with amber ring on warm cream.
+// Matches the new :root palette; retires the obsidian+green v1.
 export const size = { width: 32, height: 32 };
 export const contentType = "image/png";
 
@@ -20,7 +15,7 @@ export default function Icon() {
           height: "100%",
           alignItems: "center",
           justifyContent: "center",
-          background: "#0b0b0d",
+          background: "#F2EDE6",
           borderRadius: 7,
         }}
       >
@@ -29,13 +24,13 @@ export default function Icon() {
             width: 18,
             height: 18,
             borderRadius: 9,
-            border: "2px solid #22c55e",
+            border: "2px solid #D4960A",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <div style={{ width: 6, height: 6, borderRadius: 3, background: "#22c55e" }} />
+          <div style={{ width: 6, height: 6, borderRadius: 3, background: "#D4960A" }} />
         </div>
       </div>
     ),
