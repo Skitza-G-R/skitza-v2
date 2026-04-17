@@ -27,7 +27,15 @@ export async function AppShell({
   active,
   children,
 }: {
-  active: "pipeline" | "portfolio" | "leads" | "booking" | "contracts" | "settings" | "inbox";
+  active:
+    | "pipeline"
+    | "portfolio"
+    | "leads"
+    | "booking"
+    | "contracts"
+    | "clients"
+    | "settings"
+    | "inbox";
   children: ReactNode;
 }) {
   const { slug, unreadCount } = await getShellState();
