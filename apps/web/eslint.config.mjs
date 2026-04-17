@@ -14,7 +14,6 @@ export default tseslint.config(
       "next.config.ts",
       "postcss.config.mjs",
       "vitest.config.ts",
-      "src/**/_*.disabled/**",
     ],
   },
   js.configs.recommended,
