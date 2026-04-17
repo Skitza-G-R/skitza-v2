@@ -15,6 +15,13 @@
       "when": 1776354289024,
       "tag": "0001_cloudy_black_bolt",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776405174939,
+      "tag": "0002_skinny_eternals",
+      "breakpoints": true
     }
   ]
 }

@@ -69,3 +69,14 @@ export const magicLinkViews = pgTable("magic_link_views", {
 });
 export type MagicLinkView = typeof magicLinkViews.$inferSelect;
 export type NewMagicLinkView = typeof magicLinkViews.$inferInsert;
+
+export const waitlist = pgTable("waitlist", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  email: text("email").notNull().unique(),
+  source: text("source"),          // e.g. "landing-hero", "landing-final-cta"
+  userAgent: text("user_agent"),
+  ipHash: text("ip_hash"),         // sha256(ip); raw IPs never stored
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type WaitlistEntry = typeof waitlist.$inferSelect;
+export type NewWaitlistEntry = typeof waitlist.$inferInsert;
