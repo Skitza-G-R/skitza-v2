@@ -11,11 +11,11 @@ export default async function NewDealPage() {
   const siteUrl = process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
 
   return (
-    <AppShell active="deals">
+    <AppShell active="pipeline">
       <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-14">
         <header className="reveal-up">
           <Link
-            href="/dashboard/deals"
+            href="/dashboard"
             className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-primary))]"
           >
             ← All deals

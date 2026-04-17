@@ -8,5 +8,5 @@ type PageProps = { params: Promise<{ slug: string[] }> };
 export default async function LegacyProjectsSubpathRedirect({ params }: PageProps) {
   const { slug } = await params;
   const suffix = slug.join("/");
-  redirect(suffix ? `/dashboard/deals/${suffix}` : "/dashboard/deals");
+  redirect(suffix ? `/dashboard/deals/${suffix}` : "/dashboard");
 }

@@ -49,7 +49,7 @@ export default async function DealDetail({ params }: PageProps) {
   }
 
   return (
-    <AppShell active="deals">
+    <AppShell active="pipeline">
       <DealView
         deal={{
           id: data.deal.id,

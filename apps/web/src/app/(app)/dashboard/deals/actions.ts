@@ -10,7 +10,10 @@ import { appRouter } from "~/server/trpc/routers/_app";
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
-const PATH_LIST = "/dashboard/deals";
+// Kanban lives at /dashboard (C.4) — the old /dashboard/deals list
+// page is gone, so revalidating there would be a no-op. We point the
+// list-path revalidations at the Kanban root instead.
+const PATH_LIST = "/dashboard";
 function pathDetail(id: string): string {
   return `/dashboard/deals/${id}`;
 }

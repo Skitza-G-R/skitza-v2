@@ -1,281 +1,84 @@
 import Link from "next/link";
-import { currentUser, auth } from "@clerk/nextjs/server";
-import { createDb, eq, producers } from "@skitza/db";
+import { redirect } from "next/navigation";
+import { auth } from "@clerk/nextjs/server";
+
 import { AppShell } from "~/components/shell/app-shell";
-import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardDescription, CardTitle } from "~/components/ui/card";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-const relFmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-function formatRelative(d: Date): string {
-  const diffMs = d.getTime() - Date.now();
-  const abs = Math.abs(diffMs);
-  if (abs < 60_000) return "just now";
-  if (abs < 3_600_000) return relFmt.format(Math.round(diffMs / 60_000), "minute");
-  if (abs < 86_400_000) return relFmt.format(Math.round(diffMs / 3_600_000), "hour");
-  return relFmt.format(Math.round(diffMs / 86_400_000), "day");
-}
+import { Kanban, type KanbanDeal } from "./kanban";
+import { STAGES, type Stage } from "./kanban-helpers";
 
-// Dashboard overview — the first surface a producer sees every login.
-// Goal: show identity + a short list of useful actions, feel warm, not sterile.
-export default async function Dashboard() {
-  const user = await currentUser();
+// Phase C.4: the producer's default view is now the pipeline Kanban.
+// The previous overview (recent opens / stats / action cards) will be
+// reworked in Phase D when the "software feel" pass adds a proper
+// sidebar layout; for now we replace it wholesale.
+export default async function DashboardPage() {
   const { userId } = await auth();
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) throw new Error("missing DATABASE_URL");
-  const db = createDb(dbUrl);
+  if (!userId) redirect("/sign-in");
 
-  // (app)/layout.tsx guarantees both `user` and a complete Producer row
-  // before this component renders, so we can rely on the lookup succeeding.
-  if (!user) throw new Error("unauthenticated"); // belt-and-braces; layout should have redirected
-  const [row] = await db
-    .select({ displayName: producers.displayName, slug: producers.slug })
-    .from(producers)
-    .where(eq(producers.clerkUserId, user.id))
-    .limit(1);
-  const displayName = row?.displayName ?? user.firstName ?? "producer";
-  const slug = row?.slug ?? "";
+  const caller = appRouter.createCaller({ userId });
+  const grouped = await caller.deal.listByStage();
 
-  // Recent opens feed — surfaces activity across all lead links so the
-  // producer sees movement on the first surface after login. Empty on
-  // first day; fills naturally as leads click through.
-  type RecentView = {
-    id: string;
-    magicLinkId: string;
-    target: string;
-    viewedAt: Date;
-    dwellMs: number | null;
-    referer: string | null;
-  };
-  type Summary = {
-    totalLinks: number;
-    totalViews: number;
-    last7DaysViews: number;
-    topLink: { id: string; target: string; viewCount: number } | null;
-  };
-  let recentViews: RecentView[] = [];
-  let summary: Summary = { totalLinks: 0, totalViews: 0, last7DaysViews: 0, topLink: null };
-  if (userId) {
-    try {
-      const caller = appRouter.createCaller({ userId });
-      [recentViews, summary] = await Promise.all([
-        caller.magicLink.recentViews(),
-        caller.magicLink.summary(),
-      ]);
-    } catch {
-      // Non-fatal — the dashboard shouldn't crash if the analytics
-      // pipeline is down. Show the empty state instead.
-      recentViews = [];
-    }
-  }
+  // Project the tRPC response onto the narrower KanbanDeal shape. Two
+  // reasons to do this server-side: (1) keep the client bundle free of
+  // db-layer types, (2) stability — the client only cares about the
+  // six fields below, and insulating it from schema churn is cheap.
+  const initial = STAGES.reduce<Record<Stage, KanbanDeal[]>>(
+    (acc, stage) => {
+      acc[stage] = grouped[stage].map((d) => ({
+        id: d.id,
+        title: d.title,
+        stage: d.stage,
+        artistName: d.artistName,
+        clientName: d.clientName,
+        updatedAt: d.updatedAt,
+      }));
+      return acc;
+    },
+    {
+      lead: [],
+      booked: [],
+      contract_sent: [],
+      in_production: [],
+      final_review: [],
+      paid: [],
+      archived: [],
+    },
+  );
+
+  const total = STAGES.reduce((acc, s) => acc + initial[s].length, 0);
 
   return (
-    <AppShell active="overview">
-      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
-        <header className="reveal-up">
-          <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Studio overview
-          </p>
-          <h1
-            className="mt-3 font-display text-4xl leading-tight tracking-tight sm:text-5xl"
-            style={{ fontVariationSettings: '"opsz" 96' }}
-          >
-            Welcome back,{" "}
-            <span className="text-[rgb(var(--brand-primary))]">{displayName}</span>.
-          </h1>
-          {slug ? (
-            <p className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[rgb(var(--fg-secondary))]">
-              Your public portfolio lives at{" "}
-              <Link
-                href={`/p/${slug}`}
-                className="font-mono text-[rgb(var(--brand-primary))] underline-offset-4 hover:underline"
-              >
-                /p/{slug}
-              </Link>
+    <AppShell active="pipeline">
+      <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 sm:py-10">
+        <header className="reveal-up flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+              Pipeline
             </p>
-          ) : null}
+            <h1
+              className="mt-2 font-display text-3xl leading-tight tracking-tight sm:text-4xl"
+              style={{ fontVariationSettings: '"opsz" 96' }}
+            >
+              {total === 0
+                ? "Your deals, start to finish."
+                : `${total.toString()} ${total === 1 ? "deal" : "deals"} in flight.`}
+            </h1>
+            <p className="mt-2 max-w-xl text-sm text-[rgb(var(--fg-secondary))]">
+              Drag a card across columns to move the deal through its stage. Each card
+              drills into its own room — tracks, versions, feedback, contract, invoices.
+            </p>
+          </div>
+          <Link href="/dashboard/deals/new">
+            <Button>+ New deal</Button>
+          </Link>
         </header>
 
-        {/* Stats strip — only rendered when there's any activity. On
-            first day, skip it (nothing to show + distracting empty). */}
-        {summary.totalLinks > 0 ? (
-          <section className="mt-10 grid gap-3 reveal-up-delay-1 sm:grid-cols-3">
-            <StatCard label="Total links" value={summary.totalLinks} />
-            <StatCard label="Total opens" value={summary.totalViews} />
-            <StatCard label="Last 7 days" value={summary.last7DaysViews} emphasis />
-          </section>
-        ) : null}
-
-        {/* Primary action cards — each is a rack-unit-style card with a
-            subtle top border in the tile's accent hue. */}
-        <section className="mt-10 grid gap-4 reveal-up-delay-1 sm:mt-14 md:grid-cols-2">
-          <ActionCard
-            href="/dashboard/portfolio"
-            label="Portfolio"
-            title="Showcase your work"
-            description="Curate the tracks visitors hear when they land on your public page."
-            cta="Manage tracks"
-            accent="primary"
-          />
-          <ActionCard
-            href="/dashboard/leads"
-            label="Lead Links"
-            title="Send a smart URL"
-            description="Mint a single magic link that routes a lead through portfolio, booking, and deposit — with analytics."
-            cta="Issue a link"
-            accent="accent"
-          />
-        </section>
-
-        {/* Recent opens — real activity feed. If empty on first day,
-            shows a nudge to send a link. */}
-        {recentViews.length > 0 ? (
-          <section className="mt-10 reveal-up-delay-2">
-            <div className="flex items-center justify-between">
-              <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-                Recent opens
-              </p>
-              <Link
-                href="/dashboard/leads"
-                className="font-mono text-xs text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--brand-primary))]"
-              >
-                All leads →
-              </Link>
-            </div>
-            <ol className="mt-4 flex flex-col gap-px rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-px">
-              {recentViews.map((v) => (
-                <li
-                  key={v.id}
-                  className="grid grid-cols-[1fr_auto_auto] items-center gap-4 bg-[rgb(var(--bg-elevated))] px-4 py-3 first:rounded-t-[calc(var(--radius-lg)-1px)] last:rounded-b-[calc(var(--radius-lg)-1px)]"
-                >
-                  <Link
-                    href={`/dashboard/leads/${v.magicLinkId}`}
-                    className="flex items-center gap-3 min-w-0"
-                  >
-                    <span
-                      aria-hidden
-                      className="h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
-                    />
-                    <span className="truncate text-sm">
-                      Someone opened your{" "}
-                      <span className="font-medium capitalize">{v.target}</span> link
-                    </span>
-                  </Link>
-                  <span className="shrink-0 font-mono text-[0.7rem] text-[rgb(var(--fg-muted))]">
-                    {v.dwellMs !== null ? `${(v.dwellMs / 1000).toFixed(1)}s` : "—"}
-                  </span>
-                  <span className="shrink-0 font-mono text-[0.7rem] text-[rgb(var(--fg-secondary))]">
-                    {formatRelative(v.viewedAt)}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </section>
-        ) : null}
-
-        {/* Coming-soon rail: sets expectations for Phase 2+ features. */}
-        <section className="mt-10">
-          <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Coming next
-          </p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <SoonCard title="Booking" body="Cal.com-powered public booking page." />
-            <SoonCard title="Project Rooms" body="One URL per engagement: files, feedback, payments." />
-            <SoonCard title="Stripe Connect" body="Deposits & milestone invoices with Stripe Tax." />
-          </div>
+        <section className="mt-8 reveal-up-delay-1">
+          <Kanban initial={initial} />
         </section>
       </div>
     </AppShell>
-  );
-}
-
-function ActionCard({
-  href,
-  label,
-  title,
-  description,
-  cta,
-  accent,
-}: {
-  href: string;
-  label: string;
-  title: string;
-  description: string;
-  cta: string;
-  accent: "primary" | "accent";
-}) {
-  const bar =
-    accent === "primary"
-      ? "bg-[rgb(var(--brand-primary))]"
-      : "bg-[rgb(var(--brand-accent))]";
-  return (
-    <Link href={href} className="group block">
-      <Card className="relative h-full overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgb(var(--border-strong))] hover:shadow-[var(--shadow-md)]">
-        <div className={`absolute left-0 top-0 h-full w-[3px] ${bar}`} />
-        <CardContent className="flex h-full flex-col justify-between gap-6 pl-6 pt-5">
-          <div>
-            <div className="flex items-center justify-between">
-              <Badge variant={accent === "primary" ? "active" : "accent"} dot>
-                {label}
-              </Badge>
-              <span className="font-mono text-xs text-[rgb(var(--fg-muted))] transition-colors group-hover:text-[rgb(var(--fg-secondary))]">
-                ↗
-              </span>
-            </div>
-            <h2 className="mt-4 font-display text-2xl leading-tight tracking-tight">
-              {title}
-            </h2>
-            <CardDescription className="mt-2">{description}</CardDescription>
-          </div>
-          <Button variant="outline" size="sm" className="w-fit">
-            {cta}
-          </Button>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string;
-  value: number;
-  emphasis?: boolean;
-}) {
-  return (
-    <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-      <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-        {label}
-      </p>
-      <p
-        className={[
-          "mt-2 font-display leading-none tracking-tight",
-          emphasis
-            ? "text-4xl text-[rgb(var(--brand-primary))]"
-            : "text-3xl text-[rgb(var(--fg-primary))]",
-        ].join(" ")}
-        style={{ fontVariationSettings: '"opsz" 96' }}
-      >
-        {value.toLocaleString()}
-      </p>
-    </div>
-  );
-}
-
-function SoonCard({ title, body }: { title: string; body: string }) {
-  return (
-    <Card className="opacity-70">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">{title}</CardTitle>
-          <Badge>Soon</Badge>
-        </div>
-        <CardDescription className="mt-1 text-xs">{body}</CardDescription>
-      </CardContent>
-    </Card>
   );
 }

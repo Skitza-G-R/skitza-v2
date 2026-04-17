@@ -34,11 +34,10 @@ export async function AppShell({
   children,
 }: {
   active:
-    | "overview"
+    | "pipeline"
     | "portfolio"
     | "leads"
     | "booking"
-    | "deals"
     | "contracts"
     | "settings";
   children: ReactNode;
@@ -55,9 +54,8 @@ export async function AppShell({
             </span>
           </Link>
           <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
-            <ShellTab href="/dashboard" active={active === "overview"}>Overview</ShellTab>
+            <ShellTab href="/dashboard" active={active === "pipeline"}>Pipeline</ShellTab>
             <ShellTab href="/dashboard/booking" active={active === "booking"}>Booking</ShellTab>
-            <ShellTab href="/dashboard/deals" active={active === "deals"}>Deals</ShellTab>
             <ShellTab href="/dashboard/contracts" active={active === "contracts"}>Contracts</ShellTab>
             <ShellTab href="/dashboard/portfolio" active={active === "portfolio"}>Portfolio</ShellTab>
             <ShellTab href="/dashboard/leads" active={active === "leads"}>Lead Links</ShellTab>
@@ -86,7 +84,7 @@ export async function AppShell({
         </div>
         {/* Mobile nav row under the wordmark. */}
         <nav aria-label="Primary" className="flex gap-1 overflow-x-auto border-t border-[rgb(var(--border-subtle))] px-4 py-2 md:hidden">
-          <ShellTab href="/dashboard" active={active === "overview"}>Overview</ShellTab>
+          <ShellTab href="/dashboard" active={active === "pipeline"}>Pipeline</ShellTab>
           <ShellTab href="/dashboard/portfolio" active={active === "portfolio"}>Portfolio</ShellTab>
           <ShellTab href="/dashboard/leads" active={active === "leads"}>Lead Links</ShellTab>
         </nav>
