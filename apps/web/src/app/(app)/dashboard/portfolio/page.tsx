@@ -70,7 +70,8 @@ export default async function PortfolioPage() {
             <EmptyState
               icon={<AudioIcon />}
               title="No tracks yet."
-              description="Add your first one to start building your portfolio. Paste an MP3/WAV URL (for now — upload comes soon) and a piece of artwork."
+              description="Your portfolio is what clients see on your public page. Drop a track to feature your work — MP3, WAV, and a bit of artwork is all it takes."
+              className="min-h-[60vh] justify-center"
             />
           ) : (
             <ol className="space-y-3">

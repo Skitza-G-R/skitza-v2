@@ -265,12 +265,14 @@ export function InboxList({
       {items.length === 0 ? (
         <div className="mt-6">
           <EmptyState
-            title={showArchived ? "No archived items." : "Nothing to review."}
+            icon={<InboxIcon />}
+            title={showArchived ? "No archived items." : "You're caught up."}
             description={
               showArchived
-                ? "Items you archive will land here."
-                : "New comments, bookings, and signatures will show up on this page."
+                ? "Items you archive land here — a quiet shelf, not a trash can."
+                : "When a client comments, books, or signs, you'll see it here. Nothing to do right now."
             }
+            className="min-h-[60vh] justify-center"
           />
         </div>
       ) : (
@@ -403,5 +405,24 @@ function InboxRow({
         {showArchived ? "Unarchive" : "Archive"}
       </button>
     </li>
+  );
+}
+
+function InboxIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="20"
+      height="20"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M2 9.5h3.5l1 2h3l1-2H14" />
+      <path d="M2 9.5 3.5 3h9L14 9.5v3.25A.75.75 0 0 1 13.25 13.5h-10.5A.75.75 0 0 1 2 12.75Z" />
+    </svg>
   );
 }

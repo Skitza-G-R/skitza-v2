@@ -139,13 +139,15 @@ export function ContractsList({ contracts }: { contracts: ContractRow[] }) {
       {contracts.length === 0 ? (
         <section className="mt-10">
           <EmptyState
+            icon={<ContractIcon />}
             title="No contracts yet."
-            description="Upload a PDF, drop your signature fields, and send it to a client. They sign in the browser — no account required."
+            description="Contracts start as drafts. Upload a PDF, place signature fields, send — artists sign on any device. You get a timestamped audit trail."
             action={
               <Button asChild>
                 <Link href="/dashboard/contracts/new">Send your first contract</Link>
               </Button>
             }
+            className="min-h-[60vh] justify-center"
           />
         </section>
       ) : (
@@ -250,5 +252,25 @@ export function ContractsList({ contracts }: { contracts: ContractRow[] }) {
         </>
       )}
     </div>
+  );
+}
+
+function ContractIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="20"
+      height="20"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 1.75h6.5L13 5.25v9A.75.75 0 0 1 12.25 15H3a.75.75 0 0 1-.75-.75v-11.5A.75.75 0 0 1 3 1.75Z" />
+      <path d="M9 1.75V5.5h4" />
+      <path d="M5 8.5h6M5 11.5h4" />
+    </svg>
   );
 }

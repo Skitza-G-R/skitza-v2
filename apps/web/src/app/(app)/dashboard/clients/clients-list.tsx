@@ -243,7 +243,7 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
           <EmptyState
             icon={<PeopleIcon />}
             title="No clients yet."
-            description="Skitza auto-adds clients when they book or sign — or you can add one now."
+            description="Skitza auto-adds clients when they book or sign a contract — or you can add one by hand to get started."
             action={
               <Button
                 type="button"
@@ -254,6 +254,7 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
                 + Add client
               </Button>
             }
+            className="min-h-[60vh] justify-center"
           />
         ) : filtered.length === 0 ? (
           <EmptyState

@@ -177,8 +177,9 @@ export function LibraryList({ initial }: { initial: LibraryRow[] }) {
           </p>
         </header>
         <EmptyState
+          icon={<LibraryIcon />}
           title="Your library is empty."
-          description="Upload a track on any deal's Audio tab — it'll show up here automatically."
+          description="Every track version across every deal lives here. Upload on a deal's Audio tab and it'll show up — no manual sync required."
           action={
             <Link
               href="/dashboard"
@@ -187,6 +188,7 @@ export function LibraryList({ initial }: { initial: LibraryRow[] }) {
               Go to Pipeline
             </Link>
           }
+          className="min-h-[60vh] justify-center"
         />
       </div>
     );
@@ -716,6 +718,27 @@ function CloseIcon() {
   return (
     <svg viewBox="0 0 16 16" width={18} height={18} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden>
       <path d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5" />
+    </svg>
+  );
+}
+
+function LibraryIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="20"
+      height="20"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 10V6" />
+      <path d="M6 12V4" />
+      <path d="M9 11V5" />
+      <path d="M12 9V7" />
     </svg>
   );
 }
