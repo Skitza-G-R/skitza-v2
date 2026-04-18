@@ -2,8 +2,10 @@
 // others are labelled "coming soon" so we don't promise binaries we
 // haven't shipped. Mobile: buttons stack full-width with min-h-12.
 //
-// The GitHub Releases URL returns `/latest` which 404s until v1.0.0 is
-// tagged. The footnote below makes that honest.
+// The GitHub Releases URL returns `/latest` which 404s until a release
+// has been tagged. The footnote below makes that honest — and the
+// unsigned-binary workaround is called out so first-launch doesn't
+// feel like it's broken.
 export function Download() {
   return (
     <section
@@ -103,10 +105,16 @@ export function Download() {
 
         <p className="mt-6 text-center font-mono text-[11px] text-[rgb(var(--fg-muted))]">
           Releases are published from GitHub when a new version drops — the link
-          above tracks the latest Mac DMG.
+          above tracks the latest Mac DMG. If it 404s, we haven&apos;t cut a
+          release yet; check back soon.
         </p>
         <p className="mt-2 text-center font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-          System requirements: macOS 13 Ventura or later · 4 GB RAM · 250 MB disk
+          First launch: right-click the app and choose{" "}
+          <span className="text-[rgb(var(--fg-secondary))]">Open</span> (the
+          build isn&apos;t notarised yet, so Gatekeeper asks once).
+        </p>
+        <p className="mt-2 text-center font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+          System requirements: macOS 11 Big Sur or later · 4 GB RAM · 250 MB disk
         </p>
       </div>
     </section>
