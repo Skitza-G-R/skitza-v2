@@ -217,6 +217,36 @@ export async function chargeFinalAction(input: {
   }
 }
 
+// Task 9 — producer cancels a project mid-flight. Stops Stripe future
+// charges (monthly schedule cancel) and flips stage to 'cancelled'.
+// Server-side title match guard is enforced inside the mutation; we
+// surface its error message verbatim so the modal can render it inline.
+//
+// Unlike the generic toMessage() which collapses INTERNAL_SERVER_ERROR
+// into "Something went wrong", a Stripe failure here carries actionable
+// info ("Stripe cancel failed: <detail>") that the producer needs to
+// see. We extract the raw TRPCError message rather than rewrap it.
+export async function cancelProjectAction(input: {
+  projectId: string;
+  confirmTitle: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.cancel(input);
+    revalidatePath(pathDetail(input.projectId));
+    revalidatePath(PATH_LIST);
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof TRPCError) {
+      // Surface message verbatim for ALL TRPCError codes — the cancel
+      // mutation crafts each one to be producer-actionable.
+      return { ok: false, error: err.message || toMessage(err) };
+    }
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 export async function setStageAction(input: {
   id: string;
   stage: Stage;

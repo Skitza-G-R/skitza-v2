@@ -30,6 +30,9 @@ const producerSelectQueue: Row[][] = [];
 const projectSelectQueue: Row[][] = [];
 const invoiceSelectQueue: Row[][] = [];
 const projectUpdateMock = vi.fn<() => Promise<void>>();
+// Captures every .set(...) payload on the projects update chain, so
+// the cancel tests can assert "stage was set to cancelled".
+const projectUpdateSetSpy = vi.fn<(payload: Row) => void>();
 
 function shift<T>(q: T[][]): T[] {
   return q.shift() ?? [];
@@ -69,15 +72,21 @@ const dbMock = {
     values: insertValuesSpy,
   }),
   update: () => ({
-    set: () => ({ where: () => projectUpdateMock() }),
+    set: (payload: Row) => {
+      projectUpdateSetSpy(payload);
+      return { where: () => projectUpdateMock() };
+    },
   }),
 };
 
 // Stripe mock — chargeFinal uses stripe.paymentIntents.create(params, opts).
+// cancel uses stripe.subscriptionSchedules.cancel(scheduleId).
 const paymentIntentsCreateMock = vi.fn();
+const subscriptionSchedulesCancelMock = vi.fn();
 vi.mock("~/server/stripe/client", () => ({
   getStripe: () => ({
     paymentIntents: { create: paymentIntentsCreateMock },
+    subscriptionSchedules: { cancel: subscriptionSchedulesCancelMock },
   }),
   getSiteUrl: () => "https://skitza.test",
 }));
@@ -121,8 +130,10 @@ beforeEach(() => {
   projectSelectQueue.length = 0;
   invoiceSelectQueue.length = 0;
   projectUpdateMock.mockReset().mockResolvedValue(undefined);
+  projectUpdateSetSpy.mockReset();
   insertValuesSpy.mockReset().mockResolvedValue(undefined);
   paymentIntentsCreateMock.mockReset();
+  subscriptionSchedulesCancelMock.mockReset();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -354,5 +365,259 @@ describe("project.chargeFinal", () => {
       caller.project.chargeFinal({ projectId: PROJECT_ID }),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(paymentIntentsCreateMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Task 9 — project.cancel ────────────────────────────────────────
+// The cancel mutation stops future Stripe charges (monthly schedule
+// only — full/split have no future-charge surface) and writes
+// stage='cancelled' eagerly so the producer sees immediate feedback
+// rather than waiting for the customer.subscription.deleted webhook.
+describe("project.cancel", () => {
+  const PROJECT_TITLE = "My album mixing project";
+  const SCHEDULE_ID = "sub_sched_to_cancel";
+
+  // Helper: most cancel tests follow the same shape — middleware
+  // resolves producer ownership, then the body reads the project. This
+  // keeps the test bodies focused on the override that matters.
+  function seedCancel(project: Partial<Row> = {}) {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    projectSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        producerId: PRODUCER_ID,
+        title: PROJECT_TITLE,
+        stage: "in_production",
+        paymentPlanKind: "monthly",
+        chargesCompleted: 2,
+        chargesTotal: 6,
+        stripeSubscriptionScheduleId: SCHEDULE_ID,
+        ...project,
+      },
+    ]);
+  }
+
+  it("rejects NOT_FOUND when project doesn't belong to producer", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    // Empty project queue → ownership-scoped SELECT returns no rows.
+    projectSelectQueue.push([]);
+    const caller = await buildCaller();
+    await expect(
+      caller.project.cancel({
+        projectId: PROJECT_ID,
+        confirmTitle: PROJECT_TITLE,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
+    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects BAD_REQUEST when confirmTitle doesn't match", async () => {
+    seedCancel();
+    const caller = await buildCaller();
+    await expect(
+      caller.project.cancel({
+        projectId: PROJECT_ID,
+        confirmTitle: "Wrong title",
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Confirmation title mismatch",
+    });
+    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
+    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects BAD_REQUEST when title differs only by case", async () => {
+    // Sanity check: confirmation is case-sensitive so a producer typing
+    // a near-miss is forced to re-look at the project name. The server
+    // mirrors the modal's exact-match guard.
+    seedCancel();
+    const caller = await buildCaller();
+    await expect(
+      caller.project.cancel({
+        projectId: PROJECT_ID,
+        confirmTitle: PROJECT_TITLE.toUpperCase(),
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Confirmation title mismatch",
+    });
+  });
+
+  it("returns idempotent success when already cancelled", async () => {
+    seedCancel({ stage: "cancelled" });
+    const caller = await buildCaller();
+    const res = await caller.project.cancel({
+      projectId: PROJECT_ID,
+      confirmTitle: PROJECT_TITLE,
+    });
+    expect(res).toEqual({ ok: true });
+    // Idempotency: no Stripe call, no DB write — already in target state.
+    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
+    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects BAD_REQUEST when project is already paid", async () => {
+    seedCancel({ stage: "paid" });
+    const caller = await buildCaller();
+    await expect(
+      caller.project.cancel({
+        projectId: PROJECT_ID,
+        confirmTitle: PROJECT_TITLE,
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Project is already finished; cannot cancel.",
+    });
+    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects BAD_REQUEST when project is already archived", async () => {
+    seedCancel({ stage: "archived" });
+    const caller = await buildCaller();
+    await expect(
+      caller.project.cancel({
+        projectId: PROJECT_ID,
+        confirmTitle: PROJECT_TITLE,
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Project is already finished; cannot cancel.",
+    });
+    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
+  });
+
+  it("monthly: calls stripe.subscriptionSchedules.cancel with schedule id", async () => {
+    seedCancel(); // monthly + schedule id present by default
+    subscriptionSchedulesCancelMock.mockResolvedValue({
+      id: SCHEDULE_ID,
+      status: "canceled",
+    });
+
+    const caller = await buildCaller();
+    const res = await caller.project.cancel({
+      projectId: PROJECT_ID,
+      confirmTitle: PROJECT_TITLE,
+    });
+
+    expect(res).toEqual({ ok: true });
+    expect(subscriptionSchedulesCancelMock).toHaveBeenCalledTimes(1);
+    expect(subscriptionSchedulesCancelMock).toHaveBeenCalledWith(SCHEDULE_ID);
+    // DB write: stage flipped to 'cancelled'. We capture the .set()
+    // payload via the spy so we can assert the exact field is touched.
+    const setCalls = projectUpdateSetSpy.mock.calls;
+    expect(setCalls.length).toBeGreaterThan(0);
+    const lastSet = setCalls[setCalls.length - 1]?.[0] as Row;
+    expect(lastSet.stage).toBe("cancelled");
+  });
+
+  it("full plan: skips Stripe call (no schedule), still sets stage", async () => {
+    seedCancel({
+      paymentPlanKind: "full",
+      stripeSubscriptionScheduleId: null,
+      // Full was charged at checkout — chargesCompleted reflects that.
+      chargesCompleted: 1,
+      chargesTotal: 1,
+    });
+    const caller = await buildCaller();
+    const res = await caller.project.cancel({
+      projectId: PROJECT_ID,
+      confirmTitle: PROJECT_TITLE,
+    });
+    expect(res).toEqual({ ok: true });
+    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("cancelled");
+  });
+
+  it("split_50_50: skips Stripe call (no schedule), still sets stage", async () => {
+    seedCancel({
+      paymentPlanKind: "split_50_50",
+      stripeSubscriptionScheduleId: null,
+      chargesCompleted: 1,
+      chargesTotal: 2,
+    });
+    const caller = await buildCaller();
+    const res = await caller.project.cancel({
+      projectId: PROJECT_ID,
+      confirmTitle: PROJECT_TITLE,
+    });
+    expect(res).toEqual({ ok: true });
+    // Split's second-half is producer-triggered (chargeFinal), not on
+    // a Stripe schedule — there's nothing on Stripe's side to cancel.
+    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("cancelled");
+  });
+
+  it("treats 'schedule already cancelled' as idempotent success", async () => {
+    seedCancel();
+    // Stripe surfaces this as an InvalidRequestError; we use the
+    // message regex to identify the class.
+    subscriptionSchedulesCancelMock.mockRejectedValueOnce(
+      new Error(
+        "This subscription schedule has already been canceled and cannot be updated.",
+      ),
+    );
+    const caller = await buildCaller();
+    const res = await caller.project.cancel({
+      projectId: PROJECT_ID,
+      confirmTitle: PROJECT_TITLE,
+    });
+    expect(res).toEqual({ ok: true });
+    // The DB write still happens — our local state needs to converge
+    // even if Stripe was already in the terminal state.
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("cancelled");
+  });
+
+  it("treats 'schedule already released' as idempotent success", async () => {
+    seedCancel();
+    subscriptionSchedulesCancelMock.mockRejectedValueOnce(
+      new Error("Schedule already released."),
+    );
+    const caller = await buildCaller();
+    await expect(
+      caller.project.cancel({
+        projectId: PROJECT_ID,
+        confirmTitle: PROJECT_TITLE,
+      }),
+    ).resolves.toEqual({ ok: true });
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("cancelled");
+  });
+
+  it("surfaces unexpected Stripe errors as INTERNAL_SERVER_ERROR", async () => {
+    seedCancel();
+    subscriptionSchedulesCancelMock.mockRejectedValueOnce(
+      new Error("Stripe API connection error"),
+    );
+    const caller = await buildCaller();
+    await expect(
+      caller.project.cancel({
+        projectId: PROJECT_ID,
+        confirmTitle: PROJECT_TITLE,
+      }),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+      // Wrap so the producer sees the underlying Stripe text.
+      message: "Stripe cancel failed: Stripe API connection error",
+    });
+    // DB write must NOT happen on real Stripe failure — we don't want
+    // local state to drift from the upstream truth (the schedule is
+    // still active).
+    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
+  });
+
+  it("throws UNAUTHORIZED when caller is not signed in", async () => {
+    const caller = await buildCaller(null);
+    await expect(
+      caller.project.cancel({
+        projectId: PROJECT_ID,
+        confirmTitle: PROJECT_TITLE,
+      }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
   });
 });

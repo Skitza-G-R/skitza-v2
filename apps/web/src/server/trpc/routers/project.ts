@@ -125,6 +125,14 @@ const ChargeFinalInput = z.object({
   projectId: z.string().uuid(),
 });
 
+const CancelProjectInput = z.object({
+  projectId: z.string().uuid(),
+  // Type-to-confirm guard. The UI requires the producer to type the
+  // project's title verbatim before the cancel button enables; we
+  // re-check server-side because client guards aren't security.
+  confirmTitle: z.string().min(1),
+});
+
 const SetStageInput = z.object({
   id: z.string().uuid(),
   stage: z.enum(ALL_STAGES),
@@ -507,6 +515,108 @@ export const projectRouter = router({
       );
 
       return { paymentIntentId: pi.id };
+    }),
+
+  // ── Task 9 ─────────────────────────────────────────────────────────
+  // Producer cancels a project mid-flight. Money-handling — we MUST
+  // stop future Stripe charges before the next billing cycle hits.
+  //
+  // Behaviour by plan kind:
+  //   - monthly: cancel the Subscription Schedule on the platform
+  //     account (destination charges, so no `{ stripeAccount }` header).
+  //     Stripe fires `customer.subscription.deleted`, which Task 6's
+  //     handler also coerces to stage='cancelled' — idempotent with the
+  //     direct DB write we do here.
+  //   - full / split_50_50 / never-paid: no schedule to cancel; just
+  //     update the stage. Full was charged at checkout; split's second
+  //     half is producer-triggered (chargeFinal), so neither has any
+  //     auto-future-charge to stop.
+  //
+  // Idempotency:
+  //   - If project.stage is already 'cancelled', return success without
+  //     re-calling Stripe (avoid noisy logs + unnecessary API calls).
+  //   - Stripe's subscriptionSchedules.cancel is itself idempotent on
+  //     their side, but if the schedule was already released/ended we
+  //     get a thrown error — caught + treated as success below.
+  //
+  // No refund action. Refund policy lives in the contract; producers
+  // refund via Stripe Dashboard manually if they want to.
+  cancel: producerProcedure
+    .input(CancelProjectInput)
+    .mutation(async ({ ctx, input }) => {
+      // 1. Project exists + ownership check.
+      const [project] = await ctx.db
+        .select()
+        .from(projects)
+        .where(
+          and(
+            eq(projects.id, input.projectId),
+            eq(projects.producerId, ctx.producerId),
+          ),
+        )
+        .limit(1);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // 2. Type-to-confirm guard. Exact, case-sensitive match — no
+      //    trim, no fuzz. The producer typed it; we honor it.
+      if (project.title !== input.confirmTitle) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Confirmation title mismatch",
+        });
+      }
+
+      // 3. Already-cancelled is idempotent success — webhook + this
+      //    mutation can race, and a re-click after success is a no-op.
+      if (project.stage === "cancelled") {
+        return { ok: true as const };
+      }
+      // 4. Already-finalized projects can't be cancelled; the engagement
+      //    is over. Refund flows through Stripe Dashboard.
+      if (project.stage === "paid" || project.stage === "archived") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Project is already finished; cannot cancel.",
+        });
+      }
+
+      // 5. If a monthly schedule is in flight, stop it. Schedule lives
+      //    on the platform account (we use destination charges for the
+      //    Connect split), so the call is a plain platform API call —
+      //    no `{ stripeAccount }` header.
+      if (project.stripeSubscriptionScheduleId) {
+        const stripe = getStripe();
+        try {
+          await stripe.subscriptionSchedules.cancel(
+            project.stripeSubscriptionScheduleId,
+          );
+        } catch (err) {
+          // Stripe returns an InvalidRequestError if the schedule has
+          // already been released/cancelled/ended. Treat as success so
+          // a webhook race doesn't surface a false failure to the UI.
+          const message = err instanceof Error ? err.message : String(err);
+          if (/already.*(cancel|release|ended|completed)/i.test(message)) {
+            // fall through — the schedule is already in a terminal state
+          } else {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `Stripe cancel failed: ${message}`,
+              cause: err,
+            });
+          }
+        }
+      }
+
+      // 6. Set stage immediately so the producer sees the result without
+      //    waiting for the webhook roundtrip. The webhook handler is
+      //    idempotent — it re-applies stage='cancelled' which is a no-op
+      //    if we've already written it.
+      await ctx.db
+        .update(projects)
+        .set({ stage: "cancelled", updatedAt: new Date() })
+        .where(eq(projects.id, project.id));
+
+      return { ok: true as const };
     }),
 
   resolveComment: producerProcedure

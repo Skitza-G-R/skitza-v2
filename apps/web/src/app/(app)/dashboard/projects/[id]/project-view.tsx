@@ -6,6 +6,7 @@ import { type SyntheticEvent, useMemo, useState, useTransition } from "react";
 
 import { AudioUploader } from "~/components/audio/audio-uploader";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
+import { CancelConfirmModal } from "~/components/project/cancel-confirm-modal";
 import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
 import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
 import { Badge } from "~/components/ui/badge";
@@ -18,6 +19,7 @@ import {
   addProducerComment,
   addTrackVersion,
   approveVersionAction,
+  cancelProjectAction,
   chargeFinalAction,
   resolveVersionComment,
   setProjectPaid,
@@ -332,6 +334,12 @@ function OverviewTab({
   // modal when the producer actually clicks "Mark final paid" while
   // the project qualifies — no need to render it proactively.
   const [chargeModalOpen, setChargeModalOpen] = useState(false);
+  // Task 9 — cancel-project modal. The button to open it is hidden
+  // for projects already in a terminal stage (paid/archived/cancelled)
+  // so the modal never opens in a no-op state.
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const isTerminal =
+    stage === "cancelled" || stage === "paid" || stage === "archived";
 
   // Task 7 — gate the modal on plan shape + progress. For monthly /
   // full / already-paid plans, the button runs the existing flag flip
@@ -399,6 +407,22 @@ function OverviewTab({
       return;
     }
     flipPaid("final", nextValue);
+  }
+
+  // Cancel-project modal confirm. The mutation cancels any in-flight
+  // Stripe Subscription Schedule and flips stage to 'cancelled'. We
+  // re-throw on failure so the modal renders the error inline (rather
+  // than closing + showing a toast that would lose the user's place).
+  async function onConfirmCancel(confirmTitle: string) {
+    const res = await cancelProjectAction({
+      projectId: project.id,
+      confirmTitle,
+    });
+    if (!res.ok) throw new Error(res.error);
+    setCancelModalOpen(false);
+    setStage("cancelled");
+    toast("Project cancelled. Future charges stopped.", "success");
+    router.refresh();
   }
 
   // Modal confirm: fire the charge via the server action, then on
@@ -472,6 +496,23 @@ function OverviewTab({
           <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
             Change to move the project through the pipeline.
           </p>
+          {/* Task 9 — destructive cancel button. Hidden when the
+              project is already in a terminal stage so a no-op modal
+              never opens. The mutation re-checks server-side. */}
+          {!isTerminal ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                setCancelModalOpen(true);
+              }}
+              disabled={pending}
+              className="ml-auto"
+            >
+              Cancel project
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -554,6 +595,20 @@ function OverviewTab({
           onConfirm={onConfirmCharge}
           onClose={() => {
             setChargeModalOpen(false);
+          }}
+        />
+      ) : null}
+
+      {/* Task 9 — type-to-confirm cancel modal. Mounted only when
+          project is non-terminal; the button that opens it shares the
+          same gate, so we never end up in an opened-but-no-op state. */}
+      {!isTerminal ? (
+        <CancelConfirmModal
+          open={cancelModalOpen}
+          projectTitle={project.title}
+          onConfirm={onConfirmCancel}
+          onClose={() => {
+            setCancelModalOpen(false);
           }}
         />
       ) : null}
