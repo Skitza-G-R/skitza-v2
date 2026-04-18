@@ -10,10 +10,12 @@ import {
   numeric,
   pgEnum,
   unique,
+  uniqueIndex,
   index,
   primaryKey,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // Payment-plan shape offered by a product and (after activation)
 // pinned onto the project. `full` = pay-in-full at checkout,
@@ -645,6 +647,14 @@ export const invoices = pgTable("invoices", {
 }, (t) => ({
   // Covers the dashboard list query: producer-scoped, ordered desc.
   producerCreatedIdx: index("invoices_producer_created_idx").on(t.producerId, t.createdAt),
+  // Partial unique index — Stripe fires invoice.paid +
+  // payment_intent.succeeded near-parallel for subscription invoices.
+  // Without this, both handlers pass the SELECT-check and both INSERT,
+  // producing duplicate ledger rows. WHERE clause keeps legacy rows
+  // without a PI (deposits pre-checkout, manual invoices) unaffected.
+  piUnique: uniqueIndex("invoices_stripe_payment_intent_unique")
+    .on(t.stripePaymentIntentId)
+    .where(sql`${t.stripePaymentIntentId} IS NOT NULL`),
 }));
 
 export type Invoice = typeof invoices.$inferSelect;

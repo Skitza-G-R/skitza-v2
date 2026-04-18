@@ -167,8 +167,11 @@ async function advanceAndPersist(
 
 /**
  * Defensive idempotency check — has an invoice row already been written
- * for this payment intent? Prevents duplicate ledger entries if Stripe
- * replays the same event.
+ * for this payment intent? First line of defence; the second is a
+ * partial unique index on `invoices.stripe_payment_intent_id` (migration
+ * 0021) which guarantees at-most-one row even under the near-parallel
+ * Stripe event ordering that races this SELECT with an INSERT in the
+ * sibling handler.
  */
 async function invoiceExistsForPaymentIntent(
   db: Db,
@@ -180,6 +183,22 @@ async function invoiceExistsForPaymentIntent(
     .where(eq(invoices.stripePaymentIntentId, paymentIntentId))
     .limit(1);
   return row !== undefined;
+}
+
+/**
+ * Is the given error a Postgres unique-violation on the
+ * `invoices_stripe_payment_intent_unique` partial index? We treat these
+ * as "sibling handler already wrote this row" — log + continue, since
+ * `advancePlanState` is idempotent via its counter guard.
+ *
+ * Matches both the wrapped-Drizzle message path and the raw pg error
+ * code 23505, so any driver variance still lands as a no-op.
+ */
+function isInvoicePiUniqueViolation(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.message.includes("invoices_stripe_payment_intent_unique")) return true;
+  if ((err as { code?: string }).code === "23505") return true;
+  return false;
 }
 
 // ─── checkout.session.completed ──────────────────────────────────────
@@ -253,11 +272,11 @@ export async function handleCheckoutSessionCompleted(
       ? session.metadata.planKind
       : project.paymentPlanKind;
 
-  // Resolve the PaymentMethod id. For split/monthly we need it pinned
-  // on the project for off-session future charges. For full we grab it
-  // too — harmless, and guards against late-arriving monthly migration
-  // work. payment_intent mode → retrieve the PI for PM id. subscription
-  // mode → read default_payment_method via expansion.
+  // For mode:"payment" (full + split_50_50), retrieve the PI to get
+  // the saved PaymentMethod so Task 7's off-session final charge can
+  // reuse it. For mode:"subscription" (monthly), PM is managed by
+  // Stripe on the subscription's default_payment_method — we don't
+  // need it on our row because we never off-session-charge monthly.
   let paymentMethodId: string | null = null;
   if (paymentIntentId) {
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -449,21 +468,31 @@ export async function handleInvoicePaid(
     .limit(1);
   if (!fullProject) return; // race with project delete — noop
 
-  await db.insert(invoices).values({
-    producerId: fullProject.producerId,
-    projectId: project.id,
-    paymentPlanProjectId: project.id,
-    ...(fullProject.bookingId ? { bookingId: fullProject.bookingId } : {}),
-    ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
-    amountCents: invoice.amount_paid,
-    currency: invoice.currency.toUpperCase(),
-    description: "Installment payment",
-    kind: "installment",
-    status: "paid",
-    paidAt: new Date(),
-    ...(invoice.customer_email ? { customerEmail: invoice.customer_email } : {}),
-    ...(invoice.customer_name ? { customerName: invoice.customer_name } : {}),
-  });
+  try {
+    await db.insert(invoices).values({
+      producerId: fullProject.producerId,
+      projectId: project.id,
+      paymentPlanProjectId: project.id,
+      ...(fullProject.bookingId ? { bookingId: fullProject.bookingId } : {}),
+      ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
+      amountCents: invoice.amount_paid,
+      currency: invoice.currency.toUpperCase(),
+      description: "Installment payment",
+      kind: "installment",
+      status: "paid",
+      paidAt: new Date(),
+      ...(invoice.customer_email ? { customerEmail: invoice.customer_email } : {}),
+      ...(invoice.customer_name ? { customerName: invoice.customer_name } : {}),
+    });
+  } catch (err) {
+    // Race with the sibling handler already inserting this row. Unique
+    // index guarantees at most one row per PI; the state advance below
+    // is idempotent via advancePlanState.
+    if (!isInvoicePiUniqueViolation(err)) throw err;
+    console.info("[webhook] duplicate invoice row (race)", {
+      stripePaymentIntentId: paymentIntentId,
+    });
+  }
 
   await advanceAndPersist(db, project, { type: "charge_succeeded" });
 }
@@ -482,6 +511,15 @@ export async function handlePaymentIntentSucceeded(
 ): Promise<void> {
   const { db, event } = args;
   const pi = event.data.object;
+
+  // Subscription-invoiced PIs also fire invoice.paid, which is the
+  // canonical writer for recurring installments. Early-return so we
+  // don't race with handleInvoicePaid for the same PI. `pi.invoice` is
+  // a string when the PI was created by a subscription invoice; null
+  // for one-shot off-session charges (Task 7).
+  if ((pi as unknown as { invoice?: unknown }).invoice) {
+    return;
+  }
 
   const projectId =
     typeof pi.metadata.projectId === "string" ? pi.metadata.projectId : null;
@@ -512,25 +550,35 @@ export async function handlePaymentIntentSucceeded(
     .limit(1);
   if (!fullProject) return;
 
-  await db.insert(invoices).values({
-    producerId: fullProject.producerId,
-    projectId: project.id,
-    paymentPlanProjectId: project.id,
-    ...(fullProject.bookingId ? { bookingId: fullProject.bookingId } : {}),
-    stripePaymentIntentId: pi.id,
-    amountCents: pi.amount_received,
-    currency: pi.currency.toUpperCase(),
-    description:
-      typeof pi.metadata.kind === "string" && pi.metadata.kind.length > 0
-        ? pi.metadata.kind
-        : "Final payment",
-    kind:
-      typeof pi.metadata.kind === "string" && pi.metadata.kind.length > 0
-        ? pi.metadata.kind
-        : "final",
-    status: "paid",
-    paidAt: new Date(),
-  });
+  try {
+    await db.insert(invoices).values({
+      producerId: fullProject.producerId,
+      projectId: project.id,
+      paymentPlanProjectId: project.id,
+      ...(fullProject.bookingId ? { bookingId: fullProject.bookingId } : {}),
+      stripePaymentIntentId: pi.id,
+      amountCents: pi.amount_received,
+      currency: pi.currency.toUpperCase(),
+      description:
+        typeof pi.metadata.kind === "string" && pi.metadata.kind.length > 0
+          ? pi.metadata.kind
+          : "Final payment",
+      kind:
+        typeof pi.metadata.kind === "string" && pi.metadata.kind.length > 0
+          ? pi.metadata.kind
+          : "final",
+      status: "paid",
+      paidAt: new Date(),
+    });
+  } catch (err) {
+    // Race with the sibling handler already inserting this row. Unique
+    // index guarantees at most one row per PI; the state advance below
+    // is idempotent via advancePlanState.
+    if (!isInvoicePiUniqueViolation(err)) throw err;
+    console.info("[webhook] duplicate invoice row (race)", {
+      stripePaymentIntentId: pi.id,
+    });
+  }
 
   await advanceAndPersist(db, project, { type: "charge_succeeded" });
 }

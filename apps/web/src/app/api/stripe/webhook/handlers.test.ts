@@ -399,6 +399,51 @@ describe("handleInvoicePaid", () => {
     expect(insertValues).not.toHaveBeenCalled();
   });
 
+  it("swallows unique-violation on INSERT as replay, still advances state", async () => {
+    // Simulates the race: the SELECT-check misses (sibling hasn't
+    // committed yet), but by the time our INSERT fires the sibling
+    // has landed — the partial unique index throws 23505. Our handler
+    // must log + continue + advance plan state (idempotent).
+    const project = {
+      id: "proj_1",
+      stage: "in_production",
+      chargesCompleted: 1,
+      chargesTotal: 4,
+      paymentPlanKind: "monthly",
+      stripeSubscriptionScheduleId: "sub_sched_abc",
+    };
+    // select[0]: direct schedule-id hit
+    // select[1]: invoiceExistsForPaymentIntent (miss — [])
+    // select[2]: load project for producer/booking
+    const { db, insertValues, updateSet } = makeDb([
+      [project],
+      [],
+      [{ producerId: "prod_1", bookingId: "book_1" }],
+    ]);
+    // Override insert to throw the unique-violation on first call.
+    const uniqueErr = Object.assign(
+      new Error(
+        'duplicate key value violates unique constraint "invoices_stripe_payment_intent_unique"',
+      ),
+      { code: "23505" },
+    );
+    insertValues.mockImplementationOnce(() => Promise.reject(uniqueErr));
+    const stripe = makeStripe();
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+
+    await expect(
+      handleInvoicePaid({ db: db as never, stripe, event: baseInvoice() }),
+    ).resolves.toBeUndefined();
+
+    // State still advanced despite the INSERT race.
+    const stageCall = updateSet.mock.calls.find((c) => {
+      const arg = c[0] as Record<string, unknown>;
+      return "chargesCompleted" in arg;
+    });
+    expect(stageCall?.[0]).toMatchObject({ chargesCompleted: 2 });
+    info.mockRestore();
+  });
+
   it("no subscription id on invoice → no-op", async () => {
     const { db, insertValues } = makeDb([]);
     const stripe = makeStripe();
@@ -475,6 +520,22 @@ describe("handlePaymentIntentSucceeded", () => {
       event: basePi({ metadata: {} }),
     });
     expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("early-return when pi.invoice is set (subscription-originated)", async () => {
+    // Subscription-invoiced PIs fire both payment_intent.succeeded AND
+    // invoice.paid near-parallel. invoice.paid is the canonical writer
+    // for installments; this handler must bail before any DB work so
+    // we don't race the sibling.
+    const { db, insertValues, update } = makeDb([]);
+    const stripe = makeStripe();
+    await handlePaymentIntentSucceeded({
+      db: db as never,
+      stripe,
+      event: basePi({ invoice: "in_sub_abc" }),
+    });
+    expect(insertValues).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 });
 
