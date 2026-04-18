@@ -4,41 +4,34 @@ import { redirect } from "next/navigation";
 import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { ClientsList } from "./clients-list";
+import { ClientsHub } from "./clients-list";
 
-// CRM landing. Server component — fetches the enriched list once on
-// the server then hands off to ClientsList for interactive filtering,
-// create/edit/delete, and the send-magic-link dialog.
-//
-// `listWithMeta` enriches each contact row with activeDealCount,
-// totalDealCount, and lastActivity in a single extra SQL aggregate —
-// no N+1. See clientContactsRouter.listWithMeta for the join logic.
+// CRM hub landing — Phase H.2. Fetches both views in parallel on the
+// server so toggling between "By Client" and "All Projects" is an
+// instant client-side switch with no further round-trips. Filter state
+// (search, status, stage, sort) is then maintained purely on the client
+// via URL query params; refreshing the page preserves the filters.
 
 export default async function ClientsPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const rows = await caller.clientContacts.listWithMeta();
+  const [byClient, allProjects] = await Promise.all([
+    caller.clientContacts.listWithProjects({ view: "by-client" }),
+    caller.clientContacts.listWithProjects({ view: "all-projects" }),
+  ]);
 
-  // Narrow the serialized shape to plain JSON values — the client
-  // receives Date objects via React's structured boundary, so we keep
-  // them as-is. The list component normalizes into ISO strings where
-  // needed.
-  const initial = rows.map((r) => ({
-    id: r.id,
-    email: r.email,
-    name: r.name,
-    firstSeenAt: r.firstSeenAt,
-    lastSeenAt: r.lastSeenAt,
-    activeDealCount: r.activeDealCount,
-    totalDealCount: r.totalDealCount,
-    lastActivity: r.lastActivity,
-  }));
-
+  // Narrow to serialisable plain objects — Next passes these via the
+  // RSC boundary so Date instances remain wire-safe as ISO strings.
   return (
     <AppShell active="clients">
-      <ClientsList initial={initial} />
+      <ClientsHub
+        initialClients={byClient.view === "by-client" ? byClient.clients : []}
+        initialProjects={
+          allProjects.view === "all-projects" ? allProjects.projects : []
+        }
+      />
     </AppShell>
   );
 }

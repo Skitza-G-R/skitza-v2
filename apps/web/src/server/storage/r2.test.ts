@@ -16,13 +16,26 @@ describe("r2 key builders", () => {
   });
 });
 
-describe("r2 sanitize safety", () => {
-  it("throws on empty filename", () => {
-    expect(() => buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "" }))
-      .toThrow(/invalid/i);
+describe("r2 sanitize non-ASCII fallback", () => {
+  it("generates track-<hex> fallback for empty filename", () => {
+    const key = buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "" });
+    expect(key).toMatch(/^producers\/p\/tracks\/tv\/track-[0-9a-f]{8}$/);
   });
-  it("throws when filename sanitizes to all underscores", () => {
-    expect(() => buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "///" }))
-      .toThrow(/invalid/i);
+  it("generates track-<hex> fallback when filename sanitizes to all underscores", () => {
+    const key = buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "///" });
+    expect(key).toMatch(/^producers\/p\/tracks\/tv\/track-[0-9a-f]{8}$/);
+  });
+  it("preserves extension when body is all non-ASCII (Hebrew)", () => {
+    const key = buildAudioKey({ producerId: "p_1", trackVersionId: "tv_1", filename: "הופעה חיה.mp3" });
+    expect(key).toMatch(/^producers\/p_1\/tracks\/tv_1\/track-[0-9a-f]{8}\.mp3$/);
+  });
+  it("preserves English filenames unchanged", () => {
+    const key = buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "my-mix.wav" });
+    expect(key).toBe("producers/p/tracks/tv/my-mix.wav");
+  });
+  it("two non-ASCII filenames produce DIFFERENT keys (no collision)", () => {
+    const k1 = buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "שיר.mp3" });
+    const k2 = buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "אחר.mp3" });
+    expect(k1).not.toBe(k2);
   });
 });

@@ -37,7 +37,8 @@ export async function AppShell({
     | "clients"
     | "library"
     | "settings"
-    | "inbox";
+    | "inbox"
+    | "invoices";
   children: ReactNode;
 }) {
   const { slug, unreadCount } = await getShellState();

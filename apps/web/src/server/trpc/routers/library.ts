@@ -1,8 +1,8 @@
 import {
   and,
   asc,
-  dealTracks,
-  deals,
+  projectTracks,
+  projects,
   desc,
   eq,
   ilike,
@@ -17,27 +17,11 @@ import { z } from "zod";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 
-// Audio library — every uploaded track version across every deal the
-// producer owns, Samply-style unified feed. The library is a derived
-// view (no new tables): trackVersions → dealTracks → deals, filtered
-// by producer ownership at the deals row.
-//
-// Filter semantics:
-// - "all"       → every version
-// - "unread"    → versions with ≥ 1 unresolved comment (i.e. something
-//                 the artist left that still needs the producer's eye)
-// - "resolved"  → versions that had comments AND all of them are
-//                 resolved (a completed back-and-forth)
-//
-// The list query caps at 200 versions. Scroll-to-load isn't worth
-// building until a producer hits that ceiling; the library naturally
-// stays under a few dozen for months.
-//
-// Comment counts are computed in a single second query (inArray) and
-// bucketed in-memory. That's N+1 safe: at most 2 round-trips.
+// Audio library — every uploaded track version across every project
+// the producer owns, Samply-style unified feed. The library is a
+// derived view (no new tables): trackVersions → projectTracks →
+// projects, filtered by producer ownership at the projects row.
 
-// Shape returned by library.list — used by both the caller page and
-// the client-side LibraryList component.
 export type LibraryRow = {
   versionId: string;
   versionLabel: string;
@@ -46,10 +30,10 @@ export type LibraryRow = {
   durationMs: number | null;
   trackId: string;
   trackTitle: string;
-  dealId: string;
-  dealTitle: string;
-  dealArtistName: string;
-  dealClientName: string | null;
+  projectId: string;
+  projectTitle: string;
+  projectArtistName: string;
+  projectClientName: string | null;
   commentCount: number;
   unresolvedCount: number;
 };
@@ -60,20 +44,17 @@ export const libraryRouter = router({
       z
         .object({
           filter: z.enum(["all", "unread", "resolved"]).default("all"),
-          dealId: z.string().uuid().optional(),
+          projectId: z.string().uuid().optional(),
         })
         .optional(),
     )
     .query(async ({ ctx, input }): Promise<LibraryRow[]> => {
       const filter = input?.filter ?? "all";
-      const dealId = input?.dealId;
+      const projectId = input?.projectId;
 
-      // Conditional predicate: scope to a single deal when requested
-      // (so /dashboard/library?dealId=… can be used as a deep-link
-      // surface later). Otherwise all deals owned by the producer.
-      const where = dealId
-        ? and(eq(deals.producerId, ctx.producerId), eq(deals.id, dealId))
-        : eq(deals.producerId, ctx.producerId);
+      const where = projectId
+        ? and(eq(projects.producerId, ctx.producerId), eq(projects.id, projectId))
+        : eq(projects.producerId, ctx.producerId);
 
       const rows = await ctx.db
         .select({
@@ -82,16 +63,16 @@ export const libraryRouter = router({
           audioUrl: trackVersions.audioUrl,
           uploadedAt: trackVersions.uploadedAt,
           durationMs: trackVersions.durationMs,
-          trackId: dealTracks.id,
-          trackTitle: dealTracks.title,
-          dealId: deals.id,
-          dealTitle: deals.title,
-          dealArtistName: deals.artistName,
-          dealClientName: deals.clientName,
+          trackId: projectTracks.id,
+          trackTitle: projectTracks.title,
+          projectId: projects.id,
+          projectTitle: projects.title,
+          projectArtistName: projects.artistName,
+          projectClientName: projects.clientName,
         })
         .from(trackVersions)
-        .innerJoin(dealTracks, eq(trackVersions.trackId, dealTracks.id))
-        .innerJoin(deals, eq(dealTracks.dealId, deals.id))
+        .innerJoin(projectTracks, eq(trackVersions.trackId, projectTracks.id))
+        .innerJoin(projects, eq(projectTracks.projectId, projects.id))
         .where(where)
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(200);
@@ -136,7 +117,7 @@ export const libraryRouter = router({
     }),
 
   // Detail view for the side panel / mobile modal. Ownership walk:
-  // version → track → deal → producer. Any broken link = 404/403.
+  // version → track → project → producer. Any broken link = 404/403.
   detail: producerProcedure
     .input(z.object({ versionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -156,24 +137,24 @@ export const libraryRouter = router({
 
       const [t] = await ctx.db
         .select({
-          id: dealTracks.id,
-          title: dealTracks.title,
-          dealId: dealTracks.dealId,
+          id: projectTracks.id,
+          title: projectTracks.title,
+          projectId: projectTracks.projectId,
         })
-        .from(dealTracks)
-        .where(eq(dealTracks.id, v.trackId))
+        .from(projectTracks)
+        .where(eq(projectTracks.id, v.trackId))
         .limit(1);
       if (!t) throw new TRPCError({ code: "NOT_FOUND" });
 
       const [d] = await ctx.db
         .select({
-          id: deals.id,
-          title: deals.title,
-          artistName: deals.artistName,
-          producerId: deals.producerId,
+          id: projects.id,
+          title: projects.title,
+          artistName: projects.artistName,
+          producerId: projects.producerId,
         })
-        .from(deals)
-        .where(eq(deals.id, t.dealId))
+        .from(projects)
+        .where(eq(projects.id, t.projectId))
         .limit(1);
       if (!d) throw new TRPCError({ code: "NOT_FOUND" });
       if (d.producerId !== ctx.producerId) {
@@ -188,15 +169,14 @@ export const libraryRouter = router({
 
       return {
         version: v,
-        track: { id: t.id, title: t.title, dealId: t.dealId },
-        deal: { id: d.id, title: d.title, artistName: d.artistName },
+        track: { id: t.id, title: t.title, projectId: t.projectId },
+        project: { id: d.id, title: d.title, artistName: d.artistName },
         comments,
       };
     }),
 
   // ⌘K palette helper — fuzzy-search track titles + version labels
-  // owned by the producer. Scoped via the same deal ownership join as
-  // `list`. Cap at 10 so the palette stays keyboard-navigable.
+  // owned by the producer.
   search: producerProcedure
     .input(z.object({ q: z.string().max(100) }))
     .query(async ({ ctx, input }) => {
@@ -207,17 +187,17 @@ export const libraryRouter = router({
         .select({
           versionId: trackVersions.id,
           versionLabel: trackVersions.label,
-          trackTitle: dealTracks.title,
-          dealId: deals.id,
-          dealTitle: deals.title,
+          trackTitle: projectTracks.title,
+          projectId: projects.id,
+          projectTitle: projects.title,
         })
         .from(trackVersions)
-        .innerJoin(dealTracks, eq(trackVersions.trackId, dealTracks.id))
-        .innerJoin(deals, eq(dealTracks.dealId, deals.id))
+        .innerJoin(projectTracks, eq(trackVersions.trackId, projectTracks.id))
+        .innerJoin(projects, eq(projectTracks.projectId, projects.id))
         .where(
           and(
-            eq(deals.producerId, ctx.producerId),
-            or(ilike(dealTracks.title, pattern), ilike(trackVersions.label, pattern)),
+            eq(projects.producerId, ctx.producerId),
+            or(ilike(projectTracks.title, pattern), ilike(trackVersions.label, pattern)),
           ),
         )
         .orderBy(desc(trackVersions.uploadedAt))

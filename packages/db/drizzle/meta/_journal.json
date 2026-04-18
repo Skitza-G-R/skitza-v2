@@ -99,6 +99,41 @@
       "when": 1776556800000,
       "tag": "0013_tough_maria_hill",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1776643200000,
+      "tag": "0014_sleepy_moondragon",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1776729600000,
+      "tag": "0015_curious_mockingbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1776816000000,
+      "tag": "0016_products_rebuild",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1776902400000,
+      "tag": "0017_session_reminders",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1776988800000,
+      "tag": "0018_stripe_integration",
+      "breakpoints": true
     }
   ]
 }

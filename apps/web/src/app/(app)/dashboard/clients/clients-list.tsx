@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -25,34 +25,107 @@ import {
   updateClientAction,
 } from "./actions";
 
-// CRM list view for the producer.
+// Phase H.2 — CRM hub. Switches between two views:
 //
-// Layout split:
-// - md+ → dense Linear-flavoured table (sk-row / sk-num utilities).
-// - <md  → stacked cards with tappable action buttons + fixed FAB for
-//          adding a new client.
+//   "By Client"     — one row per client with rollup stats
+//                     (active/total projects, outstanding $, lifetime $)
+//   "All Projects"  — one row per project (flat list across clients)
 //
-// "Send magic link" is the star feature here. One click spins up a
-// fresh URL, copies it to the clipboard, AND shows a banner with the
-// URL inline so the producer can paste into any channel. The URL is
-// one-shot — raw token is never retrievable again.
+// Search, status filter, sort, and stage filter live in URL query
+// params so refreshing the page or sharing the URL preserves state.
+// Toggling the view preserves any shared filter (e.g. `status=active`
+// carries over into both views).
+//
+// Mobile-first layout:
+//   - Segmented-control toggle at the top (44px min-height)
+//   - Filter chips scroll horizontally to avoid wrapping
+//   - Desktop tables collapse into stacked cards <md
+//   - "+ Add client" is a floating FAB on mobile
 
-type ClientRow = {
+// ─── Types ─────────────────────────────────────────────────────────
+
+export type ClientRow = {
   id: string;
   email: string;
   name: string;
   firstSeenAt: Date | string;
   lastSeenAt: Date | string;
-  activeDealCount: number;
-  totalDealCount: number;
-  lastActivity: Date | string | null;
+  tags: string[] | null;
+  notes: string | null;
+  referralSource: string | null;
+  activeProjectCount: number;
+  totalProjectCount: number;
+  outstandingCents: number;
+  lifetimeCents: number;
+  unresolvedComments: number;
+  lastActivity: Date | string;
+  needsAttention: boolean;
+  isStale: boolean;
 };
 
-type FilterId = "all" | "active" | "recent";
+type Stage =
+  | "lead"
+  | "booked"
+  | "contract_sent"
+  | "in_production"
+  | "final_review"
+  | "paid"
+  | "archived";
 
-const RECENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+export type ProjectRow = {
+  id: string;
+  title: string;
+  stage: Stage;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  clientName: string | null;
+  clientEmail: string;
+  artistName: string;
+  artistEmail: string;
+  depositPaid: boolean;
+  finalPaid: boolean;
+  priceCents: number;
+  currency: string;
+  outstandingCents: number;
+  lifetimeCents: number;
+  nextSessionAt: Date | string | null;
+  lastActivity: Date | string;
+  unresolvedComments: number;
+  isActive: boolean;
+  client: {
+    id: string | null;
+    email: string;
+    name: string;
+    tags: string[] | null;
+  };
+};
 
-// Module-scope formatters so we don't rebuild them on every render.
+type View = "by-client" | "all-projects";
+type StatusId = "all" | "active" | "outstanding" | "archived" | "stale";
+type SortId = "activity" | "name" | "active" | "outstanding";
+
+const STAGE_LABEL: Record<Stage, string> = {
+  lead: "Lead",
+  booked: "Booked",
+  contract_sent: "Contract sent",
+  in_production: "In production",
+  final_review: "Final review",
+  paid: "Paid",
+  archived: "Archived",
+};
+
+const STAGES: Stage[] = [
+  "lead",
+  "booked",
+  "contract_sent",
+  "in_production",
+  "final_review",
+  "paid",
+  "archived",
+];
+
+// ─── Helpers ───────────────────────────────────────────────────────
+
 const dateFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 const relFmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
@@ -76,24 +149,73 @@ function formatRelative(v: Date | string | null | undefined): string {
   return dateFmt.format(d);
 }
 
-function isRecent(v: Date | string | null | undefined): boolean {
-  const d = toDate(v);
-  if (!d) return false;
-  return Date.now() - d.getTime() < RECENT_WINDOW_MS;
+function formatCents(cents: number, currency = "USD"): string {
+  if (cents === 0) return "—";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(cents / 100);
+  } catch {
+    return `$${(cents / 100).toFixed(0)}`;
+  }
 }
 
-export function ClientsList({ initial }: { initial: ClientRow[] }) {
+function daysSince(v: Date | string | null | undefined): number {
+  const d = toDate(v);
+  if (!d) return Infinity;
+  return (Date.now() - d.getTime()) / 86_400_000;
+}
+
+// ─── Top-level hub ─────────────────────────────────────────────────
+
+export function ClientsHub({
+  initialClients,
+  initialProjects,
+}: {
+  initialClients: ClientRow[];
+  initialProjects: ProjectRow[];
+}) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
 
-  // Local mirror of server-rendered list — we mutate optimistically on
-  // add/edit/delete. revalidatePath on the action refreshes on next
-  // navigation; for this session we stay in-sync by applying the same
-  // change locally first.
-  const [rows, setRows] = useState<ClientRow[]>(initial);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<FilterId>("all");
+  // Read initial state from the URL. This makes refreshes sticky
+  // without needing a server round-trip for filter state.
+  const urlView: View = searchParams.get("view") === "projects" ? "all-projects" : "by-client";
+  const urlStatus = (searchParams.get("status") as StatusId | null) ?? "all";
+  const urlSort = (searchParams.get("sort") as SortId | null) ?? "activity";
+  const urlStage = searchParams.get("stage");
+  const urlQuery = searchParams.get("q") ?? "";
 
+  const [view, setView] = useState<View>(urlView);
+  const [query, setQuery] = useState<string>(urlQuery);
+  const [status, setStatus] = useState<StatusId>(urlStatus);
+  const [sort, setSort] = useState<SortId>(urlSort);
+  const [stageFilter, setStageFilter] = useState<Stage | null>(
+    STAGES.includes(urlStage as Stage) ? (urlStage as Stage) : null,
+  );
+
+  const [clients, setClients] = useState<ClientRow[]>(initialClients);
+  const [projects] = useState<ProjectRow[]>(initialProjects);
+
+  // Sync URL with current filter state (replaceState so history doesn't
+  // flood with every keystroke).
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (view === "all-projects") params.set("view", "projects");
+    if (status !== "all") params.set("status", status);
+    if (sort !== "activity") params.set("sort", sort);
+    if (stageFilter) params.set("stage", stageFilter);
+    if (query.trim()) params.set("q", query.trim());
+    const qs = params.toString();
+    const href = qs ? `${pathname}?${qs}` : pathname;
+    router.replace(href, { scroll: false });
+  }, [view, status, sort, stageFilter, query, pathname, router]);
+
+  // Global `c` shortcut still opens the add sheet from anywhere.
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ClientRow | null>(null);
   const [magicLink, setMagicLink] = useState<{
@@ -103,8 +225,6 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
     target: "portfolio" | "booking";
   } | null>(null);
 
-  // Listen for the global `c` shortcut (via shortcuts-bridge) so hitting
-  // `c` anywhere on /dashboard/clients opens the new-client sheet.
   useEffect(() => {
     function open() {
       setAddOpen(true);
@@ -115,47 +235,122 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
     };
   }, []);
 
-  const filtered = useMemo(() => {
+  // ─── Filter + sort ───────────────────────────────────────────
+
+  const filteredClients = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (q && !r.name.toLowerCase().includes(q) && !r.email.toLowerCase().includes(q)) {
+    let rows = clients.filter((r) => {
+      if (
+        q &&
+        !r.name.toLowerCase().includes(q) &&
+        !r.email.toLowerCase().includes(q) &&
+        !(r.tags ?? []).some((t) => t.toLowerCase().includes(q))
+      ) {
         return false;
       }
-      if (filter === "active" && r.activeDealCount === 0) return false;
-      if (filter === "recent" && !isRecent(r.lastActivity)) return false;
-      return true;
-    });
-  }, [rows, query, filter]);
-
-  const handleCreated = useCallback(
-    (row: ClientRow, existed: boolean) => {
-      if (!existed) {
-        setRows((prev) => {
-          const dedup = prev.filter((p) => p.id !== row.id);
-          return [row, ...dedup];
-        });
+      switch (status) {
+        case "active":
+          return r.activeProjectCount > 0;
+        case "outstanding":
+          return r.outstandingCents > 0;
+        case "archived":
+          return r.totalProjectCount > 0 && r.activeProjectCount === 0;
+        case "stale":
+          return r.isStale || daysSince(r.lastActivity) > 90;
+        default:
+          return true;
       }
-      setAddOpen(false);
-    },
-    [],
-  );
+    });
+    rows = [...rows].sort((a, b) => {
+      switch (sort) {
+        case "name":
+          return a.name.localeCompare(b.name);
+        case "active":
+          return b.activeProjectCount - a.activeProjectCount;
+        case "outstanding":
+          return b.outstandingCents - a.outstandingCents;
+        default: {
+          const ad = toDate(a.lastActivity)?.getTime() ?? 0;
+          const bd = toDate(b.lastActivity)?.getTime() ?? 0;
+          return bd - ad;
+        }
+      }
+    });
+    return rows;
+  }, [clients, query, status, sort]);
 
-  const handleUpdated = useCallback(
-    (row: { id: string; name: string; email: string }) => {
-      setRows((prev) =>
-        prev.map((r) => (r.id === row.id ? { ...r, name: row.name, email: row.email } : r)),
-      );
-      setEditTarget(null);
-    },
-    [],
-  );
+  const filteredProjects = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let rows = projects.filter((p) => {
+      if (
+        q &&
+        !p.title.toLowerCase().includes(q) &&
+        !p.client.name.toLowerCase().includes(q) &&
+        !p.client.email.toLowerCase().includes(q)
+      ) {
+        return false;
+      }
+      if (stageFilter && p.stage !== stageFilter) return false;
+      switch (status) {
+        case "active":
+          return p.isActive;
+        case "outstanding":
+          return p.outstandingCents > 0;
+        case "archived":
+          return p.stage === "archived";
+        case "stale":
+          return daysSince(p.lastActivity) > 90;
+        default:
+          return true;
+      }
+    });
+    rows = [...rows].sort((a, b) => {
+      switch (sort) {
+        case "name":
+          return a.title.localeCompare(b.title);
+        case "outstanding":
+          return b.outstandingCents - a.outstandingCents;
+        default: {
+          const ad = toDate(a.lastActivity)?.getTime() ?? 0;
+          const bd = toDate(b.lastActivity)?.getTime() ?? 0;
+          return bd - ad;
+        }
+      }
+    });
+    return rows;
+  }, [projects, query, status, sort, stageFilter]);
 
-  const handleDeleted = useCallback(
-    (id: string) => {
-      setRows((prev) => prev.filter((r) => r.id !== id));
-    },
-    [],
-  );
+  // ─── Headline metrics ─────────────────────────────────────────
+
+  const totals = useMemo(() => {
+    const outstanding = clients.reduce((a, c) => a + c.outstandingCents, 0);
+    const lifetime = clients.reduce((a, c) => a + c.lifetimeCents, 0);
+    const needsAttention = clients.filter((c) => c.needsAttention).length;
+    return { outstanding, lifetime, needsAttention };
+  }, [clients]);
+
+  // ─── Handlers ─────────────────────────────────────────────────
+
+  const handleCreated = useCallback((row: ClientRow, existed: boolean) => {
+    if (!existed) {
+      setClients((prev) => {
+        const dedup = prev.filter((p) => p.id !== row.id);
+        return [row, ...dedup];
+      });
+    }
+    setAddOpen(false);
+  }, []);
+
+  const handleUpdated = useCallback((row: { id: string; name: string; email: string }) => {
+    setClients((prev) =>
+      prev.map((r) => (r.id === row.id ? { ...r, name: row.name, email: row.email } : r)),
+    );
+    setEditTarget(null);
+  }, []);
+
+  const handleDeleted = useCallback((id: string) => {
+    setClients((prev) => prev.filter((r) => r.id !== id));
+  }, []);
 
   const handleMagicLink = useCallback(
     (row: ClientRow, payload: { url: string; target: "portfolio" | "booking" }) => {
@@ -165,10 +360,6 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
         url: payload.url,
         target: payload.target,
       });
-      // Best-effort clipboard copy right away — the banner is the
-      // fallback if the browser blocks it (e.g. insecure context).
-      // `navigator.clipboard` can still be undefined in HTTP contexts,
-      // so guard the property access.
       const clip = navigator.clipboard as Clipboard | undefined;
       if (clip) {
         void clip.writeText(payload.url).then(
@@ -176,7 +367,7 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
             toast(`Link for ${row.name} copied.`, "success");
           },
           () => {
-            // Silent — the banner already renders a Copy button.
+            /* silent */
           },
         );
       }
@@ -184,8 +375,12 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
     [toast],
   );
 
+  // ─── Render ───────────────────────────────────────────────────
+
+  const isEmpty = clients.length === 0 && projects.length === 0;
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
       <header className="reveal-up flex flex-wrap items-end justify-between gap-6">
         <div>
           <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
@@ -198,8 +393,8 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
             Your people.
           </h1>
           <p className="mt-3 max-w-xl text-sm text-[rgb(var(--fg-secondary))]">
-            Everyone who&apos;s booked you, signed a contract, or been added by hand. Send a
-            magic link, open their deals, see recent activity.
+            Everyone who&apos;s booked you or signed a contract — plus every project
+            they&apos;re in. Send a magic link, open their projects, see recent activity.
           </p>
         </div>
         <Button
@@ -222,28 +417,74 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
         />
       ) : null}
 
-      <section className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Headline metrics — only shown when there's data worth rolling up */}
+      {clients.length > 0 && (
+        <section className="mt-7 grid gap-3 sm:grid-cols-3">
+          <MetricCard
+            label="Needs attention"
+            value={totals.needsAttention.toString()}
+            accent={totals.needsAttention > 0 ? "warn" : "muted"}
+            hint={totals.needsAttention > 0 ? "Open comments or unpaid active projects" : "All clear"}
+          />
+          <MetricCard
+            label="Outstanding"
+            value={formatCents(totals.outstanding)}
+            accent={totals.outstanding > 0 ? "brand" : "muted"}
+            hint="Across active projects"
+          />
+          <MetricCard
+            label="Lifetime"
+            value={formatCents(totals.lifetime)}
+            accent="muted"
+            hint="Total paid, all clients"
+          />
+        </section>
+      )}
+
+      {/* View toggle — segmented, 44px tall, works on mobile */}
+      <div
+        role="tablist"
+        aria-label="View"
+        className="mt-7 inline-flex w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 sm:w-auto"
+      >
+        <ViewTab current={view} id="by-client" label="By Client" onSelect={setView} />
+        <ViewTab current={view} id="all-projects" label="All Projects" onSelect={setView} />
+      </div>
+
+      <section className="mt-5 flex flex-col gap-3">
         <div className="flex w-full items-center gap-2 sm:max-w-sm">
           <Input
             type="search"
             inputMode="search"
-            placeholder="Search name or email…"
+            placeholder={
+              view === "by-client"
+                ? "Search name, email, tag…"
+                : "Search project, client, email…"
+            }
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
             }}
-            aria-label="Search clients"
+            aria-label="Search"
           />
         </div>
-        <FilterChips value={filter} onChange={setFilter} />
+        <FilterChipsRow
+          status={status}
+          setStatus={setStatus}
+          sort={sort}
+          setSort={setSort}
+          stage={stageFilter}
+          setStage={setStageFilter}
+          showStage={view === "all-projects"}
+        />
       </section>
 
       <section className="mt-6 pb-28 sm:pb-8">
-        {rows.length === 0 ? (
+        {isEmpty ? (
           <EmptyState
             icon={<PeopleIcon />}
             title="No clients yet."
-            description="Skitza auto-adds clients when they book or sign a contract — or you can add one by hand to get started."
+            description="Clients are auto-added when someone books or signs — or add one now to get started."
             action={
               <Button
                 type="button"
@@ -254,71 +495,22 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
                 + Add client
               </Button>
             }
-            className="min-h-[60vh] justify-center"
+            className="min-h-[50vh] justify-center"
           />
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            title="No matches."
-            description="Try clearing the filter or search."
+        ) : view === "by-client" ? (
+          <ByClientView
+            rows={filteredClients}
+            totalClients={clients.length}
+            onEdit={setEditTarget}
+            onDeleted={handleDeleted}
+            onMagicLink={handleMagicLink}
           />
         ) : (
-          <>
-            {/* Desktop table */}
-            <div className="hidden overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] md:block">
-              <table className="w-full text-[13px] leading-[1.3]">
-                <thead className="bg-[rgb(var(--bg-elevated))] text-left font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Name</th>
-                    <th className="px-3 py-2 font-medium">Email</th>
-                    <th className="px-3 py-2 font-medium sk-num">Active</th>
-                    <th className="px-3 py-2 font-medium sk-num">Total</th>
-                    <th className="px-3 py-2 font-medium">Last activity</th>
-                    <th className="px-3 py-2 text-right font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((row) => (
-                    <DesktopRow
-                      key={row.id}
-                      row={row}
-                      onEdit={() => {
-                        setEditTarget(row);
-                      }}
-                      onDelete={() => {
-                        handleDeleted(row.id);
-                      }}
-                      onMagicLink={(payload) => {
-                        handleMagicLink(row, payload);
-                      }}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile cards */}
-            <ul className="grid gap-3 md:hidden">
-              {filtered.map((row) => (
-                <MobileCard
-                  key={row.id}
-                  row={row}
-                  onEdit={() => {
-                    setEditTarget(row);
-                  }}
-                  onDelete={() => {
-                    handleDeleted(row.id);
-                  }}
-                  onMagicLink={(payload) => {
-                    handleMagicLink(row, payload);
-                  }}
-                />
-              ))}
-            </ul>
-          </>
+          <AllProjectsView rows={filteredProjects} totalProjects={projects.length} />
         )}
       </section>
 
-      {/* Mobile floating action button */}
+      {/* Mobile FAB */}
       <button
         type="button"
         aria-label="Add client"
@@ -349,9 +541,17 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
               name: res.data.name,
               firstSeenAt: now,
               lastSeenAt: now,
-              activeDealCount: 0,
-              totalDealCount: 0,
+              tags: null,
+              notes: null,
+              referralSource: null,
+              activeProjectCount: 0,
+              totalProjectCount: 0,
+              outstandingCents: 0,
+              lifetimeCents: 0,
+              unresolvedComments: 0,
               lastActivity: now,
+              needsAttention: false,
+              isStale: false,
             };
             if (res.data.existed) {
               toast(`${res.data.name} is already in your list. Opening their page.`, "info");
@@ -391,46 +591,268 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
   );
 }
 
-function FilterChips({
-  value,
-  onChange,
+// ─── View toggle tab ───────────────────────────────────────────────
+
+function ViewTab({
+  current,
+  id,
+  label,
+  onSelect,
 }: {
-  value: FilterId;
-  onChange: (v: FilterId) => void;
+  current: View;
+  id: View;
+  label: string;
+  onSelect: (v: View) => void;
 }) {
-  const items: { id: FilterId; label: string }[] = [
-    { id: "all", label: "All" },
-    { id: "active", label: "Active" },
-    { id: "recent", label: "Recent" },
-  ];
+  const active = current === id;
   return (
-    <div role="tablist" aria-label="Filter clients" className="flex items-center gap-1">
-      {items.map((item) => {
-        const active = value === item.id;
-        return (
-          <button
-            key={item.id}
-            role="tab"
-            aria-selected={active}
-            type="button"
-            onClick={() => {
-              onChange(item.id);
-            }}
-            className={`h-9 rounded-[var(--radius-md)] px-3 font-mono text-[0.7rem] uppercase tracking-wider transition-colors ${
-              active
-                ? "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] border border-[rgb(var(--border-strong))]"
-                : "text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-elevated))]"
-            }`}
-          >
-            {item.label}
-          </button>
-        );
-      })}
+    <button
+      role="tab"
+      aria-selected={active}
+      type="button"
+      onClick={() => {
+        onSelect(id);
+      }}
+      className={`flex min-h-[44px] flex-1 items-center justify-center rounded-[var(--radius-md)] px-4 text-sm font-medium transition-colors sm:flex-initial ${
+        active
+          ? "bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] shadow-sm"
+          : "text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+// ─── Metric card ───────────────────────────────────────────────────
+
+function MetricCard({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  accent: "brand" | "warn" | "muted";
+}) {
+  const valueClass =
+    accent === "brand"
+      ? "text-[rgb(var(--brand-primary))]"
+      : accent === "warn"
+        ? "text-[rgb(var(--fg-danger))]"
+        : "text-[rgb(var(--fg-primary))]";
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3">
+      <p className="font-mono text-[0.65rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+        {label}
+      </p>
+      <p className={`sk-num mt-1 font-display text-2xl leading-none ${valueClass}`}>
+        {value}
+      </p>
+      {hint ? (
+        <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">{hint}</p>
+      ) : null}
     </div>
   );
 }
 
-function DesktopRow({
+// ─── Filter chips row (status, sort, stage) ────────────────────────
+
+function FilterChipsRow({
+  status,
+  setStatus,
+  sort,
+  setSort,
+  stage,
+  setStage,
+  showStage,
+}: {
+  status: StatusId;
+  setStatus: (s: StatusId) => void;
+  sort: SortId;
+  setSort: (s: SortId) => void;
+  stage: Stage | null;
+  setStage: (s: Stage | null) => void;
+  showStage: boolean;
+}) {
+  return (
+    <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
+      <ChipGroup
+        label="Status"
+        items={[
+          { id: "all", label: "All" },
+          { id: "active", label: "Active" },
+          { id: "outstanding", label: "Outstanding $" },
+          { id: "archived", label: "Archived" },
+          { id: "stale", label: "3+ mo stale" },
+        ]}
+        value={status}
+        onChange={(v) => {
+          setStatus(v as StatusId);
+        }}
+      />
+      {showStage ? (
+        <ChipGroup
+          label="Stage"
+          items={[
+            { id: "", label: "Any" },
+            ...STAGES.map((s) => ({ id: s, label: STAGE_LABEL[s] })),
+          ]}
+          value={stage ?? ""}
+          onChange={(v) => {
+            setStage(v === "" ? null : (v as Stage));
+          }}
+        />
+      ) : null}
+      <ChipGroup
+        label="Sort"
+        items={[
+          { id: "activity", label: "Recent" },
+          { id: "name", label: "Name" },
+          { id: "active", label: "Active #" },
+          { id: "outstanding", label: "Outstanding" },
+        ]}
+        value={sort}
+        onChange={(v) => {
+          setSort(v as SortId);
+        }}
+      />
+    </div>
+  );
+}
+
+function ChipGroup({
+  label,
+  items,
+  value,
+  onChange,
+}: {
+  label: string;
+  items: { id: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <span className="shrink-0 font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+        {label}
+      </span>
+      <div className="flex items-center gap-1">
+        {items.map((item) => {
+          const active = value === item.id;
+          return (
+            <button
+              key={item.id || "any"}
+              type="button"
+              aria-pressed={active}
+              onClick={() => {
+                onChange(item.id);
+              }}
+              className={`h-9 shrink-0 rounded-full px-3 font-mono text-[0.68rem] uppercase tracking-wider transition-colors ${
+                active
+                  ? "bg-[rgb(var(--fg-primary))] text-[rgb(var(--bg-base))]"
+                  : "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]"
+              }`}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── By-client view ────────────────────────────────────────────────
+
+function ByClientView({
+  rows,
+  totalClients,
+  onEdit,
+  onDeleted,
+  onMagicLink,
+}: {
+  rows: ClientRow[];
+  totalClients: number;
+  onEdit: (row: ClientRow) => void;
+  onDeleted: (id: string) => void;
+  onMagicLink: (
+    row: ClientRow,
+    payload: { url: string; target: "portfolio" | "booking" },
+  ) => void;
+}) {
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        title={totalClients === 0 ? "No clients yet." : "No matches."}
+        description={
+          totalClients === 0
+            ? "Clients will appear here as soon as anyone books or signs."
+            : "Try clearing the filter or search."
+        }
+      />
+    );
+  }
+  return (
+    <>
+      {/* Desktop table */}
+      <div className="hidden overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] md:block">
+        <table className="w-full text-[13px] leading-[1.3]">
+          <thead className="bg-[rgb(var(--bg-elevated))] text-left font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            <tr>
+              <th className="px-3 py-2 font-medium">Client</th>
+              <th className="px-3 py-2 font-medium sk-num">Active</th>
+              <th className="px-3 py-2 font-medium sk-num">Outstanding</th>
+              <th className="px-3 py-2 font-medium sk-num">Lifetime</th>
+              <th className="px-3 py-2 font-medium">Last activity</th>
+              <th className="px-3 py-2 text-right font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <DesktopClientRow
+                key={row.id}
+                row={row}
+                onEdit={() => {
+                  onEdit(row);
+                }}
+                onDelete={() => {
+                  onDeleted(row.id);
+                }}
+                onMagicLink={(payload) => {
+                  onMagicLink(row, payload);
+                }}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile cards */}
+      <ul className="grid gap-3 md:hidden">
+        {rows.map((row) => (
+          <MobileClientCard
+            key={row.id}
+            row={row}
+            onEdit={() => {
+              onEdit(row);
+            }}
+            onDelete={() => {
+              onDeleted(row.id);
+            }}
+            onMagicLink={(payload) => {
+              onMagicLink(row, payload);
+            }}
+          />
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function DesktopClientRow({
   row,
   onEdit,
   onDelete,
@@ -444,23 +866,59 @@ function DesktopRow({
   const router = useRouter();
   return (
     <tr
-      className="h-11 cursor-pointer border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] transition-colors duration-[140ms] ease-out hover:bg-[rgb(var(--bg-overlay))]"
+      className="h-12 cursor-pointer border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] transition-colors duration-[140ms] ease-out hover:bg-[rgb(var(--bg-overlay))]"
       onClick={() => {
         router.push(`/dashboard/clients/${row.id}`);
       }}
     >
-      <td className="px-3 py-0 text-[rgb(var(--fg-primary))]">
-        <span className="font-medium">{row.name}</span>
+      <td className="px-3 py-0">
+        <div className="flex items-center gap-2">
+          {row.needsAttention ? (
+            <span
+              aria-label="Needs attention"
+              title="Needs attention"
+              className="h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--fg-danger))]"
+            />
+          ) : null}
+          <div className="min-w-0">
+            <span className="font-medium text-[rgb(var(--fg-primary))]">{row.name}</span>
+            <span className="ml-2 font-mono text-xs text-[rgb(var(--fg-muted))]">
+              {row.email}
+            </span>
+          </div>
+          {row.tags && row.tags.length > 0 ? (
+            <div className="flex shrink-0 items-center gap-1">
+              {row.tags.slice(0, 2).map((t) => (
+                <TagPill key={t} label={t} />
+              ))}
+              {row.tags.length > 2 ? (
+                <span className="font-mono text-[0.6rem] text-[rgb(var(--fg-muted))]">
+                  +{row.tags.length - 2}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </td>
-      <td className="px-3 py-0 font-mono text-xs text-[rgb(var(--fg-secondary))]">{row.email}</td>
       <td className="px-3 py-0 sk-num">
-        {row.activeDealCount > 0 ? (
-          <span className="text-[rgb(var(--brand-primary))]">{row.activeDealCount}</span>
+        {row.activeProjectCount > 0 ? (
+          <span className="text-[rgb(var(--brand-primary))]">{row.activeProjectCount}</span>
         ) : (
           <span className="text-[rgb(var(--fg-muted))]">0</span>
         )}
       </td>
-      <td className="px-3 py-0 sk-num text-[rgb(var(--fg-secondary))]">{row.totalDealCount}</td>
+      <td className="px-3 py-0 sk-num">
+        {row.outstandingCents > 0 ? (
+          <span className="text-[rgb(var(--fg-primary))]">
+            {formatCents(row.outstandingCents)}
+          </span>
+        ) : (
+          <span className="text-[rgb(var(--fg-muted))]">—</span>
+        )}
+      </td>
+      <td className="px-3 py-0 sk-num text-[rgb(var(--fg-secondary))]">
+        {formatCents(row.lifetimeCents)}
+      </td>
       <td className="px-3 py-0 text-[rgb(var(--fg-secondary))]">
         {formatRelative(row.lastActivity)}
       </td>
@@ -477,7 +935,7 @@ function DesktopRow({
   );
 }
 
-function MobileCard({
+function MobileClientCard({
   row,
   onEdit,
   onDelete,
@@ -490,32 +948,54 @@ function MobileCard({
 }) {
   return (
     <li className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
-      <Link
-        href={`/dashboard/clients/${row.id}`}
-        className="block p-4"
-      >
+      <Link href={`/dashboard/clients/${row.id}`} className="block p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate font-display text-lg leading-tight text-[rgb(var(--fg-primary))]">
-              {row.name}
-            </p>
+            <div className="flex items-center gap-2">
+              {row.needsAttention ? (
+                <span
+                  aria-label="Needs attention"
+                  className="h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--fg-danger))]"
+                />
+              ) : null}
+              <p className="truncate font-display text-lg leading-tight text-[rgb(var(--fg-primary))]">
+                {row.name}
+              </p>
+            </div>
             <p className="mt-1 truncate font-mono text-xs text-[rgb(var(--fg-secondary))]">
               {row.email}
             </p>
+            {row.tags && row.tags.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {row.tags.slice(0, 3).map((t) => (
+                  <TagPill key={t} label={t} />
+                ))}
+                {row.tags.length > 3 ? (
+                  <span className="font-mono text-[0.6rem] text-[rgb(var(--fg-muted))]">
+                    +{row.tags.length - 3}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-          {row.activeDealCount > 0 ? (
+          {row.activeProjectCount > 0 ? (
             <span className="shrink-0 rounded-full bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[0.65rem] uppercase tracking-wider text-[rgb(var(--brand-primary))]">
-              {row.activeDealCount} active
+              {row.activeProjectCount} active
             </span>
           ) : null}
         </div>
         <dl className="mt-4 grid grid-cols-3 gap-3 text-center">
-          <Stat label="Active" value={String(row.activeDealCount)} />
-          <Stat label="Total" value={String(row.totalDealCount)} />
+          <Stat
+            label="Outstanding"
+            value={
+              row.outstandingCents > 0 ? formatCents(row.outstandingCents) : "—"
+            }
+          />
+          <Stat label="Lifetime" value={formatCents(row.lifetimeCents)} />
           <Stat label="Last" value={formatRelative(row.lastActivity)} />
         </dl>
       </Link>
-      <div className="flex items-center justify-stretch gap-2 border-t border-[rgb(var(--border-subtle))] p-3">
+      <div className="flex items-stretch gap-2 border-t border-[rgb(var(--border-subtle))] p-3">
         <RowActions
           row={row}
           variant="mobile"
@@ -534,10 +1014,170 @@ function Stat({ label, value }: { label: string; value: string }) {
       <dt className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
         {label}
       </dt>
-      <dd className="sk-num mt-1 font-display text-base leading-tight">{value}</dd>
+      <dd className="sk-num mt-1 font-display text-sm leading-tight">{value}</dd>
     </div>
   );
 }
+
+function TagPill({ label }: { label: string }) {
+  return (
+    <span className="rounded-full bg-[rgb(var(--bg-overlay))] px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
+      {label}
+    </span>
+  );
+}
+
+// ─── All-projects view ─────────────────────────────────────────────
+
+function AllProjectsView({
+  rows,
+  totalProjects,
+}: {
+  rows: ProjectRow[];
+  totalProjects: number;
+}) {
+  const router = useRouter();
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        title={totalProjects === 0 ? "No projects yet." : "No matches."}
+        description={
+          totalProjects === 0
+            ? "Create a project for a client to see it here."
+            : "Try clearing the filter or search."
+        }
+      />
+    );
+  }
+  return (
+    <>
+      {/* Desktop table */}
+      <div className="hidden overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] md:block">
+        <table className="w-full text-[13px] leading-[1.3]">
+          <thead className="bg-[rgb(var(--bg-elevated))] text-left font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            <tr>
+              <th className="px-3 py-2 font-medium">Project</th>
+              <th className="px-3 py-2 font-medium">Client</th>
+              <th className="px-3 py-2 font-medium">Stage</th>
+              <th className="px-3 py-2 font-medium sk-num">Value</th>
+              <th className="px-3 py-2 font-medium">Last activity</th>
+              <th className="px-3 py-2 text-right font-medium">Open</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p) => (
+              <tr
+                key={p.id}
+                className="h-12 cursor-pointer border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] transition-colors duration-[140ms] ease-out hover:bg-[rgb(var(--bg-overlay))]"
+                onClick={() => {
+                  router.push(`/dashboard/projects/${p.id}`);
+                }}
+              >
+                <td className="px-3 py-0">
+                  <span className="font-medium text-[rgb(var(--fg-primary))]">{p.title}</span>
+                  {p.unresolvedComments > 0 ? (
+                    <span className="ml-2 rounded-full bg-[rgb(var(--fg-danger)/0.12)] px-1.5 py-0.5 font-mono text-[0.6rem] uppercase text-[rgb(var(--fg-danger))]">
+                      {p.unresolvedComments} open
+                    </span>
+                  ) : null}
+                </td>
+                <td className="px-3 py-0">
+                  {p.client.id ? (
+                    <Link
+                      href={`/dashboard/clients/${p.client.id}`}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                      }}
+                      className="text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))] hover:underline"
+                    >
+                      {p.client.name}
+                    </Link>
+                  ) : (
+                    <span className="text-[rgb(var(--fg-secondary))]">{p.client.name}</span>
+                  )}
+                </td>
+                <td className="px-3 py-0">
+                  <StageBadge stage={p.stage} />
+                </td>
+                <td className="px-3 py-0 sk-num">
+                  {p.priceCents > 0
+                    ? formatCents(p.priceCents, p.currency)
+                    : <span className="text-[rgb(var(--fg-muted))]">—</span>}
+                  {p.outstandingCents > 0 ? (
+                    <span className="ml-2 font-mono text-[0.65rem] uppercase tracking-wider text-[rgb(var(--fg-danger))]">
+                      unpaid
+                    </span>
+                  ) : null}
+                </td>
+                <td className="px-3 py-0 text-[rgb(var(--fg-secondary))]">
+                  {formatRelative(p.lastActivity)}
+                </td>
+                <td className="px-3 py-0 text-right font-mono text-xs text-[rgb(var(--fg-muted))]">
+                  →
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile cards */}
+      <ul className="grid gap-3 md:hidden">
+        {rows.map((p) => (
+          <li
+            key={p.id}
+            className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+          >
+            <Link href={`/dashboard/projects/${p.id}`} className="block p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-display text-lg leading-tight text-[rgb(var(--fg-primary))]">
+                    {p.title}
+                  </p>
+                  <p className="mt-1 truncate font-mono text-xs text-[rgb(var(--fg-secondary))]">
+                    {p.client.name}
+                  </p>
+                </div>
+                <StageBadge stage={p.stage} />
+              </div>
+              <dl className="mt-4 grid grid-cols-3 gap-3 text-center">
+                <Stat
+                  label="Value"
+                  value={p.priceCents > 0 ? formatCents(p.priceCents, p.currency) : "—"}
+                />
+                <Stat
+                  label="Open"
+                  value={p.unresolvedComments > 0 ? String(p.unresolvedComments) : "—"}
+                />
+                <Stat label="Last" value={formatRelative(p.lastActivity)} />
+              </dl>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function StageBadge({ stage }: { stage: Stage }) {
+  // Map stage → accent colour. "active" stages use the brand accent,
+  // terminal ones (paid/archived) desaturate.
+  const accent =
+    stage === "paid"
+      ? "bg-[rgb(var(--brand-primary)/0.18)] text-[rgb(var(--brand-primary))]"
+      : stage === "archived"
+        ? "bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-muted))]"
+        : "bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-secondary))]";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider ${accent}`}
+    >
+      {STAGE_LABEL[stage]}
+    </span>
+  );
+}
+
+// ─── Row actions ───────────────────────────────────────────────────
 
 function RowActions({
   row,
@@ -571,7 +1211,7 @@ function RowActions({
 
   const remove = useCallback(() => {
     const confirmed = window.confirm(
-      `Delete ${row.name}? Their deals and contracts stay — only this contact entry is removed.`,
+      `Delete ${row.name}? Their projects and contracts stay — only this contact entry is removed.`,
     );
     if (!confirmed) return;
     startTransition(async () => {
@@ -585,8 +1225,6 @@ function RowActions({
     });
   }, [row.id, row.name, onDelete, toast]);
 
-  // Stop row-click navigation bubbling when the producer hits an action
-  // button inside the row. Applied on every click handler below.
   const stop = useCallback((fn: () => void) => {
     return (ev: React.MouseEvent) => {
       ev.stopPropagation();
@@ -616,9 +1254,6 @@ function RowActions({
       </div>
     );
   }
-
-  // Mobile — full-width buttons with text labels. Three equal columns
-  // so tap targets are ≥ 44×44.
   return (
     <>
       <Button
@@ -687,6 +1322,8 @@ function IconButton({
   );
 }
 
+// ─── Add/Edit sheet ────────────────────────────────────────────────
+
 function ClientSheet({
   title,
   submitLabel,
@@ -697,9 +1334,10 @@ function ClientSheet({
   title: string;
   submitLabel: string;
   initial?: { name: string; email: string };
-  onSubmit: (values: { name: string; email: string }) => Promise<
-    { ok: true } | { ok: false; error: string }
-  >;
+  onSubmit: (values: {
+    name: string;
+    email: string;
+  }) => Promise<{ ok: true } | { ok: false; error: string }>;
   onClose: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
@@ -708,14 +1346,9 @@ function ClientSheet({
   const [pending, startTransition] = useTransition();
   const nameRef = useRef<HTMLInputElement>(null);
 
-  // Autofocus the first field on open — a small mobile ergonomics win
-  // so the keyboard pops up right away.
   useEffect(() => {
     nameRef.current?.focus();
   }, []);
-
-  // Escape closes the sheet. Delegates to document so the form itself
-  // doesn't need tabIndex juggling.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -750,18 +1383,12 @@ function ClientSheet({
       aria-modal="true"
       aria-labelledby="client-sheet-title"
       onMouseDown={(ev) => {
-        // Backdrop-click-to-close, but only if the target IS the
-        // backdrop itself (otherwise clicking inside the panel would
-        // dismiss too).
         if (ev.target === ev.currentTarget) onClose();
       }}
     >
       <div className="w-full max-w-md rounded-t-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-lg)] sm:rounded-[var(--radius-lg)]">
         <div className="flex items-center justify-between">
-          <h2
-            id="client-sheet-title"
-            className="font-display text-xl text-[rgb(var(--fg-primary))]"
-          >
+          <h2 id="client-sheet-title" className="font-display text-xl text-[rgb(var(--fg-primary))]">
             {title}
           </h2>
           <button
@@ -823,6 +1450,8 @@ function ClientSheet({
     </div>
   );
 }
+
+// ─── Magic-link banner ─────────────────────────────────────────────
 
 function MagicLinkBanner({
   data,
@@ -897,7 +1526,7 @@ function MagicLinkBanner({
   );
 }
 
-// -- Icons ----------------------------------------------------------
+// ─── Icons ─────────────────────────────────────────────────────────
 
 function PeopleIcon() {
   return (

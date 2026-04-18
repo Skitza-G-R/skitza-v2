@@ -18,7 +18,7 @@ function toMessage(err: unknown): string {
   if (err instanceof TRPCError) {
     switch (err.code) {
       case "NOT_FOUND":
-        return "This deal link isn't valid.";
+        return "This project link isn't valid.";
       case "TOO_MANY_REQUESTS":
         return "Too many requests — try again in a moment.";
       case "BAD_REQUEST":
@@ -40,7 +40,7 @@ export async function submitArtistComment(input: {
 }): Promise<ActionResult> {
   try {
     const caller = appRouter.createCaller({ userId: null });
-    await caller.deal.publicComment(input);
+    await caller.project.publicComment(input);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

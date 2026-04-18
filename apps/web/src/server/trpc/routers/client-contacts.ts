@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {
   and,
+  bookings,
   clientContacts,
   contractRecipients,
   contracts,
-  dealTracks,
-  deals,
+  packages,
+  projectTracks,
+  projects,
   desc,
   eq,
   inArray,
@@ -25,37 +27,26 @@ import { issueMagicToken } from "~/lib/magic-links/token";
 
 // Producer-scoped client CRM.
 //
-// Grew from a read-only autocomplete feed in C.5 into the full CRUD
-// surface that backs /dashboard/clients (G.2). The contact row is
-// still the same `client_contacts` table — we just add create/edit/
-// delete and an enriched list + detail with per-client aggregates.
-//
-// Aggregates match against BOTH deals.clientEmail AND deals.artistEmail
-// so legacy deals (pre-C.2, when only artistEmail was set) still attach
-// to their contact. If a producer later renames a client's email, the
-// older deals continue to show up because we compare on email strings,
-// not contact IDs.
+// Read-only autocomplete feed grew into the full CRUD surface that
+// backs /dashboard/clients. Aggregates match against BOTH
+// projects.clientEmail AND projects.artistEmail so legacy projects
+// (when only artistEmail was set) still attach to their contact. If a
+// producer later renames a client's email, the older projects continue
+// to show up because we compare on email strings, not contact IDs.
 
 const TargetEnum = z.enum(["portfolio", "booking"]);
 
-// Matches the linking logic used in every aggregate below — keep in
-// sync if we ever add a third email column on deals.
-function emailMatchesDeal(email: string) {
-  return or(eq(deals.clientEmail, email), eq(deals.artistEmail, email));
+function emailMatchesProject(email: string) {
+  return or(eq(projects.clientEmail, email), eq(projects.artistEmail, email));
 }
 
-// Normalize + hash an email the same way recordContact does so the
-// dedupe key is stable across every surface that upserts a contact.
 function hashEmail(raw: string): { lower: string; hash: string } {
   const lower = raw.trim().toLowerCase();
   return { lower, hash: createHash("sha256").update(lower).digest("hex") };
 }
 
 export const clientContactsRouter = router({
-  // Read: autocomplete + simple listing. Kept backwards-compatible with
-  // the C.5 shape (id/email/name/lastSeenAt only); list enrichment lives
-  // on `listWithMeta` so callers that only need the lightweight list
-  // don't pay for the aggregates.
+  // Read: autocomplete + simple listing.
   list: producerProcedure
     .input(z.object({ q: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
@@ -77,8 +68,345 @@ export const clientContactsRouter = router({
       );
     }),
 
+  // Phase H.2 — enriched CRM list with two "modes":
+  //   view = "by-client"     → one row per contact with aggregate stats
+  //   view = "all-projects"  → one row per project, with its client
+  //
+  // Both modes share the same per-project-package-price join so the
+  // outstanding balance + lifetime value numbers stay consistent across
+  // views. Outstanding = sum(priceCents) for projects where the package
+  // price is known AND the final hasn't been paid AND stage isn't
+  // archived. Lifetime = sum(priceCents) for projects where finalPaid
+  // is true. Projects with no booking/package contribute 0.
+  listWithProjects: producerProcedure
+    .input(
+      z
+        .object({ view: z.enum(["by-client", "all-projects"]).optional() })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const view = input?.view ?? "by-client";
+
+      // One per-project row enriched with package price + last comment
+      // time. Uses `max(bookings.package_id)` + `max(packages.price_cents)`
+      // to collapse the many-to-one booking→package join safely; in
+      // practice a project has ≤ 1 booking attached via bookings.project_id.
+      const projectRows = await ctx.db
+        .select({
+          id: projects.id,
+          title: projects.title,
+          stage: projects.stage,
+          createdAt: projects.createdAt,
+          updatedAt: projects.updatedAt,
+          clientName: projects.clientName,
+          clientEmail: sql<string | null>`lower(${projects.clientEmail})`,
+          artistName: projects.artistName,
+          artistEmail: sql<string>`lower(${projects.artistEmail})`,
+          depositPaid: projects.depositPaid,
+          finalPaid: projects.finalPaid,
+          priceCents: sql<number | null>`max(${packages.priceCents})`,
+          currency: sql<string | null>`max(${packages.currency})`,
+          nextSessionAt: sql<
+            Date | string | null
+          >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
+        })
+        .from(projects)
+        .leftJoin(bookings, eq(bookings.projectId, projects.id))
+        .leftJoin(packages, eq(packages.id, bookings.productId))
+        .where(eq(projects.producerId, ctx.producerId))
+        .groupBy(projects.id)
+        .orderBy(desc(projects.updatedAt));
+
+      // Pre-compute last-comment timestamp + unresolved count per
+      // project email (artistEmail/clientEmail) via a single aggregate.
+      const commentAgg = await ctx.db
+        .select({
+          projectId: projectTracks.projectId,
+          lastComment: sql<Date | string | null>`max(${trackComments.createdAt})`,
+          unresolved: sql<number>`count(*) filter (where ${trackComments.resolvedAt} is null and ${trackComments.fromProducer} = false)::int`,
+        })
+        .from(trackComments)
+        .innerJoin(trackVersions, eq(trackVersions.id, trackComments.versionId))
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(eq(projects.producerId, ctx.producerId))
+        .groupBy(projectTracks.projectId);
+
+      const commentMap = new Map<
+        string,
+        { lastComment: Date | null; unresolved: number }
+      >();
+      for (const row of commentAgg) {
+        const lc =
+          row.lastComment == null
+            ? null
+            : row.lastComment instanceof Date
+              ? row.lastComment
+              : new Date(row.lastComment);
+        commentMap.set(row.projectId, { lastComment: lc, unresolved: row.unresolved });
+      }
+
+      // Shape: decorate each project with lastActivity (max of
+      // updatedAt / lastComment) + the outstandingCents for itself.
+      const enriched = projectRows.map((p) => {
+        const cm = commentMap.get(p.id) ?? { lastComment: null, unresolved: 0 };
+        const updatedAt = p.updatedAt instanceof Date ? p.updatedAt : new Date(p.updatedAt);
+        const lastActivity =
+          cm.lastComment && cm.lastComment > updatedAt ? cm.lastComment : updatedAt;
+        const nextSessionAt =
+          p.nextSessionAt == null
+            ? null
+            : p.nextSessionAt instanceof Date
+              ? p.nextSessionAt
+              : new Date(p.nextSessionAt);
+        const price = p.priceCents ?? 0;
+        const isActive = p.stage !== "paid" && p.stage !== "archived";
+        const outstanding = p.finalPaid || p.stage === "archived" ? 0 : price;
+        const lifetime = p.finalPaid ? price : 0;
+        return {
+          id: p.id,
+          title: p.title,
+          stage: p.stage,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+          clientName: p.clientName,
+          clientEmail: p.clientEmail ?? p.artistEmail,
+          artistName: p.artistName,
+          artistEmail: p.artistEmail,
+          depositPaid: p.depositPaid,
+          finalPaid: p.finalPaid,
+          priceCents: price,
+          currency: p.currency ?? "USD",
+          outstandingCents: outstanding,
+          lifetimeCents: lifetime,
+          nextSessionAt,
+          lastActivity,
+          unresolvedComments: cm.unresolved,
+          isActive,
+        };
+      });
+
+      if (view === "all-projects") {
+        // Flat list shape. For each project, look up the contact by
+        // lowercased email. If none found (legacy rows) return a stub
+        // so the UI still renders a row.
+        const contacts = await ctx.db
+          .select({
+            id: clientContacts.id,
+            email: clientContacts.email,
+            name: clientContacts.name,
+            tags: clientContacts.tags,
+          })
+          .from(clientContacts)
+          .where(eq(clientContacts.producerId, ctx.producerId));
+        const contactByEmail = new Map<
+          string,
+          { id: string; email: string; name: string; tags: string[] | null }
+        >();
+        for (const c of contacts) {
+          contactByEmail.set(c.email.toLowerCase(), {
+            id: c.id,
+            email: c.email,
+            name: c.name,
+            tags: c.tags,
+          });
+        }
+        return {
+          view: "all-projects" as const,
+          projects: enriched.map((p) => {
+            const matchEmail = p.clientEmail.toLowerCase();
+            const ct = contactByEmail.get(matchEmail) ?? null;
+            return {
+              ...p,
+              client: ct
+                ? {
+                    id: ct.id,
+                    email: ct.email,
+                    name: ct.name,
+                    tags: ct.tags,
+                  }
+                : {
+                    id: null,
+                    email: p.clientEmail,
+                    name: p.clientName ?? p.artistName,
+                    tags: null as string[] | null,
+                  },
+            };
+          }),
+        };
+      }
+
+      // view === "by-client" — fold projects into their contact.
+      const contacts = await ctx.db
+        .select({
+          id: clientContacts.id,
+          email: clientContacts.email,
+          name: clientContacts.name,
+          firstSeenAt: clientContacts.firstSeenAt,
+          lastSeenAt: clientContacts.lastSeenAt,
+          tags: clientContacts.tags,
+          notes: clientContacts.notes,
+          referralSource: clientContacts.referralSource,
+        })
+        .from(clientContacts)
+        .where(eq(clientContacts.producerId, ctx.producerId))
+        .orderBy(desc(clientContacts.lastSeenAt));
+
+      type Agg = {
+        active: number;
+        total: number;
+        outstanding: number;
+        lifetime: number;
+        lastActivity: Date | null;
+        unresolved: number;
+        hasActive: boolean;
+        hasOutstanding: boolean;
+      };
+      const byEmail = new Map<string, Agg>();
+      function ensure(email: string): Agg {
+        const existing = byEmail.get(email);
+        if (existing) return existing;
+        const fresh: Agg = {
+          active: 0,
+          total: 0,
+          outstanding: 0,
+          lifetime: 0,
+          lastActivity: null,
+          unresolved: 0,
+          hasActive: false,
+          hasOutstanding: false,
+        };
+        byEmail.set(email, fresh);
+        return fresh;
+      }
+      for (const p of enriched) {
+        const la = p.lastActivity instanceof Date ? p.lastActivity : new Date(p.lastActivity);
+        for (const em of new Set(
+          [p.clientEmail, p.artistEmail].filter((e): e is string => Boolean(e)).map((e) => e.toLowerCase()),
+        )) {
+          const a = ensure(em);
+          a.total += 1;
+          if (p.isActive) {
+            a.active += 1;
+            a.hasActive = true;
+          }
+          a.outstanding += p.outstandingCents;
+          a.lifetime += p.lifetimeCents;
+          a.unresolved += p.unresolvedComments;
+          if (p.outstandingCents > 0) a.hasOutstanding = true;
+          if (!a.lastActivity || la > a.lastActivity) a.lastActivity = la;
+        }
+      }
+
+      const rows = contacts.map((c) => {
+        const agg = byEmail.get(c.email.toLowerCase()) ?? {
+          active: 0,
+          total: 0,
+          outstanding: 0,
+          lifetime: 0,
+          lastActivity: null,
+          unresolved: 0,
+          hasActive: false,
+          hasOutstanding: false,
+        };
+        const lastActivity =
+          agg.lastActivity ??
+          (c.lastSeenAt instanceof Date ? c.lastSeenAt : new Date(c.lastSeenAt));
+        // "Needs attention" heuristic — anything a producer would want
+        // to look at first thing in the morning.
+        const now = Date.now();
+        const staleMs = 90 * 24 * 60 * 60 * 1000; // 90 days
+        const isStale =
+          agg.total === 0
+            ? now - (c.lastSeenAt instanceof Date ? c.lastSeenAt : new Date(c.lastSeenAt)).getTime() > staleMs
+            : false;
+        const needsAttention =
+          agg.unresolved > 0 || (agg.hasOutstanding && agg.active > 0);
+        return {
+          id: c.id,
+          email: c.email,
+          name: c.name,
+          firstSeenAt: c.firstSeenAt,
+          lastSeenAt: c.lastSeenAt,
+          tags: c.tags,
+          notes: c.notes,
+          referralSource: c.referralSource,
+          activeProjectCount: agg.active,
+          totalProjectCount: agg.total,
+          outstandingCents: agg.outstanding,
+          lifetimeCents: agg.lifetime,
+          unresolvedComments: agg.unresolved,
+          lastActivity,
+          needsAttention,
+          isStale,
+        };
+      });
+      return { view: "by-client" as const, clients: rows };
+    }),
+
+  // Patch the CRM meta fields in isolation — keeps the existing
+  // `update` procedure focused on name/email (which has different
+  // dedupe semantics). Any subset of the three fields may be passed;
+  // `undefined` means "leave unchanged", while an explicit empty array
+  // or empty string clears the field.
+  updateClientMeta: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        tags: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+        notes: z.string().max(5000).optional(),
+        referralSource: z.string().max(200).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({ producerId: clientContacts.producerId })
+        .from(clientContacts)
+        .where(eq(clientContacts.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const patch: {
+        tags?: string[] | null;
+        notes?: string | null;
+        referralSource?: string | null;
+      } = {};
+      if (input.tags !== undefined) {
+        // Deduplicate case-insensitively while preserving the first
+        // casing seen — producers usually type "Hip-Hop" then "hip-hop"
+        // and expect one tag.
+        const seen = new Set<string>();
+        const cleaned: string[] = [];
+        for (const t of input.tags) {
+          const key = t.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          cleaned.push(t);
+        }
+        patch.tags = cleaned.length > 0 ? cleaned : null;
+      }
+      if (input.notes !== undefined) {
+        const trimmed = input.notes.trim();
+        patch.notes = trimmed.length > 0 ? trimmed : null;
+      }
+      if (input.referralSource !== undefined) {
+        const trimmed = input.referralSource.trim();
+        patch.referralSource = trimmed.length > 0 ? trimmed : null;
+      }
+      if (Object.keys(patch).length === 0) {
+        return { ok: true as const, changed: false };
+      }
+      await ctx.db
+        .update(clientContacts)
+        .set(patch)
+        .where(eq(clientContacts.id, input.id));
+      return { ok: true as const, changed: true };
+    }),
+
   // Enriched list for the CRM view. One round-trip for contacts plus
-  // one grouped aggregate over deals. N+1 avoided by building a map
+  // one grouped aggregate over projects. N+1 avoided by building a map
   // keyed on lowercased email and looking up each contact in JS.
   listWithMeta: producerProcedure.query(async ({ ctx }) => {
     const contacts = await ctx.db
@@ -93,28 +421,23 @@ export const clientContactsRouter = router({
       .where(eq(clientContacts.producerId, ctx.producerId))
       .orderBy(desc(clientContacts.lastSeenAt));
 
-    // Aggregate deals by the canonical email pair. Scope to producer so
-    // we can safely group by the email expression without worrying
-    // about cross-tenant leakage. Compare on LOWER(email) so casing
-    // mismatches from legacy rows still join. We compute both active
-    // and total counts in one pass using FILTER.
-    const dealAgg = await ctx.db
+    const projectAgg = await ctx.db
       .select({
-        clientEmail: sql<string | null>`lower(${deals.clientEmail})`,
-        artistEmail: sql<string | null>`lower(${deals.artistEmail})`,
-        totalDeals: sql<number>`count(*)::int`,
-        activeDeals: sql<number>`count(*) filter (where ${deals.stage} not in ('paid','archived'))::int`,
-        lastActivity: sql<Date | string | null>`max(${deals.updatedAt})`,
+        clientEmail: sql<string | null>`lower(${projects.clientEmail})`,
+        artistEmail: sql<string | null>`lower(${projects.artistEmail})`,
+        totalProjects: sql<number>`count(*)::int`,
+        activeProjects: sql<number>`count(*) filter (where ${projects.stage} not in ('paid','archived'))::int`,
+        lastActivity: sql<Date | string | null>`max(${projects.updatedAt})`,
       })
-      .from(deals)
-      .where(eq(deals.producerId, ctx.producerId))
-      .groupBy(sql`lower(${deals.clientEmail})`, sql`lower(${deals.artistEmail})`);
+      .from(projects)
+      .where(eq(projects.producerId, ctx.producerId))
+      .groupBy(sql`lower(${projects.clientEmail})`, sql`lower(${projects.artistEmail})`);
 
     const agg = new Map<
       string,
       { active: number; total: number; lastActivity: Date | null }
     >();
-    for (const row of dealAgg) {
+    for (const row of projectAgg) {
       const lastAct =
         row.lastActivity == null
           ? null
@@ -125,11 +448,11 @@ export const clientContactsRouter = router({
         if (!em) continue;
         const prev = agg.get(em);
         if (!prev) {
-          agg.set(em, { active: row.activeDeals, total: row.totalDeals, lastActivity: lastAct });
+          agg.set(em, { active: row.activeProjects, total: row.totalProjects, lastActivity: lastAct });
         } else {
           agg.set(em, {
-            active: prev.active + row.activeDeals,
-            total: prev.total + row.totalDeals,
+            active: prev.active + row.activeProjects,
+            total: prev.total + row.totalProjects,
             lastActivity:
               prev.lastActivity && lastAct
                 ? prev.lastActivity > lastAct
@@ -147,22 +470,15 @@ export const clientContactsRouter = router({
         total: 0,
         lastActivity: null,
       };
-      // Fall back to lastSeenAt on the contact itself when no deal has
-      // ever been linked (manually added client). Keeps the "Last
-      // activity" column useful day-one.
       return {
         ...c,
-        activeDealCount: meta.active,
-        totalDealCount: meta.total,
+        activeProjectCount: meta.active,
+        totalProjectCount: meta.total,
         lastActivity: meta.lastActivity ?? c.lastSeenAt,
       };
     });
   }),
 
-  // Manually add a client. Idempotent-by-email: if a row already exists
-  // for this (producer, emailHash) we return it with `existed: true`
-  // so the UI can direct the producer to the existing contact page
-  // instead of surfacing a raw constraint error.
   create: producerProcedure
     .input(
       z.object({
@@ -211,9 +527,6 @@ export const clientContactsRouter = router({
       };
     }),
 
-  // Edit name/email. If email changes we rehash and guard against
-  // colliding with another row in the same producer — returning
-  // CONFLICT so the UI can offer to open the other contact.
   update: producerProcedure
     .input(
       z.object({
@@ -273,9 +586,8 @@ export const clientContactsRouter = router({
       return { id: row.id, email: row.email, name: row.name };
     }),
 
-  // Delete a contact. Deals/contracts/comments linked via email stay
-  // in place — this is purely a CRM entry removal. The contact may
-  // auto-recreate next time the same artist books or comments.
+  // Delete a contact. Projects/contracts/comments linked via email
+  // stay in place — this is purely a CRM entry removal.
   remove: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -292,7 +604,7 @@ export const clientContactsRouter = router({
       return { ok: true as const };
     }),
 
-  // Detailed view — contact + linked deals + contracts + recent
+  // Detailed view — contact + linked projects + contracts + recent
   // comments. Consumed by /dashboard/clients/[id].
   detail: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
@@ -307,36 +619,40 @@ export const clientContactsRouter = router({
       }
       const lower = contact.email.toLowerCase();
 
-      // Deals for this client — by either email column. Producer-scoped
-      // so the OR stays tenant-safe.
-      const dealRows = await ctx.db
+      const projectRows = await ctx.db
         .select({
-          id: deals.id,
-          title: deals.title,
-          stage: deals.stage,
-          createdAt: deals.createdAt,
-          updatedAt: deals.updatedAt,
-          depositPaid: deals.depositPaid,
-          finalPaid: deals.finalPaid,
+          id: projects.id,
+          title: projects.title,
+          stage: projects.stage,
+          createdAt: projects.createdAt,
+          updatedAt: projects.updatedAt,
+          depositPaid: projects.depositPaid,
+          finalPaid: projects.finalPaid,
+          priceCents: sql<number | null>`max(${packages.priceCents})`,
+          currency: sql<string | null>`max(${packages.currency})`,
+          nextSessionAt: sql<
+            Date | string | null
+          >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
         })
-        .from(deals)
-        .where(and(eq(deals.producerId, ctx.producerId), emailMatchesDeal(lower)))
-        .orderBy(desc(deals.updatedAt));
+        .from(projects)
+        .leftJoin(bookings, eq(bookings.projectId, projects.id))
+        .leftJoin(packages, eq(packages.id, bookings.productId))
+        .where(and(eq(projects.producerId, ctx.producerId), emailMatchesProject(lower)))
+        .groupBy(projects.id)
+        .orderBy(desc(projects.updatedAt));
 
-      const dealIds = dealRows.map((d) => d.id);
+      const projectIds = projectRows.map((d) => d.id);
 
-      // Track count: count of track_versions across this client's deals.
       let trackCount = 0;
-      if (dealIds.length > 0) {
+      if (projectIds.length > 0) {
         const [row] = await ctx.db
           .select({ n: sql<number>`count(*)::int` })
           .from(trackVersions)
-          .innerJoin(dealTracks, eq(dealTracks.id, trackVersions.trackId))
-          .where(inArray(dealTracks.dealId, dealIds));
+          .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+          .where(inArray(projectTracks.projectId, projectIds));
         trackCount = row?.n ?? 0;
       }
 
-      // Contracts sent to this email (via contract_recipients).
       const contractRows = await ctx.db
         .select({
           id: contracts.id,
@@ -356,17 +672,14 @@ export const clientContactsRouter = router({
         )
         .orderBy(desc(contracts.createdAt));
 
-      // Recent comments by this email — scoped to this producer's
-      // versions via the deal join (defense-in-depth). Limit 20 — the
-      // timeline renders the latest chunk; "load more" can ship later.
       const commentRows =
-        dealIds.length > 0
+        projectIds.length > 0
           ? await ctx.db
               .select({
                 id: trackComments.id,
                 versionId: trackComments.versionId,
-                trackId: dealTracks.id,
-                dealId: dealTracks.dealId,
+                trackId: projectTracks.id,
+                projectId: projectTracks.projectId,
                 body: trackComments.body,
                 timestampMs: trackComments.timestampMs,
                 createdAt: trackComments.createdAt,
@@ -374,10 +687,10 @@ export const clientContactsRouter = router({
               })
               .from(trackComments)
               .innerJoin(trackVersions, eq(trackVersions.id, trackComments.versionId))
-              .innerJoin(dealTracks, eq(dealTracks.id, trackVersions.trackId))
+              .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
               .where(
                 and(
-                  inArray(dealTracks.dealId, dealIds),
+                  inArray(projectTracks.projectId, projectIds),
                   sql`lower(${trackComments.authorEmail}) = ${lower}`,
                 ),
               )
@@ -385,10 +698,33 @@ export const clientContactsRouter = router({
               .limit(20)
           : [];
 
-      const activeDealCount = dealRows.filter(
+      const activeProjectCount = projectRows.filter(
         (d) => d.stage !== "paid" && d.stage !== "archived",
       ).length;
-      const lastActivity = dealRows[0]?.updatedAt ?? contact.lastSeenAt;
+      const lastActivity = projectRows[0]?.updatedAt ?? contact.lastSeenAt;
+
+      // Aggregate outstanding / lifetime across this contact's
+      // projects. Same rule as listWithProjects:
+      //   outstanding = sum(priceCents) for projects not yet paid +
+      //                 not archived (if known)
+      //   lifetime    = sum(priceCents) for projects where final is paid
+      let outstandingCents = 0;
+      let lifetimeCents = 0;
+      const enrichedProjects = projectRows.map((p) => {
+        const price = p.priceCents ?? 0;
+        const isArchived = p.stage === "archived";
+        const isPaid = p.finalPaid;
+        const outstanding = isPaid || isArchived ? 0 : price;
+        const lifetime = isPaid ? price : 0;
+        outstandingCents += outstanding;
+        lifetimeCents += lifetime;
+        return {
+          ...p,
+          priceCents: price,
+          outstandingCents: outstanding,
+          lifetimeCents: lifetime,
+        };
+      });
 
       return {
         contact: {
@@ -397,23 +733,24 @@ export const clientContactsRouter = router({
           name: contact.name,
           firstSeenAt: contact.firstSeenAt,
           lastSeenAt: contact.lastSeenAt,
+          tags: contact.tags,
+          notes: contact.notes,
+          referralSource: contact.referralSource,
         },
         stats: {
-          activeDealCount,
-          totalDealCount: dealRows.length,
+          activeProjectCount,
+          totalProjectCount: projectRows.length,
           trackCount,
           lastActivity,
+          outstandingCents,
+          lifetimeCents,
         },
-        deals: dealRows,
+        projects: enrichedProjects,
         contracts: contractRows,
         comments: commentRows,
       };
     }),
 
-  // Mint a magic link for this client. Same discipline as
-  // magicLink.issue (raw token returned once, only hash persisted) —
-  // we inline the minting rather than calling into the other router
-  // so we can return a fresh `url` shape tailored for the CRM UI.
   sendMagicLink: producerProcedure
     .input(
       z.object({

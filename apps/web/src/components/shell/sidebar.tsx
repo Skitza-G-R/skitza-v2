@@ -26,7 +26,8 @@ type ActiveKey =
   | "clients"
   | "library"
   | "settings"
-  | "inbox";
+  | "inbox"
+  | "invoices";
 
 type NavItem = { id: ActiveKey; label: string; href: string; icon: ReactNode };
 
@@ -78,14 +79,19 @@ export function Sidebar({
     };
   }, [toggle]);
 
-  // Inbox sits between Pipeline and Contracts: it's the producer's
-  // first-thing-in-the-morning view once the app has enough data.
+  // Phase H.2 — Clients leads the rail. The CRM hub is now the
+  // producer-first mental model: "who are my people? what do they need
+  // today?" Pipeline stays one click away for the deal-flow-focused
+  // producer. Inbox stays after Library to group the "reactive" surfaces
+  // (library, contracts, bookings) under the "proactive" ones (clients,
+  // pipeline).
   const items: NavItem[] = [
-    { id: "pipeline", label: "Pipeline", href: "/dashboard", icon: <PipelineIcon /> },
-    { id: "inbox", label: "Inbox", href: "/dashboard/inbox", icon: <InboxIcon /> },
     { id: "clients", label: "Clients", href: "/dashboard/clients", icon: <ClientsIcon /> },
+    { id: "pipeline", label: "Pipeline", href: "/dashboard", icon: <PipelineIcon /> },
     { id: "library", label: "Library", href: "/dashboard/library", icon: <LibraryIcon /> },
+    { id: "inbox", label: "Inbox", href: "/dashboard/inbox", icon: <InboxIcon /> },
     { id: "contracts", label: "Contracts", href: "/dashboard/contracts", icon: <ContractIcon /> },
+    { id: "invoices", label: "Invoices", href: "/dashboard/invoices", icon: <InvoicesIcon /> },
     { id: "booking", label: "Bookings", href: "/dashboard/booking", icon: <CalendarIcon /> },
     { id: "leads", label: "Leads", href: "/dashboard/leads", icon: <UsersIcon /> },
     { id: "portfolio", label: "Portfolio", href: "/dashboard/portfolio", icon: <PortfolioIcon /> },
@@ -339,6 +345,15 @@ function CalendarIcon() {
     <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <rect x="2" y="3" width="12" height="11" rx="1.5" />
       <path d="M2 6.5h12M5 1.75V4M11 1.75V4" />
+    </svg>
+  );
+}
+
+function InvoicesIcon() {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 1.75h7.5L13 4.25v10A.75.75 0 0 1 12.25 15h-9a.75.75 0 0 1-.25-.04L3 14.75v-13Z" />
+      <path d="M5 6.5h6M5 9h6M5 11.5h3.5" />
     </svg>
   );
 }

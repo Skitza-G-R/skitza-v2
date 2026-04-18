@@ -51,10 +51,10 @@ type LibraryRow = {
   durationMs: number | null;
   trackId: string;
   trackTitle: string;
-  dealId: string;
-  dealTitle: string;
-  dealArtistName: string;
-  dealClientName: string | null;
+  projectId: string;
+  projectTitle: string;
+  projectArtistName: string;
+  projectClientName: string | null;
   commentCount: number;
   unresolvedCount: number;
 };
@@ -81,8 +81,8 @@ type DetailPayload = {
     durationMs: number | null;
     uploadedAt: Date | string;
   };
-  track: { id: string; title: string; dealId: string };
-  deal: { id: string; title: string; artistName: string };
+  track: { id: string; title: string; projectId: string };
+  project: { id: string; title: string; artistName: string };
   comments: CommentRow[];
 };
 
@@ -173,13 +173,13 @@ export function LibraryList({ initial }: { initial: LibraryRow[] }) {
             Library
           </h1>
           <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-            Every track across every deal, in one place.
+            Every track across every project, in one place.
           </p>
         </header>
         <EmptyState
           icon={<LibraryIcon />}
           title="Your library is empty."
-          description="Every track version across every deal lives here. Upload on a deal's Audio tab and it'll show up — no manual sync required."
+          description="Every track version across every project lives here. Upload on a project's Audio tab and it'll show up — no manual sync required."
           action={
             <Link
               href="/dashboard"
@@ -204,8 +204,8 @@ export function LibraryList({ initial }: { initial: LibraryRow[] }) {
           </h1>
           <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
             {initial.length === 1
-              ? "1 track version across your deals."
-              : `${String(initial.length)} track versions across your deals.`}
+              ? "1 track version across your projects."
+              : `${String(initial.length)} track versions across your projects.`}
           </p>
         </header>
 
@@ -251,7 +251,7 @@ export function LibraryList({ initial }: { initial: LibraryRow[] }) {
                 ? "No tracks with unresolved comments — inbox zero feels good."
                 : filter === "resolved"
                   ? "No fully-resolved tracks yet."
-                  : "Try uploading a version from any deal's Audio tab."
+                  : "Try uploading a version from any project's Audio tab."
             }
           />
         ) : (
@@ -364,8 +364,8 @@ function LibraryRowCard({
   active: boolean;
   onOpen: () => void;
 }) {
-  const title = `${row.dealTitle} · ${row.versionLabel}`;
-  const subtitle = `${row.dealArtistName} · ${formatRelative(row.uploadedAt)}`;
+  const title = `${row.projectTitle} · ${row.versionLabel}`;
+  const subtitle = `${row.projectArtistName} · ${formatRelative(row.uploadedAt)}`;
 
   const handlePlay = useCallback(
     (e: SyntheticEvent) => {
@@ -512,8 +512,8 @@ function SidePanel({ row }: { row: LibraryRow }) {
     const track: PlayerTrack = {
       id: row.versionId,
       audioUrl: row.audioUrl,
-      title: `${row.dealTitle} · ${row.versionLabel}`,
-      subtitle: `${row.dealArtistName} · ${formatRelative(row.uploadedAt)}`,
+      title: `${row.projectTitle} · ${row.versionLabel}`,
+      subtitle: `${row.projectArtistName} · ${formatRelative(row.uploadedAt)}`,
       durationMs: row.durationMs,
     };
     playerPlay(track);
@@ -596,13 +596,13 @@ function SidePanel({ row }: { row: LibraryRow }) {
             {row.trackTitle}
           </p>
           <p className="truncate font-mono text-[11px] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-            {row.versionLabel} · {row.dealArtistName}
+            {row.versionLabel} · {row.projectArtistName}
           </p>
           <Link
-            href={`/dashboard/deals/${row.dealId}`}
+            href={`/dashboard/projects/${row.projectId}`}
             className="mt-1 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-[rgb(var(--brand-primary))] hover:underline"
           >
-            Open deal →
+            Open project →
           </Link>
         </div>
       </div>

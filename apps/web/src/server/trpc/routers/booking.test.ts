@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
-import { __computeSlotsForTests as computeSlots, isBlackedOut } from "./booking";
+import {
+  __computeSlotsForTests as computeSlots,
+  blocksOverlapOnSameDay,
+  isBlackedOut,
+} from "./booking";
 
 // These tests exercise the pure slot-computation helper, not the tRPC
 // router itself. The router wraps this function with DB reads; the
@@ -145,5 +149,112 @@ describe("computeSlots — blackouts, buffers, lead time", () => {
       now,
     });
     expect(slots).toContain("2026-04-13T11:00:00.000Z");
+  });
+});
+
+describe("blocksOverlapOnSameDay", () => {
+  it("detects overlap within a weekday", () => {
+    expect(
+      blocksOverlapOnSameDay([
+        { weekday: 1, startMin: 540, endMin: 720 }, // 9-12
+        { weekday: 1, startMin: 600, endMin: 780 }, // 10-13 — overlaps
+      ]),
+    ).toBe(true);
+  });
+
+  it("allows back-to-back same-weekday blocks (no gap)", () => {
+    expect(
+      blocksOverlapOnSameDay([
+        { weekday: 1, startMin: 540, endMin: 720 }, // 9-12
+        { weekday: 1, startMin: 720, endMin: 900 }, // 12-15 — touches, no overlap
+      ]),
+    ).toBe(false);
+  });
+
+  it("allows 3 non-overlapping blocks on one day", () => {
+    expect(
+      blocksOverlapOnSameDay([
+        { weekday: 1, startMin: 540, endMin: 720 }, // 9-12
+        { weekday: 1, startMin: 840, endMin: 1020 }, // 14-17
+        { weekday: 1, startMin: 1080, endMin: 1260 }, // 18-21
+      ]),
+    ).toBe(false);
+  });
+
+  it("different weekdays never overlap (regardless of times)", () => {
+    expect(
+      blocksOverlapOnSameDay([
+        { weekday: 1, startMin: 540, endMin: 720 },
+        { weekday: 2, startMin: 540, endMin: 720 },
+      ]),
+    ).toBe(false);
+  });
+
+  it("returns false for an empty list", () => {
+    expect(blocksOverlapOnSameDay([])).toBe(false);
+  });
+
+  it("detects an exact duplicate block on the same day", () => {
+    expect(
+      blocksOverlapOnSameDay([
+        { weekday: 3, startMin: 600, endMin: 720 },
+        { weekday: 3, startMin: 600, endMin: 720 },
+      ]),
+    ).toBe(true);
+  });
+});
+
+describe("computeSlots with multi-block weekday", () => {
+  // Three blocks on Monday 2026-04-13 — 9-12, 14-17, 18-21 — the
+  // concrete "studio hours" example from the H.4a spec. Verify slot
+  // starts include all three windows, not just the first.
+  const TZ = "UTC";
+  const studioBlocks = [
+    { weekday: 1, startMin: 9 * 60, endMin: 12 * 60 },
+    { weekday: 1, startMin: 14 * 60, endMin: 17 * 60 },
+    { weekday: 1, startMin: 18 * 60, endMin: 21 * 60 },
+  ];
+  const now = new Date("2026-04-12T00:00:00Z");
+
+  it("generates slot candidates from every block on the same day", () => {
+    const slots = computeSlots(studioBlocks, [], 60, 2, TZ, {
+      minLeadHours: 0,
+      now,
+    });
+    // Morning window — 9:00, 9:15, ..., 11:00.
+    expect(slots).toContain("2026-04-13T09:00:00.000Z");
+    // Afternoon window — 14:00 kicks in AFTER the 12:00 morning end.
+    expect(slots).toContain("2026-04-13T14:00:00.000Z");
+    // Evening window — 18:00 onwards.
+    expect(slots).toContain("2026-04-13T18:00:00.000Z");
+  });
+
+  it("excludes the gap between blocks — 12:30 is not a slot", () => {
+    const slots = computeSlots(studioBlocks, [], 60, 2, TZ, {
+      minLeadHours: 0,
+      now,
+    });
+    // 12:30 falls in the 12-14 gap — not a valid slot start.
+    expect(slots).not.toContain("2026-04-13T12:30:00.000Z");
+    // 13:30 would also be in the gap.
+    expect(slots).not.toContain("2026-04-13T13:30:00.000Z");
+  });
+
+  it("still honours existing-booking overlap across multiple blocks", () => {
+    const existing = [
+      // Booking during the afternoon block.
+      { startsAt: new Date("2026-04-13T14:00:00Z"), durationMin: 60 },
+    ];
+    const slots = computeSlots(studioBlocks, existing, 60, 2, TZ, {
+      minLeadHours: 0,
+      now,
+    });
+    // Morning + evening should be unaffected.
+    expect(slots).toContain("2026-04-13T09:00:00.000Z");
+    expect(slots).toContain("2026-04-13T18:00:00.000Z");
+    // Afternoon 14:00 overlaps the existing booking.
+    expect(slots).not.toContain("2026-04-13T14:00:00.000Z");
+    // 15:00 is inside the booking (14-15).
+    expect(slots).not.toContain("2026-04-13T14:30:00.000Z");
   });
 });

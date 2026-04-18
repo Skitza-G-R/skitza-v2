@@ -9,10 +9,10 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 import type { Stage } from "./kanban-helpers";
 
-// Kanban-scoped Server Actions. Distinct from deals/actions.ts because
-// the Kanban lives at /dashboard (not /dashboard/deals) and therefore
-// wants revalidation to hit a different path after a stage change.
-// Kept minimal — only the drag-and-drop reorder calls this.
+// Kanban-scoped Server Actions. Distinct from projects/actions.ts
+// because the Kanban lives at /dashboard (not /dashboard/projects) and
+// therefore wants revalidation to hit a different path after a stage
+// change. Kept minimal — only the drag-and-drop reorder calls this.
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -32,7 +32,7 @@ function toMessage(err: unknown): string {
       case "FORBIDDEN":
         return "You don't have access.";
       case "NOT_FOUND":
-        return "Deal not found.";
+        return "Project not found.";
       case "BAD_REQUEST":
         return err.message || "Invalid input.";
       default:
@@ -50,11 +50,11 @@ export async function setStageAction(input: {
     const { userId } = await auth();
     if (!userId) return { ok: false, error: "Please sign in to continue." };
     const caller = appRouter.createCaller({ userId });
-    await caller.deal.setStage(input);
-    // Revalidate both the Kanban root and the legacy /dashboard/deals
-    // detail paths so any open tabs stay in sync with the new stage.
+    await caller.project.setStage(input);
+    // Revalidate both the Kanban root and the project detail paths so
+    // any open tabs stay in sync with the new stage.
     revalidatePath("/dashboard");
-    revalidatePath(`/dashboard/deals/${input.id}`);
+    revalidatePath(`/dashboard/projects/${input.id}`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

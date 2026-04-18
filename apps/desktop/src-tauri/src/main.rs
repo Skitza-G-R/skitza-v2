@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// Skitza desktop shell — Phase F.
+// Skitza desktop shell — Phase F + M.1 polish.
 //
 // Activates a stack of Tauri v2 plugins on top of the bare window so
 // the web app gets native-feeling affordances when running inside the
@@ -11,6 +11,13 @@
 //   * `notification`  — fire native OS toasts when new inbox items land.
 //   * `global-shortcut` — ⌥⌘Space shows the window and opens the palette.
 //
+// Launch polish (M.1):
+//   * The window is declared `visible: false` in `tauri.conf.json`.
+//   * On first `page-load` from the webview, we `show()` and `set_focus()`
+//     so the user never sees the pre-paint white flash.
+//   * A 2s fallback timer shows the window regardless, so a flaky network
+//     can't leave the app invisible forever.
+//
 // A native menu bar (File / View) is installed, and clicks emit a
 // `menu:action` event that the frontend routes to router pushes or
 // dispatches to existing custom events (dark mode toggle, sidebar).
@@ -18,9 +25,18 @@
 // NOTE: every shell hook degrades gracefully to the plain web UX —
 // frontend code gates desktop-only bridges on `isTauri()`.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Listener, Manager, WebviewWindow};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+fn reveal_window(win: &WebviewWindow) {
+    let _ = win.show();
+    let _ = win.set_focus();
+}
 
 fn main() {
     tauri::Builder::default()
@@ -64,6 +80,31 @@ fn main() {
                 }
             });
 
+            // ---------- Show-after-load (M.1.2 splash replacement) ----------
+            // Window starts invisible in config. First `page-load` or a 2s
+            // fallback reveals it — whichever happens first wins.
+            let shown = Arc::new(AtomicBool::new(false));
+
+            if let Some(win) = app.get_webview_window("main") {
+                let win_for_listener = win.clone();
+                let shown_for_listener = shown.clone();
+                win.listen("tauri://page-loaded", move |_event| {
+                    if !shown_for_listener.swap(true, Ordering::SeqCst) {
+                        reveal_window(&win_for_listener);
+                    }
+                });
+
+                // Fallback: always show within 2s even if the webview stalls.
+                let win_for_fallback = win.clone();
+                let shown_for_fallback = shown.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(2000));
+                    if !shown_for_fallback.swap(true, Ordering::SeqCst) {
+                        reveal_window(&win_for_fallback);
+                    }
+                });
+            }
+
             // ---------- Global shortcut: ⌥⌘Space ----------
             // Works while the app is backgrounded. Pressing reveals the
             // window and tells the palette to open.
@@ -78,8 +119,7 @@ fn main() {
                             && event.state() == ShortcutState::Pressed
                         {
                             if let Some(win) = app_handle.get_webview_window("main") {
-                                let _ = win.show();
-                                let _ = win.set_focus();
+                                reveal_window(&win);
                                 let _ = win.emit("menu:action", "open-palette".to_string());
                             }
                         }

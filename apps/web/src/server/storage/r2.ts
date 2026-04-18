@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { S3Client } from "@aws-sdk/client-s3";
 
 function requireEnv(name: string): string {
@@ -26,10 +27,25 @@ export const BUCKETS = {
   docs: process.env.R2_BUCKET_DOCS ?? "skitza-docs",
 } as const;
 
+// Extract the extension (with leading dot) from a filename, or empty string.
+function extractExtension(name: string): string {
+  const m = /\.([a-zA-Z0-9]{1,8})$/.exec(name);
+  return m?.[1] ? `.${m[1].toLowerCase()}` : "";
+}
+
+// Sanitize a filename for use as an R2 object key suffix.
+// Non-ASCII (Hebrew, emoji, Japanese, etc.) can't be represented in the
+// ASCII-safe key alphabet, so we fall back to a random hex name that
+// preserves the extension — avoids collision on repeat uploads of
+// same-named files.
 function sanitize(name: string): string {
-  const cleaned = name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.\.+/g, "_");
-  if (!cleaned || /^_+$/.test(cleaned)) {
-    throw new Error("Invalid filename after sanitization");
+  const trimmed = name.trim();
+  const cleaned = trimmed.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.\.+/g, "_");
+  const bodyOnly = cleaned.replace(/\.[a-zA-Z0-9]+$/, "");
+  if (!cleaned || !bodyOnly || /^_+$/.test(bodyOnly)) {
+    const ext = extractExtension(name);
+    const rand = randomBytes(4).toString("hex");
+    return `track-${rand}${ext}`;
   }
   return cleaned;
 }

@@ -28,7 +28,9 @@ export function DesktopMenuBridge() {
     onTauriMenuAction((action) => {
       switch (action) {
         case "new-deal":
-          router.push("/dashboard/deals/new");
+          // Legacy menu action id kept for compatibility with the
+          // parallel desktop build — it still emits "new-deal".
+          router.push("/dashboard/projects/new");
           return;
         case "new-contract":
           router.push("/dashboard/contracts");

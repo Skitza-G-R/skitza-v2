@@ -7,7 +7,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 import { LibraryList } from "./library-list";
 
 // Audio library — unified view of every trackVersion across every
-// deal owned by the caller. Server-fetches the list once, then hands
+// project owned by the caller. Server-fetches the list once, then hands
 // to LibraryList for client-side filtering + side-panel interaction.
 //
 // Kept deliberately thin: the list lives in library.list (Phase G.3

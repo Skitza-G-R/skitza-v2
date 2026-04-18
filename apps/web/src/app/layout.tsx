@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Fraunces, Outfit, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
+import { SwRegister } from "~/components/shell/sw-register";
 import { ToastProvider } from "~/components/ui/toast";
 import "./globals.css";
 
@@ -151,6 +152,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <a href="#main-content" className="skip-to-content">
               Skip to content
             </a>
+            {/* Registers the app-shell Service Worker — makes the
+                installed Tauri Mac app feel near-native on repeat
+                visits by serving the shell + Next.js chunks from
+                cache. Fails open in unsupported environments. */}
+            <SwRegister />
             <ToastProvider>{children}</ToastProvider>
           </ThemeProvider>
         </body>

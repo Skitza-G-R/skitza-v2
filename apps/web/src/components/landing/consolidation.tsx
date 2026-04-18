@@ -110,7 +110,7 @@ const REPLACEMENTS: readonly { purpose: string; tools: readonly string[]; skitza
   {
     purpose: "CRM & pipeline",
     tools: ["Notion", "Airtable"],
-    skitza: "Skitza pipeline with client history and deal stages",
+    skitza: "Skitza pipeline with client history and project stages",
   },
   {
     purpose: "Payments",

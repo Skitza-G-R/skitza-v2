@@ -25,8 +25,8 @@ export const STAGE_LABEL: Record<Stage, string> = {
 };
 
 // Stage-specific call-to-action label rendered at the bottom of each
-// deal card. Always links to the deal detail page — the label's only
-// job is to hint the next pipeline step.
+// project card. Always links to the project detail page — the
+// label's only job is to hint the next pipeline step.
 export const STAGE_CTA: Record<Stage, string> = {
   lead: "Book session",
   booked: "Send contract",
@@ -51,7 +51,7 @@ export function droppableIdForStage(stage: Stage): string {
   return `stage:${stage}`;
 }
 
-// Produces a compact relative-time string suited for deal cards:
+// Produces a compact relative-time string suited for project cards:
 // "just now" / "5m" / "3h" / "2d" for recent activity; falls back to
 // a short "MMM d" absolute date for anything older than ~6 days so the
 // cards don't drift into vague "12w ago" territory.

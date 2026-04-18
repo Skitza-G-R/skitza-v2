@@ -25,7 +25,7 @@ export interface InboxItem {
     | "track_approved";
   title: string;
   body: string;
-  dealId: string | null;
+  projectId: string | null;
   trackVersionId: string | null;
   commentId: string | null;
   contractId: string | null;
@@ -36,12 +36,12 @@ export interface InboxItem {
 }
 
 // Resolve a notification's best click-through target. Falls back to
-// /dashboard for malformed rows — older rows from before dealId was
-// wired may not have a source.
+// /dashboard for malformed rows — older rows from before projectId
+// was wired may not have a source.
 function targetFor(item: InboxItem): string {
   switch (item.kind) {
     case "comment_created":
-      if (item.dealId) return `/dashboard/deals/${item.dealId}`;
+      if (item.projectId) return `/dashboard/projects/${item.projectId}`;
       return "/dashboard";
     case "contract_signed":
     case "contract_viewed":
@@ -49,7 +49,7 @@ function targetFor(item: InboxItem): string {
     case "booking_requested":
       return "/dashboard/booking?tab=requests";
     case "track_approved":
-      if (item.dealId) return `/dashboard/deals/${item.dealId}`;
+      if (item.projectId) return `/dashboard/projects/${item.projectId}`;
       return "/dashboard";
     default:
       return "/dashboard";

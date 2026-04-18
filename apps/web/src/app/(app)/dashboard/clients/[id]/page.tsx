@@ -8,9 +8,10 @@ import { ClientTimeline } from "./client-timeline";
 
 type PageProps = { params: Promise<{ id: string }> };
 
-// Per-client detail view. Loads contact + deals + contracts + recent
-// comments in a single tRPC round-trip (detail() joins under the hood)
-// and hands off to the client component for interactive controls.
+// Per-client detail view. Loads contact + projects + contracts +
+// recent comments in a single tRPC round-trip (detail() joins under
+// the hood) and hands off to the client component for interactive
+// controls.
 
 export default async function ClientDetailPage({ params }: PageProps) {
   const { userId } = await auth();
@@ -30,7 +31,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
       <ClientTimeline
         contact={data.contact}
         stats={data.stats}
-        deals={data.deals}
+        projects={data.projects}
         contracts={data.contracts}
         comments={data.comments}
       />

@@ -59,7 +59,7 @@ const QUESTIONS: readonly { q: string; a: string }[] = [
   },
   {
     q: "Can I cancel anytime? What about my data?",
-    a: "Cancel any month, keep your URL for the rest of the cycle. Every piece of data you put in Skitza is exportable — clients, contracts, deals, audio, invoices — in plain JSON plus the original files. No lock-in, ever.",
+    a: "Cancel any month, keep your URL for the rest of the cycle. Every piece of data you put in Skitza is exportable — clients, contracts, projects, audio, invoices — in plain JSON plus the original files. No lock-in, ever.",
   },
   {
     q: "Do you have an API?",

@@ -232,7 +232,7 @@ const TIERS: readonly Tier[] = [
     tagline: "For your first paid client.",
     price: 0,
     features: [
-      "1 active deal",
+      "1 active project",
       "Skitza-branded magic links",
       "10 GB audio storage",
       "Community support",
@@ -247,7 +247,7 @@ const TIERS: readonly Tier[] = [
     price: 29,
     featured: true,
     features: [
-      "Unlimited deals",
+      "Unlimited projects",
       "Custom branding on magic links",
       "100 GB audio storage",
       "Email support",
@@ -277,7 +277,7 @@ const TIERS: readonly Tier[] = [
 
 type Val = true | false | string;
 const MATRIX: readonly { label: string; values: readonly [Val, Val, Val] }[] = [
-  { label: "Active deals",            values: ["1",       "Unlimited", "Unlimited"] },
+  { label: "Active projects",         values: ["1",       "Unlimited", "Unlimited"] },
   { label: "Audio storage",           values: ["10 GB",   "100 GB",    "1 TB"] },
   { label: "Custom branding",         values: [false,     true,        true] },
   { label: "Custom domain",           values: [false,     false,       true] },
