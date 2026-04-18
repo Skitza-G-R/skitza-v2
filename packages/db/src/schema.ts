@@ -26,6 +26,13 @@ export const producers = pgTable("producers", {
   defaultCurrency: text("default_currency").notNull().default("USD"),
   timezone: text("timezone").notNull().default("UTC"),
   stripeAccountId: text("stripe_account_id"),
+  // Phase H.5 — cached `charges_enabled` from Stripe Connect. Producers
+  // create a Stripe account before they finish KYC, so the account-id
+  // existing isn't enough — we also need to know whether Stripe will
+  // accept charges on it. Refreshed on the `account.updated` webhook
+  // and from the `stripe.refreshAccount` mutation when the producer
+  // returns from the onboarding flow.
+  stripeChargesEnabled: boolean("stripe_charges_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -257,6 +264,11 @@ export const bookings = pgTable("bookings", {
   // SELECT tight: WHERE reminder_sent_24h IS NULL AND starts_at … .
   reminderSent24h: timestamp("reminder_sent_24h", { withTimezone: true }),
   reminderSent1h: timestamp("reminder_sent_1h", { withTimezone: true }),
+  // Phase H.5 — Stripe Checkout session id when this booking was paid
+  // for via Stripe (deposit or full). Mirrored on the invoice row too,
+  // but having it inline lets the booking detail page link straight to
+  // the Stripe dashboard without a join.
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Booking = typeof bookings.$inferSelect;
@@ -542,3 +554,56 @@ export const notifications = pgTable("notifications", {
 
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
+
+// ─── Invoices (Phase H.5 — Stripe integration) ──────────────────────
+// One row per Stripe Checkout Session created on behalf of a producer.
+// We snapshot Stripe identifiers (session id + payment intent id) so
+// we can correlate webhook events back to a Skitza row without
+// round-tripping the API. `kind` records the producer's intent
+// (deposit | final | milestone | full) — we don't enforce a state
+// machine on it, so producers can layer multiple invoices against the
+// same booking (deposit, then final). Amounts are minor units (cents).
+export const invoiceStatus = pgEnum("invoice_status", [
+  "draft",
+  "sent",
+  "paid",
+  "refunded",
+  "void",
+  "uncollectible",
+]);
+
+export const invoices = pgTable("invoices", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  producerId: uuid("producer_id")
+    .notNull()
+    .references(() => producers.id, { onDelete: "cascade" }),
+  // Loose links — a producer might invoice a project before a booking
+  // exists, or stand-alone. SET NULL on delete so the invoice ledger
+  // survives a project/booking purge.
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
+  // Stripe linkage. checkoutSessionId is set immediately on Checkout
+  // creation; paymentIntentId arrives later via the
+  // checkout.session.completed webhook (it doesn't exist until the
+  // visitor actually starts paying).
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull(),
+  description: text("description"),
+  // Free-text role within the engagement: 'deposit' | 'final' |
+  // 'milestone' | 'full'. Kept as text so we can introduce new kinds
+  // (e.g. 'rush_fee') without an enum migration.
+  kind: text("kind").notNull(),
+  status: invoiceStatus("status").notNull().default("draft"),
+  customerEmail: text("customer_email"),
+  customerName: text("customer_name"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Covers the dashboard list query: producer-scoped, ordered desc.
+  producerCreatedIdx: index("invoices_producer_created_idx").on(t.producerId, t.createdAt),
+}));
+
+export type Invoice = typeof invoices.$inferSelect;
+export type NewInvoice = typeof invoices.$inferInsert;
