@@ -95,7 +95,8 @@ export default async function LeadsPage() {
             <EmptyState
               icon={<LinkIcon />}
               title="No links yet."
-              description="Issue your first one above. The URL is shown exactly once — copy it, paste it into your DMs or email, and watch the opens roll in."
+              description="Magic lead links let visitors browse your portfolio or book without signing up. Generate one to start tracking opens + dwell time."
+              className="min-h-[60vh] justify-center"
             />
           ) : (
             <>

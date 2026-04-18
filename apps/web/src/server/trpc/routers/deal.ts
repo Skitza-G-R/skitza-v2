@@ -10,6 +10,7 @@ import {
   deals,
   desc,
   eq,
+  notifications,
   producers,
   trackComments,
   trackVersions,
@@ -399,6 +400,75 @@ export const dealRouter = router({
         .set({ resolvedAt: input.resolved ? new Date() : null })
         .where(eq(trackComments.id, input.id));
       return { ok: true as const };
+    }),
+
+  // G.11 — mark a track version approved / un-approved. Approving emits
+  // a `track_approved` notification for the producer ("don't forget to
+  // send the stems"). The notify is best-effort; a failure there must
+  // never roll back the approval itself.
+  approveVersion: producerProcedure
+    .input(z.object({ versionId: z.string().uuid(), approved: z.boolean().default(true) }))
+    .mutation(async ({ ctx, input }) => {
+      // Walk ownership: version → track → deal → producer.
+      const [v] = await ctx.db
+        .select({
+          id: trackVersions.id,
+          label: trackVersions.label,
+          trackId: trackVersions.trackId,
+        })
+        .from(trackVersions)
+        .where(eq(trackVersions.id, input.versionId))
+        .limit(1);
+      if (!v) throw new TRPCError({ code: "NOT_FOUND" });
+      const [t] = await ctx.db
+        .select({ title: dealTracks.title, dealId: dealTracks.dealId })
+        .from(dealTracks)
+        .where(eq(dealTracks.id, v.trackId))
+        .limit(1);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND" });
+      const [d] = await ctx.db
+        .select({
+          producerId: deals.producerId,
+          title: deals.title,
+          artistName: deals.artistName,
+        })
+        .from(deals)
+        .where(eq(deals.id, t.dealId))
+        .limit(1);
+      if (!d || d.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      const nowOrNull = input.approved ? new Date() : null;
+      await ctx.db
+        .update(trackVersions)
+        .set({ approvedAt: nowOrNull })
+        .where(eq(trackVersions.id, input.versionId));
+
+      // Float the parent deal to the top of list views.
+      await ctx.db
+        .update(deals)
+        .set({ updatedAt: new Date() })
+        .where(eq(deals.id, t.dealId));
+
+      // Only emit the stems-prompt notification on the approve step.
+      // Un-approving is a silent reversal.
+      if (input.approved) {
+        try {
+          await ctx.db.insert(notifications).values({
+            producerId: ctx.producerId,
+            kind: "track_approved",
+            title: "Version approved — send stems?",
+            body: `${d.artistName} · ${t.title} (${v.label}). Click to open the deal and upload stems.`,
+            dealId: t.dealId,
+            trackVersionId: v.id,
+          });
+        } catch (err) {
+          console.warn("[notify] emitTrackApproved failed in deal.approveVersion", err);
+        }
+      }
+
+      return { ok: true as const, approvedAt: nowOrNull };
     }),
 
   // Producer-side comment (responds to artist).

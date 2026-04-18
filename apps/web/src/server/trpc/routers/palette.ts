@@ -2,11 +2,13 @@ import {
   and,
   clientContacts,
   contracts,
+  dealTracks,
   deals,
   desc,
   eq,
   ilike,
   or,
+  trackVersions,
 } from "@skitza/db";
 import { z } from "zod";
 
@@ -28,30 +30,50 @@ export const paletteRouter = router({
       const raw = input.q.trim();
 
       if (raw.length === 0) {
-        const [recentDeals, recentContacts, recentContracts] = await Promise.all([
-          ctx.db
-            .select()
-            .from(deals)
-            .where(eq(deals.producerId, ctx.producerId))
-            .orderBy(desc(deals.updatedAt))
-            .limit(5),
-          ctx.db
-            .select()
-            .from(clientContacts)
-            .where(eq(clientContacts.producerId, ctx.producerId))
-            .orderBy(desc(clientContacts.lastSeenAt))
-            .limit(5),
-          ctx.db
-            .select()
-            .from(contracts)
-            .where(eq(contracts.producerId, ctx.producerId))
-            .orderBy(desc(contracts.createdAt))
-            .limit(5),
-        ]);
+        const [recentDeals, recentContacts, recentContracts, recentTracks] =
+          await Promise.all([
+            ctx.db
+              .select()
+              .from(deals)
+              .where(eq(deals.producerId, ctx.producerId))
+              .orderBy(desc(deals.updatedAt))
+              .limit(5),
+            ctx.db
+              .select()
+              .from(clientContacts)
+              .where(eq(clientContacts.producerId, ctx.producerId))
+              .orderBy(desc(clientContacts.lastSeenAt))
+              .limit(5),
+            ctx.db
+              .select()
+              .from(contracts)
+              .where(eq(contracts.producerId, ctx.producerId))
+              .orderBy(desc(contracts.createdAt))
+              .limit(5),
+            ctx.db
+              .select({
+                versionId: trackVersions.id,
+                versionLabel: trackVersions.label,
+                trackTitle: dealTracks.title,
+                dealId: deals.id,
+              })
+              .from(trackVersions)
+              .innerJoin(dealTracks, eq(trackVersions.trackId, dealTracks.id))
+              .innerJoin(deals, eq(dealTracks.dealId, deals.id))
+              .where(eq(deals.producerId, ctx.producerId))
+              .orderBy(desc(trackVersions.uploadedAt))
+              .limit(5),
+          ]);
         return {
           deals: recentDeals.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
           contacts: recentContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
           contracts: recentContracts.map((c) => ({ id: c.id, title: c.title, status: c.status })),
+          tracks: recentTracks.map((t) => ({
+            id: t.versionId,
+            title: t.trackTitle,
+            label: t.versionLabel,
+            dealId: t.dealId,
+          })),
         };
       }
 
@@ -60,7 +82,7 @@ export const paletteRouter = router({
       // columns since C.1 kept them (C.2 will consolidate). Cap at 10
       // per type so the palette list stays navigable from the keyboard.
       const pattern = `%${raw}%`;
-      const [matchDeals, matchContacts, matchContracts] = await Promise.all([
+      const [matchDeals, matchContacts, matchContracts, matchTracks] = await Promise.all([
         ctx.db
           .select()
           .from(deals)
@@ -106,11 +128,38 @@ export const paletteRouter = router({
           )
           .orderBy(desc(contracts.createdAt))
           .limit(10),
+        ctx.db
+          .select({
+            versionId: trackVersions.id,
+            versionLabel: trackVersions.label,
+            trackTitle: dealTracks.title,
+            dealId: deals.id,
+          })
+          .from(trackVersions)
+          .innerJoin(dealTracks, eq(trackVersions.trackId, dealTracks.id))
+          .innerJoin(deals, eq(dealTracks.dealId, deals.id))
+          .where(
+            and(
+              eq(deals.producerId, ctx.producerId),
+              or(
+                ilike(dealTracks.title, pattern),
+                ilike(trackVersions.label, pattern),
+              ),
+            ),
+          )
+          .orderBy(desc(trackVersions.uploadedAt))
+          .limit(10),
       ]);
       return {
         deals: matchDeals.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
         contacts: matchContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
         contracts: matchContracts.map((c) => ({ id: c.id, title: c.title, status: c.status })),
+        tracks: matchTracks.map((t) => ({
+          id: t.versionId,
+          title: t.trackTitle,
+          label: t.versionLabel,
+          dealId: t.dealId,
+        })),
       };
     }),
 });

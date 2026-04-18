@@ -45,9 +45,31 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
       if (e.metaKey || e.ctrlKey || e.altKey) return; // let modifier combos through
       const key = e.key.toLowerCase();
 
-      // Two-key navigation: g then one of p/c/b/l/o/s.
+      // Two-key navigation: g then p/i/c/l/n/b/r/o/s. G.3 reshuffled
+      // the mapping since `c` moved from Contracts to Clients (G.2
+      // added a real Clients screen) and Library is now a first-class
+      // surface. Rationale for each letter:
+      //   p = Pipeline (unchanged)
+      //   i = Inbox
+      //   c = Clients (moved from Contracts)
+      //   l = Library (producer opens this dozens of times/day)
+      //   n = coNtracts (c was taken)
+      //   b = Bookings
+      //   r = leads (Reach-out; leads is used rarely, so it gets the
+      //       less-memorable letter — `l` belongs to the hot path)
+      //   o = pOrtfolio
+      //   s = Settings
       if (gBufferRef.current.timer) {
-        const navKey = key === "p" || key === "c" || key === "b" || key === "l" || key === "o" || key === "s";
+        const navKey =
+          key === "p" ||
+          key === "i" ||
+          key === "c" ||
+          key === "l" ||
+          key === "n" ||
+          key === "b" ||
+          key === "r" ||
+          key === "o" ||
+          key === "s";
         if (navKey) {
           e.preventDefault();
           clearGBuffer();
@@ -55,13 +77,22 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
             case "p":
               router.push("/dashboard");
               return;
+            case "i":
+              router.push("/dashboard/inbox");
+              return;
             case "c":
+              router.push("/dashboard/clients");
+              return;
+            case "l":
+              router.push("/dashboard/library");
+              return;
+            case "n":
               router.push("/dashboard/contracts");
               return;
             case "b":
               router.push("/dashboard/booking");
               return;
-            case "l":
+            case "r":
               router.push("/dashboard/leads");
               return;
             case "o":

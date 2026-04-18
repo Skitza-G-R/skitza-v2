@@ -116,6 +116,24 @@ export const packages = pgTable("packages", {
   depositPct: integer("deposit_pct").notNull().default(0),   // 0..100
   active: boolean("active").notNull().default(true),
   position: integer("position").notNull().default(0),
+  // Booking v2 additions — classification + per-package policy so a
+  // single producer can sell mixing (2h, remote, no deposit) alongside
+  // tracking (4h, studio, 50% deposit) without either overflowing into
+  // the other's slot grid.
+  // `kind` is free-text so we're not locked to an enum — common values:
+  // "session" | "mixing" | "mastering" | "producing". UI offers a
+  // dropdown + "Other" escape hatch.
+  kind: text("kind").notNull().default("session"),
+  // Where the session physically happens. Surfaces as a pill on the
+  // public booking card so visitors don't show up to a locked door.
+  locationType: text("location_type").notNull().default("studio"), // "studio" | "remote" | "client_space"
+  // Gap the producer wants between back-to-back sessions. Added to the
+  // existing booking's duration when checking overlap.
+  bufferMinutes: integer("buffer_minutes").notNull().default(0),
+  // Minimum notice in hours. Previously hard-coded at 12; now per-pkg
+  // so "mixing revision calls" (2h lead) differ from "4h tracking"
+  // (48h lead).
+  minLeadHours: integer("min_lead_hours").notNull().default(12),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Package = typeof packages.$inferSelect;
@@ -134,6 +152,30 @@ export const availabilityBlocks = pgTable("availability_blocks", {
 });
 export type AvailabilityBlock = typeof availabilityBlocks.$inferSelect;
 export type NewAvailabilityBlock = typeof availabilityBlocks.$inferInsert;
+
+// Blackout ranges — producer-authored "I'm not available, period" windows.
+// Stored as YYYY-MM-DD text (not timestamp) because the window is
+// conceptual calendar-days in the producer's TZ, not a specific UTC
+// instant: Apr 20–24 means "the whole of those days in my TZ", not
+// "00:00 UTC on the 20th". Inclusive on both ends. `reason` is a free-
+// text hint the producer sees in the dashboard (never shown to the
+// visitor — visitor just sees "fully booked").
+export const availabilityBlackouts = pgTable("availability_blackouts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  startDate: text("start_date").notNull(),  // ISO date YYYY-MM-DD in producer's TZ
+  endDate: text("end_date").notNull(),      // inclusive
+  reason: text("reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Fast producer-scoped lookup, ordered by startDate — the slot
+  // computation lists every blackout for a producer, so this index
+  // covers both the filter + the sort.
+  producerStartIdx: index("availability_blackouts_producer_start_idx").on(t.producerId, t.startDate),
+}));
+
+export type Blackout = typeof availabilityBlackouts.$inferSelect;
+export type NewBlackout = typeof availabilityBlackouts.$inferInsert;
 
 // Booking status — enum so typos can't drift into the column. Holding
 // all statuses in one table (vs. a separate `booking_requests`) keeps
@@ -244,6 +286,11 @@ export const trackVersions = pgTable("track_versions", {
   sizeBytes: bigint("size_bytes", { mode: "number" }),
   peaksR2Key: text("peaks_r2_key"),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  // G.11 — producer marks a version "final/approved". Presence of a
+  // timestamp is the approved flag; null means unapproved. When the
+  // producer sets this we also emit a `track_approved` notification
+  // ("don't forget to send Maya the stems").
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
 });
 export type TrackVersion = typeof trackVersions.$inferSelect;
 export type NewTrackVersion = typeof trackVersions.$inferInsert;

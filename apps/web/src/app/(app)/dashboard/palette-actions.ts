@@ -13,6 +13,7 @@ export type PaletteResult = {
   deals: Array<{ id: string; title: string; stage: string }>;
   contacts: Array<{ id: string; name: string; email: string }>;
   contracts: Array<{ id: string; title: string; status: string }>;
+  tracks: Array<{ id: string; title: string; label: string; dealId: string }>;
 };
 
 export async function paletteSearch(

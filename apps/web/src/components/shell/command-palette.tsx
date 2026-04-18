@@ -9,12 +9,13 @@ import {
   type PaletteResult,
 } from "~/app/(app)/dashboard/palette-actions";
 
-// ⌘K / Ctrl+K command palette. Mounted once from AppShell so every
-// dashboard page gets it without ceremony. Filtering happens server-
-// side (producer-scoped ilike across deals/contacts/contracts) — we
-// tell cmdk `shouldFilter={false}` so its built-in client filter doesn't
-// fight the server results. Actions are filtered client-side since
-// they're static and tiny.
+// ⌘K / Ctrl+K command palette. Lazy-loaded by CommandPaletteTrigger
+// so cmdk is only pulled into the client bundle when the producer
+// actually opens it. Filtering happens server-side (producer-scoped
+// ilike across deals/contacts/contracts) — we tell cmdk
+// `shouldFilter={false}` so its built-in client filter doesn't fight
+// the server results. Actions are filtered client-side since they're
+// static and tiny.
 //
 // Behaviours worth noting:
 // - Empty query → server returns "recents", so the palette is useful
@@ -22,6 +23,9 @@ import {
 // - 100ms debounce on input; enough to coalesce typing, short enough
 //   that it still feels instant.
 // - `>` prefix restricts to actions (mirrors Raycast).
+//
+// Controlled component: `open` + `onClose` come from the trigger so
+// the keydown listener can stay mounted without loading cmdk.
 
 type Action = {
   id: string;
@@ -30,41 +34,18 @@ type Action = {
   run: () => void;
 };
 
-export function CommandPalette() {
+interface CommandPaletteProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<PaletteResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Global shortcut: ⌘K / Ctrl+K
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setOpen((o) => !o);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-    };
-  }, []);
-
-  // Desktop-only: the Tauri ⌥⌘Space global shortcut emits a window
-  // event that the desktop menu bridge converts into this one. Opens
-  // the palette even when the window was backgrounded.
-  useEffect(() => {
-    const onOpen = () => {
-      setOpen(true);
-    };
-    window.addEventListener("skitza:open-palette", onOpen);
-    return () => {
-      window.removeEventListener("skitza:open-palette", onOpen);
-    };
-  }, []);
 
   // Debounced search fires whenever the palette is open and the
   // query changes. Cleared on close to drop the stale results.
@@ -97,7 +78,7 @@ export function CommandPalette() {
         label: "New deal",
         shortcut: "N",
         run: () => {
-          setOpen(false);
+          onClose();
           router.push("/dashboard/deals/new");
         },
       },
@@ -106,16 +87,25 @@ export function CommandPalette() {
         label: "Go to pipeline",
         shortcut: "G P",
         run: () => {
-          setOpen(false);
+          onClose();
           router.push("/dashboard");
+        },
+      },
+      {
+        id: "goto-library",
+        label: "Go to library",
+        shortcut: "G L",
+        run: () => {
+          onClose();
+          router.push("/dashboard/library");
         },
       },
       {
         id: "goto-contracts",
         label: "Go to contracts",
-        shortcut: "G C",
+        shortcut: "G N",
         run: () => {
-          setOpen(false);
+          onClose();
           router.push("/dashboard/contracts");
         },
       },
@@ -124,7 +114,7 @@ export function CommandPalette() {
         label: "Go to bookings",
         shortcut: "G B",
         run: () => {
-          setOpen(false);
+          onClose();
           router.push("/dashboard/booking");
         },
       },
@@ -133,7 +123,7 @@ export function CommandPalette() {
         label: "Go to settings",
         shortcut: "G S",
         run: () => {
-          setOpen(false);
+          onClose();
           router.push("/dashboard/settings");
         },
       },
@@ -153,7 +143,7 @@ export function CommandPalette() {
 
   const gotoDeal = useCallback(
     (id: string) => {
-      setOpen(false);
+      onClose();
       router.push(`/dashboard/deals/${id}`);
     },
     [router],
@@ -164,7 +154,9 @@ export function CommandPalette() {
   return (
     <Command.Dialog
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
       label="Command palette"
       className="fixed inset-0 z-[60] grid place-items-start pt-[10vh]"
     >
@@ -173,7 +165,7 @@ export function CommandPalette() {
         type="button"
         aria-label="Close command palette"
         onClick={() => {
-          setOpen(false);
+          onClose();
         }}
         className="absolute inset-0 bg-black/35 backdrop-blur-sm"
       />
@@ -256,7 +248,7 @@ export function CommandPalette() {
                     key={c.id}
                     value={`client ${c.name} ${c.email}`}
                     onSelect={() => {
-                      setOpen(false);
+                      onClose();
                       router.push(
                         `/dashboard/deals/new?email=${encodeURIComponent(c.email)}`,
                       );
@@ -275,6 +267,30 @@ export function CommandPalette() {
               </Command.Group>
             ) : null}
 
+            {result?.tracks.length ? (
+              <Command.Group heading={`Tracks (${String(result.tracks.length)})`}>
+                {result.tracks.map((t) => (
+                  <Command.Item
+                    key={t.id}
+                    value={`track ${t.title} ${t.label}`}
+                    onSelect={() => {
+                      onClose();
+                      router.push(`/dashboard/library?v=${t.id}`);
+                    }}
+                    className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-[rgb(var(--fg-muted))]">♪</span>
+                      {t.title}
+                    </span>
+                    <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
+                      {t.label}
+                    </span>
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            ) : null}
+
             {result?.contracts.length ? (
               <Command.Group heading={`Contracts (${String(result.contracts.length)})`}>
                 {result.contracts.map((c) => (
@@ -282,7 +298,7 @@ export function CommandPalette() {
                     key={c.id}
                     value={`contract ${c.title}`}
                     onSelect={() => {
-                      setOpen(false);
+                      onClose();
                       router.push(`/dashboard/contracts`);
                     }}
                     className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"

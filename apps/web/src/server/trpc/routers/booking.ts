@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import {
   and,
   asc,
+  availabilityBlackouts,
   availabilityBlocks,
   bookings,
   createDb,
@@ -42,6 +43,12 @@ async function publicCtx(): Promise<{ db: Db; ipHash: string }> {
 // Keep price in integer cents to avoid float arithmetic. durationMin is
 // capped at 24h because a "session" longer than a day is almost always
 // a data error or an attempt to exhaust calendar search space.
+// Kind is free-text on disk but we gate input to a friendly allow-list
+// so typos don't splinter the classification UI on the public page.
+// "other" is the escape hatch for producers who don't fit the presets.
+const PackageKind = z.enum(["session", "mixing", "mastering", "producing", "other"]);
+const PackageLocationType = z.enum(["studio", "remote", "client_space"]);
+
 const PackageInput = z.object({
   name: z.string().min(1).max(80),
   description: z.string().max(500).optional(),
@@ -50,6 +57,15 @@ const PackageInput = z.object({
   priceCents: z.number().int().min(0).max(100_000_000).default(0),
   currency: z.enum(["USD", "EUR", "GBP", "ILS"]).default("USD"),
   depositPct: z.number().int().min(0).max(100).default(0),
+  // v2 fields — all have DB-level defaults so they're optional in
+  // create/update inputs.
+  kind: PackageKind.default("session"),
+  locationType: PackageLocationType.default("studio"),
+  // 0 = back-to-back sessions OK. Capped at 240 (4h) — anything larger
+  // is almost always a data entry error.
+  bufferMinutes: z.number().int().min(0).max(240).default(0),
+  // 0 = "book instantly". Max 30 days.
+  minLeadHours: z.number().int().min(0).max(30 * 24).default(12),
 });
 
 // Weekly availability replaces the entire week atomically — easier UX
@@ -123,9 +139,9 @@ const SLOTS_WINDOW_MS = 60_000;
 // Slot increment for the public picker — 15 min. 30 min would miss
 // "3:15pm is free", 5 min would be UI-spammy.
 const SLOT_INCREMENT_MIN = 15;
-// Minimum scheduling notice. Booking less than this far out is
-// rejected by the client + server.
-const MIN_LEAD_HOURS = 12;
+// Floor for per-package minLeadHours. If a producer hasn't set a
+// custom lead time (legacy row), this is the fallback default.
+const DEFAULT_MIN_LEAD_HOURS = 12;
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -214,6 +230,30 @@ function calendarDayInTz(
 }
 
 /**
+ * Format a calendar day (in tz) as YYYY-MM-DD. Used to compare against
+ * blackout ranges which are stored as text dates in the producer's TZ.
+ */
+function dayKeyInTz(instant: Date, tz: string): string {
+  const { year, month, day } = calendarDayInTz(instant, tz);
+  return `${String(year)}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/**
+ * Pure helper: is a given date-key (YYYY-MM-DD) inside any of the
+ * blackout ranges (both ends inclusive)? String comparison on ISO
+ * dates is correct lex-ordering, so we don't need to parse.
+ *
+ * Exported so the slot-computation tests can exercise the boundary
+ * logic without spinning up a full DB.
+ */
+export function isBlackedOut(
+  dayKey: string,
+  blackouts: readonly { startDate: string; endDate: string }[],
+): boolean {
+  return blackouts.some((b) => dayKey >= b.startDate && dayKey <= b.endDate);
+}
+
+/**
  * Compute available slot start times as UTC ISO strings for the next
  * `days` days, from the producer's weekly availability (in producer
  * local time) minus existing non-cancelled bookings.
@@ -222,7 +262,12 @@ function calendarDayInTz(
  * - durationMin must fit entirely inside the block.
  * - pending + confirmed bookings both block slots (optimistic hold);
  *   rejected/cancelled free the slot again.
- * - Slots inside the MIN_LEAD_HOURS cutoff are excluded.
+ * - `bufferMinutes` is added to each existing booking's duration when
+ *   checking for overlap, so a new slot can't start before the buffer
+ *   after a finishing session.
+ * - Slots inside the per-package `minLeadHours` cutoff are excluded.
+ * - Days inside a blackout range (calendar-day, producer TZ,
+ *   inclusive) are skipped entirely.
  */
 function computeSlots(
   weekBlocks: readonly { weekday: number; startMin: number; endMin: number }[],
@@ -230,10 +275,21 @@ function computeSlots(
   durationMin: number,
   days: number,
   tz: string,
-  now: Date = new Date(),
+  opts: {
+    minLeadHours?: number;
+    bufferMinutes?: number;
+    blackouts?: readonly { startDate: string; endDate: string }[];
+    now?: Date;
+  } = {},
 ): string[] {
+  const {
+    minLeadHours = DEFAULT_MIN_LEAD_HOURS,
+    bufferMinutes = 0,
+    blackouts = [],
+    now = new Date(),
+  } = opts;
   const out: string[] = [];
-  const earliestAllowed = new Date(now.getTime() + MIN_LEAD_HOURS * 60 * 60 * 1000);
+  const earliestAllowed = new Date(now.getTime() + minLeadHours * 60 * 60 * 1000);
 
   // Group availability blocks by weekday for O(1) lookup.
   const blocksByDay = new Map<number, { startMin: number; endMin: number }[]>();
@@ -253,6 +309,9 @@ function computeSlots(
     const anchor = wallClockInTzToUtc(today.year, today.month, today.day, 0, 0, tz);
     const dayInstant = new Date(anchor.getTime() + dayOffset * 24 * 60 * 60 * 1000);
     const dayCal = calendarDayInTz(dayInstant, tz);
+    // Skip the whole day if it falls inside a blackout window.
+    const dayKey = `${String(dayCal.year)}-${String(dayCal.month + 1).padStart(2, "0")}-${String(dayCal.day).padStart(2, "0")}`;
+    if (isBlackedOut(dayKey, blackouts)) continue;
     const todayBlocks = blocksByDay.get(dayCal.weekday) ?? [];
     for (const block of todayBlocks) {
       for (
@@ -265,8 +324,11 @@ function computeSlots(
         const slotStart = wallClockInTzToUtc(dayCal.year, dayCal.month, dayCal.day, h, m, tz);
         if (slotStart < earliestAllowed) continue;
         const slotEnd = new Date(slotStart.getTime() + durationMin * 60 * 1000);
+        // Buffer applies to existing bookings only (we don't inflate
+        // the candidate slot's end — that would double-count).
+        const bufferMs = bufferMinutes * 60 * 1000;
         const overlaps = existingBookings.some((b) => {
-          const bEnd = new Date(b.startsAt.getTime() + b.durationMin * 60 * 1000);
+          const bEnd = new Date(b.startsAt.getTime() + b.durationMin * 60 * 1000 + bufferMs);
           return slotStart < bEnd && b.startsAt < slotEnd;
         });
         if (overlaps) continue;
@@ -276,6 +338,12 @@ function computeSlots(
   }
   return out;
 }
+
+// Exported for tests only — the router calls computeSlots via the
+// `publicSlots` procedure. Keeping this as a named export avoids
+// making the helper into a first-class API.
+export const __computeSlotsForTests = computeSlots;
+export const __wallClockInTzToUtcForTests = wallClockInTzToUtc;
 
 // ─── Router ──────────────────────────────────────────────────────────
 
@@ -356,6 +424,69 @@ export const bookingRouter = router({
       }),
   }),
 
+  // ── Blackouts (producer-only) ────────────────────────────────────
+  // Date-range windows where the producer isn't taking bookings
+  // regardless of the weekly template. Stored in producer-local
+  // calendar days (YYYY-MM-DD), inclusive on both ends.
+  blackouts: router({
+    list: producerProcedure.query(async ({ ctx }) => {
+      return ctx.db
+        .select()
+        .from(availabilityBlackouts)
+        .where(eq(availabilityBlackouts.producerId, ctx.producerId))
+        .orderBy(asc(availabilityBlackouts.startDate));
+    }),
+
+    create: producerProcedure
+      .input(
+        z.object({
+          // Cheap client-side gate — the YYYY-MM-DD regex rejects
+          // stray input before we hit the DB. Full calendar-validity
+          // is enforced by Postgres' text storage + the app's own
+          // comparisons (ISO dates compare correctly as strings).
+          startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD"),
+          endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD"),
+          reason: z.string().max(200).optional(),
+        }).refine((v) => v.endDate >= v.startDate, {
+          message: "end date must be on or after start date",
+          path: ["endDate"],
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const [row] = await ctx.db
+          .insert(availabilityBlackouts)
+          .values({
+            producerId: ctx.producerId,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            ...(input.reason ? { reason: input.reason } : {}),
+          })
+          .returning();
+        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        return row;
+      }),
+
+    remove: producerProcedure
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        // Ownership walk — deleteByPk + producerId filter in one
+        // shot so a forged id can't delete another producer's row.
+        const [existing] = await ctx.db
+          .select({ producerId: availabilityBlackouts.producerId })
+          .from(availabilityBlackouts)
+          .where(eq(availabilityBlackouts.id, input.id))
+          .limit(1);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        if (existing.producerId !== ctx.producerId) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await ctx.db
+          .delete(availabilityBlackouts)
+          .where(eq(availabilityBlackouts.id, input.id));
+        return { ok: true as const };
+      }),
+  }),
+
   // ── Availability (producer-only) ─────────────────────────────────
   availability: router({
     list: producerProcedure.query(async ({ ctx }) => {
@@ -388,6 +519,151 @@ export const bookingRouter = router({
   }),
 
   // ── Bookings (producer-only views + status transitions) ──────────
+  // Confirmed sessions in the next N days. Powers the dashboard
+  // "upcoming strip". Returned rows are grouped client-side by
+  // producer-local calendar day. Joins the package row so the UI can
+  // show kind + location badges without a second trip.
+  upcoming: producerProcedure
+    .input(
+      z
+        .object({
+          days: z.number().int().min(1).max(60).default(7),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const days = input?.days ?? 7;
+      const now = new Date();
+      const horizon = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+      // Two round-trips is fine here — producers usually have < 20
+      // upcoming sessions, so the second SELECT is cheap + keeps the
+      // query Drizzle-ergonomic (no manual INNER JOIN typing).
+      const rows = await ctx.db
+        .select()
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.producerId, ctx.producerId),
+            eq(bookings.status, "confirmed"),
+            gte(bookings.startsAt, now),
+            lte(bookings.startsAt, horizon),
+          ),
+        )
+        .orderBy(asc(bookings.startsAt));
+      return rows.map((b) => ({
+        id: b.id,
+        artistName: b.artistName,
+        artistEmail: b.artistEmail,
+        startsAt: b.startsAt,
+        durationMin: b.durationMin,
+        packageName: b.packageNameSnapshot,
+      }));
+    }),
+
+  // Dashboard revenue tile. All three numbers are aggregated in JS
+  // rather than SUM() in SQL because we need to dedupe by currency
+  // (producers may have USD + EUR packages) + the volume is tiny
+  // (hundreds of bookings max). priceCents comes from the package
+  // row, so we join via the package id.
+  revenue: producerProcedure.query(async ({ ctx }) => {
+    // Anchor dates in the producer's TZ would be nicer, but we store
+    // bookings.startsAt as timestamptz and the dashboard's "this
+    // month" expectation is reasonable across any tz — close enough
+    // for a summary tile. UTC math avoids DST quirks.
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const nextMonthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+    );
+    const in7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    // Read producer's default currency for the tile header.
+    const [producer] = await ctx.db
+      .select({ defaultCurrency: producers.defaultCurrency })
+      .from(producers)
+      .where(eq(producers.id, ctx.producerId))
+      .limit(1);
+    const currency = producer?.defaultCurrency ?? "USD";
+
+    // Pull every booking that could contribute to any of the three
+    // numbers in a single query — cheap, and keeps the joining logic
+    // in JS where it's easier to reason about.
+    const bookingRows = await ctx.db
+      .select({
+        id: bookings.id,
+        status: bookings.status,
+        startsAt: bookings.startsAt,
+        packageId: bookings.packageId,
+      })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.producerId, ctx.producerId),
+          inArray(bookings.status, ["pending", "confirmed"]),
+        ),
+      );
+    if (bookingRows.length === 0) {
+      return {
+        mtdCents: 0,
+        outstandingCents: 0,
+        next7DaysCents: 0,
+        currency,
+      };
+    }
+
+    // Fetch the packages once for price + deposit lookup. Non-unique
+    // packageIds compress via a Set so we only fetch each row once.
+    // bookings.packageId is nullable (ON DELETE SET NULL keeps the
+    // booking alive when a package is purged), so filter those out.
+    const pkgIds = Array.from(
+      new Set(
+        bookingRows
+          .map((b) => b.packageId)
+          .filter((id): id is string => id !== null),
+      ),
+    );
+    const pkgRows = pkgIds.length === 0
+      ? []
+      : await ctx.db
+          .select({
+            id: packages.id,
+            priceCents: packages.priceCents,
+            depositPct: packages.depositPct,
+            currency: packages.currency,
+          })
+          .from(packages)
+          .where(inArray(packages.id, pkgIds));
+    const pkgById = new Map(pkgRows.map((p) => [p.id, p]));
+
+    let mtdCents = 0;
+    let outstandingCents = 0;
+    let next7DaysCents = 0;
+    for (const b of bookingRows) {
+      if (b.packageId === null) continue;
+      const pkg = pkgById.get(b.packageId);
+      if (!pkg) continue;
+      // Only count prices in the producer's default currency for the
+      // summary tile — multi-currency aggregation isn't a thing we
+      // want to attempt in a single cents number.
+      if (pkg.currency !== currency) continue;
+      if (b.status === "confirmed") {
+        if (b.startsAt >= monthStart && b.startsAt < nextMonthStart) {
+          mtdCents += pkg.priceCents;
+        }
+        if (b.startsAt >= now && b.startsAt <= in7) {
+          next7DaysCents += pkg.priceCents;
+        }
+      }
+      // Outstanding = unpaid deposits on pending + confirmed bookings.
+      // We don't yet track "deposit paid" — that lands with Stripe
+      // Connect. For now, the gross deposit owed is the signal.
+      if (pkg.depositPct > 0) {
+        outstandingCents += Math.round((pkg.priceCents * pkg.depositPct) / 100);
+      }
+    }
+    return { mtdCents, outstandingCents, next7DaysCents, currency };
+  }),
+
   list: producerProcedure
     .input(
       z
@@ -541,6 +817,17 @@ export const bookingRouter = router({
           ),
         );
 
+      // Pull blackout windows for this producer — cheap (small table,
+      // indexed by producerId). Filter expired ones out to keep the
+      // intersection work minimal.
+      const blackoutRows = await db
+        .select({
+          startDate: availabilityBlackouts.startDate,
+          endDate: availabilityBlackouts.endDate,
+        })
+        .from(availabilityBlackouts)
+        .where(eq(availabilityBlackouts.producerId, producer.id));
+
       return {
         durationMin: pkg.durationMin,
         slots: computeSlots(
@@ -549,7 +836,12 @@ export const bookingRouter = router({
           pkg.durationMin,
           input.days,
           producer.timezone,
-          now,
+          {
+            minLeadHours: pkg.minLeadHours,
+            bufferMinutes: pkg.bufferMinutes,
+            blackouts: blackoutRows,
+            now,
+          },
         ),
       };
     }),
@@ -588,19 +880,49 @@ export const bookingRouter = router({
 
       const startsAt = new Date(input.startsAtIso);
       // Re-validate lead time server-side even though the client
-      // filters — scripted clients could bypass.
-      const minLeadMs = MIN_LEAD_HOURS * 60 * 60 * 1000;
+      // filters — scripted clients could bypass. Uses the package's
+      // per-row minLeadHours now, not a global constant.
+      const minLeadMs = pkg.minLeadHours * 60 * 60 * 1000;
       if (startsAt.getTime() - Date.now() < minLeadMs) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Booking starts too soon — needs at least 12h notice",
+          message: `Booking starts too soon — needs at least ${String(pkg.minLeadHours)}h notice`,
         });
       }
       const endsAt = new Date(startsAt.getTime() + pkg.durationMin * 60 * 1000);
 
+      // Producer's studio TZ — used for the blackout comparison below.
+      // (We already verified `producer` exists above; re-select the
+      // timezone alongside id.)
+      const [producerTz] = await db
+        .select({ timezone: producers.timezone })
+        .from(producers)
+        .where(eq(producers.id, producer.id))
+        .limit(1);
+      const tz = producerTz?.timezone ?? "UTC";
+
+      // Reject the slot if it lands inside a blackout window.
+      const blackoutRows = await db
+        .select({
+          startDate: availabilityBlackouts.startDate,
+          endDate: availabilityBlackouts.endDate,
+        })
+        .from(availabilityBlackouts)
+        .where(eq(availabilityBlackouts.producerId, producer.id));
+      const slotDayKey = dayKeyInTz(startsAt, tz);
+      if (isBlackedOut(slotDayKey, blackoutRows)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That day isn't available — please pick another.",
+        });
+      }
+
       // Race-safe overlap check: re-pull candidates now and filter in
       // JS. This catches the "two visitors submit same slot" edge
-      // between slotsFor render and submit.
+      // between slotsFor render and submit. Buffer adds to the
+      // existing booking's end so we don't slot anyone back-to-back
+      // when the producer wants a breather.
+      const bufferMs = pkg.bufferMinutes * 60 * 1000;
       const candidates = await db
         .select({ startsAt: bookings.startsAt, durationMin: bookings.durationMin })
         .from(bookings)
@@ -611,7 +933,7 @@ export const bookingRouter = router({
           ),
         );
       const hits = candidates.some((c) => {
-        const cEnd = new Date(c.startsAt.getTime() + c.durationMin * 60 * 1000);
+        const cEnd = new Date(c.startsAt.getTime() + c.durationMin * 60 * 1000 + bufferMs);
         return startsAt < cEnd && c.startsAt < endsAt;
       });
       if (hits) {

@@ -23,6 +23,8 @@ type ActiveKey =
   | "leads"
   | "booking"
   | "contracts"
+  | "clients"
+  | "library"
   | "settings"
   | "inbox";
 
@@ -81,6 +83,8 @@ export function Sidebar({
   const items: NavItem[] = [
     { id: "pipeline", label: "Pipeline", href: "/dashboard", icon: <PipelineIcon /> },
     { id: "inbox", label: "Inbox", href: "/dashboard/inbox", icon: <InboxIcon /> },
+    { id: "clients", label: "Clients", href: "/dashboard/clients", icon: <ClientsIcon /> },
+    { id: "library", label: "Library", href: "/dashboard/library", icon: <LibraryIcon /> },
     { id: "contracts", label: "Contracts", href: "/dashboard/contracts", icon: <ContractIcon /> },
     { id: "booking", label: "Bookings", href: "/dashboard/booking", icon: <CalendarIcon /> },
     { id: "leads", label: "Leads", href: "/dashboard/leads", icon: <UsersIcon /> },
@@ -346,6 +350,33 @@ function UsersIcon() {
       <path d="M1.5 13.5c.6-2.1 2.5-3.5 4.5-3.5s3.9 1.4 4.5 3.5" />
       <circle cx="11.5" cy="5" r="2" />
       <path d="M10.5 9.5c1.8 0 3.4 1.3 4 3" />
+    </svg>
+  );
+}
+
+// Two-head silhouette — distinct from UsersIcon (which is used for the
+// "Leads" tab). The two heads imply the "book of clients" feel.
+function ClientsIcon() {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="5.5" cy="5.5" r="2.2" />
+      <circle cx="11" cy="5" r="1.8" />
+      <path d="M1.5 13.5c.6-2 2.3-3.3 4-3.3s3.4 1.3 4 3.3" />
+      <path d="M10 10.4c1.6 0 3 1.1 3.5 2.9" />
+    </svg>
+  );
+}
+
+// Library — a stylised waveform block. Evokes "audio" without the
+// saccharine music-note glyph. Three bars of varying heights inside
+// the same 16x16 frame as our other icons.
+function LibraryIcon() {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 10V6" />
+      <path d="M6 12V4" />
+      <path d="M9 11V5" />
+      <path d="M12 9V7" />
     </svg>
   );
 }

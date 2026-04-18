@@ -42,6 +42,11 @@ export default async function BookPage({ params }: PageProps) {
   const caller = appRouter.createCaller({ userId: null });
   const { packages } = await caller.booking.publicPackages({ slug });
 
+  // If there are packages but zero availability for any of them, the
+  // producer is effectively closed — surface a friendly message rather
+  // than a 3-step form that dead-ends on slot selection.
+  // We detect this by looking at the pre-fetched slots below.
+
   // Pre-fetch slots per package. For cold visitors this is 1 extra
   // round-trip per package but pays off on UX (no loading spinners
   // during slot browse). Kept at 14 days.
@@ -56,6 +61,15 @@ export default async function BookPage({ params }: PageProps) {
       initialSlotsByPackage[p.id] = [];
     }
   }
+
+  // "Closed shop" state: no packages at all, OR every package has zero
+  // future slots. Either way the form would dead-end, so we render a
+  // clean explanatory state instead.
+  const totalSlotCount = Object.values(initialSlotsByPackage).reduce(
+    (sum, list) => sum + list.length,
+    0,
+  );
+  const isClosed = packages.length === 0 || totalSlotCount === 0;
 
   return (
     <div className="relative min-h-dvh overflow-hidden">
@@ -86,10 +100,10 @@ export default async function BookPage({ params }: PageProps) {
           </p>
         </header>
 
-        {packages.length === 0 ? (
+        {isClosed ? (
           <EmptyState
-            title="No packages offered yet."
-            description={`${producer.displayName} hasn't listed services for booking. Check their portfolio or reach out directly.`}
+            title="Not accepting bookings right now."
+            description={`${producer.displayName} isn't taking new sessions at the moment. Check their portfolio or reach out directly — they'll reopen soon.`}
             action={
               <Link
                 href={`/p/${slug}`}
@@ -113,6 +127,9 @@ export default async function BookPage({ params }: PageProps) {
               priceCents: p.priceCents,
               currency: p.currency,
               depositPct: p.depositPct,
+              kind: p.kind,
+              locationType: p.locationType,
+              minLeadHours: p.minLeadHours,
             }))}
             initialSlotsByPackage={initialSlotsByPackage}
           />

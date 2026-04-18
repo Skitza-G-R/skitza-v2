@@ -1,0 +1,149 @@
+import { describe, it, expect } from "vitest";
+
+import { __computeSlotsForTests as computeSlots, isBlackedOut } from "./booking";
+
+// These tests exercise the pure slot-computation helper, not the tRPC
+// router itself. The router wraps this function with DB reads; the
+// math + filtering lives inside the helper so we can test without
+// spinning up Postgres.
+
+describe("isBlackedOut", () => {
+  it("returns false for an empty list", () => {
+    expect(isBlackedOut("2026-04-20", [])).toBe(false);
+  });
+
+  it("matches on the start boundary (inclusive)", () => {
+    expect(isBlackedOut("2026-04-20", [{ startDate: "2026-04-20", endDate: "2026-04-24" }])).toBe(true);
+  });
+
+  it("matches on the end boundary (inclusive)", () => {
+    expect(isBlackedOut("2026-04-24", [{ startDate: "2026-04-20", endDate: "2026-04-24" }])).toBe(true);
+  });
+
+  it("returns false for a day just outside the range", () => {
+    expect(isBlackedOut("2026-04-25", [{ startDate: "2026-04-20", endDate: "2026-04-24" }])).toBe(false);
+    expect(isBlackedOut("2026-04-19", [{ startDate: "2026-04-20", endDate: "2026-04-24" }])).toBe(false);
+  });
+
+  it("matches when the day is inside any of multiple ranges", () => {
+    const blackouts = [
+      { startDate: "2026-04-20", endDate: "2026-04-24" },
+      { startDate: "2026-05-01", endDate: "2026-05-03" },
+    ];
+    expect(isBlackedOut("2026-05-02", blackouts)).toBe(true);
+    expect(isBlackedOut("2026-04-30", blackouts)).toBe(false);
+  });
+});
+
+describe("computeSlots — blackouts, buffers, lead time", () => {
+  const TZ = "UTC";
+  // Every Monday 10:00-12:00 UTC.
+  const weekBlocks = [{ weekday: 1, startMin: 10 * 60, endMin: 12 * 60 }];
+  // Fixed "now" on a Sunday so Monday is tomorrow — lots of lead room.
+  // 2026-04-12 is a Sunday, 2026-04-13 is a Monday.
+  const now = new Date("2026-04-12T00:00:00Z");
+
+  it("produces slots on Monday by default", () => {
+    const slots = computeSlots(weekBlocks, [], 60, 7, TZ, {
+      minLeadHours: 0,
+      now,
+    });
+    // 10:00, 10:15, 10:30, 10:45, 11:00 all fit a 60-min session ≤ 12:00.
+    expect(slots.length).toBeGreaterThan(0);
+    // First slot should start at 10:00 on Monday 2026-04-13.
+    expect(slots[0]).toBe("2026-04-13T10:00:00.000Z");
+  });
+
+  it("excludes slots inside a blackout range", () => {
+    const slotsWithoutBlackout = computeSlots(weekBlocks, [], 60, 7, TZ, {
+      minLeadHours: 0,
+      now,
+    });
+    const slotsWithBlackout = computeSlots(weekBlocks, [], 60, 7, TZ, {
+      minLeadHours: 0,
+      now,
+      blackouts: [{ startDate: "2026-04-13", endDate: "2026-04-13" }],
+    });
+    expect(slotsWithoutBlackout.length).toBeGreaterThan(0);
+    expect(slotsWithBlackout.length).toBe(0);
+  });
+
+  it("keeps slots on days outside a blackout range", () => {
+    // 2-week window, Monday blackout only on week 1 — week 2 Monday
+    // should still produce slots.
+    const slots = computeSlots(weekBlocks, [], 60, 14, TZ, {
+      minLeadHours: 0,
+      now,
+      blackouts: [{ startDate: "2026-04-13", endDate: "2026-04-13" }],
+    });
+    expect(slots.some((s) => s.startsWith("2026-04-20"))).toBe(true);
+    expect(slots.some((s) => s.startsWith("2026-04-13"))).toBe(false);
+  });
+
+  it("respects per-package minLeadHours — large lead time kills same-day slots", () => {
+    // "now" is 00:00 Sunday. Monday 10:00 is +34h. A 48h lead should
+    // skip all Monday slots but keep the next Monday's.
+    const slots = computeSlots(weekBlocks, [], 60, 14, TZ, {
+      minLeadHours: 48,
+      now,
+    });
+    expect(slots.some((s) => s.startsWith("2026-04-13"))).toBe(false);
+    expect(slots.some((s) => s.startsWith("2026-04-20"))).toBe(true);
+  });
+
+  it("respects per-package minLeadHours — zero lead allows immediate slots", () => {
+    const slots = computeSlots(weekBlocks, [], 60, 14, TZ, {
+      minLeadHours: 0,
+      now,
+    });
+    expect(slots.some((s) => s.startsWith("2026-04-13"))).toBe(true);
+  });
+
+  it("adds bufferMinutes to existing booking duration when checking overlaps", () => {
+    // Existing booking: Monday 10:00-11:00. Without buffer, a new 60-
+    // min slot at 11:00 is fine. With a 30-min buffer, 11:00 overlaps
+    // the buffer (11:00 < 11:30 cut-off), so it disappears; 11:30
+    // still doesn't fit (would need to end ≤ 12:00 = fits) — yes,
+    // 11:30 still fits since 11:30 + 60 = 12:30 > 12:00, so the only
+    // post-buffer slot that would fit is pushed out entirely.
+    const existing = [
+      {
+        startsAt: new Date("2026-04-13T10:00:00Z"),
+        durationMin: 60,
+      },
+    ];
+    const withoutBuffer = computeSlots(weekBlocks, existing, 60, 7, TZ, {
+      minLeadHours: 0,
+      bufferMinutes: 0,
+      now,
+    });
+    const withBuffer = computeSlots(weekBlocks, existing, 60, 7, TZ, {
+      minLeadHours: 0,
+      bufferMinutes: 30,
+      now,
+    });
+    // Without buffer: 11:00 slot should exist (starts right as prior
+    // booking ends).
+    expect(withoutBuffer).toContain("2026-04-13T11:00:00.000Z");
+    // With a 30-min buffer, 11:00 is swallowed by the buffer window.
+    expect(withBuffer).not.toContain("2026-04-13T11:00:00.000Z");
+    // 11:30 would start inside the 12:00 end but can't fit a 60-min
+    // duration so it was never a candidate — confirm no Monday slots
+    // post-10:00 survive with a 30-min buffer on a 2-hour block.
+    expect(withBuffer.filter((s) => s.startsWith("2026-04-13")).length).toBe(0);
+  });
+
+  it("ignores buffer entirely when bufferMinutes is 0 (default)", () => {
+    const existing = [
+      {
+        startsAt: new Date("2026-04-13T10:00:00Z"),
+        durationMin: 60,
+      },
+    ];
+    const slots = computeSlots(weekBlocks, existing, 60, 7, TZ, {
+      minLeadHours: 0,
+      now,
+    });
+    expect(slots).toContain("2026-04-13T11:00:00.000Z");
+  });
+});

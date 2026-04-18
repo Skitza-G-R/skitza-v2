@@ -85,6 +85,20 @@
       "when": 1776449836166,
       "tag": "0011_curved_tinkerer",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1776470400000,
+      "tag": "0012_silent_lunatics",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1776556800000,
+      "tag": "0013_tough_maria_hill",
+      "breakpoints": true
     }
   ]
 }

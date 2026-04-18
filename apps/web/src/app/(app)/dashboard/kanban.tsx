@@ -134,16 +134,20 @@ export function Kanban({ initial }: KanbanProps) {
 
   if (total === 0) {
     return (
-      <div className="mx-auto flex max-w-xl flex-col items-center gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-6 py-12 text-center">
-        <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-          Pipeline
-        </p>
+      <div className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center gap-4 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-6 py-12 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))]">
+          <svg aria-hidden width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="1.5" y="3" width="3.5" height="10" rx="1" />
+            <rect x="6.25" y="5.5" width="3.5" height="7" rx="1" />
+            <rect x="11" y="2" width="3.5" height="12" rx="1" />
+          </svg>
+        </div>
         <h2 className="font-display text-2xl leading-tight tracking-tight">
           Your pipeline is empty.
         </h2>
         <p className="max-w-sm text-sm text-[rgb(var(--fg-secondary))]">
-          Create your first deal — tracks, versions, feedback, contract, invoices all live
-          inside. Share one URL with the artist.
+          Every deal lives here. Create your first to start tracking bookings,
+          contracts, and audio — all in one place.
         </p>
         <Link href="/dashboard/deals/new">
           <Button>Create first deal</Button>
@@ -272,6 +276,7 @@ function DealCard({ deal }: { deal: KanbanDeal }) {
         </span>
         <Link
           href={`/dashboard/deals/${deal.id}`}
+          prefetch
           onPointerDown={(e) => { e.stopPropagation(); }}
           onClick={(e) => { e.stopPropagation(); }}
           className="font-mono text-[0.66rem] text-[rgb(var(--fg-secondary))] underline-offset-4 hover:text-[rgb(var(--brand-primary))] hover:underline"

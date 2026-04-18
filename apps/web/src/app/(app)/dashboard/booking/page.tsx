@@ -7,6 +7,7 @@ import { Badge } from "~/components/ui/badge";
 import { EmptyState } from "~/components/ui/empty-state";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { AvailabilityEditor } from "./availability-editor";
+import { BlackoutsEditor } from "./blackouts-editor";
 import { BookingActionButtons } from "./booking-controls";
 import { DeactivatePackageButton, CURRENCY_SYMBOL } from "./package-form";
 import { PackageToolbar } from "./package-toolbar";
@@ -47,10 +48,11 @@ export default async function BookingPage({ searchParams }: PageProps) {
   const tab = coerceTab(sp.tab);
 
   const caller = appRouter.createCaller({ userId });
-  const [packagesList, availabilityBlocks, pendingBookings, confirmedBookings] =
+  const [packagesList, availabilityBlocks, blackouts, pendingBookings, confirmedBookings] =
     await Promise.all([
       caller.booking.packages.list(),
       caller.booking.availability.list(),
+      caller.booking.blackouts.list(),
       caller.booking.list({ status: "pending" }),
       caller.booking.list({ status: "confirmed" }),
     ]);
@@ -131,12 +133,42 @@ export default async function BookingPage({ searchParams }: PageProps) {
                 currency: p.currency,
                 depositPct: p.depositPct,
                 active: p.active,
+                kind: p.kind,
+                locationType: p.locationType,
+                bufferMinutes: p.bufferMinutes,
+                minLeadHours: p.minLeadHours,
               }))}
             />
           ) : null}
 
           {tab === "availability" ? (
-            <AvailabilityEditor initialBlocks={availabilityBlocks.map((b) => ({ weekday: b.weekday, startMin: b.startMin, endMin: b.endMin }))} />
+            <>
+              {availabilityBlocks.length === 0 ? (
+                <div className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-5 py-4">
+                  <p className="text-sm text-[rgb(var(--fg-primary))]">
+                    No weekly hours set — clients see no bookable slots.
+                  </p>
+                  <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
+                    Tick a day below and drop in e.g. Monday 10am–6pm to get started.
+                  </p>
+                </div>
+              ) : null}
+              <AvailabilityEditor
+                initialBlocks={availabilityBlocks.map((b) => ({
+                  weekday: b.weekday,
+                  startMin: b.startMin,
+                  endMin: b.endMin,
+                }))}
+              />
+              <BlackoutsEditor
+                initialBlackouts={blackouts.map((b) => ({
+                  id: b.id,
+                  startDate: b.startDate,
+                  endDate: b.endDate,
+                  reason: b.reason,
+                }))}
+              />
+            </>
           ) : null}
 
           {tab === "requests" ? (
@@ -172,6 +204,19 @@ export default async function BookingPage({ searchParams }: PageProps) {
   );
 }
 
+const KIND_LABEL: Record<string, string> = {
+  session: "Session",
+  mixing: "Mixing",
+  mastering: "Mastering",
+  producing: "Producing",
+  other: "Other",
+};
+const LOCATION_LABEL: Record<string, string> = {
+  studio: "In studio",
+  remote: "Remote",
+  client_space: "Their space",
+};
+
 function PackagesTab({
   packages,
 }: {
@@ -185,6 +230,10 @@ function PackagesTab({
     currency: string;
     depositPct: number;
     active: boolean;
+    kind: string;
+    locationType: string;
+    bufferMinutes: number;
+    minLeadHours: number;
   }[];
 }) {
   return (
@@ -194,8 +243,10 @@ function PackagesTab({
       </div>
       {packages.length === 0 ? (
         <EmptyState
-          title="No packages yet."
-          description="Add your first offering — e.g. Full Production ($1,500 · 4 sessions · 25% deposit). Visitors pick a package before booking a slot."
+          icon={<CalendarIcon />}
+          title="Your bookable services live here."
+          description="A package is one offering — a mixing session, a mastering run, a production day. Visitors pick a package first, then a time slot."
+          className="min-h-[60vh] justify-center"
         />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">
@@ -211,9 +262,17 @@ function PackagesTab({
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h3 className="font-display text-xl tracking-tight" style={{ fontWeight: 700 }}>
-                    {p.name}
-                  </h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-display text-xl tracking-tight" style={{ fontWeight: 700 }}>
+                      {p.name}
+                    </h3>
+                    <span className="inline-flex items-center rounded-full bg-[rgb(var(--fg-muted)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
+                      {KIND_LABEL[p.kind] ?? p.kind}
+                    </span>
+                    <span className="inline-flex items-center rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
+                      {LOCATION_LABEL[p.locationType] ?? p.locationType}
+                    </span>
+                  </div>
                   {p.description ? (
                     <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))] line-clamp-2">
                       {p.description}
@@ -237,6 +296,12 @@ function PackagesTab({
                     {String(p.depositPct)}% deposit
                   </span>
                 ) : null}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+                {p.bufferMinutes > 0 ? (
+                  <span>Buffer: {String(p.bufferMinutes)} min</span>
+                ) : null}
+                <span>Min notice: {String(p.minLeadHours)}h</span>
               </div>
               {p.active ? (
                 <div className="mt-4 flex justify-end">
@@ -268,8 +333,10 @@ function RequestsTab({
   if (items.length === 0) {
     return (
       <EmptyState
+        icon={<InboxIcon />}
         title="No pending requests."
-        description="When a visitor books a slot on your public page, the request shows up here for you to approve or reject."
+        description="When a visitor books, the request lands here for your approval. You can confirm or reject in one tap."
+        className="min-h-[60vh] justify-center"
       />
     );
   }
@@ -332,8 +399,10 @@ function UpcomingTab({
   if (future.length === 0) {
     return (
       <EmptyState
+        icon={<CalendarIcon />}
         title="No confirmed sessions."
-        description="Sessions you approve from the Requests tab land here in chronological order."
+        description="Sessions you approve from the Requests tab land here in chronological order, earliest first."
+        className="min-h-[60vh] justify-center"
       />
     );
   }
@@ -368,5 +437,43 @@ function UpcomingTab({
         </li>
       ))}
     </ol>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="20"
+      height="20"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2" y="3" width="12" height="11" rx="1.5" />
+      <path d="M2 6.5h12M5 1.75V4M11 1.75V4" />
+    </svg>
+  );
+}
+
+function InboxIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="20"
+      height="20"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M2 9.5h3.5l1 2h3l1-2H14" />
+      <path d="M2 9.5 3.5 3h9L14 9.5v3.25A.75.75 0 0 1 13.25 13.5h-10.5A.75.75 0 0 1 2 12.75Z" />
+    </svg>
   );
 }

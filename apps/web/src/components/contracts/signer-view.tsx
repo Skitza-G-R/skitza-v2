@@ -7,63 +7,40 @@
 // positioned input overlays in the middle, sticky bottom bar with the
 // sign CTA. On successful sign the SignedSeal overlay plays.
 //
-// This component deliberately does NOT reuse PdfCanvas — the editor
-// component has drag/resize wired to pointer events which would fight
-// native input controls on mobile. A simpler SignerPdfView is inlined
-// below: it only renders pages + field overlays.
+// The PDF + overlay half now lives in `signer-pdf-view-inner.tsx` and
+// is lazily loaded via `next/dynamic`. react-pdf + pdfjs-dist weighs
+// ~600 kB gzipped, so deferring its arrival past the first paint on
+// /sign/[token] is a big win on cold loads — the top/bottom bars
+// render instantly with nothing but the lightweight shell.
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
-import { Document, Page } from "react-pdf";
+import dynamic from "next/dynamic";
+import { useCallback, useMemo, useState } from "react";
 
-import "~/components/contracts/pdf-worker";
 import { SignatureModal } from "~/components/contracts/signature-modal";
 import { SignedSeal } from "~/components/contracts/signed-seal";
 import { useToast } from "~/components/ui/toast";
 import { cn } from "~/lib/cn";
-import type { FieldType } from "~/lib/contracts/editor-helpers";
 import {
   fillField,
   signContract,
 } from "~/app/(public)/sign/[token]/sign-actions";
 
-// Sentinel for cached "true" booleans from the server. The server
-// stores checkbox state as the literal string "true" / "false" in
-// signedValue; nothing fancier is needed.
-const CHECKED = "true";
+import type { SignerField, SignerPdfViewProps } from "./signer-pdf-view-inner";
 
-// Narrow an `unknown` into a plain object (or null) for options-bag
-// access. jsonb columns come back typed `unknown` from drizzle — we
-// runtime-guard at each use site rather than trusting the shape.
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return v !== null && typeof v === "object" && !Array.isArray(v)
-    ? (v as Record<string, unknown>)
-    : null;
-}
-
-// Field shape as returned by contract.publicByToken. `options` comes
-// back as `unknown` (jsonb column, drizzle doesn't type the shape)
-// and is narrowed per-field-type at the call site below.
-interface SignerField {
-  id: string;
-  page: number;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  type: FieldType;
-  required: boolean;
-  recipientId: string | null;
-  prefilledValue: string | null;
-  signedValue: string | null;
-  options: unknown;
-}
+const SignerPdfView = dynamic<SignerPdfViewProps>(
+  () =>
+    import("./signer-pdf-view-inner").then((m) => ({
+      default: m.SignerPdfView,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <p className="font-mono text-xs text-[rgb(var(--fg-muted))] py-6 text-center">
+        Loading PDF…
+      </p>
+    ),
+  },
+);
 
 interface SignerViewProps {
   token: string;
@@ -98,12 +75,6 @@ function seedValues(fields: SignerField[]): ValueMap {
   }
   return out;
 }
-
-// Drop a minimum of 44px tap target onto any field wrapper so the
-// rendered box at the current page width doesn't fall below the iOS
-// HIG recommendation. The wrapper uses flex so smaller-than-44px
-// rects still center the actual input visually.
-const MIN_TAP_PX = 44;
 
 export function SignerView({ token, initial }: SignerViewProps) {
   const { toast } = useToast();
@@ -338,399 +309,4 @@ function SignedFooter(props: { allSigned: boolean }) {
       </div>
     </div>
   );
-}
-
-// ─── PDF + field overlay ──────────────────────────────────────────────
-interface SignerPdfViewProps {
-  pdfUrl: string;
-  fields: SignerField[];
-  values: ValueMap;
-  myRecipientId: string;
-  readOnly: boolean;
-  onTextChange: (fieldId: string, value: string) => void;
-  onRequestSignature: (field: SignerField) => void;
-}
-
-function SignerPdfView(props: SignerPdfViewProps) {
-  const [pageCount, setPageCount] = useState<number | null>(null);
-  const [pageWidth, setPageWidth] = useState<number>(820);
-  const [error, setError] = useState<string | null>(null);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-
-  // Fit the rendered page to the available width on mobile, up to a
-  // readable-on-desktop cap. Listen to the wrap element width rather
-  // than window width so a sidebar or zoom doesn't desync us.
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const update = () => {
-      const w = Math.floor(el.getBoundingClientRect().width);
-      // Floor to 320 so we never render something absurdly small if
-      // the container collapses mid-layout.
-      setPageWidth(Math.max(320, Math.min(860, w)));
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => {
-      ro.disconnect();
-    };
-  }, []);
-
-  const file = useMemo(() => ({ url: props.pdfUrl }), [props.pdfUrl]);
-
-  return (
-    <div ref={wrapRef} className="flex flex-col items-center gap-4">
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.35)] bg-[rgb(var(--fg-danger)/0.07)] px-4 py-3 text-sm text-[rgb(var(--fg-danger))]"
-        >
-          {error}
-        </p>
-      ) : null}
-      <Document
-        file={file}
-        onLoadSuccess={(info) => {
-          setPageCount(info.numPages);
-          setError(null);
-        }}
-        onLoadError={(e) => {
-          setError(e.message || "Failed to load PDF");
-        }}
-        loading={
-          <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
-            Loading PDF…
-          </p>
-        }
-        error={null}
-      >
-        {pageCount !== null
-          ? Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => (
-              <PagePane
-                key={n}
-                pageNumber={n}
-                pageWidth={pageWidth}
-                fields={props.fields.filter((f) => f.page === n)}
-                values={props.values}
-                myRecipientId={props.myRecipientId}
-                readOnly={props.readOnly}
-                onTextChange={props.onTextChange}
-                onRequestSignature={props.onRequestSignature}
-              />
-            ))
-          : null}
-      </Document>
-    </div>
-  );
-}
-
-interface PagePaneProps {
-  pageNumber: number;
-  pageWidth: number;
-  fields: SignerField[];
-  values: ValueMap;
-  myRecipientId: string;
-  readOnly: boolean;
-  onTextChange: (fieldId: string, value: string) => void;
-  onRequestSignature: (field: SignerField) => void;
-}
-
-function PagePane(props: PagePaneProps) {
-  const paneRef = useRef<HTMLDivElement | null>(null);
-
-  return (
-    <div
-      ref={paneRef}
-      className="relative shadow-[0_2px_20px_-4px_rgb(0_0_0_/_0.4)] ring-1 ring-[rgb(var(--border-subtle))]"
-    >
-      <Page
-        pageNumber={props.pageNumber}
-        width={props.pageWidth}
-        renderAnnotationLayer={false}
-        renderTextLayer={false}
-      />
-      <div className="absolute inset-0">
-        {props.fields.map((f) => (
-          <FieldInput
-            key={f.id}
-            field={f}
-            value={props.values[f.id]}
-            interactive={!props.readOnly && f.recipientId === props.myRecipientId}
-            onTextChange={props.onTextChange}
-            onRequestSignature={props.onRequestSignature}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Single field renderer ────────────────────────────────────────────
-interface FieldInputProps {
-  field: SignerField;
-  value: string | undefined;
-  interactive: boolean;
-  onTextChange: (fieldId: string, value: string) => void;
-  onRequestSignature: (field: SignerField) => void;
-}
-
-function FieldInput({
-  field,
-  value,
-  interactive,
-  onTextChange,
-  onRequestSignature,
-}: FieldInputProps) {
-  // Wrapper is absolutely positioned by percent — the actual input
-  // fills it with a min-size floor so tiny rects still have a 44×44
-  // tap area (centered, via negative margins on the box itself).
-  const baseStyle: CSSProperties = {
-    position: "absolute",
-    left: `${String(field.x)}%`,
-    top: `${String(field.y)}%`,
-    width: `${String(field.w)}%`,
-    height: `${String(field.h)}%`,
-  };
-
-  // When a rect is small, push the inner hit-target out to 44px.
-  // We do this with a pseudo-wrapper (div > inner) so the outer keeps
-  // its exact geometry for visual alignment, but the clickable inner
-  // overflows to reach 44px. `pointer-events-auto` on the inner plus
-  // `pointer-events-none` on the outer container (set by the parent)
-  // would be cleaner, but here nothing else intercepts events so a
-  // plain min-h/min-w on the inner works.
-  const innerStyle: CSSProperties = {
-    minHeight: interactive ? MIN_TAP_PX : undefined,
-    minWidth: interactive ? MIN_TAP_PX : undefined,
-  };
-
-  // Read-only display — either our own already-filled value, a
-  // sender-prefilled value, or another signer's signedValue.
-  if (!interactive) {
-    const display = value ?? "";
-    const isImage = display.startsWith("data:image/");
-    return (
-      <div style={baseStyle} aria-hidden>
-        <div
-          style={innerStyle}
-          className={cn(
-            "flex h-full w-full items-center justify-center rounded-sm",
-            display ? "bg-transparent" : "bg-[rgb(var(--bg-sunken)/0.4)]",
-            display ? "" : "border border-dashed border-[rgb(var(--border-subtle))]",
-          )}
-        >
-          {isImage ? (
-            // Rendering via <img> rather than <Image> — data URLs don't
-            // play well with next/image and it's bounded by parent size.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={display}
-              alt=""
-              className="max-h-full max-w-full object-contain"
-            />
-          ) : display === CHECKED ? (
-            <span aria-hidden className="text-lg leading-none">✓</span>
-          ) : display === "false" ? null : (
-            <span className="truncate px-1 text-xs text-[rgb(var(--fg-primary))]">
-              {display}
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Interactive field — branch by type.
-  switch (field.type) {
-    case "signature":
-    case "initial": {
-      const placeholder = field.type === "initial" ? "Tap to initial" : "Tap to sign";
-      const hasValue = Boolean(value && value.startsWith("data:image/"));
-      return (
-        <div style={baseStyle}>
-          <button
-            type="button"
-            aria-label={placeholder}
-            onClick={() => {
-              onRequestSignature(field);
-            }}
-            style={{ ...innerStyle, touchAction: "manipulation" }}
-            className={cn(
-              "flex h-full w-full items-center justify-center rounded-sm border-2 border-dashed p-1 transition-colors",
-              hasValue
-                ? "border-[rgb(var(--fg-success))] bg-transparent"
-                : "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.08)] hover:bg-[rgb(var(--brand-primary)/0.14)]",
-            )}
-          >
-            {hasValue && value ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={value}
-                alt=""
-                className="max-h-full max-w-full object-contain"
-              />
-            ) : (
-              <span className="truncate font-mono text-[0.65rem] uppercase tracking-wider text-[rgb(var(--brand-primary))]">
-                {placeholder}
-              </span>
-            )}
-          </button>
-        </div>
-      );
-    }
-
-    case "text": {
-      return (
-        <div style={baseStyle}>
-          <input
-            type="text"
-            defaultValue={value ?? ""}
-            onBlur={(e) => {
-              onTextChange(field.id, e.currentTarget.value);
-            }}
-            onFocus={(e) => {
-              e.currentTarget.scrollIntoView({
-                block: "center",
-                behavior: "smooth",
-              });
-            }}
-            style={innerStyle}
-            className={cn(
-              "h-full w-full rounded-sm border border-[rgb(var(--brand-primary)/0.6)] bg-[rgb(var(--bg-elevated))] px-2",
-              "text-base text-[rgb(var(--fg-primary))]",
-              "focus:border-[rgb(var(--brand-primary))] focus:outline-none",
-            )}
-            aria-required={field.required}
-          />
-        </div>
-      );
-    }
-
-    case "date": {
-      const opts = asRecord(field.options);
-      const defaultToday = opts?.defaultToday === true;
-      const initial =
-        value ?? (defaultToday ? new Date().toISOString().slice(0, 10) : "");
-      return (
-        <div style={baseStyle}>
-          <input
-            type="date"
-            defaultValue={initial}
-            onChange={(e) => {
-              onTextChange(field.id, e.currentTarget.value);
-            }}
-            onFocus={(e) => {
-              e.currentTarget.scrollIntoView({
-                block: "center",
-                behavior: "smooth",
-              });
-            }}
-            style={innerStyle}
-            className={cn(
-              "h-full w-full rounded-sm border border-[rgb(var(--brand-primary)/0.6)] bg-[rgb(var(--bg-elevated))] px-2",
-              "text-base text-[rgb(var(--fg-primary))]",
-              "focus:border-[rgb(var(--brand-primary))] focus:outline-none",
-            )}
-            aria-required={field.required}
-          />
-        </div>
-      );
-    }
-
-    case "number": {
-      const opts = asRecord(field.options);
-      const min = typeof opts?.min === "number" ? opts.min : undefined;
-      const max = typeof opts?.max === "number" ? opts.max : undefined;
-      return (
-        <div style={baseStyle}>
-          <input
-            type="number"
-            defaultValue={value ?? ""}
-            min={min}
-            max={max}
-            onBlur={(e) => {
-              onTextChange(field.id, e.currentTarget.value);
-            }}
-            onFocus={(e) => {
-              e.currentTarget.scrollIntoView({
-                block: "center",
-                behavior: "smooth",
-              });
-            }}
-            style={innerStyle}
-            className={cn(
-              "h-full w-full rounded-sm border border-[rgb(var(--brand-primary)/0.6)] bg-[rgb(var(--bg-elevated))] px-2",
-              "text-base text-[rgb(var(--fg-primary))]",
-              "focus:border-[rgb(var(--brand-primary))] focus:outline-none",
-            )}
-            aria-required={field.required}
-          />
-        </div>
-      );
-    }
-
-    case "checkbox": {
-      const checked = value === CHECKED;
-      return (
-        <div style={baseStyle}>
-          <label
-            style={innerStyle}
-            className="flex h-full w-full cursor-pointer items-center justify-center rounded-sm border-2 border-dashed border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.08)] hover:bg-[rgb(var(--brand-primary)/0.14)]"
-          >
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={(e) => {
-                onTextChange(field.id, e.currentTarget.checked ? CHECKED : "false");
-              }}
-              className="h-5 w-5 accent-[rgb(var(--brand-primary))]"
-              aria-required={field.required}
-            />
-          </label>
-        </div>
-      );
-    }
-
-    case "dropdown": {
-      const opts = asRecord(field.options);
-      const rawChoices = opts?.choices;
-      const choices = Array.isArray(rawChoices)
-        ? rawChoices.filter((c): c is string => typeof c === "string")
-        : [];
-      return (
-        <div style={baseStyle}>
-          <select
-            defaultValue={value ?? ""}
-            onChange={(e) => {
-              onTextChange(field.id, e.currentTarget.value);
-            }}
-            style={innerStyle}
-            className={cn(
-              "h-full w-full rounded-sm border border-[rgb(var(--brand-primary)/0.6)] bg-[rgb(var(--bg-elevated))] px-2",
-              "text-base text-[rgb(var(--fg-primary))]",
-              "focus:border-[rgb(var(--brand-primary))] focus:outline-none",
-            )}
-            aria-required={field.required}
-          >
-            <option value="" disabled>
-              Select…
-            </option>
-            {choices.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-      );
-    }
-
-    default: {
-      // Exhaustive guard — if a new FieldType is added we'll get a
-      // compile error here before runtime renders a blank box.
-      const _never: never = field.type;
-      return _never;
-    }
-  }
 }

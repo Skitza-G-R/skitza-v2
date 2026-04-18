@@ -175,6 +175,25 @@ export async function addProducerComment(input: {
   }
 }
 
+export async function approveVersionAction(input: {
+  dealId: string;
+  versionId: string;
+  approved: boolean;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.deal.approveVersion({
+      versionId: input.versionId,
+      approved: input.approved,
+    });
+    revalidatePath(pathDetail(input.dealId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 export async function setStageAction(input: {
   id: string;
   stage: Stage;
