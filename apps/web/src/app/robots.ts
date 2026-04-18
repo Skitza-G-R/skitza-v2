@@ -3,7 +3,10 @@ import type { MetadataRoute } from "next";
 const BASE = process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
 
 // Crawl policy:
-// * / and /p/* are the marketing surface area — allow.
+// * / , /about, /privacy, /terms, /changelog, /sign-up, /sign-in, and
+//   /p/* are the marketing surface area — allow. (Previously we blocked
+//   /sign-in and /sign-up because there was nothing to see; now they're
+//   real flows with SEO value for "skitza sign up" queries.)
 // * /dashboard/* and /onboarding — auth-gated, no value to index.
 // * /m/* — magic links are single-use, should NEVER be crawled (and the
 //   route returns 404 for anyone without a valid signed token anyway,
@@ -14,8 +17,8 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/p/"],
-        disallow: ["/dashboard", "/onboarding", "/m/", "/api/", "/sign-in", "/sign-up"],
+        allow: ["/", "/p/", "/about", "/privacy", "/terms", "/changelog", "/sign-in", "/sign-up"],
+        disallow: ["/dashboard", "/onboarding", "/m/", "/api/"],
       },
     ],
     sitemap: `${BASE}/sitemap.xml`,
