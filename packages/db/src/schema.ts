@@ -180,12 +180,6 @@ export const products = pgTable("products", {
 export type Product = typeof products.$inferSelect;
 export type NewProduct = typeof products.$inferInsert;
 
-// Back-compat re-export — old name still works for in-flight callers.
-// New code should import `products` / `Product` / `NewProduct`.
-export const packages = products;
-export type Package = Product;
-export type NewPackage = NewProduct;
-
 // Weekly recurring availability. One row per (producer, weekday, block)
 // — max 2 blocks per weekday (morning/evening). weekday uses JS's
 // Date.getDay() numbering: 0 = Sunday … 6 = Saturday. Minutes from

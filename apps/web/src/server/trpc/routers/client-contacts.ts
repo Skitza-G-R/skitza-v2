@@ -6,7 +6,7 @@ import {
   clientContacts,
   contractRecipients,
   contracts,
-  packages,
+  products,
   projectTracks,
   projects,
   desc,
@@ -87,9 +87,9 @@ export const clientContactsRouter = router({
     .query(async ({ ctx, input }) => {
       const view = input?.view ?? "by-client";
 
-      // One per-project row enriched with package price + last comment
-      // time. Uses `max(bookings.package_id)` + `max(packages.price_cents)`
-      // to collapse the many-to-one booking→package join safely; in
+      // One per-project row enriched with product price + last comment
+      // time. Uses `max(bookings.product_id)` + `max(products.price_cents)`
+      // to collapse the many-to-one booking→product join safely; in
       // practice a project has ≤ 1 booking attached via bookings.project_id.
       const projectRows = await ctx.db
         .select({
@@ -104,15 +104,15 @@ export const clientContactsRouter = router({
           artistEmail: sql<string>`lower(${projects.artistEmail})`,
           depositPaid: projects.depositPaid,
           finalPaid: projects.finalPaid,
-          priceCents: sql<number | null>`max(${packages.priceCents})`,
-          currency: sql<string | null>`max(${packages.currency})`,
+          priceCents: sql<number | null>`max(${products.priceCents})`,
+          currency: sql<string | null>`max(${products.currency})`,
           nextSessionAt: sql<
             Date | string | null
           >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
         })
         .from(projects)
         .leftJoin(bookings, eq(bookings.projectId, projects.id))
-        .leftJoin(packages, eq(packages.id, bookings.productId))
+        .leftJoin(products, eq(products.id, bookings.productId))
         .where(eq(projects.producerId, ctx.producerId))
         .groupBy(projects.id)
         .orderBy(desc(projects.updatedAt));
@@ -628,15 +628,15 @@ export const clientContactsRouter = router({
           updatedAt: projects.updatedAt,
           depositPaid: projects.depositPaid,
           finalPaid: projects.finalPaid,
-          priceCents: sql<number | null>`max(${packages.priceCents})`,
-          currency: sql<string | null>`max(${packages.currency})`,
+          priceCents: sql<number | null>`max(${products.priceCents})`,
+          currency: sql<string | null>`max(${products.currency})`,
           nextSessionAt: sql<
             Date | string | null
           >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
         })
         .from(projects)
         .leftJoin(bookings, eq(bookings.projectId, projects.id))
-        .leftJoin(packages, eq(packages.id, bookings.productId))
+        .leftJoin(products, eq(products.id, bookings.productId))
         .where(and(eq(projects.producerId, ctx.producerId), emailMatchesProject(lower)))
         .groupBy(projects.id)
         .orderBy(desc(projects.updatedAt));
