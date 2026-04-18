@@ -435,6 +435,16 @@ export const clientContacts = pgTable("client_contacts", {
   name: text("name").notNull(),
   firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  // Phase H.2 meta fields — nullable so existing rows (and every
+  // auto-upsert path) can ignore them. Producers fill these in from the
+  // CRM hub for classification + private context. `tags` is an array of
+  // short free-text labels ("label: Universal", "genre: hip-hop"), drawn
+  // with chips; `notes` is a multi-line producer-only field; and
+  // `referralSource` captures "how did they hear about me" for
+  // marketing intelligence.
+  tags: text("tags").array(),
+  notes: text("notes"),
+  referralSource: text("referral_source"),
 }, (t) => ({
   uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
 }));
