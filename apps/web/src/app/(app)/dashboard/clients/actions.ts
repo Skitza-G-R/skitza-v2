@@ -10,7 +10,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
-// Same canonical pattern as dashboard/deals/actions.ts — wraps the
+// Same canonical pattern as dashboard/projects/actions.ts — wraps the
 // tRPC caller, maps errors to plain-English copy, and revalidates the
 // list + detail paths so the next navigation sees fresh data.
 
