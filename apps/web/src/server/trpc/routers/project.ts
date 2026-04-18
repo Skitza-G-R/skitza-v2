@@ -49,26 +49,22 @@ function mintShareToken(): { raw: string; hash: string } {
 // gives no benefit and lets an attacker correlate DB leaks.
 type ProjectPublic = Omit<typeof projects.$inferSelect, "shareTokenHash">;
 function stripHash(row: typeof projects.$inferSelect): ProjectPublic {
-  return {
-    id: row.id,
-    producerId: row.producerId,
-    bookingId: row.bookingId,
-    title: row.title,
-    stage: row.stage,
-    clientName: row.clientName,
-    clientEmail: row.clientEmail,
-    artistName: row.artistName,
-    artistEmail: row.artistEmail,
-    depositPaid: row.depositPaid,
-    finalPaid: row.finalPaid,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
+  // Destructure to drop shareTokenHash; spreading the rest keeps us in
+  // sync as new columns land on the projects table without having to
+  // re-list every field here.
+  const { shareTokenHash: _hash, ...rest } = row;
+  void _hash;
+  return rest;
 }
 
 // Project stages mirror the project_stage pg enum. Kept here as a
 // const so the Zod input and listByStage grouped init stay in sync.
-const STAGES = [
+// Note: `payment_paused` and `cancelled` are valid DB stages but are
+// NOT included in the Kanban view — they're terminal/paused states
+// handled separately in the CRM. `ALL_STAGES` enumerates every enum
+// value so Zod accepts them on setStage; `STAGES` is the Kanban-only
+// subset used by listByStage grouping.
+const ALL_STAGES = [
   "lead",
   "booked",
   "contract_sent",
@@ -76,8 +72,16 @@ const STAGES = [
   "final_review",
   "paid",
   "archived",
+  "payment_paused",
+  "cancelled",
 ] as const;
-type Stage = (typeof STAGES)[number];
+// Kanban-visible subset of ALL_STAGES. Kept as a type-only alias
+// since the runtime guard in listByStage excludes the two terminal
+// stages directly rather than iterating this list.
+type Stage = Exclude<
+  (typeof ALL_STAGES)[number],
+  "payment_paused" | "cancelled"
+>;
 
 // Rate limits for public endpoints
 const COMMENT_LIMIT = 20;
@@ -116,7 +120,7 @@ const SetPaidInput = z.object({
 
 const SetStageInput = z.object({
   id: z.string().uuid(),
-  stage: z.enum(STAGES),
+  stage: z.enum(ALL_STAGES),
 });
 
 // Artist-side: submit a timestamped comment.
@@ -156,7 +160,11 @@ export const projectRouter = router({
       .where(eq(projects.producerId, ctx.producerId))
       .orderBy(desc(projects.updatedAt));
 
-    const grouped: Record<Stage, (typeof rows)[number][]> = {
+    // Narrow each row's stage to the Kanban-visible subset. Drizzle
+    // returns the full enum as the static type, but we filter out the
+    // two terminal stages below so the assertion is safe at runtime.
+    type KanbanRow = Omit<(typeof rows)[number], "stage"> & { stage: Stage };
+    const grouped: Record<Stage, KanbanRow[]> = {
       lead: [],
       booked: [],
       contract_sent: [],
@@ -166,7 +174,11 @@ export const projectRouter = router({
       archived: [],
     };
     for (const r of rows) {
-      grouped[r.stage].push(r);
+      // payment_paused + cancelled are valid DB stages but intentionally
+      // excluded from the Kanban view — the CRM surfaces them elsewhere.
+      if (r.stage === "payment_paused" || r.stage === "cancelled") continue;
+      const stage: Stage = r.stage;
+      grouped[stage].push({ ...r, stage });
     }
     return grouped;
   }),

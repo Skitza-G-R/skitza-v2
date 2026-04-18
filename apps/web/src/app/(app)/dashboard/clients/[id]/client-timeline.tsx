@@ -49,7 +49,9 @@ type Stage =
   | "in_production"
   | "final_review"
   | "paid"
-  | "archived";
+  | "archived"
+  | "payment_paused"
+  | "cancelled";
 
 type ProjectRow = {
   id: string;
@@ -159,6 +161,8 @@ const STAGE_LABEL: Record<Stage, string> = {
   final_review: "Final review",
   paid: "Paid",
   archived: "Archived",
+  payment_paused: "Payment paused",
+  cancelled: "Cancelled",
 };
 
 export function ClientTimeline({

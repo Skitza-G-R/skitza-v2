@@ -30,6 +30,8 @@ const STAGES = [
   "final_review",
   "paid",
   "archived",
+  "payment_paused",
+  "cancelled",
 ] as const;
 type Stage = (typeof STAGES)[number];
 
@@ -41,6 +43,8 @@ const STAGE_LABEL: Record<Stage, string> = {
   final_review: "Final review",
   paid: "Paid",
   archived: "Archived",
+  payment_paused: "Payment paused",
+  cancelled: "Cancelled",
 };
 
 interface Project {

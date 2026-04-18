@@ -60,7 +60,9 @@ type Stage =
   | "in_production"
   | "final_review"
   | "paid"
-  | "archived";
+  | "archived"
+  | "payment_paused"
+  | "cancelled";
 
 export async function createProject(input: {
   title: string;
