@@ -120,6 +120,13 @@
       "when": 1776816000000,
       "tag": "0016_products_rebuild",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1776902400000,
+      "tag": "0017_session_reminders",
+      "breakpoints": true
     }
   ]
 }

@@ -250,6 +250,13 @@ export const bookings = pgTable("bookings", {
   durationMin: integer("duration_min").notNull(),
   status: bookingStatus("status").notNull().default("pending"),
   statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+  // Phase H.4c — reminder dispatch markers. Nullable timestamp = "not
+  // sent yet"; the cron at /api/cron/session-reminders stamps the
+  // current time after a successful Resend send so we never double-mail
+  // the same booking. Two columns (vs. one JSON map) keeps the cron
+  // SELECT tight: WHERE reminder_sent_24h IS NULL AND starts_at … .
+  reminderSent24h: timestamp("reminder_sent_24h", { withTimezone: true }),
+  reminderSent1h: timestamp("reminder_sent_1h", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Booking = typeof bookings.$inferSelect;
