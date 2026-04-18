@@ -114,6 +114,8 @@ export default async function ProjectDetail({ params }: PageProps) {
           depositPaid: data.project.depositPaid,
           finalPaid: data.project.finalPaid,
           paymentPlanKind: data.project.paymentPlanKind,
+          installments: data.project.installments,
+          nextChargeAt: data.project.nextChargeAt,
           chargesCompleted: data.project.chargesCompleted,
           chargesTotal: data.project.chargesTotal,
           totalAmountCents: data.project.totalAmountCents,

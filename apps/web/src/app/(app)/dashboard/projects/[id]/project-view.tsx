@@ -7,6 +7,7 @@ import { type SyntheticEvent, useMemo, useState, useTransition } from "react";
 import { AudioUploader } from "~/components/audio/audio-uploader";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
 import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
+import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
@@ -64,6 +65,11 @@ interface Project {
   // an off-session PaymentIntent via project.chargeFinal before running
   // the existing mark-final side effects. Null-safe for legacy rows.
   paymentPlanKind: string | null;
+  // Task 8 — monthly plan installment count + next scheduled charge
+  // from the Stripe subscription schedule, both surfaced in the
+  // <PaymentStatusStrip/> at the top of the project room.
+  installments: number | null;
+  nextChargeAt: Date | null;
   chargesCompleted: number;
   chargesTotal: number | null;
   totalAmountCents: number | null;
@@ -228,6 +234,24 @@ export function ProjectView({
             )}
           </div>
         </div>
+        {/* Task 8 — compact payment-plan status. Renders nothing for
+            legacy rows or trial bookings (no plan configured). */}
+        <PaymentStatusStrip
+          paymentPlanKind={
+            project.paymentPlanKind === "full" ||
+            project.paymentPlanKind === "split_50_50" ||
+            project.paymentPlanKind === "monthly"
+              ? project.paymentPlanKind
+              : null
+          }
+          installments={project.installments}
+          chargesCompleted={project.chargesCompleted}
+          chargesTotal={project.chargesTotal}
+          totalAmountCents={project.totalAmountCents}
+          currency={project.currency || "USD"}
+          nextChargeAt={project.nextChargeAt}
+          stage={project.stage}
+        />
       </header>
 
       {/* Tab bar */}
