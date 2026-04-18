@@ -76,9 +76,35 @@ const Block = z.object({
   startMin: z.number().int().min(0).max(24 * 60),
   endMin: z.number().int().min(0).max(24 * 60),
 });
+/**
+ * Pure helper: does any pair of blocks on the same weekday overlap?
+ * Blocks that merely touch (a.end === b.start) are NOT considered
+ * overlapping — back-to-back blocks are valid.
+ *
+ * Exported so tests + the router's superRefine can share one source of
+ * truth. O(n^2) but n ≤ 21 blocks in practice (3 per weekday × 7).
+ */
+export function blocksOverlapOnSameDay(
+  blocks: readonly { weekday: number; startMin: number; endMin: number }[],
+): boolean {
+  for (let i = 0; i < blocks.length; i++) {
+    for (let j = i + 1; j < blocks.length; j++) {
+      const a = blocks[i];
+      const b = blocks[j];
+      if (!a || !b) continue;
+      if (a.weekday !== b.weekday) continue;
+      if (a.startMin < b.endMin && b.startMin < a.endMin) return true;
+    }
+  }
+  return false;
+}
+
 const AvailabilityWeekInput = z
   .object({
-    blocks: z.array(Block).max(14), // 2 blocks × 7 weekdays
+    // Multi-block per weekday — producers can split a day into e.g.
+    // morning/afternoon/evening. Capped at 5 blocks × 7 weekdays = 35
+    // rows to prevent runaway UI input; well above any realistic use.
+    blocks: z.array(Block).max(35),
   })
   .superRefine((val, ctx) => {
     // Validate startMin < endMin per row + disallow overlapping blocks
