@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { SettingsForm } from "./settings-form";
+import { StripeCard } from "./stripe-card";
 
 // The settings page lives under /dashboard/* so it inherits the (app)
 // layout's onboarding gate — which means the producer row is guaranteed
@@ -43,6 +44,11 @@ export default async function SettingsPage() {
             timezone: profile.timezone,
             brand: profile.brand,
           }}
+        />
+
+        <StripeCard
+          connected={profile.stripeConnected}
+          chargesEnabled={profile.stripeChargesEnabled}
         />
 
         <section className="mt-12 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6">
