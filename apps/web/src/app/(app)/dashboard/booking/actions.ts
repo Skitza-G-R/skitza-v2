@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { TRPCError } from "@trpc/server";
 import { ZodError } from "zod";
 import { auth } from "@clerk/nextjs/server";
+import type { PaymentPlan } from "@skitza/db";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -69,6 +70,7 @@ export async function createPackage(input: {
   locationType?: PackageLocationType;
   bufferMinutes?: number;
   minLeadHours?: number;
+  paymentPlans?: PaymentPlan[];
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -94,6 +96,7 @@ export async function updatePackage(input: {
   locationType?: PackageLocationType;
   bufferMinutes?: number;
   minLeadHours?: number;
+  paymentPlans?: PaymentPlan[];
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;

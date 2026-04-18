@@ -79,6 +79,21 @@ const Milestone = z.object({
   pct: z.number().int().min(0).max(100),
 });
 
+// Payment plans the producer opts this product into. Mirrors the
+// `PaymentPlan` union on the schema side. Optional on input so legacy
+// callers (onboarding wizard, tests) don't have to thread a value; when
+// absent, the DB default of `[{kind:"full"}]` applies.
+const PaymentPlanInput = z.array(
+  z.union([
+    z.object({ kind: z.literal("full") }),
+    z.object({ kind: z.literal("split_50_50") }),
+    z.object({
+      kind: z.literal("monthly"),
+      installments: z.number().int().min(2).max(12),
+    }),
+  ]),
+);
+
 // Input for create/update. Several fields are conditional on the
 // pricing/deposit model — we validate the cross-field rules in a
 // superRefine after the zod object so the messages point at the
@@ -105,6 +120,7 @@ const ProductInputShape = {
   locationType: ProductLocationType.default("studio"),
   bufferMinutes: z.number().int().min(0).max(240).default(0),
   minLeadHours: z.number().int().min(0).max(30 * 24).default(12),
+  paymentPlans: PaymentPlanInput.optional(),
 };
 
 const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
@@ -190,6 +206,7 @@ const ProductUpdateInput = z
     locationType: ProductLocationType.optional(),
     bufferMinutes: z.number().int().min(0).max(240).optional(),
     minLeadHours: z.number().int().min(0).max(30 * 24).optional(),
+    paymentPlans: PaymentPlanInput.optional(),
   });
 
 // Weekly availability replaces the entire week atomically — easier UX

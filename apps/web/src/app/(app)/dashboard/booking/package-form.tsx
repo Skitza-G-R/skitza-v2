@@ -2,6 +2,7 @@
 
 import { type SyntheticEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import type { PaymentPlan } from "@skitza/db";
 
 import { Button } from "~/components/ui/button";
 import { Input, Label, Select, Textarea } from "~/components/ui/input";
@@ -12,6 +13,7 @@ import {
   type PackageKind,
   type PackageLocationType,
 } from "./actions";
+import { parsePaymentPlansFromFormData } from "./payment-plans-parser";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
 
@@ -41,7 +43,13 @@ const LOCATION_OPTIONS: { value: PackageLocationType; label: string; hint: strin
   { value: "client_space", label: "Their space", hint: "You travel to them" },
 ];
 
-export function NewPackageForm({ onClose }: { onClose: () => void }) {
+export function NewPackageForm({
+  onClose,
+  initialPlans = [{ kind: "full" }],
+}: {
+  onClose: () => void;
+  initialPlans?: PaymentPlan[];
+}) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
@@ -62,6 +70,12 @@ export function NewPackageForm({ onClose }: { onClose: () => void }) {
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    // Payment-plan checkboxes are uncontrolled — pull them out of the
+    // form's FormData at submit time. Parser always returns a non-empty
+    // list so the product can never be saved with an empty plan set.
+    const paymentPlans = parsePaymentPlansFromFormData(
+      new FormData(e.currentTarget),
+    );
     startTransition(async () => {
       const res = await createPackage({
         name: name.trim(),
@@ -77,6 +91,7 @@ export function NewPackageForm({ onClose }: { onClose: () => void }) {
         locationType,
         bufferMinutes,
         minLeadHours,
+        paymentPlans,
       });
       if (res.ok) {
         toast(`"${name.trim()}" package created.`, "success");
@@ -323,6 +338,50 @@ export function NewPackageForm({ onClose }: { onClose: () => void }) {
           </p>
         </div>
       </div>
+
+      <fieldset className="mt-6 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] p-4">
+        <legend className="px-2 text-xs font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+          Payment plans offered
+        </legend>
+        <p className="mt-2 text-xs text-[rgb(var(--fg-secondary))]">
+          Client picks one at checkout.
+        </p>
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="plan_full"
+            defaultChecked={initialPlans.some((p) => p.kind === "full")}
+          />
+          Pay in full
+        </label>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="plan_split"
+            defaultChecked={initialPlans.some((p) => p.kind === "split_50_50")}
+          />
+          50% deposit + 50% on delivery
+        </label>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="plan_monthly"
+            defaultChecked={initialPlans.some((p) => p.kind === "monthly")}
+          />
+          Monthly installments —
+          <input
+            type="number"
+            name="plan_monthly_n"
+            min={2}
+            max={12}
+            defaultValue={
+              initialPlans.find((p) => p.kind === "monthly")?.installments ?? 4
+            }
+            className="w-16 rounded-sm border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 py-1 text-sm"
+          />
+          payments
+        </label>
+      </fieldset>
 
       {error ? (
         <p role="alert" className="mt-3 text-sm text-[rgb(var(--fg-danger))]">
