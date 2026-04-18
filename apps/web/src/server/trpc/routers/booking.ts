@@ -84,7 +84,7 @@ const Milestone = z.object({
 // callers (onboarding wizard, tests) don't have to thread a value; when
 // absent, the DB default of `[{kind:"full"}]` applies.
 const PaymentPlanInput = z.array(
-  z.union([
+  z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("full") }),
     z.object({ kind: z.literal("split_50_50") }),
     z.object({
