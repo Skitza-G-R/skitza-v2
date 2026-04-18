@@ -45,10 +45,20 @@ export function SolutionFlow() {
             entire client workflow automatically.
           </p>
           <ul className="mt-6 space-y-2 text-[rgb(var(--fg-secondary))]">
-            <li>📅 Clients book themselves — you just show up</li>
-            <li>💸 Invoices sent and chased automatically</li>
-            <li>📁 Files delivered securely — no WhatsApp links</li>
-            <li>💬 Follow-ups and reminders — done for you</li>
+            {[
+              "Clients book themselves — you just show up",
+              "Invoices sent and chased automatically",
+              "Files delivered via signed links — no WhatsApp chains",
+              "Follow-ups and reminders — done for you",
+            ].map((line) => (
+              <li key={line} className="flex items-start gap-2">
+                <span
+                  aria-hidden
+                  className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
+                />
+                {line}
+              </li>
+            ))}
           </ul>
         </div>
 

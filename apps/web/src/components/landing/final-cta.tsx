@@ -1,15 +1,11 @@
 import Link from "next/link";
 
-import { WaitlistForm } from "./waitlist-form";
-
-// Final CTA — transitions BACK to LIGHT, mirroring the landing's own
-// light → dark → light dramaturgy. Matches index.html §9.
-
+// Final CTA — LIGHT world. Last conversion moment on the page. Single
+// primary button into sign-up, with a quieter download link for visitors
+// who want the Mac app instead.
 export function FinalCTA() {
   return (
-    <section
-      className="relative bg-[rgb(var(--bg-base))] py-24 text-[rgb(var(--fg-primary))] sm:py-32"
-    >
+    <section className="relative bg-[rgb(var(--bg-base))] py-24 text-[rgb(var(--fg-primary))] sm:py-32">
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <span
           className="absolute left-1/2 top-1/3 h-[30rem] w-[30rem] -translate-x-1/2 rounded-full blur-[120px]"
@@ -18,39 +14,36 @@ export function FinalCTA() {
       </div>
       <div className="relative mx-auto max-w-2xl px-6 text-center">
         <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--brand-primary))]">
-          Ready?
+          Ready when you are
         </p>
         <h2
           className="mt-4 font-display text-[clamp(2.5rem,6vw,4.5rem)] leading-[1] tracking-tight"
           style={{ fontWeight: 800 }}
         >
-          The studio that
+          Start your free
           <span className="mt-1 block italic text-[rgb(var(--brand-primary))]">
-            runs itself is here.
+            Skitza account.
           </span>
         </h2>
         <p className="mx-auto mt-5 max-w-lg text-[rgb(var(--fg-secondary))]">
-          Stop spending hours on admin. Make the music you actually want to make.
+          No card. Cancel anytime. Your URL is yours the minute you sign up.
         </p>
-        <div id="waitlist-final" className="mx-auto mt-10 max-w-md">
-          <WaitlistForm source="landing-final-cta" cta="Join The Waiting List" compact />
+
+        <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <Link
+            href="/sign-up"
+            className="pulse-glow inline-flex min-h-12 w-full items-center justify-center rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-7 py-3.5 text-base font-semibold text-[#0C0A07] shadow-[0_6px_20px_-4px_rgb(var(--brand-primary)/0.4)] transition-transform hover:scale-[1.02] hover:-translate-y-[1px] active:translate-y-[1px] sm:w-auto"
+          >
+            Start free →
+          </Link>
+          <a
+            href="#download"
+            className="font-mono text-sm text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--brand-primary))]"
+          >
+            or download for Mac →
+          </a>
         </div>
       </div>
-
-      {/* Footer strip. Legal + producer log-in link for existing users. */}
-      <footer className="relative mx-auto mt-20 max-w-6xl border-t border-[rgb(var(--border-subtle))] px-6 pt-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
-            © {String(new Date().getFullYear())} Skitza · Made for producers who ship
-          </p>
-          <nav className="flex items-center gap-5 font-mono text-xs text-[rgb(var(--fg-secondary))]">
-            <Link href="/about" className="transition-colors hover:text-[rgb(var(--fg-primary))]">About</Link>
-            <Link href="/privacy" className="transition-colors hover:text-[rgb(var(--fg-primary))]">Privacy</Link>
-            <Link href="/terms" className="transition-colors hover:text-[rgb(var(--fg-primary))]">Terms</Link>
-            <Link href="/sign-in" className="transition-colors hover:text-[rgb(var(--brand-primary))]">Sign in →</Link>
-          </nav>
-        </div>
-      </footer>
     </section>
   );
 }
