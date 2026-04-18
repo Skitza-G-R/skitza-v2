@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {
   and,
+  bookings,
   clientContacts,
   contractRecipients,
   contracts,
+  packages,
   projectTracks,
   projects,
   desc,
@@ -64,6 +66,343 @@ export const clientContactsRouter = router({
       return rows.filter(
         (r) => r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q),
       );
+    }),
+
+  // Phase H.2 — enriched CRM list with two "modes":
+  //   view = "by-client"     → one row per contact with aggregate stats
+  //   view = "all-projects"  → one row per project, with its client
+  //
+  // Both modes share the same per-project-package-price join so the
+  // outstanding balance + lifetime value numbers stay consistent across
+  // views. Outstanding = sum(priceCents) for projects where the package
+  // price is known AND the final hasn't been paid AND stage isn't
+  // archived. Lifetime = sum(priceCents) for projects where finalPaid
+  // is true. Projects with no booking/package contribute 0.
+  listWithProjects: producerProcedure
+    .input(
+      z
+        .object({ view: z.enum(["by-client", "all-projects"]).optional() })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const view = input?.view ?? "by-client";
+
+      // One per-project row enriched with package price + last comment
+      // time. Uses `max(bookings.package_id)` + `max(packages.price_cents)`
+      // to collapse the many-to-one booking→package join safely; in
+      // practice a project has ≤ 1 booking attached via bookings.project_id.
+      const projectRows = await ctx.db
+        .select({
+          id: projects.id,
+          title: projects.title,
+          stage: projects.stage,
+          createdAt: projects.createdAt,
+          updatedAt: projects.updatedAt,
+          clientName: projects.clientName,
+          clientEmail: sql<string | null>`lower(${projects.clientEmail})`,
+          artistName: projects.artistName,
+          artistEmail: sql<string>`lower(${projects.artistEmail})`,
+          depositPaid: projects.depositPaid,
+          finalPaid: projects.finalPaid,
+          priceCents: sql<number | null>`max(${packages.priceCents})`,
+          currency: sql<string | null>`max(${packages.currency})`,
+          nextSessionAt: sql<
+            Date | string | null
+          >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
+        })
+        .from(projects)
+        .leftJoin(bookings, eq(bookings.projectId, projects.id))
+        .leftJoin(packages, eq(packages.id, bookings.packageId))
+        .where(eq(projects.producerId, ctx.producerId))
+        .groupBy(projects.id)
+        .orderBy(desc(projects.updatedAt));
+
+      // Pre-compute last-comment timestamp + unresolved count per
+      // project email (artistEmail/clientEmail) via a single aggregate.
+      const commentAgg = await ctx.db
+        .select({
+          projectId: projectTracks.projectId,
+          lastComment: sql<Date | string | null>`max(${trackComments.createdAt})`,
+          unresolved: sql<number>`count(*) filter (where ${trackComments.resolvedAt} is null and ${trackComments.fromProducer} = false)::int`,
+        })
+        .from(trackComments)
+        .innerJoin(trackVersions, eq(trackVersions.id, trackComments.versionId))
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(eq(projects.producerId, ctx.producerId))
+        .groupBy(projectTracks.projectId);
+
+      const commentMap = new Map<
+        string,
+        { lastComment: Date | null; unresolved: number }
+      >();
+      for (const row of commentAgg) {
+        const lc =
+          row.lastComment == null
+            ? null
+            : row.lastComment instanceof Date
+              ? row.lastComment
+              : new Date(row.lastComment);
+        commentMap.set(row.projectId, { lastComment: lc, unresolved: row.unresolved });
+      }
+
+      // Shape: decorate each project with lastActivity (max of
+      // updatedAt / lastComment) + the outstandingCents for itself.
+      const enriched = projectRows.map((p) => {
+        const cm = commentMap.get(p.id) ?? { lastComment: null, unresolved: 0 };
+        const updatedAt = p.updatedAt instanceof Date ? p.updatedAt : new Date(p.updatedAt);
+        const lastActivity =
+          cm.lastComment && cm.lastComment > updatedAt ? cm.lastComment : updatedAt;
+        const nextSessionAt =
+          p.nextSessionAt == null
+            ? null
+            : p.nextSessionAt instanceof Date
+              ? p.nextSessionAt
+              : new Date(p.nextSessionAt);
+        const price = p.priceCents ?? 0;
+        const isActive = p.stage !== "paid" && p.stage !== "archived";
+        const outstanding = p.finalPaid || p.stage === "archived" ? 0 : price;
+        const lifetime = p.finalPaid ? price : 0;
+        return {
+          id: p.id,
+          title: p.title,
+          stage: p.stage,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+          clientName: p.clientName,
+          clientEmail: p.clientEmail ?? p.artistEmail,
+          artistName: p.artistName,
+          artistEmail: p.artistEmail,
+          depositPaid: p.depositPaid,
+          finalPaid: p.finalPaid,
+          priceCents: price,
+          currency: p.currency ?? "USD",
+          outstandingCents: outstanding,
+          lifetimeCents: lifetime,
+          nextSessionAt,
+          lastActivity,
+          unresolvedComments: cm.unresolved,
+          isActive,
+        };
+      });
+
+      if (view === "all-projects") {
+        // Flat list shape. For each project, look up the contact by
+        // lowercased email. If none found (legacy rows) return a stub
+        // so the UI still renders a row.
+        const contacts = await ctx.db
+          .select({
+            id: clientContacts.id,
+            email: clientContacts.email,
+            name: clientContacts.name,
+            tags: clientContacts.tags,
+          })
+          .from(clientContacts)
+          .where(eq(clientContacts.producerId, ctx.producerId));
+        const contactByEmail = new Map<
+          string,
+          { id: string; email: string; name: string; tags: string[] | null }
+        >();
+        for (const c of contacts) {
+          contactByEmail.set(c.email.toLowerCase(), {
+            id: c.id,
+            email: c.email,
+            name: c.name,
+            tags: c.tags,
+          });
+        }
+        return {
+          view: "all-projects" as const,
+          projects: enriched.map((p) => {
+            const matchEmail = p.clientEmail.toLowerCase();
+            const ct = contactByEmail.get(matchEmail) ?? null;
+            return {
+              ...p,
+              client: ct
+                ? {
+                    id: ct.id,
+                    email: ct.email,
+                    name: ct.name,
+                    tags: ct.tags,
+                  }
+                : {
+                    id: null,
+                    email: p.clientEmail,
+                    name: p.clientName ?? p.artistName,
+                    tags: null as string[] | null,
+                  },
+            };
+          }),
+        };
+      }
+
+      // view === "by-client" — fold projects into their contact.
+      const contacts = await ctx.db
+        .select({
+          id: clientContacts.id,
+          email: clientContacts.email,
+          name: clientContacts.name,
+          firstSeenAt: clientContacts.firstSeenAt,
+          lastSeenAt: clientContacts.lastSeenAt,
+          tags: clientContacts.tags,
+          notes: clientContacts.notes,
+          referralSource: clientContacts.referralSource,
+        })
+        .from(clientContacts)
+        .where(eq(clientContacts.producerId, ctx.producerId))
+        .orderBy(desc(clientContacts.lastSeenAt));
+
+      type Agg = {
+        active: number;
+        total: number;
+        outstanding: number;
+        lifetime: number;
+        lastActivity: Date | null;
+        unresolved: number;
+        hasActive: boolean;
+        hasOutstanding: boolean;
+      };
+      const byEmail = new Map<string, Agg>();
+      function ensure(email: string): Agg {
+        const existing = byEmail.get(email);
+        if (existing) return existing;
+        const fresh: Agg = {
+          active: 0,
+          total: 0,
+          outstanding: 0,
+          lifetime: 0,
+          lastActivity: null,
+          unresolved: 0,
+          hasActive: false,
+          hasOutstanding: false,
+        };
+        byEmail.set(email, fresh);
+        return fresh;
+      }
+      for (const p of enriched) {
+        const la = p.lastActivity instanceof Date ? p.lastActivity : new Date(p.lastActivity);
+        for (const em of new Set(
+          [p.clientEmail, p.artistEmail].filter((e): e is string => Boolean(e)).map((e) => e.toLowerCase()),
+        )) {
+          const a = ensure(em);
+          a.total += 1;
+          if (p.isActive) {
+            a.active += 1;
+            a.hasActive = true;
+          }
+          a.outstanding += p.outstandingCents;
+          a.lifetime += p.lifetimeCents;
+          a.unresolved += p.unresolvedComments;
+          if (p.outstandingCents > 0) a.hasOutstanding = true;
+          if (!a.lastActivity || la > a.lastActivity) a.lastActivity = la;
+        }
+      }
+
+      const rows = contacts.map((c) => {
+        const agg = byEmail.get(c.email.toLowerCase()) ?? {
+          active: 0,
+          total: 0,
+          outstanding: 0,
+          lifetime: 0,
+          lastActivity: null,
+          unresolved: 0,
+          hasActive: false,
+          hasOutstanding: false,
+        };
+        const lastActivity =
+          agg.lastActivity ??
+          (c.lastSeenAt instanceof Date ? c.lastSeenAt : new Date(c.lastSeenAt));
+        // "Needs attention" heuristic — anything a producer would want
+        // to look at first thing in the morning.
+        const now = Date.now();
+        const staleMs = 90 * 24 * 60 * 60 * 1000; // 90 days
+        const isStale =
+          agg.total === 0
+            ? now - (c.lastSeenAt instanceof Date ? c.lastSeenAt : new Date(c.lastSeenAt)).getTime() > staleMs
+            : false;
+        const needsAttention =
+          agg.unresolved > 0 || (agg.hasOutstanding && agg.active > 0);
+        return {
+          id: c.id,
+          email: c.email,
+          name: c.name,
+          firstSeenAt: c.firstSeenAt,
+          lastSeenAt: c.lastSeenAt,
+          tags: c.tags,
+          notes: c.notes,
+          referralSource: c.referralSource,
+          activeProjectCount: agg.active,
+          totalProjectCount: agg.total,
+          outstandingCents: agg.outstanding,
+          lifetimeCents: agg.lifetime,
+          unresolvedComments: agg.unresolved,
+          lastActivity,
+          needsAttention,
+          isStale,
+        };
+      });
+      return { view: "by-client" as const, clients: rows };
+    }),
+
+  // Patch the CRM meta fields in isolation — keeps the existing
+  // `update` procedure focused on name/email (which has different
+  // dedupe semantics). Any subset of the three fields may be passed;
+  // `undefined` means "leave unchanged", while an explicit empty array
+  // or empty string clears the field.
+  updateClientMeta: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        tags: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+        notes: z.string().max(5000).optional(),
+        referralSource: z.string().max(200).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({ producerId: clientContacts.producerId })
+        .from(clientContacts)
+        .where(eq(clientContacts.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const patch: {
+        tags?: string[] | null;
+        notes?: string | null;
+        referralSource?: string | null;
+      } = {};
+      if (input.tags !== undefined) {
+        // Deduplicate case-insensitively while preserving the first
+        // casing seen — producers usually type "Hip-Hop" then "hip-hop"
+        // and expect one tag.
+        const seen = new Set<string>();
+        const cleaned: string[] = [];
+        for (const t of input.tags) {
+          const key = t.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          cleaned.push(t);
+        }
+        patch.tags = cleaned.length > 0 ? cleaned : null;
+      }
+      if (input.notes !== undefined) {
+        const trimmed = input.notes.trim();
+        patch.notes = trimmed.length > 0 ? trimmed : null;
+      }
+      if (input.referralSource !== undefined) {
+        const trimmed = input.referralSource.trim();
+        patch.referralSource = trimmed.length > 0 ? trimmed : null;
+      }
+      if (Object.keys(patch).length === 0) {
+        return { ok: true as const, changed: false };
+      }
+      await ctx.db
+        .update(clientContacts)
+        .set(patch)
+        .where(eq(clientContacts.id, input.id));
+      return { ok: true as const, changed: true };
     }),
 
   // Enriched list for the CRM view. One round-trip for contacts plus
@@ -289,9 +628,17 @@ export const clientContactsRouter = router({
           updatedAt: projects.updatedAt,
           depositPaid: projects.depositPaid,
           finalPaid: projects.finalPaid,
+          priceCents: sql<number | null>`max(${packages.priceCents})`,
+          currency: sql<string | null>`max(${packages.currency})`,
+          nextSessionAt: sql<
+            Date | string | null
+          >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
         })
         .from(projects)
+        .leftJoin(bookings, eq(bookings.projectId, projects.id))
+        .leftJoin(packages, eq(packages.id, bookings.packageId))
         .where(and(eq(projects.producerId, ctx.producerId), emailMatchesProject(lower)))
+        .groupBy(projects.id)
         .orderBy(desc(projects.updatedAt));
 
       const projectIds = projectRows.map((d) => d.id);
@@ -356,6 +703,29 @@ export const clientContactsRouter = router({
       ).length;
       const lastActivity = projectRows[0]?.updatedAt ?? contact.lastSeenAt;
 
+      // Aggregate outstanding / lifetime across this contact's
+      // projects. Same rule as listWithProjects:
+      //   outstanding = sum(priceCents) for projects not yet paid +
+      //                 not archived (if known)
+      //   lifetime    = sum(priceCents) for projects where final is paid
+      let outstandingCents = 0;
+      let lifetimeCents = 0;
+      const enrichedProjects = projectRows.map((p) => {
+        const price = p.priceCents ?? 0;
+        const isArchived = p.stage === "archived";
+        const isPaid = p.finalPaid;
+        const outstanding = isPaid || isArchived ? 0 : price;
+        const lifetime = isPaid ? price : 0;
+        outstandingCents += outstanding;
+        lifetimeCents += lifetime;
+        return {
+          ...p,
+          priceCents: price,
+          outstandingCents: outstanding,
+          lifetimeCents: lifetime,
+        };
+      });
+
       return {
         contact: {
           id: contact.id,
@@ -363,14 +733,19 @@ export const clientContactsRouter = router({
           name: contact.name,
           firstSeenAt: contact.firstSeenAt,
           lastSeenAt: contact.lastSeenAt,
+          tags: contact.tags,
+          notes: contact.notes,
+          referralSource: contact.referralSource,
         },
         stats: {
           activeProjectCount,
           totalProjectCount: projectRows.length,
           trackCount,
           lastActivity,
+          outstandingCents,
+          lifetimeCents,
         },
-        projects: projectRows,
+        projects: enrichedProjects,
         contracts: contractRows,
         comments: commentRows,
       };

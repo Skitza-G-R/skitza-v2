@@ -120,6 +120,27 @@ export async function removeClientAction(input: {
   }
 }
 
+// Phase H.2 — patch producer-only meta (tags, notes, referral source).
+// Separate from updateClientAction because meta has no uniqueness
+// constraints and the Drizzle patch accepts nulls (to clear a field).
+export async function updateClientMetaAction(input: {
+  id: string;
+  tags?: string[];
+  notes?: string;
+  referralSource?: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.clientContacts.updateClientMeta(input);
+    revalidatePath(PATH_LIST);
+    revalidatePath(pathDetail(input.id));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 export async function sendClientMagicLinkAction(input: {
   id: string;
   target: "portfolio" | "booking";
