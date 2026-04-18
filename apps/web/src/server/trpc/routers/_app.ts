@@ -11,6 +11,7 @@ import { paletteRouter } from "./palette";
 import { portfolioRouter } from "./portfolio";
 import { producerRouter } from "./producer";
 import { projectRouter } from "./project";
+import { stripeRouter } from "./stripe";
 
 export const appRouter = router({
   audio: audioRouter,
@@ -25,6 +26,7 @@ export const appRouter = router({
   portfolio: portfolioRouter,
   producer: producerRouter,
   project: projectRouter,
+  stripe: stripeRouter,
 });
 
 export type AppRouter = typeof appRouter;

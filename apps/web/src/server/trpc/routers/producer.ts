@@ -72,6 +72,13 @@ export const producerRouter = router({
       defaultCurrency: row.defaultCurrency,
       timezone: row.timezone,
       brand: row.brand ?? {},
+      // Phase H.5 — surface Stripe Connect status flags so the
+      // settings page can render "not connected / pending / connected"
+      // without an extra round-trip. We don't surface the raw
+      // accountId — the dashboard link mutation hands out a one-shot
+      // signed URL when the producer asks for it.
+      stripeConnected: Boolean(row.stripeAccountId),
+      stripeChargesEnabled: row.stripeChargesEnabled,
     };
   }),
 
