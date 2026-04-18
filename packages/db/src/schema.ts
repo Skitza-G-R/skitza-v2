@@ -669,6 +669,7 @@ export const stripeCustomers = pgTable("stripe_customers", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   pk: primaryKey({ columns: [t.producerId, t.clientContactId] }),
+  customerIdx: index("stripe_customers_customer_idx").on(t.stripeCustomerId),
 }));
 
 export type StripeCustomer = typeof stripeCustomers.$inferSelect;

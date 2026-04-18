@@ -30,8 +30,8 @@ ALTER TABLE "products" ADD COLUMN IF NOT EXISTS "payment_plans" jsonb
 -- one-time invoices don't have a plan.
 ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "payment_plan_project_id" uuid
   REFERENCES "projects"("id") ON DELETE SET NULL;
--- `kind` stays text (no enum) so we don't need an ALTER TYPE for
--- the new 'installment' value — just start writing it.
+-- Note: invoices.kind stays text (no enum), so the new 'installment'
+-- value needs no migration — callers just start writing it.
 
 -- 5. stripe_customers: one per (producer, client) pair. Reused
 -- across projects so saved cards carry over. Composite PK prevents
