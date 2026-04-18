@@ -11,7 +11,7 @@ import type { PaymentPlan } from "@skitza/db";
 // becomes a compile error, forcing us to handle it.
 export function calculateCharges(plan: PaymentPlan, totalCents: number): number[] {
   if (!Number.isInteger(totalCents) || totalCents <= 0) {
-    throw new Error("totalCents must be a positive integer");
+    throw new Error(`totalCents must be a positive integer, got ${String(totalCents)}`);
   }
 
   switch (plan.kind) {
@@ -26,7 +26,7 @@ export function calculateCharges(plan: PaymentPlan, totalCents: number): number[
 
     case "monthly": {
       if (plan.installments < 2 || plan.installments > 12) {
-        throw new Error("installments must be between 2 and 12");
+        throw new Error(`installments must be between 2 and 12, got ${String(plan.installments)}`);
       }
       const base = Math.floor(totalCents / plan.installments);
       const remainder = totalCents - base * plan.installments;

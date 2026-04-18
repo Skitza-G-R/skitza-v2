@@ -43,6 +43,32 @@ describe("calculateCharges", () => {
     expect(() => calculateCharges({ kind: "monthly", installments: 13 }, 100))
       .toThrow(/between 2 and 12/);
   });
+
+  it("splits monthly with perfect division (no remainder)", () => {
+    // 1200 / 12 → [100] × 12
+    expect(calculateCharges({ kind: "monthly", installments: 12 }, 1200))
+      .toEqual(Array.from({ length: 12 }, () => 100));
+  });
+
+  it("splits 50/50 of 2 cents (boundary) → [1, 1]", () => {
+    expect(calculateCharges({ kind: "split_50_50" }, 2))
+      .toEqual([1, 1]);
+  });
+
+  it("splits 50/50 of 3 cents (boundary, odd) → [2, 1]", () => {
+    expect(calculateCharges({ kind: "split_50_50" }, 3))
+      .toEqual([2, 1]);
+  });
+
+  it("throws on negative total", () => {
+    expect(() => calculateCharges({ kind: "full" }, -100))
+      .toThrow(/positive integer/);
+  });
+
+  it("throws on non-integer total", () => {
+    expect(() => calculateCharges({ kind: "full" }, 100.5))
+      .toThrow(/positive integer/);
+  });
 });
 
 describe("advancePlanState", () => {
@@ -103,5 +129,12 @@ describe("advancePlanState", () => {
     // Already paid — duplicate webhook must not over-count
     expect(next.chargesCompleted).toBe(2);
     expect(next.stage).toBe("paid");
+  });
+
+  it("retries_exhausted is idempotent when already paused", () => {
+    const already = { chargesCompleted: 1, chargesTotal: 4, stage: "payment_paused" as const };
+    const next = advancePlanState(already, { type: "retries_exhausted" });
+    expect(next.stage).toBe("payment_paused");
+    expect(next.chargesCompleted).toBe(1);
   });
 });
