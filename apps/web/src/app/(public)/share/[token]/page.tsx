@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import { PausedBannerHost } from "./paused-banner-host";
 import { ShareClient } from "./share-client";
 
 type PageProps = { params: Promise<{ token: string }> };
@@ -40,6 +41,9 @@ export default async function SharePage({ params }: PageProps) {
       </div>
 
       <main className="relative z-10 mx-auto max-w-4xl px-6 pb-24 pt-14 sm:px-10 sm:pt-20">
+        {data.project.stage === "payment_paused" ? (
+          <PausedBannerHost projectId={data.project.id} token={token} />
+        ) : null}
         <header className="mb-10 reveal-up">
           <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
             Project Room · by{" "}

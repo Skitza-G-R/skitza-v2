@@ -1148,6 +1148,39 @@ export const bookingRouter = router({
         .limit(1);
       if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
 
+      // Task 10 — Paused-project guard.
+      // If this client (matched by lowercased email) already has a
+      // `payment_paused` project with the same producer, refuse to take
+      // a new booking. The pause is a real money problem; queueing more
+      // work behind it just hides the fact that retries failed. Once
+      // they update their card via the Stripe Portal banner, the webhook
+      // flips the stage back to `in_production` and bookings resume.
+      //
+      // Greenfield bookers (no existing project with this producer) are
+      // unaffected — the paused state is per-(producer,client) so a
+      // first-time visitor's booking is never blocked.
+      {
+        const lowerEmail = input.artistEmail.trim().toLowerCase();
+        const [paused] = await db
+          .select({ id: projects.id })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.producerId, producer.id),
+              eq(projects.clientEmail, lowerEmail),
+              eq(projects.stage, "payment_paused"),
+            ),
+          )
+          .limit(1);
+        if (paused) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Your payment method needs to be updated before you can book a new session.",
+          });
+        }
+      }
+
       // Products without a duration (pure-deliverable) skip the slot
       // check entirely. We still record a booking row for history +
       // notifications, using `now` as a placeholder startsAt so the

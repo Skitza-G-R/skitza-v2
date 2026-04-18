@@ -864,6 +864,11 @@ export const projectRouter = router({
           artistName: project.artistName,
           depositPaid: project.depositPaid,
           finalPaid: project.finalPaid,
+          // Task 10 — exposed so the share-page can render the
+          // payment-paused banner. We send the raw enum string; the UI
+          // string-compares to "payment_paused" rather than thread an
+          // enum through the wire.
+          stage: project.stage,
           createdAt: project.createdAt,
           producerName: producer?.displayName ?? "Producer",
           producerSlug: producer?.slug ?? "",

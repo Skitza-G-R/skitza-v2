@@ -1,20 +1,39 @@
+import { createHash } from "node:crypto";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import {
   and,
   bookings,
+  createDb,
   desc,
   eq,
   invoices,
   isNull,
   producers,
   products,
+  projects,
+  type Db,
 } from "@skitza/db";
 
-import { router } from "../init";
+import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { calculatePriceCents } from "./booking";
 import { getSiteUrl, getStripe } from "~/server/stripe/client";
+
+// Public-procedure helper. Mirrors the pattern in `project.ts`/`booking.ts`:
+// we don't have a Clerk session for the client-facing endpoints, so each
+// public mutation builds its own DB handle from DATABASE_URL.
+async function publicCtx(): Promise<{ db: Db }> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "missing DATABASE_URL" });
+  }
+  // Touch headers() so Next records this as a dynamic route — keeps the
+  // share-token-keyed mutation from being statically optimised on accident.
+  await headers();
+  return { db: createDb(dbUrl) };
+}
 
 // Phase H.5 — Stripe Connect onboarding + Checkout sessions + invoice
 // listing. The router is intentionally thin: every external call goes
@@ -268,5 +287,80 @@ export const stripeRouter = router({
       }
 
       return { url: session.url, invoiceId: inv.id };
+    }),
+
+  // Task 10 — Stripe Customer Portal session for the paused-state banner.
+  //
+  // Auth: share-token only. The client doesn't have a Clerk session
+  // (we're on the public /share/<token> route). We hash the raw token
+  // and look it up against `projects.shareTokenHash` — same discipline
+  // as `project.publicByToken`.
+  //
+  // Portal session is created on the PLATFORM account (no `stripeAccount`
+  // header) because Task 3 moved Customers to the platform for
+  // destination-charge installments. The Portal then lets the client
+  // update the saved card; once they do, Stripe auto-retries the failed
+  // invoice → invoice.paid webhook → project.stage flips back to active
+  // (handled in Task 6).
+  //
+  // First-use note: Stripe requires a default Portal configuration in
+  // the Dashboard before the API call works. If unconfigured the call
+  // throws with a Stripe-side message ("No configuration provided ..."),
+  // which we surface verbatim — that's the producer/admin's signal to
+  // do the one-time Dashboard setup, no code change needed.
+  createCustomerPortalSession: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        shareToken: z.string().min(16).max(128),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { db } = await publicCtx();
+      const stripe = getStripe();
+
+      const tokenHash = createHash("sha256").update(input.shareToken).digest("hex");
+      const [project] = await db
+        .select({
+          id: projects.id,
+          shareTokenHash: projects.shareTokenHash,
+          stripeCustomerId: projects.stripeCustomerId,
+          producerId: projects.producerId,
+        })
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      // Constant-time-ish compare via string equality is fine here —
+      // the hashes are 64 hex chars and we're not dealing with attacker-
+      // controlled timing surfaces above the network jitter floor.
+      if (project.shareTokenHash !== tokenHash) {
+        // Same NOT_FOUND code as a missing project so a token-fishing
+        // attacker can't distinguish "wrong token" from "no project".
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (!project.stripeCustomerId) {
+        // The client hasn't completed checkout yet — there's no Stripe
+        // Customer to point the Portal at. PRECONDITION_FAILED matches
+        // the rest of the Stripe procedures' shape for "your Stripe
+        // state isn't ready".
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No saved payment method on file yet — pay the first invoice first.",
+        });
+      }
+
+      // Return the client to their project room when they're done in
+      // the Portal. Token is unguessable so leaking it in the
+      // return_url to Stripe is a non-event — Stripe already saw it as
+      // input via the same browser. We don't need to look the producer
+      // up here; the Portal lives entirely on the platform account so
+      // there's no Connect-routing decision to make.
+      const session = await stripe.billingPortal.sessions.create({
+        customer: project.stripeCustomerId,
+        return_url: `${getSiteUrl()}/share/${input.shareToken}`,
+      });
+
+      return { url: session.url };
     }),
 });
