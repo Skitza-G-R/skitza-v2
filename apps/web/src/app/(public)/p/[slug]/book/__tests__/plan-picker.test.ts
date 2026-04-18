@@ -1,13 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { planKey, planLabel } from "../plan-picker-helpers";
 
-// Pure string formatter — cents in, USD dollars out. Used across every
-// label case below.
+// Pure string formatter — cents in, USD dollars out. Mirrors the
+// production formatter in plan-picker.tsx so tests lock in the same
+// decimal behavior users see.
 const fmt = (c: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(c / 100);
 
 describe("planKey", () => {
@@ -48,8 +50,9 @@ describe("planLabel", () => {
     // formatter rounds to whole dollars, but the underlying cent math
     // matches calculateCharges (remainder on first)
     expect(label).toMatch(/^50\/50 — /);
-    // Invariant: first amount >= second amount
-    const matches = label.match(/\$([\d,]+) now, \$([\d,]+)/);
+    // Invariant: first amount >= second amount. Formatter may include
+    // decimals (e.g. "$50.01 now, $50.00 on delivery") so accept both.
+    const matches = label.match(/\$([\d,]+(?:\.\d+)?) now, \$([\d,]+(?:\.\d+)?)/);
     expect(matches).not.toBeNull();
     if (!matches) return;
     const firstStr = matches[1];
@@ -78,5 +81,19 @@ describe("planLabel", () => {
       fmt,
     );
     expect(label).toContain("for 11 months");
+  });
+
+  it("monthly label: remainder on first charge is shown correctly", () => {
+    // 10_003 cents / 3 installments: calculateCharges returns [3_335, 3_334, 3_334]
+    // Label should reflect first=$33.35, rest=$33.34
+    const fmt = (c: number) =>
+      new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      }).format(c / 100);
+    const label = planLabel({ kind: "monthly", installments: 3 }, 10_003, fmt);
+    expect(label).toMatch(/\$33\.35 today.*\$33\.34\/month for 2 months/);
   });
 });

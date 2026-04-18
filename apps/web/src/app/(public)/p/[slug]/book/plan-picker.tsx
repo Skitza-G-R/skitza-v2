@@ -22,11 +22,16 @@ export function PlanPicker({
   const [selected, setSelected] = useState<string>(first ? planKey(first) : "");
   if (!first) return null;
 
+  // min 0 / max 2 lets round totals render cleanly ($25) while
+  // preserving decimals when calculateCharges produces an odd-cent
+  // split ($50.01 / $50.00) — so the label matches what Stripe
+  // actually charges the card.
   const format = (cents: number) =>
     new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
     }).format(cents / 100);
 
   return (

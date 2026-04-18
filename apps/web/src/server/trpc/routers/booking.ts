@@ -1440,7 +1440,9 @@ export const bookingRouter = router({
               },
             });
             const stripe = getStripe();
-            const session = await stripe.checkout.sessions.create(params);
+            const session = await stripe.checkout.sessions.create(params, {
+              idempotencyKey: `booking-${row.id}-checkout`,
+            });
             checkoutUrl = session.url;
 
             // Record the first invoice (for the first charge). For

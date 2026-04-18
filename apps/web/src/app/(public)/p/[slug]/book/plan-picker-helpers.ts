@@ -25,6 +25,11 @@ export function planLabel(
     const half = Math.floor(total / 2) + (total % 2);
     return `50/50 — ${format(half)} now, ${format(total - half)} on delivery`;
   }
-  const each = Math.floor(total / p.installments);
-  return `Monthly — ${format(each)} today, then ${format(each)}/month for ${String(p.installments - 1)} months`;
+  // calculateCharges puts the remainder on the FIRST charge (see
+  // apps/web/src/server/payments/plan.ts). Mirror that here so the
+  // label matches the actual charge sequence on odd-cent totals —
+  // e.g. $100.03 / 3 → [33.35, 33.34, 33.34], not a uniform "$33/mo".
+  const base = Math.floor(total / p.installments);
+  const first = base + (total - base * p.installments);
+  return `Monthly — ${format(first)} today, then ${format(base)}/month for ${String(p.installments - 1)} months`;
 }
