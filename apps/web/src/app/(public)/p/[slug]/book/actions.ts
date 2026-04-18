@@ -45,7 +45,7 @@ export async function submitBookingRequest(input: {
   startsAtIso?: string;
   quantity?: number;
   hours?: number;
-}): Promise<ActionDataResult<{ id: string }>> {
+}): Promise<ActionDataResult<{ id: string; checkoutUrl: string | null }>> {
   try {
     const caller = appRouter.createCaller({ userId: null });
     const res = await caller.booking.publicRequest(input);

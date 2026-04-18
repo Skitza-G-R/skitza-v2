@@ -11,6 +11,7 @@ import {
   eq,
   gte,
   inArray,
+  invoices,
   isNull,
   lte,
   products,
@@ -1249,6 +1250,93 @@ export const bookingRouter = router({
         console.warn("[email] sendBookingRequestEmail failed in booking.publicRequest", err);
       }
 
-      return { id: row.id };
+      // Phase H.5 — when the producer has Stripe Connect on and the
+      // product carries a deposit (or is paid-in-full), mint a Stripe
+      // Checkout Session and return the URL so the visitor can pay
+      // immediately. Best-effort: a Stripe outage falls back to the
+      // pending-approval flow — the booking row is still saved, the
+      // producer still gets notified, the artist gets the request
+      // email — only the in-flow checkout is skipped.
+      let checkoutUrl: string | null = null;
+      try {
+        const [producerRow] = await db
+          .select({
+            stripeAccountId: producers.stripeAccountId,
+            stripeChargesEnabled: producers.stripeChargesEnabled,
+            slug: producers.slug,
+          })
+          .from(producers)
+          .where(eq(producers.id, producer.id))
+          .limit(1);
+
+        if (
+          producerRow?.stripeAccountId &&
+          producerRow.stripeChargesEnabled &&
+          (prod.depositPct > 0 || prod.depositModel === "paid_in_full")
+        ) {
+          const fullPriceCents = calculatePriceCents(prod, {
+            ...(input.quantity ? { quantity: input.quantity } : {}),
+            ...(input.hours ? { hours: input.hours } : {}),
+          });
+          const isFull = prod.depositModel === "paid_in_full";
+          const amountCents = isFull
+            ? fullPriceCents
+            : Math.round((fullPriceCents * prod.depositPct) / 100);
+
+          if (amountCents > 0) {
+            const { getSiteUrl, getStripe } = await import("~/server/stripe/client");
+            const stripe = getStripe();
+            const base = getSiteUrl();
+            const session = await stripe.checkout.sessions.create({
+              mode: "payment",
+              line_items: [
+                {
+                  price_data: {
+                    currency: prod.currency.toLowerCase(),
+                    product_data: {
+                      name: `${prod.name} — ${isFull ? "full" : "deposit"}`,
+                    },
+                    unit_amount: amountCents,
+                  },
+                  quantity: 1,
+                },
+              ],
+              customer_email: input.artistEmail.toLowerCase(),
+              success_url: `${base}/p/${producerRow.slug}/book/success?session_id={CHECKOUT_SESSION_ID}`,
+              cancel_url: `${base}/p/${producerRow.slug}/book?cancelled=1`,
+              payment_intent_data: {
+                transfer_data: { destination: producerRow.stripeAccountId },
+              },
+              metadata: {
+                producerId: producer.id,
+                bookingId: row.id,
+                kind: isFull ? "full" : "deposit",
+              },
+            });
+            checkoutUrl = session.url;
+
+            await db.insert(invoices).values({
+              producerId: producer.id,
+              bookingId: row.id,
+              stripeCheckoutSessionId: session.id,
+              amountCents,
+              currency: prod.currency,
+              description: `${prod.name} — ${isFull ? "full" : "deposit"}`,
+              kind: isFull ? "full" : "deposit",
+              status: "sent",
+              customerEmail: input.artistEmail.toLowerCase(),
+              customerName: input.artistName,
+            });
+            await db
+              .update(bookings)
+              .set({ stripeCheckoutSessionId: session.id })
+              .where(eq(bookings.id, row.id));
+          }
+        }
+      } catch (err) {
+        console.warn("[stripe] checkout creation failed in booking.publicRequest", err);
+      }
+
+      return { id: row.id, checkoutUrl };
     }),
 });

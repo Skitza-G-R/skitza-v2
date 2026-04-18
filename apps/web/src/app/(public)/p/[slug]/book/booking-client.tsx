@@ -134,6 +134,14 @@ export function BookingClient({
         startsAtIso: slotIso,
       });
       if (res.ok) {
+        // Phase H.5 — when the producer has Stripe Connect on, the
+        // server returns a Checkout URL. Redirect immediately so the
+        // visitor pays before they bounce. Otherwise fall through to
+        // the original "pending approval" success state.
+        if (res.data.checkoutUrl) {
+          window.location.href = res.data.checkoutUrl;
+          return;
+        }
         setStep("done");
       } else {
         setError(res.error);
