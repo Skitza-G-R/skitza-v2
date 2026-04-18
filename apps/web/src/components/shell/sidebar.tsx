@@ -78,13 +78,17 @@ export function Sidebar({
     };
   }, [toggle]);
 
-  // Inbox sits between Pipeline and Contracts: it's the producer's
-  // first-thing-in-the-morning view once the app has enough data.
+  // Phase H.2 — Clients leads the rail. The CRM hub is now the
+  // producer-first mental model: "who are my people? what do they need
+  // today?" Pipeline stays one click away for the deal-flow-focused
+  // producer. Inbox stays after Library to group the "reactive" surfaces
+  // (library, contracts, bookings) under the "proactive" ones (clients,
+  // pipeline).
   const items: NavItem[] = [
-    { id: "pipeline", label: "Pipeline", href: "/dashboard", icon: <PipelineIcon /> },
-    { id: "inbox", label: "Inbox", href: "/dashboard/inbox", icon: <InboxIcon /> },
     { id: "clients", label: "Clients", href: "/dashboard/clients", icon: <ClientsIcon /> },
+    { id: "pipeline", label: "Pipeline", href: "/dashboard", icon: <PipelineIcon /> },
     { id: "library", label: "Library", href: "/dashboard/library", icon: <LibraryIcon /> },
+    { id: "inbox", label: "Inbox", href: "/dashboard/inbox", icon: <InboxIcon /> },
     { id: "contracts", label: "Contracts", href: "/dashboard/contracts", icon: <ContractIcon /> },
     { id: "booking", label: "Bookings", href: "/dashboard/booking", icon: <CalendarIcon /> },
     { id: "leads", label: "Leads", href: "/dashboard/leads", icon: <UsersIcon /> },
