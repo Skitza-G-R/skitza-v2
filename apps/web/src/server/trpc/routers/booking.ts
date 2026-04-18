@@ -24,6 +24,10 @@ import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { recordContact } from "~/server/contacts/record";
+import {
+  sendBookingConfirmedEmail,
+  sendBookingRequestEmail,
+} from "~/server/email/send";
 import { emitBookingRequested } from "~/server/notifications/emit";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 
@@ -826,7 +830,16 @@ export const bookingRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const [existing] = await ctx.db
-        .select({ producerId: bookings.producerId, status: bookings.status })
+        .select({
+          producerId: bookings.producerId,
+          status: bookings.status,
+          artistName: bookings.artistName,
+          artistEmail: bookings.artistEmail,
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+          productId: bookings.productId,
+          packageNameSnapshot: bookings.packageNameSnapshot,
+        })
         .from(bookings)
         .where(eq(bookings.id, input.id))
         .limit(1);
@@ -845,6 +858,51 @@ export const bookingRouter = router({
         .update(bookings)
         .set({ status: "confirmed", statusChangedAt: new Date() })
         .where(eq(bookings.id, input.id));
+
+      // Email the artist that their session is confirmed. Fully
+      // best-effort: catch + warn so a Resend hiccup doesn't unwind
+      // the status transition the producer just performed.
+      try {
+        const [producer] = await ctx.db
+          .select({
+            displayName: producers.displayName,
+            timezone: producers.timezone,
+            defaultCurrency: producers.defaultCurrency,
+          })
+          .from(producers)
+          .where(eq(producers.id, existing.producerId))
+          .limit(1);
+        const product = existing.productId
+          ? (
+              await ctx.db
+                .select({
+                  name: products.name,
+                  priceCents: products.priceCents,
+                  currency: products.currency,
+                  depositPct: products.depositPct,
+                })
+                .from(products)
+                .where(eq(products.id, existing.productId))
+                .limit(1)
+            )[0]
+          : undefined;
+        const priceCents = product?.priceCents ?? 0;
+        const depositPct = product?.depositPct ?? 0;
+        const depositCents = Math.round((priceCents * depositPct) / 100);
+        await sendBookingConfirmedEmail(existing.artistEmail, {
+          artistName: existing.artistName,
+          producerName: producer?.displayName ?? "Your producer",
+          productName: product?.name ?? existing.packageNameSnapshot ?? "Session",
+          startsAt: existing.durationMin > 0 ? existing.startsAt : null,
+          producerTimezone: producer?.timezone ?? "UTC",
+          currency: product?.currency ?? producer?.defaultCurrency ?? "USD",
+          priceCents,
+          depositCents,
+        });
+      } catch (err) {
+        console.warn("[email] sendBookingConfirmedEmail failed in booking.confirm", err);
+      }
+
       return { ok: true as const };
     }),
 
@@ -1158,6 +1216,37 @@ export const bookingRouter = router({
         });
       } catch (err) {
         console.warn("[notify] emitBookingRequested failed in booking.publicRequest", err);
+      }
+
+      // Fire the producer's "new request" email. Best-effort: a Resend
+      // outage must not roll back the booking insert — the producer
+      // can still see the request in /dashboard/booking?tab=requests.
+      try {
+        const [producerRow] = await db
+          .select({
+            email: producers.email,
+            displayName: producers.displayName,
+            timezone: producers.timezone,
+          })
+          .from(producers)
+          .where(eq(producers.id, producer.id))
+          .limit(1);
+        if (producerRow?.email) {
+          const depositCents = Math.round((prod.priceCents * prod.depositPct) / 100);
+          await sendBookingRequestEmail(producerRow.email, {
+            producerName: producerRow.displayName ?? "there",
+            artistName: input.artistName,
+            productName: prod.name,
+            startsAt: prod.durationMin > 0 ? (startsAt ?? null) : null,
+            producerTimezone: producerRow.timezone,
+            currency: prod.currency,
+            priceCents: prod.priceCents,
+            depositCents,
+            notes: input.notes,
+          });
+        }
+      } catch (err) {
+        console.warn("[email] sendBookingRequestEmail failed in booking.publicRequest", err);
       }
 
       return { id: row.id };
