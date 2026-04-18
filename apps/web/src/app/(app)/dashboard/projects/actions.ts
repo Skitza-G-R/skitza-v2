@@ -196,6 +196,27 @@ export async function approveVersionAction(input: {
   }
 }
 
+// Task 7 — producer-triggered off-session final charge for split_50_50
+// plans. We surface Stripe's error message verbatim (e.g. "Your card
+// was declined", "Insufficient funds") so the producer knows exactly
+// what went wrong. The confirm-charge modal renders `error` inline so
+// a retry with a different card isn't a guessing game.
+export async function chargeFinalAction(input: {
+  projectId: string;
+}): Promise<ActionDataResult<{ paymentIntentId: string }>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const res = await c.caller.project.chargeFinal({
+      projectId: input.projectId,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true, data: res };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 export async function setStageAction(input: {
   id: string;
   stage: Stage;

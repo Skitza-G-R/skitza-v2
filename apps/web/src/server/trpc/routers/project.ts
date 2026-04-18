@@ -6,6 +6,7 @@ import {
   asc,
   bookings,
   createDb,
+  invoices,
   projectTracks,
   projects,
   desc,
@@ -23,6 +24,8 @@ import { producerProcedure } from "../producer-procedure";
 import { recordContact } from "~/server/contacts/record";
 import { emitCommentCreated } from "~/server/notifications/emit";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
+import { calculateCharges } from "~/server/payments/plan";
+import { getStripe } from "~/server/stripe/client";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 async function publicCtx(): Promise<{ db: Db; ipHash: string }> {
@@ -116,6 +119,10 @@ const SetPaidInput = z.object({
   projectId: z.string().uuid(),
   kind: z.enum(["deposit", "final"]),
   value: z.boolean(),
+});
+
+const ChargeFinalInput = z.object({
+  projectId: z.string().uuid(),
 });
 
 const SetStageInput = z.object({
@@ -361,6 +368,146 @@ export const projectRouter = router({
       .where(eq(projects.id, input.projectId));
     return { ok: true as const };
   }),
+
+  // ── Task 7 ─────────────────────────────────────────────────────────
+  // Fire the off-session final charge for a split_50_50 plan. The
+  // deposit has already landed (chargesCompleted === 1) and the card
+  // was saved via setup_future_usage at checkout, so we create a
+  // PaymentIntent that reuses the customer + payment method and
+  // confirms immediately.
+  //
+  // CRITICAL: this mutation does NOT insert an invoice row. The
+  // payment_intent.succeeded webhook (handlers.ts) reconciles state
+  // and writes the ledger entry — keeping invoice insertion in one
+  // place makes duplicate-protection tractable (the partial unique
+  // index on invoices.stripe_payment_intent_id enforces at-most-one).
+  //
+  // Idempotency: `proj_<id>_charge_2` scopes the key to this project
+  // + this charge number. Double-click or replay returns the same PI
+  // instead of charging twice.
+  chargeFinal: producerProcedure
+    .input(ChargeFinalInput)
+    .mutation(async ({ ctx, input }) => {
+      // 1. Project exists + belongs to caller.
+      const [project] = await ctx.db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1);
+      if (!project || project.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+
+      // 2. Plan must be split_50_50 — the only shape with a producer-
+      //    triggered second charge. Monthly is Stripe-driven; full is
+      //    single-charge at checkout.
+      if (project.paymentPlanKind !== "split_50_50") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Final charge only applies to 50/50 plans.",
+        });
+      }
+
+      // 3. Deposit paid, final not yet fired (chargesCompleted === 1).
+      if (project.chargesCompleted !== 1) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Final charge already processed or deposit not yet paid.",
+        });
+      }
+
+      // 4. Saved customer + payment method must exist — populated by
+      //    the checkout.session.completed webhook when the deposit
+      //    landed. Absence means something went wrong upstream.
+      if (!project.stripeCustomerId || !project.stripePaymentMethodId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Missing saved payment method — re-run checkout.",
+        });
+      }
+
+      if (project.totalAmountCents === null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Project total not recorded — re-run checkout.",
+        });
+      }
+
+      // 5. Producer's Connect account must be live + charges-enabled.
+      //    destination-charges require a healthy account.
+      const [producer] = await ctx.db
+        .select({
+          stripeAccountId: producers.stripeAccountId,
+          stripeChargesEnabled: producers.stripeChargesEnabled,
+        })
+        .from(producers)
+        .where(eq(producers.id, ctx.producerId))
+        .limit(1);
+      if (
+        !producer ||
+        !producer.stripeAccountId ||
+        !producer.stripeChargesEnabled
+      ) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Stripe account not ready — finish onboarding first.",
+        });
+      }
+
+      // Derive the second-half amount via calculateCharges so the
+      // cents math stays in one place (handles odd-total remainders).
+      const charges = calculateCharges(
+        { kind: "split_50_50" },
+        project.totalAmountCents,
+      );
+      const finalAmountCents = charges[1];
+      if (finalAmountCents === undefined || finalAmountCents <= 0) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Invalid final charge amount.",
+        });
+      }
+
+      // Look up the deposit invoice for currency — the producer could
+      // have edited the product currency since checkout, but the
+      // invoice snapshot is the source of truth for this engagement.
+      const [depositInvoice] = await ctx.db
+        .select({ currency: invoices.currency })
+        .from(invoices)
+        .where(
+          and(
+            eq(invoices.projectId, project.id),
+            eq(invoices.kind, "deposit"),
+          ),
+        )
+        .orderBy(desc(invoices.createdAt))
+        .limit(1);
+      const currency = (depositInvoice?.currency ?? "USD").toLowerCase();
+
+      const stripe = getStripe();
+      const pi = await stripe.paymentIntents.create(
+        {
+          amount: finalAmountCents,
+          currency,
+          customer: project.stripeCustomerId,
+          payment_method: project.stripePaymentMethodId,
+          off_session: true,
+          confirm: true,
+          transfer_data: { destination: producer.stripeAccountId },
+          metadata: {
+            projectId: project.id,
+            kind: "final",
+            producerId: ctx.producerId,
+          },
+        },
+        {
+          idempotencyKey: `proj_${project.id}_charge_2`,
+        },
+      );
+
+      return { paymentIntentId: pi.id };
+    }),
 
   resolveComment: producerProcedure
     .input(ResolveCommentInput)

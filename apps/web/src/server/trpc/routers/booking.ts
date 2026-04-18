@@ -1418,6 +1418,7 @@ export const bookingRouter = router({
                 paymentPlanKind: plan.kind,
                 installments: plan.kind === "monthly" ? plan.installments : null,
                 chargesTotal: charges.length,
+                totalAmountCents: fullPriceCents,
                 stripeCustomerId: customerId,
               })
               .returning();

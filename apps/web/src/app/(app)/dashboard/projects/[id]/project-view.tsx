@@ -6,6 +6,7 @@ import { type SyntheticEvent, useMemo, useState, useTransition } from "react";
 
 import { AudioUploader } from "~/components/audio/audio-uploader";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
+import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
@@ -16,6 +17,7 @@ import {
   addProducerComment,
   addTrackVersion,
   approveVersionAction,
+  chargeFinalAction,
   resolveVersionComment,
   setProjectPaid,
   setStageAction,
@@ -57,6 +59,16 @@ interface Project {
   clientEmail: string | null;
   depositPaid: boolean;
   finalPaid: boolean;
+  // Task 7 — payment-plan state. When paymentPlanKind === 'split_50_50'
+  // and chargesCompleted === 1, the "Mark final delivered" button fires
+  // an off-session PaymentIntent via project.chargeFinal before running
+  // the existing mark-final side effects. Null-safe for legacy rows.
+  paymentPlanKind: string | null;
+  chargesCompleted: number;
+  chargesTotal: number | null;
+  totalAmountCents: number | null;
+  cardLast4: string | null;
+  currency: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -292,6 +304,32 @@ function OverviewTab({
   const [stage, setStage] = useState<Stage>(project.stage);
   const [d, setD] = useState(project.depositPaid);
   const [f, setF] = useState(project.finalPaid);
+  // Modal open state for split_50_50 final charge. We only mount the
+  // modal when the producer actually clicks "Mark final paid" while
+  // the project qualifies — no need to render it proactively.
+  const [chargeModalOpen, setChargeModalOpen] = useState(false);
+
+  // Task 7 — gate the modal on plan shape + progress. For monthly /
+  // full / already-paid plans, the button runs the existing flag flip
+  // directly (Stripe handles monthly charges automatically; full is
+  // charged at checkout). Only split_50_50 with one charge landed
+  // requires the producer-triggered off-session PI.
+  const needsChargeModal =
+    project.paymentPlanKind === "split_50_50" &&
+    project.chargesCompleted === 1 &&
+    !project.finalPaid;
+
+  // Derive the second-half amount from the stored total. Same math as
+  // the server's calculateCharges({kind:'split_50_50'}, total)[1] —
+  // duplicated client-side for modal display so we don't need an extra
+  // round-trip. For total $200.00 and $200.01 alike the final charge is
+  // $100.00 (the remainder rides on the first charge). Returns 0 if
+  // total isn't populated (legacy rows); the server-side
+  // PRECONDITION_FAILED will reject such cases anyway.
+  const finalAmountCents = (() => {
+    if (project.totalAmountCents === null) return 0;
+    return Math.floor(project.totalAmountCents / 2);
+  })();
 
   function onStageChange(next: Stage) {
     const prev = stage;
@@ -325,6 +363,47 @@ function OverviewTab({
       );
       router.refresh();
     });
+  }
+
+  // Click handler for "Mark final paid". Split_50_50 projects with the
+  // deposit landed open the confirm modal (which fires the off-session
+  // PI on confirm, then runs the mark-final flip). Every other shape
+  // (full, monthly, already paid, legacy) skips straight to the flip.
+  function onFinalClick(nextValue: boolean) {
+    if (nextValue && needsChargeModal) {
+      setChargeModalOpen(true);
+      return;
+    }
+    flipPaid("final", nextValue);
+  }
+
+  // Modal confirm: fire the charge via the server action, then on
+  // success mark the project finalPaid. If the charge throws, the
+  // modal surfaces the Stripe error message inline (not a toast) so
+  // the producer can switch cards without losing the modal state.
+  async function onConfirmCharge() {
+    const res = await chargeFinalAction({ projectId: project.id });
+    if (!res.ok) throw new Error(res.error);
+    // Charge succeeded — the webhook will advance chargesCompleted
+    // to 2 and the router refresh below picks up the new state. We
+    // also flip finalPaid eagerly so the UI reflects the outcome
+    // without waiting on webhook roundtrip.
+    setChargeModalOpen(false);
+    setF(true);
+    const flipRes = await setProjectPaid({
+      projectId: project.id,
+      kind: "final",
+      paid: true,
+    });
+    if (!flipRes.ok) {
+      // Charge landed but flag flip failed — surface via toast; the
+      // webhook will eventually reconcile state. Rare; flag update is
+      // a simple DB write.
+      toast(flipRes.error, "error");
+    } else {
+      toast("Final charged · downloads unlocked.", "success");
+    }
+    router.refresh();
   }
 
   return (
@@ -429,7 +508,7 @@ function OverviewTab({
             size="sm"
             variant={f ? "default" : "outline"}
             onClick={() => {
-              flipPaid("final", !f);
+              onFinalClick(!f);
             }}
             disabled={pending}
           >
@@ -440,6 +519,20 @@ function OverviewTab({
           Artist-side downloads unlock once you mark Final paid.
         </p>
       </div>
+
+      {needsChargeModal ? (
+        <ConfirmChargeModal
+          open={chargeModalOpen}
+          clientName={project.clientName ?? project.artistName}
+          amountCents={finalAmountCents}
+          currency={project.currency}
+          {...(project.cardLast4 ? { cardLast4: project.cardLast4 } : {})}
+          onConfirm={onConfirmCharge}
+          onClose={() => {
+            setChargeModalOpen(false);
+          }}
+        />
+      ) : null}
 
       <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
         <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">

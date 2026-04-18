@@ -346,6 +346,12 @@ export const projects = pgTable("projects", {
   // 2 for split, N for monthly).
   chargesCompleted: integer("charges_completed").notNull().default(0),
   chargesTotal: integer("charges_total"),
+  // Original engagement total (minor units) snapshotted at checkout so
+  // the Task-7 off-session final charge can derive the second-half
+  // amount via `calculateCharges(plan, totalAmountCents)[1]`. Inferring
+  // from the deposit invoice alone is ambiguous for odd totals, so we
+  // persist this explicitly. Nullable for legacy rows without a plan.
+  totalAmountCents: integer("total_amount_cents"),
   // Next scheduled charge (from Stripe subscription schedule). Lets the
   // UI show "next charge on ..." without a Stripe API round-trip.
   nextChargeAt: timestamp("next_charge_at", { withTimezone: true }),
