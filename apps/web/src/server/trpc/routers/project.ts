@@ -6,8 +6,8 @@ import {
   asc,
   bookings,
   createDb,
-  dealTracks,
-  deals,
+  projectTracks,
+  projects,
   desc,
   eq,
   notifications,
@@ -35,7 +35,7 @@ async function publicCtx(): Promise<{ db: Db; ipHash: string }> {
   return { db: createDb(dbUrl), ipHash: createHash("sha256").update(ipRaw).digest("hex") };
 }
 
-// Generate a fresh share token for deal rooms. 32 bytes → 43
+// Generate a fresh share token for project rooms. 32 bytes → 43
 // base64url chars. Raw token shown to producer ONCE when created;
 // only sha256(token) persisted. Mirrors magicLinks token discipline.
 function mintShareToken(): { raw: string; hash: string } {
@@ -47,8 +47,8 @@ function mintShareToken(): { raw: string; hash: string } {
 // Shape we expose publicly. Strips shareTokenHash from the wire — the
 // artist already holds the raw token in their URL; exposing the hash
 // gives no benefit and lets an attacker correlate DB leaks.
-type DealPublic = Omit<typeof deals.$inferSelect, "shareTokenHash">;
-function stripHash(row: typeof deals.$inferSelect): DealPublic {
+type ProjectPublic = Omit<typeof projects.$inferSelect, "shareTokenHash">;
+function stripHash(row: typeof projects.$inferSelect): ProjectPublic {
   return {
     id: row.id,
     producerId: row.producerId,
@@ -66,8 +66,8 @@ function stripHash(row: typeof deals.$inferSelect): DealPublic {
   };
 }
 
-// Deal stages mirror the deal_stage pg enum. Kept here as a const so
-// the Zod input and listByStage grouped init stay in sync.
+// Project stages mirror the project_stage pg enum. Kept here as a
+// const so the Zod input and listByStage grouped init stay in sync.
 const STAGES = [
   "lead",
   "booked",
@@ -86,7 +86,7 @@ const VIEW_LIMIT = 60;
 const VIEW_WINDOW_MS = 60_000;
 
 // ─── Inputs ──────────────────────────────────────────────────────────
-const CreateDealInput = z.object({
+const CreateProjectInput = z.object({
   title: z.string().min(1).max(120),
   artistName: z.string().min(1).max(80),
   artistEmail: z.string().email(),
@@ -94,7 +94,7 @@ const CreateDealInput = z.object({
 });
 
 const AddTrackInput = z.object({
-  dealId: z.string().uuid(),
+  projectId: z.string().uuid(),
   title: z.string().min(1).max(120),
   artist: z.string().max(120).optional(),
 });
@@ -109,7 +109,7 @@ const AddVersionInput = z.object({
 });
 
 const SetPaidInput = z.object({
-  dealId: z.string().uuid(),
+  projectId: z.string().uuid(),
   kind: z.enum(["deposit", "final"]),
   value: z.boolean(),
 });
@@ -135,26 +135,26 @@ const ResolveCommentInput = z.object({
 });
 
 // ─── Router ──────────────────────────────────────────────────────────
-export const dealRouter = router({
+export const projectRouter = router({
   // ── Producer-side ───────────────────────────────────────────────
   list: producerProcedure.query(async ({ ctx }) => {
     return ctx.db
       .select()
-      .from(deals)
-      .where(eq(deals.producerId, ctx.producerId))
-      .orderBy(desc(deals.updatedAt));
+      .from(projects)
+      .where(eq(projects.producerId, ctx.producerId))
+      .orderBy(desc(projects.updatedAt));
   }),
 
   // Returns rows grouped by stage for the Kanban board. Seven buckets
-  // keyed by the deal_stage enum; each bucket ordered by updatedAt
-  // desc so the most-recently-touched deal floats to the top of its
-  // column.
+  // keyed by the project_stage enum; each bucket ordered by updatedAt
+  // desc so the most-recently-touched project floats to the top of
+  // its column.
   listByStage: producerProcedure.query(async ({ ctx }) => {
     const rows = await ctx.db
       .select()
-      .from(deals)
-      .where(eq(deals.producerId, ctx.producerId))
-      .orderBy(desc(deals.updatedAt));
+      .from(projects)
+      .where(eq(projects.producerId, ctx.producerId))
+      .orderBy(desc(projects.updatedAt));
 
     const grouped: Record<Stage, (typeof rows)[number][]> = {
       lead: [],
@@ -166,7 +166,7 @@ export const dealRouter = router({
       archived: [],
     };
     for (const r of rows) {
-      // r.stage is the deal_stage pg enum → always a valid key of
+      // r.stage is the project_stage pg enum → always a valid key of
       // `grouped` above. ESLint flags the defensive `?? grouped.lead`
       // as unreachable, which it is.
       grouped[r.stage].push(r);
@@ -174,28 +174,28 @@ export const dealRouter = router({
     return grouped;
   }),
 
-  // Returns the deal + its full tracks/versions/comments tree.
+  // Returns the project + its full tracks/versions/comments tree.
   // Producer-side read; artist-side uses publicByToken below.
   detail: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const [row] = await ctx.db
         .select()
-        .from(deals)
-        .where(eq(deals.id, input.id))
+        .from(projects)
+        .where(eq(projects.id, input.id))
         .limit(1);
       if (!row || row.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
       const tracksList = await ctx.db
         .select()
-        .from(dealTracks)
-        .where(eq(dealTracks.dealId, row.id))
-        .orderBy(asc(dealTracks.position), asc(dealTracks.createdAt));
+        .from(projectTracks)
+        .where(eq(projectTracks.projectId, row.id))
+        .orderBy(asc(projectTracks.position), asc(projectTracks.createdAt));
       // Fetch all versions + comments with JS-side filter. Producers
-      // with dozens of deals wouldn't win from a SQL inArray here
+      // with dozens of projects wouldn't win from a SQL inArray here
       // because the set of trackIds is already small (typically 1-5
-      // tracks per deal). Refactor to inArray when a deal
+      // tracks per project). Refactor to inArray when a project
       // routinely carries >20 tracks.
       const trackIds = tracksList.map((t) => t.id);
       const allVersions = trackIds.length
@@ -206,7 +206,7 @@ export const dealRouter = router({
               .orderBy(desc(trackVersions.uploadedAt))
           ).filter((v) => trackIds.includes(v.trackId))
         : [];
-      // Comments for all versions in this deal.
+      // Comments for all versions in this project.
       const versionIds = allVersions.map((v) => v.id);
       const allComments = versionIds.length
         ? (
@@ -217,17 +217,17 @@ export const dealRouter = router({
           ).filter((c) => versionIds.includes(c.versionId))
         : [];
       return {
-        deal: stripHash(row),
+        project: stripHash(row),
         tracks: tracksList,
         versions: allVersions,
         comments: allComments,
       };
     }),
 
-  create: producerProcedure.input(CreateDealInput).mutation(async ({ ctx, input }) => {
+  create: producerProcedure.input(CreateProjectInput).mutation(async ({ ctx, input }) => {
     const token = mintShareToken();
     const [row] = await ctx.db
-      .insert(deals)
+      .insert(projects)
       .values({
         producerId: ctx.producerId,
         ...(input.bookingId ? { bookingId: input.bookingId } : {}),
@@ -240,7 +240,7 @@ export const dealRouter = router({
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
     // Best-effort contact cache upsert. A failure MUST NOT break the
-    // deal create flow — the deal row is already persisted above.
+    // project create flow — the project row is already persisted above.
     try {
       await recordContact(ctx.db, {
         producerId: ctx.producerId,
@@ -248,83 +248,83 @@ export const dealRouter = router({
         name: input.artistName,
       });
     } catch (err) {
-      console.warn("[contacts] recordContact failed in deal.create", err);
+      console.warn("[contacts] recordContact failed in project.create", err);
     }
 
     // Return the RAW token exactly once — caller must persist/share
     // it immediately; we don't store it and can't regenerate an
-    // existing deal's link without rotating.
-    return { deal: stripHash(row), shareToken: token.raw };
+    // existing project's link without rotating.
+    return { project: stripHash(row), shareToken: token.raw };
   }),
 
-  // Moves a deal between kanban columns. Ownership-checked; bumps
+  // Moves a project between kanban columns. Ownership-checked; bumps
   // updatedAt so the column re-sorts to float the dragged card.
-  // Event logging lands when contract_events (or a deal_events
+  // Event logging lands when contract_events (or a project_events
   // cousin) is wired — for now we only touch the row.
   setStage: producerProcedure.input(SetStageInput).mutation(async ({ ctx, input }) => {
     const [row] = await ctx.db
-      .select({ producerId: deals.producerId })
-      .from(deals)
-      .where(eq(deals.id, input.id))
+      .select({ producerId: projects.producerId })
+      .from(projects)
+      .where(eq(projects.id, input.id))
       .limit(1);
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
     const now = new Date();
     await ctx.db
-      .update(deals)
+      .update(projects)
       .set({ stage: input.stage, updatedAt: now })
-      .where(eq(deals.id, input.id));
+      .where(eq(projects.id, input.id));
     return { ok: true as const };
   }),
 
   addTrack: producerProcedure.input(AddTrackInput).mutation(async ({ ctx, input }) => {
-    const [deal] = await ctx.db
+    const [project] = await ctx.db
       .select()
-      .from(deals)
-      .where(eq(deals.id, input.dealId))
+      .from(projects)
+      .where(eq(projects.id, input.projectId))
       .limit(1);
-    if (!deal || deal.producerId !== ctx.producerId) {
+    if (!project || project.producerId !== ctx.producerId) {
       throw new TRPCError({ code: "NOT_FOUND" });
     }
     const existing = await ctx.db
-      .select({ position: dealTracks.position })
-      .from(dealTracks)
-      .where(eq(dealTracks.dealId, input.dealId))
-      .orderBy(asc(dealTracks.position));
+      .select({ position: projectTracks.position })
+      .from(projectTracks)
+      .where(eq(projectTracks.projectId, input.projectId))
+      .orderBy(asc(projectTracks.position));
     const nextPos =
       existing.length === 0 ? 0 : (existing[existing.length - 1]?.position ?? 0) + 1;
     const [row] = await ctx.db
-      .insert(dealTracks)
+      .insert(projectTracks)
       .values({
-        dealId: input.dealId,
+        projectId: input.projectId,
         title: input.title,
         ...(input.artist ? { artist: input.artist } : {}),
         position: nextPos,
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    // Touch the parent deal so it sorts to the top of list views.
+    // Touch the parent project so it sorts to the top of list views.
     await ctx.db
-      .update(deals)
+      .update(projects)
       .set({ updatedAt: new Date() })
-      .where(eq(deals.id, input.dealId));
+      .where(eq(projects.id, input.projectId));
     return row;
   }),
 
   addVersion: producerProcedure.input(AddVersionInput).mutation(async ({ ctx, input }) => {
-    // Verify ownership via the track → deal → producer chain.
+    // Verify ownership via the track → project → producer chain.
     const [track] = await ctx.db
-      .select({ id: dealTracks.id, dealId: dealTracks.dealId })
-      .from(dealTracks)
-      .where(eq(dealTracks.id, input.trackId))
+      .select({ id: projectTracks.id, projectId: projectTracks.projectId })
+      .from(projectTracks)
+      .where(eq(projectTracks.id, input.trackId))
       .limit(1);
     if (!track) throw new TRPCError({ code: "NOT_FOUND" });
-    const [deal] = await ctx.db
-      .select({ producerId: deals.producerId })
-      .from(deals)
-      .where(eq(deals.id, track.dealId))
+    const [project] = await ctx.db
+      .select({ producerId: projects.producerId })
+      .from(projects)
+      .where(eq(projects.id, track.projectId))
       .limit(1);
-    if (!deal || deal.producerId !== ctx.producerId) {
+    if (!project || project.producerId !== ctx.producerId) {
       throw new TRPCError({ code: "FORBIDDEN" });
     }
     const [row] = await ctx.db
@@ -338,36 +338,36 @@ export const dealRouter = router({
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await ctx.db
-      .update(deals)
+      .update(projects)
       .set({ updatedAt: new Date() })
-      .where(eq(deals.id, track.dealId));
+      .where(eq(projects.id, track.projectId));
     return row;
   }),
 
   setPaid: producerProcedure.input(SetPaidInput).mutation(async ({ ctx, input }) => {
-    const [deal] = await ctx.db
-      .select({ producerId: deals.producerId })
-      .from(deals)
-      .where(eq(deals.id, input.dealId))
+    const [project] = await ctx.db
+      .select({ producerId: projects.producerId })
+      .from(projects)
+      .where(eq(projects.id, input.projectId))
       .limit(1);
-    if (!deal || deal.producerId !== ctx.producerId) {
+    if (!project || project.producerId !== ctx.producerId) {
       throw new TRPCError({ code: "NOT_FOUND" });
     }
     await ctx.db
-      .update(deals)
+      .update(projects)
       .set(
         input.kind === "deposit"
           ? { depositPaid: input.value, updatedAt: new Date() }
           : { finalPaid: input.value, updatedAt: new Date() },
       )
-      .where(eq(deals.id, input.dealId));
+      .where(eq(projects.id, input.projectId));
     return { ok: true as const };
   }),
 
   resolveComment: producerProcedure
     .input(ResolveCommentInput)
     .mutation(async ({ ctx, input }) => {
-      // Ownership is transitive: comment → version → track → deal → producer.
+      // Ownership is transitive: comment → version → track → project → producer.
       // Fetch the chain to verify. If any link fails, NOT_FOUND.
       const [c] = await ctx.db
         .select({ id: trackComments.id, versionId: trackComments.versionId })
@@ -382,15 +382,15 @@ export const dealRouter = router({
         .limit(1);
       if (!v) throw new TRPCError({ code: "NOT_FOUND" });
       const [t] = await ctx.db
-        .select({ dealId: dealTracks.dealId })
-        .from(dealTracks)
-        .where(eq(dealTracks.id, v.trackId))
+        .select({ projectId: projectTracks.projectId })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, v.trackId))
         .limit(1);
       if (!t) throw new TRPCError({ code: "NOT_FOUND" });
       const [p] = await ctx.db
-        .select({ producerId: deals.producerId })
-        .from(deals)
-        .where(eq(deals.id, t.dealId))
+        .select({ producerId: projects.producerId })
+        .from(projects)
+        .where(eq(projects.id, t.projectId))
         .limit(1);
       if (!p || p.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "FORBIDDEN" });
@@ -409,7 +409,7 @@ export const dealRouter = router({
   approveVersion: producerProcedure
     .input(z.object({ versionId: z.string().uuid(), approved: z.boolean().default(true) }))
     .mutation(async ({ ctx, input }) => {
-      // Walk ownership: version → track → deal → producer.
+      // Walk ownership: version → track → project → producer.
       const [v] = await ctx.db
         .select({
           id: trackVersions.id,
@@ -421,19 +421,19 @@ export const dealRouter = router({
         .limit(1);
       if (!v) throw new TRPCError({ code: "NOT_FOUND" });
       const [t] = await ctx.db
-        .select({ title: dealTracks.title, dealId: dealTracks.dealId })
-        .from(dealTracks)
-        .where(eq(dealTracks.id, v.trackId))
+        .select({ title: projectTracks.title, projectId: projectTracks.projectId })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, v.trackId))
         .limit(1);
       if (!t) throw new TRPCError({ code: "NOT_FOUND" });
       const [d] = await ctx.db
         .select({
-          producerId: deals.producerId,
-          title: deals.title,
-          artistName: deals.artistName,
+          producerId: projects.producerId,
+          title: projects.title,
+          artistName: projects.artistName,
         })
-        .from(deals)
-        .where(eq(deals.id, t.dealId))
+        .from(projects)
+        .where(eq(projects.id, t.projectId))
         .limit(1);
       if (!d || d.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "FORBIDDEN" });
@@ -445,11 +445,11 @@ export const dealRouter = router({
         .set({ approvedAt: nowOrNull })
         .where(eq(trackVersions.id, input.versionId));
 
-      // Float the parent deal to the top of list views.
+      // Float the parent project to the top of list views.
       await ctx.db
-        .update(deals)
+        .update(projects)
         .set({ updatedAt: new Date() })
-        .where(eq(deals.id, t.dealId));
+        .where(eq(projects.id, t.projectId));
 
       // Only emit the stems-prompt notification on the approve step.
       // Un-approving is a silent reversal.
@@ -459,12 +459,12 @@ export const dealRouter = router({
             producerId: ctx.producerId,
             kind: "track_approved",
             title: "Version approved — send stems?",
-            body: `${d.artistName} · ${t.title} (${v.label}). Click to open the deal and upload stems.`,
-            dealId: t.dealId,
+            body: `${d.artistName} · ${t.title} (${v.label}). Click to open the project and upload stems.`,
+            projectId: t.projectId,
             trackVersionId: v.id,
           });
         } catch (err) {
-          console.warn("[notify] emitTrackApproved failed in deal.approveVersion", err);
+          console.warn("[notify] emitTrackApproved failed in project.approveVersion", err);
         }
       }
 
@@ -489,15 +489,15 @@ export const dealRouter = router({
         .limit(1);
       if (!v) throw new TRPCError({ code: "NOT_FOUND" });
       const [t] = await ctx.db
-        .select({ dealId: dealTracks.dealId })
-        .from(dealTracks)
-        .where(eq(dealTracks.id, v.trackId))
+        .select({ projectId: projectTracks.projectId })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, v.trackId))
         .limit(1);
       if (!t) throw new TRPCError({ code: "NOT_FOUND" });
       const [p] = await ctx.db
-        .select({ producerId: deals.producerId, artistName: deals.artistName, artistEmail: deals.artistEmail })
-        .from(deals)
-        .where(eq(deals.id, t.dealId))
+        .select({ producerId: projects.producerId, artistName: projects.artistName, artistEmail: projects.artistEmail })
+        .from(projects)
+        .where(eq(projects.id, t.projectId))
         .limit(1);
       if (!p || p.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "FORBIDDEN" });
@@ -537,24 +537,24 @@ export const dealRouter = router({
       if (!booking || booking.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
-      // Idempotent: if a deal already points at this booking, return it.
+      // Idempotent: if a project already points at this booking, return it.
       const [existing] = await ctx.db
         .select()
-        .from(deals)
+        .from(projects)
         .where(
           and(
-            eq(deals.producerId, ctx.producerId),
-            eq(deals.bookingId, booking.id),
+            eq(projects.producerId, ctx.producerId),
+            eq(projects.bookingId, booking.id),
           ),
         )
         .limit(1);
       if (existing) {
-        return { deal: stripHash(existing), shareToken: null, existing: true };
+        return { project: stripHash(existing), shareToken: null, existing: true };
       }
       const token = mintShareToken();
-      const title = booking.packageNameSnapshot ?? "Deal";
+      const title = booking.packageNameSnapshot ?? "Project";
       const [row] = await ctx.db
-        .insert(deals)
+        .insert(projects)
         .values({
           producerId: ctx.producerId,
           bookingId: booking.id,
@@ -565,7 +565,7 @@ export const dealRouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return { deal: stripHash(row), shareToken: token.raw, existing: false };
+      return { project: stripHash(row), shareToken: token.raw, existing: false };
     }),
 
   // ── Artist-side (public via token) ─────────────────────────────
@@ -573,22 +573,22 @@ export const dealRouter = router({
     .input(z.object({ token: z.string().min(16).max(128) }))
     .query(async ({ input }) => {
       const { db, ipHash } = await publicCtx();
-      const rl = checkRateLimit(`deal-view:${ipHash}`, VIEW_LIMIT, VIEW_WINDOW_MS);
+      const rl = checkRateLimit(`project-view:${ipHash}`, VIEW_LIMIT, VIEW_WINDOW_MS);
       if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
 
       const tokenHash = createHash("sha256").update(input.token).digest("hex");
-      const [deal] = await db
+      const [project] = await db
         .select()
-        .from(deals)
-        .where(eq(deals.shareTokenHash, tokenHash))
+        .from(projects)
+        .where(eq(projects.shareTokenHash, tokenHash))
         .limit(1);
-      if (!deal) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
       const tracksList = await db
         .select()
-        .from(dealTracks)
-        .where(eq(dealTracks.dealId, deal.id))
-        .orderBy(asc(dealTracks.position), asc(dealTracks.createdAt));
+        .from(projectTracks)
+        .where(eq(projectTracks.projectId, project.id))
+        .orderBy(asc(projectTracks.position), asc(projectTracks.createdAt));
 
       const trackIds = tracksList.map((t) => t.id);
       const allVersions = trackIds.length
@@ -611,17 +611,17 @@ export const dealRouter = router({
       const [producer] = await db
         .select({ displayName: producers.displayName, slug: producers.slug })
         .from(producers)
-        .where(eq(producers.id, deal.producerId))
+        .where(eq(producers.id, project.producerId))
         .limit(1);
 
       return {
-        deal: {
-          id: deal.id,
-          title: deal.title,
-          artistName: deal.artistName,
-          depositPaid: deal.depositPaid,
-          finalPaid: deal.finalPaid,
-          createdAt: deal.createdAt,
+        project: {
+          id: project.id,
+          title: project.title,
+          artistName: project.artistName,
+          depositPaid: project.depositPaid,
+          finalPaid: project.finalPaid,
+          createdAt: project.createdAt,
           producerName: producer?.displayName ?? "Producer",
           producerSlug: producer?.slug ?? "",
         },
@@ -635,18 +635,18 @@ export const dealRouter = router({
     .input(SubmitCommentInput)
     .mutation(async ({ input }) => {
       const { db, ipHash } = await publicCtx();
-      const rl = checkRateLimit(`deal-comment:${ipHash}`, COMMENT_LIMIT, COMMENT_WINDOW_MS);
+      const rl = checkRateLimit(`project-comment:${ipHash}`, COMMENT_LIMIT, COMMENT_WINDOW_MS);
       if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
 
       const tokenHash = createHash("sha256").update(input.token).digest("hex");
-      const [deal] = await db
-        .select({ id: deals.id, producerId: deals.producerId })
-        .from(deals)
-        .where(eq(deals.shareTokenHash, tokenHash))
+      const [project] = await db
+        .select({ id: projects.id, producerId: projects.producerId })
+        .from(projects)
+        .where(eq(projects.shareTokenHash, tokenHash))
         .limit(1);
-      if (!deal) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Verify the version is one of this deal's (defense in depth).
+      // Verify the version is one of this project's (defense in depth).
       const [version] = await db
         .select({ trackId: trackVersions.trackId })
         .from(trackVersions)
@@ -654,11 +654,11 @@ export const dealRouter = router({
         .limit(1);
       if (!version) throw new TRPCError({ code: "NOT_FOUND" });
       const [track] = await db
-        .select({ dealId: dealTracks.dealId })
-        .from(dealTracks)
-        .where(eq(dealTracks.id, version.trackId))
+        .select({ projectId: projectTracks.projectId })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, version.trackId))
         .limit(1);
-      if (!track || track.dealId !== deal.id) {
+      if (!track || track.projectId !== project.id) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
 
@@ -675,36 +675,36 @@ export const dealRouter = router({
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       await db
-        .update(deals)
+        .update(projects)
         .set({ updatedAt: new Date() })
-        .where(eq(deals.id, deal.id));
+        .where(eq(projects.id, project.id));
 
       // Best-effort contact cache upsert. The artist identified
       // themselves via the comment form; treat that as a touch so
       // the producer sees them in autocomplete next time.
       try {
         await recordContact(db, {
-          producerId: deal.producerId,
+          producerId: project.producerId,
           email: input.authorEmail,
           name: input.authorName,
         });
       } catch (err) {
-        console.warn("[contacts] recordContact failed in deal.publicComment", err);
+        console.warn("[contacts] recordContact failed in project.publicComment", err);
       }
 
       // Best-effort inbox notification. Must never block the
       // comment insert above — wrapped in try/catch.
       try {
         await emitCommentCreated(db, {
-          producerId: deal.producerId,
+          producerId: project.producerId,
           commentId: row.id,
           trackVersionId: input.versionId,
-          dealId: deal.id,
+          projectId: project.id,
           authorName: input.authorName,
           preview: input.body,
         });
       } catch (err) {
-        console.warn("[notify] emitCommentCreated failed in deal.publicComment", err);
+        console.warn("[notify] emitCommentCreated failed in project.publicComment", err);
       }
 
       return { id: row.id };

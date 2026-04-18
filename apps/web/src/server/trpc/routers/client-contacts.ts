@@ -5,8 +5,8 @@ import {
   clientContacts,
   contractRecipients,
   contracts,
-  dealTracks,
-  deals,
+  projectTracks,
+  projects,
   desc,
   eq,
   inArray,
@@ -30,18 +30,18 @@ import { issueMagicToken } from "~/lib/magic-links/token";
 // still the same `client_contacts` table — we just add create/edit/
 // delete and an enriched list + detail with per-client aggregates.
 //
-// Aggregates match against BOTH deals.clientEmail AND deals.artistEmail
-// so legacy deals (pre-C.2, when only artistEmail was set) still attach
-// to their contact. If a producer later renames a client's email, the
-// older deals continue to show up because we compare on email strings,
-// not contact IDs.
+// Aggregates match against BOTH projects.clientEmail AND projects.artistEmail
+// so legacy projects (when only artistEmail was set) still attach to
+// their contact. If a producer later renames a client's email, the
+// older projects continue to show up because we compare on email
+// strings, not contact IDs.
 
 const TargetEnum = z.enum(["portfolio", "booking"]);
 
 // Matches the linking logic used in every aggregate below — keep in
-// sync if we ever add a third email column on deals.
-function emailMatchesDeal(email: string) {
-  return or(eq(deals.clientEmail, email), eq(deals.artistEmail, email));
+// sync if we ever add a third email column on projects.
+function emailMatchesProject(email: string) {
+  return or(eq(projects.clientEmail, email), eq(projects.artistEmail, email));
 }
 
 // Normalize + hash an email the same way recordContact does so the
@@ -78,7 +78,7 @@ export const clientContactsRouter = router({
     }),
 
   // Enriched list for the CRM view. One round-trip for contacts plus
-  // one grouped aggregate over deals. N+1 avoided by building a map
+  // one grouped aggregate over projects. N+1 avoided by building a map
   // keyed on lowercased email and looking up each contact in JS.
   listWithMeta: producerProcedure.query(async ({ ctx }) => {
     const contacts = await ctx.db
@@ -93,28 +93,28 @@ export const clientContactsRouter = router({
       .where(eq(clientContacts.producerId, ctx.producerId))
       .orderBy(desc(clientContacts.lastSeenAt));
 
-    // Aggregate deals by the canonical email pair. Scope to producer so
-    // we can safely group by the email expression without worrying
+    // Aggregate projects by the canonical email pair. Scope to producer
+    // so we can safely group by the email expression without worrying
     // about cross-tenant leakage. Compare on LOWER(email) so casing
     // mismatches from legacy rows still join. We compute both active
     // and total counts in one pass using FILTER.
-    const dealAgg = await ctx.db
+    const projectAgg = await ctx.db
       .select({
-        clientEmail: sql<string | null>`lower(${deals.clientEmail})`,
-        artistEmail: sql<string | null>`lower(${deals.artistEmail})`,
-        totalDeals: sql<number>`count(*)::int`,
-        activeDeals: sql<number>`count(*) filter (where ${deals.stage} not in ('paid','archived'))::int`,
-        lastActivity: sql<Date | string | null>`max(${deals.updatedAt})`,
+        clientEmail: sql<string | null>`lower(${projects.clientEmail})`,
+        artistEmail: sql<string | null>`lower(${projects.artistEmail})`,
+        totalProjects: sql<number>`count(*)::int`,
+        activeProjects: sql<number>`count(*) filter (where ${projects.stage} not in ('paid','archived'))::int`,
+        lastActivity: sql<Date | string | null>`max(${projects.updatedAt})`,
       })
-      .from(deals)
-      .where(eq(deals.producerId, ctx.producerId))
-      .groupBy(sql`lower(${deals.clientEmail})`, sql`lower(${deals.artistEmail})`);
+      .from(projects)
+      .where(eq(projects.producerId, ctx.producerId))
+      .groupBy(sql`lower(${projects.clientEmail})`, sql`lower(${projects.artistEmail})`);
 
     const agg = new Map<
       string,
       { active: number; total: number; lastActivity: Date | null }
     >();
-    for (const row of dealAgg) {
+    for (const row of projectAgg) {
       const lastAct =
         row.lastActivity == null
           ? null
@@ -125,11 +125,11 @@ export const clientContactsRouter = router({
         if (!em) continue;
         const prev = agg.get(em);
         if (!prev) {
-          agg.set(em, { active: row.activeDeals, total: row.totalDeals, lastActivity: lastAct });
+          agg.set(em, { active: row.activeProjects, total: row.totalProjects, lastActivity: lastAct });
         } else {
           agg.set(em, {
-            active: prev.active + row.activeDeals,
-            total: prev.total + row.totalDeals,
+            active: prev.active + row.activeProjects,
+            total: prev.total + row.totalProjects,
             lastActivity:
               prev.lastActivity && lastAct
                 ? prev.lastActivity > lastAct
@@ -147,13 +147,13 @@ export const clientContactsRouter = router({
         total: 0,
         lastActivity: null,
       };
-      // Fall back to lastSeenAt on the contact itself when no deal has
-      // ever been linked (manually added client). Keeps the "Last
+      // Fall back to lastSeenAt on the contact itself when no project
+      // has ever been linked (manually added client). Keeps the "Last
       // activity" column useful day-one.
       return {
         ...c,
-        activeDealCount: meta.active,
-        totalDealCount: meta.total,
+        activeProjectCount: meta.active,
+        totalProjectCount: meta.total,
         lastActivity: meta.lastActivity ?? c.lastSeenAt,
       };
     });
@@ -273,7 +273,7 @@ export const clientContactsRouter = router({
       return { id: row.id, email: row.email, name: row.name };
     }),
 
-  // Delete a contact. Deals/contracts/comments linked via email stay
+  // Delete a contact. Projects/contracts/comments linked via email stay
   // in place — this is purely a CRM entry removal. The contact may
   // auto-recreate next time the same artist books or comments.
   remove: producerProcedure
@@ -292,7 +292,7 @@ export const clientContactsRouter = router({
       return { ok: true as const };
     }),
 
-  // Detailed view — contact + linked deals + contracts + recent
+  // Detailed view — contact + linked projects + contracts + recent
   // comments. Consumed by /dashboard/clients/[id].
   detail: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
@@ -307,32 +307,32 @@ export const clientContactsRouter = router({
       }
       const lower = contact.email.toLowerCase();
 
-      // Deals for this client — by either email column. Producer-scoped
+      // Projects for this client — by either email column. Producer-scoped
       // so the OR stays tenant-safe.
-      const dealRows = await ctx.db
+      const projectRows = await ctx.db
         .select({
-          id: deals.id,
-          title: deals.title,
-          stage: deals.stage,
-          createdAt: deals.createdAt,
-          updatedAt: deals.updatedAt,
-          depositPaid: deals.depositPaid,
-          finalPaid: deals.finalPaid,
+          id: projects.id,
+          title: projects.title,
+          stage: projects.stage,
+          createdAt: projects.createdAt,
+          updatedAt: projects.updatedAt,
+          depositPaid: projects.depositPaid,
+          finalPaid: projects.finalPaid,
         })
-        .from(deals)
-        .where(and(eq(deals.producerId, ctx.producerId), emailMatchesDeal(lower)))
-        .orderBy(desc(deals.updatedAt));
+        .from(projects)
+        .where(and(eq(projects.producerId, ctx.producerId), emailMatchesProject(lower)))
+        .orderBy(desc(projects.updatedAt));
 
-      const dealIds = dealRows.map((d) => d.id);
+      const projectIds = projectRows.map((d) => d.id);
 
-      // Track count: count of track_versions across this client's deals.
+      // Track count: count of track_versions across this client's projects.
       let trackCount = 0;
-      if (dealIds.length > 0) {
+      if (projectIds.length > 0) {
         const [row] = await ctx.db
           .select({ n: sql<number>`count(*)::int` })
           .from(trackVersions)
-          .innerJoin(dealTracks, eq(dealTracks.id, trackVersions.trackId))
-          .where(inArray(dealTracks.dealId, dealIds));
+          .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+          .where(inArray(projectTracks.projectId, projectIds));
         trackCount = row?.n ?? 0;
       }
 
@@ -357,16 +357,16 @@ export const clientContactsRouter = router({
         .orderBy(desc(contracts.createdAt));
 
       // Recent comments by this email — scoped to this producer's
-      // versions via the deal join (defense-in-depth). Limit 20 — the
+      // versions via the project join (defense-in-depth). Limit 20 — the
       // timeline renders the latest chunk; "load more" can ship later.
       const commentRows =
-        dealIds.length > 0
+        projectIds.length > 0
           ? await ctx.db
               .select({
                 id: trackComments.id,
                 versionId: trackComments.versionId,
-                trackId: dealTracks.id,
-                dealId: dealTracks.dealId,
+                trackId: projectTracks.id,
+                projectId: projectTracks.projectId,
                 body: trackComments.body,
                 timestampMs: trackComments.timestampMs,
                 createdAt: trackComments.createdAt,
@@ -374,10 +374,10 @@ export const clientContactsRouter = router({
               })
               .from(trackComments)
               .innerJoin(trackVersions, eq(trackVersions.id, trackComments.versionId))
-              .innerJoin(dealTracks, eq(dealTracks.id, trackVersions.trackId))
+              .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
               .where(
                 and(
-                  inArray(dealTracks.dealId, dealIds),
+                  inArray(projectTracks.projectId, projectIds),
                   sql`lower(${trackComments.authorEmail}) = ${lower}`,
                 ),
               )
@@ -385,10 +385,10 @@ export const clientContactsRouter = router({
               .limit(20)
           : [];
 
-      const activeDealCount = dealRows.filter(
+      const activeProjectCount = projectRows.filter(
         (d) => d.stage !== "paid" && d.stage !== "archived",
       ).length;
-      const lastActivity = dealRows[0]?.updatedAt ?? contact.lastSeenAt;
+      const lastActivity = projectRows[0]?.updatedAt ?? contact.lastSeenAt;
 
       return {
         contact: {
@@ -399,12 +399,12 @@ export const clientContactsRouter = router({
           lastSeenAt: contact.lastSeenAt,
         },
         stats: {
-          activeDealCount,
-          totalDealCount: dealRows.length,
+          activeProjectCount,
+          totalProjectCount: projectRows.length,
           trackCount,
           lastActivity,
         },
-        deals: dealRows,
+        projects: projectRows,
         contracts: contractRows,
         comments: commentRows,
       };
