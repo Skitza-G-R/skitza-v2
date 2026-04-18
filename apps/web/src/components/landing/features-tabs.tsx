@@ -294,7 +294,11 @@ function FilesMockup() {
         </div>
         <div className="text-right">
           <span className="inline-flex cursor-not-allowed items-center gap-1 rounded border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.08)] px-3 py-1 font-mono text-xs text-[rgb(var(--fg-muted))]">
-            🔒 Download
+            <svg aria-hidden viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="5" y="11" width="14" height="9" rx="2" />
+              <path d="M8 11V8a4 4 0 018 0v3" />
+            </svg>
+            Download
           </span>
           <p className="mt-1 font-mono text-[9px] uppercase tracking-wider text-[rgb(var(--brand-accent))]">
             Unlocks after $150 payment
@@ -340,7 +344,7 @@ function FollowupMockup() {
   return (
     <div className="space-y-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-4 text-xs">
       {[
-        { from: "left", text: "Hey Marcus, your session is confirmed for Tuesday at 3pm 🎛" },
+        { from: "left", text: "Hey Marcus, your session is confirmed for Tuesday at 3pm." },
         { from: "left", text: "Your files are ready — click here to download" },
         { from: "right", text: "Perfect, thanks!" },
       ].map((b, i) => (
@@ -440,7 +444,9 @@ function ContractsMockup() {
         className="flex flex-1 flex-col items-center justify-center rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 text-center shadow-[0_10px_30px_-8px_rgb(0_0_0_/_0.3)]"
         style={{ transform: "rotate(1deg)" }}
       >
-        <div className="text-2xl">📁</div>
+        <svg aria-hidden viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[rgb(var(--brand-primary))]">
+          <path d="M4 7a2 2 0 012-2h3l2 2h7a2 2 0 012 2v9a2 2 0 01-2 2H6a2 2 0 01-2-2V7z" />
+        </svg>
         <div className="mt-1 text-xs font-medium">Final_Master.wav</div>
         <span className="mt-3 inline-flex items-center gap-1 rounded border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.08)] px-3 py-1 font-mono text-xs text-[rgb(var(--fg-muted))]">
           🔒 Download
