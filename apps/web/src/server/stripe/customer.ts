@@ -5,26 +5,27 @@ import { getStripe } from "./client";
 type DB = ReturnType<typeof createDb>;
 
 // Looks up the Stripe Customer id for this (producer, client) pair.
-// Creates one lazily on the producer's Connect account if it doesn't
-// exist. The composite PK on stripe_customers guarantees one row per
-// pair; `onConflictDoNothing` + re-select handles concurrent first-
-// payments gracefully (one Stripe Customer orphans on the Connect
-// account — bounded cost, no correctness impact).
+// Creates one lazily on the PLATFORM account if it doesn't exist.
+// The composite PK on stripe_customers guarantees one row per pair;
+// `onConflictDoNothing` + re-select handles concurrent first-
+// payments gracefully (one Stripe Customer orphans on the platform —
+// bounded cost, no correctness impact).
 //
-// Customer is created on the producer's Connect account — NOT the
-// platform account — because saved PaymentMethods are scoped to the
-// account they live on. Off-session charges later will go through
-// that account too.
+// Customer is on the PLATFORM account — NOT the Connect account —
+// because Skitza uses destination charges: the platform is merchant
+// of record, and the Checkout Session runs on the platform with
+// transfer_data.destination routing funds to the producer's Connect
+// account. Stripe requires Customer + Session + PaymentMethod to all
+// share the same account; that account is the platform.
 //
 // Partial-failure note: if Stripe create succeeds but the DB insert
 // hits a network error (not conflict), the Customer is orphaned on
-// the Connect account. Caller retry will create a fresh one. Bounded
-// cost, no correctness impact — do NOT "fix" with a DB-first
+// the platform account. Caller retry will create a fresh one.
+// Bounded cost, no correctness impact — do NOT "fix" with a DB-first
 // approach, which is strictly worse.
 export async function getOrCreateStripeCustomer(args: {
   db: DB;
   producerId: string;
-  producerStripeAccountId: string;
   clientContactId: string;
   clientEmail: string;
   clientName: string;
@@ -42,20 +43,17 @@ export async function getOrCreateStripeCustomer(args: {
   if (existing[0]) return existing[0].stripeCustomerId;
 
   const stripe = getStripe();
-  const customer = await stripe.customers.create(
-    {
-      email: args.clientEmail,
-      name: args.clientName,
-      metadata: {
-        producerId: args.producerId,
-        clientContactId: args.clientContactId,
-      },
+  const customer = await stripe.customers.create({
+    email: args.clientEmail,
+    name: args.clientName,
+    metadata: {
+      producerId: args.producerId,
+      clientContactId: args.clientContactId,
     },
-    { stripeAccount: args.producerStripeAccountId },
-  );
+  });
 
   // Attempt insert — on composite-PK conflict the winner's row wins
-  // and our Stripe customer.id gets orphaned on the producer's account
+  // and our Stripe customer.id gets orphaned on the platform account
   // (acceptable: Stripe Customers are cheap; this only happens on true
   // concurrent first-payments — two tabs, one click each).
   const inserted = await args.db

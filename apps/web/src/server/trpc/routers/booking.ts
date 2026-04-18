@@ -1394,7 +1394,6 @@ export const bookingRouter = router({
             const customerId = await getOrCreateStripeCustomer({
               db,
               producerId: producer.id,
-              producerStripeAccountId: producerRow.stripeAccountId,
               clientContactId,
               clientEmail: lowerEmail,
               clientName: input.artistName.trim(),

@@ -25,7 +25,6 @@ describe("getOrCreateStripeCustomer", () => {
     const result = await getOrCreateStripeCustomer({
       db: db as never,
       producerId: "prod_1",
-      producerStripeAccountId: "acct_1",
       clientContactId: "client_1",
       clientEmail: "dan@example.com",
       clientName: "Dan Cohen",
@@ -58,7 +57,6 @@ describe("getOrCreateStripeCustomer", () => {
     const result = await getOrCreateStripeCustomer({
       db: db as never,
       producerId: "prod_1",
-      producerStripeAccountId: "acct_1",
       clientContactId: "client_1",
       clientEmail: "dan@example.com",
       clientName: "Dan Cohen",
@@ -66,7 +64,6 @@ describe("getOrCreateStripeCustomer", () => {
     expect(result).toBe("cus_new");
     expect(mockCreate).toHaveBeenCalledWith(
       { email: "dan@example.com", name: "Dan Cohen", metadata: { producerId: "prod_1", clientContactId: "client_1" } },
-      { stripeAccount: "acct_1" },
     );
     expect(insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -99,7 +96,6 @@ describe("getOrCreateStripeCustomer", () => {
     const result = await getOrCreateStripeCustomer({
       db: db as never,
       producerId: "prod_1",
-      producerStripeAccountId: "acct_1",
       clientContactId: "client_1",
       clientEmail: "dan@example.com",
       clientName: "Dan Cohen",
@@ -125,7 +121,6 @@ describe("getOrCreateStripeCustomer", () => {
       getOrCreateStripeCustomer({
         db: db as never,
         producerId: "prod_1",
-        producerStripeAccountId: "acct_1",
         clientContactId: "client_1",
         clientEmail: "dan@example.com",
         clientName: "Dan Cohen",
