@@ -32,6 +32,14 @@ function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong.";
 }
 
+// Single payment-plan choice matching the PaymentPlan union on the
+// server. Kept local (vs. importing from @skitza/db) so the server
+// action stays portable — the booking-client only needs the shape.
+export type PaymentPlanChoice =
+  | { kind: "full" }
+  | { kind: "split_50_50" }
+  | { kind: "monthly"; installments: number };
+
 // Visitor-side: submit a booking request. No auth — the tRPC public
 // procedure does rate-limiting + IP hashing internally. We call the
 // caller with `userId: null` (publicProcedure doesn't read it).
@@ -45,6 +53,7 @@ export async function submitBookingRequest(input: {
   startsAtIso?: string;
   quantity?: number;
   hours?: number;
+  paymentPlan?: PaymentPlanChoice;
 }): Promise<ActionDataResult<{ id: string; checkoutUrl: string | null }>> {
   try {
     const caller = appRouter.createCaller({ userId: null });

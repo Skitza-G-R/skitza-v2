@@ -130,6 +130,10 @@ export default async function BookPage({ params }: PageProps) {
               kind: p.kind,
               locationType: p.locationType,
               minLeadHours: p.minLeadHours,
+              // NOT NULL on the DB side with a default of
+              // `[{kind:"full"}]`, so legacy products still have at
+              // least one plan — no defensive fallback needed here.
+              paymentPlans: p.paymentPlans,
             }))}
             initialSlotsByPackage={initialSlotsByPackage}
           />

@@ -22,7 +22,14 @@ export function buildCheckoutSessionParams(args: {
   metadata?: Record<string, string>;
 }): Stripe.Checkout.SessionCreateParams {
   const charges = calculateCharges(args.plan, args.totalCents);
-  const firstCharge = charges[0]!;
+  const firstCharge = charges[0];
+  if (firstCharge === undefined) {
+    // calculateCharges always returns a non-empty array for valid
+    // inputs — throws on zero/negative totals. Belt-and-suspenders:
+    // if it ever returns [] we want a loud crash, not a bogus
+    // unit_amount:undefined going to Stripe.
+    throw new Error("calculateCharges returned no charges");
+  }
 
   const common: Pick<
     Stripe.Checkout.SessionCreateParams,
