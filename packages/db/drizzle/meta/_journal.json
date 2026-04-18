@@ -113,6 +113,13 @@
       "when": 1776729600000,
       "tag": "0015_curious_mockingbird",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1776816000000,
+      "tag": "0016_products_rebuild",
+      "breakpoints": true
     }
   ]
 }

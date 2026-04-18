@@ -11,10 +11,12 @@ import {
   eq,
   gte,
   inArray,
+  isNull,
   lte,
-  packages,
+  products,
   producers,
   type Db,
+  type Product,
 } from "@skitza/db";
 import { z } from "zod";
 
@@ -39,34 +41,151 @@ async function publicCtx(): Promise<{ db: Db; ipHash: string }> {
   return { db: createDb(dbUrl), ipHash: createHash("sha256").update(ipRaw).digest("hex") };
 }
 
-// ─── Package schemas ─────────────────────────────────────────────────
-// Keep price in integer cents to avoid float arithmetic. durationMin is
-// capped at 24h because a "session" longer than a day is almost always
-// a data error or an attempt to exhaust calendar search space.
-// Kind is free-text on disk but we gate input to a friendly allow-list
-// so typos don't splinter the classification UI on the public page.
-// "other" is the escape hatch for producers who don't fit the presets.
-const PackageKind = z.enum(["session", "mixing", "mastering", "producing", "other"]);
-const PackageLocationType = z.enum(["studio", "remote", "client_space"]);
+// ─── Product schemas ─────────────────────────────────────────────────
+// Phase H.3 rebuild — producers don't sell time, they sell deliverables.
+// `kind` is free-text on disk but we gate input to a friendly allow-list.
+// Legacy values ("session", "mixing", "mastering", "producing", "other")
+// are retained so pre-H.3 rows stay valid after the rename.
+const ProductKind = z.enum([
+  "mix",
+  "master",
+  "production",
+  "album",
+  "beat_lease",
+  "hourly",
+  "custom",
+  // legacy values — kept for back-compat
+  "session",
+  "mixing",
+  "mastering",
+  "producing",
+  "other",
+]);
+const ProductLocationType = z.enum(["studio", "remote", "client_space"]);
+const PricingModel = z.enum(["flat", "per_song", "hourly", "bundle"]);
+const DepositModel = z.enum(["flat", "milestones", "paid_in_full"]);
 
-const PackageInput = z.object({
-  name: z.string().min(1).max(80),
-  description: z.string().max(500).optional(),
-  durationMin: z.number().int().min(15).max(24 * 60),
-  sessionCount: z.number().int().min(1).max(100).default(1),
-  priceCents: z.number().int().min(0).max(100_000_000).default(0),
-  currency: z.enum(["USD", "EUR", "GBP", "ILS"]).default("USD"),
-  depositPct: z.number().int().min(0).max(100).default(0),
-  // v2 fields — all have DB-level defaults so they're optional in
-  // create/update inputs.
-  kind: PackageKind.default("session"),
-  locationType: PackageLocationType.default("studio"),
-  // 0 = back-to-back sessions OK. Capped at 240 (4h) — anything larger
-  // is almost always a data entry error.
-  bufferMinutes: z.number().int().min(0).max(240).default(0),
-  // 0 = "book instantly". Max 30 days.
-  minLeadHours: z.number().int().min(0).max(30 * 24).default(12),
+const VolumeTier = z.object({
+  minQty: z.number().int().positive(),
+  pricePerUnitCents: z.number().int().nonnegative(),
 });
+const Milestone = z.object({
+  label: z.string().min(1).max(80),
+  pct: z.number().int().min(0).max(100),
+});
+
+// Input for create/update. Several fields are conditional on the
+// pricing/deposit model — we validate the cross-field rules in a
+// superRefine after the zod object so the messages point at the
+// right field.
+const ProductInputShape = {
+  name: z.string().min(1).max(200),
+  description: z.string().max(500).optional(),
+  kind: ProductKind.default("custom"),
+  pricingModel: PricingModel.default("flat"),
+  priceCents: z.number().int().min(0).max(100_000_000).optional(),
+  currency: z.enum(["USD", "EUR", "GBP", "ILS"]).default("USD"),
+  volumeTiers: z.array(VolumeTier).max(10).optional(),
+  hourlyRateCents: z.number().int().min(0).max(100_000_000).optional(),
+  // `durationMin` is optional at the schema level because pure-delivery
+  // products (buy a mix, no calendar slot) don't need one. The DB
+  // column is NOT NULL for legacy reasons; we store 0 when the
+  // producer leaves it blank.
+  durationMin: z.number().int().min(0).max(24 * 60).optional(),
+  sessionCount: z.number().int().min(1).max(100).optional(),
+  deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
+  depositModel: DepositModel.default("flat"),
+  depositPct: z.number().int().min(0).max(100).optional(),
+  milestones: z.array(Milestone).max(5).optional(),
+  locationType: ProductLocationType.default("studio"),
+  bufferMinutes: z.number().int().min(0).max(240).default(0),
+  minLeadHours: z.number().int().min(0).max(30 * 24).default(12),
+};
+
+const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
+  // Pricing-model-specific requirements.
+  if (val.pricingModel === "flat" || val.pricingModel === "bundle") {
+    if (val.priceCents == null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["priceCents"],
+        message: "Price is required for flat and bundle products",
+      });
+    }
+  }
+  if (val.pricingModel === "per_song") {
+    if (!val.volumeTiers || val.volumeTiers.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["volumeTiers"],
+        message: "At least one volume tier is required for per-song pricing",
+      });
+    } else if (!val.volumeTiers.some((t) => t.minQty === 1)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["volumeTiers"],
+        message: "Tiers must include one starting at minQty = 1",
+      });
+    }
+  }
+  if (val.pricingModel === "hourly" && val.hourlyRateCents == null) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["hourlyRateCents"],
+      message: "Hourly rate is required for hourly products",
+    });
+  }
+  // Deposit rules.
+  if (val.depositModel === "flat" && val.depositPct == null) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["depositPct"],
+      message: "Deposit percent is required for flat deposit",
+    });
+  }
+  if (val.depositModel === "milestones") {
+    const ms = val.milestones ?? [];
+    if (ms.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["milestones"],
+        message: "At least one milestone is required",
+      });
+    } else {
+      const sum = ms.reduce((acc, m) => acc + m.pct, 0);
+      if (sum !== 100) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["milestones"],
+          message: `Milestones must sum to 100% (got ${String(sum)}%)`,
+        });
+      }
+    }
+  }
+});
+
+// Partial update — allow same shape but everything optional.
+const ProductUpdateInput = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(500).optional(),
+    kind: ProductKind.optional(),
+    pricingModel: PricingModel.optional(),
+    priceCents: z.number().int().min(0).max(100_000_000).optional(),
+    currency: z.enum(["USD", "EUR", "GBP", "ILS"]).optional(),
+    volumeTiers: z.array(VolumeTier).max(10).optional(),
+    hourlyRateCents: z.number().int().min(0).max(100_000_000).optional(),
+    durationMin: z.number().int().min(0).max(24 * 60).optional(),
+    sessionCount: z.number().int().min(1).max(100).optional(),
+    deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
+    depositModel: DepositModel.optional(),
+    depositPct: z.number().int().min(0).max(100).optional(),
+    milestones: z.array(Milestone).max(5).optional(),
+    locationType: ProductLocationType.optional(),
+    bufferMinutes: z.number().int().min(0).max(240).optional(),
+    minLeadHours: z.number().int().min(0).max(30 * 24).optional(),
+  });
 
 // Weekly availability replaces the entire week atomically — easier UX
 // than per-row editing + means we don't need to expose internal block
@@ -76,16 +195,11 @@ const Block = z.object({
   startMin: z.number().int().min(0).max(24 * 60),
   endMin: z.number().int().min(0).max(24 * 60),
 });
-/**
- * Pure helper: does any pair of blocks on the same weekday overlap?
- * Blocks that merely touch (a.end === b.start) are NOT considered
- * overlapping — back-to-back blocks are valid.
- *
- * Exported so tests + the router's superRefine can share one source of
- * truth. O(n^2) but n ≤ 21 blocks in practice (3 per weekday × 7).
- */
+// Pure helper extracted for test coverage (H.4a). Returns true if ANY
+// two blocks share a weekday AND overlap in time. Back-to-back blocks
+// that only touch (a.endMin === b.startMin) are NOT overlaps.
 export function blocksOverlapOnSameDay(
-  blocks: readonly { weekday: number; startMin: number; endMin: number }[],
+  blocks: Array<{ weekday: number; startMin: number; endMin: number }>,
 ): boolean {
   for (let i = 0; i < blocks.length; i++) {
     for (let j = i + 1; j < blocks.length; j++) {
@@ -101,14 +215,9 @@ export function blocksOverlapOnSameDay(
 
 const AvailabilityWeekInput = z
   .object({
-    // Multi-block per weekday — producers can split a day into e.g.
-    // morning/afternoon/evening. Capped at 5 blocks × 7 weekdays = 35
-    // rows to prevent runaway UI input; well above any realistic use.
-    blocks: z.array(Block).max(35),
+    blocks: z.array(Block).max(35), // up to 5 blocks × 7 weekdays (H.4a multi-block support)
   })
   .superRefine((val, ctx) => {
-    // Validate startMin < endMin per row + disallow overlapping blocks
-    // within the same weekday so the slot-math stays deterministic.
     for (let i = 0; i < val.blocks.length; i++) {
       const b = val.blocks[i];
       if (!b) continue;
@@ -134,63 +243,76 @@ const AvailabilityWeekInput = z
     }
   });
 
-// Visitor booking-request input. Artist fields are free-text (no
-// account required). `startsAt` is an ISO string; we parse + normalize
-// to the producer's timezone at slot-intersection time.
+// Visitor booking-request input. `quantity` defaults to 1 for per-song
+// products; ignored for flat/bundle/hourly. `hours` similarly optional
+// for hourly.
 const BookingRequestInput = z.object({
-  packageId: z.string().uuid(),
+  productId: z.string().uuid(),
   artistName: z.string().min(1).max(80),
   artistEmail: z.string().email(),
   artistPhone: z.string().max(40).optional(),
   notes: z.string().max(1000).optional(),
-  startsAtIso: z.string().datetime(),
+  startsAtIso: z.string().datetime().optional(), // optional: pure-delivery products have no slot
+  quantity: z.number().int().min(1).max(100).optional(),
+  hours: z.number().int().min(1).max(24 * 7).optional(),
 });
 
 // Slot-compute input. `startDate` is an ISO date (YYYY-MM-DD) in the
 // producer's TZ; we look forward from that date.
 const SlotsInput = z.object({
   slug: z.string().min(3).max(48),
-  packageId: z.string().uuid(),
+  productId: z.string().uuid(),
   days: z.number().int().min(1).max(60).default(14),
 });
 
-// Public rate-limit: booking requests + slot queries are both
-// unauthenticated. Generous enough for a real visitor who makes 3-5
-// probes + 1 submit.
+// Public rate-limit.
 const BOOKING_REQUEST_LIMIT = 5;
 const BOOKING_REQUEST_WINDOW_MS = 60_000;
 const SLOTS_LIMIT = 30;
 const SLOTS_WINDOW_MS = 60_000;
 
-// Slot increment for the public picker — 15 min. 30 min would miss
-// "3:15pm is free", 5 min would be UI-spammy.
 const SLOT_INCREMENT_MIN = 15;
-// Floor for per-package minLeadHours. If a producer hasn't set a
-// custom lead time (legacy row), this is the fallback default.
 const DEFAULT_MIN_LEAD_HOURS = 12;
 
-// ─── Helpers ─────────────────────────────────────────────────────────
+// ─── Price calculator ───────────────────────────────────────────────
+// Pure helper — given a product + an options bag (quantity, hours),
+// return the total price in cents. Used by the public booking flow to
+// show a real-time price preview, by the admin dashboard to render
+// example prices, and unit-tested without hitting the DB.
+export function calculatePriceCents(
+  product: Pick<
+    Product,
+    "pricingModel" | "priceCents" | "volumeTiers" | "hourlyRateCents"
+  >,
+  opts: { quantity?: number; hours?: number } = {},
+): number {
+  if (product.pricingModel === "flat" || product.pricingModel === "bundle") {
+    return product.priceCents;
+  }
+  if (product.pricingModel === "hourly") {
+    const hours = opts.hours ?? 1;
+    return (product.hourlyRateCents ?? 0) * hours;
+  }
+  if (product.pricingModel === "per_song") {
+    const qty = opts.quantity ?? 1;
+    if (qty <= 0) return 0;
+    const tiers = product.volumeTiers ?? [];
+    if (tiers.length === 0) return 0;
+    // Highest minQty that's ≤ qty wins. Walk tiers descending so the
+    // first match is the right one.
+    const sorted = [...tiers].sort((a, b) => b.minQty - a.minQty);
+    const tier = sorted.find((t) => qty >= t.minQty) ?? sorted[sorted.length - 1];
+    if (!tier) return 0;
+    return tier.pricePerUnitCents * qty;
+  }
+  return 0;
+}
+
+// ─── Helpers (slot computation) ──────────────────────────────────────
 
 /**
- * Given producer weekly availability + non-cancelled bookings + the
- * producer's IANA timezone, compute slot starts as UTC ISO strings
- * for the next `days` days.
- *
- * Availability is authored in the producer's LOCAL time (e.g. "10:00
- * Berlin"). We must materialize that as the correct UTC instant on
- * each day (respecting DST). Approach:
- *
- *   1. Take a guessed UTC timestamp = `Date.UTC(Y, M, D, hour, min)`
- *      where Y/M/D/hour/min are the values we *want* to see in the
- *      target tz.
- *   2. Format that guess `in` the target tz via Intl.DateTimeFormat
- *      and read the offset between what we wanted and what we got.
- *   3. Apply the offset to the guess — that's the correct UTC instant.
- *
- * This is the standard approach for "local wall-clock → UTC" in
- * stdlib-only JS, used by date-fns-tz and friends. It handles DST
- * transitions correctly because the offset calculation happens per-
- * day at the specific wall-clock time.
+ * Given `now` in a tz, return wall-clock year/month/day/hour/minute as
+ * a UTC Date instant.
  */
 function wallClockInTzToUtc(
   year: number,
@@ -217,7 +339,6 @@ function wallClockInTzToUtc(
     Number(lookup.year),
     Number(lookup.month) - 1,
     Number(lookup.day),
-    // Intl emits "24" for midnight in some locales; coerce to 0.
     Number(lookup.hour) % 24,
     Number(lookup.minute),
   );
@@ -225,11 +346,6 @@ function wallClockInTzToUtc(
   return new Date(guess.getTime() + offset);
 }
 
-/**
- * Given `now` (a UTC instant) and a tz, return { year, month, day,
- * weekday } as they appear in that tz. Used to iterate calendar days
- * in the producer's local time, not UTC's.
- */
 function calendarDayInTz(
   instant: Date,
   tz: string,
@@ -243,7 +359,6 @@ function calendarDayInTz(
   }).formatToParts(instant);
   const lookup: Record<string, string> = {};
   for (const p of parts) lookup[p.type] = p.value;
-  // Intl short-weekday: "Sun", "Mon", ...
   const weekdayMap: Record<string, number> = {
     Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
   };
@@ -255,23 +370,11 @@ function calendarDayInTz(
   };
 }
 
-/**
- * Format a calendar day (in tz) as YYYY-MM-DD. Used to compare against
- * blackout ranges which are stored as text dates in the producer's TZ.
- */
 function dayKeyInTz(instant: Date, tz: string): string {
   const { year, month, day } = calendarDayInTz(instant, tz);
   return `${String(year)}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-/**
- * Pure helper: is a given date-key (YYYY-MM-DD) inside any of the
- * blackout ranges (both ends inclusive)? String comparison on ISO
- * dates is correct lex-ordering, so we don't need to parse.
- *
- * Exported so the slot-computation tests can exercise the boundary
- * logic without spinning up a full DB.
- */
 export function isBlackedOut(
   dayKey: string,
   blackouts: readonly { startDate: string; endDate: string }[],
@@ -279,22 +382,6 @@ export function isBlackedOut(
   return blackouts.some((b) => dayKey >= b.startDate && dayKey <= b.endDate);
 }
 
-/**
- * Compute available slot start times as UTC ISO strings for the next
- * `days` days, from the producer's weekly availability (in producer
- * local time) minus existing non-cancelled bookings.
- *
- * - 15-min increments inside each availability block.
- * - durationMin must fit entirely inside the block.
- * - pending + confirmed bookings both block slots (optimistic hold);
- *   rejected/cancelled free the slot again.
- * - `bufferMinutes` is added to each existing booking's duration when
- *   checking for overlap, so a new slot can't start before the buffer
- *   after a finishing session.
- * - Slots inside the per-package `minLeadHours` cutoff are excluded.
- * - Days inside a blackout range (calendar-day, producer TZ,
- *   inclusive) are skipped entirely.
- */
 function computeSlots(
   weekBlocks: readonly { weekday: number; startMin: number; endMin: number }[],
   existingBookings: readonly { startsAt: Date; durationMin: number }[],
@@ -317,7 +404,6 @@ function computeSlots(
   const out: string[] = [];
   const earliestAllowed = new Date(now.getTime() + minLeadHours * 60 * 60 * 1000);
 
-  // Group availability blocks by weekday for O(1) lookup.
   const blocksByDay = new Map<number, { startMin: number; endMin: number }[]>();
   for (const b of weekBlocks) {
     const list = blocksByDay.get(b.weekday) ?? [];
@@ -325,17 +411,12 @@ function computeSlots(
     blocksByDay.set(b.weekday, list);
   }
 
-  // Start from today in the producer's tz — not UTC — so "this week"
-  // matches what the producer sees in their calendar.
   const today = calendarDayInTz(now, tz);
 
   for (let dayOffset = 0; dayOffset < days; dayOffset++) {
-    // Add dayOffset days to the producer-tz date. Use UTC math on a
-    // tz-day-midnight anchor to move day-by-day safely across DST.
     const anchor = wallClockInTzToUtc(today.year, today.month, today.day, 0, 0, tz);
     const dayInstant = new Date(anchor.getTime() + dayOffset * 24 * 60 * 60 * 1000);
     const dayCal = calendarDayInTz(dayInstant, tz);
-    // Skip the whole day if it falls inside a blackout window.
     const dayKey = `${String(dayCal.year)}-${String(dayCal.month + 1).padStart(2, "0")}-${String(dayCal.day).padStart(2, "0")}`;
     if (isBlackedOut(dayKey, blackouts)) continue;
     const todayBlocks = blocksByDay.get(dayCal.weekday) ?? [];
@@ -350,8 +431,6 @@ function computeSlots(
         const slotStart = wallClockInTzToUtc(dayCal.year, dayCal.month, dayCal.day, h, m, tz);
         if (slotStart < earliestAllowed) continue;
         const slotEnd = new Date(slotStart.getTime() + durationMin * 60 * 1000);
-        // Buffer applies to existing bookings only (we don't inflate
-        // the candidate slot's end — that would double-count).
         const bufferMs = bufferMinutes * 60 * 1000;
         const overlaps = existingBookings.some((b) => {
           const bEnd = new Date(b.startsAt.getTime() + b.durationMin * 60 * 1000 + bufferMs);
@@ -365,95 +444,167 @@ function computeSlots(
   return out;
 }
 
-// Exported for tests only — the router calls computeSlots via the
-// `publicSlots` procedure. Keeping this as a named export avoids
-// making the helper into a first-class API.
 export const __computeSlotsForTests = computeSlots;
 export const __wallClockInTzToUtcForTests = wallClockInTzToUtc;
 
 // ─── Router ──────────────────────────────────────────────────────────
 
-export const bookingRouter = router({
-  // ── Packages (producer-only) ─────────────────────────────────────
-  packages: router({
-    list: producerProcedure.query(async ({ ctx }) => {
-      return ctx.db
-        .select()
-        .from(packages)
-        .where(eq(packages.producerId, ctx.producerId))
-        .orderBy(asc(packages.position), asc(packages.createdAt));
-    }),
-
-    create: producerProcedure
-      .input(PackageInput)
-      .mutation(async ({ ctx, input }) => {
-        // Position = current max + 1 so new packages land at the end
-        // visually. Small race (two creates simultaneously get same
-        // position) is fine — deterministic asc-createdAt tiebreak.
-        const existing = await ctx.db
-          .select({ position: packages.position })
-          .from(packages)
-          .where(eq(packages.producerId, ctx.producerId))
-          .orderBy(asc(packages.position));
-        const nextPos = existing.length === 0
-          ? 0
-          : (existing[existing.length - 1]?.position ?? 0) + 1;
-        const [row] = await ctx.db
-          .insert(packages)
-          .values({ ...stripUndefined(input), producerId: ctx.producerId, position: nextPos })
-          .returning();
-        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        return row;
-      }),
-
-    update: producerProcedure
-      .input(PackageInput.partial().extend({ id: z.string().uuid() }))
-      .mutation(async ({ ctx, input }) => {
-        const { id, ...patch } = input;
-        const [existing] = await ctx.db
-          .select({ producerId: packages.producerId })
-          .from(packages)
-          .where(eq(packages.id, id))
-          .limit(1);
-        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-        if (existing.producerId !== ctx.producerId) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-        const [row] = await ctx.db
-          .update(packages)
-          .set(stripUndefined(patch))
-          .where(eq(packages.id, id))
-          .returning();
-        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        return row;
-      }),
-
-    // Soft-delete — flip `active` so bookings' packageNameSnapshot +
-    // FK still render in the dashboard's history view.
-    deactivate: producerProcedure
-      .input(z.object({ id: z.string().uuid() }))
-      .mutation(async ({ ctx, input }) => {
-        const [existing] = await ctx.db
-          .select({ producerId: packages.producerId })
-          .from(packages)
-          .where(eq(packages.id, input.id))
-          .limit(1);
-        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-        if (existing.producerId !== ctx.producerId) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-        await ctx.db
-          .update(packages)
-          .set({ active: false })
-          .where(eq(packages.id, input.id));
-        return { ok: true as const };
-      }),
+// Shared products CRUD — exposed under BOTH `products` (the Phase H.3
+// name) and `packages` (the legacy name used by onboarding + existing
+// callers). One definition means the two sub-routers stay in sync
+// while we migrate.
+const productsRouter = router({
+  list: producerProcedure.query(async ({ ctx }) => {
+    return ctx.db
+      .select()
+      .from(products)
+      .where(
+        and(
+          eq(products.producerId, ctx.producerId),
+          isNull(products.archivedAt),
+        ),
+      )
+      .orderBy(asc(products.position), asc(products.createdAt));
   }),
 
+  create: producerProcedure
+    .input(ProductInput)
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db
+        .select({ position: products.position })
+        .from(products)
+        .where(eq(products.producerId, ctx.producerId))
+        .orderBy(asc(products.position));
+      const nextPos = existing.length === 0
+        ? 0
+        : (existing[existing.length - 1]?.position ?? 0) + 1;
+      // Pre-H.3 callers (onboarding wizard) pass in only a minimal set
+      // of fields. The DB expects durationMin NOT NULL, so default it
+      // to 0 when the caller doesn't pass one.
+      const {
+        durationMin = 0,
+        priceCents = 0,
+        sessionCount = 1,
+        ...rest
+      } = input;
+      const [row] = await ctx.db
+        .insert(products)
+        .values({
+          ...stripUndefined(rest),
+          durationMin,
+          priceCents,
+          sessionCount,
+          producerId: ctx.producerId,
+          position: nextPos,
+        })
+        .returning();
+      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      return row;
+    }),
+
+  update: producerProcedure
+    .input(ProductUpdateInput)
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...patch } = input;
+      const [existing] = await ctx.db
+        .select({ producerId: products.producerId })
+        .from(products)
+        .where(eq(products.id, id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const [row] = await ctx.db
+        .update(products)
+        .set(stripUndefined(patch))
+        .where(eq(products.id, id))
+        .returning();
+      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      return row;
+    }),
+
+  // Phase H.3 — soft-delete via `archived_at` timestamp. Keeps the row
+  // for historical bookings to resolve. Also flips `active = false`
+  // for back-compat with code that still filters on that column.
+  archive: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({ producerId: products.producerId })
+        .from(products)
+        .where(eq(products.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db
+        .update(products)
+        .set({ archivedAt: new Date(), active: false })
+        .where(eq(products.id, input.id));
+      return { ok: true as const };
+    }),
+
+  // Legacy alias — callers still using `deactivate` go through the
+  // same code path as archive. Remove once all callers migrated.
+  deactivate: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({ producerId: products.producerId })
+        .from(products)
+        .where(eq(products.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db
+        .update(products)
+        .set({ archivedAt: new Date(), active: false })
+        .where(eq(products.id, input.id));
+      return { ok: true as const };
+    }),
+
+  // Reorder — atomic position swap. Accepts an ordered id array; each
+  // id gets its index as the new position.
+  reorder: producerProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      // Ownership check: every id must belong to this producer.
+      if (input.ids.length === 0) return { ok: true as const };
+      const rows = await ctx.db
+        .select({ id: products.id, producerId: products.producerId })
+        .from(products)
+        .where(inArray(products.id, input.ids));
+      for (const r of rows) {
+        if (r.producerId !== ctx.producerId) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+      }
+      for (let i = 0; i < input.ids.length; i++) {
+        const id = input.ids[i];
+        if (!id) continue;
+        await ctx.db
+          .update(products)
+          .set({ position: i })
+          .where(eq(products.id, id));
+      }
+      return { ok: true as const };
+    }),
+});
+
+export const bookingRouter = router({
+  // ── Products (producer-only) ─────────────────────────────────────
+  // New Phase H.3 name.
+  products: productsRouter,
+  // Legacy alias — onboarding actions still call booking.packages.*.
+  // Identical surface; removal tracked alongside the legacy `packages`
+  // schema alias.
+  packages: productsRouter,
+
   // ── Blackouts (producer-only) ────────────────────────────────────
-  // Date-range windows where the producer isn't taking bookings
-  // regardless of the weekly template. Stored in producer-local
-  // calendar days (YYYY-MM-DD), inclusive on both ends.
   blackouts: router({
     list: producerProcedure.query(async ({ ctx }) => {
       return ctx.db
@@ -466,10 +617,6 @@ export const bookingRouter = router({
     create: producerProcedure
       .input(
         z.object({
-          // Cheap client-side gate — the YYYY-MM-DD regex rejects
-          // stray input before we hit the DB. Full calendar-validity
-          // is enforced by Postgres' text storage + the app's own
-          // comparisons (ISO dates compare correctly as strings).
           startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD"),
           endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD"),
           reason: z.string().max(200).optional(),
@@ -495,8 +642,6 @@ export const bookingRouter = router({
     remove: producerProcedure
       .input(z.object({ id: z.string().uuid() }))
       .mutation(async ({ ctx, input }) => {
-        // Ownership walk — deleteByPk + producerId filter in one
-        // shot so a forged id can't delete another producer's row.
         const [existing] = await ctx.db
           .select({ producerId: availabilityBlackouts.producerId })
           .from(availabilityBlackouts)
@@ -523,8 +668,6 @@ export const bookingRouter = router({
         .orderBy(asc(availabilityBlocks.weekday), asc(availabilityBlocks.startMin));
     }),
 
-    // Atomic replace of the full week. Simpler than per-row CRUD +
-    // avoids the "partial save" failure mode.
     setWeek: producerProcedure
       .input(AvailabilityWeekInput)
       .mutation(async ({ ctx, input }) => {
@@ -545,10 +688,6 @@ export const bookingRouter = router({
   }),
 
   // ── Bookings (producer-only views + status transitions) ──────────
-  // Confirmed sessions in the next N days. Powers the dashboard
-  // "upcoming strip". Returned rows are grouped client-side by
-  // producer-local calendar day. Joins the package row so the UI can
-  // show kind + location badges without a second trip.
   upcoming: producerProcedure
     .input(
       z
@@ -561,9 +700,6 @@ export const bookingRouter = router({
       const days = input?.days ?? 7;
       const now = new Date();
       const horizon = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-      // Two round-trips is fine here — producers usually have < 20
-      // upcoming sessions, so the second SELECT is cheap + keeps the
-      // query Drizzle-ergonomic (no manual INNER JOIN typing).
       const rows = await ctx.db
         .select()
         .from(bookings)
@@ -586,16 +722,7 @@ export const bookingRouter = router({
       }));
     }),
 
-  // Dashboard revenue tile. All three numbers are aggregated in JS
-  // rather than SUM() in SQL because we need to dedupe by currency
-  // (producers may have USD + EUR packages) + the volume is tiny
-  // (hundreds of bookings max). priceCents comes from the package
-  // row, so we join via the package id.
   revenue: producerProcedure.query(async ({ ctx }) => {
-    // Anchor dates in the producer's TZ would be nicer, but we store
-    // bookings.startsAt as timestamptz and the dashboard's "this
-    // month" expectation is reasonable across any tz — close enough
-    // for a summary tile. UTC math avoids DST quirks.
     const now = new Date();
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const nextMonthStart = new Date(
@@ -603,7 +730,6 @@ export const bookingRouter = router({
     );
     const in7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    // Read producer's default currency for the tile header.
     const [producer] = await ctx.db
       .select({ defaultCurrency: producers.defaultCurrency })
       .from(producers)
@@ -611,15 +737,12 @@ export const bookingRouter = router({
       .limit(1);
     const currency = producer?.defaultCurrency ?? "USD";
 
-    // Pull every booking that could contribute to any of the three
-    // numbers in a single query — cheap, and keeps the joining logic
-    // in JS where it's easier to reason about.
     const bookingRows = await ctx.db
       .select({
         id: bookings.id,
         status: bookings.status,
         startsAt: bookings.startsAt,
-        packageId: bookings.packageId,
+        productId: bookings.productId,
       })
       .from(bookings)
       .where(
@@ -637,54 +760,44 @@ export const bookingRouter = router({
       };
     }
 
-    // Fetch the packages once for price + deposit lookup. Non-unique
-    // packageIds compress via a Set so we only fetch each row once.
-    // bookings.packageId is nullable (ON DELETE SET NULL keeps the
-    // booking alive when a package is purged), so filter those out.
-    const pkgIds = Array.from(
+    const productIds = Array.from(
       new Set(
         bookingRows
-          .map((b) => b.packageId)
+          .map((b) => b.productId)
           .filter((id): id is string => id !== null),
       ),
     );
-    const pkgRows = pkgIds.length === 0
+    const productRows = productIds.length === 0
       ? []
       : await ctx.db
           .select({
-            id: packages.id,
-            priceCents: packages.priceCents,
-            depositPct: packages.depositPct,
-            currency: packages.currency,
+            id: products.id,
+            priceCents: products.priceCents,
+            depositPct: products.depositPct,
+            currency: products.currency,
           })
-          .from(packages)
-          .where(inArray(packages.id, pkgIds));
-    const pkgById = new Map(pkgRows.map((p) => [p.id, p]));
+          .from(products)
+          .where(inArray(products.id, productIds));
+    const productById = new Map(productRows.map((p) => [p.id, p]));
 
     let mtdCents = 0;
     let outstandingCents = 0;
     let next7DaysCents = 0;
     for (const b of bookingRows) {
-      if (b.packageId === null) continue;
-      const pkg = pkgById.get(b.packageId);
-      if (!pkg) continue;
-      // Only count prices in the producer's default currency for the
-      // summary tile — multi-currency aggregation isn't a thing we
-      // want to attempt in a single cents number.
-      if (pkg.currency !== currency) continue;
+      if (b.productId === null) continue;
+      const prod = productById.get(b.productId);
+      if (!prod) continue;
+      if (prod.currency !== currency) continue;
       if (b.status === "confirmed") {
         if (b.startsAt >= monthStart && b.startsAt < nextMonthStart) {
-          mtdCents += pkg.priceCents;
+          mtdCents += prod.priceCents;
         }
         if (b.startsAt >= now && b.startsAt <= in7) {
-          next7DaysCents += pkg.priceCents;
+          next7DaysCents += prod.priceCents;
         }
       }
-      // Outstanding = unpaid deposits on pending + confirmed bookings.
-      // We don't yet track "deposit paid" — that lands with Stripe
-      // Connect. For now, the gross deposit owed is the signal.
-      if (pkg.depositPct > 0) {
-        outstandingCents += Math.round((pkg.priceCents * pkg.depositPct) / 100);
+      if (prod.depositPct > 0) {
+        outstandingCents += Math.round((prod.priceCents * prod.depositPct) / 100);
       }
     }
     return { mtdCents, outstandingCents, next7DaysCents, currency };
@@ -722,8 +835,6 @@ export const bookingRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       if (existing.status !== "pending") {
-        // Idempotent-ish — confirming an already-confirmed booking is
-        // a no-op, but confirming a rejected/cancelled one is a bug.
         if (existing.status === "confirmed") return { ok: true as const };
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -764,10 +875,39 @@ export const bookingRouter = router({
     }),
 
   // ── Public procedures ────────────────────────────────────────────
-  // Keyed by producer slug (public identifier) rather than id, so
-  // cold-lead visitors can call these without knowing internal IDs.
 
-  /** Public: list active packages for a producer. Used by /p/<slug>/book. */
+  /** Public: list active products for a producer. Used by /p/<slug>/book. */
+  publicProducts: publicProcedure
+    .input(z.object({ slug: z.string().min(3).max(48) }))
+    .query(async ({ input }) => {
+      const { db } = await publicCtx();
+      const [producer] = await db
+        .select({ id: producers.id, displayName: producers.displayName })
+        .from(producers)
+        .where(eq(producers.slug, input.slug))
+        .limit(1);
+      if (!producer || producer.displayName === null) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      const rows = await db
+        .select()
+        .from(products)
+        .where(
+          and(
+            eq(products.producerId, producer.id),
+            eq(products.active, true),
+            isNull(products.archivedAt),
+          ),
+        )
+        .orderBy(asc(products.position), asc(products.createdAt));
+      return { producer: { displayName: producer.displayName }, products: rows };
+    }),
+
+  /**
+   * Legacy alias for `publicProducts` — the old call-site names this
+   * procedure `publicPackages` and expects `.packages` on the result.
+   * Keep both until every caller migrates.
+   */
   publicPackages: publicProcedure
     .input(z.object({ slug: z.string().min(3).max(48) }))
     .query(async ({ input }) => {
@@ -782,19 +922,23 @@ export const bookingRouter = router({
       }
       const rows = await db
         .select()
-        .from(packages)
-        .where(and(eq(packages.producerId, producer.id), eq(packages.active, true)))
-        .orderBy(asc(packages.position), asc(packages.createdAt));
+        .from(products)
+        .where(
+          and(
+            eq(products.producerId, producer.id),
+            eq(products.active, true),
+            isNull(products.archivedAt),
+          ),
+        )
+        .orderBy(asc(products.position), asc(products.createdAt));
       return { producer: { displayName: producer.displayName }, packages: rows };
     }),
 
-  /** Public: available slots for a package over the next N days. */
+  /** Public: available slots for a product over the next N days. */
   publicSlots: publicProcedure
     .input(SlotsInput)
     .query(async ({ input }) => {
       const { db, ipHash } = await publicCtx();
-      // Per-IP rate limit — slots is cheap but called repeatedly by
-      // the client as the visitor clicks around.
       const rl = checkRateLimit(`booking-slots:${ipHash}`, SLOTS_LIMIT, SLOTS_WINDOW_MS);
       if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
 
@@ -805,18 +949,24 @@ export const bookingRouter = router({
         .limit(1);
       if (!producer) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const [pkg] = await db
+      const [prod] = await db
         .select()
-        .from(packages)
+        .from(products)
         .where(
           and(
-            eq(packages.id, input.packageId),
-            eq(packages.producerId, producer.id),
-            eq(packages.active, true),
+            eq(products.id, input.productId),
+            eq(products.producerId, producer.id),
+            eq(products.active, true),
+            isNull(products.archivedAt),
           ),
         )
         .limit(1);
-      if (!pkg) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // Pure-delivery products (durationMin = 0) have no slot grid.
+      if (prod.durationMin <= 0) {
+        return { durationMin: 0, slots: [] as string[] };
+      }
 
       const weekBlocks = await db
         .select({
@@ -827,8 +977,6 @@ export const bookingRouter = router({
         .from(availabilityBlocks)
         .where(eq(availabilityBlocks.producerId, producer.id));
 
-      // Only pending + confirmed bookings block slots. Rejected +
-      // cancelled are ignored (the slot is free again).
       const now = new Date();
       const horizon = new Date(now.getTime() + input.days * 24 * 60 * 60 * 1000);
       const existing = await db
@@ -843,9 +991,6 @@ export const bookingRouter = router({
           ),
         );
 
-      // Pull blackout windows for this producer — cheap (small table,
-      // indexed by producerId). Filter expired ones out to keep the
-      // intersection work minimal.
       const blackoutRows = await db
         .select({
           startDate: availabilityBlackouts.startDate,
@@ -855,16 +1000,16 @@ export const bookingRouter = router({
         .where(eq(availabilityBlackouts.producerId, producer.id));
 
       return {
-        durationMin: pkg.durationMin,
+        durationMin: prod.durationMin,
         slots: computeSlots(
           weekBlocks,
           existing,
-          pkg.durationMin,
+          prod.durationMin,
           input.days,
           producer.timezone,
           {
-            minLeadHours: pkg.minLeadHours,
-            bufferMinutes: pkg.bufferMinutes,
+            minLeadHours: prod.minLeadHours,
+            bufferMinutes: prod.bufferMinutes,
             blackouts: blackoutRows,
             now,
           },
@@ -891,104 +1036,108 @@ export const bookingRouter = router({
         .limit(1);
       if (!producer) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const [pkg] = await db
+      const [prod] = await db
         .select()
-        .from(packages)
+        .from(products)
         .where(
           and(
-            eq(packages.id, input.packageId),
-            eq(packages.producerId, producer.id),
-            eq(packages.active, true),
+            eq(products.id, input.productId),
+            eq(products.producerId, producer.id),
+            eq(products.active, true),
+            isNull(products.archivedAt),
           ),
         )
         .limit(1);
-      if (!pkg) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const startsAt = new Date(input.startsAtIso);
-      // Re-validate lead time server-side even though the client
-      // filters — scripted clients could bypass. Uses the package's
-      // per-row minLeadHours now, not a global constant.
-      const minLeadMs = pkg.minLeadHours * 60 * 60 * 1000;
-      if (startsAt.getTime() - Date.now() < minLeadMs) {
+      // Products without a duration (pure-deliverable) skip the slot
+      // check entirely. We still record a booking row for history +
+      // notifications, using `now` as a placeholder startsAt so the
+      // NOT NULL constraint is satisfied.
+      const isSessionless = prod.durationMin <= 0;
+      const startsAt = isSessionless
+        ? new Date()
+        : input.startsAtIso
+          ? new Date(input.startsAtIso)
+          : null;
+      if (!isSessionless && !startsAt) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Booking starts too soon — needs at least ${String(pkg.minLeadHours)}h notice`,
-        });
-      }
-      const endsAt = new Date(startsAt.getTime() + pkg.durationMin * 60 * 1000);
-
-      // Producer's studio TZ — used for the blackout comparison below.
-      // (We already verified `producer` exists above; re-select the
-      // timezone alongside id.)
-      const [producerTz] = await db
-        .select({ timezone: producers.timezone })
-        .from(producers)
-        .where(eq(producers.id, producer.id))
-        .limit(1);
-      const tz = producerTz?.timezone ?? "UTC";
-
-      // Reject the slot if it lands inside a blackout window.
-      const blackoutRows = await db
-        .select({
-          startDate: availabilityBlackouts.startDate,
-          endDate: availabilityBlackouts.endDate,
-        })
-        .from(availabilityBlackouts)
-        .where(eq(availabilityBlackouts.producerId, producer.id));
-      const slotDayKey = dayKeyInTz(startsAt, tz);
-      if (isBlackedOut(slotDayKey, blackoutRows)) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "That day isn't available — please pick another.",
+          message: "A slot is required for this product.",
         });
       }
 
-      // Race-safe overlap check: re-pull candidates now and filter in
-      // JS. This catches the "two visitors submit same slot" edge
-      // between slotsFor render and submit. Buffer adds to the
-      // existing booking's end so we don't slot anyone back-to-back
-      // when the producer wants a breather.
-      const bufferMs = pkg.bufferMinutes * 60 * 1000;
-      const candidates = await db
-        .select({ startsAt: bookings.startsAt, durationMin: bookings.durationMin })
-        .from(bookings)
-        .where(
-          and(
-            eq(bookings.producerId, producer.id),
-            inArray(bookings.status, ["pending", "confirmed"]),
-          ),
-        );
-      const hits = candidates.some((c) => {
-        const cEnd = new Date(c.startsAt.getTime() + c.durationMin * 60 * 1000 + bufferMs);
-        return startsAt < cEnd && c.startsAt < endsAt;
-      });
-      if (hits) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "That slot was just taken — please pick another.",
+      if (!isSessionless && startsAt) {
+        const minLeadMs = prod.minLeadHours * 60 * 60 * 1000;
+        if (startsAt.getTime() - Date.now() < minLeadMs) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Booking starts too soon — needs at least ${String(prod.minLeadHours)}h notice`,
+          });
+        }
+        const endsAt = new Date(startsAt.getTime() + prod.durationMin * 60 * 1000);
+
+        const [producerTz] = await db
+          .select({ timezone: producers.timezone })
+          .from(producers)
+          .where(eq(producers.id, producer.id))
+          .limit(1);
+        const tz = producerTz?.timezone ?? "UTC";
+
+        const blackoutRows = await db
+          .select({
+            startDate: availabilityBlackouts.startDate,
+            endDate: availabilityBlackouts.endDate,
+          })
+          .from(availabilityBlackouts)
+          .where(eq(availabilityBlackouts.producerId, producer.id));
+        const slotDayKey = dayKeyInTz(startsAt, tz);
+        if (isBlackedOut(slotDayKey, blackoutRows)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "That day isn't available — please pick another.",
+          });
+        }
+
+        const bufferMs = prod.bufferMinutes * 60 * 1000;
+        const candidates = await db
+          .select({ startsAt: bookings.startsAt, durationMin: bookings.durationMin })
+          .from(bookings)
+          .where(
+            and(
+              eq(bookings.producerId, producer.id),
+              inArray(bookings.status, ["pending", "confirmed"]),
+            ),
+          );
+        const hits = candidates.some((c) => {
+          const cEnd = new Date(c.startsAt.getTime() + c.durationMin * 60 * 1000 + bufferMs);
+          return startsAt < cEnd && c.startsAt < endsAt;
         });
+        if (hits) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "That slot was just taken — please pick another.",
+          });
+        }
       }
 
       const [row] = await db
         .insert(bookings)
         .values({
           producerId: producer.id,
-          packageId: pkg.id,
-          packageNameSnapshot: pkg.name,
+          productId: prod.id,
+          packageNameSnapshot: prod.name,
           artistName: input.artistName,
           artistEmail: input.artistEmail.toLowerCase(),
           ...(input.artistPhone ? { artistPhone: input.artistPhone } : {}),
           ...(input.notes ? { notes: input.notes } : {}),
-          startsAt,
-          durationMin: pkg.durationMin,
+          startsAt: startsAt ?? new Date(),
+          durationMin: prod.durationMin,
           status: "pending",
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Best-effort contact cache update. A failure here (e.g. a
-      // transient DB issue on the upsert) MUST NOT break the booking
-      // request — the row above is the source of truth.
       try {
         await recordContact(db, {
           producerId: producer.id,
@@ -999,14 +1148,13 @@ export const bookingRouter = router({
         console.warn("[contacts] recordContact failed in booking.publicRequest", err);
       }
 
-      // Best-effort inbox notification — same guard as above.
       try {
         await emitBookingRequested(db, {
           producerId: producer.id,
           bookingId: row.id,
           artistName: input.artistName,
           artistEmail: input.artistEmail.toLowerCase(),
-          when: startsAt,
+          when: startsAt ?? new Date(),
         });
       } catch (err) {
         console.warn("[notify] emitBookingRequested failed in booking.publicRequest", err);

@@ -126,7 +126,7 @@ export function BookingClient({
     startTransition(async () => {
       const res = await submitBookingRequest({
         slug,
-        packageId: pkgId,
+        productId: pkgId,
         artistName: artistName.trim(),
         artistEmail: artistEmail.trim(),
         ...(artistPhone.trim() ? { artistPhone: artistPhone.trim() } : {}),

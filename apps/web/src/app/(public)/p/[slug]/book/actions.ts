@@ -37,12 +37,14 @@ function toMessage(err: unknown): string {
 // caller with `userId: null` (publicProcedure doesn't read it).
 export async function submitBookingRequest(input: {
   slug: string;
-  packageId: string;
+  productId: string;
   artistName: string;
   artistEmail: string;
   artistPhone?: string;
   notes?: string;
-  startsAtIso: string;
+  startsAtIso?: string;
+  quantity?: number;
+  hours?: number;
 }): Promise<ActionDataResult<{ id: string }>> {
   try {
     const caller = appRouter.createCaller({ userId: null });

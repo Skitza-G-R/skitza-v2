@@ -112,7 +112,7 @@ export const clientContactsRouter = router({
         })
         .from(projects)
         .leftJoin(bookings, eq(bookings.projectId, projects.id))
-        .leftJoin(packages, eq(packages.id, bookings.packageId))
+        .leftJoin(packages, eq(packages.id, bookings.productId))
         .where(eq(projects.producerId, ctx.producerId))
         .groupBy(projects.id)
         .orderBy(desc(projects.updatedAt));
@@ -636,7 +636,7 @@ export const clientContactsRouter = router({
         })
         .from(projects)
         .leftJoin(bookings, eq(bookings.projectId, projects.id))
-        .leftJoin(packages, eq(packages.id, bookings.packageId))
+        .leftJoin(packages, eq(packages.id, bookings.productId))
         .where(and(eq(projects.producerId, ctx.producerId), emailMatchesProject(lower)))
         .groupBy(projects.id)
         .orderBy(desc(projects.updatedAt));

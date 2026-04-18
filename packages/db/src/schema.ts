@@ -99,45 +99,85 @@ export const waitlist = pgTable("waitlist", {
 export type WaitlistEntry = typeof waitlist.$inferSelect;
 export type NewWaitlistEntry = typeof waitlist.$inferInsert;
 
-// ─── Booking v1 ─────────────────────────────────────────────────────
-// A producer's offered services. Price in minor units (cents). `active`
-// is a soft-delete (false = hidden from public + dashboard lists) so
-// we never lose historical bookings' package names. `position` gives
-// drag-free ordering.
-export const packages = pgTable("packages", {
+// ─── Products (formerly packages — Phase H.3 rebuild) ──────────────
+// A producer's offerings — anything they sell, not just time-bound
+// sessions. Producers don't sell hours; they sell deliverables: a mix,
+// a master, a full production, an album, a beat lease. `pricingModel`
+// picks how the price is computed (flat / per-song volume tier /
+// hourly / bundle); `depositModel` picks how money is collected
+// upfront (flat % / milestones / pay-in-full). The old `packages`
+// table was renamed in-place via ALTER TABLE so existing bookings keep
+// their product_id intact.
+//
+// Soft-delete: `archivedAt` is the newer Phase H shape. The legacy
+// `active` boolean stays for back-compat while we migrate callers.
+// `position` gives drag-free ordering.
+export const products = pgTable("products", {
   id: uuid("id").defaultRandom().primaryKey(),
   producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
+  // For session-style products (mix-in-person, live tracking) duration
+  // is still meaningful — it drives the slot grid. For pure-deliverable
+  // products (a mix bought for $2k) duration is effectively "how long
+  // the producer needs to block on their calendar"; we keep it
+  // required at the DB level but the dashboard surfaces it as
+  // "Duration (optional)".
   durationMin: integer("duration_min").notNull(),            // per session
   sessionCount: integer("session_count").notNull().default(1),
+  // Flat/bundle price. Still the canonical price for flat products.
+  // Per-song products read from volumeTiers instead; hourly reads from
+  // hourlyRateCents.
   priceCents: integer("price_cents").notNull().default(0),   // 0 = free / discovery
   currency: text("currency").notNull().default("USD"),       // ISO 4217
-  depositPct: integer("deposit_pct").notNull().default(0),   // 0..100
+  depositPct: integer("deposit_pct").notNull().default(0),   // 0..100 for depositModel='flat'
   active: boolean("active").notNull().default(true),
   position: integer("position").notNull().default(0),
-  // Booking v2 additions — classification + per-package policy so a
-  // single producer can sell mixing (2h, remote, no deposit) alongside
-  // tracking (4h, studio, 50% deposit) without either overflowing into
-  // the other's slot grid.
-  // `kind` is free-text so we're not locked to an enum — common values:
-  // "session" | "mixing" | "mastering" | "producing". UI offers a
-  // dropdown + "Other" escape hatch.
+  // `kind` classifies the offering: "mix" | "master" | "production" |
+  // "album" | "beat_lease" | "hourly" | "custom" — plus the legacy
+  // Booking v2 values ("session" | "mixing" | "mastering" |
+  // "producing" | "other") which the UI keeps rendering for older
+  // rows. Kept as free-text so we don't lock the taxonomy down.
   kind: text("kind").notNull().default("session"),
-  // Where the session physically happens. Surfaces as a pill on the
-  // public booking card so visitors don't show up to a locked door.
   locationType: text("location_type").notNull().default("studio"), // "studio" | "remote" | "client_space"
-  // Gap the producer wants between back-to-back sessions. Added to the
-  // existing booking's duration when checking overlap.
   bufferMinutes: integer("buffer_minutes").notNull().default(0),
-  // Minimum notice in hours. Previously hard-coded at 12; now per-pkg
-  // so "mixing revision calls" (2h lead) differ from "4h tracking"
-  // (48h lead).
   minLeadHours: integer("min_lead_hours").notNull().default(12),
+  // ─── H.3 additions ────────────────────────────────────────────────
+  // How price is computed: 'flat' (priceCents), 'per_song' (volume
+  // tiers * qty), 'hourly' (hourlyRateCents * hours), 'bundle'
+  // (priceCents + implied sessionCount).
+  pricingModel: text("pricing_model").notNull().default("flat"),
+  // Per-song tiers: [{ minQty, pricePerUnitCents }, ...], ascending
+  // on minQty. Null for non-per-song products.
+  volumeTiers: jsonb("volume_tiers").$type<
+    { minQty: number; pricePerUnitCents: number }[]
+  >(),
+  // Hourly rate in cents. Only populated for pricingModel='hourly'.
+  hourlyRateCents: integer("hourly_rate_cents"),
+  // Deliverables chip list — "Mixed master", "Stems", "Credit",
+  // "WAV files". Rendered on the product card. Null/empty = "not
+  // specified".
+  deliverables: text("deliverables").array(),
+  // How deposit is collected: 'flat' (depositPct upfront),
+  // 'milestones' (multiple named % rows), 'paid_in_full' (nothing
+  // up front).
+  depositModel: text("deposit_model").notNull().default("flat"),
+  // Milestone schedule for depositModel='milestones'. Array of
+  // [{ label, pct }] summing to 100. Null otherwise.
+  milestones: jsonb("milestones").$type<{ label: string; pct: number }[]>(),
+  // Soft-delete. Null = live; timestamp = no longer offered (kept for
+  // historical booking rows to resolve).
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-export type Package = typeof packages.$inferSelect;
-export type NewPackage = typeof packages.$inferInsert;
+export type Product = typeof products.$inferSelect;
+export type NewProduct = typeof products.$inferInsert;
+
+// Back-compat re-export — old name still works for in-flight callers.
+// New code should import `products` / `Product` / `NewProduct`.
+export const packages = products;
+export type Package = Product;
+export type NewPackage = NewProduct;
 
 // Weekly recurring availability. One row per (producer, weekday, block)
 // — max 2 blocks per weekday (morning/evening). weekday uses JS's
@@ -190,10 +230,12 @@ export const bookingStatus = pgEnum("booking_status", [
 export const bookings = pgTable("bookings", {
   id: uuid("id").defaultRandom().primaryKey(),
   producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  // packageId nullable + SET NULL on delete so a package purge doesn't
-  // obliterate the historical booking. We copy package snapshots onto
+  // productId nullable + SET NULL on delete so a product purge doesn't
+  // obliterate the historical booking. We copy product snapshots onto
   // the booking row (see packageNameSnapshot) to preserve history too.
-  packageId: uuid("package_id").references(() => packages.id, { onDelete: "set null" }),
+  // Column name is `product_id` post-rename; the snapshot column keeps
+  // its legacy name for data-preservation (`package_name_snapshot`).
+  productId: uuid("product_id").references(() => products.id, { onDelete: "set null" }),
   packageNameSnapshot: text("package_name_snapshot"),
   // Nullable link to the Project this booking feeds. Existing rows are
   // back-filled to NULL; confirm → createProject wires new confirmed

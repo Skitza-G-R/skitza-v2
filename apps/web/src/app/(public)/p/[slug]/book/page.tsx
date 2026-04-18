@@ -53,7 +53,7 @@ export default async function BookPage({ params }: PageProps) {
   const initialSlotsByPackage: Record<string, string[]> = {};
   for (const p of packages) {
     try {
-      const res = await caller.booking.publicSlots({ slug, packageId: p.id, days: 14 });
+      const res = await caller.booking.publicSlots({ slug, productId: p.id, days: 14 });
       initialSlotsByPackage[p.id] = res.slots;
     } catch {
       // Non-fatal — render with an empty slot list; the client shows
