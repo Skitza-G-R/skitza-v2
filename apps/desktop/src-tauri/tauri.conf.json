@@ -13,6 +13,7 @@
       {
         "label": "main",
         "title": "Skitza",
+        "url": "/sign-in",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
