@@ -15,7 +15,7 @@ export async function emitCommentCreated(db: Db, input: {
   producerId: string;
   commentId: string;
   trackVersionId: string;
-  projectId: string | null;
+  dealId: string | null;
   authorName: string;
   preview: string;
 }): Promise<void> {
@@ -26,7 +26,7 @@ export async function emitCommentCreated(db: Db, input: {
     // 280 char cap matches Twitter's original limit — enough for
     // context, short enough to render in a single list row.
     body: input.preview.slice(0, 280),
-    projectId: input.projectId,
+    dealId: input.dealId,
     trackVersionId: input.trackVersionId,
     commentId: input.commentId,
   });
@@ -35,7 +35,7 @@ export async function emitCommentCreated(db: Db, input: {
 export async function emitContractSigned(db: Db, input: {
   producerId: string;
   contractId: string;
-  projectId: string | null;
+  dealId: string | null;
   signerName: string;
   allSigned: boolean;
 }): Promise<void> {
@@ -45,7 +45,7 @@ export async function emitContractSigned(db: Db, input: {
     title: input.allSigned ? "Contract fully signed" : `${input.signerName} signed`,
     body: input.allSigned ? "All parties have signed." : "Awaiting remaining signers.",
     contractId: input.contractId,
-    projectId: input.projectId,
+    dealId: input.dealId,
   });
 }
 

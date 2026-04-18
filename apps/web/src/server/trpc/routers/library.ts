@@ -1,8 +1,8 @@
 import {
   and,
   asc,
-  projectTracks,
-  projects,
+  dealTracks,
+  deals,
   desc,
   eq,
   ilike,
@@ -17,10 +17,10 @@ import { z } from "zod";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 
-// Audio library — every uploaded track version across every project
-// the producer owns, Samply-style unified feed. The library is a
-// derived view (no new tables): trackVersions → projectTracks →
-// projects, filtered by producer ownership at the projects row.
+// Audio library — every uploaded track version across every deal the
+// producer owns, Samply-style unified feed. The library is a derived
+// view (no new tables): trackVersions → dealTracks → deals, filtered
+// by producer ownership at the deals row.
 //
 // Filter semantics:
 // - "all"       → every version
@@ -46,10 +46,10 @@ export type LibraryRow = {
   durationMs: number | null;
   trackId: string;
   trackTitle: string;
-  projectId: string;
-  projectTitle: string;
-  projectArtistName: string;
-  projectClientName: string | null;
+  dealId: string;
+  dealTitle: string;
+  dealArtistName: string;
+  dealClientName: string | null;
   commentCount: number;
   unresolvedCount: number;
 };
@@ -60,20 +60,20 @@ export const libraryRouter = router({
       z
         .object({
           filter: z.enum(["all", "unread", "resolved"]).default("all"),
-          projectId: z.string().uuid().optional(),
+          dealId: z.string().uuid().optional(),
         })
         .optional(),
     )
     .query(async ({ ctx, input }): Promise<LibraryRow[]> => {
       const filter = input?.filter ?? "all";
-      const projectId = input?.projectId;
+      const dealId = input?.dealId;
 
-      // Conditional predicate: scope to a single project when requested
-      // (so /dashboard/library?projectId=… can be used as a deep-link
-      // surface later). Otherwise all projects owned by the producer.
-      const where = projectId
-        ? and(eq(projects.producerId, ctx.producerId), eq(projects.id, projectId))
-        : eq(projects.producerId, ctx.producerId);
+      // Conditional predicate: scope to a single deal when requested
+      // (so /dashboard/library?dealId=… can be used as a deep-link
+      // surface later). Otherwise all deals owned by the producer.
+      const where = dealId
+        ? and(eq(deals.producerId, ctx.producerId), eq(deals.id, dealId))
+        : eq(deals.producerId, ctx.producerId);
 
       const rows = await ctx.db
         .select({
@@ -82,16 +82,16 @@ export const libraryRouter = router({
           audioUrl: trackVersions.audioUrl,
           uploadedAt: trackVersions.uploadedAt,
           durationMs: trackVersions.durationMs,
-          trackId: projectTracks.id,
-          trackTitle: projectTracks.title,
-          projectId: projects.id,
-          projectTitle: projects.title,
-          projectArtistName: projects.artistName,
-          projectClientName: projects.clientName,
+          trackId: dealTracks.id,
+          trackTitle: dealTracks.title,
+          dealId: deals.id,
+          dealTitle: deals.title,
+          dealArtistName: deals.artistName,
+          dealClientName: deals.clientName,
         })
         .from(trackVersions)
-        .innerJoin(projectTracks, eq(trackVersions.trackId, projectTracks.id))
-        .innerJoin(projects, eq(projectTracks.projectId, projects.id))
+        .innerJoin(dealTracks, eq(trackVersions.trackId, dealTracks.id))
+        .innerJoin(deals, eq(dealTracks.dealId, deals.id))
         .where(where)
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(200);
@@ -136,7 +136,7 @@ export const libraryRouter = router({
     }),
 
   // Detail view for the side panel / mobile modal. Ownership walk:
-  // version → track → project → producer. Any broken link = 404/403.
+  // version → track → deal → producer. Any broken link = 404/403.
   detail: producerProcedure
     .input(z.object({ versionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -156,24 +156,24 @@ export const libraryRouter = router({
 
       const [t] = await ctx.db
         .select({
-          id: projectTracks.id,
-          title: projectTracks.title,
-          projectId: projectTracks.projectId,
+          id: dealTracks.id,
+          title: dealTracks.title,
+          dealId: dealTracks.dealId,
         })
-        .from(projectTracks)
-        .where(eq(projectTracks.id, v.trackId))
+        .from(dealTracks)
+        .where(eq(dealTracks.id, v.trackId))
         .limit(1);
       if (!t) throw new TRPCError({ code: "NOT_FOUND" });
 
       const [d] = await ctx.db
         .select({
-          id: projects.id,
-          title: projects.title,
-          artistName: projects.artistName,
-          producerId: projects.producerId,
+          id: deals.id,
+          title: deals.title,
+          artistName: deals.artistName,
+          producerId: deals.producerId,
         })
-        .from(projects)
-        .where(eq(projects.id, t.projectId))
+        .from(deals)
+        .where(eq(deals.id, t.dealId))
         .limit(1);
       if (!d) throw new TRPCError({ code: "NOT_FOUND" });
       if (d.producerId !== ctx.producerId) {
@@ -188,15 +188,15 @@ export const libraryRouter = router({
 
       return {
         version: v,
-        track: { id: t.id, title: t.title, projectId: t.projectId },
-        project: { id: d.id, title: d.title, artistName: d.artistName },
+        track: { id: t.id, title: t.title, dealId: t.dealId },
+        deal: { id: d.id, title: d.title, artistName: d.artistName },
         comments,
       };
     }),
 
   // ⌘K palette helper — fuzzy-search track titles + version labels
-  // owned by the producer. Scoped via the same project ownership join
-  // as `list`. Cap at 10 so the palette stays keyboard-navigable.
+  // owned by the producer. Scoped via the same deal ownership join as
+  // `list`. Cap at 10 so the palette stays keyboard-navigable.
   search: producerProcedure
     .input(z.object({ q: z.string().max(100) }))
     .query(async ({ ctx, input }) => {
@@ -207,17 +207,17 @@ export const libraryRouter = router({
         .select({
           versionId: trackVersions.id,
           versionLabel: trackVersions.label,
-          trackTitle: projectTracks.title,
-          projectId: projects.id,
-          projectTitle: projects.title,
+          trackTitle: dealTracks.title,
+          dealId: deals.id,
+          dealTitle: deals.title,
         })
         .from(trackVersions)
-        .innerJoin(projectTracks, eq(trackVersions.trackId, projectTracks.id))
-        .innerJoin(projects, eq(projectTracks.projectId, projects.id))
+        .innerJoin(dealTracks, eq(trackVersions.trackId, dealTracks.id))
+        .innerJoin(deals, eq(dealTracks.dealId, deals.id))
         .where(
           and(
-            eq(projects.producerId, ctx.producerId),
-            or(ilike(projectTracks.title, pattern), ilike(trackVersions.label, pattern)),
+            eq(deals.producerId, ctx.producerId),
+            or(ilike(dealTracks.title, pattern), ilike(trackVersions.label, pattern)),
           ),
         )
         .orderBy(desc(trackVersions.uploadedAt))

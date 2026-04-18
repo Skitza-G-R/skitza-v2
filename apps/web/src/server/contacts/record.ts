@@ -6,7 +6,7 @@ import { clientContacts, type Db } from "@skitza/db";
 // Called from any surface that captures an artist's identity:
 // - booking request submit (booking.ts)
 // - contract recipient add (contract.ts — will wire on merge of that branch)
-// - project create / publicComment (project.ts)
+// - deal create / publicComment (deal.ts)
 //
 // Fire-and-forget in spirit: the caller awaits, but a failure here
 // should NEVER break the main flow. Wrap the call in try/catch at the
