@@ -1,11 +1,11 @@
 import { Skeleton } from "~/components/ui/skeleton";
 
-// Route-segment loading state for /dashboard/deals/[id]. This page
-// awaits a full deal detail payload — tracks, versions, comments, the
-// contract summary — which can be slow on cold Neon connections.
+// Route-segment loading state for /dashboard/projects/[id]. This page
+// awaits a full project detail payload — tracks, versions, comments,
+// the contract summary — which can be slow on cold Neon connections.
 // Rendering a skeleton immediately avoids the bare-white flash that
 // otherwise shows between click and hydration.
-export default function DealDetailLoading() {
+export default function ProjectDetailLoading() {
   return (
     <div className="min-h-dvh bg-[rgb(var(--bg-base))]">
       <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">

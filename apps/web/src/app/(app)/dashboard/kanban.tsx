@@ -27,12 +27,12 @@ import {
 } from "./kanban-helpers";
 
 // Pipeline Kanban — the producer's default view at /dashboard.
-// Columns map 1:1 to the deal_stage pg enum. Drag-and-drop uses
+// Columns map 1:1 to the project_stage pg enum. Drag-and-drop uses
 // @dnd-kit/core (already installed). State is optimistic: a drop
 // updates local state immediately, then awaits the Server Action and
 // reverts on failure.
 
-export interface KanbanDeal {
+export interface KanbanProject {
   id: string;
   title: string;
   stage: Stage;
@@ -42,11 +42,11 @@ export interface KanbanDeal {
 }
 
 interface KanbanProps {
-  initial: Record<Stage, KanbanDeal[]>;
+  initial: Record<Stage, KanbanProject[]>;
 }
 
 export function Kanban({ initial }: KanbanProps) {
-  const [grouped, setGrouped] = useState<Record<Stage, KanbanDeal[]>>(initial);
+  const [grouped, setGrouped] = useState<Record<Stage, KanbanProject[]>>(initial);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const { toast } = useToast();
@@ -70,7 +70,7 @@ export function Kanban({ initial }: KanbanProps) {
       setDraggingId(null);
       const { active, over } = event;
       if (!over) return;
-      const dealId = String(active.id);
+      const projectId = String(active.id);
       const targetStage = stageFromDroppableId(over.id as string);
       if (!targetStage) return;
 
@@ -83,20 +83,20 @@ export function Kanban({ initial }: KanbanProps) {
       setGrouped((cur) => {
         let sourceStage: Stage | null = null;
         for (const s of STAGES) {
-          if (cur[s].some((d) => d.id === dealId)) {
+          if (cur[s].some((d) => d.id === projectId)) {
             sourceStage = s;
             break;
           }
         }
         if (sourceStage === null || sourceStage === targetStage) return cur;
-        const card = cur[sourceStage].find((d) => d.id === dealId);
+        const card = cur[sourceStage].find((d) => d.id === projectId);
         if (!card) return cur;
         captured.stage = sourceStage;
         // Optimistic move: prepend to target (mirrors server's
         // desc(updatedAt) ordering — the moved card was just touched).
         return {
           ...cur,
-          [sourceStage]: cur[sourceStage].filter((d) => d.id !== dealId),
+          [sourceStage]: cur[sourceStage].filter((d) => d.id !== projectId),
           [targetStage]: [
             { ...card, stage: targetStage, updatedAt: new Date() },
             ...cur[targetStage],
@@ -108,16 +108,16 @@ export function Kanban({ initial }: KanbanProps) {
       if (revertStage === null) return;
 
       startTransition(() => {
-        void setStageAction({ id: dealId, stage: targetStage }).then((res) => {
+        void setStageAction({ id: projectId, stage: targetStage }).then((res) => {
           if (!res.ok) {
             // Revert ONLY this card, against current state — not a stale
             // snapshot that could clobber other successful moves.
             setGrouped((cur) => {
-              const card = cur[targetStage].find((d) => d.id === dealId);
+              const card = cur[targetStage].find((d) => d.id === projectId);
               if (!card) return cur; // Already moved elsewhere; leave alone.
               return {
                 ...cur,
-                [targetStage]: cur[targetStage].filter((d) => d.id !== dealId),
+                [targetStage]: cur[targetStage].filter((d) => d.id !== projectId),
                 [revertStage]: [
                   { ...card, stage: revertStage },
                   ...cur[revertStage],
@@ -146,11 +146,11 @@ export function Kanban({ initial }: KanbanProps) {
           Your pipeline is empty.
         </h2>
         <p className="max-w-sm text-sm text-[rgb(var(--fg-secondary))]">
-          Every deal lives here. Create your first to start tracking bookings,
+          Every project lives here. Create your first to start tracking bookings,
           contracts, and audio — all in one place.
         </p>
-        <Link href="/dashboard/deals/new">
-          <Button>Create first deal</Button>
+        <Link href="/dashboard/projects/new">
+          <Button>Create first project</Button>
         </Link>
       </div>
     );
@@ -185,7 +185,7 @@ function Column({
   draggingId,
 }: {
   stage: Stage;
-  items: KanbanDeal[];
+  items: KanbanProject[];
   draggingId: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: droppableIdForStage(stage) });
@@ -203,8 +203,8 @@ function Column({
           </span>
         </h2>
         <Link
-          href={{ pathname: "/dashboard/deals/new", query: { stage } }}
-          aria-label={`New deal in ${STAGE_LABEL[stage]}`}
+          href={{ pathname: "/dashboard/projects/new", query: { stage } }}
+          aria-label={`New project in ${STAGE_LABEL[stage]}`}
           className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-primary))]"
         >
           +
@@ -223,19 +223,19 @@ function Column({
       >
         {items.length === 0 ? (
           <p className="mt-6 text-center font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-            Drop deals here
+            Drop projects here
           </p>
         ) : (
-          items.map((deal) => <DealCard key={deal.id} deal={deal} />)
+          items.map((project) => <ProjectCard key={project.id} project={project} />)
         )}
       </div>
     </section>
   );
 }
 
-function DealCard({ deal }: { deal: KanbanDeal }) {
+function ProjectCard({ project }: { project: KanbanProject }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: deal.id,
+    id: project.id,
   });
 
   // dnd-kit's transform is applied inline — we layer a tiny rotation on
@@ -249,7 +249,7 @@ function DealCard({ deal }: { deal: KanbanDeal }) {
   // artistName is non-null on the row, but the schema allows clientName
   // to override it — nullish-chain keeps the fallback wording without
   // upsetting the linter.
-  const clientLabel = deal.clientName ?? deal.artistName;
+  const clientLabel = project.clientName ?? project.artistName;
 
   return (
     <article
@@ -265,23 +265,23 @@ function DealCard({ deal }: { deal: KanbanDeal }) {
       ].join(" ")}
     >
       <p className="line-clamp-2 text-sm font-semibold text-[rgb(var(--fg-primary))]">
-        {deal.title}
+        {project.title}
       </p>
       <p className="mt-1 truncate font-mono text-[0.7rem] text-[rgb(var(--fg-secondary))]">
         {clientLabel}
       </p>
       <div className="mt-3 flex items-center justify-between gap-2">
         <span className="font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
-          {formatRelativeTime(deal.updatedAt)}
+          {formatRelativeTime(project.updatedAt)}
         </span>
         <Link
-          href={`/dashboard/deals/${deal.id}`}
+          href={`/dashboard/projects/${project.id}`}
           prefetch
           onPointerDown={(e) => { e.stopPropagation(); }}
           onClick={(e) => { e.stopPropagation(); }}
           className="font-mono text-[0.66rem] text-[rgb(var(--fg-secondary))] underline-offset-4 hover:text-[rgb(var(--brand-primary))] hover:underline"
         >
-          {STAGE_CTA[deal.stage]} →
+          {STAGE_CTA[project.stage]} →
         </Link>
       </div>
     </article>

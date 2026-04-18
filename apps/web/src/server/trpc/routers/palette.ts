@@ -2,8 +2,8 @@ import {
   and,
   clientContacts,
   contracts,
-  dealTracks,
-  deals,
+  projectTracks,
+  projects,
   desc,
   eq,
   ilike,
@@ -16,7 +16,7 @@ import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 
 // ⌘K command palette search. Unions three producer-scoped streams
-// (deals, client contacts, contracts) behind one procedure so the
+// (projects, client contacts, contracts) behind one procedure so the
 // client can render grouped results without fanning out to three
 // queries. Kept flat + deliberately simple — no full-text index yet,
 // just ilike on 1–5 columns per table with a per-type cap of 10.
@@ -30,13 +30,13 @@ export const paletteRouter = router({
       const raw = input.q.trim();
 
       if (raw.length === 0) {
-        const [recentDeals, recentContacts, recentContracts, recentTracks] =
+        const [recentProjects, recentContacts, recentContracts, recentTracks] =
           await Promise.all([
             ctx.db
               .select()
-              .from(deals)
-              .where(eq(deals.producerId, ctx.producerId))
-              .orderBy(desc(deals.updatedAt))
+              .from(projects)
+              .where(eq(projects.producerId, ctx.producerId))
+              .orderBy(desc(projects.updatedAt))
               .limit(5),
             ctx.db
               .select()
@@ -54,51 +54,51 @@ export const paletteRouter = router({
               .select({
                 versionId: trackVersions.id,
                 versionLabel: trackVersions.label,
-                trackTitle: dealTracks.title,
-                dealId: deals.id,
+                trackTitle: projectTracks.title,
+                projectId: projects.id,
               })
               .from(trackVersions)
-              .innerJoin(dealTracks, eq(trackVersions.trackId, dealTracks.id))
-              .innerJoin(deals, eq(dealTracks.dealId, deals.id))
-              .where(eq(deals.producerId, ctx.producerId))
+              .innerJoin(projectTracks, eq(trackVersions.trackId, projectTracks.id))
+              .innerJoin(projects, eq(projectTracks.projectId, projects.id))
+              .where(eq(projects.producerId, ctx.producerId))
               .orderBy(desc(trackVersions.uploadedAt))
               .limit(5),
           ]);
         return {
-          deals: recentDeals.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
+          projects: recentProjects.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
           contacts: recentContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
           contracts: recentContracts.map((c) => ({ id: c.id, title: c.title, status: c.status })),
           tracks: recentTracks.map((t) => ({
             id: t.versionId,
             title: t.trackTitle,
             label: t.versionLabel,
-            dealId: t.dealId,
+            projectId: t.projectId,
           })),
         };
       }
 
-      // Fuzzy ilike across identity fields. Deals get both the new
+      // Fuzzy ilike across identity fields. Projects get both the new
       // clientName/clientEmail and the legacy artistName/artistEmail
-      // columns since C.1 kept them (C.2 will consolidate). Cap at 10
-      // per type so the palette list stays navigable from the keyboard.
+      // columns since they coexist on the row. Cap at 10 per type so
+      // the palette list stays navigable from the keyboard.
       const pattern = `%${raw}%`;
-      const [matchDeals, matchContacts, matchContracts, matchTracks] = await Promise.all([
+      const [matchProjects, matchContacts, matchContracts, matchTracks] = await Promise.all([
         ctx.db
           .select()
-          .from(deals)
+          .from(projects)
           .where(
             and(
-              eq(deals.producerId, ctx.producerId),
+              eq(projects.producerId, ctx.producerId),
               or(
-                ilike(deals.title, pattern),
-                ilike(deals.clientName, pattern),
-                ilike(deals.clientEmail, pattern),
-                ilike(deals.artistName, pattern),
-                ilike(deals.artistEmail, pattern),
+                ilike(projects.title, pattern),
+                ilike(projects.clientName, pattern),
+                ilike(projects.clientEmail, pattern),
+                ilike(projects.artistName, pattern),
+                ilike(projects.artistEmail, pattern),
               ),
             ),
           )
-          .orderBy(desc(deals.updatedAt))
+          .orderBy(desc(projects.updatedAt))
           .limit(10),
         ctx.db
           .select()
@@ -120,9 +120,6 @@ export const paletteRouter = router({
           .where(
             and(
               eq(contracts.producerId, ctx.producerId),
-              // PDF contracts (post-B.2) scope artist identity per
-              // recipient in contract_recipients — title is the only
-              // searchable field on the contracts row itself.
               ilike(contracts.title, pattern),
             ),
           )
@@ -132,17 +129,17 @@ export const paletteRouter = router({
           .select({
             versionId: trackVersions.id,
             versionLabel: trackVersions.label,
-            trackTitle: dealTracks.title,
-            dealId: deals.id,
+            trackTitle: projectTracks.title,
+            projectId: projects.id,
           })
           .from(trackVersions)
-          .innerJoin(dealTracks, eq(trackVersions.trackId, dealTracks.id))
-          .innerJoin(deals, eq(dealTracks.dealId, deals.id))
+          .innerJoin(projectTracks, eq(trackVersions.trackId, projectTracks.id))
+          .innerJoin(projects, eq(projectTracks.projectId, projects.id))
           .where(
             and(
-              eq(deals.producerId, ctx.producerId),
+              eq(projects.producerId, ctx.producerId),
               or(
-                ilike(dealTracks.title, pattern),
+                ilike(projectTracks.title, pattern),
                 ilike(trackVersions.label, pattern),
               ),
             ),
@@ -151,14 +148,14 @@ export const paletteRouter = router({
           .limit(10),
       ]);
       return {
-        deals: matchDeals.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
+        projects: matchProjects.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
         contacts: matchContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
         contracts: matchContracts.map((c) => ({ id: c.id, title: c.title, status: c.status })),
         tracks: matchTracks.map((t) => ({
           id: t.versionId,
           title: t.trackTitle,
           label: t.versionLabel,
-          dealId: t.dealId,
+          projectId: t.projectId,
         })),
       };
     }),

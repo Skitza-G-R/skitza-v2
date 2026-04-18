@@ -10,8 +10,8 @@ import { ClientsList } from "./clients-list";
 // the server then hands off to ClientsList for interactive filtering,
 // create/edit/delete, and the send-magic-link dialog.
 //
-// `listWithMeta` enriches each contact row with activeDealCount,
-// totalDealCount, and lastActivity in a single extra SQL aggregate —
+// `listWithMeta` enriches each contact row with activeProjectCount,
+// totalProjectCount, and lastActivity in a single extra SQL aggregate —
 // no N+1. See clientContactsRouter.listWithMeta for the join logic.
 
 export default async function ClientsPage() {
@@ -31,8 +31,8 @@ export default async function ClientsPage() {
     name: r.name,
     firstSeenAt: r.firstSeenAt,
     lastSeenAt: r.lastSeenAt,
-    activeDealCount: r.activeDealCount,
-    totalDealCount: r.totalDealCount,
+    activeProjectCount: r.activeProjectCount,
+    totalProjectCount: r.totalProjectCount,
     lastActivity: r.lastActivity,
   }));
 

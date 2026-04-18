@@ -12,7 +12,7 @@ import {
 // ⌘K / Ctrl+K command palette. Lazy-loaded by CommandPaletteTrigger
 // so cmdk is only pulled into the client bundle when the producer
 // actually opens it. Filtering happens server-side (producer-scoped
-// ilike across deals/contacts/contracts) — we tell cmdk
+// ilike across projects/contacts/contracts) — we tell cmdk
 // `shouldFilter={false}` so its built-in client filter doesn't fight
 // the server results. Actions are filtered client-side since they're
 // static and tiny.
@@ -74,12 +74,12 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const actions: Action[] = useMemo(
     () => [
       {
-        id: "new-deal",
-        label: "New deal",
+        id: "new-project",
+        label: "New project",
         shortcut: "N",
         run: () => {
           onClose();
-          router.push("/dashboard/deals/new");
+          router.push("/dashboard/projects/new");
         },
       },
       {
@@ -141,10 +141,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return actions.filter((a) => a.label.toLowerCase().includes(bare));
   }, [actions, query]);
 
-  const gotoDeal = useCallback(
+  const gotoProject = useCallback(
     (id: string) => {
       onClose();
-      router.push(`/dashboard/deals/${id}`);
+      router.push(`/dashboard/projects/${id}`);
     },
     [router],
   );
@@ -178,7 +178,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             <Command.Input
               value={query}
               onValueChange={setQuery}
-              placeholder="Search deals, clients, contracts, or > actions..."
+              placeholder="Search projects, clients, contracts, or > actions..."
               className="w-full bg-transparent text-sm text-[rgb(var(--fg-primary))] outline-none placeholder:text-[rgb(var(--fg-muted))]"
               autoFocus
             />
@@ -218,14 +218,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               </Command.Group>
             )}
 
-            {result?.deals.length ? (
-              <Command.Group heading={`Deals (${String(result.deals.length)})`}>
-                {result.deals.map((d) => (
+            {result?.projects.length ? (
+              <Command.Group heading={`Projects (${String(result.projects.length)})`}>
+                {result.projects.map((d) => (
                   <Command.Item
                     key={d.id}
-                    value={`deal ${d.title} ${d.id}`}
+                    value={`project ${d.title} ${d.id}`}
                     onSelect={() => {
-                      gotoDeal(d.id);
+                      gotoProject(d.id);
                     }}
                     className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
                   >
@@ -250,7 +250,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     onSelect={() => {
                       onClose();
                       router.push(
-                        `/dashboard/deals/new?email=${encodeURIComponent(c.email)}`,
+                        `/dashboard/projects/new?email=${encodeURIComponent(c.email)}`,
                       );
                     }}
                     className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"

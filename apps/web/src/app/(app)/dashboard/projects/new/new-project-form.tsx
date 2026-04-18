@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "~/components/ui/button";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
-import { createDeal } from "../actions";
+import { createProject } from "../actions";
 
 type Contact = { id: string; email: string; name: string };
 
@@ -15,11 +15,11 @@ type Contact = { id: string; email: string; name: string };
 function IssuedBanner({
   url,
   onDismiss,
-  onOpenDeal,
+  onOpenProject,
 }: {
   url: string;
   onDismiss: () => void;
-  onOpenDeal: () => void;
+  onOpenProject: () => void;
 }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
@@ -38,7 +38,7 @@ function IssuedBanner({
         <div>
           <p className="flex items-center gap-2 font-mono text-[0.72rem] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))]">
             <span className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))] pulse-green" />
-            Deal room ready
+            Project room ready
           </p>
           <p className="mt-2 text-sm text-[rgb(var(--fg-primary))]">
             Copy this share URL now — the token is one-shot. Send it to the artist so they
@@ -70,15 +70,15 @@ function IssuedBanner({
         </Button>
       </div>
       <div className="mt-3">
-        <Button type="button" size="sm" variant="secondary" onClick={onOpenDeal}>
-          Open deal →
+        <Button type="button" size="sm" variant="secondary" onClick={onOpenProject}>
+          Open project →
         </Button>
       </div>
     </div>
   );
 }
 
-export function NewDealForm({
+export function NewProjectForm({
   siteUrl,
   contacts = [],
 }: {
@@ -114,13 +114,13 @@ export function NewDealForm({
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await createDeal({
+      const res = await createProject({
         title: title.trim(),
         artistName: artistName.trim(),
         artistEmail: artistEmail.trim(),
       });
       if (res.ok) {
-        toast(`"${title.trim()}" deal created.`, "success");
+        toast(`"${title.trim()}" project created.`, "success");
         const url = `${siteUrl.replace(/\/$/, "")}/share/${res.data.shareToken}`;
         setIssued({ url, id: res.data.id });
         setTitle("");
@@ -141,8 +141,8 @@ export function NewDealForm({
           onDismiss={() => {
             setIssued(null);
           }}
-          onOpenDeal={() => {
-            router.push(`/dashboard/deals/${issued.id}`);
+          onOpenProject={() => {
+            router.push(`/dashboard/projects/${issued.id}`);
           }}
         />
       ) : null}
@@ -153,7 +153,7 @@ export function NewDealForm({
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <Label htmlFor="title">Deal title</Label>
+            <Label htmlFor="title">Project title</Label>
             <Input
               id="title"
               type="text"
@@ -242,7 +242,7 @@ export function NewDealForm({
         ) : null}
         <div className="mt-5 flex gap-2">
           <Button type="submit" disabled={pending}>
-            {pending ? "Creating…" : "Create deal"}
+            {pending ? "Creating…" : "Create project"}
           </Button>
         </div>
       </form>

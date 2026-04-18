@@ -43,8 +43,8 @@ type ClientRow = {
   name: string;
   firstSeenAt: Date | string;
   lastSeenAt: Date | string;
-  activeDealCount: number;
-  totalDealCount: number;
+  activeProjectCount: number;
+  totalProjectCount: number;
   lastActivity: Date | string | null;
 };
 
@@ -121,7 +121,7 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
       if (q && !r.name.toLowerCase().includes(q) && !r.email.toLowerCase().includes(q)) {
         return false;
       }
-      if (filter === "active" && r.activeDealCount === 0) return false;
+      if (filter === "active" && r.activeProjectCount === 0) return false;
       if (filter === "recent" && !isRecent(r.lastActivity)) return false;
       return true;
     });
@@ -199,7 +199,7 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
           </h1>
           <p className="mt-3 max-w-xl text-sm text-[rgb(var(--fg-secondary))]">
             Everyone who&apos;s booked you, signed a contract, or been added by hand. Send a
-            magic link, open their deals, see recent activity.
+            magic link, open their projects, see recent activity.
           </p>
         </div>
         <Button
@@ -349,8 +349,8 @@ export function ClientsList({ initial }: { initial: ClientRow[] }) {
               name: res.data.name,
               firstSeenAt: now,
               lastSeenAt: now,
-              activeDealCount: 0,
-              totalDealCount: 0,
+              activeProjectCount: 0,
+              totalProjectCount: 0,
               lastActivity: now,
             };
             if (res.data.existed) {
@@ -454,13 +454,13 @@ function DesktopRow({
       </td>
       <td className="px-3 py-0 font-mono text-xs text-[rgb(var(--fg-secondary))]">{row.email}</td>
       <td className="px-3 py-0 sk-num">
-        {row.activeDealCount > 0 ? (
-          <span className="text-[rgb(var(--brand-primary))]">{row.activeDealCount}</span>
+        {row.activeProjectCount > 0 ? (
+          <span className="text-[rgb(var(--brand-primary))]">{row.activeProjectCount}</span>
         ) : (
           <span className="text-[rgb(var(--fg-muted))]">0</span>
         )}
       </td>
-      <td className="px-3 py-0 sk-num text-[rgb(var(--fg-secondary))]">{row.totalDealCount}</td>
+      <td className="px-3 py-0 sk-num text-[rgb(var(--fg-secondary))]">{row.totalProjectCount}</td>
       <td className="px-3 py-0 text-[rgb(var(--fg-secondary))]">
         {formatRelative(row.lastActivity)}
       </td>
@@ -503,15 +503,15 @@ function MobileCard({
               {row.email}
             </p>
           </div>
-          {row.activeDealCount > 0 ? (
+          {row.activeProjectCount > 0 ? (
             <span className="shrink-0 rounded-full bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[0.65rem] uppercase tracking-wider text-[rgb(var(--brand-primary))]">
-              {row.activeDealCount} active
+              {row.activeProjectCount} active
             </span>
           ) : null}
         </div>
         <dl className="mt-4 grid grid-cols-3 gap-3 text-center">
-          <Stat label="Active" value={String(row.activeDealCount)} />
-          <Stat label="Total" value={String(row.totalDealCount)} />
+          <Stat label="Active" value={String(row.activeProjectCount)} />
+          <Stat label="Total" value={String(row.totalProjectCount)} />
           <Stat label="Last" value={formatRelative(row.lastActivity)} />
         </dl>
       </Link>
@@ -571,7 +571,7 @@ function RowActions({
 
   const remove = useCallback(() => {
     const confirmed = window.confirm(
-      `Delete ${row.name}? Their deals and contracts stay — only this contact entry is removed.`,
+      `Delete ${row.name}? Their projects and contracts stay — only this contact entry is removed.`,
     );
     if (!confirmed) return;
     startTransition(async () => {

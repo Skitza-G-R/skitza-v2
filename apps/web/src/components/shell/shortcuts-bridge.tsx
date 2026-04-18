@@ -24,7 +24,7 @@ export function ShortcutsBridge() {
     window.dispatchEvent(new CustomEvent("skitza:toggle-sidebar"));
   }, []);
   const createContextAware = useCallback(() => {
-    // Default target is "new deal" — pipeline is the busiest surface,
+    // Default target is "new project" — pipeline is the busiest surface,
     // so it's the pragmatic fallback when nothing else matches.
     if (pathname === "/dashboard/clients") {
       // Clients list listens for this and pops its "Add client" sheet.
@@ -39,7 +39,7 @@ export function ShortcutsBridge() {
       router.push("/dashboard/portfolio");
       return;
     }
-    router.push("/dashboard/deals/new");
+    router.push("/dashboard/projects/new");
   }, [pathname, router]);
 
   const handlers = useMemo(

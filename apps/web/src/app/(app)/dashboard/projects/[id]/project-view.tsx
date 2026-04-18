@@ -12,12 +12,12 @@ import { EmptyState } from "~/components/ui/empty-state";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import {
-  addDealTrack,
+  addProjectTrack,
   addProducerComment,
   addTrackVersion,
   approveVersionAction,
   resolveVersionComment,
-  setDealPaid,
+  setProjectPaid,
   setStageAction,
 } from "../actions";
 
@@ -43,7 +43,7 @@ const STAGE_LABEL: Record<Stage, string> = {
   archived: "Archived",
 };
 
-interface Deal {
+interface Project {
   id: string;
   title: string;
   stage: Stage;
@@ -147,14 +147,14 @@ export function hasStemsSibling(
 }
 
 // ─── Main ────────────────────────────────────────────────────────────
-export function DealView({
-  deal,
+export function ProjectView({
+  project,
   tracks,
   versions,
   comments,
   contracts,
 }: {
-  deal: Deal;
+  project: Project;
   tracks: Track[];
   versions: Version[];
   comments: CommentRow[];
@@ -170,7 +170,7 @@ export function DealView({
     if (id === "overview") params.delete("tab");
     else params.set("tab", id);
     const qs = params.toString();
-    router.replace(`/dashboard/deals/${deal.id}${qs ? `?${qs}` : ""}`, { scroll: false });
+    router.replace(`/dashboard/projects/${project.id}${qs ? `?${qs}` : ""}`, { scroll: false });
   }
 
   return (
@@ -188,22 +188,22 @@ export function DealView({
               className="font-display text-4xl leading-tight tracking-tight sm:text-5xl"
               style={{ fontWeight: 800 }}
             >
-              {deal.title}
+              {project.title}
             </h1>
             <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-              {deal.artistName}
+              {project.artistName}
               <span className="ml-2 font-mono text-xs text-[rgb(var(--fg-muted))]">
-                {deal.artistEmail}
+                {project.artistEmail}
               </span>
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="neutral">{STAGE_LABEL[deal.stage]}</Badge>
-            {deal.finalPaid ? (
+            <Badge variant="neutral">{STAGE_LABEL[project.stage]}</Badge>
+            {project.finalPaid ? (
               <Badge variant="active" dot>
                 Final paid
               </Badge>
-            ) : deal.depositPaid ? (
+            ) : project.depositPaid ? (
               <Badge variant="warning" dot>
                 Deposit paid
               </Badge>
@@ -216,7 +216,7 @@ export function DealView({
 
       {/* Tab bar */}
       <nav
-        aria-label="Deal sections"
+        aria-label="Project sections"
         role="tablist"
         className="mt-8 flex gap-1 overflow-x-auto border-b border-[rgb(var(--border-subtle))]"
       >
@@ -249,17 +249,17 @@ export function DealView({
       <div className="mt-6">
         {activeTab === "overview" ? (
           <OverviewTab
-            deal={deal}
+            project={project}
             trackCount={tracks.length}
             versionCount={versions.length}
             contractCount={contracts.length}
           />
         ) : null}
         {activeTab === "audio" ? (
-          <AudioTab deal={deal} tracks={tracks} versions={versions} comments={comments} />
+          <AudioTab project={project} tracks={tracks} versions={versions} comments={comments} />
         ) : null}
         {activeTab === "contract" ? (
-          <ContractTab dealId={deal.id} contracts={contracts} />
+          <ContractTab projectId={project.id} contracts={contracts} />
         ) : null}
         {activeTab === "invoices" ? <InvoicesTab /> : null}
         {activeTab === "activity" ? (
@@ -272,12 +272,12 @@ export function DealView({
 
 // ─── Overview tab ────────────────────────────────────────────────────
 function OverviewTab({
-  deal,
+  project,
   trackCount,
   versionCount,
   contractCount,
 }: {
-  deal: Deal;
+  project: Project;
   trackCount: number;
   versionCount: number;
   contractCount: number;
@@ -285,15 +285,15 @@ function OverviewTab({
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
-  const [stage, setStage] = useState<Stage>(deal.stage);
-  const [d, setD] = useState(deal.depositPaid);
-  const [f, setF] = useState(deal.finalPaid);
+  const [stage, setStage] = useState<Stage>(project.stage);
+  const [d, setD] = useState(project.depositPaid);
+  const [f, setF] = useState(project.finalPaid);
 
   function onStageChange(next: Stage) {
     const prev = stage;
     setStage(next);
     startTransition(async () => {
-      const res = await setStageAction({ id: deal.id, stage: next });
+      const res = await setStageAction({ id: project.id, stage: next });
       if (!res.ok) {
         setStage(prev);
         toast(res.error, "error");
@@ -308,7 +308,7 @@ function OverviewTab({
     if (kind === "deposit") setD(value);
     else setF(value);
     startTransition(async () => {
-      const res = await setDealPaid({ dealId: deal.id, kind, paid: value });
+      const res = await setProjectPaid({ projectId: project.id, kind, paid: value });
       if (!res.ok) {
         if (kind === "deposit") setD(!value);
         else setF(!value);
@@ -363,7 +363,7 @@ function OverviewTab({
             ))}
           </select>
           <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
-            Change to move the deal through the pipeline.
+            Change to move the project through the pipeline.
           </p>
         </div>
       </div>
@@ -376,27 +376,27 @@ function OverviewTab({
           <div>
             <dt className="text-xs text-[rgb(var(--fg-muted))]">Name</dt>
             <dd className="mt-0.5 text-sm text-[rgb(var(--fg-primary))]">
-              {deal.clientName ?? deal.artistName}
+              {project.clientName ?? project.artistName}
             </dd>
           </div>
           <div>
             <dt className="text-xs text-[rgb(var(--fg-muted))]">Email</dt>
             <dd className="mt-0.5 font-mono text-xs text-[rgb(var(--fg-primary))]">
-              {deal.clientEmail ?? deal.artistEmail}
+              {project.clientEmail ?? project.artistEmail}
             </dd>
           </div>
-          {deal.clientName && deal.clientName !== deal.artistName ? (
+          {project.clientName && project.clientName !== project.artistName ? (
             <>
               <div>
                 <dt className="text-xs text-[rgb(var(--fg-muted))]">Artist (credited)</dt>
                 <dd className="mt-0.5 text-sm text-[rgb(var(--fg-primary))]">
-                  {deal.artistName}
+                  {project.artistName}
                 </dd>
               </div>
               <div>
                 <dt className="text-xs text-[rgb(var(--fg-muted))]">Artist email</dt>
                 <dd className="mt-0.5 font-mono text-xs text-[rgb(var(--fg-primary))]">
-                  {deal.artistEmail}
+                  {project.artistEmail}
                 </dd>
               </div>
             </>
@@ -444,11 +444,11 @@ function OverviewTab({
         <dl className="mt-3 grid gap-3 sm:grid-cols-2 font-mono text-xs">
           <div>
             <dt className="text-[rgb(var(--fg-muted))]">Created</dt>
-            <dd className="mt-0.5 text-[rgb(var(--fg-primary))]">{fmtDateTime(deal.createdAt)}</dd>
+            <dd className="mt-0.5 text-[rgb(var(--fg-primary))]">{fmtDateTime(project.createdAt)}</dd>
           </div>
           <div>
             <dt className="text-[rgb(var(--fg-muted))]">Last activity</dt>
-            <dd className="mt-0.5 text-[rgb(var(--fg-primary))]">{fmtDateTime(deal.updatedAt)}</dd>
+            <dd className="mt-0.5 text-[rgb(var(--fg-primary))]">{fmtDateTime(project.updatedAt)}</dd>
           </div>
         </dl>
       </div>
@@ -474,12 +474,12 @@ function StatBlock({ label, value }: { label: string; value: string }) {
 
 // ─── Audio tab ───────────────────────────────────────────────────────
 function AudioTab({
-  deal,
+  project,
   tracks,
   versions,
   comments,
 }: {
-  deal: Deal;
+  project: Project;
   tracks: Track[];
   versions: Version[];
   comments: CommentRow[];
@@ -512,8 +512,8 @@ function AudioTab({
     const title = newTrackTitle.trim();
     if (!title) return;
     startTransition(async () => {
-      const res = await addDealTrack({
-        dealId: deal.id,
+      const res = await addProjectTrack({
+        projectId: project.id,
         title,
         ...(newTrackArtist.trim() ? { artist: newTrackArtist.trim() } : {}),
       });
@@ -534,7 +534,7 @@ function AudioTab({
     const label = newVersionLabel.trim();
     if (!label) return;
     startTransition(async () => {
-      const res = await addTrackVersion({ dealId: deal.id, trackId, label, audioUrl: null });
+      const res = await addTrackVersion({ projectId: project.id, trackId, label, audioUrl: null });
       if (res.ok) {
         toast(`Version "${label}" added — drop your file to upload.`, "success");
         setNewVersionLabel("");
@@ -549,7 +549,7 @@ function AudioTab({
 
   function onResolve(id: string, resolved: boolean) {
     startTransition(async () => {
-      const res = await resolveVersionComment({ dealId: deal.id, id, resolved });
+      const res = await resolveVersionComment({ projectId: project.id, id, resolved });
       if (res.ok) {
         toast(resolved ? "Comment resolved." : "Re-opened.", "success");
         router.refresh();
@@ -670,7 +670,7 @@ function AudioTab({
                       : "upload pending"}
                   </p>
                   <ApproveControl
-                    dealId={deal.id}
+                    projectId={project.id}
                     version={selectedVersion}
                     siblings={tVersions}
                   />
@@ -780,7 +780,7 @@ function AudioTab({
                   </div>
                 ))}
                 <ProducerReplyForm
-                  dealId={deal.id}
+                  projectId={project.id}
                   versionId={selectedVersion.id}
                   onDone={() => {
                     router.refresh();
@@ -859,11 +859,11 @@ function AudioTab({
 }
 
 function ProducerReplyForm({
-  dealId,
+  projectId,
   versionId,
   onDone,
 }: {
-  dealId: string;
+  projectId: string;
   versionId: string;
   onDone: () => void;
 }) {
@@ -879,7 +879,7 @@ function ProducerReplyForm({
     const secs = Math.max(0, Number(timestampSec) || 0);
     startTransition(async () => {
       const res = await addProducerComment({
-        dealId,
+        projectId,
         versionId,
         body: text,
         timestampMs: Math.round(secs * 1000),
@@ -934,11 +934,11 @@ function ProducerReplyForm({
 // detects a stems sibling already exists, the "Stems?" link hides (the
 // notification is already resolved from the UX's perspective).
 function ApproveControl({
-  dealId,
+  projectId,
   version,
   siblings,
 }: {
-  dealId: string;
+  projectId: string;
   version: Version;
   siblings: Version[];
 }) {
@@ -949,7 +949,7 @@ function ApproveControl({
   function toggle(approved: boolean) {
     startTransition(async () => {
       const res = await approveVersionAction({
-        dealId,
+        projectId,
         versionId: version.id,
         approved,
       });
@@ -1030,10 +1030,10 @@ function ApproveControl({
 
 // ─── Contract tab ────────────────────────────────────────────────────
 function ContractTab({
-  dealId,
+  projectId,
   contracts,
 }: {
-  dealId: string;
+  projectId: string;
   contracts: ContractRow[];
 }) {
   return (
@@ -1052,14 +1052,14 @@ function ContractTab({
             Sign before you start. One signing URL per artist.
           </p>
         </div>
-        <Link href={`/dashboard/contracts/new?dealId=${dealId}`}>
+        <Link href={`/dashboard/contracts/new?projectId=${projectId}`}>
           <Button size="sm">+ New contract</Button>
         </Link>
       </div>
 
       {contracts.length === 0 ? (
         <EmptyState
-          title="No contracts for this deal yet."
+          title="No contracts for this project yet."
           description="Send a template-backed contract for signing. The artist gets a single signing URL with an audit trail on every view + sign."
         />
       ) : (
@@ -1222,7 +1222,7 @@ function ActivityTab({
         </ol>
       )}
       <p className="mt-4 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
-        TODO: contract send/view/sign events land here once the deal_events table is wired.
+        TODO: contract send/view/sign events land here once the project_events table is wired.
       </p>
     </section>
   );

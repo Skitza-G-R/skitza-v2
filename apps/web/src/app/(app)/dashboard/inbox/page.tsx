@@ -29,7 +29,7 @@ export default async function InboxPage({ searchParams }: PageProps) {
     kind: r.kind,
     title: r.title,
     body: r.body,
-    dealId: r.dealId,
+    projectId: r.projectId,
     trackVersionId: r.trackVersionId,
     commentId: r.commentId,
     contractId: r.contractId,

@@ -7,7 +7,7 @@ import { AppShell } from "~/components/shell/app-shell";
 import { Button } from "~/components/ui/button";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { Kanban, type KanbanDeal } from "./kanban";
+import { Kanban, type KanbanProject } from "./kanban";
 import { STAGES, type Stage } from "./kanban-helpers";
 import { detectOnboardingState } from "./onboarding/detect";
 import { RevenueTile } from "./revenue-tile";
@@ -36,16 +36,17 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   const caller = appRouter.createCaller({ userId });
   const [grouped, upcomingRows, me] = await Promise.all([
-    caller.deal.listByStage(),
+    caller.project.listByStage(),
     caller.booking.upcoming({ days: 7 }),
     caller.producer.me(),
   ]);
 
-  // Project the tRPC response onto the narrower KanbanDeal shape. Two
-  // reasons to do this server-side: (1) keep the client bundle free of
-  // db-layer types, (2) stability — the client only cares about the
-  // six fields below, and insulating it from schema churn is cheap.
-  const initial = STAGES.reduce<Record<Stage, KanbanDeal[]>>(
+  // Project the tRPC response onto the narrower KanbanProject shape.
+  // Two reasons to do this server-side: (1) keep the client bundle
+  // free of db-layer types, (2) stability — the client only cares
+  // about the six fields below, and insulating it from schema churn
+  // is cheap.
+  const initial = STAGES.reduce<Record<Stage, KanbanProject[]>>(
     (acc, stage) => {
       acc[stage] = grouped[stage].map((d) => ({
         id: d.id,
@@ -102,16 +103,16 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               style={{ fontVariationSettings: '"opsz" 96' }}
             >
               {total === 0
-                ? "Your deals, start to finish."
-                : `${total.toString()} ${total === 1 ? "deal" : "deals"} in flight.`}
+                ? "Your projects, start to finish."
+                : `${total.toString()} ${total === 1 ? "project" : "projects"} in flight.`}
             </h1>
             <p className="mt-2 max-w-xl text-sm text-[rgb(var(--fg-secondary))]">
-              Drag a card across columns to move the deal through its stage. Each card
+              Drag a card across columns to move the project through its stage. Each card
               drills into its own room — tracks, versions, feedback, contract, invoices.
             </p>
           </div>
-          <Link href="/dashboard/deals/new">
-            <Button>+ New deal</Button>
+          <Link href="/dashboard/projects/new">
+            <Button>+ New project</Button>
           </Link>
         </header>
 

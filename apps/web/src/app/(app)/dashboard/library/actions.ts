@@ -8,8 +8,8 @@ import { ZodError } from "zod";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Server Actions for the Library page. Mirrors the shape used in
-// dashboard/deals/actions.ts so error messages stay consistent across
-// surfaces.
+// dashboard/projects/actions.ts so error messages stay consistent
+// across surfaces.
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -51,8 +51,8 @@ export async function fetchVersionDetail(input: {
       durationMs: number | null;
       uploadedAt: Date;
     };
-    track: { id: string; title: string; dealId: string };
-    deal: { id: string; title: string; artistName: string };
+    track: { id: string; title: string; projectId: string };
+    project: { id: string; title: string; artistName: string };
     comments: Array<{
       id: string;
       versionId: string;
@@ -96,7 +96,7 @@ export async function addLibraryComment(input: {
   if (!userId) return { ok: false, error: "Please sign in to continue." };
   try {
     const caller = appRouter.createCaller({ userId });
-    const row = await caller.deal.addProducerComment({
+    const row = await caller.project.addProducerComment({
       versionId: input.versionId,
       body: input.body,
       timestampMs: input.timestampMs,
@@ -118,7 +118,7 @@ export async function resolveLibraryComment(input: {
   if (!userId) return { ok: false, error: "Please sign in to continue." };
   try {
     const caller = appRouter.createCaller({ userId });
-    await caller.deal.resolveComment(input);
+    await caller.project.resolveComment(input);
     revalidatePath("/dashboard/library");
     return { ok: true, data: { ok: true } };
   } catch (err) {

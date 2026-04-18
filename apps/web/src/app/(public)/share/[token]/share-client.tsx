@@ -36,7 +36,7 @@ export interface Comment {
   createdAt: Date;
 }
 
-export interface Deal {
+export interface Project {
   id: string;
   title: string;
   artistName: string;
@@ -55,13 +55,13 @@ function formatMs(ms: number): string {
 
 interface Props {
   token: string;
-  deal: Deal;
+  project: Project;
   tracks: Track[];
   versions: Version[];
   comments: Comment[];
 }
 
-export function ShareClient({ token, deal, tracks, versions, comments }: Props) {
+export function ShareClient({ token, project, tracks, versions, comments }: Props) {
   const [pending, startTransition] = useTransition();
 
   // Remember selected version per track. Defaults to latest (first in
@@ -87,11 +87,11 @@ export function ShareClient({ token, deal, tracks, versions, comments }: Props) 
             <span className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
               Payment
             </span>
-            {deal.finalPaid ? (
+            {project.finalPaid ? (
               <Badge variant="active" dot>
                 Final paid · downloads unlocked
               </Badge>
-            ) : deal.depositPaid ? (
+            ) : project.depositPaid ? (
               <Badge variant="warning" dot>
                 Deposit paid · final pending
               </Badge>
@@ -99,7 +99,7 @@ export function ShareClient({ token, deal, tracks, versions, comments }: Props) 
               <Badge dot>Unpaid · downloads locked</Badge>
             )}
           </div>
-          {!deal.finalPaid ? (
+          {!project.finalPaid ? (
             <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
               Final mixes unlock when the invoice clears.
             </p>
@@ -113,7 +113,7 @@ export function ShareClient({ token, deal, tracks, versions, comments }: Props) 
             Nothing to review yet.
           </p>
           <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-            {deal.producerName} hasn&apos;t uploaded tracks yet. Check back soon.
+            {project.producerName} hasn&apos;t uploaded tracks yet. Check back soon.
           </p>
         </div>
       ) : null}
@@ -175,7 +175,7 @@ export function ShareClient({ token, deal, tracks, versions, comments }: Props) 
               </div>
             ) : (
               <p className="mb-4 text-sm text-[rgb(var(--fg-secondary))]">
-                {deal.producerName} will post versions here as they progress.
+                {project.producerName} will post versions here as they progress.
               </p>
             )}
 
@@ -188,7 +188,7 @@ export function ShareClient({ token, deal, tracks, versions, comments }: Props) 
                   src={selectedVersion.audioUrl}
                   title={t.title}
                   version={selectedVersion}
-                  finalPaid={deal.finalPaid}
+                  finalPaid={project.finalPaid}
                 />
               ) : (
                 <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-4 py-6 text-center">
@@ -196,7 +196,7 @@ export function ShareClient({ token, deal, tracks, versions, comments }: Props) 
                     Upload pending
                   </p>
                   <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-                    {deal.producerName} is still uploading this version.
+                    {project.producerName} is still uploading this version.
                   </p>
                 </div>
               )
@@ -231,7 +231,7 @@ export function ShareClient({ token, deal, tracks, versions, comments }: Props) 
                           {c.authorName}
                         </span>
                         {c.fromProducer ? (
-                          <Badge variant="accent">{deal.producerName}</Badge>
+                          <Badge variant="accent">{project.producerName}</Badge>
                         ) : null}
                         {c.resolvedAt ? (
                           <Badge variant="active" dot>

@@ -10,10 +10,10 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // the client) so the palette bundle stays small and hydration-free.
 // Empty query returns recents; non-empty runs the fuzzy search.
 export type PaletteResult = {
-  deals: Array<{ id: string; title: string; stage: string }>;
+  projects: Array<{ id: string; title: string; stage: string }>;
   contacts: Array<{ id: string; name: string; email: string }>;
   contracts: Array<{ id: string; title: string; status: string }>;
-  tracks: Array<{ id: string; title: string; label: string; dealId: string }>;
+  tracks: Array<{ id: string; title: string; label: string; projectId: string }>;
 };
 
 export async function paletteSearch(

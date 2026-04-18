@@ -10,12 +10,12 @@ import { appRouter } from "~/server/trpc/routers/_app";
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
-// Kanban lives at /dashboard (C.4) — the old /dashboard/deals list
-// page is gone, so revalidating there would be a no-op. We point the
-// list-path revalidations at the Kanban root instead.
+// Kanban lives at /dashboard — the /dashboard/projects list page is
+// gone, so revalidating there would be a no-op. We point the list-path
+// revalidations at the Kanban root instead.
 const PATH_LIST = "/dashboard";
 function pathDetail(id: string): string {
-  return `/dashboard/deals/${id}`;
+  return `/dashboard/projects/${id}`;
 }
 
 async function callerOrError(): Promise<
@@ -62,7 +62,7 @@ type Stage =
   | "paid"
   | "archived";
 
-export async function createDeal(input: {
+export async function createProject(input: {
   title: string;
   artistName: string;
   artistEmail: string;
@@ -71,24 +71,24 @@ export async function createDeal(input: {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    const res = await c.caller.deal.create(input);
+    const res = await c.caller.project.create(input);
     revalidatePath(PATH_LIST);
-    return { ok: true, data: { id: res.deal.id, shareToken: res.shareToken } };
+    return { ok: true, data: { id: res.project.id, shareToken: res.shareToken } };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }
 }
 
-export async function addDealTrack(input: {
-  dealId: string;
+export async function addProjectTrack(input: {
+  projectId: string;
   title: string;
   artist?: string;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.deal.addTrack(input);
-    revalidatePath(pathDetail(input.dealId));
+    await c.caller.project.addTrack(input);
+    revalidatePath(pathDetail(input.projectId));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -96,7 +96,7 @@ export async function addDealTrack(input: {
 }
 
 export async function addTrackVersion(input: {
-  dealId: string;
+  projectId: string;
   trackId: string;
   label: string;
   // Nullable: "create row first, upload into it" flow passes null and
@@ -106,32 +106,32 @@ export async function addTrackVersion(input: {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    const row = await c.caller.deal.addVersion({
+    const row = await c.caller.project.addVersion({
       trackId: input.trackId,
       label: input.label,
       audioUrl: input.audioUrl,
     });
-    revalidatePath(pathDetail(input.dealId));
+    revalidatePath(pathDetail(input.projectId));
     return { ok: true, data: { id: row.id } };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }
 }
 
-export async function setDealPaid(input: {
-  dealId: string;
+export async function setProjectPaid(input: {
+  projectId: string;
   kind: "deposit" | "final";
   paid: boolean;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.deal.setPaid({
-      dealId: input.dealId,
+    await c.caller.project.setPaid({
+      projectId: input.projectId,
       kind: input.kind,
       value: input.paid,
     });
-    revalidatePath(pathDetail(input.dealId));
+    revalidatePath(pathDetail(input.projectId));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -139,15 +139,15 @@ export async function setDealPaid(input: {
 }
 
 export async function resolveVersionComment(input: {
-  dealId: string;
+  projectId: string;
   id: string;
   resolved: boolean;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.deal.resolveComment({ id: input.id, resolved: input.resolved });
-    revalidatePath(pathDetail(input.dealId));
+    await c.caller.project.resolveComment({ id: input.id, resolved: input.resolved });
+    revalidatePath(pathDetail(input.projectId));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -155,7 +155,7 @@ export async function resolveVersionComment(input: {
 }
 
 export async function addProducerComment(input: {
-  dealId: string;
+  projectId: string;
   versionId: string;
   body: string;
   timestampMs: number;
@@ -163,12 +163,12 @@ export async function addProducerComment(input: {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.deal.addProducerComment({
+    await c.caller.project.addProducerComment({
       versionId: input.versionId,
       body: input.body,
       timestampMs: input.timestampMs,
     });
-    revalidatePath(pathDetail(input.dealId));
+    revalidatePath(pathDetail(input.projectId));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -176,18 +176,18 @@ export async function addProducerComment(input: {
 }
 
 export async function approveVersionAction(input: {
-  dealId: string;
+  projectId: string;
   versionId: string;
   approved: boolean;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.deal.approveVersion({
+    await c.caller.project.approveVersion({
       versionId: input.versionId,
       approved: input.approved,
     });
-    revalidatePath(pathDetail(input.dealId));
+    revalidatePath(pathDetail(input.projectId));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -201,7 +201,7 @@ export async function setStageAction(input: {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.deal.setStage(input);
+    await c.caller.project.setStage(input);
     revalidatePath(pathDetail(input.id));
     revalidatePath(PATH_LIST);
     return { ok: true };

@@ -22,13 +22,13 @@ type Contact = {
 };
 
 type Stats = {
-  activeDealCount: number;
-  totalDealCount: number;
+  activeProjectCount: number;
+  totalProjectCount: number;
   trackCount: number;
   lastActivity: Date | string;
 };
 
-type DealRow = {
+type ProjectRow = {
   id: string;
   title: string;
   stage:
@@ -58,7 +58,7 @@ type CommentRow = {
   id: string;
   versionId: string;
   trackId: string;
-  dealId: string;
+  projectId: string;
   body: string;
   timestampMs: number;
   createdAt: Date | string;
@@ -67,7 +67,7 @@ type CommentRow = {
 
 // Chronological timeline event — union of every activity kind we surface.
 type TimelineEvent =
-  | { kind: "deal"; at: Date; deal: DealRow }
+  | { kind: "project"; at: Date; project: ProjectRow }
   | { kind: "contract"; at: Date; contract: ContractRow; eventName: string }
   | { kind: "comment"; at: Date; comment: CommentRow };
 
@@ -97,7 +97,7 @@ function formatRelative(v: Date | string | null | undefined): string {
   return dateFmt.format(d);
 }
 
-const STAGE_LABEL: Record<DealRow["stage"], string> = {
+const STAGE_LABEL: Record<ProjectRow["stage"], string> = {
   lead: "Lead",
   booked: "Booked",
   contract_sent: "Contract sent",
@@ -110,13 +110,13 @@ const STAGE_LABEL: Record<DealRow["stage"], string> = {
 export function ClientTimeline({
   contact,
   stats,
-  deals,
+  projects,
   contracts,
   comments,
 }: {
   contact: Contact;
   stats: Stats;
-  deals: DealRow[];
+  projects: ProjectRow[];
   contracts: ContractRow[];
   comments: CommentRow[];
 }) {
@@ -133,10 +133,10 @@ export function ClientTimeline({
   const [editEmail, setEditEmail] = useState(contact.email);
 
   const timeline: TimelineEvent[] = [
-    ...deals.map((d) => ({
-      kind: "deal" as const,
+    ...projects.map((d) => ({
+      kind: "project" as const,
       at: toDate(d.createdAt) ?? new Date(0),
-      deal: d,
+      project: d,
     })),
     ...contracts.flatMap<TimelineEvent>((c) => {
       const events: TimelineEvent[] = [
@@ -201,7 +201,7 @@ export function ClientTimeline({
 
   const remove = useCallback(() => {
     const confirmed = window.confirm(
-      `Delete ${contact.name}? Their deals and contracts stay — only this contact entry is removed.`,
+      `Delete ${contact.name}? Their projects and contracts stay — only this contact entry is removed.`,
     );
     if (!confirmed) return;
     startTransition(async () => {
@@ -238,9 +238,9 @@ export function ClientTimeline({
     });
   }, [contact.id, editName, editEmail, router, toast]);
 
-  // Link to the new-deal form with email/name prefilled (supported
-  // natively by new-deal-form's autocomplete).
-  const newDealHref = `/dashboard/deals/new?email=${encodeURIComponent(
+  // Link to the new-project form with email/name prefilled (supported
+  // natively by new-project-form's autocomplete).
+  const newProjectHref = `/dashboard/projects/new?email=${encodeURIComponent(
     contact.email,
   )}&name=${encodeURIComponent(contact.name)}`;
 
@@ -373,32 +373,32 @@ export function ClientTimeline({
       ) : null}
 
       <section className="mt-8 grid gap-3 sm:grid-cols-4">
-        <StatCard label="Active deals" value={stats.activeDealCount} />
-        <StatCard label="Total deals" value={stats.totalDealCount} />
+        <StatCard label="Active projects" value={stats.activeProjectCount} />
+        <StatCard label="Total projects" value={stats.totalProjectCount} />
         <StatCard label="Track versions" value={stats.trackCount} />
         <StatCard label="Last active" value={formatRelative(stats.lastActivity)} />
       </section>
 
       <section className="mt-8">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="font-display text-2xl text-[rgb(var(--fg-primary))]">Deals</h2>
+          <h2 className="font-display text-2xl text-[rgb(var(--fg-primary))]">Projects</h2>
           <Link
-            href={newDealHref}
+            href={newProjectHref}
             className="inline-flex h-9 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-3 text-sm font-medium text-[rgb(var(--fg-inverse))] shadow-[inset_0_1px_0_0_rgb(255_255_255_/_0.15)] hover:brightness-[1.06]"
           >
-            + New deal
+            + New project
           </Link>
         </div>
-        {deals.length === 0 ? (
+        {projects.length === 0 ? (
           <p className="mt-3 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-4 text-sm text-[rgb(var(--fg-secondary))]">
-            No deals with {contact.name} yet. Start one — their email is pre-filled.
+            No projects with {contact.name} yet. Start one — their email is pre-filled.
           </p>
         ) : (
           <ul className="mt-3 divide-y divide-[rgb(var(--border-subtle))] overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))]">
-            {deals.map((d) => (
+            {projects.map((d) => (
               <li key={d.id}>
                 <Link
-                  href={`/dashboard/deals/${d.id}`}
+                  href={`/dashboard/projects/${d.id}`}
                   className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[rgb(var(--bg-overlay))]"
                 >
                   <div className="min-w-0 flex-1">
@@ -421,7 +421,7 @@ export function ClientTimeline({
         <h2 className="font-display text-2xl text-[rgb(var(--fg-primary))]">Timeline</h2>
         {timeline.length === 0 ? (
           <p className="mt-3 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-4 text-sm text-[rgb(var(--fg-secondary))]">
-            Nothing here yet. Events (deals, contracts, comments) will appear as they happen.
+            Nothing here yet. Events (projects, contracts, comments) will appear as they happen.
           </p>
         ) : (
           <ol className="mt-3 space-y-3">
@@ -447,20 +447,20 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
 }
 
 function TimelineRow({ event }: { event: TimelineEvent }) {
-  if (event.kind === "deal") {
+  if (event.kind === "project") {
     return (
       <li className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
         <p className="font-mono text-[0.65rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-          {formatRelative(event.at)} · Deal created
+          {formatRelative(event.at)} · Project created
         </p>
         <Link
-          href={`/dashboard/deals/${event.deal.id}`}
+          href={`/dashboard/projects/${event.project.id}`}
           className="mt-1 block font-medium text-[rgb(var(--fg-primary))] hover:underline"
         >
-          {event.deal.title}
+          {event.project.title}
         </Link>
         <p className="mt-0.5 font-mono text-[0.7rem] text-[rgb(var(--fg-secondary))]">
-          {STAGE_LABEL[event.deal.stage]}
+          {STAGE_LABEL[event.project.stage]}
         </p>
       </li>
     );
@@ -491,10 +491,10 @@ function TimelineRow({ event }: { event: TimelineEvent }) {
       </p>
       <p className="mt-1 text-sm text-[rgb(var(--fg-primary))]">{event.comment.body}</p>
       <Link
-        href={`/dashboard/deals/${event.comment.dealId}`}
+        href={`/dashboard/projects/${event.comment.projectId}`}
         className="mt-2 inline-block font-mono text-[0.7rem] text-[rgb(var(--brand-primary))] hover:underline"
       >
-        Open deal →
+        Open project →
       </Link>
     </li>
   );

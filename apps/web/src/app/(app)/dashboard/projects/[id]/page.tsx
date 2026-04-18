@@ -3,11 +3,11 @@ import { auth } from "@clerk/nextjs/server";
 
 import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
-import { DealView } from "./deal-view";
+import { ProjectView } from "./project-view";
 
 type PageProps = { params: Promise<{ id: string }> };
 
-export default async function DealDetail({ params }: PageProps) {
+export default async function ProjectDetail({ params }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const { id } = await params;
@@ -15,16 +15,15 @@ export default async function DealDetail({ params }: PageProps) {
   const caller = appRouter.createCaller({ userId });
   let data;
   try {
-    data = await caller.deal.detail({ id });
+    data = await caller.project.detail({ id });
   } catch {
     notFound();
   }
 
-  // Contracts: try listing all producer contracts and client-filter by
-  // contract.projectId (the column still has the legacy name but FKs
-  // deals.id after C.1). Degrade gracefully if the router errors
+  // Contracts: list all producer contracts and client-filter by
+  // contract.projectId. Degrade gracefully if the router errors
   // (cross-branch schema skew).
-  let contractsForDeal: {
+  let contractsForProject: {
     id: string;
     title: string;
     status: string;
@@ -33,8 +32,8 @@ export default async function DealDetail({ params }: PageProps) {
   }[] = [];
   try {
     const all = await caller.contract.list();
-    contractsForDeal = all
-      .filter((c) => c.dealId === id)
+    contractsForProject = all
+      .filter((c) => c.projectId === id)
       .map((c) => ({
         id: c.id,
         title: c.title,
@@ -43,24 +42,24 @@ export default async function DealDetail({ params }: PageProps) {
         signedAt: c.signedAt,
       }));
   } catch {
-    contractsForDeal = [];
+    contractsForProject = [];
   }
 
   return (
     <AppShell active="pipeline">
-      <DealView
-        deal={{
-          id: data.deal.id,
-          title: data.deal.title,
-          stage: data.deal.stage,
-          artistName: data.deal.artistName,
-          artistEmail: data.deal.artistEmail,
-          clientName: data.deal.clientName,
-          clientEmail: data.deal.clientEmail,
-          depositPaid: data.deal.depositPaid,
-          finalPaid: data.deal.finalPaid,
-          createdAt: data.deal.createdAt,
-          updatedAt: data.deal.updatedAt,
+      <ProjectView
+        project={{
+          id: data.project.id,
+          title: data.project.title,
+          stage: data.project.stage,
+          artistName: data.project.artistName,
+          artistEmail: data.project.artistEmail,
+          clientName: data.project.clientName,
+          clientEmail: data.project.clientEmail,
+          depositPaid: data.project.depositPaid,
+          finalPaid: data.project.finalPaid,
+          createdAt: data.project.createdAt,
+          updatedAt: data.project.updatedAt,
         }}
         tracks={data.tracks.map((t) => ({
           id: t.id,
@@ -86,7 +85,7 @@ export default async function DealDetail({ params }: PageProps) {
           fromProducer: c.fromProducer,
           createdAt: c.createdAt,
         }))}
-        contracts={contractsForDeal}
+        contracts={contractsForProject}
       />
     </AppShell>
   );
