@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 
+import { ScrollReveal } from "./scroll-reveal";
+
 // Pricing — DARK world. 3 tiers, monthly/annual toggle (annual = 2
 // months free → 20% off badge on annual), Pro highlighted as the most
 // common mid-tier. Below the cards sits a grid of feature rows so a
@@ -63,9 +65,11 @@ export function Pricing() {
         <div className="mx-auto mt-10 block text-center" />
 
         <div className="mt-2 grid gap-4 md:grid-cols-3">
-          {TIERS.map((t) => (
-            <article
+          {TIERS.map((t, i) => (
+            <ScrollReveal
+              as="article"
               key={t.id}
+              delay={Math.min(i, 4) as 0 | 1 | 2 | 3 | 4}
               className={[
                 "sk-lift relative flex flex-col rounded-[var(--radius-lg)] border p-7",
                 t.featured
@@ -134,7 +138,7 @@ export function Pricing() {
               >
                 <span className="relative z-10">{t.cta.label}</span>
               </Link>
-            </article>
+            </ScrollReveal>
           ))}
         </div>
 
