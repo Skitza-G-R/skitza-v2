@@ -1,11 +1,13 @@
 import Link from "next/link";
+import { ArtistAudioProvider } from "./artist-audio-context";
 import { BottomNav } from "./bottom-nav";
+import { PersistentMiniPlayer } from "./persistent-mini-player";
 
 // Wraps the artist app. Header (Studio Switcher slot — Task 12 +
 // producer link when applicable) + main content + persistent
-// mini-player slot (Task 6) + bottom nav. The mini-player <audio>
-// will live in Task 6's React Context provider; for now reserve
-// 64px so BottomNav doesn't sit flush against the eventual player.
+// mini-player + bottom nav. The mini-player owns the singleton
+// <audio> element via ArtistAudioProvider, so tab navigation never
+// remounts it (Task 6).
 export function ArtistAppShell({
   isProducer,
   children,
@@ -14,29 +16,29 @@ export function ArtistAppShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]/85 px-4 py-3 backdrop-blur">
-        <div className="flex items-center gap-3">
-          {/* Studio Switcher slot — Task 12 */}
-          <span className="font-display text-lg tracking-tight">Skitza</span>
-        </div>
-        {isProducer ? (
-          <Link
-            href="/dashboard"
-            className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
-          >
-            ← Studio
-          </Link>
-        ) : null}
-      </header>
+    <ArtistAudioProvider>
+      <div className="relative min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]/85 px-4 py-3 backdrop-blur">
+          <div className="flex items-center gap-3">
+            {/* Studio Switcher slot — Task 12 */}
+            <span className="font-display text-lg tracking-tight">Skitza</span>
+          </div>
+          {isProducer ? (
+            <Link
+              href="/dashboard"
+              className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
+            >
+              ← Studio
+            </Link>
+          ) : null}
+        </header>
 
-      <main className="mx-auto max-w-2xl px-4 pb-32 pt-6 sm:pb-40">{children}</main>
+        <main className="mx-auto max-w-2xl px-4 pb-32 pt-6 sm:pb-40">{children}</main>
 
-      {/* Persistent mini-player slot — Task 6. Reserved space so
-          BottomNav doesn't sit flush against the eventual player. */}
-      <div className="fixed inset-x-0 bottom-16 z-20 h-16" id="artist-mini-player-slot" aria-hidden />
+        <PersistentMiniPlayer />
 
-      <BottomNav />
-    </div>
+        <BottomNav />
+      </div>
+    </ArtistAudioProvider>
   );
 }
