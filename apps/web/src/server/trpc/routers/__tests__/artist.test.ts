@@ -1,30 +1,63 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Marker objects so the dbMock can branch on which table the caller hit
-// (mirrors portfolio.test.ts pattern).
-const clientContactsMarker = { __table: "client_contacts" };
-const producersMarker = { __table: "producers" };
+// vi.hoisted() runs these definitions before the hoisted vi.mock() factory
+// below, so the factory can reference them safely. We keep all marker
+// objects + spies in here so they're shared between (a) the mock factory,
+// (b) the dbMock chain, and (c) the test bodies that assert against them.
+//
+// clientContactsMarker.clerkUserId is the EXACT object identity that the
+// router will pass into eq(). The auth-boundary test relies on object
+// identity to verify the WHERE clause references the right column on the
+// right table (not producers.clerkUserId — that would be a wrong-table
+// regression that data-shape tests cannot catch).
+const {
+  clientContactsMarker,
+  producersMarker,
+  studiosSelectMock,
+  whereSpy,
+  dbMock,
+} = vi.hoisted(() => {
+  const studiosSelectMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
+  const whereSpy = vi.fn<(arg: unknown) => void>();
 
-type Row = Record<string, unknown>;
-const studiosSelectMock = vi.fn<() => Promise<Row[]>>();
+  const clientContactsMarker = {
+    __table: "client_contacts",
+    clerkUserId: { __column: "client_contacts.clerk_user_id" },
+  };
+  const producersMarker = {
+    __table: "producers",
+    clerkUserId: { __column: "producers.clerk_user_id" },
+  };
 
-// The artist.studios chain shape is select.from.innerJoin.where — terminal
-// is .where() returning rows. Other artist procedures (when added) can
-// extend this routing.
-const dbMock = {
-  select: () => ({
-    from: (table: unknown) => {
-      if (table === clientContactsMarker) {
-        return {
-          innerJoin: () => ({
-            where: () => studiosSelectMock(),
-          }),
-        };
-      }
-      throw new Error(`unexpected from(${String(table)})`);
-    },
-  }),
-};
+  // The artist.studios chain shape is select.from.innerJoin.where —
+  // terminal is .where() returning rows. Other artist procedures (when
+  // added) can extend this routing.
+  const dbMock = {
+    select: () => ({
+      from: (table: unknown) => {
+        if (table === clientContactsMarker) {
+          return {
+            innerJoin: () => ({
+              where: (arg: unknown) => {
+                whereSpy(arg);
+                return studiosSelectMock();
+              },
+            }),
+          };
+        }
+        throw new Error(`unexpected from(${String(table)})`);
+      },
+    }),
+  };
+
+  return {
+    clientContactsMarker,
+    producersMarker,
+    studiosSelectMock,
+    whereSpy,
+    dbMock,
+  };
+});
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: () => Promise.resolve({ userId: "user_test_artist_1" }),
@@ -36,8 +69,15 @@ vi.mock("@skitza/db", () => ({
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
 }));
 
+// Re-import the mocked symbol so the auth-boundary test asserts the
+// router's WHERE clause references the same `clientContacts.clerkUserId`
+// the rest of the codebase imports — not the test-local marker. Both
+// resolve to the same object via the vi.mock factory above.
+import { clientContacts } from "@skitza/db";
+
 beforeEach(() => {
   studiosSelectMock.mockReset().mockResolvedValue([]);
+  whereSpy.mockReset();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -139,5 +179,24 @@ describe("artist.studios", () => {
     const caller = await buildCaller();
     const result = await caller.artist.studios();
     expect(result.studios[0]?.logoUrl).toBeNull();
+  });
+
+  it("scopes WHERE to clientContacts.clerkUserId = ctx.userId (auth boundary)", async () => {
+    // Locks two invariants the data-shaping tests cannot:
+    //   1. The WHERE column is clientContacts.clerkUserId (the
+    //      client_contacts table) — a regression to producers.clerkUserId
+    //      would silently pass shape tests. We assert by object identity
+    //      because the router imports `clientContacts` from "@skitza/db",
+    //      which is mocked to clientContactsMarker — same reference here.
+    //   2. The WHERE value is ctx.userId verbatim — no .toLowerCase(),
+    //      no truncation, no hardcoded string.
+    studiosSelectMock.mockResolvedValueOnce([]);
+    const caller = await buildCaller("user_alice");
+    await caller.artist.studios();
+
+    const whereArg = whereSpy.mock.calls[0]?.[0];
+    expect(whereArg).toEqual({
+      eq: [clientContacts.clerkUserId, "user_alice"],
+    });
   });
 });
