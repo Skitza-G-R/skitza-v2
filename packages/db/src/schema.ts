@@ -555,8 +555,16 @@ export const clientContacts = pgTable("client_contacts", {
   tags: text("tags").array(),
   notes: text("notes"),
   referralSource: text("referral_source"),
+  // Stamped by the Clerk user.created webhook on first artist sign-in.
+  // Null = client has never signed in (still uses magic links). Once
+  // stamped, the artist app can resolve all studios for this person via
+  // a single index lookup on (clerkUserId).
+  clerkUserId: text("clerk_user_id"),
 }, (t) => ({
   uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
+  clerkUserIdx: index("client_contacts_clerk_user_idx")
+    .on(t.clerkUserId)
+    .where(sql`${t.clerkUserId} IS NOT NULL`),
 }));
 
 export type ClientContact = typeof clientContacts.$inferSelect;
