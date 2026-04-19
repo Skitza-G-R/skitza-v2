@@ -158,7 +158,7 @@ describe("GET /m/[token]", () => {
     expect(where?.eq?.[1]).toBe(TOKEN_HASH);
   });
 
-  it("happy-path booking: 302s to /book/<slug>?via=<viewId>", async () => {
+  it("happy-path booking: 302s to /p/<slug>/book?via=<viewId>", async () => {
     linkLookupMock.mockResolvedValueOnce([
       {
         id: LINK_ID,
@@ -173,7 +173,7 @@ describe("GET /m/[token]", () => {
     const res = (await GET(buildRequest(), buildContext())) as unknown as RedirectMarker;
     expect(res.__kind).toBe("redirect");
     expect(res.status).toBe(302);
-    expect(res.url).toBe(`http://test/book/${PRODUCER_SLUG}?via=${VIEW_ID}`);
+    expect(res.url).toBe(`http://test/p/${PRODUCER_SLUG}/book?via=${VIEW_ID}`);
   });
 
   it("MagicTokenInvalid → 404 with no DB writes", async () => {

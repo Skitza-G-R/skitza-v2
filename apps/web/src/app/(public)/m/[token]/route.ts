@@ -67,10 +67,13 @@ export async function GET(req: Request, { params }: RouteContext): Promise<Respo
       destination = `/p/${link.producerSlug}`;
       break;
     case "booking":
-      // Task K wires up the actual /book/<slug> route; this handler still
-      // 302s there today (the user will hit a 404 page, which is the
-      // expected pre-K behavior).
-      destination = `/book/${link.producerSlug}`;
+      // Public booking page is at /p/<slug>/book (Task K+ shipped long
+      // ago). Historical note: an earlier version of this handler
+      // redirected to /book/<slug> as a placeholder while the real
+      // route was being built — that placeholder was never updated
+      // when the real route shipped, silently 404'ing every booking-
+      // target magic link ever issued until this fix.
+      destination = `/p/${link.producerSlug}/book`;
       break;
     default:
       // future: project:<uuid> targets land here. Until they're implemented
