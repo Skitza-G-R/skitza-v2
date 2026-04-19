@@ -60,8 +60,8 @@ export default async function SetupPage() {
             Your studio, dialed in.
           </h1>
           <p className="mt-3 max-w-xl text-sm text-[rgb(var(--fg-secondary))]">
-            Identity, packages, portfolio, hours, payments. One page for everything
-            that&apos;s not day-to-day client work.
+            Everything that&rsquo;s not day-to-day client work — your identity,
+            packages, portfolio, hours, and payments — lives on one page.
           </p>
           <SectionJumpBar />
         </header>
@@ -98,7 +98,7 @@ export default async function SetupPage() {
           anchor="services"
           eyebrow="Services"
           title="What you sell"
-          description="Sessions, mixing, mastering, production days. Each package is one offering with its own price, duration, and deposit rule."
+          description="Each package is one thing clients can book — sessions, mixing, mastering, production days. Set a price, a duration, and a deposit rule."
           linkHref="/dashboard/booking?tab=packages"
           linkLabel="Manage packages"
         />
@@ -114,11 +114,7 @@ export default async function SetupPage() {
           title="Your tracklist"
           description="The tracks that play on your public page. Leads land here first — give them a reason to stick around."
           linkHref={profile.slug ? `/p/${profile.slug}` : "/dashboard/settings?section=profile"}
-          linkLabel={profile.slug ? "View public page" : "Set a URL first"}
-          secondary={{
-            label: "Manage tracks (coming soon)",
-            disabled: true,
-          }}
+          linkLabel={profile.slug ? "View your public page" : "Set a URL first"}
         />
 
         {/* 4. Availability — cross-link to the booking surface's
@@ -170,22 +166,22 @@ export default async function SetupPage() {
               Your data
             </h2>
             <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-              Download everything Skitza has about you — profile, tracks, leads, magic
-              links, and all analytics — as a single JSON file.
+              Export everything we have on you — profile, tracks, leads, magic
+              links, analytics — in a single JSON file.
             </p>
           </header>
           <a
             href="/api/export"
             className="inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-4 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
           >
-            Download export (.json)
+            Download my data
           </a>
           <p className="mt-3 font-mono text-xs text-[rgb(var(--fg-muted))]">
-            Token hashes are excluded — they&apos;re one-way and of no use to you.
+            Secret token hashes are excluded — they&apos;re one-way and useless to you.
           </p>
           <p className="mt-6 text-xs text-[rgb(var(--fg-muted))]">
-            Email, password, and 2FA are managed from the avatar menu (top-right) →
-            Manage account.
+            Change email, password, or 2FA from the avatar menu (top-right) → Manage
+            account.
           </p>
         </section>
       </div>
