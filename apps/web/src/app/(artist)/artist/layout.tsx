@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { createDb, eq, producers, clientContacts } from "@skitza/db";
 import { ArtistAppShell } from "~/components/artist/artist-app-shell";
+import { appRouter } from "~/server/trpc/routers/_app";
 
 // Server component. Runs on every /artist/* navigation. Decides:
 // 1. Not signed in → /sign-in (handled by middleware, but defense-
@@ -44,5 +45,16 @@ export default async function ArtistLayout({
     redirect("/artist-welcome");
   }
 
-  return <ArtistAppShell isProducer={!!producerRow}>{children}</ArtistAppShell>;
+  // Preload the studio list so the Studio Switcher renders immediately
+  // on every /artist/* navigation instead of suspending. The tRPC
+  // procedure is the single source of truth for the dedup + sort logic
+  // (identity.groupStudiosForArtist); we just call it once here.
+  const caller = appRouter.createCaller({ userId });
+  const { studios } = await caller.artist.studios();
+
+  return (
+    <ArtistAppShell isProducer={!!producerRow} studios={studios}>
+      {children}
+    </ArtistAppShell>
+  );
 }
