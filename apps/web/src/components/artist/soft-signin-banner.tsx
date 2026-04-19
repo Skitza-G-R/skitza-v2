@@ -57,7 +57,7 @@ export function SoftSignInBanner(props: Props) {
         <div className="flex shrink-0 items-center gap-2">
           <Link
             href={`/sign-in?redirect_url=${encodeURIComponent(props.returnUrl)}`}
-            className="rounded-md bg-[rgb(var(--brand-primary))] px-3 py-1.5 text-xs font-semibold text-[rgb(var(--bg-base))]"
+            className="inline-flex min-h-[36px] items-center rounded-md bg-[rgb(var(--brand-primary))] px-3 text-xs font-semibold text-[rgb(var(--bg-base))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
           >
             Continue with Google
           </Link>
@@ -65,7 +65,7 @@ export function SoftSignInBanner(props: Props) {
             type="button"
             onClick={handleDismiss}
             aria-label="Dismiss"
-            className="rounded-md px-2 py-1 text-xs text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
+            className="sk-tap flex items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
           >
             ✕
           </button>
@@ -89,7 +89,7 @@ export function SoftSignInBanner(props: Props) {
       <div className="flex shrink-0 items-center gap-2">
         <Link
           href={props.appUrl}
-          className="rounded-md bg-[rgb(var(--brand-primary))] px-3 py-1.5 text-xs font-semibold text-[rgb(var(--bg-base))]"
+          className="inline-flex min-h-[36px] items-center rounded-md bg-[rgb(var(--brand-primary))] px-3 text-xs font-semibold text-[rgb(var(--bg-base))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
         >
           View in app →
         </Link>
@@ -97,7 +97,7 @@ export function SoftSignInBanner(props: Props) {
           type="button"
           onClick={handleDismiss}
           aria-label="Dismiss"
-          className="rounded-md px-2 py-1 text-xs text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
+          className="sk-tap flex items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
         >
           ✕
         </button>
