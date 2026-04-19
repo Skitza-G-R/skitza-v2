@@ -7,6 +7,7 @@ import { AudioUploader } from "~/components/audio/audio-uploader";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { EmptyState } from "~/components/ui/empty-state";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import { fmtDateTime } from "~/lib/time/relative";
@@ -191,14 +192,10 @@ export function MusicSubTab({
       className="space-y-6"
     >
       {tracks.length === 0 ? (
-        <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-6 py-10 text-center">
-          <p className="font-display text-lg" style={{ fontWeight: 700 }}>
-            No tracks yet.
-          </p>
-          <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-            Add the first track to start collecting versions + feedback.
-          </p>
-        </div>
+        <EmptyState
+          title="No tracks yet."
+          description="Add the first track to start collecting versions + feedback. Use the + Add track button below to name it — you can upload a WAV right after."
+        />
       ) : null}
 
       {tracks.map((t, idx) => {

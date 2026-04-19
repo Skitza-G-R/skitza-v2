@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { EmptyState } from "~/components/ui/empty-state";
 import { fmtDateTime, formatRelativeTime } from "~/lib/time/relative";
 
 // Minimal row shape the list renders. Mirrors the server router's
@@ -28,19 +29,7 @@ export type MusicRow = {
 // a friendly "nothing yet" prompt instead of a blank page.
 export function MusicLibrary({ tracks }: { tracks: MusicRow[] }) {
   if (tracks.length === 0) {
-    return (
-      <div className="mt-10 flex flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-6 py-16 text-center">
-        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))]">
-          <WaveformIcon />
-        </div>
-        <h3 className="font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]">
-          No audio yet
-        </h3>
-        <p className="mt-2 max-w-md text-sm text-[rgb(var(--fg-secondary))]">
-          Uploads land here once your first project has a track.
-        </p>
-      </div>
-    );
+    return <MusicLibraryEmpty />;
   }
 
   return (
@@ -54,6 +43,31 @@ export function MusicLibrary({ tracks }: { tracks: MusicRow[] }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+// ─── Empty state ─────────────────────────────────────────────────────
+
+// Extracted as a named function so unit tests can render it without a
+// route. Design-doc copy: prompt producers with the drop-zone hint
+// rather than a dry "no data" — a fresh producer needs to know that
+// the path to their first track is through any project, not here.
+export function MusicLibraryEmpty() {
+  return (
+    <EmptyState
+      className="mt-10"
+      icon={<WaveformIcon />}
+      title="No audio yet"
+      description="Drop a WAV into any project to kick things off. Uploads land here once your first track has a version."
+      action={
+        <Link
+          href="/dashboard/projects"
+          className="inline-flex h-10 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-medium text-[rgb(var(--fg-inverse))] hover:brightness-110"
+        >
+          Open Projects
+        </Link>
+      }
+    />
   );
 }
 

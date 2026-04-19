@@ -45,14 +45,7 @@ export function TodayList({
 
   if (items.length === 0) {
     return (
-      <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center">
-        <p className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-          Inbox
-        </p>
-        <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-          Nothing needs you right now. A clean slate.
-        </p>
-      </div>
+      <TodayListEmpty />
     );
   }
 
@@ -60,6 +53,7 @@ export function TodayList({
     <ul
       role="list"
       aria-label="Today's inbox"
+      aria-live="polite"
       className="divide-y divide-[rgb(var(--border-subtle))] overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
     >
       {items.map((item) => {
@@ -129,4 +123,25 @@ const KIND_GLYPH: Record<TodayListItem["kind"], string> = {
   invoice: "$",
   lead: "→",
 };
+
+// Empty-state tile for the Today inbox. Extracted as a named function
+// so unit tests can render it in isolation. Copy intentionally warm:
+// "all caught up" reframes zero-state as an achievement, not a void.
+// aria-live="polite" makes the region announce when items arrive.
+export function TodayListEmpty() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center"
+    >
+      <p className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+        Inbox
+      </p>
+      <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
+        All caught up. New items will land here as they arrive.
+      </p>
+    </div>
+  );
+}
 

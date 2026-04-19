@@ -167,7 +167,7 @@ export function NotificationBell({
               </button>
             ) : null}
           </div>
-          <ul className="max-h-[60vh] overflow-y-auto">
+          <ul aria-live="polite" className="max-h-[60vh] overflow-y-auto">
             {unreadItems.length === 0 ? (
               <li className="px-3 py-6 text-center text-sm text-[rgb(var(--fg-muted))]">
                 You're all caught up.
