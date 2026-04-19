@@ -8,10 +8,10 @@ import {
   ProjectSubTabs,
   type ProjectSubTabId,
 } from "~/components/dashboard/project/project-sub-tabs";
+import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
 import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { getStripe } from "~/server/stripe/client";
-import { ProjectView } from "./project-view";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -162,7 +162,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
         <div className="mt-6">
           <ProjectSubTabs activeTab={activeTab}>
             {activeTab === "music" ? (
-              <ProjectView
+              <MusicSubTab
                 project={{
                   id: data.project.id,
                   title: data.project.title,
@@ -208,7 +208,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
                   fromProducer: c.fromProducer,
                   createdAt: c.createdAt,
                 }))}
-                contracts={contractsForProject}
               />
             ) : null}
             {activeTab === "sessions" ? <SessionsPlaceholder /> : null}
