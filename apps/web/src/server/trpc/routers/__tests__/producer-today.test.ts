@@ -199,7 +199,7 @@ const {
   };
 
   const dbMock = {
-    select: (_projection?: unknown) => ({
+    select: () => ({
       from: (table: unknown) => {
         if (table === producersMarker) {
           // producer-procedure: .where(clerkUserId = x).limit(1) →
@@ -381,7 +381,7 @@ function findPredicate(
   where: unknown,
   operator: "eq" | "inArray" | "gte" | "lte" | "isNull" | "isNotNull",
   columnMarker: unknown,
-): unknown[] | unknown | null {
+): unknown {
   if (!where || typeof where !== "object") return null;
   if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
     for (const p of (where as { and: unknown[] }).and) {
@@ -409,7 +409,7 @@ describe("producer.today", () => {
     expect(result.kpis).toEqual({
       activeProjects: 0,
       revenueMonthCents: 0,
-      revenueCurrency: expect.any(String),
+      revenueCurrency: expect.any(String) as unknown,
       upcomingSessions7d: 0,
       unresolvedItems: 0,
     });

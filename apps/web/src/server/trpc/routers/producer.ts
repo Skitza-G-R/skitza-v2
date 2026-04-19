@@ -103,10 +103,13 @@ export interface TodayItem {
 // Items list is capped at 50 in total. Big enough to avoid pagination
 // for an active producer, small enough that the DOM stays honest.
 const TODAY_ITEMS_MAX = 50;
-// Per-source caps so one noisy source (60 fresh comments) can't
-// crowd out the higher-priority kinds. The final urgency sort +
-// slice(0, TODAY_ITEMS_MAX) then tightens the result.
-const TODAY_PER_SOURCE_CAP = 40;
+// Upper bound on rows pulled PER source in the fan-out. Matches the
+// overall TODAY_ITEMS_MAX so a single active kind (e.g. 50 upcoming
+// sessions in a busy week) can fill the entire payload. The outer
+// .slice(0, TODAY_ITEMS_MAX) still caps the total; this just prevents
+// a runaway "SELECT all leads for this producer" from returning
+// thousands of rows.
+const TODAY_PER_SOURCE_CAP = 50;
 
 // Strict type ordering: sessions first (time-sensitive), then
 // unread comments (artist is waiting), then unpaid invoices (money),
@@ -193,8 +196,9 @@ export const producerRouter = router({
     // Fan out across the 4 data sources in parallel. Each query is
     // independently producer-scoped (WHERE producer_id = ctx.producerId)
     // so a regression in any single sub-query can't leak other
-    // producers' data. The producer profile lookup stays sequential —
-    // we need defaultCurrency for the KPI payload before shaping.
+    // producers' data. The producer profile lookup rides along as a
+    // 9th leg — it has no data dependency on the other queries, so
+    // running it sequentially would just add tail latency.
     const [
       activeProjectRows,
       revenueRows,
@@ -204,6 +208,7 @@ export const producerRouter = router({
       unpaidInvoiceRows,
       openCommentRows,
       leadRows,
+      profileRows,
     ] = await Promise.all([
       // (1) Active projects KPI — count by filtering stage in the
       // active set. We fetch ids only; the count is rows.length.
@@ -298,7 +303,6 @@ export const producerRouter = router({
           customerName: invoices.customerName,
           createdAt: invoices.createdAt,
           projectId: invoices.projectId,
-          stripeCheckoutSessionId: invoices.stripeCheckoutSessionId,
         })
         .from(invoices)
         .where(
@@ -347,24 +351,26 @@ export const producerRouter = router({
         .where(eq(leads.producerId, ctx.producerId))
         .orderBy(desc(leads.createdAt))
         .limit(TODAY_PER_SOURCE_CAP),
+
+      // (9) Producer's default currency — needed for the KPI payload's
+      // revenue display. No data dependency on the other 8 legs, so we
+      // run it in parallel instead of after the fan-out.
+      ctx.db
+        .select({ defaultCurrency: producers.defaultCurrency })
+        .from(producers)
+        .where(eq(producers.id, ctx.producerId))
+        .limit(1),
     ]);
 
     // Resolve default currency for KPI display. Fallback to USD keeps
     // the UI honest if the producer row ever has a NULL currency.
-    const [profile] = await ctx.db
-      .select({ defaultCurrency: producers.defaultCurrency })
-      .from(producers)
-      .where(eq(producers.id, ctx.producerId))
-      .limit(1);
-    const revenueCurrency = profile?.defaultCurrency ?? "USD";
+    const revenueCurrency = profileRows[0]?.defaultCurrency ?? "USD";
 
     // Sum only the rows whose currency matches the default. Legacy
     // mixed-currency ledgers aren't common but we don't want to add
     // 500 EUR to 500 USD and call it 1000.
     const revenueMonthCents = revenueRows.reduce((acc, r) => {
-      const amt = Number(r.amountCents ?? 0);
-      const cur = (r.currency as string | null) ?? revenueCurrency;
-      return cur === revenueCurrency ? acc + amt : acc;
+      return r.currency === revenueCurrency ? acc + r.amountCents : acc;
     }, 0);
 
     const kpis = {
@@ -380,50 +386,48 @@ export const producerRouter = router({
     // drives the within-kind sort: future (sessions) use startsAt;
     // past events use createdAt.
     const sessionItems: TodayItem[] = upcomingRows.map((b) => ({
-      id: `session:${String(b.id)}`,
+      id: `session:${b.id}`,
       kind: "session",
-      title: String(b.artistName ?? "Artist"),
-      subtitle: `${String(b.packageNameSnapshot ?? "Session")} · ${String(b.durationMin)} min`,
-      occurredAt: b.startsAt as Date,
-      href: `/dashboard/booking?id=${String(b.id)}`,
+      title: b.artistName,
+      subtitle: `${b.packageNameSnapshot ?? "Session"} · ${b.durationMin.toString()} min`,
+      occurredAt: b.startsAt,
+      href: `/dashboard/booking?id=${b.id}`,
       unread: true,
     }));
 
     const commentItems: TodayItem[] = openCommentRows.map((c) => ({
-      id: `comment:${String(c.id)}`,
+      id: `comment:${c.id}`,
       kind: "comment",
-      title: String(c.authorName ?? "Artist"),
-      subtitle: truncate(String(c.body ?? ""), 120),
-      occurredAt: (c.createdAt as Date) ?? new Date(),
-      href: c.projectId
-        ? `/dashboard/projects/${String(c.projectId)}`
-        : "/dashboard/projects",
+      title: c.authorName,
+      subtitle: truncate(c.body, 120),
+      occurredAt: c.createdAt,
+      href: `/dashboard/projects/${c.projectId}`,
       unread: true,
     }));
 
     const invoiceItems: TodayItem[] = unpaidInvoiceRows.map((inv) => ({
-      id: `invoice:${String(inv.id)}`,
+      id: `invoice:${inv.id}`,
       kind: "invoice",
-      title: String(inv.customerName ?? inv.description ?? "Invoice"),
+      title: inv.customerName ?? inv.description ?? "Invoice",
       subtitle: formatInvoiceSubtitle(
-        Number(inv.amountCents ?? 0),
-        String(inv.currency ?? "USD"),
-        (inv.description as string | null) ?? null,
+        inv.amountCents,
+        inv.currency,
+        inv.description,
       ),
-      occurredAt: (inv.createdAt as Date) ?? new Date(),
+      occurredAt: inv.createdAt,
       href: inv.projectId
-        ? `/dashboard/projects/${String(inv.projectId)}`
+        ? `/dashboard/projects/${inv.projectId}`
         : "/dashboard/projects",
       unread: false,
     }));
 
     const leadItems: TodayItem[] = leadRows.map((l) => ({
-      id: `lead:${String(l.id)}`,
+      id: `lead:${l.id}`,
       kind: "lead",
-      title: String(l.name ?? l.email ?? "New lead"),
-      subtitle: l.source ? `Source: ${String(l.source)}` : String(l.email ?? ""),
-      occurredAt: (l.createdAt as Date) ?? new Date(),
-      href: `/dashboard/projects?leadId=${String(l.id)}`,
+      title: l.name ?? l.email ?? "New lead",
+      subtitle: l.source ? `Source: ${l.source}` : (l.email ?? ""),
+      occurredAt: l.createdAt,
+      href: `/dashboard/projects?leadId=${l.id}`,
       unread: true,
     }));
 
