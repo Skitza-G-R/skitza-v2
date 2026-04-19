@@ -54,8 +54,8 @@ export function Hero() {
         </h1>
 
         <p className="reveal-up-delay-3 mx-auto mt-6 max-w-xl text-lg leading-relaxed text-[rgb(var(--fg-secondary))] sm:text-xl">
-          Skitza is the CRM, audio collaboration, booking, and contract tool built
-          for solo music producers. One URL. Every client. Every session. Every bounce.
+          One tool for every producer: bookings, contracts, audio feedback, and
+          payments. One URL for every client, every session, every bounce.
         </p>
 
         <div className="reveal-up-delay-4 mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -84,7 +84,7 @@ export function Hero() {
         </div>
 
         <p className="mt-4 font-mono text-xs text-[rgb(var(--fg-muted))]">
-          Free forever. No card. Cancel anytime.
+          Free to start. No card needed. Cancel anytime.
         </p>
 
         {/* Product mockup — CSS-built Kanban + sidebar glimpse, pointer-

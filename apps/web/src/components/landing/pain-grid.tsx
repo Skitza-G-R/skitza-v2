@@ -68,7 +68,7 @@ export function PainGrid() {
           className="mt-14 text-center font-display text-xl leading-tight tracking-tight text-[rgb(var(--brand-primary))]"
           style={{ fontWeight: 700 }}
         >
-          Every one of these problems disappears with Skitza. ↓
+          Skitza kills every one of these. Keep reading. ↓
         </p>
       </div>
     </section>

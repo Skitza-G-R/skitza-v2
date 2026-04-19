@@ -26,7 +26,8 @@ export function FinalCTA() {
           </span>
         </h2>
         <p className="mx-auto mt-5 max-w-lg text-[rgb(var(--fg-secondary))]">
-          No card. Cancel anytime. Your URL is yours the minute you sign up.
+          No card needed. Cancel anytime. Your booking URL is live the moment
+          you sign up.
         </p>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
