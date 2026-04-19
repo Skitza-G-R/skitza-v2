@@ -119,9 +119,17 @@ export default async function PublicPortfolioPage({ params, searchParams }: Page
         {/* Tracks — editorial numbered list, not a grid. */}
         <section className="mt-14 reveal-up-delay-1">
           {tracks.length === 0 ? (
-            <p className="font-mono text-sm text-[rgb(var(--fg-muted))]">
-              No tracks yet — come back soon.
-            </p>
+            <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-8 text-center">
+              <p className="font-mono text-sm text-[rgb(var(--fg-muted))]">
+                The tracklist is on its way. Book a session — the work will land here.
+              </p>
+              <Link
+                href={`/p/${slug}/book`}
+                className="mt-4 inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[#0C0A07] hover:brightness-110"
+              >
+                Book a session
+              </Link>
+            </div>
           ) : (
             <ol className="flex flex-col divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
               {tracks.map((track, idx) => (
