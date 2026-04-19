@@ -27,9 +27,9 @@ function IssuedBanner({
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
-      toast("Share URL copied.", "success");
+      toast("Link copied. Send it to the artist.", "success");
     } catch {
-      toast("Copy failed — select the URL and copy manually.", "error");
+      toast("Couldn't copy — highlight the link and copy it manually.", "error");
     }
   }
   return (
@@ -41,8 +41,8 @@ function IssuedBanner({
             Project room ready
           </p>
           <p className="mt-2 text-sm text-[rgb(var(--fg-primary))]">
-            Copy this share URL now — the token is one-shot. Send it to the artist so they
-            can listen and leave feedback.
+            Copy the share link now — you&rsquo;ll only see it once. Send it to the
+            artist so they can listen and leave feedback.
           </p>
         </div>
         <button
@@ -66,7 +66,7 @@ function IssuedBanner({
           }}
           className="shrink-0"
         >
-          {copied ? "✓ Copied" : "Copy URL"}
+          {copied ? "✓ Copied" : "Copy link"}
         </Button>
       </div>
       <div className="mt-3">
@@ -120,7 +120,7 @@ export function NewProjectForm({
         artistEmail: artistEmail.trim(),
       });
       if (res.ok) {
-        toast(`"${title.trim()}" project created.`, "success");
+        toast(`"${title.trim()}" created. Send the share link next.`, "success");
         const url = `${siteUrl.replace(/\/$/, "")}/share/${res.data.shareToken}`;
         setIssued({ url, id: res.data.id });
         setTitle("");
