@@ -9,15 +9,17 @@ import {
   gte,
   inArray,
   invoices,
+  isNull,
   lte,
   notInArray,
   producers,
+  products,
   projects,
   projectTracks,
   trackComments,
   trackVersions,
 } from "@skitza/db";
-import type { Db } from "@skitza/db";
+import type { Db, PaymentPlan } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router } from "../init";
@@ -692,6 +694,342 @@ const bookSubrouter = router({
     }),
 });
 
+// ─── artist.store sub-router ─────────────────────────────────────────
+// Browse + buy products from any of the artist's studios without
+// leaving the artist app. `products` is the catalog read (all or one
+// studio), `product` is the detail read, `checkout` mints a Stripe
+// Checkout Session via the shared `initiatePaidPlanCheckout` helper.
+//
+// The helper is also used by `booking.publicRequest`, so the public
+// booking flow and the signed-in artist Store hit the same plan-aware
+// Stripe Connect + invoice-ledger code. Both paths get the same
+// plan-validation guard (BAD_REQUEST on unlisted plans) and the same
+// project row shape in `lead` stage.
+const storeSubrouter = router({
+  // List products the artist can buy. `producerId` optional: when
+  // undefined, returns the union of products across all the artist's
+  // studios; when provided, filters to that one studio (but still
+  // access-gates on clientContacts so an artist can't enumerate a
+  // producer they haven't worked with).
+  //
+  // Sort order: producerName asc → position asc. Within a single
+  // studio the producer's drag order is preserved; across studios the
+  // grouping is alphabetical for stable rendering.
+  //
+  // Excludes archived (`archivedAt IS NOT NULL`) and inactive
+  // (`active = false`) products at the DB layer so the list is
+  // always live-sellable.
+  products: artistProcedure
+    .input(
+      z.object({ producerId: z.string().uuid().optional() }).optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const producerId = input?.producerId;
+
+      // 1. Auth boundary — resolve my studios. Empty list short-circuits
+      //    to an empty catalog. When producerId is provided we additionally
+      //    require a clientContacts row for THAT producer so an artist
+      //    can't fish for a producer's catalog without a relationship.
+      const myContacts = await ctx.db
+        .select({
+          id: clientContacts.id,
+          producerId: clientContacts.producerId,
+          email: clientContacts.email,
+        })
+        .from(clientContacts)
+        .where(eq(clientContacts.clerkUserId, ctx.clerkUserId));
+
+      const myProducerIds = [
+        ...new Set(myContacts.map((c) => c.producerId)),
+      ];
+
+      // With a specific producerId filter, require an explicit
+      // clientContacts row — otherwise an artist could probe a
+      // producer's catalog without a relationship. Throws BEFORE the
+      // empty-studios short-circuit so a signed-in user who's not yet
+      // a client anywhere gets NOT_FOUND (informative) rather than []
+      // (ambiguous).
+      if (producerId !== undefined && !myProducerIds.includes(producerId)) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+
+      if (myContacts.length === 0) {
+        return { products: [] as StoreProductRow[] };
+      }
+
+      const scopedProducerIds =
+        producerId === undefined ? myProducerIds : [producerId];
+
+      // 2. Products ⨝ producers. scopedProducerIds is always ≥ 1 entry
+      //    here because we short-circuited on empty above.
+      const rows = await ctx.db
+        .select({
+          id: products.id,
+          name: products.name,
+          description: products.description,
+          priceCents: products.priceCents,
+          currency: products.currency,
+          durationMin: products.durationMin,
+          sessionCount: products.sessionCount,
+          kind: products.kind,
+          pricingModel: products.pricingModel,
+          paymentPlans: products.paymentPlans,
+          position: products.position,
+          producerId: products.producerId,
+          producerName: producers.displayName,
+          producerSlug: producers.slug,
+        })
+        .from(products)
+        .innerJoin(producers, eq(producers.id, products.producerId))
+        .where(
+          and(
+            inArray(products.producerId, scopedProducerIds),
+            eq(products.active, true),
+            isNull(products.archivedAt),
+          ),
+        )
+        .orderBy(asc(producers.displayName), asc(products.position));
+
+      const mapped: StoreProductRow[] = rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        priceCents: r.priceCents,
+        currency: r.currency,
+        durationMin: r.durationMin,
+        sessionCount: r.sessionCount,
+        kind: r.kind,
+        pricingModel: r.pricingModel as
+          | "flat"
+          | "per_song"
+          | "hourly"
+          | "bundle",
+        paymentPlans: r.paymentPlans,
+        producerId: r.producerId,
+        producerName: r.producerName ?? "Untitled Studio",
+        producerSlug: r.producerSlug,
+      }));
+
+      return { products: mapped };
+    }),
+
+  // Single product detail. Access-gated on (clerkUserId, producerId) —
+  // rejects with NOT_FOUND if the artist doesn't have a clientContacts
+  // row for this product's producer.
+  product: artistProcedure
+    .input(z.object({ productId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({
+          id: products.id,
+          name: products.name,
+          description: products.description,
+          priceCents: products.priceCents,
+          currency: products.currency,
+          durationMin: products.durationMin,
+          sessionCount: products.sessionCount,
+          kind: products.kind,
+          pricingModel: products.pricingModel,
+          paymentPlans: products.paymentPlans,
+          position: products.position,
+          producerId: products.producerId,
+          producerName: producers.displayName,
+          producerSlug: producers.slug,
+        })
+        .from(products)
+        .innerJoin(producers, eq(producers.id, products.producerId))
+        .where(
+          and(
+            eq(products.id, input.productId),
+            eq(products.active, true),
+            isNull(products.archivedAt),
+          ),
+        )
+        .limit(1);
+      const row = rows[0];
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // Ownership guard — artist must have a clientContacts row for
+      // this product's producer. Reject with NOT_FOUND (not FORBIDDEN)
+      // so a non-customer can't distinguish "product doesn't exist"
+      // from "product exists but you haven't worked with this studio".
+      const contacts = await ctx.db
+        .select({ id: clientContacts.id })
+        .from(clientContacts)
+        .where(
+          and(
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            eq(clientContacts.producerId, row.producerId),
+          ),
+        )
+        .limit(1);
+      if (contacts.length === 0) throw new TRPCError({ code: "NOT_FOUND" });
+
+      return {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        priceCents: row.priceCents,
+        currency: row.currency,
+        durationMin: row.durationMin,
+        sessionCount: row.sessionCount,
+        kind: row.kind,
+        pricingModel: row.pricingModel as
+          | "flat"
+          | "per_song"
+          | "hourly"
+          | "bundle",
+        paymentPlans: row.paymentPlans,
+        producerId: row.producerId,
+        producerName: row.producerName ?? "Untitled Studio",
+        producerSlug: row.producerSlug,
+      };
+    }),
+
+  // Mint a Stripe Checkout Session for this (artist, product, plan).
+  // Same as booking.publicRequest's branch (a) minus the booking row —
+  // store purchases don't create a bookings row because there's no
+  // session to book; the project row in `lead` stage (created by the
+  // shared helper) is the canonical ledger entry.
+  //
+  // Returns the Checkout URL so the server action can redirect.
+  checkout: artistProcedure
+    .input(
+      z.object({
+        productId: z.string().uuid(),
+        paymentPlan: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("full") }),
+          z.object({ kind: z.literal("split_50_50") }),
+          z.object({
+            kind: z.literal("monthly"),
+            installments: z.number().int().min(2).max(12),
+          }),
+        ]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // 1. Load product. NOT_FOUND if missing or soft-deleted.
+      const [prod] = await ctx.db
+        .select()
+        .from(products)
+        .where(
+          and(
+            eq(products.id, input.productId),
+            eq(products.active, true),
+            isNull(products.archivedAt),
+          ),
+        )
+        .limit(1);
+      if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // 2. Ownership guard + surface the client identity (name + email)
+      //    for the Stripe Customer. artistProcedure guarantees
+      //    clerkUserId is set; we still have to pull the contact row
+      //    to know the raw email and display name used for the session.
+      const [contact] = await ctx.db
+        .select({
+          id: clientContacts.id,
+          email: clientContacts.email,
+          name: clientContacts.name,
+        })
+        .from(clientContacts)
+        .where(
+          and(
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            eq(clientContacts.producerId, prod.producerId),
+          ),
+        )
+        .limit(1);
+      if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // 3. Producer's Stripe Connect fields. stripeAccountId must be
+      //    set AND charges must be enabled, otherwise we can't route
+      //    funds. Pre-flight check returns a clean BAD_REQUEST instead
+      //    of a confusing Stripe error.
+      const [producerRow] = await ctx.db
+        .select({
+          stripeAccountId: producers.stripeAccountId,
+          stripeChargesEnabled: producers.stripeChargesEnabled,
+          slug: producers.slug,
+        })
+        .from(producers)
+        .where(eq(producers.id, prod.producerId))
+        .limit(1);
+
+      if (
+        !producerRow?.stripeAccountId ||
+        !producerRow.stripeChargesEnabled
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This studio isn't set up to accept payments yet — reach out directly.",
+        });
+      }
+
+      // 4. Delegate to the shared helper. Plan validation happens inside
+      //    (throws BAD_REQUEST on unlisted plans). Helper handles:
+      //    - client_contacts upsert (no-op here since we already have one)
+      //    - Stripe Customer lookup/create
+      //    - projects row insert (lead stage, plan snapshot)
+      //    - Stripe Checkout Session create (idempotency-keyed)
+      //    - invoices row for full/split; skipped for monthly.
+      const { initiatePaidPlanCheckout } = await import(
+        "~/server/payments/checkout-initiator"
+      );
+
+      // Idempotency scope: per (client_contact, product, plan.kind) so
+      // a signed-in artist spamming "Continue to checkout" on the same
+      // plan doesn't fan out into duplicate Stripe sessions. Switching
+      // plan variants (full → monthly) gives a distinct key.
+      const planKey =
+        input.paymentPlan.kind === "monthly"
+          ? `monthly-${String(input.paymentPlan.installments)}`
+          : input.paymentPlan.kind;
+      const idempotencyKey = `store-${contact.id}-${prod.id}-${planKey}-checkout`;
+
+      const plan: PaymentPlan = input.paymentPlan;
+      const result = await initiatePaidPlanCheckout({
+        db: ctx.db,
+        producer: {
+          id: prod.producerId,
+          slug: producerRow.slug,
+          stripeAccountId: producerRow.stripeAccountId,
+        },
+        product: prod,
+        paymentPlan: plan,
+        clientName: contact.name,
+        clientEmail: contact.email,
+        priceCents: prod.priceCents,
+        idempotencyKey,
+        metadata: { source: "artist_store" },
+      });
+
+      return {
+        checkoutUrl: result.checkoutUrl,
+        projectId: result.projectId,
+      };
+    }),
+});
+
+// Per-row shape returned by artist.store.products — exported for the
+// UI component's prop type.
+export type StoreProductRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  priceCents: number;
+  currency: string;
+  durationMin: number;
+  sessionCount: number;
+  kind: string;
+  pricingModel: "flat" | "per_song" | "hourly" | "bundle";
+  paymentPlans: PaymentPlan[];
+  producerId: string;
+  producerName: string;
+  producerSlug: string;
+};
+
 // Artist-scoped router. All procedures here resolve "my studios" via
 // client_contacts.clerk_user_id (stamped on first sign-in by the
 // Clerk user.created webhook).
@@ -1025,6 +1363,9 @@ export const artistRouter = router({
   // Block-based weekly calendar. availability + confirm for the
   // self-serve booking flow. See bookSubrouter for per-procedure docs.
   book: bookSubrouter,
+
+  // Catalog + checkout. See storeSubrouter for per-procedure docs.
+  store: storeSubrouter,
 });
 
 // Activity-feed item shape — exported for the component prop type.
