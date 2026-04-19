@@ -210,4 +210,33 @@ describe("user.created — artist stamping", () => {
     // SQL ran; row count is 0 in reality, but the handler doesn't care.
     expect(updateMock).toHaveBeenCalledOnce();
   });
+
+  it("trims whitespace from email before hashing (matches recordContact)", async () => {
+    // The producing side (recordContact) hashes email.trim().toLowerCase().
+    // If Clerk ever delivers an email with surrounding whitespace, the
+    // webhook MUST trim too — otherwise the hash mismatches and the artist
+    // silently sees zero studios. Capture the eq() call to assert the hash
+    // computed by the route equals sha256("dan@example.com") even when the
+    // payload contains "  Dan@Example.com  ".
+    const { POST } = await import("./route");
+    const body = JSON.stringify({
+      type: "user.created",
+      data: {
+        id: "user_dan",
+        email_addresses: [{ email_address: "  Dan@Example.com  " }],
+        first_name: "Dan",
+      },
+    });
+    const res = await POST(buildReq(body));
+    expect(res.status).toBe(200);
+
+    // Expected hash is the trimmed/lowercased one — this MUST match what
+    // recordContact produces for "dan@example.com".
+    const expectedHash = createHash("sha256").update("dan@example.com").digest("hex");
+    const eqCall = eqCalls.find((c) => c.value === expectedHash);
+    expect(
+      eqCall,
+      "expected eq(emailHash, sha256(trim+lower)) — webhook hash must match recordContact's hash",
+    ).toBeDefined();
+  });
 });

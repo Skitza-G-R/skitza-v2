@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     // the same email later) leave already-owned rows untouched.
     // Single SQL UPDATE; matches across producers because email_hash
     // alone is the lookup key here, not (producerId, email_hash).
-    const emailHash = createHash("sha256").update(email.toLowerCase()).digest("hex");
+    const emailHash = createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
     await db.update(clientContacts)
       .set({ clerkUserId: id })
       .where(and(
