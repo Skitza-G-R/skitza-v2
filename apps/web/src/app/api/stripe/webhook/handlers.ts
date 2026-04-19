@@ -629,16 +629,22 @@ export async function handleSubscriptionPaused(
 // ─── customer.subscription.deleted ───────────────────────────────────
 
 /**
- * Schedule completed (or sub cancelled). Two branches:
- *   - chargesCompleted === chargesTotal → plan finished successfully.
- *     Advance by charge_succeeded one final time (may be a no-op if
- *     the last invoice.paid already landed) or mark `paid` directly.
- *   - otherwise → producer cancelled mid-plan OR exhausted retries
- *     without a pause event → mark `cancelled`.
+ * Schedule completed (or sub cancelled). Three branches:
+ *   - chargesCompleted === chargesTotal → plan finished successfully
+ *     → mark `paid` directly.
+ *   - cancellation_details.reason === "payment_failed" → Stripe
+ *     auto-cancelled after Smart Retries exhausted. Recoverable: we
+ *     transition to `payment_paused` so the client's "Update payment
+ *     method" flow can resume the plan (via a new Checkout or manual
+ *     PaymentIntent on the saved customer).
+ *   - otherwise → producer cancelled via the UI, or another terminal
+ *     reason → mark `cancelled` (not recoverable).
  *
- * We distinguish by looking at the terminal state of chargesCompleted.
- * `cancellation_details.reason` is checked as a hint but not trusted as
- * the primary signal (Stripe's taxonomy evolves).
+ * We check `cancellation_details.reason` specifically for the
+ * payment_failed signal because that branch is the only one where
+ * Stripe itself cancelled due to dunning — the other values (e.g.
+ * "cancellation_requested", "incomplete_expired") are all producer- or
+ * user-driven and correctly terminal.
  */
 export async function handleSubscriptionDeleted(
   args: HandlerArgs<Stripe.CustomerSubscriptionDeletedEvent>,
@@ -672,6 +678,16 @@ export async function handleSubscriptionDeleted(
       .where(eq(projects.id, project.id));
     return;
   }
+
+  // Stripe auto-cancelled after dunning — recoverable state. The
+  // client's update-payment-method flow creates a fresh Checkout or
+  // off-session PaymentIntent on the saved customer; this stage
+  // gates that UI and locks new bookings without destroying history.
+  if (sub.cancellation_details?.reason === "payment_failed") {
+    await advanceAndPersist(db, project, { type: "retries_exhausted" });
+    return;
+  }
+
   await advanceAndPersist(db, project, { type: "cancelled" });
 }
 
