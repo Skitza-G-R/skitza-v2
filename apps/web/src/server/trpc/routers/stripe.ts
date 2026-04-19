@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { headers } from "next/headers";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -350,10 +350,18 @@ export const stripeRouter = router({
         .where(eq(projects.id, input.projectId))
         .limit(1);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      // Constant-time-ish compare via string equality is fine here —
-      // the hashes are 64 hex chars and we're not dealing with attacker-
-      // controlled timing surfaces above the network jitter floor.
-      if (project.shareTokenHash !== tokenHash) {
+      // Constant-time hash comparison via crypto.timingSafeEqual to
+      // match the magic-link verifier's discipline (lib/magic-links/token.ts).
+      // Plain `!==` on the hex string leaks timing proportional to common
+      // prefix length — under a network noise floor that's hard to exploit
+      // remotely, but the cost of doing it right is one Buffer.from + a
+      // length guard, so we just do it.
+      const provided = Buffer.from(tokenHash, "hex");
+      const stored = Buffer.from(project.shareTokenHash, "hex");
+      if (
+        provided.length !== stored.length ||
+        !timingSafeEqual(provided, stored)
+      ) {
         // Same NOT_FOUND code as a missing project so a token-fishing
         // attacker can't distinguish "wrong token" from "no project".
         throw new TRPCError({ code: "NOT_FOUND" });
