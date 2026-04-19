@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { resolveLegacyRedirect } from "./middleware";
 
+// The pure `resolveLegacyRedirect` operates on pathname only; query-string
+// preservation on the 301 response is handled in the `clerkMiddleware`
+// callback and isn't unit-tested here (would require mocking Clerk +
+// NextResponse). The behavior is covered by the manual QA in Task 15.
 describe("resolveLegacyRedirect", () => {
   it.each([
     ["/dashboard/pipeline",   "/dashboard"],
@@ -12,7 +16,6 @@ describe("resolveLegacyRedirect", () => {
     ["/dashboard/inbox",      "/dashboard"],
     ["/dashboard/library",    "/dashboard/music"],
     ["/dashboard/portfolio",  "/dashboard/settings?section=portfolio"],
-    ["/dashboard/booking",    "/dashboard/settings?section=availability"],
   ])("redirects %s → %s", (from, to) => {
     expect(resolveLegacyRedirect(from)).toBe(to);
   });

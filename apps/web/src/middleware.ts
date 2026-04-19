@@ -26,7 +26,6 @@ const STATIC_REDIRECTS: Record<string, string> = {
   "/dashboard/inbox":     "/dashboard",
   "/dashboard/library":   "/dashboard/music",
   "/dashboard/portfolio": "/dashboard/settings?section=portfolio",
-  "/dashboard/booking":   "/dashboard/settings?section=availability",
 };
 
 // Dynamic paths — /dashboard/contracts/<id> etc. We collapse them all
@@ -67,6 +66,12 @@ export default clerkMiddleware(async (auth, req) => {
   const legacy = resolveLegacyRedirect(req.nextUrl.pathname);
   if (legacy !== null) {
     const url = new URL(legacy, req.url);
+    // Preserve any incoming query string (utm_*, ref, gclid, etc.) when the
+    // redirect target didn't set one of its own. This keeps attribution +
+    // future deep-link params intact across the legacy→new migration.
+    if (!url.search && req.nextUrl.search) {
+      url.search = req.nextUrl.search;
+    }
     return NextResponse.redirect(url, 301);
   }
 
