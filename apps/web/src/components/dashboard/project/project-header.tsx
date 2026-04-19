@@ -411,18 +411,18 @@ function ActionsMenu({
           <MenuItem
             onClick={onMarkFinal}
             disabled={pending}
-            label={finalPaid ? "Clear final mark" : "Mark final delivered"}
+            label={finalPaid ? "Unmark as delivered" : "Mark final delivered"}
           />
           <MenuItem
             onClick={onUploadTrack}
             disabled={pending}
-            label="Upload track"
+            label="Upload a new track"
           />
           {!isTerminal ? (
             <MenuItem
               onClick={onCancelProject}
               disabled={pending}
-              label="Cancel project"
+              label="Cancel project…"
               destructive
             />
           ) : null}

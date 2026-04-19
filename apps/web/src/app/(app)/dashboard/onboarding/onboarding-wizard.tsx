@@ -184,7 +184,7 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
           onClick={skipAll}
           className="text-xs text-[rgb(var(--fg-muted))] underline decoration-dotted underline-offset-2 hover:text-[rgb(var(--fg-secondary))]"
         >
-          Skip for now
+          Skip — I&rsquo;ll set this up later
         </button>
       </div>
 
@@ -262,13 +262,13 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
 
       {step === 3 ? (
         <p className="mt-4 text-center text-xs text-[rgb(var(--fg-muted))]">
-          Need to edit later? Settings & Booking have everything.
+          You can edit any of this later under Setup & Booking.
           <br />
           <Link
             href="/dashboard"
             className="underline decoration-dotted underline-offset-2 hover:text-[rgb(var(--fg-secondary))]"
           >
-            Or jump straight in.
+            Go to your dashboard →
           </Link>
         </p>
       ) : null}
@@ -299,8 +299,8 @@ function IdentityStep({
         What do clients call you?
       </h1>
       <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-        Your display name shows on your public page. Your slug is the URL they&apos;ll
-        book on.
+        This is your studio name on your public page, and the short URL clients
+        use to book you.
       </p>
       <div className="mt-6 space-y-4">
         <label className="block">
@@ -375,8 +375,8 @@ function PackageStep({
         What do you sell?
       </h1>
       <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-        Start with one package. You can add more later — a mixing session, a production
-        day, whatever fits.
+        Pick one thing to sell today — a mixing session, a production day,
+        whatever&apos;s most common for you. More can come later.
       </p>
       <div className="mt-6 space-y-4">
         <label className="block">
@@ -501,8 +501,8 @@ function HoursStep({
         When are you open?
       </h1>
       <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-        Clients can only book inside these windows. Start with the preset and tweak
-        any day.
+        Clients only see slots inside these hours. Most producers start with the
+        preset and adjust one or two days.
       </p>
       <div className="mt-6">
         <button
@@ -592,11 +592,11 @@ function ShareStep({ publicUrl }: { publicUrl: string }) {
   return (
     <div>
       <h1 className="font-display text-3xl leading-tight tracking-tight sm:text-4xl">
-        Share your link.
+        You&rsquo;re set. Share your link.
       </h1>
       <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-        This is your bookable URL. Drop it in your DMs, your email, your link-in-bio.
-        Clients click, pick a slot, and you get the request in Inbox.
+        Paste this anywhere — DMs, email, link-in-bio. Clients pick a slot,
+        you see the request land in your inbox.
       </p>
       <div className="mt-6 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
         <div className="flex items-start gap-4">
