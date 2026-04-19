@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
+import { fmtDateTime } from "~/lib/time/relative";
 
 // Task 8 — Project Room Money sub-tab.
 //
@@ -30,17 +31,6 @@ export interface ContractRow {
   status: string;
   createdAt: Date;
   signedAt: Date | null;
-}
-
-// Inline date formatter to match MusicSubTab / SessionsSubTab. The
-// TODO there still applies: once Task 9 deletes project-view.tsx, these
-// three copies can be consolidated into ~/lib/time/. For Task 8 we keep
-// the duplication — shared extraction is a single cleanup in Task 9.
-function fmtDateTime(d: Date): string {
-  return new Date(d).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 }
 
 export function MoneySubTab({

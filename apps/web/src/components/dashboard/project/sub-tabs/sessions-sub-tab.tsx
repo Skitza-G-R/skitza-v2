@@ -8,6 +8,7 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
 import { useToast } from "~/components/ui/toast";
+import { fmtDateTime } from "~/lib/time/relative";
 
 // Task 7 — Project Room Sessions sub-tab.
 //
@@ -38,16 +39,6 @@ export interface SessionBooking {
   packageName: string | null;
   artistName: string;
   artistEmail: string;
-}
-
-// Inline date formatter to match MusicSubTab's convention (see
-// fmtDateTime there). Extraction to ~/lib/time/ is tracked in that file
-// as a TODO for once Tasks 7-9 land.
-function fmtDateTime(d: Date): string {
-  return new Date(d).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 }
 
 function formatDuration(min: number): string {

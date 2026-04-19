@@ -1,211 +1,122 @@
 "use client";
 
-// TRANSITIONAL: this component is no longer rendered by page.tsx. It
-// remains on disk as a salvage source for Task 9, which will lift the
-// remaining Overview + Activity inner tabs out to the outer Notes
-// sub-tab. Task 6 extracted Audio → MusicSubTab. Task 8 extracted
-// Contract + Invoices → MoneySubTab. Delete this file entirely once
-// Task 9 lands the Notes extraction.
-
-import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 
 import { Badge } from "~/components/ui/badge";
 import { EmptyState } from "~/components/ui/empty-state";
-import { type Stage } from "~/lib/projects/stages";
+import { fmtDateTime } from "~/lib/time/relative";
 
-interface Project {
-  id: string;
-  title: string;
-  stage: Stage;
-  artistName: string;
-  artistEmail: string;
+// Task 9 — Project Room Notes sub-tab.
+//
+// Last of the four Project Room sub-tabs. Lifts the old "Overview" and
+// "Activity" inner tabs out of project-view.tsx (Tasks 6/7/8 already
+// lifted Music / Sessions / Contract+Invoices). With this extraction
+// project-view.tsx is fully gutted and gets deleted in the same commit.
+//
+// Composition:
+//   1. OverviewSection — read-only client + timeline metadata + 3 stat
+//      blocks (Tracks / Versions / Contracts). All mutating stage /
+//      payment / cancel controls now live on the new ProjectHeader
+//      (Task 5); Overview is pure display here.
+//   2. ActivitySection — reverse-chronological feed of version uploads
+//      and comments. Contract events will slot in once the
+//      project_events table lands.
+//
+// ProjectSubTabs still owns the tab button that controls this panel, so
+// the ARIA ids are `panel-notes` / `tab-notes` to match project-sub-tabs.
+
+// Narrow view of a project — only the fields the two sections read. No
+// stage / payment / booking fields because the header + other sub-tabs
+// own those.
+export interface NotesProject {
   clientName: string | null;
   clientEmail: string | null;
-  depositPaid: boolean;
-  finalPaid: boolean;
-  // Task 7 — payment-plan state. When paymentPlanKind === 'split_50_50'
-  // and chargesCompleted === 1, the "Mark final delivered" button fires
-  // an off-session PaymentIntent via project.chargeFinal before running
-  // the existing mark-final side effects. Null-safe for legacy rows.
-  paymentPlanKind: string | null;
-  // Task 8 — monthly plan installment count + next scheduled charge
-  // from the Stripe subscription schedule, both surfaced in the
-  // <PaymentStatusStrip/> at the top of the project room.
-  installments: number | null;
-  nextChargeAt: Date | null;
-  chargesCompleted: number;
-  chargesTotal: number | null;
-  totalAmountCents: number | null;
-  cardLast4: string | null;
-  currency: string;
+  artistName: string;
+  artistEmail: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
-interface Track {
+// Activity items come from the same tracks / versions / comments arrays
+// that MusicSubTab consumes. We only need the fields the timeline
+// actually renders — notably NOT audioUrl / resolvedAt.
+export interface NotesTrack {
   id: string;
   title: string;
-  artist: string | null;
-  position: number;
 }
 
-interface Version {
-  id: string;
+export interface NotesVersion {
   trackId: string;
   label: string;
-  audioUrl: string | null;
   uploadedAt: Date;
-  approvedAt: Date | null;
 }
 
-interface CommentRow {
-  id: string;
-  versionId: string;
+export interface NotesComment {
   authorName: string;
   body: string;
   timestampMs: number;
-  resolvedAt: Date | null;
   fromProducer: boolean;
   createdAt: Date;
 }
 
-type TabId = "overview" | "activity";
-const TABS: { id: TabId; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "activity", label: "Activity" },
-];
-
-function isTabId(v: string | null): v is TabId {
-  return v === "overview" || v === "activity";
-}
-
-function formatMs(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const ss = s % 60;
-  return `${String(m)}:${String(ss).padStart(2, "0")}`;
-}
-
-function fmtDateTime(d: Date): string {
-  return new Date(d).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-// ─── Main ────────────────────────────────────────────────────────────
-export function ProjectView({
+export function NotesSubTab({
   project,
+  trackCount,
+  versionCount,
+  contractCount,
   tracks,
   versions,
   comments,
-  contractCount,
 }: {
-  project: Project;
-  tracks: Track[];
-  versions: Version[];
-  comments: CommentRow[];
+  project: NotesProject;
+  trackCount: number;
+  versionCount: number;
   contractCount: number;
+  tracks: NotesTrack[];
+  versions: NotesVersion[];
+  comments: NotesComment[];
 }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab");
-  const activeTab: TabId = isTabId(tabParam) ? tabParam : "overview";
-
-  function switchTab(id: TabId) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (id === "overview") params.delete("tab");
-    else params.set("tab", id);
-    const qs = params.toString();
-    router.replace(`/dashboard/projects/${project.id}${qs ? `?${qs}` : ""}`, { scroll: false });
-  }
-
   return (
-    // Task 5: the outer page now owns the project header + 5-step
-    // timeline + 4 sub-tabs. This view renders inside the "music"
-    // sub-tab, so the top-level padding/container is a tighter
-    // wrapper without the old max-w-5xl shell.
-    <div className="flex flex-col gap-6">
-      {/* Legacy tab bar. Task 6 removed Audio (→ MusicSubTab). Task 8
-          removed Contract + Invoices (→ MoneySubTab). Only Overview +
-          Activity remain here; Task 9 will lift them to the outer Notes
-          sub-tab and delete this file entirely. */}
-      <nav
-        aria-label="Project sections"
-        role="tablist"
-        className="-mx-4 overflow-x-auto border-b border-[rgb(var(--border-subtle))] sm:mx-0"
-      >
-        <div className="flex min-w-max gap-1 px-4 sm:px-0">
-          {TABS.map((t) => {
-            const isActive = activeTab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                aria-controls={`panel-${t.id}`}
-                id={`tab-${t.id}`}
-                onClick={() => {
-                  switchTab(t.id);
-                }}
-                className={[
-                  "-mb-px whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "border-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))]"
-                    : "border-transparent text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
-                ].join(" ")}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-
-      <div className="mt-6">
-        {activeTab === "overview" ? (
-          <OverviewTab
-            project={project}
-            trackCount={tracks.length}
-            versionCount={versions.length}
-            contractCount={contractCount}
-          />
-        ) : null}
-        {activeTab === "activity" ? (
-          <ActivityTab tracks={tracks} versions={versions} comments={comments} />
-        ) : null}
-      </div>
-    </div>
+    <section
+      role="tabpanel"
+      id="panel-notes"
+      aria-labelledby="tab-notes"
+      className="space-y-10"
+    >
+      <OverviewSection
+        project={project}
+        trackCount={trackCount}
+        versionCount={versionCount}
+        contractCount={contractCount}
+      />
+      <ActivitySection tracks={tracks} versions={versions} comments={comments} />
+    </section>
   );
 }
 
-// ─── Overview tab ────────────────────────────────────────────────────
-function OverviewTab({
+// ─── Overview section ────────────────────────────────────────────────
+// Lifted verbatim from project-view.tsx's old OverviewTab. The outer
+// <section role="tabpanel"> wrapper is removed (NotesSubTab owns the
+// panel now); this renders as a plain <div> so the two sections stack
+// inside a single tabpanel.
+//
+// Task 5 — stage dropdown, cancel-project modal, mark-final flow and
+// the confirm-charge modal all moved to the ProjectHeader. Overview is
+// now a pure read-only summary; any writes land on the header's 3-dot
+// menu instead.
+function OverviewSection({
   project,
   trackCount,
   versionCount,
   contractCount,
 }: {
-  project: Project;
+  project: NotesProject;
   trackCount: number;
   versionCount: number;
   contractCount: number;
 }) {
-  // Task 5 — stage dropdown, cancel-project modal, mark-final flow and
-  // the confirm-charge modal all moved to the new ProjectHeader (see
-  // apps/web/src/components/dashboard/project/project-header.tsx).
-  // OverviewTab is now a read-only summary + client details card; the
-  // deposit/final pay state reads off the project props for display
-  // only. The editable mark-final action now lives in the header's
-  // 3-dot menu (which also owns the ConfirmChargeModal wiring for
-  // split_50_50 projects).
-
   return (
-    <section
-      role="tabpanel"
-      id="panel-overview"
-      aria-labelledby="tab-overview"
-      className="space-y-6"
-    >
+    <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-3">
         <StatBlock label="Tracks" value={String(trackCount)} />
         <StatBlock label="Versions" value={String(versionCount)} />
@@ -263,7 +174,7 @@ function OverviewTab({
           </div>
         </dl>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -283,22 +194,38 @@ function StatBlock({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ─── Activity tab ────────────────────────────────────────────────────
+// ─── Activity section ────────────────────────────────────────────────
+// Lifted verbatim from project-view.tsx's old ActivityTab. Same
+// <section role="tabpanel"> wrapper removal as OverviewSection.
 type ActivityItem =
   | { kind: "version"; at: Date; trackTitle: string; label: string }
-  | { kind: "comment"; at: Date; authorName: string; fromProducer: boolean; body: string; timestampMs: number };
+  | {
+      kind: "comment";
+      at: Date;
+      authorName: string;
+      fromProducer: boolean;
+      body: string;
+      timestampMs: number;
+    };
 
-function ActivityTab({
+function formatMs(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${String(m)}:${String(ss).padStart(2, "0")}`;
+}
+
+function ActivitySection({
   tracks,
   versions,
   comments,
 }: {
-  tracks: Track[];
-  versions: Version[];
-  comments: CommentRow[];
+  tracks: NotesTrack[];
+  versions: NotesVersion[];
+  comments: NotesComment[];
 }) {
   const trackById = useMemo(() => {
-    const m = new Map<string, Track>();
+    const m = new Map<string, NotesTrack>();
     for (const t of tracks) m.set(t.id, t);
     return m;
   }, [tracks]);
@@ -328,12 +255,15 @@ function ActivityTab({
   }, [versions, comments, trackById]);
 
   return (
-    <section
-      role="tabpanel"
-      id="panel-activity"
-      aria-labelledby="tab-activity"
-      className="space-y-3"
-    >
+    <div className="space-y-3">
+      <div>
+        <h2 className="font-display text-xl tracking-tight" style={{ fontWeight: 700 }}>
+          Activity
+        </h2>
+        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
+          Reverse-chronological feed of uploads and comments on this project.
+        </p>
+      </div>
       {items.length === 0 ? (
         <EmptyState
           title="Nothing happened yet."
@@ -388,6 +318,6 @@ function ActivityTab({
       <p className="mt-4 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
         TODO: contract send/view/sign events land here once the project_events table is wired.
       </p>
-    </section>
+    </div>
   );
 }

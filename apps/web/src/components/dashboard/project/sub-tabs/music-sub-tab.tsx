@@ -9,6 +9,7 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
+import { fmtDateTime } from "~/lib/time/relative";
 import {
   addProjectTrack,
   addProducerComment,
@@ -52,19 +53,14 @@ interface CommentRow {
   createdAt: Date;
 }
 
-// TODO: once Tasks 7-9 land, extract these small time helpers into
-// ~/lib/time/. For now a small copy lives here (and in project-view.tsx
-// for the inner tabs that still reference them). Duplication is cheaper
-// than adding a shared file mid-migration.
+// Timestamp formatter used inside waveform comments. fmtDateTime lives
+// in ~/lib/time/relative.ts — Task 9 consolidated the duplicated copies
+// from the four Project Room sub-tabs there.
 function formatMs(ms: number): string {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   const ss = s % 60;
   return `${String(m)}:${String(ss).padStart(2, "0")}`;
-}
-
-function fmtDateTime(d: Date): string {
-  return new Date(d).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 // Rough "x ago" string for the approved badge. We only care about this

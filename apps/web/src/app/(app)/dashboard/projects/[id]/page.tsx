@@ -10,6 +10,7 @@ import {
 } from "~/components/dashboard/project/project-sub-tabs";
 import { MoneySubTab } from "~/components/dashboard/project/sub-tabs/money-sub-tab";
 import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
+import { NotesSubTab } from "~/components/dashboard/project/sub-tabs/notes-sub-tab";
 import {
   SessionsSubTab,
   type SessionBooking,
@@ -228,21 +229,37 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
             {activeTab === "money" ? (
               <MoneySubTab projectId={data.project.id} contracts={contractsForProject} />
             ) : null}
-            {activeTab === "notes" ? <NotesPlaceholder /> : null}
+            {activeTab === "notes" ? (
+              <NotesSubTab
+                project={{
+                  clientName: data.project.clientName,
+                  clientEmail: data.project.clientEmail,
+                  artistName: data.project.artistName,
+                  artistEmail: data.project.artistEmail,
+                  createdAt: data.project.createdAt,
+                  updatedAt: data.project.updatedAt,
+                }}
+                trackCount={data.tracks.length}
+                versionCount={data.versions.length}
+                contractCount={contractsForProject.length}
+                tracks={data.tracks.map((t) => ({ id: t.id, title: t.title }))}
+                versions={data.versions.map((v) => ({
+                  trackId: v.trackId,
+                  label: v.label,
+                  uploadedAt: v.uploadedAt,
+                }))}
+                comments={data.comments.map((c) => ({
+                  authorName: c.authorName,
+                  body: c.body,
+                  timestampMs: c.timestampMs,
+                  fromProducer: c.fromProducer,
+                  createdAt: c.createdAt,
+                }))}
+              />
+            ) : null}
           </ProjectSubTabs>
         </div>
       </div>
     </AppShell>
-  );
-}
-
-// Placeholder for Task 9. The Notes sub-tab will grow its own
-// per-tab server component next; for now we render a visible "coming
-// soon" card so the sub-tab nav isn't rendering into a void.
-function NotesPlaceholder() {
-  return (
-    <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] py-12 text-center text-sm text-[rgb(var(--fg-muted))]">
-      Notes view — coming next.
-    </div>
   );
 }

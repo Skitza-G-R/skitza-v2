@@ -26,3 +26,19 @@ export function formatRelativeTime(
   if (day < 7) return future ? `in ${day.toString()}d` : `${day.toString()}d ago`;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+
+// Absolute date-time formatter used throughout the Project Room sub-tabs
+// (Music comments, Sessions booking card, Money contract list, Notes
+// timeline + overview). Uses the user's locale with medium-date +
+// short-time styles — e.g. "Apr 19, 2026, 14:32" in en-US with 24h, or
+// "19 Apr 2026, 14:32" in en-GB. Accepts a Date or anything new Date()
+// can coerce (e.g. an ISO string from a server response).
+//
+// Previously duplicated across four files; Task 9 consolidated them
+// here when project-view.tsx was retired.
+export function fmtDateTime(d: Date): string {
+  return new Date(d).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
