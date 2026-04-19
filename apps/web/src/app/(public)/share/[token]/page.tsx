@@ -58,26 +58,34 @@ export default async function SharePage({ params }: PageProps) {
   } else {
     const dbUrl = process.env.DATABASE_URL;
     if (dbUrl) {
-      const db = createDb(dbUrl);
-      const [contactRow] = await db
-        .select({ id: clientContacts.id })
-        .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.clerkUserId, userId),
-            eq(clientContacts.producerId, data.project.producerId),
-          ),
-        )
-        .limit(1);
-      if (contactRow) {
-        softBanner = (
-          <SoftSignInBanner
-            mode="in-app"
-            token={token}
-            appUrl={`/artist/music/${data.project.id}?studio=${data.project.producerId}`}
-            studioName={data.project.producerName}
-          />
-        );
+      try {
+        const db = createDb(dbUrl);
+        const [contactRow] = await db
+          .select({ id: clientContacts.id })
+          .from(clientContacts)
+          .where(
+            and(
+              eq(clientContacts.clerkUserId, userId),
+              eq(clientContacts.producerId, data.project.producerId),
+            ),
+          )
+          .limit(1);
+        if (contactRow) {
+          softBanner = (
+            <SoftSignInBanner
+              mode="in-app"
+              token={token}
+              appUrl={`/artist/music/${data.project.id}?studio=${data.project.producerId}`}
+              studioName={data.project.producerName}
+            />
+          );
+        }
+      } catch (err) {
+        // Intentionally swallow — the soft-signin banner is a nice-to-have.
+        // If the studio-match lookup fails (DB blip, etc.) we must not break
+        // the magic-link flow, which is the primary access path to this
+        // project. Fall through with softBanner = null.
+        console.warn("[share/token] clientContacts lookup failed, hiding banner", err);
       }
     }
   }
