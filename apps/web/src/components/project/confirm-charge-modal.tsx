@@ -107,7 +107,7 @@ export function ConfirmChargeModal({
         disabled={pending}
         className="absolute inset-0 bg-black/40 backdrop-blur-sm disabled:cursor-not-allowed"
       />
-      <div className="relative w-full max-w-md rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 shadow-2xl">
+      <div className="sk-pop-center relative w-full max-w-md rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 shadow-2xl">
         <h2
           id="confirm-charge-title"
           className="font-display text-xl text-[rgb(var(--fg-primary))]"

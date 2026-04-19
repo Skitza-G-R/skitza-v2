@@ -57,7 +57,7 @@ export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: 
         onClick={onClose}
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
       />
-      <div className="relative w-full max-w-md rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 shadow-2xl">
+      <div className="sk-pop-center relative w-full max-w-md rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 shadow-2xl">
         <h2 className="font-display text-xl text-[rgb(var(--fg-primary))]">Keyboard shortcuts</h2>
         <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
           Press <kbd className="font-mono">?</kbd> any time.
