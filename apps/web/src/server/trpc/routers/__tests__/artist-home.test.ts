@@ -34,6 +34,12 @@ const {
   activityBookingsMock,
   activityInvoicesMock,
   contactsWhereSpy,
+  bookingsWhereSpy,
+  trackVersionsWhereSpy,
+  invoicesWhereSpy,
+  activityTracksWhereSpy,
+  activityBookingsWhereSpy,
+  activityInvoicesWhereSpy,
   resetCallCounts,
   dbMock,
 } = vi.hoisted(() => {
@@ -45,6 +51,17 @@ const {
   const activityBookingsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const activityInvoicesMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const contactsWhereSpy = vi.fn<(arg: unknown) => void>();
+  // One WHERE-spy per sub-query so the auth-boundary tests can assert
+  // every downstream filter (not just the gating contacts SELECT).
+  // The "main" vs "activity" split matches the per-table call-counter
+  // dispatch below: first hit on each table is the main query, second
+  // is the activity-feed equivalent.
+  const bookingsWhereSpy = vi.fn<(arg: unknown) => void>();
+  const trackVersionsWhereSpy = vi.fn<(arg: unknown) => void>();
+  const invoicesWhereSpy = vi.fn<(arg: unknown) => void>();
+  const activityTracksWhereSpy = vi.fn<(arg: unknown) => void>();
+  const activityBookingsWhereSpy = vi.fn<(arg: unknown) => void>();
+  const activityInvoicesWhereSpy = vi.fn<(arg: unknown) => void>();
 
   const clientContactsMarker = {
     __table: "client_contacts",
@@ -119,21 +136,29 @@ const {
   // and still get the right Promise back. innerJoin chains transparently.
   // We materialize the Promise once per chain (lazily) so awaiting at
   // .where() and at .limit() resolves the same single mock invocation.
-  const chain = (terminal: () => Promise<Record<string, unknown>[]>) => {
+  // The optional whereSpy captures the WHERE arg so auth-boundary tests
+  // can assert each sub-query's scoping predicates.
+  const chain = (
+    terminal: () => Promise<Record<string, unknown>[]>,
+    whereSpy?: (arg: unknown) => void,
+  ) => {
     let resolved: Promise<Record<string, unknown>[]> | null = null;
     const get = () => {
       resolved ??= terminal();
       return resolved;
     };
     type Link = {
-      where: () => Link;
+      where: (arg: unknown) => Link;
       orderBy: () => Link;
       limit: () => Promise<Record<string, unknown>[]>;
       innerJoin: () => Link;
       then: Promise<Record<string, unknown>[]>["then"];
     };
     const link: Link = {
-      where: () => link,
+      where: (arg: unknown) => {
+        whereSpy?.(arg);
+        return link;
+      },
       orderBy: () => link,
       limit: () => get(),
       innerJoin: () => link,
@@ -162,22 +187,25 @@ const {
         if (table === bookingsMarker) {
           callCounts.bookings += 1;
           const isFirst = callCounts.bookings === 1;
-          return chain(() =>
-            isFirst ? bookingsSelectMock() : activityBookingsMock(),
+          return chain(
+            () => (isFirst ? bookingsSelectMock() : activityBookingsMock()),
+            isFirst ? bookingsWhereSpy : activityBookingsWhereSpy,
           );
         }
         if (table === trackVersionsMarker) {
           callCounts.track_versions += 1;
           const isFirst = callCounts.track_versions === 1;
-          return chain(() =>
-            isFirst ? trackVersionsSelectMock() : activityTracksMock(),
+          return chain(
+            () => (isFirst ? trackVersionsSelectMock() : activityTracksMock()),
+            isFirst ? trackVersionsWhereSpy : activityTracksWhereSpy,
           );
         }
         if (table === invoicesMarker) {
           callCounts.invoices += 1;
           const isFirst = callCounts.invoices === 1;
-          return chain(() =>
-            isFirst ? invoicesSelectMock() : activityInvoicesMock(),
+          return chain(
+            () => (isFirst ? invoicesSelectMock() : activityInvoicesMock()),
+            isFirst ? invoicesWhereSpy : activityInvoicesWhereSpy,
           );
         }
         throw new Error(`unexpected from(${String(table)})`);
@@ -201,6 +229,12 @@ const {
     activityBookingsMock,
     activityInvoicesMock,
     contactsWhereSpy,
+    bookingsWhereSpy,
+    trackVersionsWhereSpy,
+    invoicesWhereSpy,
+    activityTracksWhereSpy,
+    activityBookingsWhereSpy,
+    activityInvoicesWhereSpy,
     resetCallCounts,
     dbMock,
   };
@@ -242,11 +276,16 @@ vi.mock("@skitza/db", () => ({
   sql: () => ({ sql: true }),
 }));
 
-// Re-import the mocked symbol so the auth-boundary test asserts the
-// router's WHERE clause references the same `clientContacts.clerkUserId`
-// the rest of the codebase imports (both resolve to the marker via the
-// vi.mock factory above).
-import { clientContacts } from "@skitza/db";
+// Re-import the mocked symbols so the auth-boundary tests assert the
+// router's WHERE clauses reference the same column markers the rest of
+// the codebase imports (both resolve to the markers via the vi.mock
+// factory above).
+import {
+  bookings,
+  clientContacts,
+  invoices,
+  projects,
+} from "@skitza/db";
 
 beforeEach(() => {
   contactsSelectMock.mockReset().mockResolvedValue([]);
@@ -257,6 +296,12 @@ beforeEach(() => {
   activityBookingsMock.mockReset().mockResolvedValue([]);
   activityInvoicesMock.mockReset().mockResolvedValue([]);
   contactsWhereSpy.mockReset();
+  bookingsWhereSpy.mockReset();
+  trackVersionsWhereSpy.mockReset();
+  invoicesWhereSpy.mockReset();
+  activityTracksWhereSpy.mockReset();
+  activityBookingsWhereSpy.mockReset();
+  activityInvoicesWhereSpy.mockReset();
   resetCallCounts();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
@@ -435,5 +480,133 @@ describe("artist.home", () => {
     expect(whereArg).toEqual({
       eq: [clientContacts.clerkUserId, "user_alice"],
     });
+  });
+});
+
+// ─── Sub-query auth boundary ─────────────────────────────────────────
+// The contacts gating SELECT is necessary but not sufficient: a
+// regression that drops the inArray(producerId, myProducerIds) or
+// inArray(<email-col>, myEmails) predicate from any of the six
+// downstream sub-queries would silently leak cross-producer data into
+// the Home tab. These tests crawl the captured WHERE arg of each
+// sub-query and assert both scoping predicates by column-marker
+// identity, so a column rename or a swap-out is also caught.
+//
+// The mocked drizzle helpers in this file return marker objects:
+//   eq(col, val)        → { eq: [col, val] }
+//   inArray(col, vals)  → { inArray: [col, vals] }
+//   and(...preds)       → { and: [pred, ...] }
+// findPredicate walks an arbitrarily nested and(...) tree to find a
+// (operator, column) pair, asserting strict-equal column identity.
+function findPredicate(
+  where: unknown,
+  operator: "eq" | "inArray",
+  columnMarker: unknown,
+): unknown[] | null {
+  if (!where || typeof where !== "object") return null;
+  // and: [...preds] — recurse into each child predicate.
+  if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
+    for (const p of (where as { and: unknown[] }).and) {
+      const found = findPredicate(p, operator, columnMarker);
+      if (found) return found;
+    }
+    return null;
+  }
+  // eq: [col, val] or inArray: [col, arr] — check column identity.
+  if (operator in where) {
+    const args = (where as Record<string, unknown[]>)[operator];
+    if (Array.isArray(args) && args[0] === columnMarker) return args;
+  }
+  return null;
+}
+
+describe("artist.home auth boundary (sub-queries)", () => {
+  // 2-producer / 2-email artist so the inArray() arg arrays are
+  // non-trivial and the assertion proves the WHERE got the *right*
+  // ids/emails (not just any ids/emails).
+  const seedTwoStudios = () => {
+    contactsSelectMock.mockResolvedValueOnce([
+      { id: "c1", producerId: "p1", email: "dan@x.com" },
+      { id: "c2", producerId: "p2", email: "DAN+studio@x.com" },
+    ]);
+  };
+
+  it("bookings sub-query scopes by myProducerIds + myEmails", async () => {
+    seedTwoStudios();
+    const caller = await buildCaller();
+    await caller.artist.home();
+
+    // Main bookings sub-query (next session).
+    const whereArg = bookingsWhereSpy.mock.calls[0]?.[0];
+    const producerPred = findPredicate(whereArg, "inArray", bookings.producerId);
+    const emailPred = findPredicate(whereArg, "inArray", bookings.artistEmail);
+
+    expect(producerPred).not.toBeNull();
+    expect(emailPred).not.toBeNull();
+    expect(producerPred?.[1]).toEqual(["p1", "p2"]);
+    // Emails are lowercased inside the router before the inArray.
+    expect(emailPred?.[1]).toEqual(["dan@x.com", "dan+studio@x.com"]);
+
+    // Activity bookings sub-query — same scoping must apply.
+    const activityWhereArg = activityBookingsWhereSpy.mock.calls[0]?.[0];
+    expect(
+      findPredicate(activityWhereArg, "inArray", bookings.producerId),
+    ).not.toBeNull();
+    expect(
+      findPredicate(activityWhereArg, "inArray", bookings.artistEmail),
+    ).not.toBeNull();
+  });
+
+  it("track_versions sub-query scopes by myProducerIds + myEmails (via projects)", async () => {
+    seedTwoStudios();
+    const caller = await buildCaller();
+    await caller.artist.home();
+
+    // Track-versions joins through project_tracks → projects, so the
+    // scoping predicates live on the projects table (not track_versions).
+    const whereArg = trackVersionsWhereSpy.mock.calls[0]?.[0];
+    const producerPred = findPredicate(whereArg, "inArray", projects.producerId);
+    const emailPred = findPredicate(whereArg, "inArray", projects.artistEmail);
+
+    expect(producerPred).not.toBeNull();
+    expect(emailPred).not.toBeNull();
+    expect(producerPred?.[1]).toEqual(["p1", "p2"]);
+    expect(emailPred?.[1]).toEqual(["dan@x.com", "dan+studio@x.com"]);
+
+    // Activity track-uploads sub-query — same scoping must apply.
+    const activityWhereArg = activityTracksWhereSpy.mock.calls[0]?.[0];
+    expect(
+      findPredicate(activityWhereArg, "inArray", projects.producerId),
+    ).not.toBeNull();
+    expect(
+      findPredicate(activityWhereArg, "inArray", projects.artistEmail),
+    ).not.toBeNull();
+  });
+
+  it("invoices sub-query scopes by myProducerIds + my customerEmail candidates", async () => {
+    seedTwoStudios();
+    const caller = await buildCaller();
+    await caller.artist.home();
+
+    // Invoices uses customerEmail (not artistEmail) — the column name
+    // diverges from bookings/projects, which is exactly the kind of
+    // accidental swap this test guards against.
+    const whereArg = invoicesWhereSpy.mock.calls[0]?.[0];
+    const producerPred = findPredicate(whereArg, "inArray", invoices.producerId);
+    const emailPred = findPredicate(whereArg, "inArray", invoices.customerEmail);
+
+    expect(producerPred).not.toBeNull();
+    expect(emailPred).not.toBeNull();
+    expect(producerPred?.[1]).toEqual(["p1", "p2"]);
+    expect(emailPred?.[1]).toEqual(["dan@x.com", "dan+studio@x.com"]);
+
+    // Activity invoices sub-query — same scoping must apply.
+    const activityWhereArg = activityInvoicesWhereSpy.mock.calls[0]?.[0];
+    expect(
+      findPredicate(activityWhereArg, "inArray", invoices.producerId),
+    ).not.toBeNull();
+    expect(
+      findPredicate(activityWhereArg, "inArray", invoices.customerEmail),
+    ).not.toBeNull();
   });
 });
