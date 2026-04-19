@@ -140,8 +140,8 @@ function BookingCard({
     // For Task 7 we stub with a toast; the button is visible so the
     // surface matches the plan but the CTA makes its state honest.
     toast(
-      "Rescheduling isn't wired up yet — cancel and rebook via your public booking link for now.",
-      "success",
+      "Rescheduling isn't wired yet - share your public link.",
+      "info",
     );
   }
 
@@ -157,8 +157,8 @@ function BookingCard({
     // stays responsive. The full flow is tracked as a follow-up.
     startTransition(() => {
       toast(
-        "Cancel-after-confirm isn't wired up yet — message the artist directly and mark the project cancelled from the 3-dot menu.",
-        "success",
+        "Cancel-after-confirm isn't wired - use the 3-dot menu.",
+        "info",
       );
       router.refresh();
     });

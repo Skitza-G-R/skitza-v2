@@ -633,7 +633,7 @@ function ApproveControl({
               // for MVP we simply scroll + toast an instruction.
               toast(
                 "Add a new version labelled \"stems\" under this track.",
-                "success",
+                "info",
               );
             }}
             className="underline-offset-2 hover:text-[rgb(var(--brand-primary))] hover:underline"
