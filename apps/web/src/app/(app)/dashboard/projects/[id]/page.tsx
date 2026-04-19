@@ -2,17 +2,36 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { createDb, desc, eq, invoices, producers } from "@skitza/db";
 
+import { ProjectHeader } from "~/components/dashboard/project/project-header";
+import {
+  isProjectSubTabId,
+  ProjectSubTabs,
+  type ProjectSubTabId,
+} from "~/components/dashboard/project/project-sub-tabs";
 import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { getStripe } from "~/server/stripe/client";
 import { ProjectView } from "./project-view";
 
-type PageProps = { params: Promise<{ id: string }> };
+type PageProps = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-export default async function ProjectDetail({ params }: PageProps) {
+// Narrow a raw `?tab=` value (single string / array / undefined) into a
+// valid ProjectSubTabId. Anything unrecognised falls back to "music",
+// the default sub-tab for the Project Room.
+function resolveSubTab(raw: string | string[] | undefined): ProjectSubTabId {
+  if (Array.isArray(raw)) raw = raw[0];
+  return isProjectSubTabId(raw) ? raw : "music";
+}
+
+export default async function ProjectDetail({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const { id } = await params;
+  const sp = await searchParams;
+  const activeTab = resolveSubTab(sp.tab);
 
   const caller = appRouter.createCaller({ userId });
   let data;
@@ -46,6 +65,13 @@ export default async function ProjectDetail({ params }: PageProps) {
   } catch {
     contractsForProject = [];
   }
+
+  // Task 5 — timeline's Contract step needs to know whether at least
+  // one contract for this project has been signed. `signedAt` on any
+  // recipient (status === "signed") is the authoritative signal.
+  const contractSigned = contractsForProject.some(
+    (c) => c.status === "signed" || c.signedAt !== null,
+  );
 
   // For split_50_50 projects with a saved PM, fetch the card's last-4
   // from Stripe so the confirm-charge modal can show "card ending 4242"
@@ -104,56 +130,121 @@ export default async function ProjectDetail({ params }: PageProps) {
     }
   }
 
+  // Shared header props — consumed by ProjectHeader's top row, payment
+  // strip, timeline, and 3-dot action handlers. finalDelivered mirrors
+  // finalPaid for now (pre-Task-6 there's no dedicated "delivered"
+  // column).
+  const headerProject = {
+    id: data.project.id,
+    title: data.project.title,
+    stage: data.project.stage,
+    artistName: data.project.artistName,
+    artistEmail: data.project.artistEmail,
+    clientName: data.project.clientName,
+    depositPaid: data.project.depositPaid,
+    finalPaid: data.project.finalPaid,
+    paymentPlanKind: data.project.paymentPlanKind,
+    installments: data.project.installments,
+    nextChargeAt: data.project.nextChargeAt,
+    chargesCompleted: data.project.chargesCompleted,
+    chargesTotal: data.project.chargesTotal,
+    totalAmountCents: data.project.totalAmountCents,
+    cardLast4,
+    currency: projectCurrency,
+    contractSigned,
+    finalDelivered: data.project.finalPaid,
+  };
+
   return (
     <AppShell active="projects">
-      <ProjectView
-        project={{
-          id: data.project.id,
-          title: data.project.title,
-          stage: data.project.stage,
-          artistName: data.project.artistName,
-          artistEmail: data.project.artistEmail,
-          clientName: data.project.clientName,
-          clientEmail: data.project.clientEmail,
-          depositPaid: data.project.depositPaid,
-          finalPaid: data.project.finalPaid,
-          paymentPlanKind: data.project.paymentPlanKind,
-          installments: data.project.installments,
-          nextChargeAt: data.project.nextChargeAt,
-          chargesCompleted: data.project.chargesCompleted,
-          chargesTotal: data.project.chargesTotal,
-          totalAmountCents: data.project.totalAmountCents,
-          cardLast4,
-          currency: projectCurrency,
-          createdAt: data.project.createdAt,
-          updatedAt: data.project.updatedAt,
-        }}
-        tracks={data.tracks.map((t) => ({
-          id: t.id,
-          title: t.title,
-          artist: t.artist,
-          position: t.position,
-        }))}
-        versions={data.versions.map((v) => ({
-          id: v.id,
-          trackId: v.trackId,
-          label: v.label,
-          audioUrl: v.audioUrl,
-          uploadedAt: v.uploadedAt,
-          approvedAt: v.approvedAt,
-        }))}
-        comments={data.comments.map((c) => ({
-          id: c.id,
-          versionId: c.versionId,
-          authorName: c.authorName,
-          body: c.body,
-          timestampMs: c.timestampMs,
-          resolvedAt: c.resolvedAt,
-          fromProducer: c.fromProducer,
-          createdAt: c.createdAt,
-        }))}
-        contracts={contractsForProject}
-      />
+      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+        <ProjectHeader project={headerProject} />
+        <div className="mt-6">
+          <ProjectSubTabs activeTab={activeTab}>
+            {activeTab === "music" ? (
+              <ProjectView
+                project={{
+                  id: data.project.id,
+                  title: data.project.title,
+                  stage: data.project.stage,
+                  artistName: data.project.artistName,
+                  artistEmail: data.project.artistEmail,
+                  clientName: data.project.clientName,
+                  clientEmail: data.project.clientEmail,
+                  depositPaid: data.project.depositPaid,
+                  finalPaid: data.project.finalPaid,
+                  paymentPlanKind: data.project.paymentPlanKind,
+                  installments: data.project.installments,
+                  nextChargeAt: data.project.nextChargeAt,
+                  chargesCompleted: data.project.chargesCompleted,
+                  chargesTotal: data.project.chargesTotal,
+                  totalAmountCents: data.project.totalAmountCents,
+                  cardLast4,
+                  currency: projectCurrency,
+                  createdAt: data.project.createdAt,
+                  updatedAt: data.project.updatedAt,
+                }}
+                tracks={data.tracks.map((t) => ({
+                  id: t.id,
+                  title: t.title,
+                  artist: t.artist,
+                  position: t.position,
+                }))}
+                versions={data.versions.map((v) => ({
+                  id: v.id,
+                  trackId: v.trackId,
+                  label: v.label,
+                  audioUrl: v.audioUrl,
+                  uploadedAt: v.uploadedAt,
+                  approvedAt: v.approvedAt,
+                }))}
+                comments={data.comments.map((c) => ({
+                  id: c.id,
+                  versionId: c.versionId,
+                  authorName: c.authorName,
+                  body: c.body,
+                  timestampMs: c.timestampMs,
+                  resolvedAt: c.resolvedAt,
+                  fromProducer: c.fromProducer,
+                  createdAt: c.createdAt,
+                }))}
+                contracts={contractsForProject}
+              />
+            ) : null}
+            {activeTab === "sessions" ? <SessionsPlaceholder /> : null}
+            {activeTab === "money" ? <MoneyPlaceholder /> : null}
+            {activeTab === "notes" ? <NotesPlaceholder /> : null}
+          </ProjectSubTabs>
+        </div>
+      </div>
     </AppShell>
+  );
+}
+
+// Placeholder panels for Tasks 6-9. Each sub-tab will grow its own
+// per-tab server component over the next few commits; for Task 5 we
+// just put a visible "coming soon" card so the sub-tab nav isn't
+// rendering into a void.
+function SessionsPlaceholder() {
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] py-12 text-center text-sm text-[rgb(var(--fg-muted))]">
+      Sessions view — coming next.
+    </div>
+  );
+}
+
+function MoneyPlaceholder() {
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] py-12 text-center text-sm text-[rgb(var(--fg-muted))]">
+      Money view — coming next.
+    </div>
+  );
+}
+
+function NotesPlaceholder() {
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] py-12 text-center text-sm text-[rgb(var(--fg-muted))]">
+      Notes view — coming next.
+    </div>
   );
 }

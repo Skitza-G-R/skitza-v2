@@ -6,29 +6,18 @@ import { type SyntheticEvent, useMemo, useState, useTransition } from "react";
 
 import { AudioUploader } from "~/components/audio/audio-uploader";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
-import { CancelConfirmModal } from "~/components/project/cancel-confirm-modal";
-import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
-import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
-import {
-  SELECTABLE_STAGES,
-  STAGE_LABEL,
-  type Stage,
-} from "~/lib/projects/stages";
+import { type Stage } from "~/lib/projects/stages";
 import {
   addProjectTrack,
   addProducerComment,
   addTrackVersion,
   approveVersionAction,
-  cancelProjectAction,
-  chargeFinalAction,
   resolveVersionComment,
-  setProjectPaid,
-  setStageAction,
 } from "../actions";
 
 interface Project {
@@ -177,94 +166,45 @@ export function ProjectView({
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
-      <header className="reveal-up">
-        <Link
-          href="/dashboard"
-          className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-primary))]"
-        >
-          ← Pipeline
-        </Link>
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1
-              className="font-display text-4xl leading-tight tracking-tight sm:text-5xl"
-              style={{ fontWeight: 800 }}
-            >
-              {project.title}
-            </h1>
-            <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-              {project.artistName}
-              <span className="ml-2 font-mono text-xs text-[rgb(var(--fg-muted))]">
-                {project.artistEmail}
-              </span>
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="neutral">{STAGE_LABEL[project.stage]}</Badge>
-            {project.finalPaid ? (
-              <Badge variant="active" dot>
-                Final paid
-              </Badge>
-            ) : project.depositPaid ? (
-              <Badge variant="warning" dot>
-                Deposit paid
-              </Badge>
-            ) : (
-              <Badge dot>Unpaid</Badge>
-            )}
-          </div>
-        </div>
-        {/* Task 8 — compact payment-plan status. Renders nothing for
-            legacy rows or trial bookings (no plan configured). */}
-        <PaymentStatusStrip
-          paymentPlanKind={
-            project.paymentPlanKind === "full" ||
-            project.paymentPlanKind === "split_50_50" ||
-            project.paymentPlanKind === "monthly"
-              ? project.paymentPlanKind
-              : null
-          }
-          installments={project.installments}
-          chargesCompleted={project.chargesCompleted}
-          chargesTotal={project.chargesTotal}
-          totalAmountCents={project.totalAmountCents}
-          currency={project.currency || "USD"}
-          nextChargeAt={project.nextChargeAt}
-          stage={project.stage}
-        />
-      </header>
-
-      {/* Tab bar */}
+    // Task 5: the outer page now owns the project header + 5-step
+    // timeline + 4 sub-tabs. This view renders inside the "music"
+    // sub-tab, so the top-level padding/container is a tighter
+    // wrapper without the old max-w-5xl shell.
+    <div className="flex flex-col gap-6">
+      {/* Legacy tab bar (Overview/Audio/Contract/Invoices/Activity).
+          These inner tabs stay as-is for Task 5 — Tasks 6-9 will peel
+          content out of them into the new per-sub-tab components. */}
       <nav
         aria-label="Project sections"
         role="tablist"
-        className="mt-8 flex gap-1 overflow-x-auto border-b border-[rgb(var(--border-subtle))]"
+        className="-mx-4 overflow-x-auto border-b border-[rgb(var(--border-subtle))] sm:mx-0"
       >
-        {TABS.map((t) => {
-          const isActive = activeTab === t.id;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`panel-${t.id}`}
-              id={`tab-${t.id}`}
-              onClick={() => {
-                switchTab(t.id);
-              }}
-              className={[
-                "-mb-px whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
-                isActive
-                  ? "border-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))]"
-                  : "border-transparent text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
-              ].join(" ")}
-            >
-              {t.label}
-            </button>
-          );
-        })}
+        <div className="flex min-w-max gap-1 px-4 sm:px-0">
+          {TABS.map((t) => {
+            const isActive = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`panel-${t.id}`}
+                id={`tab-${t.id}`}
+                onClick={() => {
+                  switchTab(t.id);
+                }}
+                className={[
+                  "-mb-px whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+                  isActive
+                    ? "border-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))]"
+                    : "border-transparent text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
+                ].join(" ")}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       <div className="mt-6">
@@ -303,135 +243,14 @@ function OverviewTab({
   versionCount: number;
   contractCount: number;
 }) {
-  const router = useRouter();
-  const { toast } = useToast();
-  const [pending, startTransition] = useTransition();
-  const [stage, setStage] = useState<Stage>(project.stage);
-  const [d, setD] = useState(project.depositPaid);
-  const [f, setF] = useState(project.finalPaid);
-  // Modal open state for split_50_50 final charge. We only mount the
-  // modal when the producer actually clicks "Mark final paid" while
-  // the project qualifies — no need to render it proactively.
-  const [chargeModalOpen, setChargeModalOpen] = useState(false);
-  // Task 9 — cancel-project modal. The button to open it is hidden
-  // for projects already in a terminal stage (paid/archived/cancelled)
-  // so the modal never opens in a no-op state.
-  const [cancelModalOpen, setCancelModalOpen] = useState(false);
-  const isTerminal =
-    stage === "cancelled" || stage === "paid" || stage === "archived";
-
-  // Task 7 — gate the modal on plan shape + progress. For monthly /
-  // full / already-paid plans, the button runs the existing flag flip
-  // directly (Stripe handles monthly charges automatically; full is
-  // charged at checkout). Only split_50_50 with one charge landed
-  // requires the producer-triggered off-session PI.
-  const needsChargeModal =
-    project.paymentPlanKind === "split_50_50" &&
-    project.chargesCompleted === 1 &&
-    !project.finalPaid;
-
-  // Derive the second-half amount from the stored total. Same math as
-  // the server's calculateCharges({kind:'split_50_50'}, total)[1] —
-  // duplicated client-side for modal display so we don't need an extra
-  // round-trip. For total $200.00 and $200.01 alike the final charge is
-  // $100.00 (the remainder rides on the first charge). Returns 0 if
-  // total isn't populated (legacy rows); the server-side
-  // PRECONDITION_FAILED will reject such cases anyway.
-  const finalAmountCents = (() => {
-    if (project.totalAmountCents === null) return 0;
-    return Math.floor(project.totalAmountCents / 2);
-  })();
-
-  function onStageChange(next: Stage) {
-    const prev = stage;
-    setStage(next);
-    startTransition(async () => {
-      const res = await setStageAction({ id: project.id, stage: next });
-      if (!res.ok) {
-        setStage(prev);
-        toast(res.error, "error");
-        return;
-      }
-      toast(`Stage → ${STAGE_LABEL[next]}.`, "success");
-      router.refresh();
-    });
-  }
-
-  function flipPaid(kind: "deposit" | "final", value: boolean) {
-    if (kind === "deposit") setD(value);
-    else setF(value);
-    startTransition(async () => {
-      const res = await setProjectPaid({ projectId: project.id, kind, paid: value });
-      if (!res.ok) {
-        if (kind === "deposit") setD(!value);
-        else setF(!value);
-        toast(res.error, "error");
-        return;
-      }
-      toast(
-        `${kind === "deposit" ? "Deposit" : "Final"} ${value ? "marked paid" : "cleared"}.`,
-        "success",
-      );
-      router.refresh();
-    });
-  }
-
-  // Click handler for "Mark final paid". Split_50_50 projects with the
-  // deposit landed open the confirm modal (which fires the off-session
-  // PI on confirm, then runs the mark-final flip). Every other shape
-  // (full, monthly, already paid, legacy) skips straight to the flip.
-  function onFinalClick(nextValue: boolean) {
-    if (nextValue && needsChargeModal) {
-      setChargeModalOpen(true);
-      return;
-    }
-    flipPaid("final", nextValue);
-  }
-
-  // Cancel-project modal confirm. The mutation cancels any in-flight
-  // Stripe Subscription Schedule and flips stage to 'cancelled'. We
-  // re-throw on failure so the modal renders the error inline (rather
-  // than closing + showing a toast that would lose the user's place).
-  async function onConfirmCancel(confirmTitle: string) {
-    const res = await cancelProjectAction({
-      projectId: project.id,
-      confirmTitle,
-    });
-    if (!res.ok) throw new Error(res.error);
-    setCancelModalOpen(false);
-    setStage("cancelled");
-    toast("Project cancelled. Future charges stopped.", "success");
-    router.refresh();
-  }
-
-  // Modal confirm: fire the charge via the server action, then on
-  // success mark the project finalPaid. If the charge throws, the
-  // modal surfaces the Stripe error message inline (not a toast) so
-  // the producer can switch cards without losing the modal state.
-  async function onConfirmCharge() {
-    const res = await chargeFinalAction({ projectId: project.id });
-    if (!res.ok) throw new Error(res.error);
-    // Charge succeeded — the webhook will advance chargesCompleted
-    // to 2 and the router refresh below picks up the new state. We
-    // also flip finalPaid eagerly so the UI reflects the outcome
-    // without waiting on webhook roundtrip.
-    setChargeModalOpen(false);
-    setF(true);
-    const flipRes = await setProjectPaid({
-      projectId: project.id,
-      kind: "final",
-      paid: true,
-    });
-    if (!flipRes.ok) {
-      // Charge landed but flag flip failed — surface via toast; the
-      // webhook will eventually reconcile state. Rare; flag update is
-      // a simple DB write.
-      toast(flipRes.error, "error");
-    } else {
-      toast("Final charged · downloads unlocked.", "success");
-    }
-    router.refresh();
-  }
+  // Task 5 — stage dropdown, cancel-project modal, mark-final flow and
+  // the confirm-charge modal all moved to the new ProjectHeader (see
+  // apps/web/src/components/dashboard/project/project-header.tsx).
+  // OverviewTab is now a read-only summary + client details card; the
+  // deposit/final pay state reads off the project props for display
+  // only. The editable mark-final action now lives in the header's
+  // 3-dot menu (which also owns the ConfirmChargeModal wiring for
+  // split_50_50 projects).
 
   return (
     <section
@@ -444,61 +263,6 @@ function OverviewTab({
         <StatBlock label="Tracks" value={String(trackCount)} />
         <StatBlock label="Versions" value={String(versionCount)} />
         <StatBlock label="Contracts" value={String(contractCount)} />
-      </div>
-
-      <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-        <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-          Stage
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <Label htmlFor="stage-select" className="sr-only">
-            Stage
-          </Label>
-          <select
-            id="stage-select"
-            value={stage}
-            onChange={(e) => {
-              const next = e.target.value;
-              // Narrow to a SELECTABLE stage. Dropdown options exclude
-              // cancelled + payment_paused (those have Stripe side-effects
-              // and their own surfaces — Cancel button + webhook).
-              const isSelectable = (
-                SELECTABLE_STAGES as readonly string[]
-              ).includes(next);
-              if (isSelectable) {
-                onStageChange(next as Stage);
-              }
-            }}
-            disabled={pending}
-            className="h-10 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 text-sm text-[rgb(var(--fg-primary))]"
-          >
-            {SELECTABLE_STAGES.map((s) => (
-              <option key={s} value={s}>
-                {STAGE_LABEL[s]}
-              </option>
-            ))}
-          </select>
-          <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
-            Change to move the project through the pipeline.
-          </p>
-          {/* Task 9 — destructive cancel button. Hidden when the
-              project is already in a terminal stage so a no-op modal
-              never opens. The mutation re-checks server-side. */}
-          {!isTerminal ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              onClick={() => {
-                setCancelModalOpen(true);
-              }}
-              disabled={pending}
-              className="ml-auto"
-            >
-              Cancel project
-            </Button>
-          ) : null}
-        </div>
       </div>
 
       <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
@@ -536,67 +300,6 @@ function OverviewTab({
           ) : null}
         </dl>
       </div>
-
-      <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-        <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-          Payment state (v1 — manual until Stripe)
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={d ? "default" : "outline"}
-            onClick={() => {
-              flipPaid("deposit", !d);
-            }}
-            disabled={pending}
-          >
-            {d ? "✓ Deposit paid" : "Mark deposit paid"}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={f ? "default" : "outline"}
-            onClick={() => {
-              onFinalClick(!f);
-            }}
-            disabled={pending}
-          >
-            {f ? "✓ Final paid · downloads unlocked" : "Mark final paid"}
-          </Button>
-        </div>
-        <p className="mt-3 font-mono text-xs text-[rgb(var(--fg-muted))]">
-          Artist-side downloads unlock once you mark Final paid.
-        </p>
-      </div>
-
-      {needsChargeModal ? (
-        <ConfirmChargeModal
-          open={chargeModalOpen}
-          clientName={project.clientName ?? project.artistName}
-          amountCents={finalAmountCents}
-          currency={project.currency}
-          {...(project.cardLast4 ? { cardLast4: project.cardLast4 } : {})}
-          onConfirm={onConfirmCharge}
-          onClose={() => {
-            setChargeModalOpen(false);
-          }}
-        />
-      ) : null}
-
-      {/* Task 9 — type-to-confirm cancel modal. Mounted only when
-          project is non-terminal; the button that opens it shares the
-          same gate, so we never end up in an opened-but-no-op state. */}
-      {!isTerminal ? (
-        <CancelConfirmModal
-          open={cancelModalOpen}
-          projectTitle={project.title}
-          onConfirm={onConfirmCancel}
-          onClose={() => {
-            setCancelModalOpen(false);
-          }}
-        />
-      ) : null}
 
       <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
         <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
