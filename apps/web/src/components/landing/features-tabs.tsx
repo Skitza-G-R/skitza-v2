@@ -140,8 +140,13 @@ export function FeaturesTabs() {
             ))}
           </nav>
 
-          {/* Active tab pane */}
-          <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 sm:p-8">
+          {/* Active tab pane — keyed on `active` so React remounts the
+              pane on tab change, replaying the .reveal-up animation so
+              content fades + slides in rather than snapping. */}
+          <div
+            key={current.key}
+            className="reveal-up rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 sm:p-8"
+          >
             <h3
               className="font-display text-2xl leading-tight tracking-tight text-[rgb(var(--fg-primary))] sm:text-3xl"
               style={{ fontWeight: 700 }}
