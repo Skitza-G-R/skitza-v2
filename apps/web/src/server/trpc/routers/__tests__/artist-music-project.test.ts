@@ -577,6 +577,66 @@ describe("artist.music.project (query)", () => {
     expect(clerkPred).not.toBeNull();
     expect(clerkPred?.[1]).toBe("user_alice");
   });
+
+  it("contactsSelect scopes by clerkUserId + producerId + email (AND predicates)", async () => {
+    // Without these three predicates on the contacts SELECT, a
+    // refactor that "simplifies" to WHERE clerk_user_id = … alone
+    // would leak cross-producer / cross-email data. The existing
+    // clerkUserId test above only locks one of the three; this one
+    // pins the other two by column-marker identity so a silent drop
+    // fails here.
+    projectSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        title: "EP",
+        producerId: "p1",
+        artistEmail: "Dan@X.com", // router lowercases before match
+      },
+    ]);
+    contactsSelectQueue.push([
+      { id: "c1", producerId: "p1", email: "dan@x.com", name: "Dan" },
+    ]);
+    producerSelectQueue.push([{ displayName: "Studio" }]);
+    tracksSelectQueue.push([]);
+
+    const caller = await buildCaller();
+    await caller.artist.music.project({ projectId: PROJECT_ID });
+
+    const contactsArg = contactsWhereSpy.mock.calls[0]?.[0];
+
+    // (a) clerkUserId — the Clerk identity predicate.
+    const clerkPred = findPredicate(
+      contactsArg,
+      "eq",
+      clientContacts.clerkUserId,
+    );
+    expect(clerkPred).not.toBeNull();
+    expect(clerkPred?.[1]).toBe("user_test_artist_1");
+
+    // (b) producerId — must reference the project's producer. A refactor
+    // that drops this predicate would let a contact for producer p2
+    // (same email, same user) satisfy the ownership guard for a p1
+    // project — cross-producer leak.
+    const producerPred = findPredicate(
+      contactsArg,
+      "eq",
+      clientContacts.producerId,
+    );
+    expect(producerPred).not.toBeNull();
+    expect(producerPred?.[1]).toBe("p1");
+
+    // (c) email — must reference the project's artistEmail (lowercased).
+    // A refactor that drops this predicate would let a project shared
+    // to jane@x.com be read by dan@x.com's session — cross-email leak
+    // within the same producer.
+    const emailPred = findPredicate(
+      contactsArg,
+      "eq",
+      clientContacts.email,
+    );
+    expect(emailPred).not.toBeNull();
+    expect(emailPred?.[1]).toBe("dan@x.com");
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -693,6 +753,21 @@ describe("artist.music.addComment (mutation)", () => {
     expect(insertValuesSpy).not.toHaveBeenCalled();
   });
 
+  it("rejects whitespace-only body (zod .trim() then .min(1))", async () => {
+    // Without .trim() before .min(1), Zod would accept "   " as a
+    // 3-char string and let an empty comment through. With .trim()
+    // the value becomes "" and .min(1) rejects.
+    const caller = await buildCaller();
+    await expect(
+      caller.artist.music.addComment({
+        trackVersionId: TRACK_VERSION_ID,
+        timeMs: 10,
+        body: "   ",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(insertValuesSpy).not.toHaveBeenCalled();
+  });
+
   it("scopes ownership check by clerkUserId (auth boundary)", async () => {
     versionSelectQueue.push([
       { id: TRACK_VERSION_ID, trackId: "trk-a", durationMs: 200_000 },
@@ -739,5 +814,74 @@ describe("artist.music.addComment (mutation)", () => {
     );
     expect(clerkPred).not.toBeNull();
     expect(clerkPred?.[1]).toBe("user_alice");
+  });
+
+  it("contactsSelect scopes by clerkUserId + producerId + email (AND predicates)", async () => {
+    // Same guarantee as the music.project auth-boundary scope test,
+    // applied to the mutation path. If a refactor drops any of the
+    // three predicates the ownership guard on the write path would
+    // silently admit cross-producer / cross-email comment inserts.
+    versionSelectQueue.push([
+      { id: TRACK_VERSION_ID, trackId: "trk-a", durationMs: 200_000 },
+    ]);
+    trackSelectQueue.push([
+      { id: "trk-a", projectId: PROJECT_ID },
+    ]);
+    projectSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        producerId: "p1",
+        artistEmail: "Dan@X.com", // router lowercases before match
+      },
+    ]);
+    contactsSelectQueue.push([
+      { id: "c1", producerId: "p1", email: "dan@x.com", name: "Dan" },
+    ]);
+    insertReturningMock.mockResolvedValue([
+      {
+        id: "cm-ok",
+        versionId: TRACK_VERSION_ID,
+        timestampMs: 5,
+        body: "ok",
+        fromProducer: false,
+        authorName: "Dan",
+        authorEmail: "dan@x.com",
+        resolvedAt: null,
+        createdAt: new Date("2026-04-19T12:00:00Z"),
+      },
+    ]);
+
+    const caller = await buildCaller();
+    await caller.artist.music.addComment({
+      trackVersionId: TRACK_VERSION_ID,
+      timeMs: 5,
+      body: "ok",
+    });
+
+    const contactsArg = contactsWhereSpy.mock.calls[0]?.[0];
+
+    const clerkPred = findPredicate(
+      contactsArg,
+      "eq",
+      clientContacts.clerkUserId,
+    );
+    expect(clerkPred).not.toBeNull();
+    expect(clerkPred?.[1]).toBe("user_test_artist_1");
+
+    const producerPred = findPredicate(
+      contactsArg,
+      "eq",
+      clientContacts.producerId,
+    );
+    expect(producerPred).not.toBeNull();
+    expect(producerPred?.[1]).toBe("p1");
+
+    const emailPred = findPredicate(
+      contactsArg,
+      "eq",
+      clientContacts.email,
+    );
+    expect(emailPred).not.toBeNull();
+    expect(emailPred?.[1]).toBe("dan@x.com");
   });
 });

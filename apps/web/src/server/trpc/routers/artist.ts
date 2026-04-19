@@ -260,27 +260,26 @@ const musicSubrouter = router({
 
       const trackIds = tracksList.map((t) => t.id);
 
-      // Versions + comments: two more SELECTs. We filter by the trackIds
-      // set in JS (typical project has < 10 tracks with < 5 versions
-      // each, so this keeps the query simple and avoids an inArray
-      // round-trip when the set is empty).
+      // Versions + comments: scope both SELECTs at the DB layer via
+      // inArray. Short-circuit when there are no tracks (and, below, no
+      // versions) so we skip an otherwise-pointless round-trip. This
+      // used to filter in JS after a full-table SELECT — a severe perf
+      // cliff as the platform grows, and a tenant-scope smell.
       const allVersions = trackIds.length
-        ? (
-            await ctx.db
-              .select()
-              .from(trackVersions)
-              .orderBy(desc(trackVersions.uploadedAt))
-          ).filter((v) => trackIds.includes(v.trackId))
+        ? await ctx.db
+            .select()
+            .from(trackVersions)
+            .where(inArray(trackVersions.trackId, trackIds))
+            .orderBy(desc(trackVersions.uploadedAt))
         : [];
 
       const versionIds = allVersions.map((v) => v.id);
       const allComments = versionIds.length
-        ? (
-            await ctx.db
-              .select()
-              .from(trackComments)
-              .orderBy(asc(trackComments.createdAt))
-          ).filter((c) => versionIds.includes(c.versionId))
+        ? await ctx.db
+            .select()
+            .from(trackComments)
+            .where(inArray(trackComments.versionId, versionIds))
+            .orderBy(asc(trackComments.createdAt))
         : [];
 
       // Stitch: each track carries its own versions (desc uploadedAt)
@@ -339,7 +338,7 @@ const musicSubrouter = router({
       z.object({
         trackVersionId: z.string().uuid(),
         timeMs: z.number().int().min(0),
-        body: z.string().min(1).max(2000),
+        body: z.string().trim().min(1).max(2000),
       }),
     )
     .mutation(async ({ ctx, input }) => {
