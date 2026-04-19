@@ -52,3 +52,18 @@ export const STAGE_LABEL: Record<Stage, string> = {
   payment_paused: "Payment paused",
   cancelled: "Cancelled",
 };
+
+/**
+ * Returns true when the project's stage means "no more forward progress is
+ * expected." Used by the Project Room header to disable action buttons and
+ * by the timeline to suppress the "current" state on mid-funnel steps.
+ *
+ * - `cancelled`: producer cancelled the engagement.
+ * - `payment_paused`: Stripe dunning exhausted retries — recoverable, but
+ *   not actively progressing until payment resumes.
+ * - `paid` + `archived`: the project is complete; there's nothing to
+ *   advance next.
+ */
+export function isTerminalStage(stage: Stage): boolean {
+  return stage === "cancelled" || stage === "payment_paused" || stage === "paid" || stage === "archived";
+}

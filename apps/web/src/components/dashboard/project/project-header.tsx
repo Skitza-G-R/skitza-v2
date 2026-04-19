@@ -28,6 +28,7 @@ import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import {
+  isTerminalStage,
   SELECTABLE_STAGES,
   STAGE_LABEL,
   type Stage,
@@ -106,7 +107,7 @@ export function ProjectHeader({
     };
   }, [menuOpen]);
 
-  const isTerminal = stage === "cancelled" || stage === "paid" || stage === "archived";
+  const isTerminal = isTerminalStage(stage);
 
   // Task 7 parity — split_50_50 with deposit landed needs a confirm
   // modal before firing the off-session charge. Other plan shapes (or
@@ -451,7 +452,7 @@ function MenuItem({
       className={[
         "block w-full px-4 py-2 text-left text-sm transition-colors",
         destructive
-          ? "text-[rgb(var(--fg-danger,var(--fg-primary)))] hover:bg-[rgb(var(--fg-danger,var(--brand-primary))/0.08)]"
+          ? "text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)]"
           : "text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-sunken))]",
         "disabled:opacity-60",
       ].join(" ")}

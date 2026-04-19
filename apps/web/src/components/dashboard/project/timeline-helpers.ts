@@ -7,7 +7,7 @@
 // hidden side-effects, no async — so we cover it entirely with unit
 // tests (see __tests__/timeline-helpers.test.ts).
 
-import type { Stage } from "~/lib/projects/stages";
+import { isTerminalStage, type Stage } from "~/lib/projects/stages";
 
 export type TimelineStepState = "done" | "current" | "pending";
 
@@ -28,14 +28,6 @@ export interface ProjectTimelineInput {
   finalDelivered: boolean;
 }
 
-// Is the project in a terminal / absorbing state? We draw the steps
-// as whatever they were at the moment of cancellation / pause, but
-// we never show a "current" step — the project isn't actively
-// progressing through it anymore.
-function isAbsorbing(stage: Stage): boolean {
-  return stage === "cancelled" || stage === "payment_paused";
-}
-
 // 5-step timeline: Trial → Contract → In Progress → Final → Paid.
 // Each step's state is deterministic from the input fields.
 //
@@ -45,13 +37,16 @@ function isAbsorbing(stage: Stage): boolean {
 //   Final       — "done" if finalDelivered && chargesTotal > 0 && chargesCompleted === chargesTotal; "current" if finalDelivered && not-fully-paid; otherwise "pending"
 //   Paid        — "done" if chargesTotal > 0 && chargesCompleted === chargesTotal; otherwise "pending"
 //
-// Absorbing stages (`cancelled`, `payment_paused`) override: any step
-// that would have been "current" becomes "pending" so the timeline
-// reads as frozen at its last real milestone.
+// Terminal stages (see isTerminalStage: cancelled, payment_paused,
+// paid, archived) override: any step that would have been "current"
+// becomes "pending" so the timeline reads as frozen at its last real
+// milestone.
 export function computeTimeline(p: ProjectTimelineInput): TimelineStep[] {
   const { stage, contractSigned, chargesCompleted, chargesTotal, finalDelivered } = p;
+  // >= not === to survive webhook races (two successful PaymentIntents
+  // for the same invoice in rapid succession) and overpayment edge cases.
   const fullyPaid =
-    chargesTotal !== null && chargesTotal > 0 && chargesCompleted === chargesTotal;
+    chargesTotal !== null && chargesTotal > 0 && chargesCompleted >= chargesTotal;
 
   // Trial — done once the project has moved past "lead".
   const trial: TimelineStep = {
@@ -101,11 +96,11 @@ export function computeTimeline(p: ProjectTimelineInput): TimelineStep[] {
 
   const steps: TimelineStep[] = [trial, contract, inProgress, final, paid];
 
-  // Absorbing states: no step should read "current" — the project has
+  // Terminal states: no step should read "current" — the project has
   // frozen at whatever state it was in when the producer cancelled / the
-  // schedule paused. Leave "done" steps as-is so the producer can still
-  // see how far it had progressed.
-  if (isAbsorbing(stage)) {
+  // schedule paused / payment completed / archived. Leave "done" steps
+  // as-is so the producer can still see how far it had progressed.
+  if (isTerminalStage(stage)) {
     return steps.map((s) => (s.state === "current" ? { ...s, state: "pending" } : s));
   }
 

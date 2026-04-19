@@ -106,4 +106,46 @@ describe("computeTimeline", () => {
     expect(contract?.state).toBe("done");
     expect(inProgress?.state).not.toBe("current");
   });
+
+  it("archived: no step is current (absorbing state after paid)", () => {
+    const r = computeTimeline({
+      stage: "archived",
+      contractSigned: true,
+      chargesCompleted: 3,
+      chargesTotal: 3,
+      finalDelivered: true,
+    });
+    // Trial + Contract + In Progress + Final + Paid should all be "done" since
+    // archived means the project completed fully. Not "current" on anything.
+    for (const step of r) {
+      expect(step.state).not.toBe("current");
+    }
+  });
+
+  it("payment_paused: timeline reflects reached state, no step is 'current'", () => {
+    const r = computeTimeline({
+      stage: "payment_paused",
+      contractSigned: true,
+      chargesCompleted: 1,
+      chargesTotal: 3,
+      finalDelivered: false,
+    });
+    // Contract happened, so that step is done. In Progress should NOT be
+    // "current" — dunning is an absorbing state until resumed.
+    expect(r[1]?.state).toBe("done");
+    for (const step of r) {
+      expect(step.state).not.toBe("current");
+    }
+  });
+
+  it("chargesCompleted > chargesTotal (overpay/webhook race): Paid still done", () => {
+    const r = computeTimeline({
+      stage: "paid",
+      contractSigned: true,
+      chargesCompleted: 4,  // over-paid by 1 — Stripe webhook double-fire, etc.
+      chargesTotal: 3,
+      finalDelivered: true,
+    });
+    expect(r[4]?.state).toBe("done");
+  });
 });
