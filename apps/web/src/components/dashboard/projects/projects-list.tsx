@@ -131,14 +131,14 @@ export function ProjectsList({
           No projects yet
         </h3>
         <p className="mt-2 max-w-md text-sm text-[rgb(var(--fg-secondary))]">
-          Projects appear here once a lead books a session or signs a contract. Start by
-          sharing a magic link with a potential client.
+          Projects appear here once you create one — a shareable link is generated
+          automatically for the client.
         </p>
         <Link
           href="/dashboard/projects/new"
           className="mt-6 inline-flex h-10 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-medium text-[rgb(var(--fg-inverse))] hover:brightness-110"
         >
-          Share a magic link
+          Create a project
         </Link>
       </div>
     );
@@ -268,7 +268,7 @@ function Chip({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      aria-pressed={active}
+      aria-current={active ? "page" : undefined}
       className={[
         "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
         active
