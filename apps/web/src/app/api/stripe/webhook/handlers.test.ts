@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type Stripe from "stripe";
+import { invoices, producers, projects } from "@skitza/db";
 import {
   handleCheckoutSessionCompleted,
   handleInvoicePaid,
@@ -703,5 +704,174 @@ describe("dispatchEvent", () => {
         } as unknown as Stripe.Event,
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ─── monthly first-charge double-fire regression ────────────────────
+
+/**
+ * Stateful DB mock: each call to `.update(projects).set({chargesCompleted:N,...})
+ * .where(...)` mutates the tracked project row, so the NEXT `.select().from(...)
+ * .where(...).limit(1)` reflects the new counter. Mirrors the minimal slice
+ * the handlers touch:
+ *   - SELECT projects → resolves with the live row
+ *   - UPDATE projects SET {chargesCompleted, stage} WHERE id = ? → mutates row
+ *   - SELECT/INSERT invoices → tracked in a separate counter for the tests to
+ *     inspect
+ *
+ * The mock is intentionally single-row; that's all the monthly-first-charge
+ * regression needs.
+ */
+function makeStatefulDb(initialProject: Record<string, unknown>) {
+  const row: Record<string, unknown> = { ...initialProject };
+  const invoicesInserted: Array<Record<string, unknown>> = [];
+  const invoicesByPi = new Set<string>();
+  let currentTable: "projects" | "invoices" | "producers" | "unknown" =
+    "unknown";
+  let updateTarget: "projects" | "invoices" | "producers" | "unknown" =
+    "unknown";
+
+  // Detect which table a Drizzle call is targeting by object identity
+  // against the real `projects`/`invoices`/`producers` imports — same
+  // symbols the handlers use, so identity matches reliably.
+  function tableNameFor(tbl: unknown): typeof currentTable {
+    if (tbl === projects) return "projects";
+    if (tbl === invoices) return "invoices";
+    if (tbl === producers) return "producers";
+    return "unknown";
+  }
+
+  const selectChain = {
+    from(tbl: unknown) {
+      currentTable = tableNameFor(tbl);
+      return selectChain;
+    },
+    where() {
+      return selectChain;
+    },
+    orderBy() {
+      return selectChain;
+    },
+    limit() {
+      if (currentTable === "projects") return Promise.resolve([{ ...row }]);
+      if (currentTable === "invoices") {
+        // For invoiceExistsForPaymentIntent checks — match by PI via
+        // whichever PI was last looked at. Simplified: return empty on
+        // PI miss (tests fix this by pre-populating invoicesByPi).
+        return Promise.resolve([]);
+      }
+      if (currentTable === "producers")
+        return Promise.resolve([
+          { stripeAccountId: "acct_platform", stripeChargesEnabled: true },
+        ]);
+      return Promise.resolve([]);
+    },
+  };
+
+  const db = {
+    select: () => selectChain,
+    update: (tbl: unknown) => {
+      updateTarget = tableNameFor(tbl);
+      return {
+        set: (payload: Record<string, unknown>) => {
+          if (updateTarget === "projects") {
+            Object.assign(row, payload);
+          }
+          return { where: () => Promise.resolve() };
+        },
+      };
+    },
+    insert: (tbl: unknown) => {
+      const target = tableNameFor(tbl);
+      return {
+        values: (payload: Record<string, unknown>) => {
+          if (target === "invoices") {
+            invoicesInserted.push(payload);
+            const pi = payload.stripePaymentIntentId;
+            if (typeof pi === "string") invoicesByPi.add(pi);
+          }
+          return Promise.resolve();
+        },
+      };
+    },
+  };
+
+  return { db, row, invoicesInserted, invoicesByPi };
+}
+
+describe("monthly first charge: webhook double-fire (regression)", () => {
+  it("dispatching checkout.session.completed THEN invoice.paid for the same monthly first charge advances chargesCompleted by exactly 1, not 2", async () => {
+    // Setup: monthly × 4 project at chargesCompleted=0
+    const { db, row } = makeStatefulDb({
+      id: "proj_1",
+      stage: "lead",
+      chargesCompleted: 0,
+      chargesTotal: 4,
+      paymentPlanKind: "monthly",
+      stripeSubscriptionScheduleId: "sub_sched_existing",
+      producerId: "prod_1",
+      bookingId: "book_1",
+    });
+
+    const stripe = makeStripe();
+
+    // Event 1: checkout.session.completed (subscription mode, no PI on
+    // session — Stripe gives us one on subscription.latest_invoice, but
+    // for the double-fire analysis the key is that the handler currently
+    // advances chargesCompleted unconditionally).
+    await handleCheckoutSessionCompleted({
+      db: db as never,
+      stripe,
+      event: {
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_monthly",
+            payment_intent: null, // subscription mode — no PI on session
+            customer: "cus_abc",
+            customer_details: { email: "dan@example.com", name: "Dan" },
+            mode: "subscription",
+            subscription: "sub_monthly",
+            metadata: {
+              projectId: "proj_1",
+              planKind: "monthly",
+              installments: "4",
+            },
+          },
+        },
+      } as unknown as Stripe.CheckoutSessionCompletedEvent,
+    });
+
+    // Event 2: invoice.paid for billing_reason: subscription_create (the
+    // first invoice of a new subscription, fired right after checkout).
+    // This is the canonical writer for installments.
+    await handleInvoicePaid({
+      db: db as never,
+      stripe,
+      event: {
+        type: "invoice.paid",
+        data: {
+          object: {
+            id: "in_first",
+            amount_paid: 25000,
+            currency: "usd",
+            customer_email: "dan@example.com",
+            customer_name: "Dan",
+            parent: {
+              type: "subscription_details",
+              subscription_details: { subscription: "sub_monthly" },
+            },
+            payment_intent: "pi_first",
+            billing_reason: "subscription_create",
+          },
+        },
+      } as unknown as Stripe.InvoicePaidEvent,
+    });
+
+    // After BOTH events, chargesCompleted must be 1 (not 2) — each
+    // charge is exactly ONE forward step through plan state. Double-
+    // counting the first charge would flip the project to "paid" one
+    // month early on a × 4 plan.
+    expect(row.chargesCompleted).toBe(1);
   });
 });

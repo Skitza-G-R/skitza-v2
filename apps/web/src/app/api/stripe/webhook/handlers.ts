@@ -298,7 +298,20 @@ export async function handleCheckoutSessionCompleted(
 
   // Advance the plan state: first successful charge landed. advancePlanState
   // handles idempotency — if this webhook is replayed we won't over-count.
-  await advanceAndPersist(db, project, { type: "charge_succeeded" });
+  //
+  // EXCEPTION: monthly. Stripe emits BOTH `checkout.session.completed` AND
+  // `invoice.paid` (billing_reason: "subscription_create") for the very
+  // first invoice of a new subscription. Counting the charge here AND in
+  // handleInvoicePaid double-increments — the project flips to `paid`
+  // one cycle early while Stripe still bills the final installment.
+  //
+  // Fix: skip the increment for monthly here; let `handleInvoicePaid` be
+  // the canonical writer for ALL monthly charges, including the first.
+  // For full + split_50_50 (mode:"payment"), invoice.paid never fires,
+  // so this remains the only place the first charge gets counted.
+  if (planKindFromMetadata !== "monthly") {
+    await advanceAndPersist(db, project, { type: "charge_succeeded" });
+  }
 
   // Monthly: upgrade the underlying Subscription into a SubscriptionSchedule
   // with exactly N total phases (`end_behavior: cancel`). Stripe creates
