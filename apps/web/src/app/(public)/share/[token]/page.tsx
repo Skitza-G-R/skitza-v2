@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { auth } from "@clerk/nextjs/server";
 
+import { createDb, eq, and, clientContacts } from "@skitza/db";
+import { SoftSignInBanner } from "~/components/artist/soft-signin-banner";
 import { appRouter } from "~/server/trpc/routers/_app";
 import {
   selectBanner,
@@ -35,6 +38,50 @@ export default async function SharePage({ params }: PageProps) {
     notFound();
   }
 
+  // Task 13 — soft sign-in banner. Magic-link flow is still primary;
+  // the banner is purely additive and must never block access.
+  //   - Signed out → "Sign in to see all your studios" CTA.
+  //   - Signed in AND linked to this producer via clientContacts →
+  //     "View in app" deep-link.
+  //   - Signed in but NOT linked → no banner (artist app has nothing
+  //     to show for this producer yet).
+  const { userId } = await auth();
+  let softBanner: React.ReactNode = null;
+  if (!userId) {
+    softBanner = (
+      <SoftSignInBanner
+        mode="signin"
+        token={token}
+        returnUrl={`/share/${token}`}
+      />
+    );
+  } else {
+    const dbUrl = process.env.DATABASE_URL;
+    if (dbUrl) {
+      const db = createDb(dbUrl);
+      const [contactRow] = await db
+        .select({ id: clientContacts.id })
+        .from(clientContacts)
+        .where(
+          and(
+            eq(clientContacts.clerkUserId, userId),
+            eq(clientContacts.producerId, data.project.producerId),
+          ),
+        )
+        .limit(1);
+      if (contactRow) {
+        softBanner = (
+          <SoftSignInBanner
+            mode="in-app"
+            token={token}
+            appUrl={`/artist/music/${data.project.id}?studio=${data.project.producerId}`}
+            studioName={data.project.producerName}
+          />
+        );
+      }
+    }
+  }
+
   return (
     <div className="relative min-h-dvh overflow-hidden">
       <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -45,6 +92,7 @@ export default async function SharePage({ params }: PageProps) {
       </div>
 
       <main className="relative z-10 mx-auto max-w-4xl px-6 pb-24 pt-14 sm:px-10 sm:pt-20">
+        {softBanner}
         {(() => {
           const banner = selectBanner(data.project.stage as BannerStageInput);
           if (banner === "paused") {

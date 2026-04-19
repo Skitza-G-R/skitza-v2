@@ -897,6 +897,10 @@ export const projectRouter = router({
           // enum through the wire.
           stage: project.stage,
           createdAt: project.createdAt,
+          // Task 13 — surfaces the producer's UUID to the share page so
+          // it can check whether the signed-in viewer has a
+          // clientContacts row for this producer (→ "in-app" banner).
+          producerId: project.producerId,
           producerName: producer?.displayName ?? "Producer",
           producerSlug: producer?.slug ?? "",
         },
