@@ -1,16 +1,16 @@
 "use client";
 
 // TRANSITIONAL: this component is no longer rendered by page.tsx. It
-// remains on disk as a salvage source for Tasks 7-9 (which will extract
-// ContractTab, InvoicesTab, and Overview/Activity into the outer Money
-// and Notes sub-tabs). Delete this file entirely once those tasks land.
+// remains on disk as a salvage source for Task 9, which will lift the
+// remaining Overview + Activity inner tabs out to the outer Notes
+// sub-tab. Task 6 extracted Audio → MusicSubTab. Task 8 extracted
+// Contract + Invoices → MoneySubTab. Delete this file entirely once
+// Task 9 lands the Notes extraction.
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 
 import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
 import { type Stage } from "~/lib/projects/stages";
 
@@ -70,24 +70,14 @@ interface CommentRow {
   createdAt: Date;
 }
 
-interface ContractRow {
-  id: string;
-  title: string;
-  status: string;
-  createdAt: Date;
-  signedAt: Date | null;
-}
-
-type TabId = "overview" | "contract" | "invoices" | "activity";
+type TabId = "overview" | "activity";
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
-  { id: "contract", label: "Contract" },
-  { id: "invoices", label: "Invoices" },
   { id: "activity", label: "Activity" },
 ];
 
 function isTabId(v: string | null): v is TabId {
-  return v === "overview" || v === "contract" || v === "invoices" || v === "activity";
+  return v === "overview" || v === "activity";
 }
 
 function formatMs(ms: number): string {
@@ -107,13 +97,13 @@ export function ProjectView({
   tracks,
   versions,
   comments,
-  contracts,
+  contractCount,
 }: {
   project: Project;
   tracks: Track[];
   versions: Version[];
   comments: CommentRow[];
-  contracts: ContractRow[];
+  contractCount: number;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -134,10 +124,10 @@ export function ProjectView({
     // sub-tab, so the top-level padding/container is a tighter
     // wrapper without the old max-w-5xl shell.
     <div className="flex flex-col gap-6">
-      {/* Legacy tab bar (Overview/Contract/Invoices/Activity). Task 6
-          removed the inner "Audio" tab — its content now lives in
-          <MusicSubTab/>. Tasks 7-9 will peel the remaining tabs out
-          into the outer Sessions/Money/Notes sub-tabs. */}
+      {/* Legacy tab bar. Task 6 removed Audio (→ MusicSubTab). Task 8
+          removed Contract + Invoices (→ MoneySubTab). Only Overview +
+          Activity remain here; Task 9 will lift them to the outer Notes
+          sub-tab and delete this file entirely. */}
       <nav
         aria-label="Project sections"
         role="tablist"
@@ -177,13 +167,9 @@ export function ProjectView({
             project={project}
             trackCount={tracks.length}
             versionCount={versions.length}
-            contractCount={contracts.length}
+            contractCount={contractCount}
           />
         ) : null}
-        {activeTab === "contract" ? (
-          <ContractTab projectId={project.id} contracts={contracts} />
-        ) : null}
-        {activeTab === "invoices" ? <InvoicesTab /> : null}
         {activeTab === "activity" ? (
           <ActivityTab tracks={tracks} versions={versions} comments={comments} />
         ) : null}
@@ -294,97 +280,6 @@ function StatBlock({ label, value }: { label: string; value: string }) {
         {value}
       </p>
     </div>
-  );
-}
-
-// ─── Contract tab ────────────────────────────────────────────────────
-function ContractTab({
-  projectId,
-  contracts,
-}: {
-  projectId: string;
-  contracts: ContractRow[];
-}) {
-  return (
-    <section
-      role="tabpanel"
-      id="panel-contract"
-      aria-labelledby="tab-contract"
-      className="space-y-4"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-display text-xl tracking-tight" style={{ fontWeight: 700 }}>
-            Contract
-          </h2>
-          <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-            Sign before you start. One signing URL per artist.
-          </p>
-        </div>
-        <Link href={`/dashboard/contracts/new?projectId=${projectId}`}>
-          <Button size="sm">+ New contract</Button>
-        </Link>
-      </div>
-
-      {contracts.length === 0 ? (
-        <EmptyState
-          title="No contracts for this project yet."
-          description="Send a template-backed contract for signing. The artist gets a single signing URL with an audit trail on every view + sign."
-        />
-      ) : (
-        <ul className="space-y-2">
-          {contracts.map((c) => (
-            <li key={c.id}>
-              <Link
-                href={`/dashboard/contracts`}
-                className="block rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 transition-colors hover:border-[rgb(var(--border-strong))]"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-[rgb(var(--fg-primary))]">
-                      {c.title}
-                    </p>
-                    <p className="mt-0.5 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
-                      Created {fmtDateTime(c.createdAt)}
-                      {c.signedAt ? ` · signed ${fmtDateTime(c.signedAt)}` : ""}
-                    </p>
-                  </div>
-                  <Badge
-                    variant={
-                      c.status === "signed"
-                        ? "active"
-                        : c.status === "cancelled" || c.status === "expired"
-                          ? "danger"
-                          : "neutral"
-                    }
-                    dot
-                  >
-                    {c.status}
-                  </Badge>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-// ─── Invoices tab ────────────────────────────────────────────────────
-function InvoicesTab() {
-  return (
-    <section
-      role="tabpanel"
-      id="panel-invoices"
-      aria-labelledby="tab-invoices"
-      className="space-y-4"
-    >
-      <EmptyState
-        title="No invoices yet."
-        description="Invoicing is coming in a later phase. For now, flip the payment flags on the Overview tab to unlock final downloads for the artist."
-      />
-    </section>
   );
 }
 

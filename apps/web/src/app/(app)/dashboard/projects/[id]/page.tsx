@@ -8,6 +8,7 @@ import {
   ProjectSubTabs,
   type ProjectSubTabId,
 } from "~/components/dashboard/project/project-sub-tabs";
+import { MoneySubTab } from "~/components/dashboard/project/sub-tabs/money-sub-tab";
 import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
 import {
   SessionsSubTab,
@@ -224,7 +225,9 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
             {activeTab === "sessions" ? (
               <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
             ) : null}
-            {activeTab === "money" ? <MoneyPlaceholder /> : null}
+            {activeTab === "money" ? (
+              <MoneySubTab projectId={data.project.id} contracts={contractsForProject} />
+            ) : null}
             {activeTab === "notes" ? <NotesPlaceholder /> : null}
           </ProjectSubTabs>
         </div>
@@ -233,18 +236,9 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
   );
 }
 
-// Placeholder panels for Tasks 8-9. Each sub-tab will grow its own
-// per-tab server component over the next few commits; for Task 7 we
-// just put a visible "coming soon" card for the two remaining sub-tabs
-// so the sub-tab nav isn't rendering into a void.
-function MoneyPlaceholder() {
-  return (
-    <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] py-12 text-center text-sm text-[rgb(var(--fg-muted))]">
-      Money view — coming next.
-    </div>
-  );
-}
-
+// Placeholder for Task 9. The Notes sub-tab will grow its own
+// per-tab server component next; for now we render a visible "coming
+// soon" card so the sub-tab nav isn't rendering into a void.
 function NotesPlaceholder() {
   return (
     <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] py-12 text-center text-sm text-[rgb(var(--fg-muted))]">
