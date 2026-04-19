@@ -17,6 +17,174 @@ import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
 import { groupStudiosForArtist } from "~/server/artist/identity";
 
+// ─── artist.music sub-router ─────────────────────────────────────────
+// Lives inside the parent artist router. Sibling procedures (project
+// detail, addComment, etc.) land here in Task 9, so we set up the
+// nesting now even though `projects` is the only entry today.
+const musicSubrouter = router({
+  // List the signed-in artist's projects across all studios, sorted
+  // by most-recent track upload (nulls last so a brand-new project
+  // with no uploads yet still appears, just at the bottom). Cap 50
+  // because the Music tab is a single-screen list — anyone with > 50
+  // projects across all their studios is well into power-user
+  // territory and we'd ship pagination before that ever bites.
+  //
+  // We split into 2 parallel SELECTs and merge in JS instead of one
+  // window-function query because Drizzle's window helpers are awkward
+  // and the two-query path is far easier to read + test.
+  projects: artistProcedure.query(async ({ ctx }) => {
+    // 1. Auth boundary — same gating SELECT as artist.home. Empty
+    //    short-circuits so we don't fan out to two empty SELECTs.
+    const myContacts = await ctx.db
+      .select({
+        id: clientContacts.id,
+        producerId: clientContacts.producerId,
+        email: clientContacts.email,
+      })
+      .from(clientContacts)
+      .where(eq(clientContacts.clerkUserId, ctx.clerkUserId));
+
+    if (myContacts.length === 0) {
+      return { projects: [] as MusicProjectRow[] };
+    }
+
+    const myEmails = [
+      ...new Set(myContacts.map((c) => c.email.toLowerCase())),
+    ];
+    const myProducerIds = [...new Set(myContacts.map((c) => c.producerId))];
+
+    // 2. Fan out: project metadata + per-project track stats.
+    //    The track-stats SELECT joins project_tracks → track_versions
+    //    so we get count(distinct project_tracks.id) AND the latest
+    //    track_version per project (label + parent track title +
+    //    upload time). Drizzle doesn't have a clean GROUP BY for this
+    //    shape, so we pull all rows and reduce in JS — there are at
+    //    most a few hundred versions across the typical artist's
+    //    history so the cost is trivial.
+    const [projectRows, statsRows] = await Promise.all([
+      ctx.db
+        .select({
+          projectId: projects.id,
+          title: projects.title,
+          producerId: projects.producerId,
+          producerName: producers.displayName,
+          producerSlug: producers.slug,
+        })
+        .from(projects)
+        .innerJoin(producers, eq(producers.id, projects.producerId))
+        .where(
+          and(
+            inArray(projects.producerId, myProducerIds),
+            inArray(projects.artistEmail, myEmails),
+          ),
+        ),
+
+      // Pull every (project_id, track title, version label, uploaded_at)
+      // tuple for tracks under projects we own. The reduce below picks
+      // the latest per project + counts distinct project_tracks.
+      ctx.db
+        .select({
+          projectId: projectTracks.projectId,
+          trackId: projectTracks.id,
+          trackTitle: projectTracks.title,
+          versionLabel: trackVersions.label,
+          uploadedAt: trackVersions.uploadedAt,
+        })
+        .from(projectTracks)
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .leftJoin(trackVersions, eq(trackVersions.trackId, projectTracks.id))
+        .where(
+          and(
+            inArray(projects.producerId, myProducerIds),
+            inArray(projects.artistEmail, myEmails),
+          ),
+        ),
+    ]);
+
+    // 3. Reduce stats rows → per-project (trackCount, latest version).
+    //    `latestByProject` keys off projectId. The reduce already gives
+    //    us a deduped set of trackIds per project, so the count is just
+    //    that set's size.
+    type Stats = {
+      trackIds: Set<string>;
+      latestUploadedAt: Date | null;
+      latestTrackTitle: string | null;
+      latestVersionLabel: string | null;
+    };
+    const statsByProject = new Map<string, Stats>();
+    for (const r of statsRows) {
+      const { projectId, trackId, uploadedAt, trackTitle, versionLabel } = r;
+
+      let s = statsByProject.get(projectId);
+      if (!s) {
+        s = {
+          trackIds: new Set(),
+          latestUploadedAt: null,
+          latestTrackTitle: null,
+          latestVersionLabel: null,
+        };
+        statsByProject.set(projectId, s);
+      }
+      s.trackIds.add(trackId);
+      // leftJoin → uploadedAt may be null if the track has no versions.
+      if (
+        uploadedAt &&
+        (!s.latestUploadedAt ||
+          uploadedAt.getTime() > s.latestUploadedAt.getTime())
+      ) {
+        s.latestUploadedAt = uploadedAt;
+        s.latestTrackTitle = trackTitle;
+        s.latestVersionLabel = versionLabel;
+      }
+    }
+
+    // 4. Stitch project rows + stats together.
+    const merged: MusicProjectRow[] = projectRows.map((p) => {
+      const stats = statsByProject.get(p.projectId);
+      return {
+        projectId: p.projectId,
+        title: p.title,
+        producerId: p.producerId,
+        producerName: p.producerName ?? "Untitled Studio",
+        producerSlug: p.producerSlug,
+        latestTrackTitle:
+          stats && stats.latestTrackTitle && stats.latestVersionLabel
+            ? `${stats.latestVersionLabel} of ${stats.latestTrackTitle}`
+            : null,
+        latestTrackUploadedAt: stats?.latestUploadedAt ?? null,
+        trackCount: stats?.trackIds.size ?? 0,
+      };
+    });
+
+    // 5. Sort desc by latestTrackUploadedAt with nulls last; cap at 50.
+    merged.sort((a, b) => {
+      if (a.latestTrackUploadedAt && b.latestTrackUploadedAt) {
+        return (
+          b.latestTrackUploadedAt.getTime() -
+          a.latestTrackUploadedAt.getTime()
+        );
+      }
+      if (a.latestTrackUploadedAt) return -1; // a has date, b is null → a first
+      if (b.latestTrackUploadedAt) return 1; // b has date, a is null → b first
+      return 0;
+    });
+
+    return { projects: merged.slice(0, 50) };
+  }),
+});
+
+// Per-project row shape returned by artist.music.projects.
+export type MusicProjectRow = {
+  projectId: string;
+  title: string;
+  producerId: string;
+  producerName: string;
+  producerSlug: string;
+  latestTrackTitle: string | null;
+  latestTrackUploadedAt: Date | null;
+  trackCount: number;
+};
+
 // Artist-scoped router. All procedures here resolve "my studios" via
 // client_contacts.clerk_user_id (stamped on first sign-in by the
 // Clerk user.created webhook).
@@ -342,6 +510,10 @@ export const artistRouter = router({
       activity: cappedActivity,
     };
   }),
+
+  // Nested sub-router so future siblings (project detail, addComment,
+  // etc.) live under the same `artist.music.*` namespace.
+  music: musicSubrouter,
 });
 
 // Activity-feed item shape — exported for the component prop type.
