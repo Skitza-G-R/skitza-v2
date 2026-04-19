@@ -105,43 +105,42 @@ export function CancelConfirmModal({
           Cancel this project?
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
-          Cancelling{" "}
+          Here&rsquo;s what happens to{" "}
           <strong className="font-semibold text-[rgb(var(--fg-primary))]">
             {projectTitle}
-          </strong>{" "}
-          will:
+          </strong>
+          :
         </p>
         <ul className="mt-3 space-y-1.5 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
           <li className="flex gap-2">
             <span aria-hidden="true" className="text-[rgb(var(--fg-danger))]">
               •
             </span>
-            <span>Stop all future scheduled charges.</span>
+            <span>All future scheduled charges stop.</span>
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true" className="text-[rgb(var(--fg-muted))]">
               •
             </span>
-            <span>Leave existing work and paid invoices untouched.</span>
+            <span>Existing work and paid invoices stay as they are.</span>
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true" className="text-[rgb(var(--fg-muted))]">
               •
             </span>
             <span>
-              Not issue refunds — handle those separately per your
-              contract via the Stripe Dashboard.
+              Refunds aren&rsquo;t issued automatically — handle those in
+              Stripe based on your contract.
             </span>
           </li>
         </ul>
 
         <div className="mt-5">
           <Label htmlFor="cancel-confirm-input">
-            Type{" "}
+            Type the project name to confirm:{" "}
             <span className="font-mono text-[rgb(var(--fg-primary))]">
               {projectTitle}
-            </span>{" "}
-            to confirm
+            </span>
           </Label>
           <Input
             id="cancel-confirm-input"

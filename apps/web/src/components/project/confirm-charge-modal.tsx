@@ -113,14 +113,14 @@ export function ConfirmChargeModal({
           className="font-display text-xl text-[rgb(var(--fg-primary))]"
           style={{ fontWeight: 700 }}
         >
-          Deliver final mix to {clientName}?
+          Charge {clientName} the final?
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
-          This will charge their card{cardFragment} for{" "}
+          We&rsquo;ll charge their card{cardFragment} for{" "}
           <strong className="font-semibold text-[rgb(var(--fg-primary))]">
             {amountFormatted}
           </strong>{" "}
-          (final payment).
+          right now. The artist will get access to download the final mix.
         </p>
 
         {error ? (
@@ -148,7 +148,7 @@ export function ConfirmChargeModal({
             }}
             disabled={pending}
           >
-            {pending ? "Charging…" : "Confirm & charge"}
+            {pending ? "Charging…" : "Charge now"}
           </Button>
         </div>
       </div>
