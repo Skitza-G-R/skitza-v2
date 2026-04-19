@@ -259,12 +259,24 @@ function SidebarItem({
       // → min-h-[36px] on desktop where the collapsed rail must stay
       // dense. `title` on collapsed gives a native hover tooltip so
       // icons aren't guessing games when the rail is narrow.
-      className={`flex min-h-[44px] items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors md:min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] ${
+      //
+      // Active indicator: a 2px copper bar anchored to the left edge
+      // via absolute positioning. Scale-Y transitions from 0 → 1 when
+      // active, giving a subtle slide-in effect without the DOM cost
+      // of a shared element (one bar per item, only one visible at a
+      // time). `sk-trans` governs the hover colour + bar transition.
+      className={`sk-trans relative flex min-h-[44px] items-center gap-3 rounded-md px-2 py-2 text-sm md:min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] ${
         isActive
           ? "bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-primary))]"
           : "text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
       }`}
     >
+      <span
+        aria-hidden
+        className={`sk-trans absolute left-0 top-1.5 bottom-1.5 w-[2px] origin-center rounded-full bg-[rgb(var(--brand-primary))] ${
+          isActive ? "scale-y-100 opacity-100" : "scale-y-50 opacity-0"
+        }`}
+      />
       <span className="relative shrink-0">
         {item.icon}
         {collapsed && badgeCount > 0 ? (
