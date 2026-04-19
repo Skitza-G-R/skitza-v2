@@ -499,21 +499,26 @@ export const projectRouter = router({
         });
       }
 
-      // Look up the deposit invoice for currency — the producer could
-      // have edited the product currency since checkout, but the
-      // invoice snapshot is the source of truth for this engagement.
-      const [depositInvoice] = await ctx.db
-        .select({ currency: invoices.currency })
-        .from(invoices)
-        .where(
-          and(
-            eq(invoices.projectId, project.id),
-            eq(invoices.kind, "deposit"),
-          ),
-        )
-        .orderBy(desc(invoices.createdAt))
-        .limit(1);
-      const currency = (depositInvoice?.currency ?? "USD").toLowerCase();
+      // Currency: read from the project row directly (Important 3 —
+      // single source of truth). Snapshotted at publicRequest time so
+      // a mid-engagement product currency change can't desync the modal
+      // from the actual charge. Falls back to deposit-invoice currency
+      // for legacy rows that pre-date migration 0023.
+      let currency = (project.currency ?? "").toLowerCase();
+      if (!currency) {
+        const [depositInvoice] = await ctx.db
+          .select({ currency: invoices.currency })
+          .from(invoices)
+          .where(
+            and(
+              eq(invoices.projectId, project.id),
+              eq(invoices.kind, "deposit"),
+            ),
+          )
+          .orderBy(desc(invoices.createdAt))
+          .limit(1);
+        currency = (depositInvoice?.currency ?? "USD").toLowerCase();
+      }
 
       const stripe = getStripe();
       const pi = await stripe.paymentIntents.create(

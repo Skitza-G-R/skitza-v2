@@ -352,6 +352,11 @@ export const projects = pgTable("projects", {
   // from the deposit invoice alone is ambiguous for odd totals, so we
   // persist this explicitly. Nullable for legacy rows without a plan.
   totalAmountCents: integer("total_amount_cents"),
+  // Currency snapshot at booking time. Single source of truth for any
+  // post-checkout monetary surface (chargeFinal, modal display) so a
+  // mid-engagement product currency change can't desync the modal from
+  // the actual charge. Nullable for legacy rows backfilled from invoices.
+  currency: text("currency"),
   // Next scheduled charge (from Stripe subscription schedule). Lets the
   // UI show "next charge on ..." without a Stripe API round-trip.
   nextChargeAt: timestamp("next_charge_at", { withTimezone: true }),

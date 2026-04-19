@@ -301,7 +301,8 @@ describe("project.chargeFinal", () => {
     ];
     // Correct second-half amount — $200 total → $100 final.
     expect(params.amount).toBe(10000);
-    // Lowercased currency per Stripe's requirement.
+    // Lowercased currency per Stripe's requirement, sourced from the
+    // project row (Important 3 — single source of truth).
     expect(params.currency).toBe("usd");
     expect(params.customer).toBe(CUSTOMER_ID);
     expect(params.payment_method).toBe(PAYMENT_METHOD_ID);
@@ -327,6 +328,27 @@ describe("project.chargeFinal", () => {
       Record<string, unknown>,
     ];
     expect(params.amount).toBe(10000);
+  });
+
+  it("uses project.currency (not deposit-invoice currency) for the off-session PI (Important 3)", async () => {
+    // The race the fix addresses: producer changes a product's currency
+    // mid-engagement (or a manual intermediate invoice gets recorded
+    // in a different currency). The deposit invoice and the project
+    // row could disagree. Single-source-of-truth = the project row's
+    // currency snapshot persisted at booking time. chargeFinal must
+    // read from there.
+    seedHappyPath({
+      project: { currency: "EUR" },
+      // Stale invoice from before the producer changed currency.
+      deposit: { currency: "USD" },
+    });
+    const caller = await buildCaller();
+    await caller.project.chargeFinal({ projectId: PROJECT_ID });
+    const [params] = paymentIntentsCreateMock.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    // Lowercased per Stripe convention; must come from the project row.
+    expect(params.currency).toBe("eur");
   });
 
   it("does NOT insert an invoice row (webhook writes the ledger)", async () => {

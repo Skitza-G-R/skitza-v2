@@ -35,8 +35,19 @@ function shift<T>(q: T[][]): T[] {
   return q.shift() ?? [];
 }
 
-const insertReturningSpy = vi.fn(() => Promise.resolve([{ id: "booking-row-1" }]));
-const insertValuesSpy = vi.fn(() => ({ returning: insertReturningSpy }));
+// Typed via signatures so mock.calls' tuple type isn't `never[][]`.
+// The implementation is overridden by mockReturnValue / mockImplementation
+// in beforeEach + per-test setup; the signature here is just for inference.
+const insertReturningSpy = vi.fn<() => Promise<Array<{ id: string }>>>(() =>
+  Promise.resolve([{ id: "booking-row-1" }]),
+);
+const insertValuesSpy = vi.fn<
+  (
+    payload: Record<string, unknown>,
+  ) => { returning: typeof insertReturningSpy } | unknown
+>((_payload: Record<string, unknown>) => ({
+  returning: insertReturningSpy,
+}));
 const updateSetSpy = vi.fn(() => ({ where: () => Promise.resolve(undefined) }));
 
 const dbMock = {
@@ -352,7 +363,7 @@ describe("booking.publicRequest invoice ledger writes (Critical 3 regression)", 
     // plausible chain — the existing default returns the bookings row.
     // We intercept on a per-call basis: 1st call (bookings) → bookingId,
     // 2nd call (clientContacts) → contactId, 3rd call (projects) → projectId.
-    const returningChain: Array<Record<string, unknown>[]> = [
+    const returningChain: Array<Array<{ id: string }>> = [
       [{ id: "booking-row-1" }],
       [{ id: "client-contact-1" }],
       [{ id: "project-row-1" }],
@@ -444,7 +455,7 @@ describe("booking.publicRequest invoice ledger writes (Critical 3 regression)", 
       },
     }));
 
-    const returningChain: Array<Record<string, unknown>[]> = [
+    const returningChain: Array<Array<{ id: string }>> = [
       [{ id: "booking-row-2" }],
       [{ id: "client-contact-2" }],
       [{ id: "project-row-2" }],

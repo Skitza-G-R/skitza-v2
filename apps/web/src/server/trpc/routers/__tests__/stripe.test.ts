@@ -91,7 +91,14 @@ vi.mock("@skitza/db", () => ({
 // Rate-limit mock — controllable per-test. Default to "always allow"
 // so tests not focused on the limit don't trip it. Important 1's test
 // overrides this to assert the right call shape and force the limit.
-const rateLimitMock = vi.fn(() => ({ ok: true, remaining: 10, resetMs: 0 }));
+// Typed signature so mock.calls is `[string, number, number][]`.
+const rateLimitMock = vi.fn<
+  (key: string, limit: number, windowMs: number) => {
+    ok: boolean;
+    remaining: number;
+    resetMs: number;
+  }
+>(() => ({ ok: true, remaining: 10, resetMs: 0 }));
 vi.mock("~/lib/rate-limit/in-memory", () => ({
   checkRateLimit: (key: string, limit: number, windowMs: number) =>
     rateLimitMock(key, limit, windowMs),

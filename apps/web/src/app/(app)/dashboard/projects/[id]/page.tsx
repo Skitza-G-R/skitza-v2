@@ -68,35 +68,39 @@ export default async function ProjectDetail({ params }: PageProps) {
     }
   }
 
-  // Invoice-linked currency for the modal. We query the project's
-  // most recent invoice for the authoritative currency snapshot;
-  // if none exists yet (producer marking final paid on a legacy
-  // project) fall back to the producer's default currency.
-  let projectCurrency = "USD";
-  const dbUrl = process.env.DATABASE_URL;
-  if (dbUrl) {
-    try {
-      const db = createDb(dbUrl);
-      const [inv] = await db
-        .select({ currency: invoices.currency })
-        .from(invoices)
-        .where(eq(invoices.projectId, id))
-        .orderBy(desc(invoices.createdAt))
-        .limit(1);
-      if (inv?.currency) {
-        projectCurrency = inv.currency;
-      } else {
-        const [producer] = await db
-          .select({ defaultCurrency: producers.defaultCurrency })
-          .from(producers)
-          .where(eq(producers.id, data.project.producerId))
+  // Important 3: currency is now snapshotted on the project row at
+  // booking time, so the modal + chargeFinal both read from the same
+  // source. For legacy projects without a persisted currency, fall back
+  // to the most recent invoice; failing that, the producer's default.
+  // The fallback chain protects pre-migration-0023 rows; new rows hit
+  // the project field directly.
+  let projectCurrency = data.project.currency ?? "USD";
+  if (!data.project.currency) {
+    const dbUrl = process.env.DATABASE_URL;
+    if (dbUrl) {
+      try {
+        const db = createDb(dbUrl);
+        const [inv] = await db
+          .select({ currency: invoices.currency })
+          .from(invoices)
+          .where(eq(invoices.projectId, id))
+          .orderBy(desc(invoices.createdAt))
           .limit(1);
-        if (producer?.defaultCurrency) {
-          projectCurrency = producer.defaultCurrency;
+        if (inv?.currency) {
+          projectCurrency = inv.currency;
+        } else {
+          const [producer] = await db
+            .select({ defaultCurrency: producers.defaultCurrency })
+            .from(producers)
+            .where(eq(producers.id, data.project.producerId))
+            .limit(1);
+          if (producer?.defaultCurrency) {
+            projectCurrency = producer.defaultCurrency;
+          }
         }
+      } catch (err) {
+        console.warn("[projects] currency lookup failed", err);
       }
-    } catch (err) {
-      console.warn("[projects] currency lookup failed", err);
     }
   }
 

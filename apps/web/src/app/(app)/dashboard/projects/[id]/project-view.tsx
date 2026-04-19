@@ -492,7 +492,10 @@ function OverviewTab({
               // Narrow to a SELECTABLE stage. Dropdown options exclude
               // cancelled + payment_paused (those have Stripe side-effects
               // and their own surfaces — Cancel button + webhook).
-              if (SELECTABLE_STAGES.includes(next as Stage)) {
+              const isSelectable = (
+                SELECTABLE_STAGES as readonly string[]
+              ).includes(next);
+              if (isSelectable) {
                 onStageChange(next as Stage);
               }
             }}

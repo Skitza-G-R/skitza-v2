@@ -1434,8 +1434,9 @@ export const bookingRouter = router({
 
             // Create the project row up front (stage=`lead`) so the
             // webhook handler has something to update when the checkout
-            // completes. We snapshot the plan shape + chargesTotal here
-            // because invoice rows FK back to this row.
+            // completes. We snapshot the plan shape + chargesTotal +
+            // currency here because invoice rows FK back to this row
+            // and chargeFinal reads currency from the project.
             const token = mintShareToken();
             const [projectRow] = await db
               .insert(projects)
@@ -1452,6 +1453,11 @@ export const bookingRouter = router({
                 installments: plan.kind === "monthly" ? plan.installments : null,
                 chargesTotal: charges.length,
                 totalAmountCents: fullPriceCents,
+                // Important 3: snapshot currency at booking time so any
+                // post-checkout surface (chargeFinal, page.tsx modal)
+                // reads the same value the booking session was created
+                // against.
+                currency: prod.currency,
                 stripeCustomerId: customerId,
               })
               .returning();
