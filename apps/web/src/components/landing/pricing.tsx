@@ -67,7 +67,7 @@ export function Pricing() {
             <article
               key={t.id}
               className={[
-                "relative flex flex-col rounded-[var(--radius-lg)] border p-7",
+                "sk-lift relative flex flex-col rounded-[var(--radius-lg)] border p-7",
                 t.featured
                   ? "border-[rgb(var(--brand-primary)/0.5)] bg-[rgb(var(--bg-elevated))] shadow-[0_20px_60px_-12px_rgb(var(--brand-primary)/0.25)]"
                   : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]",
@@ -128,11 +128,11 @@ export function Pricing() {
                 className={[
                   "flex min-h-12 items-center justify-center rounded-[var(--radius-md)] px-4 py-3 text-sm font-semibold transition-transform hover:-translate-y-[1px] active:translate-y-[1px]",
                   t.featured
-                    ? "pulse-glow bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] text-[#0C0A07] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.35)]"
+                    ? "sk-cta-shine pulse-glow bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] text-[#0C0A07] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.35)]"
                     : "border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-sunken))] text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-base))]",
                 ].join(" ")}
               >
-                {t.cta.label}
+                <span className="relative z-10">{t.cta.label}</span>
               </Link>
             </article>
           ))}

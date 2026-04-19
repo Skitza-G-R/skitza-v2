@@ -61,9 +61,9 @@ export function Hero() {
         <div className="reveal-up-delay-4 mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link
             href="/sign-up"
-            className="pulse-glow inline-flex min-h-12 w-full items-center justify-center whitespace-nowrap rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-7 py-3.5 text-base font-semibold text-[#0C0A07] shadow-[0_6px_20px_-4px_rgb(var(--brand-primary)/0.4)] transition-transform hover:scale-[1.02] hover:-translate-y-[1px] active:translate-y-[1px] sm:w-auto"
+            className="sk-cta-shine pulse-glow inline-flex min-h-12 w-full items-center justify-center whitespace-nowrap rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-7 py-3.5 text-base font-semibold text-[#0C0A07] shadow-[0_6px_20px_-4px_rgb(var(--brand-primary)/0.4)] transition-transform hover:scale-[1.02] hover:-translate-y-[1px] active:translate-y-[1px] sm:w-auto"
           >
-            Start free →
+            <span className="relative z-10">Start free →</span>
           </Link>
           <a
             href="#download"

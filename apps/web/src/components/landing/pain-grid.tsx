@@ -45,7 +45,7 @@ export function PainGrid() {
           {PAINS.map((p, i) => (
             <article
               key={p.title}
-              className={`rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 reveal-up-delay-${String(Math.min(i + 1, 4))}`}
+              className={`sk-lift rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 reveal-up-delay-${String(Math.min(i + 1, 4))}`}
             >
               <span
                 aria-hidden

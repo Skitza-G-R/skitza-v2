@@ -33,7 +33,7 @@ export function Testimonials() {
           {QUOTES.map((q) => (
             <figure
               key={q.name}
-              className="flex h-full flex-col rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
+              className="sk-lift flex h-full flex-col rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
             >
               <blockquote className="flex-grow text-[rgb(var(--fg-primary))]">
                 <p className="leading-relaxed">&ldquo;{q.quote}&rdquo;</p>
