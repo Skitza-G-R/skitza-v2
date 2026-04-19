@@ -202,8 +202,9 @@ function StageChipBar({
     // Horizontal scroll on mobile — eight chips (All + 7 stages) at
     // 360px width would otherwise wrap-cram. The rail stays single-row
     // and swipable on narrow screens, naturally wraps on desktop.
+    // `sk-scroll-x` gives the momentum-scroll feel on iOS.
     <nav aria-label="Filter by stage" className="-mx-4 sm:mx-0">
-      <div className="flex gap-2 overflow-x-auto px-4 pb-1 sm:flex-wrap sm:overflow-visible sm:px-0">
+      <div className="sk-scroll-x flex gap-2 overflow-x-auto px-4 pb-1 sm:flex-wrap sm:overflow-visible sm:px-0">
         <Chip
           label="All"
           count={totalCount}
@@ -250,7 +251,12 @@ function Chip({
       disabled={disabled}
       aria-current={active ? "page" : undefined}
       className={[
-        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
+        // min-h-[44px] on mobile → h-8 on ≥sm so the dense 8-chip rail
+        // still fits on a 1280px dashboard without wrapping. The extra
+        // vertical padding on mobile bumps the touch target past the
+        // Apple/Google 44×44 minimum.
+        "inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors sm:min-h-0 sm:h-8",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
         active
           ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]"
           : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))]",

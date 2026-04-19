@@ -239,7 +239,7 @@ export function MusicSubTab({
             </header>
 
             {tVersions.length > 0 ? (
-              <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+              <div className="sk-scroll-x mb-4 flex gap-2 overflow-x-auto pb-1">
                 {tVersions.map((v, vi) => {
                   const isSelected = v.id === selectedId;
                   const isLatest = vi === 0;
@@ -251,7 +251,8 @@ export function MusicSubTab({
                         setSelected((s) => ({ ...s, [t.id]: v.id }));
                       }}
                       className={[
-                        "whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors",
+                        "inline-flex min-h-[44px] items-center whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors sm:min-h-0",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
                         isSelected
                           ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
                           : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
