@@ -11,11 +11,63 @@ import {
   producers,
   projects,
   projectTracks,
+  trackComments,
   trackVersions,
 } from "@skitza/db";
+import type { Db } from "@skitza/db";
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
 import { groupStudiosForArtist } from "~/server/artist/identity";
+
+// ─── Ownership guard ─────────────────────────────────────────────────
+// Resolves the signed-in artist's ownership of a given project. Both
+// the `music.project` read and the `music.addComment` write route
+// through this helper: the WHERE clause scopes clientContacts by
+// (clerkUserId, producerId, email) triplet so someone who shares a
+// producer with the project owner but has a different artistEmail can
+// NOT see / comment on that project.
+//
+// Deliberately throws NOT_FOUND (not UNAUTHORIZED / FORBIDDEN) in every
+// rejection path so an attacker can't tell "project doesn't exist"
+// from "project exists but isn't yours" — both look identical on the
+// wire.
+async function resolveProjectOwnership(
+  db: Db,
+  clerkUserId: string,
+  projectId: string,
+): Promise<{
+  project: typeof projects.$inferSelect;
+  contact: typeof clientContacts.$inferSelect;
+}> {
+  // 1. Load the project. If it doesn't exist at all, NOT_FOUND.
+  const [project] = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+  // 2. Find the clientContacts row that (a) belongs to this Clerk
+  //    user, (b) is under this project's producer, AND (c) has the
+  //    exact email the project was shared with (case-insensitive).
+  //    Any miss → NOT_FOUND.
+  const [contact] = await db
+    .select()
+    .from(clientContacts)
+    .where(
+      and(
+        eq(clientContacts.clerkUserId, clerkUserId),
+        eq(clientContacts.producerId, project.producerId),
+        eq(clientContacts.email, project.artistEmail.toLowerCase()),
+      ),
+    )
+    .limit(1);
+  if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
+
+  return { project, contact };
+}
 
 // ─── artist.music sub-router ─────────────────────────────────────────
 // Lives inside the parent artist router. Sibling procedures (project
@@ -171,6 +223,176 @@ const musicSubrouter = router({
 
     return { projects: merged.slice(0, 50) };
   }),
+
+  // Full detail for one project: tracks (ordered by position) with
+  // their version stacks (desc by uploadedAt) and timestamped comments
+  // (asc by createdAt, grouped onto the parent track). Powers the Now
+  // Playing screen.
+  //
+  // Auth: resolveProjectOwnership gates on (clerkUserId, producerId,
+  // artistEmail) — rejects with NOT_FOUND so we don't leak existence
+  // via a differentiated error code.
+  project: artistProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const { project } = await resolveProjectOwnership(
+        ctx.db,
+        ctx.clerkUserId,
+        input.projectId,
+      );
+
+      // Producer display name — separate SELECT because the ownership
+      // helper doesn't need it. Not blocking: if the producer row is
+      // missing (impossible at runtime given the FK, but defensively)
+      // we fall back to "Producer".
+      const [producerRow] = await ctx.db
+        .select({ displayName: producers.displayName })
+        .from(producers)
+        .where(eq(producers.id, project.producerId))
+        .limit(1);
+
+      // Tracks ordered by position (position ties → createdAt asc).
+      const tracksList = await ctx.db
+        .select()
+        .from(projectTracks)
+        .where(eq(projectTracks.projectId, project.id))
+        .orderBy(asc(projectTracks.position), asc(projectTracks.createdAt));
+
+      const trackIds = tracksList.map((t) => t.id);
+
+      // Versions + comments: two more SELECTs. We filter by the trackIds
+      // set in JS (typical project has < 10 tracks with < 5 versions
+      // each, so this keeps the query simple and avoids an inArray
+      // round-trip when the set is empty).
+      const allVersions = trackIds.length
+        ? (
+            await ctx.db
+              .select()
+              .from(trackVersions)
+              .orderBy(desc(trackVersions.uploadedAt))
+          ).filter((v) => trackIds.includes(v.trackId))
+        : [];
+
+      const versionIds = allVersions.map((v) => v.id);
+      const allComments = versionIds.length
+        ? (
+            await ctx.db
+              .select()
+              .from(trackComments)
+              .orderBy(asc(trackComments.createdAt))
+          ).filter((c) => versionIds.includes(c.versionId))
+        : [];
+
+      // Stitch: each track carries its own versions (desc uploadedAt)
+      // and comments (asc createdAt, filtered to its version stack).
+      const tracks = tracksList.map((t) => {
+        const trackVersionsForTrack = allVersions.filter(
+          (v) => v.trackId === t.id,
+        );
+        const trackVersionIds = trackVersionsForTrack.map((v) => v.id);
+        const trackCommentsForTrack = allComments
+          .filter((c) => trackVersionIds.includes(c.versionId))
+          .map((c) => ({
+            id: c.id,
+            versionId: c.versionId,
+            timeMs: c.timestampMs,
+            body: c.body,
+            fromProducer: c.fromProducer,
+            authorName: c.authorName,
+            createdAt: c.createdAt,
+            resolvedAt: c.resolvedAt,
+          }));
+        return {
+          id: t.id,
+          title: t.title,
+          artist: t.artist,
+          position: t.position,
+          versions: trackVersionsForTrack.map((v) => ({
+            id: v.id,
+            label: v.label,
+            audioUrl: v.audioUrl,
+            durationMs: v.durationMs,
+            uploadedAt: v.uploadedAt,
+            peaksR2Key: v.peaksR2Key,
+          })),
+          comments: trackCommentsForTrack,
+        };
+      });
+
+      return {
+        project: {
+          id: project.id,
+          title: project.title,
+          producerId: project.producerId,
+          producerName: producerRow?.displayName ?? "Producer",
+        },
+        tracks,
+      };
+    }),
+
+  // Timestamped comment on a version. The artist (this signed-in user)
+  // must own the parent project via the same guard as `project`. The
+  // row is tagged fromProducer=false; authorName comes from the
+  // clientContacts row (the artist's display name for this producer).
+  addComment: artistProcedure
+    .input(
+      z.object({
+        trackVersionId: z.string().uuid(),
+        timeMs: z.number().int().min(0),
+        body: z.string().min(1).max(2000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Walk version → track → project chain.
+      const [version] = await ctx.db
+        .select({ id: trackVersions.id, trackId: trackVersions.trackId })
+        .from(trackVersions)
+        .where(eq(trackVersions.id, input.trackVersionId))
+        .limit(1);
+      if (!version) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const [track] = await ctx.db
+        .select({ id: projectTracks.id, projectId: projectTracks.projectId })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, version.trackId))
+        .limit(1);
+      if (!track) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // Same guard as the read query. Throws NOT_FOUND if the artist
+      // doesn't have a client_contacts row linking them to the project.
+      const { contact } = await resolveProjectOwnership(
+        ctx.db,
+        ctx.clerkUserId,
+        track.projectId,
+      );
+
+      const [row] = await ctx.db
+        .insert(trackComments)
+        .values({
+          versionId: input.trackVersionId,
+          authorName: contact.name,
+          authorEmail: contact.email,
+          body: input.body,
+          timestampMs: input.timeMs,
+          fromProducer: false,
+        })
+        .returning();
+      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Reshape to match the `project` query's comment shape so the
+      // optimistic append on the client never diverges from the server
+      // payload.
+      return {
+        id: row.id,
+        versionId: row.versionId,
+        timeMs: row.timestampMs,
+        body: row.body,
+        fromProducer: row.fromProducer,
+        authorName: row.authorName,
+        createdAt: row.createdAt,
+        resolvedAt: row.resolvedAt,
+      };
+    }),
 });
 
 // Per-project row shape returned by artist.music.projects.
