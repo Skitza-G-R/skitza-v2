@@ -642,6 +642,30 @@ describe("project.cancel", () => {
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
   });
+
+  // ─── TDD-audit gap fills ──────────────────────────────────────────
+  it("cancel works even when producer.stripeAccountId is null (schedule lives on platform)", async () => {
+    // Design check: destination charges put the Customer + Schedule on
+    // the platform, not Connect. So subscriptionSchedules.cancel is a
+    // plain platform call — no { stripeAccount } header, no dependency
+    // on the producer's Connect account being live. Even if a producer
+    // somehow has a schedule-bearing project but nulled their Connect
+    // account, the cancel must still work.
+    seedCancel({ stripeSubscriptionScheduleId: SCHEDULE_ID });
+    subscriptionSchedulesCancelMock.mockResolvedValue({
+      id: SCHEDULE_ID,
+      status: "canceled",
+    });
+    const caller = await buildCaller();
+    const res = await caller.project.cancel({
+      projectId: PROJECT_ID,
+      confirmTitle: PROJECT_TITLE,
+    });
+    expect(res).toEqual({ ok: true });
+    // The cancel mutation never reads stripeAccountId on this path —
+    // the Stripe call takes just the schedule id.
+    expect(subscriptionSchedulesCancelMock).toHaveBeenCalledWith(SCHEDULE_ID);
+  });
 });
 
 // ─── setStage — money-handling stages must NOT be settable here ─────

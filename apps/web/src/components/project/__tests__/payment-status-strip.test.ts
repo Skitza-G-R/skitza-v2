@@ -284,3 +284,41 @@ describe("buildStatus — cancelled across plan shapes", () => {
     expect(out.hint).toBe("Cancelled");
   });
 });
+
+// ─── TDD-audit gap fills (Task 8) ───────────────────────────────────
+
+describe("buildStatus — monthly with installments: null falls back to chargesTotal", () => {
+  // The helper has `const total = installments ?? chargesTotal` — the
+  // fallback only triggers when producers configure a monthly plan via
+  // the legacy path (no installments column). Tests never exercised it
+  // before. A direct-to-? regression would flip `total` to null and
+  // crash the dots computation.
+  it("uses chargesTotal when installments is null", () => {
+    const out = buildStatus({
+      paymentPlanKind: "monthly",
+      installments: null, // legacy shape
+      chargesCompleted: 1,
+      chargesTotal: 3,
+      totalAmountCents: 30_000,
+      currency: "USD",
+      nextChargeAt: null,
+      stage: "in_production",
+    });
+    // 3 derived from chargesTotal since installments is null.
+    expect(out.planLabel).toMatch(/^3 monthly/);
+    expect(out.progress).toBe("1/3 paid");
+    // computeDots(1, 3, false) → ●○○
+    expect(out.dots).toBe("\u25cf\u25cb\u25cb");
+  });
+});
+
+describe("formatNextCharge — same-day close-to-boundary", () => {
+  // The helper uses calendar-day comparison. Make sure a date just
+  // before midnight on the same local day still returns "Today" rather
+  // than rolling into tomorrow.
+  it("returns 'Today' for 23:59 on the same calendar day", () => {
+    const now = new Date(2026, 3, 18, 0, 1, 0);
+    const justBeforeMidnight = new Date(2026, 3, 18, 23, 59, 0);
+    expect(formatNextCharge(justBeforeMidnight, now)).toBe("Today");
+  });
+});
