@@ -71,11 +71,25 @@ export const metadata: Metadata = {
 // Viewport + theme-color — matches the warm cream body so the browser
 // chrome blends in on mobile. :root is now light by default; dark mode
 // is an opt-in flip via next-themes (Phase D).
+//
+// `viewportFit: "cover"` is required for iOS safe-area insets to
+// resolve to non-zero values inside the notch / home-indicator zones;
+// without it, `env(safe-area-inset-*)` reports 0 and our
+// `.sk-safe-bottom` / `.sk-safe-top` utilities would be no-ops on PWA
+// installs.
+//
+// `maximumScale: 5` + `userScalable: true` keep pinch-to-zoom enabled
+// — WCAG 1.4.4 (Resize Text) requires that we don't block users from
+// zooming to 200%+. We used to rely on the browser default, but being
+// explicit future-proofs against a Next.js viewport default change.
 export const viewport: Viewport = {
   themeColor: "#F4EFE7",
   colorScheme: "light",
   width: "device-width",
   initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  viewportFit: "cover",
 };
 
 // Clerk theming via `appearance.variables` so we don't add @clerk/themes.

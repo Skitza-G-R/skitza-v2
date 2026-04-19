@@ -186,11 +186,55 @@
     font-family: inherit;
   }
 
-  /* Focus ring — amber, crisp. */
+  /* Focus ring — amber, crisp. Uses :focus-visible (not :focus) so the
+     ring only appears on keyboard navigation, not on mouse clicks. */
   :focus-visible {
     outline: 2px solid rgb(var(--brand-primary));
     outline-offset: 2px;
     border-radius: var(--radius-sm);
+  }
+
+  /* -------------------------------------------------------------------
+   * Responsive polish primitives (Phase A — Mobile/Desktop optimisation)
+   * -------------------------------------------------------------------
+   * .sk-safe-bottom — pad-bottom by the iOS home-indicator inset so
+   *                   fixed bottom bars (artist BottomNav, PersistentPlayer)
+   *                   never sit under the home-indicator on iPhone PWAs.
+   * .sk-safe-top    — same for the notch / Dynamic Island on top-sticky
+   *                   surfaces rendered in PWA standalone mode.
+   * .sk-safe-x      — left/right insets for landscape notched devices.
+   * .sk-scroll-x    — momentum scroll on horizontal scrollers (chip
+   *                   bars, tab rails, waveform trays) so swipes feel
+   *                   native on iOS. Also hides the scrollbar visually
+   *                   on WebKit while keeping wheel/keyboard scroll.
+   * .sk-tap         — enforces the 44×44 Apple/Google minimum tap
+   *                   target on small glyph buttons (the theme toggle,
+   *                   notification bell, mobile menu icon). */
+  .sk-safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .sk-safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .sk-safe-x {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  .sk-scroll-x {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+  .sk-scroll-x::-webkit-scrollbar {
+    height: 4px;
+  }
+  .sk-scroll-x::-webkit-scrollbar-thumb {
+    background: rgb(var(--border-strong));
+    border-radius: 9999px;
+  }
+  .sk-tap {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   /* Keyframes used across the app + landing. */
@@ -331,6 +375,15 @@
     background: transparent;
     cursor: pointer;
     transition: color 140ms ease-out, border-color 140ms ease-out, background-color 140ms ease-out;
+    /* 44px tap target on mobile — bumped down on desktop where mouse
+       precision is higher and dense chip bars (7+ stages) would otherwise
+       wrap prematurely. */
+    min-height: 44px;
+  }
+  @media (min-width: 768px) {
+    .sk-chip {
+      min-height: 32px;
+    }
   }
   .sk-chip:hover {
     color: rgb(var(--fg-primary));
