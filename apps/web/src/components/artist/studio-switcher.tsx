@@ -71,7 +71,7 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
       {open ? (
         <ul
           role="listbox"
-          className="absolute left-0 top-full z-40 mt-1 min-w-[220px] rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] py-1 shadow-lg"
+          className="sk-pop absolute left-0 top-full z-40 mt-1 min-w-[220px] rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] py-1 shadow-lg"
         >
           {studios.map((studio) => (
             <li key={studio.producerId}>

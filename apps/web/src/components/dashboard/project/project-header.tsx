@@ -406,7 +406,11 @@ function ActionsMenu({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-9 z-20 w-56 overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-lg"
+          // Right-aligned dropdown: override the default top-left
+          // origin so the scale-in visually springs from the 3-dot
+          // trigger sitting to the upper-right of the menu.
+          style={{ transformOrigin: "top right" }}
+          className="sk-pop absolute right-0 top-9 z-20 w-56 overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-lg"
         >
           <MenuItem
             onClick={onMarkFinal}

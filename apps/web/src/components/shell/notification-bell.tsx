@@ -154,7 +154,11 @@ export function NotificationBell({
           // (the bell is near the sidebar footer, so below would be
           // clipped by the bottom of the rail). max-w keeps it on
           // screen at 360px viewports.
-          className="absolute bottom-full left-0 z-50 mb-2 w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-lg"
+          // `sk-pop` + inline `origin-bottom-left` overrides the
+          // default top-left origin so the scale-in visually springs
+          // from the bell icon sitting below the popover.
+          style={{ transformOrigin: "bottom left" }}
+          className="sk-pop absolute bottom-full left-0 z-50 mb-2 w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-lg"
         >
           <div className="flex items-center justify-between border-b border-[rgb(var(--border-subtle))] px-3 py-2">
             <span className="font-display text-sm tracking-tight text-[rgb(var(--fg-primary))]">
