@@ -84,8 +84,8 @@ export function SessionsSubTab({
       {booking === null ? (
         <EmptyState
           icon={<CalendarIcon />}
-          title="No session scheduled yet."
-          description="This project isn't linked to a booking yet. Sessions land here once an artist books through your public link, or once you schedule one manually from the Booking surface."
+          title="No session on the calendar."
+          description="Sessions show up here when the artist books through your public link, or when you schedule one from the Booking page."
           action={
             <Button asChild variant="secondary">
               <Link href="/dashboard/booking?tab=upcoming">Open booking</Link>

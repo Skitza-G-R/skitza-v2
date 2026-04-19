@@ -266,8 +266,8 @@ function ActivitySection({
       </div>
       {items.length === 0 ? (
         <EmptyState
-          title="Nothing happened yet."
-          description="Upload a track version or receive a comment from the artist — it'll show up here with a timestamp."
+          title="No activity yet."
+          description="Upload a mix or get a comment from the artist — it lands here with a timestamp."
         />
       ) : (
         <ol className="space-y-2">

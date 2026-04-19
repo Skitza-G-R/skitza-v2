@@ -73,18 +73,25 @@ function ContractSection({
             Contract
           </h2>
           <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-            Sign before you start. One signing URL per artist.
+            Lock the terms before you start. The artist gets one signing link.
           </p>
         </div>
         <Link href={`/dashboard/contracts/new?projectId=${projectId}`}>
-          <Button size="sm">+ New contract</Button>
+          <Button size="sm">New contract</Button>
         </Link>
       </div>
 
       {contracts.length === 0 ? (
         <EmptyState
-          title="No contracts for this project yet."
-          description="Send a template-backed contract for signing. The artist gets a single signing URL with an audit trail on every view + sign."
+          title="No contract yet."
+          description="Send one before kickoff. The artist gets a single signing link, and every view and signature is timestamped for your records."
+          action={
+            <Button asChild size="sm">
+              <Link href={`/dashboard/contracts/new?projectId=${projectId}`}>
+                Send a contract
+              </Link>
+            </Button>
+          }
         />
       ) : (
         <ul className="space-y-2">
@@ -149,7 +156,7 @@ function InvoicesSection() {
       </div>
       <EmptyState
         title="No invoices yet."
-        description="Invoicing is coming in a later phase. For now, flip the payment flags on the project header to unlock final downloads for the artist."
+        description="Full invoicing is coming soon. For now, mark deposits and final payments on the project header — that's what unlocks downloads for the artist."
       />
     </div>
   );

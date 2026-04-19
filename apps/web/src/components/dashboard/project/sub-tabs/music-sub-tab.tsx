@@ -194,7 +194,7 @@ export function MusicSubTab({
       {tracks.length === 0 ? (
         <EmptyState
           title="No tracks yet."
-          description="Add the first track to start collecting versions + feedback. Use the + Add track button below to name it — you can upload a WAV right after."
+          description="Add a track, then drop in a mix. You'll be able to collect timestamped feedback and approve a final version from here."
         />
       ) : null}
 
@@ -239,7 +239,7 @@ export function MusicSubTab({
             </header>
 
             {tVersions.length > 0 ? (
-              <div className="sk-scroll-x mb-4 flex gap-2 overflow-x-auto pb-1">
+              <div className="sk-scroll-x mb-4 flex gap-2 overflow-x-auto pb-1" aria-label="Track versions">
                 {tVersions.map((v, vi) => {
                   const isSelected = v.id === selectedId;
                   const isLatest = vi === 0;
@@ -266,7 +266,7 @@ export function MusicSubTab({
               </div>
             ) : (
               <p className="mb-4 text-sm text-[rgb(var(--fg-secondary))]">
-                No versions yet. Add the first one with + Version.
+                No versions yet. Tap + Version to upload your first mix.
               </p>
             )}
 
