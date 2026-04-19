@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { createDb, eq, invoices } from "@skitza/db";
 
 // Stripe redirects the visitor here after a successful Checkout. The
@@ -55,6 +57,29 @@ export default async function BookSuccessPage(
       >
         Back to portfolio →
       </a>
+
+      {/*
+        Task 13 — "Save your studios" CTA. Appears after every
+        successful booking. The redirect URL is /artist?welcome=1 so
+        Task 14's welcome modal fires once the user lands in the
+        artist app. The magic-link flow still works unchanged for
+        anyone who ignores this block.
+      */}
+      <div className="mx-auto mt-12 max-w-md rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 text-center">
+        <h2 className="font-display text-lg tracking-tight">
+          Save your studios.
+        </h2>
+        <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
+          Sign in with Google so you can track this project, book future
+          sessions, and see all your producers in one place.
+        </p>
+        <Link
+          href="/sign-in?redirect_url=/artist%3Fwelcome%3D1"
+          className="mt-4 inline-block rounded-md bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-base))]"
+        >
+          Continue with Google →
+        </Link>
+      </div>
     </main>
   );
 }

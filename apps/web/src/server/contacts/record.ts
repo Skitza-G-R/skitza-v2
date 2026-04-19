@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { clientContacts, type Db } from "@skitza/db";
+import { emailHashFor } from "~/server/artist/identity";
 
 // Upsert the (producerId, email) pair into the client contacts cache.
 //
@@ -25,7 +25,7 @@ export async function recordContact(
   // the main flow. Server-side input schemas already enforce email
   // shape at the call sites; this is defense-in-depth.
   if (!lowerEmail || !lowerEmail.includes("@")) return;
-  const emailHash = createHash("sha256").update(lowerEmail).digest("hex");
+  const emailHash = emailHashFor(input.email);
   const now = new Date();
   const trimmedName = input.name.trim();
 

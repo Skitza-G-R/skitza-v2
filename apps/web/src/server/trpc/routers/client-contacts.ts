@@ -23,6 +23,7 @@ import { z } from "zod";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
+import { emailHashFor } from "~/server/artist/identity";
 import { issueMagicToken } from "~/lib/magic-links/token";
 
 // Producer-scoped client CRM.
@@ -42,7 +43,7 @@ function emailMatchesProject(email: string) {
 
 function hashEmail(raw: string): { lower: string; hash: string } {
   const lower = raw.trim().toLowerCase();
-  return { lower, hash: createHash("sha256").update(lower).digest("hex") };
+  return { lower, hash: emailHashFor(raw) };
 }
 
 export const clientContactsRouter = router({

@@ -1,4 +1,5 @@
 import { router } from "../init";
+import { artistRouter } from "./artist";
 import { audioRouter } from "./audio";
 import { bookingRouter } from "./booking";
 import { clientContactsRouter } from "./client-contacts";
@@ -14,6 +15,7 @@ import { projectRouter } from "./project";
 import { stripeRouter } from "./stripe";
 
 export const appRouter = router({
+  artist: artistRouter,
   audio: audioRouter,
   booking: bookingRouter,
   clientContacts: clientContactsRouter,

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
+import type { PaymentPlan } from "@skitza/db";
 
 import { AppShell } from "~/components/shell/app-shell";
 import { Badge } from "~/components/ui/badge";
@@ -9,7 +10,12 @@ import { appRouter } from "~/server/trpc/routers/_app";
 import { AvailabilityEditor } from "./availability-editor";
 import { BlackoutsEditor } from "./blackouts-editor";
 import { BookingActionButtons } from "./booking-controls";
-import { DeactivatePackageButton, CURRENCY_SYMBOL } from "./package-form";
+import { EditPackageButton } from "./edit-product-client";
+import {
+  CURRENCY_SYMBOL,
+  DeactivatePackageButton,
+  type InitialPackageValues,
+} from "./package-form";
 import { PackageToolbar } from "./package-toolbar";
 
 type Tab = "packages" | "availability" | "requests" | "upcoming";
@@ -137,6 +143,7 @@ export default async function BookingPage({ searchParams }: PageProps) {
                 locationType: p.locationType,
                 bufferMinutes: p.bufferMinutes,
                 minLeadHours: p.minLeadHours,
+                paymentPlans: p.paymentPlans,
               }))}
             />
           ) : null}
@@ -217,25 +224,63 @@ const LOCATION_LABEL: Record<string, string> = {
   client_space: "Their space",
 };
 
-function PackagesTab({
-  packages,
-}: {
-  packages: {
-    id: string;
-    name: string;
-    description: string | null;
-    durationMin: number;
-    sessionCount: number;
-    priceCents: number;
-    currency: string;
-    depositPct: number;
-    active: boolean;
-    kind: string;
-    locationType: string;
-    bufferMinutes: number;
-    minLeadHours: number;
-  }[];
-}) {
+type PackageRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  durationMin: number;
+  sessionCount: number;
+  priceCents: number;
+  currency: string;
+  depositPct: number;
+  active: boolean;
+  kind: string;
+  locationType: string;
+  bufferMinutes: number;
+  minLeadHours: number;
+  paymentPlans: PaymentPlan[];
+};
+
+// DB returns loose `string` for a few enum-backed columns (the Product
+// type was widened before the Phase-H.3 migration narrowed the schema).
+// Narrow here so the InitialPackageValues passed to the client stays
+// tight. Unknown values fall back to the same defaults NewPackageForm
+// uses for create — safe because the form will immediately overwrite
+// them on submit if the producer touched the field.
+const VALID_CURRENCIES = ["USD", "EUR", "GBP", "ILS"] as const;
+const VALID_KINDS = ["session", "mixing", "mastering", "producing", "other"] as const;
+const VALID_LOCATIONS = ["studio", "remote", "client_space"] as const;
+type InitCurrency = InitialPackageValues["currency"];
+type InitKind = InitialPackageValues["kind"];
+type InitLocation = InitialPackageValues["locationType"];
+function toInitialValues(p: PackageRow): InitialPackageValues {
+  const currency = (VALID_CURRENCIES as readonly string[]).includes(p.currency)
+    ? (p.currency as InitCurrency)
+    : "USD";
+  const kind = (VALID_KINDS as readonly string[]).includes(p.kind)
+    ? (p.kind as InitKind)
+    : "session";
+  const locationType = (VALID_LOCATIONS as readonly string[]).includes(p.locationType)
+    ? (p.locationType as InitLocation)
+    : "studio";
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    durationMin: p.durationMin,
+    sessionCount: p.sessionCount,
+    priceCents: p.priceCents,
+    currency,
+    depositPct: p.depositPct,
+    kind,
+    locationType,
+    bufferMinutes: p.bufferMinutes,
+    minLeadHours: p.minLeadHours,
+    paymentPlans: p.paymentPlans,
+  };
+}
+
+function PackagesTab({ packages }: { packages: PackageRow[] }) {
   return (
     <div className="space-y-6">
       <div>
@@ -304,7 +349,8 @@ function PackagesTab({
                 <span>Min notice: {String(p.minLeadHours)}h</span>
               </div>
               {p.active ? (
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex justify-end gap-1">
+                  <EditPackageButton values={toInitialValues(p)} />
                   <DeactivatePackageButton id={p.id} name={p.name} />
                 </div>
               ) : null}

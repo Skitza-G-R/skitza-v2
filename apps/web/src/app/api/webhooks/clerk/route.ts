@@ -1,6 +1,7 @@
 import { Webhook } from "svix";
-import { createDb, producers } from "@skitza/db";
+import { createDb, producers, clientContacts, eq, and, isNull } from "@skitza/db";
 import { emailToSlug } from "~/lib/slug";
+import { emailHashFor } from "~/server/artist/identity";
 
 export async function POST(req: Request) {
   const secret = process.env.CLERK_WEBHOOK_SECRET;
@@ -39,6 +40,20 @@ export async function POST(req: Request) {
       displayName: evt.data?.first_name ?? null,
       slug: emailToSlug(email),
     }).onConflictDoNothing().returning();
+
+    // Artist-stamping branch: every client_contacts row sharing this
+    // email's hash gets the new Clerk user id. The IS NULL guard makes
+    // this idempotent — re-fires (or a different Clerk user adopting
+    // the same email later) leave already-owned rows untouched.
+    // Single SQL UPDATE; matches across producers because email_hash
+    // alone is the lookup key here, not (producerId, email_hash).
+    const emailHash = emailHashFor(email);
+    await db.update(clientContacts)
+      .set({ clerkUserId: id })
+      .where(and(
+        eq(clientContacts.emailHash, emailHash),
+        isNull(clientContacts.clerkUserId),
+      ));
   }
 
   return new Response("ok", { status: 200 });

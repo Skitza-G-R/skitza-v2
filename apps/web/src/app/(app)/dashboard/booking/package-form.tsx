@@ -10,12 +10,32 @@ import { useToast } from "~/components/ui/toast";
 import {
   createPackage,
   deactivatePackage,
+  updatePackage,
   type PackageKind,
   type PackageLocationType,
 } from "./actions";
 import { parsePaymentPlansFromFormData } from "./payment-plans-parser";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
+
+// Shape a producer-owned product takes when we pre-fill the form for
+// editing. All fields are required here because the caller has already
+// read a row from the DB — defaults only matter for the CREATE path.
+export type InitialPackageValues = {
+  id: string;
+  name: string;
+  description: string | null;
+  durationMin: number;
+  sessionCount: number;
+  priceCents: number;
+  currency: Currency;
+  depositPct: number;
+  kind: PackageKind;
+  locationType: PackageLocationType;
+  bufferMinutes: number;
+  minLeadHours: number;
+  paymentPlans?: PaymentPlan[];
+};
 
 const CURRENCY_SYMBOL: Record<Currency, string> = {
   USD: "$",
@@ -46,26 +66,57 @@ const LOCATION_OPTIONS: { value: PackageLocationType; label: string; hint: strin
 export function NewPackageForm({
   onClose,
   initialPlans = [{ kind: "full" }],
+  initialValues,
 }: {
   onClose: () => void;
   initialPlans?: PaymentPlan[];
+  // When supplied, the form operates in EDIT mode — fields are
+  // pre-populated, submit dispatches `updatePackage({ id, ... })`,
+  // and the initialPlans default is overridden by whatever plans the
+  // product was saved with.
+  initialValues?: InitialPackageValues;
 }) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [durationMin, setDurationMin] = useState(60);
-  const [sessionCount, setSessionCount] = useState(1);
-  const [priceDollars, setPriceDollars] = useState(150);
-  const [currency, setCurrency] = useState<Currency>("USD");
-  const [depositPct, setDepositPct] = useState(25);
-  const [kind, setKind] = useState<PackageKind>("session");
-  const [locationType, setLocationType] = useState<PackageLocationType>("studio");
-  const [bufferMinutes, setBufferMinutes] = useState(0);
-  const [minLeadHours, setMinLeadHours] = useState(12);
+  const isEdit = initialValues !== undefined;
+  // Prefer plans saved on the product over the caller-provided default.
+  const effectiveInitialPlans =
+    initialValues?.paymentPlans ?? initialPlans;
+
+  const [name, setName] = useState(initialValues?.name ?? "");
+  const [description, setDescription] = useState(
+    initialValues?.description ?? "",
+  );
+  const [durationMin, setDurationMin] = useState(
+    initialValues?.durationMin ?? 60,
+  );
+  const [sessionCount, setSessionCount] = useState(
+    initialValues?.sessionCount ?? 1,
+  );
+  const [priceDollars, setPriceDollars] = useState(
+    initialValues ? initialValues.priceCents / 100 : 150,
+  );
+  const [currency, setCurrency] = useState<Currency>(
+    initialValues?.currency ?? "USD",
+  );
+  const [depositPct, setDepositPct] = useState(
+    initialValues?.depositPct ?? 25,
+  );
+  const [kind, setKind] = useState<PackageKind>(
+    initialValues?.kind ?? "session",
+  );
+  const [locationType, setLocationType] = useState<PackageLocationType>(
+    initialValues?.locationType ?? "studio",
+  );
+  const [bufferMinutes, setBufferMinutes] = useState(
+    initialValues?.bufferMinutes ?? 0,
+  );
+  const [minLeadHours, setMinLeadHours] = useState(
+    initialValues?.minLeadHours ?? 12,
+  );
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -76,25 +127,31 @@ export function NewPackageForm({
     const paymentPlans = parsePaymentPlansFromFormData(
       new FormData(e.currentTarget),
     );
+    const payload = {
+      name: name.trim(),
+      ...(description.trim() ? { description: description.trim() } : {}),
+      durationMin,
+      sessionCount,
+      // Store as cents so Stripe integration later doesn't need
+      // a migration dance.
+      priceCents: Math.round(priceDollars * 100),
+      currency,
+      depositPct,
+      kind,
+      locationType,
+      bufferMinutes,
+      minLeadHours,
+      paymentPlans,
+    };
     startTransition(async () => {
-      const res = await createPackage({
-        name: name.trim(),
-        ...(description.trim() ? { description: description.trim() } : {}),
-        durationMin,
-        sessionCount,
-        // Store as cents so Stripe integration later doesn't need
-        // a migration dance.
-        priceCents: Math.round(priceDollars * 100),
-        currency,
-        depositPct,
-        kind,
-        locationType,
-        bufferMinutes,
-        minLeadHours,
-        paymentPlans,
-      });
+      const res = isEdit
+        ? await updatePackage({ id: initialValues.id, ...payload })
+        : await createPackage(payload);
       if (res.ok) {
-        toast(`"${name.trim()}" package created.`, "success");
+        toast(
+          `"${name.trim()}" ${isEdit ? "updated" : "created"}.`,
+          "success",
+        );
         onClose();
         router.refresh();
       } else {
@@ -350,7 +407,7 @@ export function NewPackageForm({
           <input
             type="checkbox"
             name="plan_full"
-            defaultChecked={initialPlans.some((p) => p.kind === "full")}
+            defaultChecked={effectiveInitialPlans.some((p) => p.kind === "full")}
           />
           Pay in full
         </label>
@@ -358,7 +415,7 @@ export function NewPackageForm({
           <input
             type="checkbox"
             name="plan_split"
-            defaultChecked={initialPlans.some((p) => p.kind === "split_50_50")}
+            defaultChecked={effectiveInitialPlans.some((p) => p.kind === "split_50_50")}
           />
           50% deposit + 50% on delivery
         </label>
@@ -366,7 +423,7 @@ export function NewPackageForm({
           <input
             type="checkbox"
             name="plan_monthly"
-            defaultChecked={initialPlans.some((p) => p.kind === "monthly")}
+            defaultChecked={effectiveInitialPlans.some((p) => p.kind === "monthly")}
           />
           Monthly installments —
           <input
@@ -375,7 +432,7 @@ export function NewPackageForm({
             min={2}
             max={12}
             defaultValue={
-              initialPlans.find((p) => p.kind === "monthly")?.installments ?? 4
+              effectiveInitialPlans.find((p) => p.kind === "monthly")?.installments ?? 4
             }
             className="w-16 rounded-sm border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 py-1 text-sm"
           />
@@ -391,7 +448,11 @@ export function NewPackageForm({
 
       <div className="mt-5 flex flex-wrap gap-2">
         <Button type="submit" disabled={pending} className="min-h-11">
-          {pending ? "Saving…" : "Save package"}
+          {pending
+            ? "Saving…"
+            : isEdit
+              ? "Save changes"
+              : "Save package"}
         </Button>
         <Button type="button" variant="ghost" onClick={onClose} disabled={pending} className="min-h-11">
           Cancel
