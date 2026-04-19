@@ -273,7 +273,7 @@ export function AvailabilityEditor({
     startTransition(async () => {
       const res = await setAvailabilityWeek({ blocks });
       if (res.ok) {
-        toast("Availability saved.", "success");
+        toast("Hours saved. Clients see updated slots on your booking page.", "success");
         router.refresh();
       } else {
         toast(res.error, "error");

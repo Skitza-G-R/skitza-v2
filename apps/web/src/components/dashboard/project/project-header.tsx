@@ -130,7 +130,7 @@ export function ProjectHeader({
         toast(res.error, "error");
         return;
       }
-      toast(`Stage → ${STAGE_LABEL[next]}.`, "success");
+      toast(`Moved to ${STAGE_LABEL[next]}.`, "success");
       router.refresh();
     });
   }
@@ -151,7 +151,7 @@ export function ProjectHeader({
           return;
         }
         setFinalPaid(false);
-        toast("Final cleared.", "success");
+        toast("Final payment flag cleared.", "success");
         router.refresh();
       });
       return;
@@ -171,7 +171,7 @@ export function ProjectHeader({
         return;
       }
       setFinalPaid(true);
-      toast("Final marked paid · downloads unlocked.", "success");
+      toast("Marked paid. The artist can now download the final.", "success");
       router.refresh();
     });
   }
@@ -193,7 +193,7 @@ export function ProjectHeader({
     if (!res.ok) throw new Error(res.error);
     setCancelOpen(false);
     setStage("cancelled");
-    toast("Project cancelled. Future charges stopped.", "success");
+    toast("Project cancelled. Future charges stopped automatically.", "success");
     router.refresh();
   }
 
@@ -210,7 +210,7 @@ export function ProjectHeader({
     if (!flipRes.ok) {
       toast(flipRes.error, "error");
     } else {
-      toast("Final charged · downloads unlocked.", "success");
+      toast("Charged. The artist can now download the final.", "success");
     }
     router.refresh();
   }

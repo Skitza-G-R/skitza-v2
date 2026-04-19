@@ -143,7 +143,7 @@ export function MusicSubTab({
         ...(newTrackArtist.trim() ? { artist: newTrackArtist.trim() } : {}),
       });
       if (res.ok) {
-        toast(`Track "${title}" added.`, "success");
+        toast(`Added "${title}".`, "success");
         setNewTrackTitle("");
         setNewTrackArtist("");
         setShowTrack(false);
@@ -161,7 +161,7 @@ export function MusicSubTab({
     startTransition(async () => {
       const res = await addTrackVersion({ projectId: project.id, trackId, label, audioUrl: null });
       if (res.ok) {
-        toast(`Version "${label}" added — drop your file to upload.`, "success");
+        toast(`"${label}" ready — drop your audio file to upload.`, "success");
         setNewVersionLabel("");
         setVersionFor(null);
         setSelected((s) => ({ ...s, [trackId]: res.data.id }));
@@ -176,7 +176,7 @@ export function MusicSubTab({
     startTransition(async () => {
       const res = await resolveVersionComment({ projectId: project.id, id, resolved });
       if (res.ok) {
-        toast(resolved ? "Comment resolved." : "Re-opened.", "success");
+        toast(resolved ? "Comment marked resolved." : "Comment re-opened.", "success");
         router.refresh();
       } else {
         toast(res.error, "error");
@@ -278,7 +278,7 @@ export function MusicSubTab({
                   <AudioUploader
                     trackVersionId={selectedVersion.id}
                     onComplete={() => {
-                      toast("Upload complete.", "success");
+                      toast("Mix uploaded. Waveform rendering now.", "success");
                       router.refresh();
                     }}
                   />
@@ -507,7 +507,7 @@ function ProducerReplyForm({
         timestampMs: Math.round(secs * 1000),
       });
       if (res.ok) {
-        toast("Reply posted.", "success");
+        toast("Reply sent. The artist will see it on their timeline.", "success");
         setBody("");
         setTimestampSec("0");
         onDone();
@@ -578,7 +578,7 @@ function ApproveControl({
       if (res.ok) {
         toast(
           approved
-            ? "Version approved — we'll remind you about stems."
+            ? "Marked as final. We'll nudge you about stems next."
             : "Approval cleared.",
           "success",
         );
@@ -626,7 +626,7 @@ function ApproveControl({
               // the + Version button focus-wise is more involved;
               // for MVP we simply scroll + toast an instruction.
               toast(
-                "Add a new version labelled \"stems\" under this track.",
+                "Tap + Version and label it \"stems\" to send them.",
                 "info",
               );
             }}
