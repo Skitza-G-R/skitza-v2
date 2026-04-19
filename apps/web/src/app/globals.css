@@ -415,6 +415,79 @@
     transition-timing-function: cubic-bezier(0.2, 0, 0.1, 1);
   }
 
+  /*
+   * Phase C — Animation & "liveliness" primitives.
+   *
+   * .sk-lift       — card hover lift (-1px + soft shadow). Apply to any
+   *                  container that behaves like an interactive tile
+   *                  (pricing cards, pain cards, testimonials). Pairs
+   *                  with a `transition-[transform,box-shadow]` utility
+   *                  already on the element, OR use .sk-trans alongside.
+   * .sk-pop        — dropdown/popover enter: fade + scale-in from 96%
+   *                  with origin-top-left. 160ms. Mount-time only.
+   * .sk-pop-center — modal enter: fade + scale-in from 96% with
+   *                  origin-center. 180ms. Matches the modal overlay.
+   * .sk-cta-shine  — CTA shimmer: a diagonal highlight sweeps across
+   *                  the button on hover. Pure ::after — no extra DOM.
+   *                  Element must be `position: relative` + `overflow:
+   *                  hidden` for the sweep to clip correctly.
+   * .sk-pulse-hover — subtle breathing glow on hover (waveform play btn).
+   *                  The pulse itself is the existing skitza-pulse-glow
+   *                  keyframe; this class wires it only while :hover.
+   * All respect prefers-reduced-motion (see @media block below).
+   */
+  @keyframes skitza-pop-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  @keyframes skitza-cta-shine {
+    0%   { transform: translateX(-140%) skewX(-14deg); }
+    100% { transform: translateX(240%) skewX(-14deg); }
+  }
+  .sk-lift {
+    transition-property: transform, box-shadow, border-color, background-color, color;
+    transition-duration: 160ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0.1, 1);
+    will-change: transform;
+  }
+  .sk-lift:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+  .sk-pop {
+    transform-origin: top left;
+    animation: skitza-pop-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .sk-pop-center {
+    transform-origin: center;
+    animation: skitza-pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .sk-cta-shine {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .sk-cta-shine::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      110deg,
+      transparent 30%,
+      rgb(255 255 255 / 0.18) 50%,
+      transparent 70%
+    );
+    transform: translateX(-140%) skewX(-14deg);
+    z-index: 1;
+  }
+  .sk-cta-shine:hover::after {
+    animation: skitza-cta-shine 900ms cubic-bezier(0.16, 1, 0.3, 1) 1 forwards;
+  }
+  .sk-pulse-hover:hover {
+    animation: skitza-pulse-glow 2s ease-in-out infinite;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .sk-trans,
     .sk-trans-slow {
@@ -425,6 +498,23 @@
     }
     .sk-chip {
       transition-duration: 0ms !important;
+    }
+    .sk-lift {
+      transition-duration: 0ms !important;
+    }
+    .sk-lift:hover {
+      transform: none !important;
+      box-shadow: var(--shadow-sm) !important;
+    }
+    .sk-pop,
+    .sk-pop-center {
+      animation: none !important;
+    }
+    .sk-cta-shine:hover::after {
+      animation: none !important;
+    }
+    .sk-pulse-hover:hover {
+      animation: none !important;
     }
   }
 }
