@@ -163,27 +163,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
           <ProjectSubTabs activeTab={activeTab}>
             {activeTab === "music" ? (
               <MusicSubTab
-                project={{
-                  id: data.project.id,
-                  title: data.project.title,
-                  stage: data.project.stage,
-                  artistName: data.project.artistName,
-                  artistEmail: data.project.artistEmail,
-                  clientName: data.project.clientName,
-                  clientEmail: data.project.clientEmail,
-                  depositPaid: data.project.depositPaid,
-                  finalPaid: data.project.finalPaid,
-                  paymentPlanKind: data.project.paymentPlanKind,
-                  installments: data.project.installments,
-                  nextChargeAt: data.project.nextChargeAt,
-                  chargesCompleted: data.project.chargesCompleted,
-                  chargesTotal: data.project.chargesTotal,
-                  totalAmountCents: data.project.totalAmountCents,
-                  cardLast4,
-                  currency: projectCurrency,
-                  createdAt: data.project.createdAt,
-                  updatedAt: data.project.updatedAt,
-                }}
+                project={{ id: data.project.id }}
                 tracks={data.tracks.map((t) => ({
                   id: t.id,
                   title: t.title,

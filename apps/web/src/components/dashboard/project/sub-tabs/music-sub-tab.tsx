@@ -9,7 +9,6 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
-import { type Stage } from "~/lib/projects/stages";
 import {
   addProjectTrack,
   addProducerComment,
@@ -18,26 +17,12 @@ import {
   resolveVersionComment,
 } from "~/app/(app)/dashboard/projects/actions";
 
-interface Project {
+// MusicSubTab only needs the project ID to scope its queries and
+// action calls — version/track/comment data comes in via the `tracks`
+// prop. The broader Project shape (stage, artistName, payment fields)
+// belongs on the ProjectHeader, not here.
+interface ProjectRef {
   id: string;
-  title: string;
-  stage: Stage;
-  artistName: string;
-  artistEmail: string;
-  clientName: string | null;
-  clientEmail: string | null;
-  depositPaid: boolean;
-  finalPaid: boolean;
-  paymentPlanKind: string | null;
-  installments: number | null;
-  nextChargeAt: Date | null;
-  chargesCompleted: number;
-  chargesTotal: number | null;
-  totalAmountCents: number | null;
-  cardLast4: string | null;
-  currency: string;
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 interface Track {
@@ -122,7 +107,7 @@ export function MusicSubTab({
   versions,
   comments,
 }: {
-  project: Project;
+  project: ProjectRef;
   tracks: Track[];
   versions: Version[];
   comments: CommentRow[];
@@ -205,8 +190,8 @@ export function MusicSubTab({
   return (
     <section
       role="tabpanel"
-      id="panel-audio"
-      aria-labelledby="tab-audio"
+      id="panel-music"
+      aria-labelledby="tab-music"
       className="space-y-6"
     >
       {tracks.length === 0 ? (
