@@ -103,6 +103,12 @@ export interface TodayItem {
 // Items list is capped at 50 in total. Big enough to avoid pagination
 // for an active producer, small enough that the DOM stays honest.
 const TODAY_ITEMS_MAX = 50;
+
+// Music library cap — Samply-style cross-project list of every track
+// version the producer has uploaded, newest first. 100 rows is enough
+// to cover the last few months of even a busy mix engineer; pagination
+// is deferred until someone actually overflows.
+const MUSIC_LIST_MAX = 100;
 // Upper bound on rows pulled PER source in the fan-out. Matches the
 // overall TODAY_ITEMS_MAX so a single active kind (e.g. 50 upcoming
 // sessions in a busy week) can fill the entire payload. The outer
@@ -449,6 +455,44 @@ export const producerRouter = router({
     const savedViews: Array<{ id: string; label: string; filter: Record<string, string> }> = [];
 
     return { kpis, items, savedViews };
+  }),
+
+  // Music top-level — Samply-style cross-project library. One row per
+  // track version across every project this producer owns, sorted
+  // newest-upload-first. The UI deep-links a row tap to
+  // /dashboard/projects/<projectId>?tab=music&version=<versionId>, so
+  // the producer can listen to anything they've ever uploaded without
+  // hunting through the Projects list for the right client.
+  //
+  // The single query joins outward from track_versions → project_tracks
+  // → projects, then filters by projects.producerId. No separate
+  // count query — the list is capped at MUSIC_LIST_MAX rows, which is
+  // enough to not need pagination for the vast majority of producers.
+  music: router({
+    list: producerProcedure.query(async ({ ctx }) => {
+      const rows = await ctx.db
+        .select({
+          id: trackVersions.id,
+          trackTitle: projectTracks.title,
+          label: trackVersions.label,
+          projectId: projects.id,
+          projectTitle: projects.title,
+          clientName: projects.clientName,
+          uploadedAt: trackVersions.uploadedAt,
+          audioUrl: trackVersions.audioUrl,
+        })
+        .from(trackVersions)
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(eq(projects.producerId, ctx.producerId))
+        .orderBy(desc(trackVersions.uploadedAt))
+        .limit(MUSIC_LIST_MAX);
+
+      // Belt-and-braces cap. The .limit() above already constrains the
+      // SQL result, but slicing here guarantees the response shape
+      // holds even if a future query path skips the DB-side limit.
+      return { tracks: rows.slice(0, MUSIC_LIST_MAX) };
+    }),
   }),
 
   // Full data export — everything Skitza stores tied to this producer.
