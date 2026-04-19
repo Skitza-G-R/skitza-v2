@@ -31,10 +31,15 @@ export async function AppShell({
   active: ActiveKey;
   children: ReactNode;
 }) {
-  const { slug, unreadCount } = await getShellState();
+  const { slug, unreadCount, unreadItems } = await getShellState();
   return (
     <div className="flex min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
-      <Sidebar active={active} producerSlug={slug} unreadCount={unreadCount} />
+      <Sidebar
+        active={active}
+        producerSlug={slug}
+        unreadCount={unreadCount}
+        unreadItems={unreadItems}
+      />
       <main id="main-content" className="min-w-0 flex-1">
         {children}
       </main>

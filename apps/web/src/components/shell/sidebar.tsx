@@ -5,6 +5,9 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { UserButton } from "@clerk/nextjs";
 
+import type { ShellNotificationItem } from "~/server/shell-data";
+
+import { NotificationBell } from "./notification-bell";
 import { ThemeToggle } from "./theme-toggle";
 
 // Left-rail sidebar, Linear/Splice-flavoured. Persists collapsed state
@@ -40,10 +43,12 @@ export function Sidebar({
   active,
   producerSlug,
   unreadCount = 0,
+  unreadItems = [],
 }: {
   active: ActiveKey;
   producerSlug: string | null;
   unreadCount?: number;
+  unreadItems?: readonly ShellNotificationItem[];
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -117,6 +122,7 @@ export function Sidebar({
               collapsed={false}
               producerSlug={producerSlug}
               unreadCount={unreadCount}
+              unreadItems={unreadItems}
               onItemClick={() => {
                 setMobileOpen(false);
               }}
@@ -135,6 +141,7 @@ export function Sidebar({
           collapsed={effectiveCollapsed}
           producerSlug={producerSlug}
           unreadCount={unreadCount}
+          unreadItems={unreadItems}
           onToggle={toggle}
         />
       </aside>
@@ -147,6 +154,7 @@ function SidebarBody({
   collapsed,
   producerSlug,
   unreadCount,
+  unreadItems,
   onToggle,
   onItemClick,
 }: {
@@ -154,6 +162,7 @@ function SidebarBody({
   collapsed: boolean;
   producerSlug: string | null;
   unreadCount: number;
+  unreadItems: readonly ShellNotificationItem[];
   onToggle?: () => void;
   onItemClick?: () => void;
 }) {
@@ -203,7 +212,10 @@ function SidebarBody({
           </Link>
         ) : null}
         <div className={`flex items-center ${collapsed ? "flex-col gap-2" : "justify-between"} px-1`}>
-          <ThemeToggle />
+          <div className={`flex items-center ${collapsed ? "flex-col" : ""} gap-1`}>
+            <ThemeToggle />
+            <NotificationBell unreadCount={unreadCount} unreadItems={unreadItems} />
+          </div>
           <UserButton
             appearance={{
               elements: { avatarBox: "h-7 w-7 ring-1 ring-[rgb(var(--border-subtle))]" },
