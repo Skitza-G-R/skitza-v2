@@ -539,12 +539,12 @@ function ProducerReplyForm({
         onChange={(e) => {
           setBody(e.target.value);
         }}
-        placeholder="Your reply at that timestamp…"
+        placeholder="Reply at that moment in the track…"
         required
         maxLength={2000}
       />
       <Button type="submit" size="sm" disabled={pending}>
-        {pending ? "…" : "Post"}
+        {pending ? "…" : "Send"}
       </Button>
     </form>
   );
@@ -601,9 +601,9 @@ function ApproveControl({
         disabled={pending || !version.audioUrl}
         // If there's no uploaded audio yet the button is disabled —
         // approving a still-uploading version is nonsensical.
-        title={version.audioUrl ? "Mark this version as final" : "Upload audio before approving"}
+        title={version.audioUrl ? "Mark this version as the final" : "Upload the mix first, then approve it"}
       >
-        {pending ? "…" : "Approve"}
+        {pending ? "…" : "Mark as final"}
       </Button>
     );
   }

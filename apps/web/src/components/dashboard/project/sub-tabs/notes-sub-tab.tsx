@@ -315,9 +315,6 @@ function ActivitySection({
           ))}
         </ol>
       )}
-      <p className="mt-4 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
-        TODO: contract send/view/sign events land here once the project_events table is wired.
-      </p>
     </div>
   );
 }
