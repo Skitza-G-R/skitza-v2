@@ -147,9 +147,10 @@ export function ShareClient({ token, project, tracks, versions, comments }: Prop
               ) : null}
             </header>
 
-            {/* Version stack — latest on top, click to switch */}
+            {/* Version stack — latest on top, click to switch.
+                `sk-scroll-x` for iOS momentum on the version rail. */}
             {tVersions.length > 0 ? (
-              <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+              <div className="sk-scroll-x mb-4 flex gap-2 overflow-x-auto pb-1">
                 {tVersions.map((v, vi) => {
                   const isSelected = v.id === selectedId;
                   const isLatest = vi === 0;

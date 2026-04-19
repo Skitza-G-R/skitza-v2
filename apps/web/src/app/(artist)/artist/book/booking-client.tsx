@@ -139,7 +139,7 @@ export function BookingClient({
       {/* Studio switcher — collapses to a single pill when the artist
           only has one studio (so it reads as a label, not a control). */}
       {studios.length > 1 ? (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="sk-scroll-x flex gap-2 overflow-x-auto pb-1">
           {studios.map((s) => (
             <button
               key={s.producerId}
@@ -147,7 +147,7 @@ export function BookingClient({
               onClick={() => {
                 handleSwitchStudio(s.producerId);
               }}
-              className={`shrink-0 rounded-full border px-3 py-1 text-sm transition-colors ${
+              className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] ${
                 s.producerId === activeStudioId
                   ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-white"
                   : "border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--fg-muted))]"
@@ -174,8 +174,10 @@ export function BookingClient({
 
       {/* 14-day horizontal strip. Each day shows up to two cards
           (morning + evening). Greyed-out cards are unavailable. Tap a
-          card to open the bottom sheet with start-time chips. */}
-      <div className="-mx-4 overflow-x-auto px-4 pb-1">
+          card to open the bottom sheet with start-time chips.
+          `sk-scroll-x` gives iOS momentum so the 14-day swipe feels
+          native. */}
+      <div className="sk-scroll-x -mx-4 overflow-x-auto px-4 pb-1">
         <ul className="flex gap-3">
           {availability.days.map((day) => (
             <li key={day.date} className="shrink-0 w-28 space-y-2">

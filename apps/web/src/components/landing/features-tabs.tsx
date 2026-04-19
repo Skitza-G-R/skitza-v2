@@ -119,7 +119,7 @@ export function FeaturesTabs() {
 
         <div className="mt-14 grid gap-6 lg:grid-cols-[minmax(14rem,18rem)_1fr]">
           {/* Tab list */}
-          <nav aria-label="Feature list" className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+          <nav aria-label="Feature list" className="sk-scroll-x flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
             {TABS.map((t, i) => (
               <button
                 key={t.key}

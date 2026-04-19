@@ -85,7 +85,7 @@ export default async function BookingPage({ searchParams }: PageProps) {
         {/* Tab nav */}
         <nav
           aria-label="Booking sections"
-          className="mt-8 flex gap-1 overflow-x-auto border-b border-[rgb(var(--border-subtle))] pb-px"
+          className="sk-scroll-x mt-8 flex gap-1 overflow-x-auto border-b border-[rgb(var(--border-subtle))] pb-px"
         >
           {(
             [
@@ -102,8 +102,12 @@ export default async function BookingPage({ searchParams }: PageProps) {
                 href={`/dashboard/booking?tab=${t.key}`}
                 aria-current={active ? "page" : undefined}
                 className={[
-                  "flex items-center gap-2 whitespace-nowrap px-4 py-2 text-sm transition-colors",
+                  // min-h-[44px] on mobile → drops to min-h-0 + py-2 on
+                  // desktop where the 4-tab rail stays dense. rounded-t-sm
+                  // keeps the focus-visible ring clipped to each tab.
+                  "flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-t-sm px-4 py-2 text-sm transition-colors sm:min-h-0",
                   "border-b-2",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
                   active
                     ? "border-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] font-semibold"
                     : "border-transparent text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
