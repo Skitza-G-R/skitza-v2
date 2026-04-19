@@ -18,18 +18,18 @@ function toMessage(err: unknown): string {
   if (err instanceof TRPCError) {
     switch (err.code) {
       case "NOT_FOUND":
-        return "Producer or package not found.";
+        return "This producer or package isn't available. Refresh and try again.";
       case "BAD_REQUEST":
-        return err.message || "Invalid request.";
+        return err.message || "Check the form and try again.";
       case "CONFLICT":
-        return err.message || "That slot was just taken — please pick another.";
+        return err.message || "That slot was just taken. Pick another.";
       case "TOO_MANY_REQUESTS":
-        return "Too many requests — try again in a moment.";
+        return "Too many tries in a row. Wait a few seconds and try again.";
       default:
-        return "Something went wrong. Please try again.";
+        return "Something broke on our end. Try again in a moment.";
     }
   }
-  return err instanceof Error ? err.message : "Something went wrong.";
+  return err instanceof Error ? err.message : "Something broke on our end. Try again in a moment.";
 }
 
 // Single payment-plan choice matching the PaymentPlan union on the

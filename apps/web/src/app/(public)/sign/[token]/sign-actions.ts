@@ -33,18 +33,18 @@ function toMessage(err: unknown): string {
   if (err instanceof TRPCError) {
     switch (err.code) {
       case "NOT_FOUND":
-        return "This signing link isn't valid or has expired.";
+        return "This signing link isn't valid or has expired. Ask the producer to resend it.";
       case "FORBIDDEN":
-        return "You can't modify that field.";
+        return "Only the producer can change that field.";
       case "PRECONDITION_FAILED":
-        return err.message || "This contract isn't available to sign.";
+        return err.message || "This contract isn't ready to sign yet.";
       case "BAD_REQUEST":
-        return err.message || "Invalid input.";
+        return err.message || "Check the form and try again.";
       default:
-        return "Something went wrong. Please try again.";
+        return "Something broke on our end. Try again in a moment.";
     }
   }
-  return err instanceof Error ? err.message : "Something went wrong.";
+  return err instanceof Error ? err.message : "Something broke on our end. Try again in a moment.";
 }
 
 function caller() {
