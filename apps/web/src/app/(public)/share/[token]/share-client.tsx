@@ -299,7 +299,7 @@ function PlayerPanel({
             aria-disabled
             className="inline-flex cursor-not-allowed items-center gap-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-3 py-1 font-mono text-xs text-[rgb(var(--fg-muted))]"
           >
-            🔒 Locked until paid
+            🔒 Download unlocks after final payment
           </span>
         )}
       </div>
@@ -346,7 +346,7 @@ function ArtistCommentForm({
         timestampMs: Math.round(secs * 1000),
       });
       if (res.ok) {
-        toast("Comment posted.", "success");
+        toast("Comment sent. The producer will see it on this track.", "success");
         onIdentity({ name: trimmedName, email: trimmedEmail });
         setBody("");
         setTimestampSec("0");
@@ -417,7 +417,7 @@ function ArtistCommentForm({
           maxLength={2000}
         />
         <Button type="submit" size="sm" disabled={pending}>
-          {pending ? "…" : "Post"}
+          {pending ? "…" : "Send"}
         </Button>
       </div>
     </form>
