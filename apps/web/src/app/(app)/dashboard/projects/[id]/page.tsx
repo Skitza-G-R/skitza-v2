@@ -1,8 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
+import { createDb, desc, eq, invoices, producers } from "@skitza/db";
 
 import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
+import { getStripe } from "~/server/stripe/client";
 import { ProjectView } from "./project-view";
 
 type PageProps = { params: Promise<{ id: string }> };
@@ -45,6 +47,63 @@ export default async function ProjectDetail({ params }: PageProps) {
     contractsForProject = [];
   }
 
+  // For split_50_50 projects with a saved PM, fetch the card's last-4
+  // from Stripe so the confirm-charge modal can show "card ending 4242"
+  // before the producer fires the off-session charge. Degrade silently
+  // on Stripe outage — the modal just omits the tail, no functional
+  // loss. Only fetched when actually relevant (plan + PM present).
+  let cardLast4: string | null = null;
+  if (
+    data.project.paymentPlanKind === "split_50_50" &&
+    data.project.stripePaymentMethodId
+  ) {
+    try {
+      const stripe = getStripe();
+      const pm = await stripe.paymentMethods.retrieve(
+        data.project.stripePaymentMethodId,
+      );
+      cardLast4 = pm.card?.last4 ?? null;
+    } catch (err) {
+      console.warn("[projects] paymentMethods.retrieve failed", err);
+    }
+  }
+
+  // Important 3: currency is now snapshotted on the project row at
+  // booking time, so the modal + chargeFinal both read from the same
+  // source. For legacy projects without a persisted currency, fall back
+  // to the most recent invoice; failing that, the producer's default.
+  // The fallback chain protects pre-migration-0023 rows; new rows hit
+  // the project field directly.
+  let projectCurrency = data.project.currency ?? "USD";
+  if (!data.project.currency) {
+    const dbUrl = process.env.DATABASE_URL;
+    if (dbUrl) {
+      try {
+        const db = createDb(dbUrl);
+        const [inv] = await db
+          .select({ currency: invoices.currency })
+          .from(invoices)
+          .where(eq(invoices.projectId, id))
+          .orderBy(desc(invoices.createdAt))
+          .limit(1);
+        if (inv?.currency) {
+          projectCurrency = inv.currency;
+        } else {
+          const [producer] = await db
+            .select({ defaultCurrency: producers.defaultCurrency })
+            .from(producers)
+            .where(eq(producers.id, data.project.producerId))
+            .limit(1);
+          if (producer?.defaultCurrency) {
+            projectCurrency = producer.defaultCurrency;
+          }
+        }
+      } catch (err) {
+        console.warn("[projects] currency lookup failed", err);
+      }
+    }
+  }
+
   return (
     <AppShell active="pipeline">
       <ProjectView
@@ -58,6 +117,14 @@ export default async function ProjectDetail({ params }: PageProps) {
           clientEmail: data.project.clientEmail,
           depositPaid: data.project.depositPaid,
           finalPaid: data.project.finalPaid,
+          paymentPlanKind: data.project.paymentPlanKind,
+          installments: data.project.installments,
+          nextChargeAt: data.project.nextChargeAt,
+          chargesCompleted: data.project.chargesCompleted,
+          chargesTotal: data.project.chargesTotal,
+          totalAmountCents: data.project.totalAmountCents,
+          cardLast4,
+          currency: projectCurrency,
           createdAt: data.project.createdAt,
           updatedAt: data.project.updatedAt,
         }}

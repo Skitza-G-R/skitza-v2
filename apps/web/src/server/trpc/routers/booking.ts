@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { headers } from "next/headers";
 import { TRPCError } from "@trpc/server";
 import {
@@ -7,6 +7,7 @@ import {
   availabilityBlackouts,
   availabilityBlocks,
   bookings,
+  clientContacts,
   createDb,
   eq,
   gte,
@@ -16,7 +17,9 @@ import {
   lte,
   products,
   producers,
+  projects,
   type Db,
+  type PaymentPlan,
   type Product,
 } from "@skitza/db";
 import { z } from "zod";
@@ -31,6 +34,9 @@ import {
 } from "~/server/email/send";
 import { emitBookingRequested } from "~/server/notifications/emit";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
+import { buildCheckoutSessionParams } from "~/server/payments/checkout";
+import { calculateCharges } from "~/server/payments/plan";
+import { getOrCreateStripeCustomer } from "~/server/stripe/customer";
 
 // Public procedures need their own `db` handle + an ipHash for
 // rate-limiting. producerProcedure adds these already (for authed
@@ -79,6 +85,21 @@ const Milestone = z.object({
   pct: z.number().int().min(0).max(100),
 });
 
+// Payment plans the producer opts this product into. Mirrors the
+// `PaymentPlan` union on the schema side. Optional on input so legacy
+// callers (onboarding wizard, tests) don't have to thread a value; when
+// absent, the DB default of `[{kind:"full"}]` applies.
+const PaymentPlanInput = z.array(
+  z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("full") }),
+    z.object({ kind: z.literal("split_50_50") }),
+    z.object({
+      kind: z.literal("monthly"),
+      installments: z.number().int().min(2).max(12),
+    }),
+  ]),
+);
+
 // Input for create/update. Several fields are conditional on the
 // pricing/deposit model — we validate the cross-field rules in a
 // superRefine after the zod object so the messages point at the
@@ -105,6 +126,7 @@ const ProductInputShape = {
   locationType: ProductLocationType.default("studio"),
   bufferMinutes: z.number().int().min(0).max(240).default(0),
   minLeadHours: z.number().int().min(0).max(30 * 24).default(12),
+  paymentPlans: PaymentPlanInput.optional(),
 };
 
 const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
@@ -190,6 +212,7 @@ const ProductUpdateInput = z
     locationType: ProductLocationType.optional(),
     bufferMinutes: z.number().int().min(0).max(240).optional(),
     minLeadHours: z.number().int().min(0).max(30 * 24).optional(),
+    paymentPlans: PaymentPlanInput.optional(),
   });
 
 // Weekly availability replaces the entire week atomically — easier UX
@@ -248,9 +271,24 @@ const AvailabilityWeekInput = z
     }
   });
 
+// Shared schema used for a single plan choice. Matches the on-disk
+// `PaymentPlan` union (full / 50-50 / monthly with 2..12 installments).
+const PaymentPlanChoice = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("full") }),
+  z.object({ kind: z.literal("split_50_50") }),
+  z.object({
+    kind: z.literal("monthly"),
+    installments: z.number().int().min(2).max(12),
+  }),
+]);
+
 // Visitor booking-request input. `quantity` defaults to 1 for per-song
 // products; ignored for flat/bundle/hourly. `hours` similarly optional
-// for hourly.
+// for hourly. `paymentPlan` is the picker's selection — when the
+// product offers multiple plans the client picks one before submitting.
+// Absent means "legacy deposit/full flow" (no new project row, no
+// Stripe Customer lookup). Validated against the product's
+// `paymentPlans` at runtime.
 const BookingRequestInput = z.object({
   productId: z.string().uuid(),
   artistName: z.string().min(1).max(80),
@@ -260,6 +298,7 @@ const BookingRequestInput = z.object({
   startsAtIso: z.string().datetime().optional(), // optional: pure-delivery products have no slot
   quantity: z.number().int().min(1).max(100).optional(),
   hours: z.number().int().min(1).max(24 * 7).optional(),
+  paymentPlan: PaymentPlanChoice.optional(),
 });
 
 // Slot-compute input. `startDate` is an ISO date (YYYY-MM-DD) in the
@@ -1109,6 +1148,39 @@ export const bookingRouter = router({
         .limit(1);
       if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
 
+      // Task 10 — Paused-project guard.
+      // If this client (matched by lowercased email) already has a
+      // `payment_paused` project with the same producer, refuse to take
+      // a new booking. The pause is a real money problem; queueing more
+      // work behind it just hides the fact that retries failed. Once
+      // they update their card via the Stripe Portal banner, the webhook
+      // flips the stage back to `in_production` and bookings resume.
+      //
+      // Greenfield bookers (no existing project with this producer) are
+      // unaffected — the paused state is per-(producer,client) so a
+      // first-time visitor's booking is never blocked.
+      {
+        const lowerEmail = input.artistEmail.trim().toLowerCase();
+        const [paused] = await db
+          .select({ id: projects.id })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.producerId, producer.id),
+              eq(projects.clientEmail, lowerEmail),
+              eq(projects.stage, "payment_paused"),
+            ),
+          )
+          .limit(1);
+        if (paused) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Your payment method needs to be updated before you can book a new session.",
+          });
+        }
+      }
+
       // Products without a duration (pure-deliverable) skip the slot
       // check entirely. We still record a booking row for history +
       // notifications, using `now` as a placeholder startsAt so the
@@ -1257,6 +1329,18 @@ export const bookingRouter = router({
       // pending-approval flow — the booking row is still saved, the
       // producer still gets notified, the artist gets the request
       // email — only the in-flow checkout is skipped.
+      //
+      // Two branches:
+      //   (a) `paymentPlan` selected (Phase I auto-installments): run
+      //       the 3-shape dispatch via buildCheckoutSessionParams. We
+      //       upsert a client_contact, reuse/create a Stripe Customer,
+      //       create a project row in `lead` stage with the plan
+      //       snapshot, and persist the invoice linked to that project.
+      //       The webhook (Task 6) advances the project to `active` on
+      //       checkout.session.completed and installs the Subscription
+      //       Schedule for monthly plans.
+      //   (b) No `paymentPlan` — legacy deposit/full path for producers
+      //       still on the Phase H.5 flow. Unchanged behavior.
       let checkoutUrl: string | null = null;
       try {
         const [producerRow] = await db
@@ -1269,74 +1353,246 @@ export const bookingRouter = router({
           .where(eq(producers.id, producer.id))
           .limit(1);
 
-        if (
-          producerRow?.stripeAccountId &&
-          producerRow.stripeChargesEnabled &&
-          (prod.depositPct > 0 || prod.depositModel === "paid_in_full")
-        ) {
+        if (producerRow?.stripeAccountId && producerRow.stripeChargesEnabled) {
           const fullPriceCents = calculatePriceCents(prod, {
             ...(input.quantity ? { quantity: input.quantity } : {}),
             ...(input.hours ? { hours: input.hours } : {}),
           });
-          const isFull = prod.depositModel === "paid_in_full";
-          const amountCents = isFull
-            ? fullPriceCents
-            : Math.round((fullPriceCents * prod.depositPct) / 100);
+          const { getSiteUrl, getStripe } = await import("~/server/stripe/client");
+          const base = getSiteUrl();
 
-          if (amountCents > 0) {
-            const { getSiteUrl, getStripe } = await import("~/server/stripe/client");
-            const stripe = getStripe();
-            const base = getSiteUrl();
-            const session = await stripe.checkout.sessions.create({
-              mode: "payment",
-              line_items: [
-                {
-                  price_data: {
-                    currency: prod.currency.toLowerCase(),
-                    product_data: {
-                      name: `${prod.name} — ${isFull ? "full" : "deposit"}`,
-                    },
-                    unit_amount: amountCents,
-                  },
-                  quantity: 1,
-                },
-              ],
-              customer_email: input.artistEmail.toLowerCase(),
-              success_url: `${base}/p/${producerRow.slug}/book/success?session_id={CHECKOUT_SESSION_ID}`,
-              cancel_url: `${base}/p/${producerRow.slug}/book?cancelled=1`,
-              payment_intent_data: {
-                transfer_data: { destination: producerRow.stripeAccountId },
-              },
+          if (input.paymentPlan && fullPriceCents > 0) {
+            // ── Branch (a): plan-driven 3-shape checkout ────────────
+            // Guard: the plan the visitor picked must actually be
+            // enabled on this product. Otherwise a determined visitor
+            // could POST any plan and bypass the producer's configured
+            // options.
+            const offered = prod.paymentPlans;
+            const chosen = input.paymentPlan;
+            const ok = offered.some((p) => {
+              if (p.kind !== chosen.kind) return false;
+              if (p.kind === "monthly" && chosen.kind === "monthly") {
+                return p.installments === chosen.installments;
+              }
+              return true;
+            });
+            if (!ok) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "That payment plan isn't offered on this product.",
+              });
+            }
+
+            const plan: PaymentPlan = chosen;
+            const charges = calculateCharges(plan, fullPriceCents);
+            const firstCharge = charges[0];
+            if (firstCharge === undefined) {
+              // calculateCharges always returns a non-empty array for
+              // the inputs we reach here with — this can't happen
+              // unless the helper is broken, in which case fail loud
+              // rather than send Stripe a bogus session.
+              throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            }
+
+            // Upsert the client_contact row so we can pin the Stripe
+            // Customer mapping. recordContact does the same upsert for
+            // the generic contacts cache; here we need the row's id, so
+            // we run an explicit insert/select.
+            const lowerEmail = input.artistEmail.trim().toLowerCase();
+            const emailHash = createHash("sha256").update(lowerEmail).digest("hex");
+            const now = new Date();
+            const inserted = await db
+              .insert(clientContacts)
+              .values({
+                producerId: producer.id,
+                emailHash,
+                email: lowerEmail,
+                name: input.artistName.trim(),
+                firstSeenAt: now,
+                lastSeenAt: now,
+              })
+              .onConflictDoUpdate({
+                target: [clientContacts.producerId, clientContacts.emailHash],
+                set: { name: input.artistName.trim(), lastSeenAt: now },
+              })
+              .returning({ id: clientContacts.id });
+            const clientContactId = inserted[0]?.id;
+            if (!clientContactId) {
+              throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            }
+
+            // Reuse-or-create the Stripe Customer for this (producer,
+            // client) pair. Saved cards carry across future projects
+            // because we always key on the same Customer.
+            const customerId = await getOrCreateStripeCustomer({
+              db,
+              producerId: producer.id,
+              clientContactId,
+              clientEmail: lowerEmail,
+              clientName: input.artistName.trim(),
+            });
+
+            // Create the project row up front (stage=`lead`) so the
+            // webhook handler has something to update when the checkout
+            // completes. We snapshot the plan shape + chargesTotal +
+            // currency here because invoice rows FK back to this row
+            // and chargeFinal reads currency from the project.
+            const token = mintShareToken();
+            const [projectRow] = await db
+              .insert(projects)
+              .values({
+                producerId: producer.id,
+                bookingId: row.id,
+                title: prod.name,
+                artistName: input.artistName,
+                artistEmail: lowerEmail,
+                clientName: input.artistName,
+                clientEmail: lowerEmail,
+                shareTokenHash: token.hash,
+                paymentPlanKind: plan.kind,
+                installments: plan.kind === "monthly" ? plan.installments : null,
+                chargesTotal: charges.length,
+                totalAmountCents: fullPriceCents,
+                // Important 3: snapshot currency at booking time so any
+                // post-checkout surface (chargeFinal, page.tsx modal)
+                // reads the same value the booking session was created
+                // against.
+                currency: prod.currency,
+                stripeCustomerId: customerId,
+              })
+              .returning();
+            if (!projectRow) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            const params = buildCheckoutSessionParams({
+              plan,
+              productName: prod.name,
+              currency: prod.currency.toLowerCase(),
+              totalCents: fullPriceCents,
+              customerId,
+              destinationAccountId: producerRow.stripeAccountId,
+              successUrl: `${base}/p/${producerRow.slug}/book/success?session_id={CHECKOUT_SESSION_ID}`,
+              cancelUrl: `${base}/p/${producerRow.slug}/book?cancelled=1`,
               metadata: {
                 producerId: producer.id,
                 bookingId: row.id,
-                kind: isFull ? "full" : "deposit",
+                projectId: projectRow.id,
+                planKind: plan.kind,
               },
+            });
+            const stripe = getStripe();
+            const session = await stripe.checkout.sessions.create(params, {
+              idempotencyKey: `booking-${row.id}-checkout`,
             });
             checkoutUrl = session.url;
 
-            await db.insert(invoices).values({
-              producerId: producer.id,
-              bookingId: row.id,
-              stripeCheckoutSessionId: session.id,
-              amountCents,
-              currency: prod.currency,
-              description: `${prod.name} — ${isFull ? "full" : "deposit"}`,
-              kind: isFull ? "full" : "deposit",
-              status: "sent",
-              customerEmail: input.artistEmail.toLowerCase(),
-              customerName: input.artistName,
-            });
+            // Record the first invoice for full + split_50_50. Mode
+            // is "payment" for those, so checkout.session.completed
+            // gives us session.payment_intent — the webhook can patch
+            // this booking-time row by session id and stamp the PI on it.
+            //
+            // SKIP for monthly. Subscription-mode sessions have
+            // session.payment_intent === null at completion time, so
+            // the webhook can't link a booking-time row to the PI.
+            // handleInvoicePaid (sole writer for monthly) would then
+            // INSERT a SECOND row for the same first-month charge —
+            // two ledger entries for one cash event. Letting the webhook
+            // be the canonical writer for ALL monthly invoices keeps
+            // the ledger 1:1 with actual charges.
+            if (plan.kind !== "monthly") {
+              const invoiceKind =
+                plan.kind === "full" ? "full" : "deposit";
+              await db.insert(invoices).values({
+                producerId: producer.id,
+                bookingId: row.id,
+                projectId: projectRow.id,
+                paymentPlanProjectId: projectRow.id,
+                stripeCheckoutSessionId: session.id,
+                amountCents: firstCharge,
+                currency: prod.currency,
+                description: `${prod.name} — ${invoiceKind}`,
+                kind: invoiceKind,
+                status: "sent",
+                customerEmail: lowerEmail,
+                customerName: input.artistName,
+              });
+            }
             await db
               .update(bookings)
               .set({ stripeCheckoutSessionId: session.id })
               .where(eq(bookings.id, row.id));
+          } else if (prod.depositPct > 0 || prod.depositModel === "paid_in_full") {
+            // ── Branch (b): legacy deposit/paid-in-full path ───────
+            const isFull = prod.depositModel === "paid_in_full";
+            const amountCents = isFull
+              ? fullPriceCents
+              : Math.round((fullPriceCents * prod.depositPct) / 100);
+
+            if (amountCents > 0) {
+              const stripe = getStripe();
+              const session = await stripe.checkout.sessions.create({
+                mode: "payment",
+                line_items: [
+                  {
+                    price_data: {
+                      currency: prod.currency.toLowerCase(),
+                      product_data: {
+                        name: `${prod.name} — ${isFull ? "full" : "deposit"}`,
+                      },
+                      unit_amount: amountCents,
+                    },
+                    quantity: 1,
+                  },
+                ],
+                customer_email: input.artistEmail.toLowerCase(),
+                success_url: `${base}/p/${producerRow.slug}/book/success?session_id={CHECKOUT_SESSION_ID}`,
+                cancel_url: `${base}/p/${producerRow.slug}/book?cancelled=1`,
+                payment_intent_data: {
+                  transfer_data: { destination: producerRow.stripeAccountId },
+                },
+                metadata: {
+                  producerId: producer.id,
+                  bookingId: row.id,
+                  kind: isFull ? "full" : "deposit",
+                },
+              });
+              checkoutUrl = session.url;
+
+              await db.insert(invoices).values({
+                producerId: producer.id,
+                bookingId: row.id,
+                stripeCheckoutSessionId: session.id,
+                amountCents,
+                currency: prod.currency,
+                description: `${prod.name} — ${isFull ? "full" : "deposit"}`,
+                kind: isFull ? "full" : "deposit",
+                status: "sent",
+                customerEmail: input.artistEmail.toLowerCase(),
+                customerName: input.artistName,
+              });
+              await db
+                .update(bookings)
+                .set({ stripeCheckoutSessionId: session.id })
+                .where(eq(bookings.id, row.id));
+            }
           }
         }
       } catch (err) {
+        // TRPCError subclasses (BAD_REQUEST for invalid plan choice)
+        // must bubble up so the visitor sees the specific message. All
+        // other failures (Stripe outage, DB hiccup) degrade gracefully
+        // to the pending-approval flow.
+        if (err instanceof TRPCError) throw err;
         console.warn("[stripe] checkout creation failed in booking.publicRequest", err);
       }
 
       return { id: row.id, checkoutUrl };
     }),
 });
+
+// Mint a share-token for project rooms. Mirrors project.ts — kept local
+// here to avoid a cross-router import cycle.
+function mintShareToken(): { raw: string; hash: string } {
+  const raw = randomBytes(32).toString("base64url");
+  const hash = createHash("sha256").update(raw).digest("hex");
+  return { raw, hash };
+}

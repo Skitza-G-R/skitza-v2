@@ -60,7 +60,9 @@ type Stage =
   | "in_production"
   | "final_review"
   | "paid"
-  | "archived";
+  | "archived"
+  | "payment_paused"
+  | "cancelled";
 
 export async function createProject(input: {
   title: string;
@@ -190,6 +192,57 @@ export async function approveVersionAction(input: {
     revalidatePath(pathDetail(input.projectId));
     return { ok: true };
   } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Task 7 — producer-triggered off-session final charge for split_50_50
+// plans. We surface Stripe's error message verbatim (e.g. "Your card
+// was declined", "Insufficient funds") so the producer knows exactly
+// what went wrong. The confirm-charge modal renders `error` inline so
+// a retry with a different card isn't a guessing game.
+export async function chargeFinalAction(input: {
+  projectId: string;
+}): Promise<ActionDataResult<{ paymentIntentId: string }>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const res = await c.caller.project.chargeFinal({
+      projectId: input.projectId,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true, data: res };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Task 9 — producer cancels a project mid-flight. Stops Stripe future
+// charges (monthly schedule cancel) and flips stage to 'cancelled'.
+// Server-side title match guard is enforced inside the mutation; we
+// surface its error message verbatim so the modal can render it inline.
+//
+// Unlike the generic toMessage() which collapses INTERNAL_SERVER_ERROR
+// into "Something went wrong", a Stripe failure here carries actionable
+// info ("Stripe cancel failed: <detail>") that the producer needs to
+// see. We extract the raw TRPCError message rather than rewrap it.
+export async function cancelProjectAction(input: {
+  projectId: string;
+  confirmTitle: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.cancel(input);
+    revalidatePath(pathDetail(input.projectId));
+    revalidatePath(PATH_LIST);
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof TRPCError) {
+      // Surface message verbatim for ALL TRPCError codes — the cancel
+      // mutation crafts each one to be producer-actionable.
+      return { ok: false, error: err.message || toMessage(err) };
+    }
     return { ok: false, error: toMessage(err) };
   }
 }

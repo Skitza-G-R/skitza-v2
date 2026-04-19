@@ -10,9 +10,22 @@ import {
   numeric,
   pgEnum,
   unique,
+  uniqueIndex,
   index,
+  primaryKey,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+
+// Payment-plan shape offered by a product and (after activation)
+// pinned onto the project. `full` = pay-in-full at checkout,
+// `split_50_50` = 50% upfront + 50% on delivery, `monthly` = upfront
+// charge followed by N-1 monthly installments. `installments` on the
+// monthly variant is the total number of charges (upfront + recurring).
+export type PaymentPlan =
+  | { kind: "full" }
+  | { kind: "split_50_50" }
+  | { kind: "monthly"; installments: number };
 
 export const producers = pgTable("producers", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -175,6 +188,13 @@ export const products = pgTable("products", {
   // Soft-delete. Null = live; timestamp = no longer offered (kept for
   // historical booking rows to resolve).
   archivedAt: timestamp("archived_at", { withTimezone: true }),
+  // Payment plans the producer exposes for this product. Array order
+  // is UI order. Default `[{kind:"full"}]` keeps legacy products working
+  // untouched until the producer explicitly opts into split/monthly.
+  paymentPlans: jsonb("payment_plans")
+    .$type<PaymentPlan[]>()
+    .notNull()
+    .default([{ kind: "full" }]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Product = typeof products.$inferSelect;
@@ -285,6 +305,8 @@ export const projectStage = pgEnum("project_stage", [
   "final_review",  // final mix sent, awaiting approval
   "paid",          // final invoice paid
   "archived",      // closed
+  "payment_paused", // monthly retries exhausted — locks self-booking until PM updated
+  "cancelled",     // producer cancelled mid-plan
 ]);
 
 export const projects = pgTable("projects", {
@@ -305,6 +327,39 @@ export const projects = pgTable("projects", {
   artistEmail: text("artist_email").notNull(),
   depositPaid: boolean("deposit_paid").notNull().default(false),
   finalPaid: boolean("final_paid").notNull().default(false),
+  // ─── Auto-installments (Stripe) execution state ───────────────────
+  // One plan per project — we don't model a separate instance table
+  // because the relationship is 1:1 and a join would be pure overhead.
+  // `paymentPlanKind` stays text so we can add plan variants later
+  // without an enum migration: 'full' | 'split_50_50' | 'monthly'.
+  paymentPlanKind: text("payment_plan_kind"),
+  // Total charges for monthly plans (2..12). Null for full/split.
+  installments: integer("installments"),
+  // Stripe references. customerId + paymentMethodId are set when the
+  // client completes the first (or only) Checkout; subscriptionScheduleId
+  // is populated only for 'monthly' plans driving future charges.
+  stripeCustomerId: text("stripe_customer_id"),
+  stripePaymentMethodId: text("stripe_payment_method_id"),
+  stripeSubscriptionScheduleId: text("stripe_subscription_schedule_id"),
+  // Progress counters driven by webhook handlers. chargesCompleted
+  // increments on invoice.paid; chargesTotal is the target (1 for full,
+  // 2 for split, N for monthly).
+  chargesCompleted: integer("charges_completed").notNull().default(0),
+  chargesTotal: integer("charges_total"),
+  // Original engagement total (minor units) snapshotted at checkout so
+  // the Task-7 off-session final charge can derive the second-half
+  // amount via `calculateCharges(plan, totalAmountCents)[1]`. Inferring
+  // from the deposit invoice alone is ambiguous for odd totals, so we
+  // persist this explicitly. Nullable for legacy rows without a plan.
+  totalAmountCents: integer("total_amount_cents"),
+  // Currency snapshot at booking time. Single source of truth for any
+  // post-checkout monetary surface (chargeFinal, modal display) so a
+  // mid-engagement product currency change can't desync the modal from
+  // the actual charge. Nullable for legacy rows backfilled from invoices.
+  currency: text("currency"),
+  // Next scheduled charge (from Stripe subscription schedule). Lets the
+  // UI show "next charge on ..." without a Stripe API round-trip.
+  nextChargeAt: timestamp("next_charge_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -576,6 +631,12 @@ export const invoices = pgTable("invoices", {
   // survives a project/booking purge.
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
+  // Auto-installments — points back at the project whose payment plan
+  // generated this invoice. Separate from projectId because a legacy
+  // project may have invoices without a plan. SET NULL preserves the
+  // ledger if the project is deleted.
+  paymentPlanProjectId: uuid("payment_plan_project_id")
+    .references(() => projects.id, { onDelete: "set null" }),
   // Stripe linkage. checkoutSessionId is set immediately on Checkout
   // creation; paymentIntentId arrives later via the
   // checkout.session.completed webhook (it doesn't exist until the
@@ -597,7 +658,40 @@ export const invoices = pgTable("invoices", {
 }, (t) => ({
   // Covers the dashboard list query: producer-scoped, ordered desc.
   producerCreatedIdx: index("invoices_producer_created_idx").on(t.producerId, t.createdAt),
+  // Partial unique index — Stripe fires invoice.paid +
+  // payment_intent.succeeded near-parallel for subscription invoices.
+  // Without this, both handlers pass the SELECT-check and both INSERT,
+  // producing duplicate ledger rows. WHERE clause keeps legacy rows
+  // without a PI (deposits pre-checkout, manual invoices) unaffected.
+  piUnique: uniqueIndex("invoices_stripe_payment_intent_unique")
+    .on(t.stripePaymentIntentId)
+    .where(sql`${t.stripePaymentIntentId} IS NOT NULL`),
 }));
 
 export type Invoice = typeof invoices.$inferSelect;
 export type NewInvoice = typeof invoices.$inferInsert;
+
+// ─── Stripe customer cache ──────────────────────────────────────────
+// One Stripe Customer per (producer, client_contact) pair. Stored
+// outside `client_contacts` because a single contact might be a
+// customer of multiple producers (multi-tenant future), each with
+// their own Stripe Customer on their own Connect account.
+// Composite primary key prevents duplicates without needing a separate
+// surrogate id. Cascade on either side — if the producer or contact
+// goes away, the Stripe customer mapping has no meaning.
+export const stripeCustomers = pgTable("stripe_customers", {
+  producerId: uuid("producer_id")
+    .notNull()
+    .references(() => producers.id, { onDelete: "cascade" }),
+  clientContactId: uuid("client_contact_id")
+    .notNull()
+    .references(() => clientContacts.id, { onDelete: "cascade" }),
+  stripeCustomerId: text("stripe_customer_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.producerId, t.clientContactId] }),
+  customerIdx: index("stripe_customers_customer_idx").on(t.stripeCustomerId),
+}));
+
+export type StripeCustomer = typeof stripeCustomers.$inferSelect;
+export type NewStripeCustomer = typeof stripeCustomers.$inferInsert;

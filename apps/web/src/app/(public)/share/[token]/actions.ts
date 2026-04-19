@@ -22,6 +22,10 @@ function toMessage(err: unknown): string {
       case "TOO_MANY_REQUESTS":
         return "Too many requests — try again in a moment.";
       case "BAD_REQUEST":
+      case "PRECONDITION_FAILED":
+        // Forward the specific message — these are usually direct
+        // explanations of *why* the action failed (e.g. "No saved
+        // payment method on file yet ...") that the user can act on.
         return err.message || "Invalid input.";
       default:
         return "Something went wrong. Please try again.";
@@ -42,6 +46,29 @@ export async function submitArtistComment(input: {
     const caller = appRouter.createCaller({ userId: null });
     await caller.project.publicComment(input);
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Task 10 — server action wrapping the public Stripe Portal mutation.
+// We expose this as a server action (not a tRPC client call) because
+// the share-page is a server component and the rest of the page-client
+// boundary in this folder uses the same actions.ts shim. Returns the
+// URL on success so the client-side banner can `window.location.href`
+// to it; surfaces a friendly error message otherwise.
+export type PortalResult =
+  | { ok: true; url: string }
+  | { ok: false; error: string };
+
+export async function requestCustomerPortal(input: {
+  projectId: string;
+  shareToken: string;
+}): Promise<PortalResult> {
+  try {
+    const caller = appRouter.createCaller({ userId: null });
+    const { url } = await caller.stripe.createCustomerPortalSession(input);
+    return { ok: true, url };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }

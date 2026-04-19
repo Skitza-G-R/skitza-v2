@@ -1,10 +1,12 @@
 "use client";
 
 import { type SyntheticEvent, useEffect, useMemo, useState, useTransition } from "react";
+import type { PaymentPlan } from "@skitza/db";
 
 import { Button } from "~/components/ui/button";
 import { Input, Label } from "~/components/ui/input";
 import { submitBookingRequest } from "./actions";
+import { PlanPicker } from "./plan-picker";
 
 // Data the server passes down — already active packages for this
 // producer + their studio timezone + display name.
@@ -20,6 +22,10 @@ export interface BookingPackage {
   kind: string;
   locationType: string;
   minLeadHours: number;
+  // Phase I — payment plans the producer enabled on this product. When
+  // multiple are offered we show the PlanPicker before the Stripe
+  // redirect; when only one is offered we auto-select it (no picker).
+  paymentPlans: PaymentPlan[];
 }
 
 // Display labels. Public-friendly wording, not the DB enum values.
@@ -104,6 +110,7 @@ export function BookingClient({
   const [artistEmail, setArtistEmail] = useState("");
   const [artistPhone, setArtistPhone] = useState("");
   const [notes, setNotes] = useState("");
+  const [plan, setPlan] = useState<PaymentPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -119,6 +126,15 @@ export function BookingClient({
     if (step === "package" && pkgId) setStep("slot");
   }, [step, pkgId]);
 
+  // Default the plan to the first one the producer offers on the
+  // selected package. Only surfaces a picker when there are ≥2 options;
+  // for a single-plan product we just submit the default silently.
+  useEffect(() => {
+    if (!pkg) return;
+    const first = pkg.paymentPlans[0];
+    if (first) setPlan(first);
+  }, [pkg]);
+
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!pkgId || !slotIso) return;
@@ -132,6 +148,7 @@ export function BookingClient({
         ...(artistPhone.trim() ? { artistPhone: artistPhone.trim() } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         startsAtIso: slotIso,
+        ...(plan ? { paymentPlan: plan } : {}),
       });
       if (res.ok) {
         // Phase H.5 — when the producer has Stripe Connect on, the
@@ -443,6 +460,21 @@ export function BookingClient({
               />
             </div>
           </div>
+
+          {/* Plan picker: only shown when the producer enabled multiple
+              options. Single-plan products auto-submit with the default
+              (set via the useEffect above) — adding a radio that always
+              has one choice would be friction, not clarity. */}
+          {pkg.paymentPlans.length > 1 ? (
+            <div className="mt-6">
+              <PlanPicker
+                plans={pkg.paymentPlans}
+                totalCents={pkg.priceCents}
+                currency={pkg.currency}
+                onChoose={setPlan}
+              />
+            </div>
+          ) : null}
 
           {error ? (
             <p role="alert" className="mt-4 text-sm text-[rgb(var(--fg-danger))]">

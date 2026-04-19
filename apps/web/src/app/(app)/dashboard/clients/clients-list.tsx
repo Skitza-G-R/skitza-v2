@@ -70,7 +70,9 @@ type Stage =
   | "in_production"
   | "final_review"
   | "paid"
-  | "archived";
+  | "archived"
+  | "payment_paused"
+  | "cancelled";
 
 export type ProjectRow = {
   id: string;
@@ -112,6 +114,8 @@ const STAGE_LABEL: Record<Stage, string> = {
   final_review: "Final review",
   paid: "Paid",
   archived: "Archived",
+  payment_paused: "Payment paused",
+  cancelled: "Cancelled",
 };
 
 const STAGES: Stage[] = [
@@ -122,6 +126,8 @@ const STAGES: Stage[] = [
   "final_review",
   "paid",
   "archived",
+  "payment_paused",
+  "cancelled",
 ];
 
 // ─── Helpers ───────────────────────────────────────────────────────

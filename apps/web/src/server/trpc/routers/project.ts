@@ -6,6 +6,7 @@ import {
   asc,
   bookings,
   createDb,
+  invoices,
   projectTracks,
   projects,
   desc,
@@ -23,6 +24,8 @@ import { producerProcedure } from "../producer-procedure";
 import { recordContact } from "~/server/contacts/record";
 import { emitCommentCreated } from "~/server/notifications/emit";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
+import { calculateCharges } from "~/server/payments/plan";
+import { getStripe } from "~/server/stripe/client";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 async function publicCtx(): Promise<{ db: Db; ipHash: string }> {
@@ -49,26 +52,22 @@ function mintShareToken(): { raw: string; hash: string } {
 // gives no benefit and lets an attacker correlate DB leaks.
 type ProjectPublic = Omit<typeof projects.$inferSelect, "shareTokenHash">;
 function stripHash(row: typeof projects.$inferSelect): ProjectPublic {
-  return {
-    id: row.id,
-    producerId: row.producerId,
-    bookingId: row.bookingId,
-    title: row.title,
-    stage: row.stage,
-    clientName: row.clientName,
-    clientEmail: row.clientEmail,
-    artistName: row.artistName,
-    artistEmail: row.artistEmail,
-    depositPaid: row.depositPaid,
-    finalPaid: row.finalPaid,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
+  // Destructure to drop shareTokenHash; spreading the rest keeps us in
+  // sync as new columns land on the projects table without having to
+  // re-list every field here.
+  const { shareTokenHash: _hash, ...rest } = row;
+  void _hash;
+  return rest;
 }
 
 // Project stages mirror the project_stage pg enum. Kept here as a
 // const so the Zod input and listByStage grouped init stay in sync.
-const STAGES = [
+// Note: `payment_paused` and `cancelled` are valid DB stages but are
+// NOT included in the Kanban view — they're terminal/paused states
+// handled separately in the CRM. `ALL_STAGES` enumerates every enum
+// value so Zod accepts them on setStage; `STAGES` is the Kanban-only
+// subset used by listByStage grouping.
+const ALL_STAGES = [
   "lead",
   "booked",
   "contract_sent",
@@ -76,8 +75,16 @@ const STAGES = [
   "final_review",
   "paid",
   "archived",
+  "payment_paused",
+  "cancelled",
 ] as const;
-type Stage = (typeof STAGES)[number];
+// Kanban-visible subset of ALL_STAGES. Kept as a type-only alias
+// since the runtime guard in listByStage excludes the two terminal
+// stages directly rather than iterating this list.
+type Stage = Exclude<
+  (typeof ALL_STAGES)[number],
+  "payment_paused" | "cancelled"
+>;
 
 // Rate limits for public endpoints
 const COMMENT_LIMIT = 20;
@@ -114,9 +121,21 @@ const SetPaidInput = z.object({
   value: z.boolean(),
 });
 
+const ChargeFinalInput = z.object({
+  projectId: z.string().uuid(),
+});
+
+const CancelProjectInput = z.object({
+  projectId: z.string().uuid(),
+  // Type-to-confirm guard. The UI requires the producer to type the
+  // project's title verbatim before the cancel button enables; we
+  // re-check server-side because client guards aren't security.
+  confirmTitle: z.string().min(1),
+});
+
 const SetStageInput = z.object({
   id: z.string().uuid(),
-  stage: z.enum(STAGES),
+  stage: z.enum(ALL_STAGES),
 });
 
 // Artist-side: submit a timestamped comment.
@@ -156,7 +175,11 @@ export const projectRouter = router({
       .where(eq(projects.producerId, ctx.producerId))
       .orderBy(desc(projects.updatedAt));
 
-    const grouped: Record<Stage, (typeof rows)[number][]> = {
+    // Narrow each row's stage to the Kanban-visible subset. Drizzle
+    // returns the full enum as the static type, but we filter out the
+    // two terminal stages below so the assertion is safe at runtime.
+    type KanbanRow = Omit<(typeof rows)[number], "stage"> & { stage: Stage };
+    const grouped: Record<Stage, KanbanRow[]> = {
       lead: [],
       booked: [],
       contract_sent: [],
@@ -166,7 +189,11 @@ export const projectRouter = router({
       archived: [],
     };
     for (const r of rows) {
-      grouped[r.stage].push(r);
+      // payment_paused + cancelled are valid DB stages but intentionally
+      // excluded from the Kanban view — the CRM surfaces them elsewhere.
+      if (r.stage === "payment_paused" || r.stage === "cancelled") continue;
+      const stage: Stage = r.stage;
+      grouped[stage].push({ ...r, stage });
     }
     return grouped;
   }),
@@ -249,7 +276,29 @@ export const projectRouter = router({
 
   // Moves a project between kanban columns. Ownership-checked; bumps
   // updatedAt so the column re-sorts to float the dragged card.
+  //
+  // BLOCKED stages: `cancelled` + `payment_paused`. Both have Stripe
+  // side-effects that this mutation does NOT handle.
+  //   - cancelled: must call subscriptionSchedules.cancel BEFORE the DB
+  //     write to stop future installment charges. Producer-driven cancel
+  //     belongs in the dedicated `cancel` mutation (Cancel project button)
+  //     which orchestrates Stripe + DB together.
+  //   - payment_paused: set automatically by `customer.subscription.paused`
+  //     after Smart Retries exhaust. Letting the producer flip this
+  //     manually detaches Skitza state from Stripe state.
+  // The stage column accepts both values (a project CAN be in those
+  // stages — just not via this dropdown), so the dropdown UI also drops
+  // them as selectable options.
   setStage: producerProcedure.input(SetStageInput).mutation(async ({ ctx, input }) => {
+    if (input.stage === "cancelled" || input.stage === "payment_paused") {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          input.stage === "cancelled"
+            ? "Use the Cancel project button — it stops Stripe charges before transitioning."
+            : "payment_paused is set automatically by webhook handlers when payments fail.",
+      });
+    }
     const [row] = await ctx.db
       .select({ producerId: projects.producerId })
       .from(projects)
@@ -349,6 +398,253 @@ export const projectRouter = router({
       .where(eq(projects.id, input.projectId));
     return { ok: true as const };
   }),
+
+  // ── Task 7 ─────────────────────────────────────────────────────────
+  // Fire the off-session final charge for a split_50_50 plan. The
+  // deposit has already landed (chargesCompleted === 1) and the card
+  // was saved via setup_future_usage at checkout, so we create a
+  // PaymentIntent that reuses the customer + payment method and
+  // confirms immediately.
+  //
+  // CRITICAL: this mutation does NOT insert an invoice row. The
+  // payment_intent.succeeded webhook (handlers.ts) reconciles state
+  // and writes the ledger entry — keeping invoice insertion in one
+  // place makes duplicate-protection tractable (the partial unique
+  // index on invoices.stripe_payment_intent_id enforces at-most-one).
+  //
+  // Idempotency: `proj_<id>_charge_2` scopes the key to this project
+  // + this charge number. Double-click or replay returns the same PI
+  // instead of charging twice.
+  chargeFinal: producerProcedure
+    .input(ChargeFinalInput)
+    .mutation(async ({ ctx, input }) => {
+      // 1. Project exists + belongs to caller.
+      const [project] = await ctx.db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1);
+      if (!project || project.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+
+      // 2. Plan must be split_50_50 — the only shape with a producer-
+      //    triggered second charge. Monthly is Stripe-driven; full is
+      //    single-charge at checkout.
+      if (project.paymentPlanKind !== "split_50_50") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Final charge only applies to 50/50 plans.",
+        });
+      }
+
+      // 3. Deposit paid, final not yet fired (chargesCompleted === 1).
+      if (project.chargesCompleted !== 1) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Final charge already processed or deposit not yet paid.",
+        });
+      }
+
+      // 4. Saved customer + payment method must exist — populated by
+      //    the checkout.session.completed webhook when the deposit
+      //    landed. Absence means something went wrong upstream.
+      if (!project.stripeCustomerId || !project.stripePaymentMethodId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Missing saved payment method — re-run checkout.",
+        });
+      }
+
+      if (project.totalAmountCents === null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Project total not recorded — re-run checkout.",
+        });
+      }
+
+      // 5. Producer's Connect account must be live + charges-enabled.
+      //    destination-charges require a healthy account.
+      const [producer] = await ctx.db
+        .select({
+          stripeAccountId: producers.stripeAccountId,
+          stripeChargesEnabled: producers.stripeChargesEnabled,
+        })
+        .from(producers)
+        .where(eq(producers.id, ctx.producerId))
+        .limit(1);
+      if (
+        !producer ||
+        !producer.stripeAccountId ||
+        !producer.stripeChargesEnabled
+      ) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Stripe account not ready — finish onboarding first.",
+        });
+      }
+
+      // Derive the second-half amount via calculateCharges so the
+      // cents math stays in one place (handles odd-total remainders).
+      const charges = calculateCharges(
+        { kind: "split_50_50" },
+        project.totalAmountCents,
+      );
+      const finalAmountCents = charges[1];
+      if (finalAmountCents === undefined || finalAmountCents <= 0) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Invalid final charge amount.",
+        });
+      }
+
+      // Currency: read from the project row directly (Important 3 —
+      // single source of truth). Snapshotted at publicRequest time so
+      // a mid-engagement product currency change can't desync the modal
+      // from the actual charge. Falls back to deposit-invoice currency
+      // for legacy rows that pre-date migration 0023.
+      let currency = (project.currency ?? "").toLowerCase();
+      if (!currency) {
+        const [depositInvoice] = await ctx.db
+          .select({ currency: invoices.currency })
+          .from(invoices)
+          .where(
+            and(
+              eq(invoices.projectId, project.id),
+              eq(invoices.kind, "deposit"),
+            ),
+          )
+          .orderBy(desc(invoices.createdAt))
+          .limit(1);
+        currency = (depositInvoice?.currency ?? "USD").toLowerCase();
+      }
+
+      const stripe = getStripe();
+      const pi = await stripe.paymentIntents.create(
+        {
+          amount: finalAmountCents,
+          currency,
+          customer: project.stripeCustomerId,
+          payment_method: project.stripePaymentMethodId,
+          off_session: true,
+          confirm: true,
+          transfer_data: { destination: producer.stripeAccountId },
+          metadata: {
+            projectId: project.id,
+            kind: "final",
+            producerId: ctx.producerId,
+          },
+        },
+        {
+          idempotencyKey: `proj_${project.id}_charge_2`,
+        },
+      );
+
+      return { paymentIntentId: pi.id };
+    }),
+
+  // ── Task 9 ─────────────────────────────────────────────────────────
+  // Producer cancels a project mid-flight. Money-handling — we MUST
+  // stop future Stripe charges before the next billing cycle hits.
+  //
+  // Behaviour by plan kind:
+  //   - monthly: cancel the Subscription Schedule on the platform
+  //     account (destination charges, so no `{ stripeAccount }` header).
+  //     Stripe fires `customer.subscription.deleted`, which Task 6's
+  //     handler also coerces to stage='cancelled' — idempotent with the
+  //     direct DB write we do here.
+  //   - full / split_50_50 / never-paid: no schedule to cancel; just
+  //     update the stage. Full was charged at checkout; split's second
+  //     half is producer-triggered (chargeFinal), so neither has any
+  //     auto-future-charge to stop.
+  //
+  // Idempotency:
+  //   - If project.stage is already 'cancelled', return success without
+  //     re-calling Stripe (avoid noisy logs + unnecessary API calls).
+  //   - Stripe's subscriptionSchedules.cancel is itself idempotent on
+  //     their side, but if the schedule was already released/ended we
+  //     get a thrown error — caught + treated as success below.
+  //
+  // No refund action. Refund policy lives in the contract; producers
+  // refund via Stripe Dashboard manually if they want to.
+  cancel: producerProcedure
+    .input(CancelProjectInput)
+    .mutation(async ({ ctx, input }) => {
+      // 1. Project exists + ownership check.
+      const [project] = await ctx.db
+        .select()
+        .from(projects)
+        .where(
+          and(
+            eq(projects.id, input.projectId),
+            eq(projects.producerId, ctx.producerId),
+          ),
+        )
+        .limit(1);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // 2. Type-to-confirm guard. Exact, case-sensitive match — no
+      //    trim, no fuzz. The producer typed it; we honor it.
+      if (project.title !== input.confirmTitle) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Confirmation title mismatch",
+        });
+      }
+
+      // 3. Already-cancelled is idempotent success — webhook + this
+      //    mutation can race, and a re-click after success is a no-op.
+      if (project.stage === "cancelled") {
+        return { ok: true as const };
+      }
+      // 4. Already-finalized projects can't be cancelled; the engagement
+      //    is over. Refund flows through Stripe Dashboard.
+      if (project.stage === "paid" || project.stage === "archived") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Project is already finished; cannot cancel.",
+        });
+      }
+
+      // 5. If a monthly schedule is in flight, stop it. Schedule lives
+      //    on the platform account (we use destination charges for the
+      //    Connect split), so the call is a plain platform API call —
+      //    no `{ stripeAccount }` header.
+      if (project.stripeSubscriptionScheduleId) {
+        const stripe = getStripe();
+        try {
+          await stripe.subscriptionSchedules.cancel(
+            project.stripeSubscriptionScheduleId,
+          );
+        } catch (err) {
+          // Stripe returns an InvalidRequestError if the schedule has
+          // already been released/cancelled/ended. Treat as success so
+          // a webhook race doesn't surface a false failure to the UI.
+          const message = err instanceof Error ? err.message : String(err);
+          if (/already.*(cancel|release|ended|completed)/i.test(message)) {
+            // fall through — the schedule is already in a terminal state
+          } else {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `Stripe cancel failed: ${message}`,
+              cause: err,
+            });
+          }
+        }
+      }
+
+      // 6. Set stage immediately so the producer sees the result without
+      //    waiting for the webhook roundtrip. The webhook handler is
+      //    idempotent — it re-applies stage='cancelled' which is a no-op
+      //    if we've already written it.
+      await ctx.db
+        .update(projects)
+        .set({ stage: "cancelled", updatedAt: new Date() })
+        .where(eq(projects.id, project.id));
+
+      return { ok: true as const };
+    }),
 
   resolveComment: producerProcedure
     .input(ResolveCommentInput)
@@ -595,6 +891,11 @@ export const projectRouter = router({
           artistName: project.artistName,
           depositPaid: project.depositPaid,
           finalPaid: project.finalPaid,
+          // Task 10 — exposed so the share-page can render the
+          // payment-paused banner. We send the raw enum string; the UI
+          // string-compares to "payment_paused" rather than thread an
+          // enum through the wire.
+          stage: project.stage,
           createdAt: project.createdAt,
           producerName: producer?.displayName ?? "Producer",
           producerSlug: producer?.slug ?? "",

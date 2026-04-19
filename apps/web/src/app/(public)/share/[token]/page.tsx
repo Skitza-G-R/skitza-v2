@@ -3,6 +3,11 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import {
+  selectBanner,
+  type BannerStageInput,
+} from "./banner-helpers";
+import { PausedBannerHost } from "./paused-banner-host";
 import { ShareClient } from "./share-client";
 
 type PageProps = { params: Promise<{ token: string }> };
@@ -40,6 +45,32 @@ export default async function SharePage({ params }: PageProps) {
       </div>
 
       <main className="relative z-10 mx-auto max-w-4xl px-6 pb-24 pt-14 sm:px-10 sm:pt-20">
+        {(() => {
+          const banner = selectBanner(data.project.stage as BannerStageInput);
+          if (banner === "paused") {
+            return (
+              <PausedBannerHost projectId={data.project.id} token={token} />
+            );
+          }
+          if (banner === "cancelled") {
+            return (
+              <div
+                role="status"
+                className="mb-8 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-raised))] p-6"
+              >
+                <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+                  Project cancelled
+                </p>
+                <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
+                  This project was cancelled. Past mixes remain accessible
+                  below, but the engagement has ended — please reach out to
+                  the producer directly for any further work.
+                </p>
+              </div>
+            );
+          }
+          return null;
+        })()}
         <header className="mb-10 reveal-up">
           <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
             Project Room · by{" "}
