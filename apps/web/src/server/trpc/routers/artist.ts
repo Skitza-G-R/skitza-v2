@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  availabilityBlocks,
   bookings,
   clientContacts,
   desc,
@@ -8,6 +9,8 @@ import {
   gte,
   inArray,
   invoices,
+  lte,
+  notInArray,
   producers,
   projects,
   projectTracks,
@@ -406,6 +409,289 @@ export type MusicProjectRow = {
   trackCount: number;
 };
 
+// ─── Access guard for book procedures ────────────────────────────────
+// Mirrors resolveProjectOwnership but scopes by (clerkUserId, producerId)
+// instead of by project. The booking path doesn't care about a specific
+// project; it cares that this signed-in Clerk user has any
+// clientContacts row tied to this producer. That row's email + name
+// become the booking's `artistEmail`/`artistName` snapshot.
+//
+// NOT_FOUND on miss (matches the music procedures) — we intentionally
+// don't distinguish "producer doesn't exist" from "producer exists but
+// this artist has no relationship with them".
+async function resolveClientContact(
+  db: Db,
+  clerkUserId: string,
+  producerId: string,
+): Promise<typeof clientContacts.$inferSelect> {
+  const [contact] = await db
+    .select()
+    .from(clientContacts)
+    .where(
+      and(
+        eq(clientContacts.clerkUserId, clerkUserId),
+        eq(clientContacts.producerId, producerId),
+      ),
+    )
+    .limit(1);
+  if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
+  return contact;
+}
+
+// ─── artist.book sub-router ──────────────────────────────────────────
+// Block-based weekly calendar for the artist's self-serve booking flow.
+//
+// `availability` returns a fixed 14-day window. Each day carries up to
+// two blocks (morning + evening) derived from the producer's weekly
+// `availabilityBlocks` config. A block's `available` flag falls to
+// false whenever an existing booking (any status other than rejected/
+// cancelled) overlaps it. For MVP we treat a block as one bookable
+// unit — a single booking anywhere inside it flips the whole block
+// closed rather than tracking sub-slot occupancy.
+//
+// `freeBookingProjectId` is the carryover: if the artist has an
+// active, deposit-paid project with this producer that isn't final-
+// paid yet, we surface it so the UI can label the booking "On the
+// house" and skip the Stripe checkout step. The router's WHERE clause
+// excludes stages (paid/archived/cancelled) that wouldn't qualify, so
+// a null result here is the router saying "no carryover available".
+const bookSubrouter = router({
+  availability: artistProcedure
+    .input(z.object({ producerId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      // 1. Access guard — the producer must be one of the artist's
+      //    studios. NOT_FOUND on miss.
+      const contact = await resolveClientContact(
+        ctx.db,
+        ctx.clerkUserId,
+        input.producerId,
+      );
+
+      // 2. Build the 14-day window. Dates are surfaced as "YYYY-MM-DD"
+      //    (no TZ) — the UI renders them in the device's locale. Using
+      //    UTC calendar math here is a simplification: the producer's
+      //    timezone doesn't shift day boundaries in the strip. A
+      //    follow-up would plumb `producers.timezone` through.
+      const now = new Date();
+      const today = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+      );
+      const horizon = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+      // 3. Fan out the three SELECTs we need.
+      const [blockRows, bookingRows, projectRows] = await Promise.all([
+        // Weekly recurring config — 0..2 rows per weekday.
+        ctx.db
+          .select({
+            weekday: availabilityBlocks.weekday,
+            startMin: availabilityBlocks.startMin,
+            endMin: availabilityBlocks.endMin,
+          })
+          .from(availabilityBlocks)
+          .where(eq(availabilityBlocks.producerId, input.producerId)),
+
+        // Existing bookings in the window — any status except the
+        // "not going to happen" ones. A pending hold still blocks the
+        // block so someone else's in-flight booking doesn't get
+        // double-booked in this race window.
+        ctx.db
+          .select({
+            startsAt: bookings.startsAt,
+            durationMin: bookings.durationMin,
+          })
+          .from(bookings)
+          .where(
+            and(
+              eq(bookings.producerId, input.producerId),
+              inArray(bookings.status, ["pending", "confirmed"]),
+              gte(bookings.startsAt, today),
+              lte(bookings.startsAt, horizon),
+            ),
+          ),
+
+        // Free-session carryover: deposit_paid AND final_paid=false,
+        // stage in an actively-working state. First match wins (the
+        // artist has one active project per producer in practice).
+        ctx.db
+          .select({
+            id: projects.id,
+            title: projects.title,
+          })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.producerId, input.producerId),
+              eq(projects.artistEmail, contact.email),
+              eq(projects.depositPaid, true),
+              eq(projects.finalPaid, false),
+              notInArray(projects.stage, ["paid", "archived", "cancelled"]),
+            ),
+          )
+          .limit(1),
+      ]);
+
+      // 4. Index blocks by weekday → { morning?, evening? }. When a
+      //    producer publishes both, the lower-startMin is morning and
+      //    the other is evening.
+      type BlockShape = { startMin: number; endMin: number };
+      const blocksByWeekday = new Map<
+        number,
+        { morning: BlockShape | null; evening: BlockShape | null }
+      >();
+      for (const b of blockRows) {
+        const existing = blocksByWeekday.get(b.weekday) ?? {
+          morning: null,
+          evening: null,
+        };
+        const block = { startMin: b.startMin, endMin: b.endMin };
+        if (!existing.morning) {
+          existing.morning = block;
+        } else if (block.startMin < existing.morning.startMin) {
+          // Incoming is earlier → demote current morning to evening.
+          existing.evening = existing.morning;
+          existing.morning = block;
+        } else {
+          existing.evening = block;
+        }
+        blocksByWeekday.set(b.weekday, existing);
+      }
+
+      // 5. Walk 14 days. For each, compute date + weekday + block
+      //    availability. "Conflict" = any booking whose [startsAt,
+      //    startsAt+durationMin) interval overlaps the block's
+      //    [dayStart+startMin, dayStart+endMin).
+      const days = [];
+      for (let i = 0; i < 14; i++) {
+        const dayUtc = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
+        const dateStr = `${String(dayUtc.getUTCFullYear())}-${String(
+          dayUtc.getUTCMonth() + 1,
+        ).padStart(2, "0")}-${String(dayUtc.getUTCDate()).padStart(2, "0")}`;
+        const weekday = dayUtc.getUTCDay();
+        const blocks = blocksByWeekday.get(weekday);
+
+        const buildSlot = (b: BlockShape | null) => {
+          if (!b) return null;
+          const blockStart = new Date(
+            dayUtc.getTime() + b.startMin * 60 * 1000,
+          );
+          const blockEnd = new Date(dayUtc.getTime() + b.endMin * 60 * 1000);
+          const conflict = bookingRows.some((bk) => {
+            const bkEnd = new Date(
+              bk.startsAt.getTime() + bk.durationMin * 60 * 1000,
+            );
+            return bk.startsAt < blockEnd && blockStart < bkEnd;
+          });
+          return { startMin: b.startMin, endMin: b.endMin, available: !conflict };
+        };
+
+        days.push({
+          date: dateStr,
+          weekday,
+          morning: buildSlot(blocks?.morning ?? null),
+          evening: buildSlot(blocks?.evening ?? null),
+        });
+      }
+
+      const freeProject = projectRows[0];
+      return {
+        days,
+        freeBookingProjectId: freeProject?.id ?? null,
+        freeBookingProjectTitle: freeProject?.title ?? null,
+      };
+    }),
+
+  confirm: artistProcedure
+    .input(
+      z.object({
+        producerId: z.string().uuid(),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        block: z.enum(["morning", "evening"]),
+        startMin: z.number().int().min(0).max(1440),
+        durationMin: z.number().int().min(15).max(720),
+        projectId: z.string().uuid().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // 1. Access guard — same as availability.
+      const contact = await resolveClientContact(
+        ctx.db,
+        ctx.clerkUserId,
+        input.producerId,
+      );
+
+      // 2. Compute startsAt from date + startMin. Treating the date as
+      //    UTC midnight matches the availability query's day math so
+      //    the slot the UI picked lines up with the row we insert.
+      const [yearStr, monthStr, dayStr] = input.date.split("-");
+      const year = Number(yearStr);
+      const month = Number(monthStr);
+      const day = Number(dayStr);
+      if (!year || !month || !day) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "invalid date" });
+      }
+      const startsAt = new Date(
+        Date.UTC(year, month - 1, day, 0, 0) + input.startMin * 60 * 1000,
+      );
+
+      // 3. Race-safe overlap check. Pulls every active booking in a
+      //    wide (±24h) window around the requested slot; the SQL-level
+      //    narrower check is harder to express in drizzle and the row
+      //    count is always tiny for a single producer. Then we do the
+      //    precise overlap test in JS: slot and existing overlap iff
+      //    slot.start < existing.end AND existing.start < slot.end.
+      const endsAt = new Date(
+        startsAt.getTime() + input.durationMin * 60 * 1000,
+      );
+      const candidates = await ctx.db
+        .select({
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+        })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.producerId, input.producerId),
+            inArray(bookings.status, ["pending", "confirmed"]),
+            gte(
+              bookings.startsAt,
+              new Date(startsAt.getTime() - 24 * 60 * 60 * 1000),
+            ),
+            lte(bookings.startsAt, endsAt),
+          ),
+        );
+      const overlap = candidates.some((bk) => {
+        const bkEnd = new Date(
+          bk.startsAt.getTime() + bk.durationMin * 60 * 1000,
+        );
+        return bk.startsAt < endsAt && startsAt < bkEnd;
+      });
+      if (overlap) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "slot no longer available",
+        });
+      }
+
+      // 4. Insert.
+      const [row] = await ctx.db
+        .insert(bookings)
+        .values({
+          producerId: input.producerId,
+          artistEmail: contact.email,
+          artistName: contact.name,
+          startsAt,
+          durationMin: input.durationMin,
+          status: "confirmed",
+          statusChangedAt: new Date(),
+          projectId: input.projectId,
+        })
+        .returning();
+      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      return { id: row.id };
+    }),
+});
+
 // Artist-scoped router. All procedures here resolve "my studios" via
 // client_contacts.clerk_user_id (stamped on first sign-in by the
 // Clerk user.created webhook).
@@ -735,6 +1021,10 @@ export const artistRouter = router({
   // Nested sub-router so future siblings (project detail, addComment,
   // etc.) live under the same `artist.music.*` namespace.
   music: musicSubrouter,
+
+  // Block-based weekly calendar. availability + confirm for the
+  // self-serve booking flow. See bookSubrouter for per-procedure docs.
+  book: bookSubrouter,
 });
 
 // Activity-feed item shape — exported for the component prop type.

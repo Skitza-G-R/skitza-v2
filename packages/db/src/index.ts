@@ -13,8 +13,11 @@ export * from "./client";
 // - `asc`: ORDER BY direction for packages.list (by position ASC)
 // - `gte/lte`: range filters on booking.startsAt in slot computation
 // - `inArray`: WHERE status IN (...) for filtering confirmed+pending
+// - `notInArray`: WHERE stage NOT IN (...) — artist.book.availability
+//   excludes "paid"/"archived"/"cancelled" projects when resolving a
+//   free-session carryover.
 // - `or`: disjunction for the palette's multi-field fuzzy search
 // - `ilike`: case-insensitive LIKE for the same
 // - `isNull`/`isNotNull`: nullness predicates for the inbox router —
 //   active = archivedAt IS NULL, archived = archivedAt IS NOT NULL.
-export { eq, and, or, desc, asc, sql, gte, lte, inArray, ilike, isNull, isNotNull } from "drizzle-orm";
+export { eq, and, or, desc, asc, sql, gte, lte, inArray, notInArray, ilike, isNull, isNotNull } from "drizzle-orm";
