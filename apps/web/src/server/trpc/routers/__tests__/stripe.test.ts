@@ -88,9 +88,21 @@ vi.mock("@skitza/db", () => ({
   sql: () => ({ sql: true }),
 }));
 
+// Rate-limit mock — controllable per-test. Default to "always allow"
+// so tests not focused on the limit don't trip it. Important 1's test
+// overrides this to assert the right call shape and force the limit.
+const rateLimitMock = vi.fn(() => ({ ok: true, remaining: 10, resetMs: 0 }));
+vi.mock("~/lib/rate-limit/in-memory", () => ({
+  checkRateLimit: (key: string, limit: number, windowMs: number) =>
+    rateLimitMock(key, limit, windowMs),
+}));
+
 beforeEach(() => {
   projectSelectQueue.length = 0;
   billingPortalCreateMock.mockReset();
+  rateLimitMock
+    .mockReset()
+    .mockImplementation(() => ({ ok: true, remaining: 10, resetMs: 0 }));
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -186,6 +198,60 @@ describe("stripe.createCustomerPortalSession", () => {
     // Return URL points back to the share-token room so the client
     // lands where they started after they finish updating their card.
     expect(params.return_url).toBe(`https://skitza.test/share/${RAW_TOKEN}`);
+  });
+
+  it("calls checkRateLimit with portal-session:<ipHash> + (10, 60_000) before any Stripe / DB work (Important 1)", async () => {
+    // Rate-limit must run BEFORE the share-token compare and BEFORE the
+    // Stripe API call, otherwise an attacker can burn Stripe quota and
+    // brute-force tokens cheaply. Mock returns OK so we just verify the
+    // call shape — the next test verifies rejection.
+    projectSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        producerId: PRODUCER_ID,
+        shareTokenHash: TOKEN_HASH,
+        stripeCustomerId: CUSTOMER_ID,
+      },
+    ]);
+    billingPortalCreateMock.mockResolvedValue({
+      id: "bps_x",
+      url: "https://billing.stripe.com/x",
+    });
+
+    const caller = await buildCaller();
+    await caller.stripe.createCustomerPortalSession({
+      projectId: PROJECT_ID,
+      shareToken: RAW_TOKEN,
+    });
+
+    expect(rateLimitMock).toHaveBeenCalledTimes(1);
+    const [key, limit, windowMs] = rateLimitMock.mock.calls[0]!;
+    expect(key).toMatch(/^portal-session:/);
+    expect(limit).toBe(10);
+    expect(windowMs).toBe(60_000);
+  });
+
+  it("throws TOO_MANY_REQUESTS when checkRateLimit returns ok:false (Important 1)", async () => {
+    rateLimitMock.mockReturnValue({ ok: false, remaining: 0, resetMs: 12_000 });
+    // Even with a valid project + token + customer, the rate-limit short-
+    // circuits before the Stripe API call.
+    projectSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        producerId: PRODUCER_ID,
+        shareTokenHash: TOKEN_HASH,
+        stripeCustomerId: CUSTOMER_ID,
+      },
+    ]);
+    const caller = await buildCaller();
+    await expect(
+      caller.stripe.createCustomerPortalSession({
+        projectId: PROJECT_ID,
+        shareToken: RAW_TOKEN,
+      }),
+    ).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    // No Stripe call happened — rate-limit fired first.
+    expect(billingPortalCreateMock).not.toHaveBeenCalled();
   });
 
   it("surfaces Stripe portal-not-configured error verbatim", async () => {

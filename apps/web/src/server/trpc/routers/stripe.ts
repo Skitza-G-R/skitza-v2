@@ -19,21 +19,30 @@ import {
 import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { calculatePriceCents } from "./booking";
+import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 import { getSiteUrl, getStripe } from "~/server/stripe/client";
 
 // Public-procedure helper. Mirrors the pattern in `project.ts`/`booking.ts`:
 // we don't have a Clerk session for the client-facing endpoints, so each
 // public mutation builds its own DB handle from DATABASE_URL.
-async function publicCtx(): Promise<{ db: Db }> {
+async function publicCtx(): Promise<{ db: Db; ipHash: string }> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "missing DATABASE_URL" });
   }
   // Touch headers() so Next records this as a dynamic route — keeps the
   // share-token-keyed mutation from being statically optimised on accident.
-  await headers();
-  return { db: createDb(dbUrl) };
+  // Also lets us derive a per-IP rate-limit bucket key.
+  const hdrs = await headers();
+  const ipRaw = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const ipHash = createHash("sha256").update(ipRaw).digest("hex");
+  return { db: createDb(dbUrl), ipHash };
 }
+
+// Public-procedure rate limits. Both keyed by IP hash because there's no
+// authenticated identity to attribute to.
+const PORTAL_LIMIT = 10;
+const PORTAL_WINDOW_MS = 60_000;
 
 // Phase H.5 — Stripe Connect onboarding + Checkout sessions + invoice
 // listing. The router is intentionally thin: every external call goes
@@ -316,7 +325,17 @@ export const stripeRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const { db } = await publicCtx();
+      const { db, ipHash } = await publicCtx();
+      // Rate-limit BEFORE any DB / Stripe work — without this an
+      // attacker can both brute-force the (projectId, shareToken) pair
+      // AND burn Stripe API quota with cheap requests. 10/min/IP matches
+      // publicComment's ceiling.
+      const rl = checkRateLimit(
+        `portal-session:${ipHash}`,
+        PORTAL_LIMIT,
+        PORTAL_WINDOW_MS,
+      );
+      if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
       const stripe = getStripe();
 
       const tokenHash = createHash("sha256").update(input.shareToken).digest("hex");
