@@ -153,7 +153,11 @@ export function WaveformPlayer({
           "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))]",
           "shadow-[inset_0_1px_0_0_rgb(255_255_255_/_0.15),0_2px_8px_-1px_rgb(var(--brand-primary)/0.35)]",
           "transition-[transform,filter] duration-150 active:translate-y-[1px]",
-          "hover:brightness-110 disabled:cursor-default disabled:opacity-80",
+          // Breathing glow on hover — a subtle nod that the button is
+          // the primary control for the waveform. Uses the existing
+          // pulse-glow keyframe (2s cycle) via sk-pulse-hover so nothing
+          // animates until the producer hovers the play/pause target.
+          "sk-pulse-hover hover:brightness-110 disabled:cursor-default disabled:opacity-80",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
         ].join(" ")}
       >
