@@ -22,7 +22,7 @@ export default async function LibraryPage() {
   const rows = await caller.library.list();
 
   return (
-    <AppShell active="library">
+    <AppShell active="music">
       <LibraryList initial={rows} />
     </AppShell>
   );

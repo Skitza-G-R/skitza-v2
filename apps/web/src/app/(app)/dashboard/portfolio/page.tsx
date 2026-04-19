@@ -23,7 +23,7 @@ export default async function PortfolioPage() {
   const slug = row?.slug;
 
   return (
-    <AppShell active="portfolio">
+    <AppShell active="setup">
       <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 sm:py-14">
         <header className="reveal-up flex flex-wrap items-end justify-between gap-6">
           <div>

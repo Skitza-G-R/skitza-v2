@@ -39,7 +39,7 @@ export default async function ContractDetailPage({ params }: PageProps) {
   const siteUrl = process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
 
   return (
-    <AppShell active="contracts">
+    <AppShell active="projects">
       <ContractEditor
         contract={{
           id: detail.contract.id,

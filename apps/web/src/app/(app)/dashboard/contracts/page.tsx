@@ -31,7 +31,7 @@ export default async function ContractsPage() {
   }));
 
   return (
-    <AppShell active="contracts">
+    <AppShell active="projects">
       <ContractsList contracts={contracts} />
     </AppShell>
   );

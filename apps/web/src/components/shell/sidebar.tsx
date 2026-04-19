@@ -17,21 +17,24 @@ import { ThemeToggle } from "./theme-toggle";
 // so we always render expanded first, then the mount effect nudges
 // to collapsed if stored. 200ms transition smooths the change.
 
-type ActiveKey =
-  | "pipeline"
-  | "portfolio"
-  | "leads"
-  | "booking"
-  | "contracts"
-  | "clients"
-  | "library"
-  | "settings"
-  | "inbox"
-  | "invoices";
+export type ActiveKey = "today" | "music" | "projects" | "setup";
 
 type NavItem = { id: ActiveKey; label: string; href: string; icon: ReactNode };
 
 const STORAGE_KEY = "skitza-sidebar-collapsed";
+
+// Four-screen producer dashboard: Today (the daily dashboard),
+// Music (library/catalog of audio), Projects (where work lives —
+// contracts, booking, files all roll up per-project), Setup
+// (portfolio + settings + account). "Project Room" is *not* a
+// top-level item — it's always reached by tapping a project in
+// the Projects list, so it's per-project not a global nav.
+export const NAV_ITEMS: readonly NavItem[] = [
+  { id: "today", label: "Today", href: "/dashboard", icon: <HomeIcon /> },
+  { id: "music", label: "Music", href: "/dashboard/music", icon: <LibraryIcon /> },
+  { id: "projects", label: "Projects", href: "/dashboard/projects", icon: <PortfolioIcon /> },
+  { id: "setup", label: "Setup", href: "/dashboard/settings", icon: <SettingsIcon /> },
+] as const;
 
 export function Sidebar({
   active,
@@ -79,25 +82,6 @@ export function Sidebar({
     };
   }, [toggle]);
 
-  // Phase H.2 — Clients leads the rail. The CRM hub is now the
-  // producer-first mental model: "who are my people? what do they need
-  // today?" Pipeline stays one click away for the deal-flow-focused
-  // producer. Inbox stays after Library to group the "reactive" surfaces
-  // (library, contracts, bookings) under the "proactive" ones (clients,
-  // pipeline).
-  const items: NavItem[] = [
-    { id: "clients", label: "Clients", href: "/dashboard/clients", icon: <ClientsIcon /> },
-    { id: "pipeline", label: "Pipeline", href: "/dashboard", icon: <PipelineIcon /> },
-    { id: "library", label: "Library", href: "/dashboard/library", icon: <LibraryIcon /> },
-    { id: "inbox", label: "Inbox", href: "/dashboard/inbox", icon: <InboxIcon /> },
-    { id: "contracts", label: "Contracts", href: "/dashboard/contracts", icon: <ContractIcon /> },
-    { id: "invoices", label: "Invoices", href: "/dashboard/invoices", icon: <InvoicesIcon /> },
-    { id: "booking", label: "Bookings", href: "/dashboard/booking", icon: <CalendarIcon /> },
-    { id: "leads", label: "Leads", href: "/dashboard/leads", icon: <UsersIcon /> },
-    { id: "portfolio", label: "Portfolio", href: "/dashboard/portfolio", icon: <PortfolioIcon /> },
-    { id: "settings", label: "Settings", href: "/dashboard/settings", icon: <SettingsIcon /> },
-  ];
-
   // SSR/pre-mount: always render expanded to avoid a flash of 56px on wide viewports.
   const effectiveCollapsed = mounted ? collapsed : false;
   const widthClass = effectiveCollapsed ? "w-14" : "w-60";
@@ -129,7 +113,6 @@ export function Sidebar({
           />
           <div className="relative h-full w-64 border-r border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
             <SidebarBody
-              items={items}
               active={active}
               collapsed={false}
               producerSlug={producerSlug}
@@ -148,7 +131,6 @@ export function Sidebar({
         data-collapsed={effectiveCollapsed}
       >
         <SidebarBody
-          items={items}
           active={active}
           collapsed={effectiveCollapsed}
           producerSlug={producerSlug}
@@ -161,7 +143,6 @@ export function Sidebar({
 }
 
 function SidebarBody({
-  items,
   active,
   collapsed,
   producerSlug,
@@ -169,7 +150,6 @@ function SidebarBody({
   onToggle,
   onItemClick,
 }: {
-  items: NavItem[];
   active: ActiveKey;
   collapsed: boolean;
   producerSlug: string | null;
@@ -200,13 +180,13 @@ function SidebarBody({
         )}
       </div>
       <nav aria-label="Primary" className="flex-1 space-y-0.5 px-2">
-        {items.map((item) => (
+        {NAV_ITEMS.map((item) => (
           <SidebarItem
             key={item.id}
             item={item}
             isActive={active === item.id}
             collapsed={collapsed}
-            badgeCount={item.id === "inbox" ? unreadCount : 0}
+            badgeCount={item.id === "today" ? unreadCount : 0}
             {...(onItemClick ? { onClick: onItemClick } : {})}
           />
         ))}
@@ -309,82 +289,19 @@ function SkitzaMark() {
   );
 }
 
-function PipelineIcon() {
+// Home — a simple house silhouette for the "Today" daily-dashboard tab.
+function HomeIcon() {
   return (
     <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="1.5" y="3" width="3.5" height="10" rx="1" />
-      <rect x="6.25" y="5.5" width="3.5" height="7" rx="1" />
-      <rect x="11" y="2" width="3.5" height="12" rx="1" />
-    </svg>
-  );
-}
-
-function InboxIcon() {
-  // Inbox tray — rectangle floor with a scooped lid suggesting a
-  // landing surface. 16x16, stroke=currentColor to inherit active/hover.
-  return (
-    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 9.5h3.5l1 2h3l1-2H14" />
-      <path d="M2 9.5 3.5 3h9L14 9.5v3.25A.75.75 0 0 1 13.25 13.5h-10.5A.75.75 0 0 1 2 12.75Z" />
-    </svg>
-  );
-}
-
-function ContractIcon() {
-  return (
-    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 1.75h6.5L13 5.25v9A.75.75 0 0 1 12.25 15H3a.75.75 0 0 1-.75-.75v-11.5A.75.75 0 0 1 3 1.75Z" />
-      <path d="M9 1.75V5.5h4" />
-      <path d="M5 8.5h6M5 11.5h4" />
-    </svg>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="12" height="11" rx="1.5" />
-      <path d="M2 6.5h12M5 1.75V4M11 1.75V4" />
-    </svg>
-  );
-}
-
-function InvoicesIcon() {
-  return (
-    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 1.75h7.5L13 4.25v10A.75.75 0 0 1 12.25 15h-9a.75.75 0 0 1-.25-.04L3 14.75v-13Z" />
-      <path d="M5 6.5h6M5 9h6M5 11.5h3.5" />
-    </svg>
-  );
-}
-
-function UsersIcon() {
-  return (
-    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="6" cy="6" r="2.5" />
-      <path d="M1.5 13.5c.6-2.1 2.5-3.5 4.5-3.5s3.9 1.4 4.5 3.5" />
-      <circle cx="11.5" cy="5" r="2" />
-      <path d="M10.5 9.5c1.8 0 3.4 1.3 4 3" />
-    </svg>
-  );
-}
-
-// Two-head silhouette — distinct from UsersIcon (which is used for the
-// "Leads" tab). The two heads imply the "book of clients" feel.
-function ClientsIcon() {
-  return (
-    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="5.5" cy="5.5" r="2.2" />
-      <circle cx="11" cy="5" r="1.8" />
-      <path d="M1.5 13.5c.6-2 2.3-3.3 4-3.3s3.4 1.3 4 3.3" />
-      <path d="M10 10.4c1.6 0 3 1.1 3.5 2.9" />
+      <path d="M2 7.5 8 2l6 5.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7.5Z" />
+      <path d="M6.5 14V9.5h3V14" />
     </svg>
   );
 }
 
 // Library — a stylised waveform block. Evokes "audio" without the
-// saccharine music-note glyph. Three bars of varying heights inside
-// the same 16x16 frame as our other icons.
+// saccharine music-note glyph. Four bars of varying heights inside
+// the same 16x16 frame as our other icons. Reused as the Music icon.
 function LibraryIcon() {
   return (
     <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -396,6 +313,9 @@ function LibraryIcon() {
   );
 }
 
+// Portfolio / Projects — a folder-with-tab silhouette. Reused for
+// the Projects top-level nav since a "project" is the folder that
+// holds contracts, bookings, files, and comments per-client.
 function PortfolioIcon() {
   return (
     <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

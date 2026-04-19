@@ -66,7 +66,7 @@ export default async function LeadsPage() {
   }));
 
   return (
-    <AppShell active="leads">
+    <AppShell active="today">
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
         <header className="reveal-up flex flex-wrap items-end justify-between gap-6">
           <div>

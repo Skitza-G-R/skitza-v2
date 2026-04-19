@@ -40,7 +40,7 @@ export default async function InboxPage({ searchParams }: PageProps) {
   }));
 
   return (
-    <AppShell active="inbox">
+    <AppShell active="today">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="reveal-up">
           <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">

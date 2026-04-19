@@ -33,7 +33,7 @@ export default async function InvoicesPage() {
   }));
 
   return (
-    <AppShell active="invoices">
+    <AppShell active="today">
       <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
         <header className="reveal-up mb-8">
           <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">

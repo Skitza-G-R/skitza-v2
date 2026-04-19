@@ -91,7 +91,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     !onboarding.hasPackages || !onboarding.hasAvailability || !onboarding.hasDisplayName;
 
   return (
-    <AppShell active="pipeline">
+    <AppShell active="today">
       <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 sm:py-10">
         <header className="reveal-up flex flex-wrap items-start justify-between gap-4">
           <div>

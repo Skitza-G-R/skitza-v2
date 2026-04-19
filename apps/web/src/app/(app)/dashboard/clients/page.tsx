@@ -25,7 +25,7 @@ export default async function ClientsPage() {
   // Narrow to serialisable plain objects — Next passes these via the
   // RSC boundary so Date instances remain wire-safe as ISO strings.
   return (
-    <AppShell active="clients">
+    <AppShell active="today">
       <ClientsHub
         initialClients={byClient.view === "by-client" ? byClient.clients : []}
         initialProjects={

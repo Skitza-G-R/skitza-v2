@@ -6,7 +6,7 @@ import { getShellState } from "~/server/shell-data";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
 import { DesktopMenuBridge } from "./desktop-menu-bridge";
 import { ShortcutsBridge } from "./shortcuts-bridge";
-import { Sidebar } from "./sidebar";
+import { Sidebar, type ActiveKey } from "./sidebar";
 
 // App shell used by /dashboard and its children. Rebuilt as a left
 // rail (Linear/Splice flavour) in D.6. The shell itself stays a
@@ -28,17 +28,7 @@ export async function AppShell({
   active,
   children,
 }: {
-  active:
-    | "pipeline"
-    | "portfolio"
-    | "leads"
-    | "booking"
-    | "contracts"
-    | "clients"
-    | "library"
-    | "settings"
-    | "inbox"
-    | "invoices";
+  active: ActiveKey;
   children: ReactNode;
 }) {
   const { slug, unreadCount } = await getShellState();

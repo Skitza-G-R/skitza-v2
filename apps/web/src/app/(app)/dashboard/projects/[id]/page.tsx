@@ -105,7 +105,7 @@ export default async function ProjectDetail({ params }: PageProps) {
   }
 
   return (
-    <AppShell active="pipeline">
+    <AppShell active="projects">
       <ProjectView
         project={{
           id: data.project.id,

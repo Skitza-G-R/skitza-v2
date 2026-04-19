@@ -27,7 +27,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   }
 
   return (
-    <AppShell active="clients">
+    <AppShell active="today">
       <ClientTimeline
         contact={data.contact}
         stats={data.stats}

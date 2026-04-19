@@ -10,7 +10,7 @@ export default async function NewContractPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   return (
-    <AppShell active="contracts">
+    <AppShell active="projects">
       <NewContractShell />
     </AppShell>
   );
