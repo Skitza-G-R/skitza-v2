@@ -1479,29 +1479,37 @@ export const bookingRouter = router({
             });
             checkoutUrl = session.url;
 
-            // Record the first invoice (for the first charge). For
-            // monthly plans, subsequent invoices land via invoice.paid
-            // webhook handlers.
-            const invoiceKind =
-              plan.kind === "full"
-                ? "full"
-                : plan.kind === "split_50_50"
-                  ? "deposit"
-                  : "installment";
-            await db.insert(invoices).values({
-              producerId: producer.id,
-              bookingId: row.id,
-              projectId: projectRow.id,
-              paymentPlanProjectId: projectRow.id,
-              stripeCheckoutSessionId: session.id,
-              amountCents: firstCharge,
-              currency: prod.currency,
-              description: `${prod.name} — ${invoiceKind}`,
-              kind: invoiceKind,
-              status: "sent",
-              customerEmail: lowerEmail,
-              customerName: input.artistName,
-            });
+            // Record the first invoice for full + split_50_50. Mode
+            // is "payment" for those, so checkout.session.completed
+            // gives us session.payment_intent — the webhook can patch
+            // this booking-time row by session id and stamp the PI on it.
+            //
+            // SKIP for monthly. Subscription-mode sessions have
+            // session.payment_intent === null at completion time, so
+            // the webhook can't link a booking-time row to the PI.
+            // handleInvoicePaid (sole writer for monthly) would then
+            // INSERT a SECOND row for the same first-month charge —
+            // two ledger entries for one cash event. Letting the webhook
+            // be the canonical writer for ALL monthly invoices keeps
+            // the ledger 1:1 with actual charges.
+            if (plan.kind !== "monthly") {
+              const invoiceKind =
+                plan.kind === "full" ? "full" : "deposit";
+              await db.insert(invoices).values({
+                producerId: producer.id,
+                bookingId: row.id,
+                projectId: projectRow.id,
+                paymentPlanProjectId: projectRow.id,
+                stripeCheckoutSessionId: session.id,
+                amountCents: firstCharge,
+                currency: prod.currency,
+                description: `${prod.name} — ${invoiceKind}`,
+                kind: invoiceKind,
+                status: "sent",
+                customerEmail: lowerEmail,
+                customerName: input.artistName,
+              });
+            }
             await db
               .update(bookings)
               .set({ stripeCheckoutSessionId: session.id })
