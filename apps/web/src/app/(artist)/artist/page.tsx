@@ -5,6 +5,7 @@ import { BalanceCard } from "~/components/artist/home/balance-card";
 import { LatestMixCard } from "~/components/artist/home/latest-mix-card";
 import { NextSessionCard } from "~/components/artist/home/next-session-card";
 import { appRouter } from "~/server/trpc/routers/_app";
+import { WelcomeModal } from "./welcome-modal";
 
 // Server Component. Reads everything in one tRPC call (artist.home),
 // then hands typed slices to the four child cards. The artist layout
@@ -24,6 +25,7 @@ export default async function ArtistHomePage() {
 
   return (
     <div className="space-y-4">
+      <WelcomeModal />
       <h1 className="sr-only">Home</h1>
       <NextSessionCard session={data.nextSession} />
       <LatestMixCard mix={data.latestMix} />
