@@ -23,7 +23,7 @@ export function ProductCard({
   return (
     <Link
       href={`/artist/store/${product.id}`}
-      className="flex items-center gap-3 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 transition-colors hover:border-[rgb(var(--brand-primary))]/50"
+      className="sk-lift flex items-center gap-3 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 hover:border-[rgb(var(--brand-primary))]/50"
     >
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">{product.name}</p>
