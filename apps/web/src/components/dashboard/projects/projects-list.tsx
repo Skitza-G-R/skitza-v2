@@ -284,7 +284,11 @@ function ProjectRowItem({ row }: { row: ProjectRow }) {
     <li>
       <Link
         href={`/dashboard/projects/${row.id}`}
-        className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-[rgb(var(--bg-sunken))]"
+        // min-h-[56px] mirrors the Today inbox rows for consistency —
+        // a 2-line row (title + artist/stage-badge) needs the vertical
+        // room or the stage badge crowds the row baseline. Inset focus
+        // ring stays clipped to the row.
+        className="flex min-h-[56px] items-start gap-3 px-4 py-3 transition-colors hover:bg-[rgb(var(--bg-sunken))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">

@@ -91,7 +91,11 @@ function MusicRowItem({ row }: { row: MusicRow }) {
     <li>
       <Link
         href={href}
-        className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[rgb(var(--bg-sunken))]"
+        // min-h-[56px] matches the Today + Projects row rhythm so
+        // scanning the three list surfaces feels like one app. The
+        // 32px PlayIcon disc + two-line text keeps a comfortable
+        // vertical centre at 56px.
+        className="flex min-h-[56px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[rgb(var(--bg-sunken))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
       >
         <PlayIcon />
         <div className="min-w-0 flex-1">

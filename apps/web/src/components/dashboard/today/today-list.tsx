@@ -67,8 +67,15 @@ export function TodayList({
                 select(item.id);
               }}
               disabled={isPending}
+              // min-h-[56px] keeps each inbox row comfortably tappable
+              // on mobile (the kind-icon column alone is 28px, so py-3
+              // floors the total height around 50px — this pushes past
+              // it for reliability across fonts). Inset focus ring so
+              // keyboard users see the selection highlight without the
+              // outline overlapping the previous row's bottom border.
               className={[
-                "flex w-full items-start gap-3 px-4 py-3 text-left transition-colors",
+                "flex min-h-[56px] w-full items-start gap-3 px-4 py-3 text-left transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
                 isSelected
                   ? "bg-[rgb(var(--brand-primary)/0.08)]"
                   : "hover:bg-[rgb(var(--bg-sunken))]",

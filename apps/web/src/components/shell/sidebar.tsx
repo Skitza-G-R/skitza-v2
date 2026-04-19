@@ -93,14 +93,16 @@ export function Sidebar({
 
   return (
     <>
-      {/* Mobile hamburger — fixed top-left, never shown on md+ */}
+      {/* Mobile hamburger — fixed top-left, never shown on md+.
+          `sk-tap` (44×44) + a real focus-visible ring meet WCAG 2.5.5
+          and are large enough to thumb on an iPhone SE. */}
       <button
         type="button"
         aria-label="Open menu"
         onClick={() => {
           setMobileOpen(true);
         }}
-        className="fixed left-3 top-3 z-40 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 text-[rgb(var(--fg-primary))] md:hidden"
+        className="sk-tap fixed left-3 top-3 z-40 flex items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] md:hidden"
       >
         <HamburgerIcon />
       </button>
@@ -182,7 +184,11 @@ function SidebarBody({
             type="button"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             onClick={onToggle}
-            className="rounded-md p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
+            // Desktop-only control (the desktop rail mounts SidebarBody
+            // via onToggle); mouse precision means we can keep this at
+            // a tight 28×28 without falling below the desktop target
+            // floor. Adds focus-visible for keyboard.
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
           >
             <ChevronIcon flipped={collapsed} />
           </button>
@@ -249,7 +255,11 @@ function SidebarItem({
       {...(onClick ? { onClick } : {})}
       {...(isActive ? { "aria-current": "page" as const } : {})}
       {...(collapsed ? { title: item.label } : {})}
-      className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors ${
+      // min-h-[44px] on mobile (drawer has `onClick` handler wired)
+      // → min-h-[36px] on desktop where the collapsed rail must stay
+      // dense. `title` on collapsed gives a native hover tooltip so
+      // icons aren't guessing games when the rail is narrow.
+      className={`flex min-h-[44px] items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors md:min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] ${
         isActive
           ? "bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-primary))]"
           : "text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
