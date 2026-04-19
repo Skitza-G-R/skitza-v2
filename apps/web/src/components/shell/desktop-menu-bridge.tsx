@@ -33,7 +33,11 @@ export function DesktopMenuBridge() {
           router.push("/dashboard/projects/new");
           return;
         case "new-contract":
-          router.push("/dashboard/contracts");
+          // Contracts no longer have their own top-level page —
+          // they're authored inside a Project Room. Route to "new
+          // project" and let the producer pick up the contract flow
+          // from there.
+          router.push("/dashboard/projects/new");
           return;
         case "toggle-dark":
           setTheme(resolvedTheme === "dark" ? "light" : "dark");

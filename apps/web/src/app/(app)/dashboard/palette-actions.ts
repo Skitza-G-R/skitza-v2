@@ -12,7 +12,10 @@ import { appRouter } from "~/server/trpc/routers/_app";
 export type PaletteResult = {
   projects: Array<{ id: string; title: string; stage: string }>;
   contacts: Array<{ id: string; name: string; email: string }>;
-  contracts: Array<{ id: string; title: string; status: string }>;
+  // `projectId` is nullable on the contracts table — historical contracts
+  // created before we started linking them can still exist. The palette
+  // falls back to the projects list when it's null.
+  contracts: Array<{ id: string; title: string; status: string; projectId: string | null }>;
   tracks: Array<{ id: string; title: string; label: string; projectId: string }>;
 };
 

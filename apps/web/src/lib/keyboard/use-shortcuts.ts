@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 // Global keyboard-shortcut layer. Patterned after Linear/Superhuman:
-// two-key navigation (`g` then one of p/c/b/l/o/s), single-key
-// actions (`c`, `/`, `?`, `[`), and `Esc` to close open overlays.
-// We skip when the user is typing into an input/textarea/contenteditable
+// two-key navigation (`g` then one of t/m/p/s), single-key actions
+// (`c`, `/`, `?`, `[`), and `Esc` to close open overlays. We skip
+// when the user is typing into an input/textarea/contenteditable
 // so the shortcuts never interrupt real writing. Modifier combos
 // (⌘/Ctrl/Alt) are allowed through untouched — cmdk owns ⌘K.
 
@@ -28,6 +28,18 @@ export type ShortcutHandlers = {
   createContextAware: () => void;
 };
 
+// G-leader navigation map. Exported so the test suite can assert the
+// routes stay in sync with the 4-screen shell (Today / Music /
+// Projects / Setup) without needing jsdom.
+export const G_LEADER_ROUTES = {
+  t: "/dashboard",
+  m: "/dashboard/music",
+  p: "/dashboard/projects",
+  s: "/dashboard/settings",
+} as const;
+
+export type GLeaderKey = keyof typeof G_LEADER_ROUTES;
+
 export function useGlobalShortcuts(handlers: ShortcutHandlers) {
   const router = useRouter();
   const gBufferRef = useRef<{ timer: ReturnType<typeof setTimeout> | null }>({ timer: null });
@@ -45,63 +57,21 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
       if (e.metaKey || e.ctrlKey || e.altKey) return; // let modifier combos through
       const key = e.key.toLowerCase();
 
-      // Two-key navigation: g then p/i/c/l/n/b/r/o/s. G.3 reshuffled
-      // the mapping since `c` moved from Contracts to Clients (G.2
-      // added a real Clients screen) and Library is now a first-class
-      // surface. Rationale for each letter:
-      //   p = Pipeline (unchanged)
-      //   i = Inbox
-      //   c = Clients (moved from Contracts)
-      //   l = Library (producer opens this dozens of times/day)
-      //   n = coNtracts (c was taken)
-      //   b = Bookings
-      //   r = leads (Reach-out; leads is used rarely, so it gets the
-      //       less-memorable letter — `l` belongs to the hot path)
-      //   o = pOrtfolio
-      //   s = Settings
+      // Two-key navigation matches the 4-screen shell. The old 9-route
+      // map (p/i/c/l/n/b/r/o/s) collapsed alongside the sidebar in
+      // Task 2 — pipeline/inbox/clients/library/contracts/bookings/
+      // leads/portfolio/settings became Today / Music / Projects / Setup.
+      // Rationale for each letter:
+      //   t = Today (the daily dashboard)
+      //   m = Music (library / catalog)
+      //   p = Projects (per-client work rooms roll up here)
+      //   s = Setup (portfolio, settings, account)
       if (gBufferRef.current.timer) {
-        const navKey =
-          key === "p" ||
-          key === "i" ||
-          key === "c" ||
-          key === "l" ||
-          key === "n" ||
-          key === "b" ||
-          key === "r" ||
-          key === "o" ||
-          key === "s";
-        if (navKey) {
+        if (key in G_LEADER_ROUTES) {
           e.preventDefault();
           clearGBuffer();
-          switch (key) {
-            case "p":
-              router.push("/dashboard");
-              return;
-            case "i":
-              router.push("/dashboard/inbox");
-              return;
-            case "c":
-              router.push("/dashboard/clients");
-              return;
-            case "l":
-              router.push("/dashboard/library");
-              return;
-            case "n":
-              router.push("/dashboard/contracts");
-              return;
-            case "b":
-              router.push("/dashboard/booking");
-              return;
-            case "r":
-              router.push("/dashboard/leads");
-              return;
-            case "o":
-              router.push("/dashboard/portfolio");
-              return;
-            case "s":
-              router.push("/dashboard/settings");
-              return;
-          }
+          router.push(G_LEADER_ROUTES[key as GLeaderKey]);
+          return;
         }
         // Not a nav key — drop the buffer and fall through to single-key handling.
         clearGBuffer();

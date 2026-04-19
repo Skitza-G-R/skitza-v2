@@ -67,7 +67,15 @@ export const paletteRouter = router({
         return {
           projects: recentProjects.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
           contacts: recentContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
-          contracts: recentContracts.map((c) => ({ id: c.id, title: c.title, status: c.status })),
+          contracts: recentContracts.map((c) => ({
+            id: c.id,
+            title: c.title,
+            status: c.status,
+            // `projectId` is nullable — old contracts may not be linked
+            // to a project yet. Palette deep-links when set, falls back
+            // to the projects list when null.
+            projectId: c.projectId,
+          })),
           tracks: recentTracks.map((t) => ({
             id: t.versionId,
             title: t.trackTitle,
@@ -150,7 +158,12 @@ export const paletteRouter = router({
       return {
         projects: matchProjects.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
         contacts: matchContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
-        contracts: matchContracts.map((c) => ({ id: c.id, title: c.title, status: c.status })),
+        contracts: matchContracts.map((c) => ({
+          id: c.id,
+          title: c.title,
+          status: c.status,
+          projectId: c.projectId,
+        })),
         tracks: matchTracks.map((t) => ({
           id: t.versionId,
           title: t.trackTitle,
