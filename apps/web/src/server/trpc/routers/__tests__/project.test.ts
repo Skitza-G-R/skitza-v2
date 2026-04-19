@@ -621,3 +621,81 @@ describe("project.cancel", () => {
     expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
   });
 });
+
+// ─── setStage — money-handling stages must NOT be settable here ─────
+//
+// `cancelled` has Stripe side-effects: subscriptionSchedules.cancel must
+// fire BEFORE the DB write, otherwise the schedule keeps billing the card
+// even though the producer's UI says "Cancelled". The Cancel project
+// button is the only correct path.
+//
+// `payment_paused` is webhook-driven (customer.subscription.paused after
+// Smart Retries exhaust). Allowing the producer to flip it manually
+// detaches Skitza state from Stripe state.
+describe("project.setStage", () => {
+  function seedSetStage(stage: string = "in_production") {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    projectSelectQueue.push([
+      { id: PROJECT_ID, producerId: PRODUCER_ID, stage },
+    ]);
+  }
+
+  it("rejects 'cancelled' — producer must use the Cancel button (which calls Stripe)", async () => {
+    seedSetStage();
+    const caller = await buildCaller();
+    await expect(
+      caller.project.setStage({ id: PROJECT_ID, stage: "cancelled" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    // No DB write — the rejection must happen before any state mutation.
+    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects 'payment_paused' — webhook-only state", async () => {
+    seedSetStage();
+    const caller = await buildCaller();
+    await expect(
+      caller.project.setStage({ id: PROJECT_ID, stage: "payment_paused" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts 'in_production' (a normal Kanban stage)", async () => {
+    seedSetStage();
+    const caller = await buildCaller();
+    const res = await caller.project.setStage({
+      id: PROJECT_ID,
+      stage: "in_production",
+    });
+    expect(res).toEqual({ ok: true });
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("in_production");
+  });
+
+  it("accepts 'paid' (terminal stage, no Stripe side-effect)", async () => {
+    seedSetStage();
+    const caller = await buildCaller();
+    const res = await caller.project.setStage({
+      id: PROJECT_ID,
+      stage: "paid",
+    });
+    expect(res).toEqual({ ok: true });
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("paid");
+  });
+
+  it("accepts 'archived' (CRM-side flag, no Stripe)", async () => {
+    seedSetStage();
+    const caller = await buildCaller();
+    const res = await caller.project.setStage({
+      id: PROJECT_ID,
+      stage: "archived",
+    });
+    expect(res).toEqual({ ok: true });
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("archived");
+  });
+});

@@ -276,7 +276,29 @@ export const projectRouter = router({
 
   // Moves a project between kanban columns. Ownership-checked; bumps
   // updatedAt so the column re-sorts to float the dragged card.
+  //
+  // BLOCKED stages: `cancelled` + `payment_paused`. Both have Stripe
+  // side-effects that this mutation does NOT handle.
+  //   - cancelled: must call subscriptionSchedules.cancel BEFORE the DB
+  //     write to stop future installment charges. Producer-driven cancel
+  //     belongs in the dedicated `cancel` mutation (Cancel project button)
+  //     which orchestrates Stripe + DB together.
+  //   - payment_paused: set automatically by `customer.subscription.paused`
+  //     after Smart Retries exhaust. Letting the producer flip this
+  //     manually detaches Skitza state from Stripe state.
+  // The stage column accepts both values (a project CAN be in those
+  // stages — just not via this dropdown), so the dropdown UI also drops
+  // them as selectable options.
   setStage: producerProcedure.input(SetStageInput).mutation(async ({ ctx, input }) => {
+    if (input.stage === "cancelled" || input.stage === "payment_paused") {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          input.stage === "cancelled"
+            ? "Use the Cancel project button — it stops Stripe charges before transitioning."
+            : "payment_paused is set automatically by webhook handlers when payments fail.",
+      });
+    }
     const [row] = await ctx.db
       .select({ producerId: projects.producerId })
       .from(projects)

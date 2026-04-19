@@ -40,6 +40,15 @@ const STAGES = [
 ] as const;
 type Stage = (typeof STAGES)[number];
 
+// Subset of STAGES the producer can pick from the dropdown. Excludes
+// money-handling stages (`cancelled` is set via the dedicated Cancel
+// button so Stripe schedule cancellation runs first; `payment_paused`
+// is webhook-driven on Smart Retries exhaustion). Display logic for
+// projects already in those stages still uses STAGE_LABEL above.
+const SELECTABLE_STAGES = STAGES.filter(
+  (s) => s !== "cancelled" && s !== "payment_paused",
+) as ReadonlyArray<Exclude<Stage, "cancelled" | "payment_paused">>;
+
 const STAGE_LABEL: Record<Stage, string> = {
   lead: "Lead",
   booked: "Booked",
@@ -480,14 +489,17 @@ function OverviewTab({
             value={stage}
             onChange={(e) => {
               const next = e.target.value;
-              // Narrow to a Stage. The <option> values are hardcoded
-              // from the STAGES tuple below so this cast is safe.
-              if (STAGES.includes(next as Stage)) onStageChange(next as Stage);
+              // Narrow to a SELECTABLE stage. Dropdown options exclude
+              // cancelled + payment_paused (those have Stripe side-effects
+              // and their own surfaces — Cancel button + webhook).
+              if (SELECTABLE_STAGES.includes(next as Stage)) {
+                onStageChange(next as Stage);
+              }
             }}
             disabled={pending}
             className="h-10 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 text-sm text-[rgb(var(--fg-primary))]"
           >
-            {STAGES.map((s) => (
+            {SELECTABLE_STAGES.map((s) => (
               <option key={s} value={s}>
                 {STAGE_LABEL[s]}
               </option>
