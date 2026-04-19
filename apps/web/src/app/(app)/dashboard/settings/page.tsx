@@ -43,7 +43,12 @@ export default async function SetupPage() {
   return (
     <AppShell active="setup">
       <SetupDeeplink />
-      <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
+      {/* Settings is a long-scroll page — on mobile, 40px of chrome
+          above the first heading ate a noticeable chunk of viewport.
+          py-6 mobile → sm:py-14 desktop keeps the editorial air on
+          bigger screens while tightening the ratio of chrome-to-
+          content on small ones. */}
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-14">
         <header className="reveal-up mb-10">
           <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
             Setup

@@ -190,7 +190,15 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
 
   return (
     <AppShell active="projects">
-      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+      {/* The Project Room has the richest content surface in the
+          dashboard — ProjectHeader + 5-step timeline + payment strip
+          + sub-tabs that can render a waveform player, a comment
+          thread, and a money ledger simultaneously. 1600px (vs the
+          1400px default on Today/Projects/Music) reclaims roughly
+          one waveform-worth of horizontal breathing room on
+          ultra-wide 2560px+ displays without feeling stretched on
+          a 1280px MacBook Air. */}
+      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
         <ProjectHeader project={headerProject} />
         <div className="mt-6">
           <ProjectSubTabs activeTab={activeTab}>
