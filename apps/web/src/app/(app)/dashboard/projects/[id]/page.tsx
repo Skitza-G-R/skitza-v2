@@ -9,6 +9,10 @@ import {
   type ProjectSubTabId,
 } from "~/components/dashboard/project/project-sub-tabs";
 import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
+import {
+  SessionsSubTab,
+  type SessionBooking,
+} from "~/components/dashboard/project/sub-tabs/sessions-sub-tab";
 import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { getStripe } from "~/server/stripe/client";
@@ -72,6 +76,33 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
   const contractSigned = contractsForProject.some(
     (c) => c.status === "signed" || c.signedAt !== null,
   );
+
+  // Task 7 — Sessions sub-tab needs the single booking linked to this
+  // project (projects.bookingId is a 1:1 FK). Reuse the producer-scoped
+  // booking.list and filter in JS: producers typically have a small
+  // number of bookings and list is already cached by this render tree.
+  // Degrade silently if the router errors — the sub-tab will render its
+  // empty state, which is the right UX for "we can't resolve a booking".
+  let sessionBooking: SessionBooking | null = null;
+  if (data.project.bookingId) {
+    try {
+      const all = await caller.booking.list();
+      const match = all.find((b) => b.id === data.project.bookingId);
+      if (match) {
+        sessionBooking = {
+          id: match.id,
+          status: match.status,
+          startsAt: match.startsAt,
+          durationMin: match.durationMin,
+          packageName: match.packageNameSnapshot,
+          artistName: match.artistName,
+          artistEmail: match.artistEmail,
+        };
+      }
+    } catch (err) {
+      console.warn("[projects] booking.list failed for sessions tab", err);
+    }
+  }
 
   // For split_50_50 projects with a saved PM, fetch the card's last-4
   // from Stripe so the confirm-charge modal can show "card ending 4242"
@@ -190,7 +221,9 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
                 }))}
               />
             ) : null}
-            {activeTab === "sessions" ? <SessionsPlaceholder /> : null}
+            {activeTab === "sessions" ? (
+              <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
+            ) : null}
             {activeTab === "money" ? <MoneyPlaceholder /> : null}
             {activeTab === "notes" ? <NotesPlaceholder /> : null}
           </ProjectSubTabs>
@@ -200,18 +233,10 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
   );
 }
 
-// Placeholder panels for Tasks 6-9. Each sub-tab will grow its own
-// per-tab server component over the next few commits; for Task 5 we
-// just put a visible "coming soon" card so the sub-tab nav isn't
-// rendering into a void.
-function SessionsPlaceholder() {
-  return (
-    <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] py-12 text-center text-sm text-[rgb(var(--fg-muted))]">
-      Sessions view — coming next.
-    </div>
-  );
-}
-
+// Placeholder panels for Tasks 8-9. Each sub-tab will grow its own
+// per-tab server component over the next few commits; for Task 7 we
+// just put a visible "coming soon" card for the two remaining sub-tabs
+// so the sub-tab nav isn't rendering into a void.
 function MoneyPlaceholder() {
   return (
     <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] py-12 text-center text-sm text-[rgb(var(--fg-muted))]">
