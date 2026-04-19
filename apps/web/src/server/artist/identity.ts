@@ -6,13 +6,12 @@ import { createHash } from "node:crypto";
 // string. Lowercase + trim because Gmail and Clerk both treat
 // "Dan@x.com" === "dan@x.com" and we follow.
 //
-// IMPORTANT: This is the canonical email-hash for the codebase. Two
-// other call sites currently inline the same logic:
-//   - ~/server/contacts/record.ts (recordContact upsert)
-//   - ~/app/api/webhooks/clerk/route.ts (artist stamping)
-// Both should be migrated to call this helper instead. If they ever
-// diverge from this implementation, the artist app silently breaks
-// (different hash → no row matches → zero studios in the switcher).
+// IMPORTANT: This is the canonical email-hash for the codebase. All
+// known call sites use this helper as of commit 7b67da53. Any new
+// site that hashes emails MUST use this — divergence (e.g. someone
+// inlining createHash without the .trim()) silently breaks the
+// artist app: different hash → no row matches → zero studios in
+// the switcher.
 export function emailHashFor(email: string): string {
   return createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
 }
@@ -23,7 +22,7 @@ type StudioRow = {
   producerName: string;
   producerSlug: string;
   producerLogoUrl: string | null;
-  lastSeenAt: Date;
+  lastSeenAt: Date | null;  // legacy rows or weird joins may produce null
 };
 
 export type Studio = {
@@ -39,17 +38,29 @@ export type Studio = {
 // (e.g. invited under different emails that later resolved to the
 // same Clerk user) — keep only the most-recent name/logo for each.
 export function groupStudiosForArtist(rows: StudioRow[]): Studio[] {
-  // Map producerId -> most-recent row
+  // Map producerId -> most-recent row. Null lastSeenAt is treated as
+  // "least recent" — sorts after all dated rows. On exact ties, the
+  // first row encountered wins (stable for fixed input ordering).
   const byProducer = new Map<string, StudioRow>();
   for (const row of rows) {
     const existing = byProducer.get(row.producerId);
-    if (!existing || row.lastSeenAt > existing.lastSeenAt) {
+    if (!existing) {
+      byProducer.set(row.producerId, row);
+      continue;
+    }
+    const existingTime = existing.lastSeenAt?.getTime() ?? -Infinity;
+    const rowTime = row.lastSeenAt?.getTime() ?? -Infinity;
+    if (rowTime > existingTime) {
       byProducer.set(row.producerId, row);
     }
   }
 
   return [...byProducer.values()]
-    .sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime())
+    .sort((a, b) => {
+      const at = a.lastSeenAt?.getTime() ?? -Infinity;
+      const bt = b.lastSeenAt?.getTime() ?? -Infinity;
+      return bt - at;  // desc
+    })
     .map((r) => ({
       producerId: r.producerId,
       name: r.producerName,

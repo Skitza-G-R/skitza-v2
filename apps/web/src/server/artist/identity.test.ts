@@ -55,4 +55,31 @@ describe("groupStudiosForArtist", () => {
   it("returns [] for empty input", () => {
     expect(groupStudiosForArtist([])).toEqual([]);
   });
+
+  it("handles null lastSeenAt — null sorts after dated rows (least recent)", () => {
+    const rows = [
+      { producerId: "p1", producerName: "A", producerSlug: "a", producerLogoUrl: null, lastSeenAt: null },
+      { producerId: "p2", producerName: "B", producerSlug: "b", producerLogoUrl: null, lastSeenAt: new Date("2026-04-01") },
+    ];
+    expect(groupStudiosForArtist(rows).map(s => s.name)).toEqual(["B", "A"]);
+  });
+
+  it("on exact lastSeenAt tie, first row encountered wins (stable)", () => {
+    const ts = new Date("2026-04-15");
+    const rows = [
+      { producerId: "p1", producerName: "First", producerSlug: "f", producerLogoUrl: null, lastSeenAt: ts },
+      { producerId: "p1", producerName: "Second", producerSlug: "f", producerLogoUrl: null, lastSeenAt: ts },
+    ];
+    const out = groupStudiosForArtist(rows);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.name).toBe("First");
+  });
+
+  it("does not throw on all-null lastSeenAt input", () => {
+    const rows = [
+      { producerId: "p1", producerName: "A", producerSlug: "a", producerLogoUrl: null, lastSeenAt: null },
+      { producerId: "p2", producerName: "B", producerSlug: "b", producerLogoUrl: null, lastSeenAt: null },
+    ];
+    expect(() => groupStudiosForArtist(rows)).not.toThrow();
+  });
 });
