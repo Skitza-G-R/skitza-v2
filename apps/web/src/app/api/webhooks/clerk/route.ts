@@ -1,7 +1,7 @@
 import { Webhook } from "svix";
-import { createHash } from "node:crypto";
 import { createDb, producers, clientContacts, eq, and, isNull } from "@skitza/db";
 import { emailToSlug } from "~/lib/slug";
+import { emailHashFor } from "~/server/artist/identity";
 
 export async function POST(req: Request) {
   const secret = process.env.CLERK_WEBHOOK_SECRET;
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     // the same email later) leave already-owned rows untouched.
     // Single SQL UPDATE; matches across producers because email_hash
     // alone is the lookup key here, not (producerId, email_hash).
-    const emailHash = createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
+    const emailHash = emailHashFor(email);
     await db.update(clientContacts)
       .set({ clerkUserId: id })
       .where(and(

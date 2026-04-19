@@ -27,6 +27,7 @@ import { z } from "zod";
 import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
+import { emailHashFor } from "~/server/artist/identity";
 import { recordContact } from "~/server/contacts/record";
 import {
   sendBookingConfirmedEmail,
@@ -1399,7 +1400,7 @@ export const bookingRouter = router({
             // the generic contacts cache; here we need the row's id, so
             // we run an explicit insert/select.
             const lowerEmail = input.artistEmail.trim().toLowerCase();
-            const emailHash = createHash("sha256").update(lowerEmail).digest("hex");
+            const emailHash = emailHashFor(input.artistEmail);
             const now = new Date();
             const inserted = await db
               .insert(clientContacts)
