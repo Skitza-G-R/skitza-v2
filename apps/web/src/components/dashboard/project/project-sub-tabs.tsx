@@ -82,7 +82,14 @@ export function ProjectSubTabs({
           })}
         </div>
       </nav>
-      <div className="pt-6">{children}</div>
+      {/* Keying the panel on activeTab forces React to remount when
+          the tab changes, which replays the `reveal-up` animation so
+          the new content slides + fades in instead of hard-cutting.
+          The animation itself respects prefers-reduced-motion via
+          globals.css's @media block. */}
+      <div key={activeTab} className="reveal-up pt-6">
+        {children}
+      </div>
     </div>
   );
 }
