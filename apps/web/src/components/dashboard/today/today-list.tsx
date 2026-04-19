@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 
+import { formatRelativeTime } from "~/lib/time/relative";
+
 // Row shape matches the `producer.today` items payload projected down
 // to the wire (dates cross the boundary as ISO strings, so we take
 // string here and re-parse the timestamp for display).
@@ -128,18 +130,3 @@ const KIND_GLYPH: Record<TodayListItem["kind"], string> = {
   lead: "→",
 };
 
-// Compact relative-time string. Future dates get an "in …" prefix so
-// an upcoming session reads as "in 1h" rather than "1h ago".
-function formatRelativeTime(date: Date, now: Date = new Date()): string {
-  const diffMs = date.getTime() - now.getTime();
-  const absMs = Math.abs(diffMs);
-  const sec = Math.floor(absMs / 1000);
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${diffMs >= 0 ? "in " : ""}${min.toString()}m${diffMs >= 0 ? "" : " ago"}`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${diffMs >= 0 ? "in " : ""}${hr.toString()}h${diffMs >= 0 ? "" : " ago"}`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${diffMs >= 0 ? "in " : ""}${day.toString()}d${diffMs >= 0 ? "" : " ago"}`;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}

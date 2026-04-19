@@ -4,33 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
-// Kanban-visible stages in the order they surface in the UI. Matches
-// the ordering already used by project.listByStage on the server — we
-// intentionally re-declare here rather than import, because the stage
-// router lives in the server bundle and inferring the key-order from
-// an object literal is fragile across TS configs. Seven stages; the
-// terminal `payment_paused` / `cancelled` are intentionally excluded
-// from this view (they have their own surfaces elsewhere).
-const STAGE_ORDER = [
-  "lead",
-  "booked",
-  "contract_sent",
-  "in_production",
-  "final_review",
-  "paid",
-  "archived",
-] as const;
-export type Stage = (typeof STAGE_ORDER)[number];
+import { formatRelativeTime } from "~/lib/time/relative";
+import { STAGE_LABEL, VISIBLE_STAGES as STAGE_ORDER, type VisibleStage } from "~/lib/projects/stages";
 
-const STAGE_LABEL: Record<Stage, string> = {
-  lead: "Lead",
-  booked: "Booked",
-  contract_sent: "Contract sent",
-  in_production: "In production",
-  final_review: "Final review",
-  paid: "Paid",
-  archived: "Archived",
-};
+// Local alias kept for this file's existing export surface. The list
+// only ever deals with Kanban-visible stages (no cancelled / paused),
+// so `Stage` here is the narrower `VisibleStage`.
+export type Stage = VisibleStage;
 
 // Per-stage tint. We roll a small on-the-fly palette keyed to the
 // design tokens rather than reaching into the shared Badge variants
@@ -371,19 +351,3 @@ function FolderIcon() {
   );
 }
 
-// Compact relative-time for updatedAt. "3d ago" at a glance — past
-// only on this surface (projects don't surface future-dated
-// timestamps). Minutes/hours/days thresholds match the Today
-// inbox's helper so the two screens read consistently side by side.
-function formatRelativeTime(date: Date, now: Date = new Date()): string {
-  const diffMs = now.getTime() - date.getTime();
-  const sec = Math.max(0, Math.floor(diffMs / 1000));
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min.toString()}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr.toString()}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day.toString()}d ago`;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}

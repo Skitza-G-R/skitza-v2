@@ -15,6 +15,11 @@ import { EmptyState } from "~/components/ui/empty-state";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import {
+  SELECTABLE_STAGES,
+  STAGE_LABEL,
+  type Stage,
+} from "~/lib/projects/stages";
+import {
   addProjectTrack,
   addProducerComment,
   addTrackVersion,
@@ -25,41 +30,6 @@ import {
   setProjectPaid,
   setStageAction,
 } from "../actions";
-
-// ─── Types ───────────────────────────────────────────────────────────
-const STAGES = [
-  "lead",
-  "booked",
-  "contract_sent",
-  "in_production",
-  "final_review",
-  "paid",
-  "archived",
-  "payment_paused",
-  "cancelled",
-] as const;
-type Stage = (typeof STAGES)[number];
-
-// Subset of STAGES the producer can pick from the dropdown. Excludes
-// money-handling stages (`cancelled` is set via the dedicated Cancel
-// button so Stripe schedule cancellation runs first; `payment_paused`
-// is webhook-driven on Smart Retries exhaustion). Display logic for
-// projects already in those stages still uses STAGE_LABEL above.
-const SELECTABLE_STAGES = STAGES.filter(
-  (s) => s !== "cancelled" && s !== "payment_paused",
-) as ReadonlyArray<Exclude<Stage, "cancelled" | "payment_paused">>;
-
-const STAGE_LABEL: Record<Stage, string> = {
-  lead: "Lead",
-  booked: "Booked",
-  contract_sent: "Contract sent",
-  in_production: "In production",
-  final_review: "Final review",
-  paid: "Paid",
-  archived: "Archived",
-  payment_paused: "Payment paused",
-  cancelled: "Cancelled",
-};
 
 interface Project {
   id: string;
