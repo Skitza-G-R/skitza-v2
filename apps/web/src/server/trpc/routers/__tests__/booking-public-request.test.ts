@@ -42,10 +42,13 @@ const insertReturningSpy = vi.fn<() => Promise<Array<{ id: string }>>>(() =>
   Promise.resolve([{ id: "booking-row-1" }]),
 );
 const insertValuesSpy = vi.fn<
-  (
-    payload: Record<string, unknown>,
-  ) => { returning: typeof insertReturningSpy } | unknown
->((_payload: Record<string, unknown>) => ({
+  (payload: Record<string, unknown>) => {
+    returning: typeof insertReturningSpy;
+    onConflictDoUpdate?: (...args: unknown[]) => {
+      returning: typeof insertReturningSpy;
+    };
+  }
+>(() => ({
   returning: insertReturningSpy,
 }));
 const updateSetSpy = vi.fn(() => ({ where: () => Promise.resolve(undefined) }));

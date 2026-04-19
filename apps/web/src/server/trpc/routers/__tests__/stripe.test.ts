@@ -232,7 +232,9 @@ describe("stripe.createCustomerPortalSession", () => {
     });
 
     expect(rateLimitMock).toHaveBeenCalledTimes(1);
-    const [key, limit, windowMs] = rateLimitMock.mock.calls[0]!;
+    const firstCall = rateLimitMock.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const [key, limit, windowMs] = firstCall ?? ["", 0, 0];
     expect(key).toMatch(/^portal-session:/);
     expect(limit).toBe(10);
     expect(windowMs).toBe(60_000);
