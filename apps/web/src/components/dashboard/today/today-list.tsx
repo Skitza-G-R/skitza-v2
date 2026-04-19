@@ -146,7 +146,7 @@ export function TodayListEmpty() {
         Inbox
       </p>
       <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-        All caught up. New items will land here as they arrive.
+        All caught up. New sessions, comments, and payments will land here.
       </p>
     </div>
   );

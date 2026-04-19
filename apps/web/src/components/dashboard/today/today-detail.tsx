@@ -40,7 +40,7 @@ export function TodayDetail({
     return (
       <div className="flex min-h-[240px] items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center">
         <p className="text-sm text-[rgb(var(--fg-secondary))]">
-          Select an item from the list to see details.
+          Pick an item on the left to see details.
         </p>
       </div>
     );
@@ -57,7 +57,7 @@ export function TodayDetail({
             onClick={clearSelection}
             className="text-[rgb(var(--brand-primary))] underline decoration-dotted underline-offset-2"
           >
-            Clear selection
+            Back to inbox
           </button>
         </p>
       </div>
@@ -119,14 +119,14 @@ export function TodayDetail({
               href={item.href}
               className="inline-flex h-9 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--border-strong))]"
             >
-              Accept
+              Accept lead
             </Link>
             <button
               type="button"
               onClick={clearSelection}
               className="inline-flex h-9 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--border-strong))]"
             >
-              Ignore
+              Skip for now
             </button>
           </>
         ) : null}
