@@ -30,13 +30,13 @@ export function NextSessionCard({ session }: { session: NextSession | null }) {
           Next session
         </h2>
         <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-          Nothing on the calendar yet.
+          Nothing booked yet. Pick a time that works for you.
         </p>
         <Link
           href="/artist/book"
           className="mt-4 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-base))] transition-opacity hover:opacity-90"
         >
-          Book your next session
+          Book a session
         </Link>
       </section>
     );

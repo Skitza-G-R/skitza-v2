@@ -49,9 +49,9 @@ export function SoftSignInBanner(props: Props) {
         className="mx-auto mb-4 flex max-w-2xl items-center justify-between gap-3 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3"
       >
         <div className="min-w-0 text-sm">
-          <span className="font-semibold">Sign in to see all your studios.</span>
+          <span className="font-semibold">Work with more than one producer?</span>
           <span className="ml-1 text-[rgb(var(--fg-secondary))]">
-            One place for every producer you work with.
+            Sign in to see every project in one place.
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -81,9 +81,9 @@ export function SoftSignInBanner(props: Props) {
       className="mx-auto mb-4 flex max-w-2xl items-center justify-between gap-3 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3"
     >
       <div className="min-w-0 text-sm">
-        <span className="font-semibold">You&apos;re signed in.</span>
+        <span className="font-semibold">Keep it all in one place.</span>
         <span className="ml-1 text-[rgb(var(--fg-secondary))]">
-          Open {props.studioName} in the artist app.
+          Open {props.studioName} in your artist dashboard.
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-2">

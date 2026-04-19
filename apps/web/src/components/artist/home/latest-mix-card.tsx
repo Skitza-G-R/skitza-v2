@@ -36,7 +36,7 @@ export function LatestMixCard({ mix }: { mix: LatestMix | null }) {
           Latest mix
         </h2>
         <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-          When your producer uploads a new version, it shows up here.
+          New mixes from your producer will show up here — play them right in the app.
         </p>
       </section>
     );
