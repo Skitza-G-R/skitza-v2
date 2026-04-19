@@ -11,9 +11,9 @@ describe("Sidebar NAV_ITEMS", () => {
   });
 
   it("maps each item to its route", () => {
-    expect(NAV_ITEMS.find((i) => i.label === "Today")?.href).toBe("/dashboard");
-    expect(NAV_ITEMS.find((i) => i.label === "Music")?.href).toBe("/dashboard/music");
-    expect(NAV_ITEMS.find((i) => i.label === "Projects")?.href).toBe("/dashboard/projects");
-    expect(NAV_ITEMS.find((i) => i.label === "Setup")?.href).toBe("/dashboard/settings");
+    expect(NAV_ITEMS.find((i) => i.id === "today")?.href).toBe("/dashboard");
+    expect(NAV_ITEMS.find((i) => i.id === "music")?.href).toBe("/dashboard/music");
+    expect(NAV_ITEMS.find((i) => i.id === "projects")?.href).toBe("/dashboard/projects");
+    expect(NAV_ITEMS.find((i) => i.id === "setup")?.href).toBe("/dashboard/settings");
   });
 });
