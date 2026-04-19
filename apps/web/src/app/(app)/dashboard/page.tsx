@@ -38,6 +38,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const caller = appRouter.createCaller({ userId });
   const today = await caller.producer.today();
 
+  // Show a "finish setup" nudge when a skipper hasn't set up any of
+  // the basics yet AND has no inbox items — otherwise the dashboard
+  // is completely empty with no next step to take.
+  const showSetupNudge =
+    skipOnboarding && !onboarding.hasPackages && today.items.length === 0;
+
   // Selected item comes from ?itemId. Only accept a single string —
   // an array here means the client tampered with the URL, and the
   // list component would have no sane way to render a multi-select
@@ -65,8 +71,37 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     <AppShell active="today">
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
         <h1 className="sr-only">Today</h1>
+        {showSetupNudge ? <FinishSetupNudge /> : null}
         <TodayView data={data} selectedItemId={selectedItemId} />
       </div>
     </AppShell>
+  );
+}
+
+// Soft onboarding banner for producers who skipped the wizard and
+// haven't set up packages yet. Not a hard redirect — they might have
+// a reason for skipping — but we give them one prominent next step so
+// an empty dashboard doesn't feel like a dead end.
+function FinishSetupNudge() {
+  return (
+    <div
+      role="status"
+      className="mb-6 flex flex-col gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.06)] p-4 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-[rgb(var(--fg-primary))]">
+          Two minutes to your first bookable link
+        </p>
+        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
+          Add a package and your hours so clients can actually book you.
+        </p>
+      </div>
+      <a
+        href="/dashboard/onboarding"
+        className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110"
+      >
+        Finish setup
+      </a>
+    </div>
   );
 }
