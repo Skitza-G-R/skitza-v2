@@ -508,6 +508,60 @@ describe("artist.store.products (query)", () => {
     expect(hasIsNullArchived).toBe(true);
   });
 
+  // Test 5b — defense against non-flat pricing in the Store catalog.
+  // per_song / hourly / bundle products carry priceCents=0 (or a
+  // placeholder) because their real total depends on runtime inputs.
+  // A flat-only WHERE predicate keeps them out of the Store list so
+  // the self-checkout flow never sees a product it can't charge. The
+  // public booking flow still serves them via /p/[slug]/book.
+  it("store.products excludes non-flat pricing models from the catalog", async () => {
+    seedValidContact();
+    // The DB-layer filter would only return the flat row; we reflect
+    // that in the seeded response AND assert the predicate at the
+    // WHERE level so a regression that removes the predicate but
+    // happens to match tight fixtures still fails.
+    productsSelectQueue.push([
+      {
+        id: "flat-1",
+        name: "Flat Mix",
+        description: null,
+        priceCents: 10000,
+        currency: "USD",
+        durationMin: 0,
+        sessionCount: 1,
+        kind: "mix",
+        pricingModel: "flat",
+        paymentPlans: [{ kind: "full" }],
+        position: 0,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha",
+        producerSlug: "alpha",
+      },
+    ]);
+
+    const caller = await buildCaller();
+    const result = await caller.artist.store.products({
+      producerId: PRODUCER_ID,
+    });
+
+    // Only the flat product made it through (the non-flat rows never
+    // would have come back from the DB given the WHERE predicate).
+    expect(result.products).toHaveLength(1);
+    expect(result.products[0]?.id).toBe("flat-1");
+    expect(result.products[0]?.pricingModel).toBe("flat");
+
+    // The real assertion: the WHERE clause pins pricingModel to "flat"
+    // so non-flat products never appear in the Store catalog.
+    const where = productsWhereSpy.mock.calls[0]?.[0];
+    const pricingModelPred = findPredicate(
+      where,
+      "eq",
+      products.pricingModel,
+    );
+    expect(pricingModelPred).not.toBeNull();
+    expect(pricingModelPred?.[1]).toBe("flat");
+  });
+
   // Test 6
   it("scopes by clerkUserId in the gating contacts SELECT (auth boundary)", async () => {
     contactsSelectQueue.push([
@@ -840,6 +894,53 @@ describe("artist.store.checkout (mutation)", () => {
     const producerPred = findPredicate(where, "eq", clientContacts.producerId);
     expect(clerkPred?.[1]).toBe("user_bob");
     expect(producerPred?.[1]).toBe(PRODUCER_ID);
+  });
+
+  // Test 15 — defense-in-depth at the mutation layer.
+  // The Store list filters pricingModel='flat' at the DB, but a
+  // hand-crafted productId URL (or a client skipping the list) could
+  // still hit the mutation for a non-flat product. We reject with
+  // BAD_REQUEST *before* calling into calculateCharges — otherwise the
+  // shared helper would throw "totalCents must be a positive integer"
+  // since per_song/hourly/bundle products have priceCents=0.
+  it("store.checkout rejects non-flat pricing with BAD_REQUEST", async () => {
+    productsSelectQueue.push([
+      {
+        id: PRODUCT_ID,
+        name: "Hourly Session",
+        description: null,
+        priceCents: 0,
+        currency: "USD",
+        durationMin: 60,
+        sessionCount: 1,
+        kind: "session",
+        pricingModel: "hourly",
+        paymentPlans: [{ kind: "full" }],
+        position: 0,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha",
+        producerSlug: "alpha",
+        active: true,
+        archivedAt: null,
+        depositPct: 0,
+        hourlyRateCents: 10000,
+      },
+    ]);
+    // Ownership check passes — the artist *is* linked to this producer.
+    seedValidContact();
+
+    const caller = await buildCaller();
+    await expect(
+      caller.artist.store.checkout({
+        productId: PRODUCT_ID,
+        paymentPlan: { kind: "full" },
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("self-checkout") as unknown,
+    });
+    // No Stripe session minted — we short-circuited before the helper.
+    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
   });
 });
 

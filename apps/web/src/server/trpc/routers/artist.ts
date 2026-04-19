@@ -25,6 +25,7 @@ import { z } from "zod";
 import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
 import { groupStudiosForArtist } from "~/server/artist/identity";
+import { getSiteUrl } from "~/server/stripe/client";
 
 // ─── Ownership guard ─────────────────────────────────────────────────
 // Resolves the signed-in artist's ownership of a given project. Both
@@ -786,6 +787,12 @@ const storeSubrouter = router({
             inArray(products.producerId, scopedProducerIds),
             eq(products.active, true),
             isNull(products.archivedAt),
+            // MVP: Store self-checkout only supports flat pricing.
+            // per_song / hourly / bundle products have 0 or placeholder
+            // priceCents — they go through the public booking flow
+            // (`/p/[slug]/book`) for now. Paired with a guard in
+            // store.checkout so a hand-crafted productId can't bypass.
+            eq(products.pricingModel, "flat"),
           ),
         )
         .orderBy(asc(producers.displayName), asc(products.position));
@@ -942,6 +949,23 @@ const storeSubrouter = router({
         .limit(1);
       if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
 
+      // 2b. Self-checkout guard. The Store list WHERE-filters to
+      //     pricingModel='flat' with priceCents>0, but an attacker (or
+      //     any client hand-crafting a productId URL) could still hit
+      //     this mutation for a non-flat product. Reject loudly here
+      //     — calculateCharges(plan, 0) would otherwise throw
+      //     "totalCents must be a positive integer" downstream.
+      //     Non-flat pricing (per_song / hourly / bundle) remains
+      //     bookable via the public booking flow at /p/[slug]/book,
+      //     which has its own UI for collecting quantity/duration.
+      if (prod.pricingModel !== "flat" || prod.priceCents <= 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This product isn't available for self-checkout yet — contact the producer to book it directly.",
+        });
+      }
+
       // 3. Producer's Stripe Connect fields. stripeAccountId must be
       //    set AND charges must be enabled, otherwise we can't route
       //    funds. Pre-flight check returns a clean BAD_REQUEST instead
@@ -1003,6 +1027,16 @@ const storeSubrouter = router({
         priceCents: prod.priceCents,
         idempotencyKey,
         metadata: { source: "artist_store" },
+        // Keep artists inside the artist app after Stripe. The helper's
+        // default success/cancel URLs point to /p/{slug}/book/success
+        // — correct for the public booking flow, wrong here. On success
+        // we deep-link to /artist with a query flag so the Home tab can
+        // render a "thanks, you're set!" toast (UI hook-up is a
+        // follow-up; for now the redirect alone is enough). On cancel
+        // we return to the product detail so the artist can pick a
+        // different plan without losing context.
+        successUrl: `${getSiteUrl()}/artist?checkoutSuccess=1`,
+        cancelUrl: `${getSiteUrl()}/artist/store/${prod.id}`,
       });
 
       return {
