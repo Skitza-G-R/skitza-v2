@@ -32,6 +32,10 @@ export function PersistentMiniPlayer() {
   if (!state.currentTrack) return null;
 
   return (
+    // bottom-16 stacks this strip directly above the 56px BottomNav.
+    // The BottomNav itself carries `sk-safe-bottom` so the combined
+    // visual weight clears the iOS home-indicator; we don't need to
+    // add another safe-area inset here.
     <div className="fixed inset-x-0 bottom-16 z-20 mx-auto flex max-w-2xl items-center gap-3 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 shadow-[0_-4px_20px_-8px_rgb(0_0_0_/_0.4)]">
       {state.currentTrack.artworkUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -53,7 +57,10 @@ export function PersistentMiniPlayer() {
         type="button"
         onClick={togglePlay}
         aria-label={state.isPlaying ? "Pause" : "Play"}
-        className="rounded-full bg-[rgb(var(--brand-primary))] p-2 text-[rgb(var(--bg-base))]"
+        // h-11 w-11 (44px) meets the tap-target minimum. focus-visible
+        // ring over-under keeps the keyboard outline readable on both
+        // bg-elevated (rest) and the amber button fill.
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-base))] transition-[transform,filter] hover:brightness-110 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
       >
         {state.isPlaying ? "⏸" : "▶"}
       </button>
