@@ -236,6 +236,22 @@
   .pulse-green { animation: skitza-pulse-green 1.4s cubic-bezier(0.4, 0, 0.6, 1) 1; }
   .pulse-glow  { animation: skitza-pulse-glow 3s ease-in-out infinite; }
 
+  /* Setup deep-link focus pulse. Applied by SetupDeeplink when the
+   * `?section=<key>` query param points at a section element via the
+   * `data-setup-section` attribute. A ring-2 copper outline fades in
+   * for ~1.2s then auto-clears — long enough for the producer to
+   * notice, short enough to not nag. Matches brand-primary (copper)
+   * so it reads as "Skitza chose this for you" vs. the browser's own
+   * native `:target` outline which is a harsher blue. */
+  @keyframes skitza-setup-focus {
+    0%   { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0); }
+    30%  { box-shadow: 0 0 0 3px rgb(var(--brand-primary) / 0.55); }
+    100% { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0); }
+  }
+  [data-setup-focused="true"] {
+    animation: skitza-setup-focus 1.2s ease-out both;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .reveal-up,
     .reveal-up-delay-1,
@@ -245,6 +261,7 @@
     .pulse-green,
     .pulse-glow { animation: none; }
     .seal-enter { animation: none; opacity: 1; transform: none; }
+    [data-setup-focused="true"] { animation: none; }
   }
 
   /*
