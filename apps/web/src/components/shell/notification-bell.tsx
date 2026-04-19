@@ -129,7 +129,11 @@ export function NotificationBell({
         onClick={() => {
           setOpen((v) => !v);
         }}
-        className="relative flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
+        // h-9 w-9 (36px) on mobile for drawer ergonomics, tightens
+        // back to h-7 w-7 (28px) on desktop where the sidebar footer
+        // is compact. focus-visible ring makes the bell reachable via
+        // keyboard from the nav above.
+        className="relative flex h-9 w-9 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] md:h-7 md:w-7"
       >
         <BellIcon />
         {hasUnread ? (
@@ -182,7 +186,11 @@ export function NotificationBell({
                       handleItemClick(item);
                     }}
                     disabled={isPending}
-                    className="flex w-full flex-col items-start gap-0.5 border-b border-[rgb(var(--border-subtle))] px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-[rgb(var(--bg-overlay))] disabled:opacity-50"
+                    // min-h-[52px] keeps each notification row reliably
+                    // tappable even when it's a single-line item. Inset
+                    // focus-visible clips the ring to the row rect so
+                    // it doesn't overflow the dropdown edges.
+                    className="flex min-h-[52px] w-full flex-col items-start justify-center gap-0.5 border-b border-[rgb(var(--border-subtle))] px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] disabled:opacity-50"
                   >
                     <span className="flex w-full items-center justify-between gap-2">
                       <span className="truncate text-sm text-[rgb(var(--fg-primary))]">
