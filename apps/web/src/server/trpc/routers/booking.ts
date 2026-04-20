@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { headers } from "next/headers";
 import { TRPCError } from "@trpc/server";
 import {
@@ -7,6 +7,7 @@ import {
   availabilityBlackouts,
   availabilityBlocks,
   bookings,
+  clientContacts,
   createDb,
   eq,
   gte,
@@ -874,6 +875,12 @@ export const bookingRouter = router({
           durationMin: bookings.durationMin,
           productId: bookings.productId,
           packageNameSnapshot: bookings.packageNameSnapshot,
+          // New: needed for the auto-project-creation idempotency check
+          // (Today Cockpit). Skip the insert when the booking already
+          // has a linked project — the producer may have manually
+          // provisioned one first via project.createFromBooking.
+          projectId: bookings.projectId,
+          stripeCheckoutSessionId: bookings.stripeCheckoutSessionId,
         })
         .from(bookings)
         .where(eq(bookings.id, input.id))
@@ -893,6 +900,95 @@ export const bookingRouter = router({
         .update(bookings)
         .set({ status: "confirmed", statusChangedAt: new Date() })
         .where(eq(bookings.id, input.id));
+
+      // ── Today Cockpit ── Auto-provision a Project row on confirm.
+      // Landing a confirmed booking in the producer's dashboard WITHOUT
+      // an associated project would force them to click "create
+      // project" as a second step — exactly the friction this flow is
+      // trying to kill. We insert a projects row here, stamp the
+      // bookings.projectId FK, and upsert the client_contacts cache so
+      // a later Clerk sign-in by the artist picks up a pre-existing
+      // row (the webhook stamps clerk_user_id by (producerId, emailHash)).
+      //
+      // Idempotent: if the booking already links to a project (the
+      // producer called project.createFromBooking or the webhook got
+      // there first), skip the insert entirely.
+      //
+      // All three writes are best-effort but we DO propagate failures
+      // on the project insert itself — the producer would otherwise
+      // silently lose the auto-project benefit with no way to retry.
+      // The status transition already committed above, so a failure
+      // here lands them in the same state as pre-cockpit: a confirmed
+      // booking with no project yet, recoverable via
+      // project.createFromBooking.
+      if (!existing.projectId) {
+        // Share-token mint mirrors project.ts's mintShareToken — 32
+        // bytes → 43 base64url chars, store only sha256(raw).
+        const rawToken = randomBytes(32).toString("base64url");
+        const shareTokenHash = createHash("sha256").update(rawToken).digest("hex");
+        const title =
+          existing.packageNameSnapshot && existing.packageNameSnapshot.length > 0
+            ? existing.packageNameSnapshot
+            : `Session with ${existing.artistName}`;
+        const lowerEmail = existing.artistEmail.trim().toLowerCase();
+
+        try {
+          const [projectRow] = await ctx.db
+            .insert(projects)
+            .values({
+              producerId: ctx.producerId,
+              bookingId: input.id,
+              title,
+              artistName: existing.artistName,
+              artistEmail: lowerEmail,
+              clientName: existing.artistName,
+              clientEmail: lowerEmail,
+              stage: "booked",
+              depositPaid: false,
+              finalPaid: false,
+              shareTokenHash,
+            })
+            .returning();
+          if (projectRow) {
+            await ctx.db
+              .update(bookings)
+              .set({ projectId: projectRow.id })
+              .where(eq(bookings.id, input.id));
+          }
+        } catch (err) {
+          // Rare — a DB error or share-token collision. Logged so ops
+          // can spot it; the producer can still hit "Create project"
+          // on the booking detail page as a manual fallback.
+          console.warn("[today-cockpit] auto-project insert failed in booking.confirm", err);
+        }
+
+        // Upsert client_contacts keyed on (producerId, emailHash).
+        // Separate write from recordContact() because recordContact
+        // swallows errors via console.warn; we want the same semantics
+        // here but with the insert parameters the Today Cockpit guard
+        // expects (name snapshot from the booking row, not the artist's
+        // later Clerk display name).
+        try {
+          const emailHash = createHash("sha256").update(lowerEmail).digest("hex");
+          const now = new Date();
+          await ctx.db
+            .insert(clientContacts)
+            .values({
+              producerId: ctx.producerId,
+              emailHash,
+              email: lowerEmail,
+              name: existing.artistName,
+              firstSeenAt: now,
+              lastSeenAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [clientContacts.producerId, clientContacts.emailHash],
+              set: { name: existing.artistName, lastSeenAt: now },
+            });
+        } catch (err) {
+          console.warn("[today-cockpit] client_contacts upsert failed in booking.confirm", err);
+        }
+      }
 
       // Email the artist that their session is confirmed. Fully
       // best-effort: catch + warn so a Resend hiccup doesn't unwind
