@@ -191,3 +191,61 @@ describe("portfolio.reorder", () => {
     expect(trackUpdateReturningMock).not.toHaveBeenCalled();
   });
 });
+
+describe("portfolio.togglePublicSample", () => {
+  // Per Story 01 acceptance: the mutation uses a single-statement
+  // UPDATE ... WHERE id = ? AND producer_id = ? RETURNING, so a
+  // non-existent track OR a track owned by another producer both
+  // land as the same NOT_FOUND outcome (enumeration-proof).
+  it("flips is_public_sample when caller owns the track", async () => {
+    trackUpdateReturningMock.mockResolvedValueOnce([
+      { id: TRACK_ID, isPublicSample: true },
+    ]);
+    const caller = await buildCaller();
+    const res = await caller.portfolio.togglePublicSample({
+      trackId: TRACK_ID,
+      enabled: true,
+    });
+    expect(res).toEqual({ ok: true });
+    expect(trackUpdateReturningMock).toHaveBeenCalledOnce();
+  });
+
+  it("returns the { ok: true } shape literally", async () => {
+    trackUpdateReturningMock.mockResolvedValueOnce([
+      { id: TRACK_ID, isPublicSample: false },
+    ]);
+    const caller = await buildCaller();
+    const res = await caller.portfolio.togglePublicSample({
+      trackId: TRACK_ID,
+      enabled: false,
+    });
+    expect(res).toStrictEqual({ ok: true });
+  });
+
+  it("throws NOT_FOUND when the track belongs to a different producer", async () => {
+    // An auth-scoped UPDATE returns zero rows when the producer-scoped
+    // predicate fails — indistinguishable from a non-existent id, on
+    // purpose. Tested via an empty `.returning()` shape.
+    trackUpdateReturningMock.mockResolvedValueOnce([]);
+    const caller = await buildCaller();
+    await expect(
+      caller.portfolio.togglePublicSample({ trackId: TRACK_ID, enabled: true }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("throws NOT_FOUND when the track id is unknown", async () => {
+    trackUpdateReturningMock.mockResolvedValueOnce([]);
+    const caller = await buildCaller();
+    await expect(
+      caller.portfolio.togglePublicSample({ trackId: TRACK_ID, enabled: true }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("throws UNAUTHORIZED when ctx.userId is null", async () => {
+    const caller = await buildCaller(null);
+    await expect(
+      caller.portfolio.togglePublicSample({ trackId: TRACK_ID, enabled: true }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(trackUpdateReturningMock).not.toHaveBeenCalled();
+  });
+});

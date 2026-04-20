@@ -98,4 +98,30 @@ export const portfolioRouter = router({
       );
       return { ok: true as const };
     }),
+
+  // Story 01 of /join flow (PRD §6.2). Producers flip the
+  // `is_public_sample` flag one track at a time to opt that track
+  // into the `/join/<slug>` teaser for unsigned-in visitors.
+  //
+  // Single-statement UPDATE scoped by `id AND producer_id` — both a
+  // non-existent id and a cross-tenant id collapse to the same zero-
+  // row outcome, which we surface as NOT_FOUND. This is deliberately
+  // enumeration-proof: a caller can't distinguish "this track exists
+  // but you don't own it" from "this track doesn't exist."
+  togglePublicSample: producerProcedure
+    .input(z.object({ trackId: z.string().uuid(), enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .update(portfolioTracks)
+        .set({ isPublicSample: input.enabled })
+        .where(
+          and(
+            eq(portfolioTracks.id, input.trackId),
+            eq(portfolioTracks.producerId, ctx.producerId),
+          ),
+        )
+        .returning({ id: portfolioTracks.id });
+      if (rows.length === 0) throw new TRPCError({ code: "NOT_FOUND" });
+      return { ok: true as const };
+    }),
 });

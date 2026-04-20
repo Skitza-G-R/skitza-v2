@@ -103,6 +103,12 @@ export const portfolioTracks = pgTable("portfolio_tracks", {
   sizeBytes: bigint("size_bytes", { mode: "number" }),
   durationMs: integer("duration_ms"),
   peaksR2Key: text("peaks_r2_key"),
+  // Story 01 of /join flow (PRD §6.2): only tracks with this flag
+  // play for unsigned-in visitors on `/join/<slug>`. Default false —
+  // producers opt tracks in one at a time. Partial index on
+  // (producer_id) WHERE is_public_sample = true keeps per-producer
+  // sample lookups on the public teaser cheap.
+  isPublicSample: boolean("is_public_sample").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type PortfolioTrack = typeof portfolioTracks.$inferSelect;

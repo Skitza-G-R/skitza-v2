@@ -94,3 +94,23 @@ export async function updateAutopilot(input: {
     return { ok: false, error: toMessage(err) };
   }
 }
+
+// Story 01 of /join flow — per-track public-sample flip. The tRPC
+// layer does the owner check and collapses "not yours" and "not
+// found" into the same NOT_FOUND (enumeration-proof, see
+// portfolio.ts togglePublicSample). Revalidates Setup so the server
+// component re-fetches the updated flag on the next navigation.
+export async function togglePublicSample(input: {
+  trackId: string;
+  enabled: boolean;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.portfolio.togglePublicSample(input);
+    revalidatePath(SETTINGS_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
