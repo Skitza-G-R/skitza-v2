@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { QuickActions } from "~/components/dashboard/today/quick-actions";
+import { RevenueTrend } from "~/components/dashboard/today/revenue-trend";
 import { ShareLinkCard } from "~/components/dashboard/today/share-link-card";
 import { TodayView, type TodayViewData } from "~/components/dashboard/today/today-view";
 import { AppShell } from "~/components/shell/app-shell";
@@ -38,13 +39,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   }
 
   const caller = appRouter.createCaller({ userId });
-  // Fetch the today payload, the producer profile, and the project
-  // list in parallel. ShareLinkCard needs the slug; QuickActions needs
-  // the most-recent project id for Upload/Invoice deep-links.
-  const [today, me, projectList] = await Promise.all([
+  // Fetch the today payload, the producer profile, the project list,
+  // and the 6-month revenue trend in parallel. ShareLinkCard needs
+  // the slug; QuickActions needs the most-recent project id for
+  // Upload/Invoice deep-links; RevenueTrend needs the 6 points.
+  const [today, me, projectList, revenueTrend] = await Promise.all([
     caller.producer.today(),
     caller.producer.me(),
     caller.project.list(),
+    caller.producer.revenueTrend(),
   ]);
 
   // Public origin used by ShareLinkCard to render the /p/<slug> URL.
@@ -130,6 +133,18 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               the KPI strip so frequent moves are never more than one
               click away. */}
           <QuickActions shareUrl={shareUrl} recentProjectId={recentProjectId} />
+          {/* Revenue trend — compact SVG line chart showing the last
+              6 months of paid-invoice revenue. Slots between the KPI
+              strip (handled inside TodayView) and the inbox so the
+              "how am I doing?" glance sits above the "what needs me?"
+              list. Hidden entirely when the producer has no paid
+              invoices in the window (component returns null). */}
+          <div className="mt-8">
+            <RevenueTrend
+              points={revenueTrend.points}
+              currency={revenueTrend.currency}
+            />
+          </div>
           <TodayView data={data} selectedItemId={selectedItemId} />
         </div>
       </div>

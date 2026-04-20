@@ -502,6 +502,21 @@
     animation-delay: calc(min(var(--i, 0), 12) * 30ms);
   }
 
+  /* Revenue trend line draw-in. The component sets
+   * `--sk-trend-length` inline from the polyline's pythagorean
+   * length so the dash math works for any viewport/data shape.
+   * Reduced-motion branch below kills the keyframes and leaves
+   * the line fully drawn on mount. */
+  @keyframes skitza-trend-draw {
+    from { stroke-dashoffset: var(--sk-trend-length, 1000); }
+    to   { stroke-dashoffset: 0; }
+  }
+  .sk-trend-line {
+    stroke-dasharray: var(--sk-trend-length, 1000);
+    stroke-dashoffset: var(--sk-trend-length, 1000);
+    animation: skitza-trend-draw 700ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .sk-trans,
     .sk-trans-slow {
@@ -536,6 +551,10 @@
     .sk-stagger-item {
       animation: none !important;
       opacity: 1 !important;
+    }
+    .sk-trend-line {
+      animation: none !important;
+      stroke-dashoffset: 0 !important;
     }
   }
 }

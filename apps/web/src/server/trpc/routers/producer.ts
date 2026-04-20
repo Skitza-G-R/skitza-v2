@@ -508,6 +508,90 @@ export const producerRouter = router({
     return { kpis, items, savedViews };
   }),
 
+  // Six-month paid-revenue trend. Feeds the compact SVG line chart on
+  // Today so producers can see their trajectory at a glance without
+  // leaving the page. Each point is a calendar month (UTC boundaries,
+  // matching the KPI strip's "Revenue · month" tile) and revenue is
+  // only counted for invoices whose currency matches the producer's
+  // default — mixed-currency rows are dropped rather than naively
+  // summed (same rule as producer.today's revenue KPI).
+  //
+  // The shape is deliberately tiny: six { month, cents } tuples, zero
+  // when no invoices were paid in that window. The chart component
+  // relies on the array being exactly 6 rows sorted oldest → newest,
+  // so the producer sees the same "this month is the rightmost point"
+  // orientation every time.
+  revenueTrend: producerProcedure.query(async ({ ctx }) => {
+    const now = new Date();
+    // Six consecutive month buckets, oldest first. The current month
+    // is the 6th (rightmost) point so the chart's "today" is always
+    // pinned to the right edge. We compute [start, end) pairs in UTC
+    // so month boundaries match the KPI calculation.
+    const buckets: { month: string; start: Date; end: Date }[] = [];
+    for (let offset = 5; offset >= 0; offset -= 1) {
+      const start = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1),
+      );
+      const end = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset + 1, 1),
+      );
+      // "YYYY-MM" — the UI labels X-axis ticks with the short month name.
+      const month = `${String(start.getUTCFullYear())}-${String(
+        start.getUTCMonth() + 1,
+      ).padStart(2, "0")}`;
+      buckets.push({ month, start, end });
+    }
+
+    // Producer default currency (for the mixed-currency filter).
+    const [profile] = await ctx.db
+      .select({ defaultCurrency: producers.defaultCurrency })
+      .from(producers)
+      .where(eq(producers.id, ctx.producerId))
+      .limit(1);
+    const defaultCurrency = profile?.defaultCurrency ?? "USD";
+
+    // Single SELECT over the 6-month window. Cheaper than 6 parallel
+    // queries + still fits in the producer_id index. We aggregate in
+    // JS so we can apply the currency filter + forget the rows once
+    // bucketed — no additional round-trip for the SUM.
+    const windowStart = buckets[0]?.start ?? now;
+    const windowEnd = buckets[buckets.length - 1]?.end ?? now;
+    const rows = await ctx.db
+      .select({
+        paidAt: invoices.paidAt,
+        amountCents: invoices.amountCents,
+        currency: invoices.currency,
+      })
+      .from(invoices)
+      .where(
+        and(
+          eq(invoices.producerId, ctx.producerId),
+          eq(invoices.status, "paid"),
+          gte(invoices.paidAt, windowStart),
+          lte(invoices.paidAt, windowEnd),
+        ),
+      );
+
+    // Bucket the rows. findIndex rather than a map keyed on YYYY-MM
+    // because the bucket count is fixed at 6 — linear scan is
+    // faster than hash lookup at this size, and the code reads cleaner.
+    const points = buckets.map((b) => ({ month: b.month, cents: 0 }));
+    for (const r of rows) {
+      if (r.currency !== defaultCurrency) continue;
+      const paidAt = r.paidAt;
+      if (!paidAt) continue;
+      const idx = buckets.findIndex(
+        (b) => paidAt >= b.start && paidAt < b.end,
+      );
+      if (idx !== -1) {
+        const p = points[idx];
+        if (p) p.cents += r.amountCents;
+      }
+    }
+
+    return { points, currency: defaultCurrency };
+  }),
+
   // Music top-level — Samply-style cross-project library. One row per
   // track version across every project this producer owns, sorted
   // newest-upload-first. The UI deep-links a row tap to
