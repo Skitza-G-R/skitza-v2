@@ -471,6 +471,37 @@
     animation: skitza-pulse-glow 2s ease-in-out infinite;
   }
 
+  /*
+   * Batch C — Premium motion polish.
+   *
+   * .sk-page-enter — route-transition entrance for the page-level root
+   *                  of a dashboard route. Content fades + slides up 8px
+   *                  over 240ms (ease-out). Uses motion-safe gating so
+   *                  reduced-motion users see no transform at all. Drop
+   *                  it on the outermost <div> of a route-level client
+   *                  subtree so the whole surface animates as one.
+   *
+   * .sk-stagger    — opt-in staggered reveal for list first-renders. The
+   *                  container gets `.sk-stagger`, each child gets
+   *                  `.sk-stagger-item`. Items inherit a CSS variable
+   *                  --i set inline (react: `style={{ "--i": String(i) }}`);
+   *                  each inherits `calc(var(--i) * 30ms)` as its delay.
+   *                  We cap at index 12 below (= 360ms) so long lists
+   *                  don't animate for 10+ seconds.
+   */
+  @keyframes skitza-page-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sk-page-enter {
+    animation: skitza-page-enter 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .sk-stagger-item {
+    opacity: 0;
+    animation: skitza-page-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(min(var(--i, 0), 12) * 30ms);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .sk-trans,
     .sk-trans-slow {
@@ -498,6 +529,13 @@
     }
     .sk-pulse-hover:hover {
       animation: none !important;
+    }
+    .sk-page-enter {
+      animation: none !important;
+    }
+    .sk-stagger-item {
+      animation: none !important;
+      opacity: 1 !important;
     }
   }
 }

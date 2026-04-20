@@ -170,8 +170,8 @@ export function ProjectsList({
                 role="list"
                 className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]"
               >
-                {rows.map((row) => (
-                  <ProjectRowItem key={row.id} row={row} />
+                {rows.map((row, i) => (
+                  <ProjectRowItem key={row.id} row={row} index={i} />
                 ))}
               </ul>
             </section>
@@ -275,11 +275,14 @@ function Chip({
 
 // ─── Row ─────────────────────────────────────────────────────────────
 
-function ProjectRowItem({ row }: { row: ProjectRow }) {
+function ProjectRowItem({ row, index }: { row: ProjectRow; index: number }) {
   const state = stageToState(row.stage);
   const tone = STATE_TONE[state];
   return (
-    <li>
+    <li
+      className="sk-stagger-item"
+      style={{ ["--i" as string]: String(index) } as React.CSSProperties}
+    >
       <Link
         href={`/dashboard/projects/${row.id}`}
         // Batch C — rows live un-framed now, so the hover wash has to

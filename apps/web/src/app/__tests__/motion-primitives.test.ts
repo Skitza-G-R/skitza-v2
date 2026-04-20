@@ -62,3 +62,29 @@ describe("Phase C motion primitives", () => {
     expect(reduceBlock).toContain(selector);
   });
 });
+
+// Batch C added two motion primitives on top of the Phase C set:
+//   - .sk-page-enter — route-level fade/slide
+//   - .sk-stagger-item — per-row staggered reveal in lists
+// Both need the same reduce-motion guard so a producer on reduced
+// motion doesn't see the staggered in-animation on every list render.
+describe("Batch C motion primitives", () => {
+  const reduceBlock = extractReduceBlock();
+
+  it("defines .sk-page-enter with a fade+slide keyframe", () => {
+    expect(GLOBALS_CSS).toMatch(/\.sk-page-enter\s*\{/);
+    expect(GLOBALS_CSS).toMatch(/@keyframes skitza-page-enter\b/);
+  });
+
+  it("defines .sk-stagger-item using --i for delay ordering", () => {
+    expect(GLOBALS_CSS).toMatch(/\.sk-stagger-item\s*\{/);
+    expect(GLOBALS_CSS).toMatch(/calc\(min\(var\(--i, 0\), 12\) \* 30ms\)/);
+  });
+
+  it.each([".sk-page-enter", ".sk-stagger-item"])(
+    "respects prefers-reduced-motion for %s",
+    (selector) => {
+      expect(reduceBlock).toContain(selector);
+    },
+  );
+});

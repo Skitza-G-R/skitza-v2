@@ -46,8 +46,8 @@ export function MusicLibrary({ tracks }: { tracks: MusicRow[] }) {
         role="list"
         className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 md:grid-cols-4 md:gap-6 lg:grid-cols-5 xl:grid-cols-6"
       >
-        {tracks.map((row) => (
-          <MusicCard key={row.id} row={row} />
+        {tracks.map((row, i) => (
+          <MusicCard key={row.id} row={row} index={i} />
         ))}
       </ul>
     </div>
@@ -81,7 +81,7 @@ export function MusicLibraryEmpty() {
 
 // ─── Card ────────────────────────────────────────────────────────────
 
-function MusicCard({ row }: { row: MusicRow }) {
+function MusicCard({ row, index }: { row: MusicRow; index: number }) {
   const uploadedAt = new Date(row.uploadedAtIso);
   // The Project Room page reads ?tab=music + ?version=<id> off
   // searchParams — our Music sub-tab pre-selects the version via that
@@ -96,7 +96,10 @@ function MusicCard({ row }: { row: MusicRow }) {
     : row.projectTitle;
 
   return (
-    <li>
+    <li
+      className="sk-stagger-item"
+      style={{ ["--i" as string]: String(index) } as React.CSSProperties}
+    >
       <Link
         href={href}
         className="sk-lift group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"

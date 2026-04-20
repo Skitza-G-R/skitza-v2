@@ -60,10 +60,14 @@ export function TodayList({
       aria-live="polite"
       className="divide-y divide-[rgb(var(--border-subtle))]"
     >
-      {items.map((item) => {
+      {items.map((item, i) => {
         const isSelected = selectedItemId === item.id;
         return (
-          <li key={item.id}>
+          <li
+            key={item.id}
+            className="sk-stagger-item"
+            style={{ ["--i" as string]: String(i) } as React.CSSProperties}
+          >
             <button
               type="button"
               aria-current={isSelected ? "true" : undefined}

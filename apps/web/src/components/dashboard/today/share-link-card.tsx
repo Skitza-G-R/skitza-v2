@@ -122,7 +122,7 @@ export function ShareLinkCard({
           <button
             type="button"
             onClick={copy}
-            className="sk-lift sk-cta-shine inline-flex min-h-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-md)] hover:brightness-110"
+            className="sk-lift sk-cta-shine sk-pulse-hover inline-flex min-h-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-md)] hover:brightness-110"
             aria-label={justCopied ? "Copied to clipboard" : "Copy link to clipboard"}
           >
             {justCopied ? "Copied!" : "Copy link"}

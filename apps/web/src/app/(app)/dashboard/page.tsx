@@ -117,7 +117,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.12)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
         />
-        <div className="mx-auto max-w-[1920px] px-4 pt-8 pb-10 sm:px-8 lg:px-12 lg:pt-12">
+        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-8 pb-10 sm:px-8 lg:px-12 lg:pt-12">
           <h1 className="sr-only">Today</h1>
           {showSetupNudge ? <FinishSetupNudge /> : null}
           {/* Today Cockpit — the permanent share link sits ABOVE the KPI
