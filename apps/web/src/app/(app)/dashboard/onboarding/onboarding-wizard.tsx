@@ -28,7 +28,7 @@ export interface OnboardingInitial {
   displayName: string;
   slug: string;
   defaultCurrency: string;
-  publicUrl: string; // absolute /p/{slug}/book URL; rebuilt in step 4
+  publicUrl: string; // absolute /join/{slug} URL; rebuilt in step 4
   appOrigin: string; // for rebuilding publicUrl if slug changes
 }
 
@@ -63,7 +63,7 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
     // If the slug in step 1 changed, step 4 shows the new URL. Fall
     // back to the initial URL if slug is empty.
     const s = identitySlug || initial.slug;
-    return `${initial.appOrigin}/p/${s}/book`;
+    return `${initial.appOrigin}/join/${s}`;
   }, [identitySlug, initial.appOrigin, initial.slug]);
 
   function onNext() {
@@ -324,7 +324,7 @@ function IdentityStep({
           </span>
           <div className="flex items-center overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] focus-within:border-[rgb(var(--brand-primary))]">
             <span className="select-none px-3 text-sm text-[rgb(var(--fg-muted))]">
-              skitza.app/p/
+              skitza.app/join/
             </span>
             <input
               type="text"

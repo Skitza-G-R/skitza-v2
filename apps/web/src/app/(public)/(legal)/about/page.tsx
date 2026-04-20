@@ -39,7 +39,7 @@ export default function AboutPage() {
         <Section title="What&apos;s in v1 today">
           <ul className="mt-3 space-y-2 font-mono text-sm text-[rgb(var(--fg-secondary))]">
             <Check>Producer onboarding + brand settings</Check>
-            <Check>Public portfolio at /p/&lt;you&gt;</Check>
+            <Check>Shareable artist funnel at /join/&lt;you&gt;</Check>
             <Check>Smart lead links (magic URL + analytics)</Check>
             <Check>Dwell-time, open count, device + referrer per view</Check>
             <Check>Dark-first, mobile-first, fast</Check>

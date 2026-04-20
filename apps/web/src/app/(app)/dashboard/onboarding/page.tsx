@@ -25,7 +25,11 @@ export default async function OnboardingPage() {
   const proto = hdrs.get("x-forwarded-proto") ?? "https";
   const appOrigin = `${proto}://${host}`;
 
-  const publicUrl = `${appOrigin}/p/${me.slug}/book`;
+  // Post-Story-03 (PRD §6.6): the producer-facing "share this URL"
+  // shown in the wizard is the new `/join/<slug>` link. Booking now
+  // happens inside the signed-in artist app, so there is no separate
+  // `/book` public URL to surface.
+  const publicUrl = `${appOrigin}/join/${me.slug}`;
 
   return (
     <OnboardingWizard

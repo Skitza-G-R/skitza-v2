@@ -3,10 +3,11 @@ import Link from "next/link";
 import { Button } from "~/components/ui/button";
 
 // Global 404. Next routes here for both no-match URLs and explicit
-// `notFound()` calls from server components (e.g. /p/[slug] with an
-// unknown slug, or /m/[token] failure paths that we want to show to the
-// producer — but those actually return raw 404s, not HTML, so this
-// mostly covers unknown /p/ slugs and typo'd dashboard paths).
+// `notFound()` calls from server components. Post-Story-03 (PRD §6.6)
+// the legacy `/p/<slug>` + `/p/<slug>/book` routes are removed
+// entirely, so any visitor hitting one of those lands here. Typo'd
+// dashboard paths and unknown `/join/<slug>` slugs also land here.
+// Magic-link failures (`/m/[token]`) return raw 404s, not HTML.
 export default function NotFound() {
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-[rgb(var(--bg-base))] px-6 text-center text-[rgb(var(--fg-primary))]">

@@ -513,7 +513,8 @@ describe("artist.store.products (query)", () => {
   // placeholder) because their real total depends on runtime inputs.
   // A flat-only WHERE predicate keeps them out of the Store list so
   // the self-checkout flow never sees a product it can't charge. The
-  // public booking flow still serves them via /p/[slug]/book.
+  // artist-app Book tab still serves them (the legacy public
+  // /p/[slug]/book flow was removed in Story 03 per PRD §6.6).
   it("store.products excludes non-flat pricing models from the catalog", async () => {
     seedValidContact();
     // The DB-layer filter would only return the flat row; we reflect

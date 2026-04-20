@@ -182,11 +182,16 @@ export async function initiatePaidPlanCheckout(args: {
   //    account. idempotencyKey is caller-provided so repeat submissions
   //    by the same caller+target dedupe on Stripe's side.
   const base = getSiteUrl();
+  // Post-Story-03 (PRD §6.6): the legacy `/p/<slug>/book` URLs are
+  // gone. Default checkout return URLs funnel back through the new
+  // `/join/<slug>` surface — callers that need a different landing
+  // (e.g. the artist-store flow which sends back into `/artist`)
+  // continue to override via `args.successUrl` / `args.cancelUrl`.
   const successUrl =
     args.successUrl ??
-    `${base}/p/${args.producer.slug}/book/success?session_id={CHECKOUT_SESSION_ID}`;
+    `${base}/join/${args.producer.slug}?session_id={CHECKOUT_SESSION_ID}&booked=1`;
   const cancelUrl =
-    args.cancelUrl ?? `${base}/p/${args.producer.slug}/book?cancelled=1`;
+    args.cancelUrl ?? `${base}/join/${args.producer.slug}?cancelled=1`;
 
   const sessionMetadata: Record<string, string> = {
     ...(args.metadata ?? {}),

@@ -2,7 +2,7 @@
 //
 // Skitza uses next-intl's "without routing" mode (cookie-driven rather
 // than URL-prefixed). This keeps every existing App Router path intact
-// — /dashboard, /p/:slug, /sign-in etc. stay as-is — while still
+// — /dashboard, /join/:slug, /sign-in etc. stay as-is — while still
 // letting us swap messages + flip `dir` inside the authenticated app.
 //
 // Scope: i18n is mounted ONLY on the authenticated app surfaces
@@ -16,7 +16,7 @@
 //  - The app has many route groups already. A `[locale]` segment
 //    nesting them would be invasive — every page + every internal
 //    `href` would need re-threading.
-//  - Producer-facing URLs shared with clients (the `/p/:slug` storefront)
+//  - Producer-facing URLs shared with clients (the `/join/:slug` funnel)
 //    stay English by product decision, so URL-prefix routing would
 //    be dead weight there anyway.
 //

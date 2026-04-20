@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //
 // When a producer confirms a pending booking, we want a projects row
 // to pop into existence so the producer never has to fill an "add new
-// client" form in the common IG-bio → /p/<slug> → booking flow.
+// client" form in the common IG-bio → /join/<slug> → artist-app Book
+// tab flow. (The legacy public /p/<slug> self-booking flow was removed
+// in Story 03 per PRD §6.6.)
 //
 // Pattern mirrors booking-public-request.test.ts: marker objects per
 // table, a per-table FIFO select queue, insert + update spies so we

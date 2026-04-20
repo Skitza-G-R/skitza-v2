@@ -69,7 +69,8 @@ export async function updateProducer(input: {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/portfolio");
     revalidatePath("/dashboard/leads");
-    if (input.slug) revalidatePath(`/p/${input.slug}`);
+    // Post-Story-03: slug changes invalidate the /join/<slug> teaser.
+    if (input.slug) revalidatePath(`/join/${input.slug}`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

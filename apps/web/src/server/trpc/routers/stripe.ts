@@ -84,7 +84,12 @@ export const stripeRouter = router({
           // independent producers. Stripe uses this for fraud heuristics
           // and dashboard categorisation.
           mcc: "7929",
-          url: `${getSiteUrl()}/p/${producer.slug}`,
+          // Stripe Connect business profile URL. This is the public
+          // URL Stripe shows in compliance/review dashboards as the
+          // merchant's website. Post-Story-03 we point it at the new
+          // `/join/<slug>` surface — it's the canonical artist-facing
+          // URL for the producer, replacing the removed `/p/<slug>`.
+          url: `${getSiteUrl()}/join/${producer.slug}`,
         },
       });
       accountId = account.id;
@@ -251,8 +256,10 @@ export const stripeRouter = router({
             },
           ],
           customer_email: input.customerEmail,
-          success_url: `${base}/p/${producer.slug}/book/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${base}/p/${producer.slug}`,
+          // Post-Story-03 (PRD §6.6): legacy `/p/<slug>` URLs are gone.
+          // Return URLs point at the new `/join/<slug>` surface.
+          success_url: `${base}/join/${producer.slug}?session_id={CHECKOUT_SESSION_ID}&booked=1`,
+          cancel_url: `${base}/join/${producer.slug}?cancelled=1`,
           // Destination charges — money lands on the producer's
           // account; Stripe deducts its standard fee; Skitza takes 0.
           payment_intent_data: {

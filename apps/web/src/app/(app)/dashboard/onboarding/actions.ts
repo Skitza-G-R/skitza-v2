@@ -64,7 +64,8 @@ export async function saveIdentity(input: {
     });
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/onboarding");
-    revalidatePath(`/p/${input.slug}`);
+    // Post-Story-03: slug changes invalidate the /join/<slug> teaser.
+    revalidatePath(`/join/${input.slug}`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

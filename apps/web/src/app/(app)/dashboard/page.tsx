@@ -50,7 +50,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     caller.producer.revenueTrend(),
   ]);
 
-  // Public origin used by ShareLinkCard to render the /p/<slug> URL.
+  // Public origin used by ShareLinkCard to render the /join/<slug> URL.
   // Falls back to the canonical Vercel deployment when NEXT_PUBLIC_SITE_URL
   // isn't configured (local dev). Matches the fallback chain in
   // getSiteUrl() over in server/stripe/client.ts.
@@ -72,7 +72,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // producer hasn't picked a slug — QuickActions downgrades both
   // actions to disabled/tooltip in that case.
   const shareUrl = me.slug
-    ? `${publicBaseUrl.replace(/\/$/, "")}/p/${me.slug}`
+    ? `${publicBaseUrl.replace(/\/$/, "")}/join/${me.slug}`
     : null;
 
   // Show a "finish setup" nudge when a skipper hasn't set up any of

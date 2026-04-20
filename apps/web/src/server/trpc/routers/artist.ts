@@ -789,8 +789,9 @@ const storeSubrouter = router({
             isNull(products.archivedAt),
             // MVP: Store self-checkout only supports flat pricing.
             // per_song / hourly / bundle products have 0 or placeholder
-            // priceCents — they go through the public booking flow
-            // (`/p/[slug]/book`) for now. Paired with a guard in
+            // priceCents — they go through the signed-in artist Book
+            // tab (the legacy `/p/[slug]/book` public flow was removed
+            // in Story 03 per PRD §6.6). Paired with a guard in
             // store.checkout so a hand-crafted productId can't bypass.
             eq(products.pricingModel, "flat"),
           ),
@@ -956,8 +957,10 @@ const storeSubrouter = router({
       //     — calculateCharges(plan, 0) would otherwise throw
       //     "totalCents must be a positive integer" downstream.
       //     Non-flat pricing (per_song / hourly / bundle) remains
-      //     bookable via the public booking flow at /p/[slug]/book,
-      //     which has its own UI for collecting quantity/duration.
+      //     bookable via the signed-in artist Book tab, which has
+      //     its own UI for collecting quantity/duration. (The legacy
+      //     public `/p/[slug]/book` flow was removed in Story 03 per
+      //     PRD §6.6.)
       if (prod.pricingModel !== "flat" || prod.priceCents <= 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -1028,13 +1031,14 @@ const storeSubrouter = router({
         idempotencyKey,
         metadata: { source: "artist_store" },
         // Keep artists inside the artist app after Stripe. The helper's
-        // default success/cancel URLs point to /p/{slug}/book/success
-        // — correct for the public booking flow, wrong here. On success
-        // we deep-link to /artist with a query flag so the Home tab can
-        // render a "thanks, you're set!" toast (UI hook-up is a
-        // follow-up; for now the redirect alone is enough). On cancel
-        // we return to the product detail so the artist can pick a
-        // different plan without losing context.
+        // default success/cancel URLs now point to /join/<slug> (the
+        // new artist funnel per PRD §6.6) — correct for anonymous
+        // booking initiated from /join, wrong for this signed-in
+        // store flow. On success we deep-link to /artist with a query
+        // flag so the Home tab can render a "thanks, you're set!"
+        // toast (UI hook-up is a follow-up; for now the redirect alone
+        // is enough). On cancel we return to the product detail so the
+        // artist can pick a different plan without losing context.
         successUrl: `${getSiteUrl()}/artist?checkoutSuccess=1`,
         cancelUrl: `${getSiteUrl()}/artist/store/${prod.id}`,
       });

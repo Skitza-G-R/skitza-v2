@@ -188,7 +188,7 @@ function SidebarBody({
       <div className="mt-auto flex flex-col gap-2 border-t border-[rgb(var(--border-subtle))] p-2">
         {producerSlug && !collapsed ? (
           <Link
-            href={`/p/${producerSlug}`}
+            href={`/join/${producerSlug}`}
             target="_blank"
             rel="noreferrer"
             className="rounded-md px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--brand-primary))]"

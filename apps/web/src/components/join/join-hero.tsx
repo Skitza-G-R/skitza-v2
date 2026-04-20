@@ -1,10 +1,11 @@
 // Editorial hero for the `/join/<slug>` teaser page.
 //
-// Visual vocabulary follows the landing hero (`components/landing/hero.tsx`)
-// and the public portfolio page (`/p/<slug>`, soon to be deleted): amber
-// + copper ambient gradient, display-face name at clamp(), mono-uppercase
-// eyebrow above. Lives at the top of the join page and sets tone for
-// the rest of the scroll — samples, teaser, CTA.
+// Visual vocabulary follows the landing hero (`components/landing/hero.tsx`):
+// amber + copper ambient gradient, display-face name at clamp(), mono-
+// uppercase eyebrow above. Lives at the top of the join page and sets
+// tone for the rest of the scroll — samples, teaser, CTA. (Succeeds the
+// retired `/p/<slug>` portfolio page, which was deleted in Story 03 per
+// PRD §6.6.)
 //
 // Server component (no interactive state) — the whole page is SSR and
 // the producer payload is stable per-request. If we later add a logo
@@ -91,8 +92,8 @@ export function JoinHero({ producer }: JoinHeroProps) {
           </p>
         ) : null}
 
-        {/* A tiny divider before the samples section below — echoes the
-            `/p/<slug>` visual, keeps the hero feeling deliberate. */}
+        {/* A tiny divider before the samples section below — keeps the
+            hero feeling deliberate, with a narrow brand-primary rule. */}
         <div
           aria-hidden
           className="reveal-up-delay-3 mx-auto mt-10 h-px w-16 bg-[rgb(var(--brand-primary))]"

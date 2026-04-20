@@ -131,7 +131,7 @@ export default async function SharePage({ params }: PageProps) {
           <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
             Project Room · by{" "}
             <Link
-              href={`/p/${data.project.producerSlug}`}
+              href={`/join/${data.project.producerSlug}`}
               className="underline-offset-4 hover:text-[rgb(var(--fg-primary))] hover:underline"
             >
               {data.project.producerName}
@@ -187,7 +187,7 @@ export default async function SharePage({ params }: PageProps) {
 
         <footer className="mt-16 text-center font-mono text-xs text-[rgb(var(--fg-muted))]">
           <Link
-            href={`/p/${data.project.producerSlug}`}
+            href={`/join/${data.project.producerSlug}`}
             className="hover:text-[rgb(var(--fg-primary))]"
           >
             ← {data.project.producerName}&apos;s portfolio

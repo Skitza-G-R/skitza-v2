@@ -61,19 +61,18 @@ export async function GET(req: Request, { params }: RouteContext): Promise<Respo
 
   // 3. Resolve the redirect target before the view insert so a slow/failed
   //    insert can't change which URL we send the user to.
+  //
+  // Post-Story-03 (PRD §6.6): the legacy `/p/<slug>` and `/p/<slug>/book`
+  // routes are gone, so both `portfolio` and `booking` targets collapse
+  // to `/join/<slug>`. Artist interaction funnels through `/join` +
+  // Clerk signup, so there is no booking-without-signup destination
+  // anymore. The stored `target` column is preserved for historical
+  // analytics but is ignored for routing.
   let destination: string;
   switch (link.target) {
     case "portfolio":
-      destination = `/p/${link.producerSlug}`;
-      break;
     case "booking":
-      // Public booking page is at /p/<slug>/book (Task K+ shipped long
-      // ago). Historical note: an earlier version of this handler
-      // redirected to /book/<slug> as a placeholder while the real
-      // route was being built — that placeholder was never updated
-      // when the real route shipped, silently 404'ing every booking-
-      // target magic link ever issued until this fix.
-      destination = `/p/${link.producerSlug}/book`;
+      destination = `/join/${link.producerSlug}`;
       break;
     default:
       // future: project:<uuid> targets land here. Until they're implemented
