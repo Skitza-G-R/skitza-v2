@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 
+import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import { useToast } from "~/components/ui/toast";
+import { useHotkey } from "~/lib/keyboard/use-shortcuts";
 
 // Today Cockpit — ShareLinkCard.
 //
@@ -86,6 +88,13 @@ export function ShareLinkCard({
       });
   };
 
+  // Batch D — `C` shortcut on Today copies the share link. The global
+  // layer exposes `c` as "create (context-aware)" — page-scoped
+  // useHotkey registers *after* the global layer and its
+  // preventDefault wins, so Today overrides `c` without disrupting the
+  // other surfaces.
+  useHotkey("c", copy);
+
   return (
     // Batch C — ShareLinkCard is the hero anchor of the Today gradient
     // canvas. No heavy border, editorial heading, slug in a generous
@@ -121,14 +130,19 @@ export function ShareLinkCard({
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={copy}
-            className="sk-lift sk-cta-shine sk-pulse-hover inline-flex min-h-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-md)] hover:brightness-110"
-            aria-label={justCopied ? "Copied to clipboard" : "Copy link to clipboard"}
-          >
-            {justCopied ? "Copied!" : "Copy link"}
-          </button>
+          <KeyboardHint shortcut="C">
+            <button
+              type="button"
+              onClick={copy}
+              className="sk-lift sk-cta-shine sk-pulse-hover inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-md)] hover:brightness-110"
+              aria-label={justCopied ? "Copied to clipboard" : "Copy link to clipboard"}
+            >
+              {justCopied ? "Copied!" : "Copy link"}
+              <kbd className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-[rgb(var(--fg-inverse)/0.3)] bg-[rgb(var(--fg-inverse)/0.12)] px-1 font-mono text-[0.62rem]">
+                C
+              </kbd>
+            </button>
+          </KeyboardHint>
           <a
             href={fullUrl}
             target="_blank"

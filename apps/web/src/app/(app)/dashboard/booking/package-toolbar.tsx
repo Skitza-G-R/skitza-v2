@@ -3,6 +3,8 @@
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { KeyboardHint } from "~/components/ui/keyboard-hint";
+import { useHotkey } from "~/lib/keyboard/use-shortcuts";
 import {
   findTemplate,
   SERVICE_TEMPLATES,
@@ -58,6 +60,14 @@ export function PackageToolbar() {
   //   "new"  → blank create form
   //   <tid>  → template-prefilled create form
   const [open, setOpen] = useState<string | null>(null);
+
+  // Surface-scoped `N` — open the new-service form on the Booking →
+  // Services page. Layered on top of the global N (= new project);
+  // the capture-phase useHotkey wins so producers in this context
+  // don't get bounced to /dashboard/projects/new.
+  useHotkey("n", () => {
+    if (open === null) setOpen("new");
+  });
 
   const activeTemplate =
     open !== null && open !== "new" ? findTemplate(open) : undefined;
@@ -116,13 +126,20 @@ export function PackageToolbar() {
       </section>
 
       <div>
-        <Button
-          onClick={() => {
-            setOpen("new");
-          }}
-        >
-          + New service
-        </Button>
+        <KeyboardHint shortcut="N">
+          <Button
+            onClick={() => {
+              setOpen("new");
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              + New service
+              <kbd className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-[rgb(var(--fg-inverse)/0.3)] bg-[rgb(var(--fg-inverse)/0.12)] px-1 font-mono text-[0.62rem]">
+                N
+              </kbd>
+            </span>
+          </Button>
+        </KeyboardHint>
       </div>
     </div>
   );

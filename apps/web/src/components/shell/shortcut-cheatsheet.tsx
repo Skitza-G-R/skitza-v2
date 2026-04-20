@@ -32,14 +32,24 @@ export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: 
       ],
     },
     {
-      title: "Actions",
+      title: "Global actions",
       keys: [
         { k: "⌘ K", desc: "Command palette" },
+        { k: "n", desc: "New project" },
         { k: "c", desc: "Create (context-aware)" },
         { k: "/", desc: "Search" },
         { k: "[", desc: "Toggle sidebar" },
         { k: "?", desc: "This cheatsheet" },
-        { k: "Esc", desc: "Close overlay" },
+        { k: "Esc", desc: "Close overlay / deselect" },
+      ],
+    },
+    {
+      title: "Context shortcuts",
+      keys: [
+        { k: "u", desc: "Upload track (Project Room)" },
+        { k: "t", desc: "Toggle done (Project Room)" },
+        { k: "e", desc: "Edit (context-aware)" },
+        { k: "c", desc: "Copy share link (Today)" },
       ],
     },
   ];
@@ -57,12 +67,12 @@ export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: 
         onClick={onClose}
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
       />
-      <div className="sk-pop-center relative w-full max-w-md rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 shadow-2xl">
+      <div className="sk-pop-center relative w-full max-w-xl rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 shadow-2xl">
         <h2 className="font-display text-xl text-[rgb(var(--fg-primary))]">Keyboard shortcuts</h2>
         <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
           Press <kbd className="font-mono">?</kbd> any time.
         </p>
-        <div className="mt-5 grid grid-cols-2 gap-6 text-sm">
+        <div className="mt-5 grid grid-cols-1 gap-6 text-sm sm:grid-cols-3">
           {sections.map((s) => (
             <div key={s.title}>
               <h3 className="mb-2 font-mono text-[11px] uppercase tracking-wider text-[rgb(var(--fg-muted))]">

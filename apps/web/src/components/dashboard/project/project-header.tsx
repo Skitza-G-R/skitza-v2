@@ -26,7 +26,9 @@ import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
 import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
 import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/input";
+import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import { useToast } from "~/components/ui/toast";
+import { useHotkey } from "~/lib/keyboard/use-shortcuts";
 import {
   isTerminalStage,
   SELECTABLE_STAGES,
@@ -193,6 +195,23 @@ export function ProjectHeader({
     // sub-tab handles the ?action=upload param (landing Task 6).
     router.push(`/dashboard/projects/${project.id}?tab=music&action=upload`);
   }
+
+  // Batch D — Project Room keyboard shortcuts. Scoped to the header's
+  // mount (the Project Room renders one header per page), so they
+  // disappear when the producer navigates to another surface.
+  //
+  //   T → toggle the "final delivered" flag (mark/unmark done)
+  //   E → move focus to the stage <select> (primary edit on this page)
+  useHotkey("t", () => {
+    if (isTerminalStage(stage)) return;
+    onMarkFinalClick();
+  });
+  useHotkey("e", () => {
+    const el = document.getElementById(
+      "project-header-stage-select",
+    ) as HTMLSelectElement | null;
+    el?.focus();
+  });
 
   function onCancelClick() {
     setMenuOpen(false);
@@ -427,22 +446,24 @@ function ActionsMenu({
 }: ActionsMenuProps) {
   return (
     <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label="Project actions"
-        onClick={() => {
-          onOpenChange(!open);
-        }}
-        disabled={pending}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-primary))] disabled:opacity-60"
-      >
-        {/* Three vertical dots */}
-        <span aria-hidden="true" className="font-mono text-sm leading-none">
-          ⋮
-        </span>
-      </button>
+      <KeyboardHint shortcut="T">
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Project actions"
+          onClick={() => {
+            onOpenChange(!open);
+          }}
+          disabled={pending}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-primary))] disabled:opacity-60"
+        >
+          {/* Three vertical dots */}
+          <span aria-hidden="true" className="font-mono text-sm leading-none">
+            ⋮
+          </span>
+        </button>
+      </KeyboardHint>
       {open ? (
         <div
           role="menu"
@@ -456,11 +477,13 @@ function ActionsMenu({
             onClick={onMarkFinal}
             disabled={pending}
             label={finalPaid ? "Unmark as delivered" : "Mark final delivered"}
+            shortcut="T"
           />
           <MenuItem
             onClick={onUploadTrack}
             disabled={pending}
             label="Upload a new track"
+            shortcut="U"
           />
           {!isTerminal ? (
             <MenuItem
@@ -481,11 +504,15 @@ function MenuItem({
   disabled,
   label,
   destructive,
+  shortcut,
 }: {
   onClick: () => void;
   disabled: boolean;
   label: string;
   destructive?: boolean;
+  // Optional inline shortcut pill (e.g. "T" for toggle done). Pairs
+  // with the matching useHotkey wired up on the ProjectHeader.
+  shortcut?: string;
 }) {
   return (
     <button
@@ -494,14 +521,19 @@ function MenuItem({
       onClick={onClick}
       disabled={disabled}
       className={[
-        "block w-full px-4 py-2 text-left text-sm transition-colors",
+        "flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm transition-colors",
         destructive
           ? "text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)]"
           : "text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-sunken))]",
         "disabled:opacity-60",
       ].join(" ")}
     >
-      {label}
+      <span>{label}</span>
+      {shortcut ? (
+        <kbd className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-1 font-mono text-[0.62rem] text-[rgb(var(--fg-muted))]">
+          {shortcut}
+        </kbd>
+      ) : null}
     </button>
   );
 }

@@ -3,6 +3,9 @@
 import { useRouter } from "next/navigation";
 import { type SyntheticEvent, useEffect, useMemo, useState, useTransition } from "react";
 
+import { KeyboardHint } from "~/components/ui/keyboard-hint";
+import { useHotkey } from "~/lib/keyboard/use-shortcuts";
+
 import { AudioUploader } from "~/components/audio/audio-uploader";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
 import { Badge } from "~/components/ui/badge";
@@ -189,6 +192,13 @@ export function MusicSubTab({
       }
     });
   }
+
+  // Batch D — `U` on the Project Room Music sub-tab opens the "add
+  // track" form. Scoped to this sub-tab only (the hook mounts with
+  // the component, so switching to a different sub-tab unregisters).
+  useHotkey("u", () => {
+    setShowTrack(true);
+  });
 
   function onResolve(id: string, resolved: boolean) {
     startTransition(async () => {
@@ -443,15 +453,22 @@ export function MusicSubTab({
       })}
 
       {!showTrack ? (
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => {
-            setShowTrack(true);
-          }}
-        >
-          + Add track
-        </Button>
+        <KeyboardHint shortcut="U">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setShowTrack(true);
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              + Add track
+              <kbd className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-1 font-mono text-[0.62rem] text-[rgb(var(--fg-muted))]">
+                U
+              </kbd>
+            </span>
+          </Button>
+        </KeyboardHint>
       ) : (
         <form
           onSubmit={onCreateTrack}
