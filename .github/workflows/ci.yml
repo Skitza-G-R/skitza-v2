@@ -38,10 +38,19 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Apply pending migrations to the test DB before running integration
+      # tests. Drizzle-kit tracks applied migrations in __drizzle_migrations,
+      # so this is idempotent — already-applied migrations are skipped. We
+      # export DATABASE_URL_TEST as DATABASE_URL because drizzle.config.ts
+      # reads the canonical env name.
+      - name: Apply DB migrations (test DB)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
+        run: pnpm --filter @skitza/db db:migrate
+
       # Wired-ahead env vars for tests:
-      # - `DATABASE_URL_TEST` is empty until Task 7 (Neon) lands. Current 9 specs
-      #   do not touch a DB; the slot is here so future DB-touching tests pick
-      #   it up automatically.
+      # - `DATABASE_URL_TEST` is the Neon test branch with schema + migrations
+      #   applied by the step above.
       # - `MAGIC_LINK_SECRET` is forwarded so future token tests that drop their
       #   own `beforeAll` override fall back to a CI-provided value instead of
       #   failing. Today's token.test.ts overrides locally, so this is unused.
