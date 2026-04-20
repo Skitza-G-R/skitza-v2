@@ -23,6 +23,13 @@ interface WaveformPlayerProps {
   /** Fires after a user click-to-seek on the waveform. */
   onSeek?: (timeSec: number) => void;
   className?: string;
+  /**
+   * Waveform visual height in pixels. Defaults to 80 (inline list
+   * rhythm). Batch C: the "hero" waveform on the active version inside
+   * a Project Room Music sub-tab passes 320 to promote the waveform
+   * to the primary interaction surface, Samply-style.
+   */
+  height?: number;
 }
 
 export function WaveformPlayer({
@@ -31,6 +38,7 @@ export function WaveformPlayer({
   onReady,
   onSeek,
   className,
+  height = 80,
 }: WaveformPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
@@ -73,7 +81,7 @@ export function WaveformPlayer({
 
     const ws = WaveSurfer.create({
       container,
-      height: 80,
+      height,
       waveColor: `rgba(${accent.replaceAll(" ", ", ")}, 0.35)`,
       progressColor: `rgb(${primary.replaceAll(" ", ", ")})`,
       cursorColor: `rgb(${fgPrimary.replaceAll(" ", ", ")})`,
@@ -122,7 +130,12 @@ export function WaveformPlayer({
       ws.destroy();
       wsRef.current = null;
     };
-  }, [src]);
+    // height is a visual prop only — wavesurfer picks it up on
+    // construction, so changing height needs a re-mount of the
+    // instance (no getter/setter in v7). Including it here keeps
+    // the promotion from 80→320 cleanly handled when the active
+    // version switches.
+  }, [src, height]);
 
   const toggle = useCallback(() => {
     const ws = wsRef.current;
@@ -178,10 +191,10 @@ export function WaveformPlayer({
             "relative w-full rounded-sm",
             // Placeholder shimmer while decoding — wavesurfer itself paints
             // nothing until "ready", so without this the user sees a blank
-            // 80px-tall gap and wonders if the upload is broken.
+            // gap and wonders if the upload is broken.
             !ready && !error ? "animate-pulse bg-[rgb(var(--bg-sunken))]" : "",
           ].join(" ")}
-          style={{ height: 80, touchAction: "none" }}
+          style={{ height, touchAction: "none" }}
         />
         <div className="flex items-center justify-between font-mono text-[0.66rem] tracking-wide text-[rgb(var(--fg-muted))]">
           <span>{formatTime(current)}</span>

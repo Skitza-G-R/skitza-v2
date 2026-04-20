@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type SyntheticEvent, useMemo, useState, useTransition } from "react";
+import { type SyntheticEvent, useEffect, useMemo, useState, useTransition } from "react";
 
 import { AudioUploader } from "~/components/audio/audio-uploader";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
@@ -131,6 +131,24 @@ export function MusicSubTab({
     [tracks, versions],
   );
   const [selected, setSelected] = useState<Record<string, string | null>>(initialSelected);
+
+  // Batch C — responsive hero waveform height. 320px reads as the
+  // Samply "tall scrubbing surface" on desktop; 200px keeps a phone
+  // viewport from drowning in waveform. SSR default = 320 (desktop-
+  // first, no layout shift for the common case); the effect settles to
+  // the right value on mount.
+  const [heroHeight, setHeroHeight] = useState(320);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const apply = () => {
+      setHeroHeight(mq.matches ? 320 : 200);
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => {
+      mq.removeEventListener("change", apply);
+    };
+  }, []);
 
   function onCreateTrack(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -271,9 +289,19 @@ export function MusicSubTab({
             )}
 
             {selectedVersion ? (
-              <div className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-3">
+              // Batch C — hero waveform for the active version. Samply
+              // makes the waveform the primary interaction surface: 320px
+              // tall, full-bleed inside the track card, bg-sunken panel
+              // so the amber waveform pops. Non-active versions (in the
+              // version chip row above) stay compact — producers tap one
+              // to swap the hero.
+              <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-4 sm:p-6">
                 {selectedVersion.audioUrl ? (
-                  <WaveformPlayer src={selectedVersion.audioUrl} label={t.title} />
+                  <WaveformPlayer
+                    src={selectedVersion.audioUrl}
+                    label={t.title}
+                    height={heroHeight}
+                  />
                 ) : (
                   <AudioUploader
                     trackVersionId={selectedVersion.id}
@@ -283,7 +311,7 @@ export function MusicSubTab({
                     }}
                   />
                 )}
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] pt-3">
                   <p className="font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
                     <span className="text-[rgb(var(--fg-secondary))]">{selectedVersion.label}</span>
                     {" · "}
