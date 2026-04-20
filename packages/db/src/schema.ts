@@ -46,6 +46,12 @@ export const producers = pgTable("producers", {
   // and from the `stripe.refreshAccount` mutation when the producer
   // returns from the onboarding flow.
   stripeChargesEnabled: boolean("stripe_charges_enabled").notNull().default(false),
+  // Batch B — availability editor defaults. `defaultSessionMin` is the
+  // producer's preferred session length in minutes; used to prefill the
+  // duration picker when creating new products and as a global default
+  // for the slot grid when a product omits its own duration. Common
+  // presets in the UI: 60 / 90 / 120 / 180 / 240 (or custom integer).
+  defaultSessionMin: integer("default_session_min").notNull().default(60),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

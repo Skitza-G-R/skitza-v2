@@ -10,6 +10,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 import { AvailabilityEditor } from "./availability-editor";
 import { BlackoutsEditor } from "./blackouts-editor";
 import { BookingActionButtons } from "./booking-controls";
+import { DurationPicker } from "./duration-picker";
 import { EditPackageButton } from "./edit-product-client";
 import {
   CURRENCY_SYMBOL,
@@ -54,14 +55,21 @@ export default async function BookingPage({ searchParams }: PageProps) {
   const tab = coerceTab(sp.tab);
 
   const caller = appRouter.createCaller({ userId });
-  const [packagesList, availabilityBlocks, blackouts, pendingBookings, confirmedBookings] =
-    await Promise.all([
-      caller.booking.packages.list(),
-      caller.booking.availability.list(),
-      caller.booking.blackouts.list(),
-      caller.booking.list({ status: "pending" }),
-      caller.booking.list({ status: "confirmed" }),
-    ]);
+  const [
+    packagesList,
+    availabilityBlocks,
+    blackouts,
+    pendingBookings,
+    confirmedBookings,
+    availabilitySettings,
+  ] = await Promise.all([
+    caller.booking.packages.list(),
+    caller.booking.availability.list(),
+    caller.booking.blackouts.list(),
+    caller.booking.list({ status: "pending" }),
+    caller.booking.list({ status: "confirmed" }),
+    caller.booking.availability.getSettings(),
+  ]);
 
   return (
     <AppShell active="projects">
@@ -153,9 +161,10 @@ export default async function BookingPage({ searchParams }: PageProps) {
           ) : null}
 
           {tab === "availability" ? (
-            <>
+            <div className="space-y-4">
+              <DurationPicker initialDefaultMin={availabilitySettings.defaultSessionMin} />
               {availabilityBlocks.length === 0 ? (
-                <div className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-5 py-4">
+                <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-5 py-4">
                   <p className="text-sm text-[rgb(var(--fg-primary))]">
                     No weekly hours set — clients see no bookable slots.
                   </p>
@@ -179,7 +188,7 @@ export default async function BookingPage({ searchParams }: PageProps) {
                   reason: b.reason,
                 }))}
               />
-            </>
+            </div>
           ) : null}
 
           {tab === "requests" ? (

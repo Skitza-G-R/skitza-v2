@@ -725,6 +725,41 @@ export const bookingRouter = router({
         );
         return { ok: true as const };
       }),
+
+    // Producer-level booking settings surfaced on the availability
+    // editor: default session length. Kept alongside the week editor so
+    // a single round-trip fetches everything the editor needs.
+    getSettings: producerProcedure.query(async ({ ctx }) => {
+      const [row] = await ctx.db
+        .select({
+          defaultSessionMin: producers.defaultSessionMin,
+        })
+        .from(producers)
+        .where(eq(producers.id, ctx.producerId))
+        .limit(1);
+      return {
+        defaultSessionMin: row?.defaultSessionMin ?? 60,
+      };
+    }),
+
+    updateSettings: producerProcedure
+      .input(
+        z.object({
+          // 15-min min (so the slot-grid `SLOT_INCREMENT_MIN` works),
+          // 8h max (a full workday). Custom values outside presets are
+          // fine — the picker just shows "Custom".
+          defaultSessionMin: z.number().int().min(15).max(8 * 60).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const patch = stripUndefined(input);
+        if (Object.keys(patch).length === 0) return { ok: true as const };
+        await ctx.db
+          .update(producers)
+          .set({ ...patch, updatedAt: new Date() })
+          .where(eq(producers.id, ctx.producerId));
+        return { ok: true as const };
+      }),
   }),
 
   // ── Bookings (producer-only views + status transitions) ──────────
