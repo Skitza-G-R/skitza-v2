@@ -3,21 +3,27 @@
 // Skitza uses next-intl's "without routing" mode (cookie-driven rather
 // than URL-prefixed). This keeps every existing App Router path intact
 // — /dashboard, /p/:slug, /sign-in etc. stay as-is — while still
-// letting us swap messages + flip `dir` per user.
+// letting us swap messages + flip `dir` inside the authenticated app.
+//
+// Scope: i18n is mounted ONLY on the authenticated app surfaces
+// ((app), (artist), (artist-welcome), (onboarding)). The landing
+// page, (public) storefront + legal + magic-link handler, and the
+// (auth) sign-in/up widget are pinned to English/LTR regardless of
+// the NEXT_LOCALE cookie. See ~/i18n/app-i18n-provider.tsx for the
+// wrapper that turns i18n on for a route group.
 //
 // Why cookie-only instead of /en/ /he/ prefixes:
-//  - The app has many route groups already (`(app)`, `(auth)`,
-//    `(public)`, `(artist)`, `(onboarding)`, `(artist-welcome)`). A
-//    `[locale]` segment nesting them would be invasive — every page +
-//    every internal `href` would need re-threading.
+//  - The app has many route groups already. A `[locale]` segment
+//    nesting them would be invasive — every page + every internal
+//    `href` would need re-threading.
 //  - Producer-facing URLs shared with clients (the `/p/:slug` storefront)
-//    are the one surface we DO want shareable without locale baggage —
-//    the client's browser should pick a language, not Alice's.
-//  - IP detection still works: the middleware sets the cookie on first
-//    hit, persisting the choice across sessions.
+//    stay English by product decision, so URL-prefix routing would
+//    be dead weight there anyway.
 //
-// When we need URL-prefix locales for SEO on public marketing pages,
-// this file's shape is stable enough to extend without a full rewrite.
+// The cookie is set exclusively by the in-app language switcher chip
+// (~/components/shell/language-switcher.tsx). No IP-based detection,
+// no middleware bootstrap — everyone defaults to English, Hebrew is
+// explicit opt-in.
 
 export const LOCALES = ["en", "he"] as const;
 export type Locale = (typeof LOCALES)[number];

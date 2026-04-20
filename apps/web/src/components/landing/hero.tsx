@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { getTranslations } from "next-intl/server";
 
 import { SkitzaMark } from "~/components/brand/skitza-mark";
 
@@ -13,13 +12,11 @@ import { SkitzaMark } from "~/components/brand/skitza-mark";
 // (CSS-built Kanban-on-light) → trust line. Ambient drifting blobs
 // behind everything.
 //
-// Server component — uses `getTranslations` so the hero is
-// translation-aware without hydrating a client component. Italic line
-// break (headlinePart2 vs headlinePart1) matches the English line
-// break; in Hebrew the line still breaks cleanly by design (the
-// second clause stands alone as a simile).
-export async function Hero() {
-  const t = await getTranslations("landing.hero");
+// Copy is English-only by product decision — the landing page is the
+// universal marketing surface and renders the same for every visitor.
+// Hebrew is reserved for the authenticated app, where the producer
+// has explicitly opted in via the language switcher.
+export function Hero() {
   return (
     <header
       id="main-content"
@@ -49,21 +46,22 @@ export async function Hero() {
         </div>
 
         <p className="reveal-up-delay-1 mt-6 font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--brand-primary))]">
-          {t("eyebrow")}
+          The studio around the work
         </p>
 
         <h1
           className="reveal-up-delay-2 mt-6 font-display text-[clamp(2.75rem,8vw,5rem)] leading-[0.98] tracking-tight text-[rgb(var(--fg-primary))]"
           style={{ fontWeight: 800 }}
         >
-          {t("headlinePart1")}
+          Run your producer business
           <span className="mt-1 block italic text-[rgb(var(--brand-primary))]">
-            {t("headlinePart2")}
+            like you run a session.
           </span>
         </h1>
 
         <p className="reveal-up-delay-3 mx-auto mt-6 max-w-xl text-lg leading-relaxed text-[rgb(var(--fg-secondary))] sm:text-xl">
-          {t("description")}
+          One tool for every producer: bookings, contracts, audio feedback, and
+          payments. One URL for every client, every session, every bounce.
         </p>
 
         <div className="reveal-up-delay-4 mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -71,7 +69,7 @@ export async function Hero() {
             href="/sign-up"
             className="sk-cta-shine pulse-glow inline-flex min-h-12 w-full items-center justify-center whitespace-nowrap rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-7 py-3.5 text-base font-semibold text-[#0C0A07] shadow-[0_6px_20px_-4px_rgb(var(--brand-primary)/0.4)] transition-transform hover:scale-[1.02] hover:-translate-y-[1px] active:translate-y-[1px] sm:w-auto"
           >
-            <span className="relative z-10">{t("ctaPrimary")} →</span>
+            <span className="relative z-10">Start free →</span>
           </Link>
           {/* Secondary CTA: web app is live today. Desktop (.dmg / .exe
               / .AppImage) ships once the Tauri build + Apple Developer
@@ -96,12 +94,12 @@ export async function Hero() {
             >
               <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
             </svg>
-            {t("ctaDesktop")}
+            Desktop app soon
           </a>
         </div>
 
         <p className="mt-4 font-mono text-xs text-[rgb(var(--fg-muted))]">
-          {t("availabilityNote")}
+          Web app is live today. Desktop (.dmg, .exe, .AppImage) this quarter.
         </p>
 
         {/* Product mockup — CSS-built Kanban + sidebar glimpse, pointer-
@@ -200,7 +198,7 @@ export async function Hero() {
         </div>
 
         <p className="mt-8 font-mono text-xs text-[rgb(var(--fg-muted))]">
-          {t("trust")}
+          Built in public · open-source core · made for producers who ship
         </p>
       </div>
     </header>
