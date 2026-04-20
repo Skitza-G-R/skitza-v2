@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { headers } from "next/headers";
 import { TRPCError } from "@trpc/server";
 import {
@@ -7,6 +7,7 @@ import {
   availabilityBlackouts,
   availabilityBlocks,
   bookings,
+  clientContacts,
   createDb,
   eq,
   gte,
@@ -724,6 +725,50 @@ export const bookingRouter = router({
         );
         return { ok: true as const };
       }),
+
+    // Producer-level booking settings surfaced on the availability
+    // editor: default session length, auto-confirm toggle, cancellation
+    // policy. Kept alongside the week editor so a single round-trip
+    // fetches everything the editor needs.
+    getSettings: producerProcedure.query(async ({ ctx }) => {
+      const [row] = await ctx.db
+        .select({
+          defaultSessionMin: producers.defaultSessionMin,
+          autoConfirmBookings: producers.autoConfirmBookings,
+          cancellationPolicyHours: producers.cancellationPolicyHours,
+        })
+        .from(producers)
+        .where(eq(producers.id, ctx.producerId))
+        .limit(1);
+      return {
+        defaultSessionMin: row?.defaultSessionMin ?? 60,
+        autoConfirmBookings: row?.autoConfirmBookings ?? false,
+        cancellationPolicyHours: row?.cancellationPolicyHours ?? 24,
+      };
+    }),
+
+    updateSettings: producerProcedure
+      .input(
+        z.object({
+          // 15-min min (so the slot-grid `SLOT_INCREMENT_MIN` works),
+          // 8h max (a full workday). Custom values outside presets are
+          // fine — the picker just shows "Custom".
+          defaultSessionMin: z.number().int().min(15).max(8 * 60).optional(),
+          autoConfirmBookings: z.boolean().optional(),
+          // 0 = no policy, up to 30 days advance notice. The UI caps
+          // at 168h (7d) for the spinner but any value is accepted.
+          cancellationPolicyHours: z.number().int().min(0).max(30 * 24).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const patch = stripUndefined(input);
+        if (Object.keys(patch).length === 0) return { ok: true as const };
+        await ctx.db
+          .update(producers)
+          .set({ ...patch, updatedAt: new Date() })
+          .where(eq(producers.id, ctx.producerId));
+        return { ok: true as const };
+      }),
   }),
 
   // ── Bookings (producer-only views + status transitions) ──────────
@@ -874,6 +919,12 @@ export const bookingRouter = router({
           durationMin: bookings.durationMin,
           productId: bookings.productId,
           packageNameSnapshot: bookings.packageNameSnapshot,
+          // New: needed for the auto-project-creation idempotency check
+          // (Today Cockpit). Skip the insert when the booking already
+          // has a linked project — the producer may have manually
+          // provisioned one first via project.createFromBooking.
+          projectId: bookings.projectId,
+          stripeCheckoutSessionId: bookings.stripeCheckoutSessionId,
         })
         .from(bookings)
         .where(eq(bookings.id, input.id))
@@ -894,46 +945,143 @@ export const bookingRouter = router({
         .set({ status: "confirmed", statusChangedAt: new Date() })
         .where(eq(bookings.id, input.id));
 
+      // ── Today Cockpit ── Auto-provision a Project row on confirm.
+      // Landing a confirmed booking in the producer's dashboard WITHOUT
+      // an associated project would force them to click "create
+      // project" as a second step — exactly the friction this flow is
+      // trying to kill. We insert a projects row here, stamp the
+      // bookings.projectId FK, and upsert the client_contacts cache so
+      // a later Clerk sign-in by the artist picks up a pre-existing
+      // row (the webhook stamps clerk_user_id by (producerId, emailHash)).
+      //
+      // Idempotent: if the booking already links to a project (the
+      // producer called project.createFromBooking or the webhook got
+      // there first), skip the insert entirely.
+      //
+      // All three writes are best-effort but we DO propagate failures
+      // on the project insert itself — the producer would otherwise
+      // silently lose the auto-project benefit with no way to retry.
+      // The status transition already committed above, so a failure
+      // here lands them in the same state as pre-cockpit: a confirmed
+      // booking with no project yet, recoverable via
+      // project.createFromBooking.
+      if (!existing.projectId) {
+        // Share-token mint mirrors project.ts's mintShareToken — 32
+        // bytes → 43 base64url chars, store only sha256(raw).
+        const rawToken = randomBytes(32).toString("base64url");
+        const shareTokenHash = createHash("sha256").update(rawToken).digest("hex");
+        const title =
+          existing.packageNameSnapshot && existing.packageNameSnapshot.length > 0
+            ? existing.packageNameSnapshot
+            : `Session with ${existing.artistName}`;
+        const lowerEmail = existing.artistEmail.trim().toLowerCase();
+
+        try {
+          const [projectRow] = await ctx.db
+            .insert(projects)
+            .values({
+              producerId: ctx.producerId,
+              bookingId: input.id,
+              title,
+              artistName: existing.artistName,
+              artistEmail: lowerEmail,
+              clientName: existing.artistName,
+              clientEmail: lowerEmail,
+              stage: "booked",
+              depositPaid: false,
+              finalPaid: false,
+              shareTokenHash,
+            })
+            .returning();
+          if (projectRow) {
+            await ctx.db
+              .update(bookings)
+              .set({ projectId: projectRow.id })
+              .where(eq(bookings.id, input.id));
+          }
+        } catch (err) {
+          // Rare — a DB error or share-token collision. Logged so ops
+          // can spot it; the producer can still hit "Create project"
+          // on the booking detail page as a manual fallback.
+          console.warn("[today-cockpit] auto-project insert failed in booking.confirm", err);
+        }
+
+        // Upsert client_contacts keyed on (producerId, emailHash).
+        // Separate write from recordContact() because recordContact
+        // swallows errors via console.warn; we want the same semantics
+        // here but with the insert parameters the Today Cockpit guard
+        // expects (name snapshot from the booking row, not the artist's
+        // later Clerk display name).
+        try {
+          const emailHash = createHash("sha256").update(lowerEmail).digest("hex");
+          const now = new Date();
+          await ctx.db
+            .insert(clientContacts)
+            .values({
+              producerId: ctx.producerId,
+              emailHash,
+              email: lowerEmail,
+              name: existing.artistName,
+              firstSeenAt: now,
+              lastSeenAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [clientContacts.producerId, clientContacts.emailHash],
+              set: { name: existing.artistName, lastSeenAt: now },
+            });
+        } catch (err) {
+          console.warn("[today-cockpit] client_contacts upsert failed in booking.confirm", err);
+        }
+      }
+
       // Email the artist that their session is confirmed. Fully
       // best-effort: catch + warn so a Resend hiccup doesn't unwind
       // the status transition the producer just performed.
+      //
+      // Batch G — Autopilot gate. Reads `autopilotWelcomeEmail` off
+      // the producer row; skips the send when the switch is off. We
+      // still fetch the producer row below (it feeds the email copy
+      // when on), so gating is a single extra column in the SELECT.
       try {
         const [producer] = await ctx.db
           .select({
             displayName: producers.displayName,
             timezone: producers.timezone,
             defaultCurrency: producers.defaultCurrency,
+            autopilotWelcomeEmail: producers.autopilotWelcomeEmail,
           })
           .from(producers)
           .where(eq(producers.id, existing.producerId))
           .limit(1);
-        const product = existing.productId
-          ? (
-              await ctx.db
-                .select({
-                  name: products.name,
-                  priceCents: products.priceCents,
-                  currency: products.currency,
-                  depositPct: products.depositPct,
-                })
-                .from(products)
-                .where(eq(products.id, existing.productId))
-                .limit(1)
-            )[0]
-          : undefined;
-        const priceCents = product?.priceCents ?? 0;
-        const depositPct = product?.depositPct ?? 0;
-        const depositCents = Math.round((priceCents * depositPct) / 100);
-        await sendBookingConfirmedEmail(existing.artistEmail, {
-          artistName: existing.artistName,
-          producerName: producer?.displayName ?? "Your producer",
-          productName: product?.name ?? existing.packageNameSnapshot ?? "Session",
-          startsAt: existing.durationMin > 0 ? existing.startsAt : null,
-          producerTimezone: producer?.timezone ?? "UTC",
-          currency: product?.currency ?? producer?.defaultCurrency ?? "USD",
-          priceCents,
-          depositCents,
-        });
+        if (producer && producer.autopilotWelcomeEmail) {
+          const product = existing.productId
+            ? (
+                await ctx.db
+                  .select({
+                    name: products.name,
+                    priceCents: products.priceCents,
+                    currency: products.currency,
+                    depositPct: products.depositPct,
+                  })
+                  .from(products)
+                  .where(eq(products.id, existing.productId))
+                  .limit(1)
+              )[0]
+            : undefined;
+          const priceCents = product?.priceCents ?? 0;
+          const depositPct = product?.depositPct ?? 0;
+          const depositCents = Math.round((priceCents * depositPct) / 100);
+          await sendBookingConfirmedEmail(existing.artistEmail, {
+            artistName: existing.artistName,
+            producerName: producer.displayName ?? "Your producer",
+            productName: product?.name ?? existing.packageNameSnapshot ?? "Session",
+            startsAt: existing.durationMin > 0 ? existing.startsAt : null,
+            producerTimezone: producer.timezone,
+            currency: product?.currency ?? producer.defaultCurrency,
+            priceCents,
+            depositCents,
+          });
+        }
       } catch (err) {
         console.warn("[email] sendBookingConfirmedEmail failed in booking.confirm", err);
       }
@@ -1123,7 +1271,20 @@ export const bookingRouter = router({
       if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
 
       const [producer] = await db
-        .select({ id: producers.id })
+        .select({
+          id: producers.id,
+          // Batch B — producer-level auto-confirm toggle. Fetched here
+          // alongside the id so we don't add a round-trip later. When
+          // on, the booking insert lands in `confirmed` directly.
+          autoConfirmBookings: producers.autoConfirmBookings,
+          // Batch G — welcome-email autopilot. Read alongside the
+          // auto-confirm flag so the same row resolve covers the
+          // auto-confirm → welcome-email path without a second query.
+          autopilotWelcomeEmail: producers.autopilotWelcomeEmail,
+          displayName: producers.displayName,
+          timezone: producers.timezone,
+          defaultCurrency: producers.defaultCurrency,
+        })
         .from(producers)
         .where(eq(producers.slug, input.slug))
         .limit(1);
@@ -1247,6 +1408,12 @@ export const bookingRouter = router({
         }
       }
 
+      // Batch B — auto-confirm toggle: when the producer has opted in,
+      // new public booking requests land directly in `confirmed` state
+      // instead of the default `pending`. The flag was fetched on the
+      // initial slug→id lookup above so we don't add a round-trip here.
+      const initialStatus = producer.autoConfirmBookings ? "confirmed" : "pending";
+
       const [row] = await db
         .insert(bookings)
         .values({
@@ -1259,7 +1426,12 @@ export const bookingRouter = router({
           ...(input.notes ? { notes: input.notes } : {}),
           startsAt: startsAt ?? new Date(),
           durationMin: prod.durationMin,
-          status: "pending",
+          status: initialStatus,
+          // TODO(cancellation-policy): enforce cancellationPolicyHours
+          // at the cancel-by-artist mutation when that flow ships.
+          // For now the value is stored on the producer row so it's
+          // available to the (future) cancel handler + the artist
+          // confirmation email copy.
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -1288,7 +1460,7 @@ export const bookingRouter = router({
 
       // Fire the producer's "new request" email. Best-effort: a Resend
       // outage must not roll back the booking insert — the producer
-      // can still see the request in /dashboard/booking?tab=requests.
+      // can still see the request in /dashboard/booking?tab=upcoming.
       try {
         const [producerRow] = await db
           .select({
@@ -1315,6 +1487,34 @@ export const bookingRouter = router({
         }
       } catch (err) {
         console.warn("[email] sendBookingRequestEmail failed in booking.publicRequest", err);
+      }
+
+      // Batch G — Autopilot "welcome email when a booking lands".
+      // Only fires on the auto-confirm path (the manual confirm in
+      // booking.confirm already gates on the same flag). If auto-
+      // confirm is off, the producer has to click Approve anyway —
+      // the confirm handler will send the welcome email at that
+      // point. Gating here keeps artist-facing emails from firing
+      // before the producer signals acceptance.
+      if (initialStatus === "confirmed" && producer.autopilotWelcomeEmail) {
+        try {
+          const depositCents = Math.round((prod.priceCents * prod.depositPct) / 100);
+          await sendBookingConfirmedEmail(input.artistEmail.toLowerCase(), {
+            artistName: input.artistName,
+            producerName: producer.displayName ?? "Your producer",
+            productName: prod.name,
+            startsAt: prod.durationMin > 0 ? (startsAt ?? null) : null,
+            producerTimezone: producer.timezone,
+            currency: prod.currency,
+            priceCents: prod.priceCents,
+            depositCents,
+          });
+        } catch (err) {
+          console.warn(
+            "[email] sendBookingConfirmedEmail failed on auto-confirm path in booking.publicRequest",
+            err,
+          );
+        }
       }
 
       // Phase H.5 — when the producer has Stripe Connect on and the

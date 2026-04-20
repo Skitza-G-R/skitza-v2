@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 
+import { ScrollReveal } from "./scroll-reveal";
+
 // Pricing — DARK world. 3 tiers, monthly/annual toggle (annual = 2
 // months free → 20% off badge on annual), Pro highlighted as the most
 // common mid-tier. Below the cards sits a grid of feature rows so a
@@ -63,11 +65,13 @@ export function Pricing() {
         <div className="mx-auto mt-10 block text-center" />
 
         <div className="mt-2 grid gap-4 md:grid-cols-3">
-          {TIERS.map((t) => (
-            <article
+          {TIERS.map((t, i) => (
+            <ScrollReveal
+              as="article"
               key={t.id}
+              delay={Math.min(i, 4) as 0 | 1 | 2 | 3 | 4}
               className={[
-                "relative flex flex-col rounded-[var(--radius-lg)] border p-7",
+                "sk-lift relative flex flex-col rounded-[var(--radius-lg)] border p-7",
                 t.featured
                   ? "border-[rgb(var(--brand-primary)/0.5)] bg-[rgb(var(--bg-elevated))] shadow-[0_20px_60px_-12px_rgb(var(--brand-primary)/0.25)]"
                   : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]",
@@ -128,13 +132,13 @@ export function Pricing() {
                 className={[
                   "flex min-h-12 items-center justify-center rounded-[var(--radius-md)] px-4 py-3 text-sm font-semibold transition-transform hover:-translate-y-[1px] active:translate-y-[1px]",
                   t.featured
-                    ? "pulse-glow bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] text-[#0C0A07] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.35)]"
+                    ? "sk-cta-shine pulse-glow bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] text-[#0C0A07] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.35)]"
                     : "border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-sunken))] text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-base))]",
                 ].join(" ")}
               >
-                {t.cta.label}
+                <span className="relative z-10">{t.cta.label}</span>
               </Link>
-            </article>
+            </ScrollReveal>
           ))}
         </div>
 

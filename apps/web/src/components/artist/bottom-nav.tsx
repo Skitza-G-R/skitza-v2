@@ -21,7 +21,11 @@ export function BottomNav() {
     <nav
       role="navigation"
       aria-label="Artist app tabs"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]/95 backdrop-blur"
+      // `sk-safe-bottom` pads the iOS home-indicator inset inside the
+      // nav (not below it) so the tab icons themselves clear the gesture
+      // strip on iPhone PWAs. `sk-safe-x` keeps side-landscape notches
+      // from clipping the first/last tab label.
+      className="sk-safe-bottom sk-safe-x fixed inset-x-0 bottom-0 z-30 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]/95 backdrop-blur"
     >
       <ul className="mx-auto grid max-w-2xl grid-cols-4">
         {TABS.map((tab) => {
@@ -30,7 +34,12 @@ export function BottomNav() {
             <li key={tab.href}>
               <Link
                 href={tab.href}
-                className={`flex flex-col items-center gap-0.5 py-3 text-[0.66rem] font-mono uppercase tracking-wider transition-colors ${
+                // min-h-[56px] exceeds the 44×44 Apple minimum and
+                // matches the visual weight of iOS native tab bars
+                // (UITabBar is 49pt high). focus-visible ring is
+                // inset so the outline doesn't clip at the nav's top
+                // border.
+                className={`flex min-h-[56px] flex-col items-center justify-center gap-0.5 py-2 text-[0.66rem] font-mono uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] ${
                   active
                     ? "text-[rgb(var(--brand-primary))]"
                     : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-secondary))]"

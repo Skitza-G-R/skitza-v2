@@ -71,31 +71,31 @@ export function WelcomeModal() {
           Welcome to Skitza.
         </h2>
         <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-          Everything about your project is here. Four tabs, persistent player.
+          Your project home. Four tabs, one always-on player.
         </p>
         <dl className="mt-5 space-y-3 text-sm">
           <div>
             <dt className="font-semibold">Home</dt>
             <dd className="text-[rgb(var(--fg-secondary))]">
-              Next session, latest mix, what&apos;s due.
+              Your next session, newest mix, and anything due.
             </dd>
           </div>
           <div>
             <dt className="font-semibold">Music</dt>
             <dd className="text-[rgb(var(--fg-secondary))]">
-              Listen + leave timestamped comments on your mixes.
+              Listen and leave comments at specific timestamps.
             </dd>
           </div>
           <div>
             <dt className="font-semibold">Book</dt>
             <dd className="text-[rgb(var(--fg-secondary))]">
-              Pick a morning or evening block, any day the producer is free.
+              Pick a slot that works for you — any day the producer is free.
             </dd>
           </div>
           <div>
             <dt className="font-semibold">Store</dt>
             <dd className="text-[rgb(var(--fg-secondary))]">
-              Browse services — a single, an album, a mix. Pay your way.
+              Browse services like a single, album, or mix, and pay your way.
             </dd>
           </div>
         </dl>
@@ -104,7 +104,7 @@ export function WelcomeModal() {
           onClick={handleDismiss}
           className="mt-6 w-full rounded-md bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-base))]"
         >
-          Got it
+          Let&rsquo;s go
         </button>
       </div>
     </div>

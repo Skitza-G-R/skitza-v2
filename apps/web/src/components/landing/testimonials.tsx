@@ -2,6 +2,8 @@
 // cities and sub-genres so a visitor from any scene sees themselves.
 // Composite quotes paraphrased from early-user feedback — noted under
 // the grid so we're honest about not having a public beta cohort yet.
+import { ScrollReveal } from "./scroll-reveal";
+
 export function Testimonials() {
   return (
     <section
@@ -30,10 +32,14 @@ export function Testimonials() {
         </div>
 
         <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {QUOTES.map((q) => (
-            <figure
+          {QUOTES.map((q, i) => (
+            <ScrollReveal
+              as="figure"
               key={q.name}
-              className="flex h-full flex-col rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
+              // Stagger six cards through buckets 0–4; the 5th/6th reuse
+              // bucket 4 so the longest lead stays ≤320ms.
+              delay={Math.min(i, 4) as 0 | 1 | 2 | 3 | 4}
+              className="sk-lift flex h-full flex-col rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
             >
               <blockquote className="flex-grow text-[rgb(var(--fg-primary))]">
                 <p className="leading-relaxed">&ldquo;{q.quote}&rdquo;</p>
@@ -55,7 +61,7 @@ export function Testimonials() {
                   </p>
                 </div>
               </figcaption>
-            </figure>
+            </ScrollReveal>
           ))}
         </div>
 

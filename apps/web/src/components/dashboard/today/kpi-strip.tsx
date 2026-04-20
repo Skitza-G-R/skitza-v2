@@ -1,7 +1,16 @@
-// KPI strip for the Today dashboard. Pure projection — a server
-// component that formats the numbers and renders 4 small tiles.
-// Tone swaps to warn when there are unresolved items, drawing the
-// producer's eye to the one action-demanding metric on the strip.
+"use client";
+
+// KPI strip for the Today dashboard. Pure projection — formats the
+// numbers and renders 4 small tiles. Tone swaps to warn when there
+// are unresolved items, drawing the producer's eye to the one
+// action-demanding metric on the strip.
+//
+// Client component (invoked from the client-side TodayView) so it uses
+// the `useTranslations` hook rather than `getTranslations`. The messages
+// are already hydrated in the NextIntlClientProvider mounted at the
+// root layout; calling the hook here is zero-cost.
+
+import { useTranslations } from "next-intl";
 
 type Props = {
   kpis: {
@@ -14,6 +23,7 @@ type Props = {
 };
 
 export function KpiStrip({ kpis }: Props) {
+  const t = useTranslations("today.kpi");
   // cents → major-units via Intl. 0 fraction digits is deliberate —
   // the strip is a glance, not an invoice. Fallback to USD when the
   // producer hasn't set a default (shouldn't happen post-onboarding).
@@ -26,12 +36,17 @@ export function KpiStrip({ kpis }: Props) {
     }).format(cents / 100);
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <Kpi label="Active projects" value={String(kpis.activeProjects)} />
-      <Kpi label="Revenue · month" value={format(kpis.revenueMonthCents)} />
-      <Kpi label="Sessions · 7d" value={String(kpis.upcomingSessions7d)} />
+    // Batch C — KPIs float on the gradient instead of sitting in
+    // bordered cards. A thin divider rule between columns keeps them
+    // legible on desktop; mobile drops the divider (2-col grid would
+    // land a stray line in the middle). Metric values get the display
+    // font at 3xl/4xl — editorial, not utility.
+    <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4 sm:divide-x sm:divide-[rgb(var(--border-subtle))]">
+      <Kpi label={t("activeProjects")} value={String(kpis.activeProjects)} />
+      <Kpi label={t("revenueMonth")} value={format(kpis.revenueMonthCents)} />
+      <Kpi label={t("sessions7d")} value={String(kpis.upcomingSessions7d)} />
       <Kpi
-        label="Unresolved"
+        label={t("unresolved")}
         value={String(kpis.unresolvedItems)}
         tone={kpis.unresolvedItems > 0 ? "warn" : "default"}
       />
@@ -49,13 +64,19 @@ function Kpi({
   tone?: "default" | "warn";
 }) {
   return (
-    <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
-      <p className="font-mono text-[0.62rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+    // Column-level padding-start handles the divider inset on desktop;
+    // first column has no leading padding so the eyebrow aligns with
+    // the page gutter. No border/background — typography carries it.
+    // `ps-0` on first:child is the logical equivalent of the old
+    // `pl-0`, so the zeroing happens on the leading edge in both
+    // directions.
+    <div className="sm:px-5 sm:first:ps-0">
+      <p className="font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
         {label}
       </p>
       <p
-        className={`mt-1 font-display text-2xl tracking-tight ${
-          tone === "warn" ? "text-[rgb(var(--fg-warning))]" : ""
+        className={`mt-2 font-display text-3xl tracking-tight sm:text-4xl ${
+          tone === "warn" ? "text-[rgb(var(--fg-warning))]" : "text-[rgb(var(--fg-primary))]"
         }`}
       >
         {value}

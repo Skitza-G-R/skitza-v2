@@ -137,6 +137,27 @@ export async function setAvailabilityWeek(input: {
   }
 }
 
+// Producer-level booking settings surfaced on the Sessions tab:
+// default session duration, auto-confirm toggle, cancellation policy.
+// Kept as a single action so UI rows and the duration picker can share
+// a write path. Partial — every field is optional so each control can
+// commit independently without clobbering the others.
+export async function updateAvailabilitySettings(input: {
+  defaultSessionMin?: number;
+  autoConfirmBookings?: boolean;
+  cancellationPolicyHours?: number;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.availability.updateSettings(input);
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // ─── Blackouts ──────────────────────────────────────────────────────
 
 export async function addBlackoutAction(input: {

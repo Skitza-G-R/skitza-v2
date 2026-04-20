@@ -46,6 +46,31 @@ export const producers = pgTable("producers", {
   // and from the `stripe.refreshAccount` mutation when the producer
   // returns from the onboarding flow.
   stripeChargesEnabled: boolean("stripe_charges_enabled").notNull().default(false),
+  // Batch B — availability editor defaults. `defaultSessionMin` is the
+  // producer's preferred session length in minutes; used to prefill the
+  // duration picker when creating new products and as a global default
+  // for the slot grid when a product omits its own duration. Common
+  // presets in the UI: 60 / 90 / 120 / 180 / 240 (or custom integer).
+  defaultSessionMin: integer("default_session_min").notNull().default(60),
+  // When true, incoming public booking requests transition straight to
+  // `confirmed` instead of `pending` — saves the producer a manual
+  // approval click per request. Read by the booking.publicRequest path.
+  autoConfirmBookings: boolean("auto_confirm_bookings").notNull().default(false),
+  // Hours of advance notice required to cancel a confirmed booking.
+  // Stored today; enforcement (cancel-by-artist flow) is a follow-up.
+  cancellationPolicyHours: integer("cancellation_policy_hours").notNull().default(24),
+  // ─── Batch G — Autopilot toggles ─────────────────────────────────
+  // Five named behaviors the producer can flip on/off. No rule-builder,
+  // no conditions — each column is a discrete outcome. See migration
+  // 0027 for the column-level rationale. Defaults:
+  //   * welcomeEmail=false / unpaidReminder=false /
+  //     requestTestimonial=false / autoArchive=false — opt-in.
+  //   * commentNotify=true — matches existing unconditional behavior.
+  autopilotWelcomeEmail: boolean("autopilot_welcome_email").notNull().default(false),
+  autopilotUnpaidReminder: boolean("autopilot_unpaid_reminder").notNull().default(false),
+  autopilotRequestTestimonial: boolean("autopilot_request_testimonial").notNull().default(false),
+  autopilotCommentNotify: boolean("autopilot_comment_notify").notNull().default(true),
+  autopilotAutoArchive: boolean("autopilot_auto_archive").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -552,7 +577,11 @@ export const clientContacts = pgTable("client_contacts", {
   // with chips; `notes` is a multi-line producer-only field; and
   // `referralSource` captures "how did they hear about me" for
   // marketing intelligence.
-  tags: text("tags").array(),
+  //
+  // Batch D (0028) narrowed `tags` from nullable → NOT NULL DEFAULT
+  // '{}'. Every read site can now treat the array as present, which
+  // simplifies the tag-pill renderers on Project Room + CRM.
+  tags: text("tags").array().notNull().default(sql`'{}'`),
   notes: text("notes"),
   referralSource: text("referral_source"),
   // Stamped by the Clerk user.created webhook on first artist sign-in.

@@ -62,8 +62,9 @@ export function SolutionFlow() {
           </ul>
         </div>
 
-        {/* Flow diagram — 6 nodes, horizontal pipeline with connectors. */}
-        <div className="mt-16 overflow-x-auto pb-4">
+        {/* Flow diagram — 6 nodes, horizontal pipeline with connectors.
+            `sk-scroll-x` makes the narrow-viewport swipe feel native. */}
+        <div className="sk-scroll-x mt-16 overflow-x-auto pb-4">
           <ol className="flex min-w-max items-center gap-3 sm:gap-5">
             {STEPS.map((s, i) => (
               <li key={s} className="flex items-center gap-3 sm:gap-5">

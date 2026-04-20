@@ -23,6 +23,13 @@ interface WaveformPlayerProps {
   /** Fires after a user click-to-seek on the waveform. */
   onSeek?: (timeSec: number) => void;
   className?: string;
+  /**
+   * Waveform visual height in pixels. Defaults to 80 (inline list
+   * rhythm). Batch C: the "hero" waveform on the active version inside
+   * a Project Room Music sub-tab passes 320 to promote the waveform
+   * to the primary interaction surface, Samply-style.
+   */
+  height?: number;
 }
 
 export function WaveformPlayer({
@@ -31,6 +38,7 @@ export function WaveformPlayer({
   onReady,
   onSeek,
   className,
+  height = 80,
 }: WaveformPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
@@ -73,7 +81,7 @@ export function WaveformPlayer({
 
     const ws = WaveSurfer.create({
       container,
-      height: 80,
+      height,
       waveColor: `rgba(${accent.replaceAll(" ", ", ")}, 0.35)`,
       progressColor: `rgb(${primary.replaceAll(" ", ", ")})`,
       cursorColor: `rgb(${fgPrimary.replaceAll(" ", ", ")})`,
@@ -122,7 +130,12 @@ export function WaveformPlayer({
       ws.destroy();
       wsRef.current = null;
     };
-  }, [src]);
+    // height is a visual prop only — wavesurfer picks it up on
+    // construction, so changing height needs a re-mount of the
+    // instance (no getter/setter in v7). Including it here keeps
+    // the promotion from 80→320 cleanly handled when the active
+    // version switches.
+  }, [src, height]);
 
   const toggle = useCallback(() => {
     const ws = wsRef.current;
@@ -153,7 +166,11 @@ export function WaveformPlayer({
           "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))]",
           "shadow-[inset_0_1px_0_0_rgb(255_255_255_/_0.15),0_2px_8px_-1px_rgb(var(--brand-primary)/0.35)]",
           "transition-[transform,filter] duration-150 active:translate-y-[1px]",
-          "hover:brightness-110 disabled:cursor-default disabled:opacity-80",
+          // Breathing glow on hover — a subtle nod that the button is
+          // the primary control for the waveform. Uses the existing
+          // pulse-glow keyframe (2s cycle) via sk-pulse-hover so nothing
+          // animates until the producer hovers the play/pause target.
+          "sk-pulse-hover hover:brightness-110 disabled:cursor-default disabled:opacity-80",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
         ].join(" ")}
       >
@@ -174,10 +191,10 @@ export function WaveformPlayer({
             "relative w-full rounded-sm",
             // Placeholder shimmer while decoding — wavesurfer itself paints
             // nothing until "ready", so without this the user sees a blank
-            // 80px-tall gap and wonders if the upload is broken.
+            // gap and wonders if the upload is broken.
             !ready && !error ? "animate-pulse bg-[rgb(var(--bg-sunken))]" : "",
           ].join(" ")}
-          style={{ height: 80, touchAction: "none" }}
+          style={{ height, touchAction: "none" }}
         />
         <div className="flex items-center justify-between font-mono text-[0.66rem] tracking-wide text-[rgb(var(--fg-muted))]">
           <span>{formatTime(current)}</span>

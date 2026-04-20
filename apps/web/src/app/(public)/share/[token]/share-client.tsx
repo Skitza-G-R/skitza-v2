@@ -147,9 +147,10 @@ export function ShareClient({ token, project, tracks, versions, comments }: Prop
               ) : null}
             </header>
 
-            {/* Version stack — latest on top, click to switch */}
+            {/* Version stack — latest on top, click to switch.
+                `sk-scroll-x` for iOS momentum on the version rail. */}
             {tVersions.length > 0 ? (
-              <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+              <div className="sk-scroll-x mb-4 flex gap-2 overflow-x-auto pb-1">
                 {tVersions.map((v, vi) => {
                   const isSelected = v.id === selectedId;
                   const isLatest = vi === 0;
@@ -298,7 +299,7 @@ function PlayerPanel({
             aria-disabled
             className="inline-flex cursor-not-allowed items-center gap-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-3 py-1 font-mono text-xs text-[rgb(var(--fg-muted))]"
           >
-            🔒 Locked until paid
+            🔒 Download unlocks after final payment
           </span>
         )}
       </div>
@@ -345,7 +346,7 @@ function ArtistCommentForm({
         timestampMs: Math.round(secs * 1000),
       });
       if (res.ok) {
-        toast("Comment posted.", "success");
+        toast("Comment sent. The producer will see it on this track.", "success");
         onIdentity({ name: trimmedName, email: trimmedEmail });
         setBody("");
         setTimestampSec("0");
@@ -416,7 +417,7 @@ function ArtistCommentForm({
           maxLength={2000}
         />
         <Button type="submit" size="sm" disabled={pending}>
-          {pending ? "…" : "Post"}
+          {pending ? "…" : "Send"}
         </Button>
       </div>
     </form>

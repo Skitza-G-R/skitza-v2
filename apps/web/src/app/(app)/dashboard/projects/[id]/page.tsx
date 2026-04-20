@@ -16,6 +16,7 @@ import {
   type SessionBooking,
 } from "~/components/dashboard/project/sub-tabs/sessions-sub-tab";
 import { AppShell } from "~/components/shell/app-shell";
+import { Breadcrumbs } from "~/components/ui/breadcrumbs";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { getStripe } from "~/server/stripe/client";
 
@@ -45,6 +46,27 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     data = await caller.project.detail({ id });
   } catch {
     notFound();
+  }
+
+  // Batch G Task 4 — money summary for the Money sub-tab's 3-metric
+  // strip (Paid / Outstanding / Next charge). Degrade gracefully:
+  // zero everywhere if the router errors, matching the "no invoices"
+  // render path.
+  let moneyForProject: {
+    paidCents: number;
+    outstandingCents: number;
+    currency: string;
+    nextChargeAt: Date | null;
+  } = {
+    paidCents: 0,
+    outstandingCents: 0,
+    currency: "USD",
+    nextChargeAt: null,
+  };
+  try {
+    moneyForProject = await caller.project.money({ projectId: id });
+  } catch (err) {
+    console.warn("[projects] project.money failed", err);
   }
 
   // Contracts: list all producer contracts and client-filter by
@@ -163,6 +185,39 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     }
   }
 
+  // Batch D — look up the client contact linked to this project so
+  // the header can render per-client tags + the inline tag editor.
+  // Matches on project.artistEmail; for legacy rows with clientEmail
+  // but no artistEmail the clientContacts.listWithProjects fallback
+  // would catch them, but this path is simpler and covers 99% of
+  // projects. Failure degrades to `null` (header omits the tag strip).
+  let clientContact: {
+    id: string;
+    tags: string[];
+  } | null = null;
+  let tagVocabulary: string[] = [];
+  try {
+    const [contact, vocab] = await Promise.all([
+      caller.clientContacts.list({ q: data.project.artistEmail }),
+      caller.clientContacts.listTags(),
+    ]);
+    const match = contact.find(
+      (c) => c.email.toLowerCase() === data.project.artistEmail.toLowerCase(),
+    );
+    if (match) {
+      // The list query projects a slim row; fetch the full record for
+      // tags since autocomplete values aren't exposed on the list shape.
+      const detail = await caller.clientContacts.detail({ id: match.id });
+      clientContact = {
+        id: detail.contact.id,
+        tags: detail.contact.tags,
+      };
+    }
+    tagVocabulary = vocab;
+  } catch (err) {
+    console.warn("[projects] client contact lookup failed", err);
+  }
+
   // Shared header props — consumed by ProjectHeader's top row, payment
   // strip, timeline, and 3-dot action handlers. finalDelivered mirrors
   // finalPaid for now (pre-Task-6 there's no dedicated "delivered"
@@ -190,8 +245,27 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
 
   return (
     <AppShell active="projects">
-      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
-        <ProjectHeader project={headerProject} />
+      {/* The Project Room has the richest content surface in the
+          dashboard — ProjectHeader + 5-step timeline + payment strip
+          + sub-tabs that can render a waveform player, a comment
+          thread, and a money ledger simultaneously. 1600px (vs the
+          1400px default on Today/Projects/Music) reclaims roughly
+          one waveform-worth of horizontal breathing room on
+          ultra-wide 2560px+ displays without feeling stretched on
+          a 1280px MacBook Air. */}
+      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+        <Breadcrumbs
+          className="mb-3"
+          items={[
+            { label: "Projects", href: "/dashboard/projects" },
+            { label: data.project.title },
+          ]}
+        />
+        <ProjectHeader
+          project={headerProject}
+          clientContact={clientContact}
+          tagVocabulary={tagVocabulary}
+        />
         <div className="mt-6">
           <ProjectSubTabs activeTab={activeTab}>
             {activeTab === "music" ? (
@@ -227,7 +301,11 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
               <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
             ) : null}
             {activeTab === "money" ? (
-              <MoneySubTab projectId={data.project.id} contracts={contractsForProject} />
+              <MoneySubTab
+                projectId={data.project.id}
+                money={moneyForProject}
+                contracts={contractsForProject}
+              />
             ) : null}
             {activeTab === "notes" ? (
               <NotesSubTab

@@ -96,7 +96,7 @@ export function BlackoutsEditor({ initialBlackouts }: { initialBlackouts: Blacko
         ...(reason.trim() ? { reason: reason.trim() } : {}),
       });
       if (res.ok) {
-        toast("Blackout added.", "success");
+        toast("Blackout added. Clients won't see slots on those days.", "success");
         setStartDate("");
         setEndDate("");
         setReason("");

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 // Global keyboard-shortcut layer. Patterned after Linear/Superhuman:
 // two-key navigation (`g` then one of t/m/p/s), single-key actions
@@ -39,6 +39,43 @@ export const G_LEADER_ROUTES = {
 } as const;
 
 export type GLeaderKey = keyof typeof G_LEADER_ROUTES;
+
+// Surface-scoped shortcut: bind a single lower-case key on any page
+// that wants a quick action (upload, new, toggle done, copy link).
+// Same typing-target + modifier guard as the global layer so "typing
+// U inside a textarea" never mis-fires an upload.
+//
+// Callers pass the key as a single character ("u", "n", "t"). The
+// handler should do the action (navigate, call a server action, open
+// a modal) — the hook registers in the capture phase + calls
+// stopImmediatePropagation, which pre-empts the global layer's
+// bubble-phase handler. This lets a page override "c" (which is
+// global "create") with "c" for "copy share link" on Today without
+// both handlers firing on the same keypress.
+export function useHotkey(key: string, handler: () => void) {
+  // Wrap in useCallback so the effect's deps stay stable across
+  // re-renders when the caller passes an inline lambda.
+  const stable = useCallback(handler, [handler]);
+  useEffect(() => {
+    const lower = key.toLowerCase();
+    function onKey(e: KeyboardEvent) {
+      if (isTypingTarget(e.target)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.toLowerCase() !== lower) return;
+      e.preventDefault();
+      // Block the global keydown listener from seeing this event.
+      // Important for keys like "c" where the global default would
+      // otherwise fire the context-aware create.
+      e.stopImmediatePropagation();
+      stable();
+    }
+    // Capture phase so we win the race against the global layer.
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", onKey, { capture: true });
+    };
+  }, [key, stable]);
+}
 
 export function useGlobalShortcuts(handlers: ShortcutHandlers) {
   const router = useRouter();
@@ -95,6 +132,17 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
         return;
       }
       if (key === "c") {
+        e.preventDefault();
+        handlers.createContextAware();
+        return;
+      }
+      // `n` = new project. Distinct from `c` (context-aware create) so
+      // producers anywhere in the app can hit N and land on the new-
+      // project form without thinking about which screen they're on.
+      // If the current surface wants a different "new", it can layer
+      // a useHotkey("n", ...) on top — page-scoped hotkeys register
+      // after the global layer and call preventDefault, which wins.
+      if (key === "n") {
         e.preventDefault();
         handlers.createContextAware();
         return;

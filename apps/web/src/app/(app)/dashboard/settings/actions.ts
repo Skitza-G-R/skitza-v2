@@ -75,3 +75,22 @@ export async function updateProducer(input: {
     return { ok: false, error: toMessage(err) };
   }
 }
+
+// Batch G — Autopilot toggle flip. One named behavior at a time; the
+// `key` enum is enforced at the tRPC input layer so unknown keys
+// never reach the DB. Revalidates the Setup page so the server-
+// rendered switch state matches DB truth on the next request.
+export async function updateAutopilot(input: {
+  key: "welcomeEmail" | "unpaidReminder" | "requestTestimonial" | "commentNotify" | "autoArchive";
+  enabled: boolean;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.producer.updateAutopilot(input);
+    revalidatePath(SETTINGS_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}

@@ -86,11 +86,13 @@ export function LandingNav() {
           </Link>
         </div>
 
-        {/* Mobile: zero-JS disclosure sheet. */}
+        {/* Mobile: zero-JS disclosure sheet. `sk-tap` (44×44) clears
+            the Apple/Google tap minimum; was 40×40 which fell one px
+            short on iPad Safari in standalone PWA mode. */}
         <details className="group relative md:hidden">
           <summary
             aria-label="Open menu"
-            className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] [&::-webkit-details-marker]:hidden"
+            className="sk-tap flex cursor-pointer list-none items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] [&::-webkit-details-marker]:hidden"
           >
             <svg
               aria-hidden
@@ -120,13 +122,17 @@ export function LandingNav() {
             </svg>
           </summary>
           <div className="absolute right-0 top-[calc(100%+0.5rem)] w-64 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 shadow-[0_20px_60px_-12px_rgb(0_0_0/0.25)]">
+            {/* Each menu row is min-h-11 (44px) + centred via flex so
+                the hit region matches the Apple/Google tap minimum on
+                small phones. Was `block py-2.5` which rendered ~40px
+                — short by 4px for iOS's accessibility audit. */}
             <ul className="flex flex-col">
               {NAV_LINKS.map((l) =>
                 l.kind === "route" ? (
                   <li key={l.href}>
                     <Link
                       href={l.href}
-                      className="block rounded-[var(--radius-md)] px-3 py-2.5 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-primary))]"
+                      className="flex min-h-11 items-center rounded-[var(--radius-md)] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
                     >
                       {l.label}
                     </Link>
@@ -135,7 +141,7 @@ export function LandingNav() {
                   <li key={l.href}>
                     <a
                       href={l.href}
-                      className="block rounded-[var(--radius-md)] px-3 py-2.5 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-primary))]"
+                      className="flex min-h-11 items-center rounded-[var(--radius-md)] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
                     >
                       {l.label}
                     </a>
@@ -146,7 +152,7 @@ export function LandingNav() {
               <li>
                 <Link
                   href="/sign-in"
-                  className="block rounded-[var(--radius-md)] px-3 py-2.5 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-primary))]"
+                  className="flex min-h-11 items-center rounded-[var(--radius-md)] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
                 >
                   Sign in
                 </Link>

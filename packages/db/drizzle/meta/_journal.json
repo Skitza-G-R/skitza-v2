@@ -134,6 +134,76 @@
       "when": 1776988800000,
       "tag": "0018_stripe_integration",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776988860000,
+      "tag": "0019_payment_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1776988920000,
+      "tag": "0020_stripe_customers_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1776988980000,
+      "tag": "0021_invoices_pi_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1776989040000,
+      "tag": "0022_projects_total_amount",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1776989100000,
+      "tag": "0023_projects_currency",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1776989160000,
+      "tag": "0024_client_contacts_clerk_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1776989220000,
+      "tag": "0025_default_session_min",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1776989280000,
+      "tag": "0026_booking_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1776989340000,
+      "tag": "0027_producer_autopilot",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1776989400000,
+      "tag": "0028_client_contacts_tags",
+      "breakpoints": true
     }
   ]
 }

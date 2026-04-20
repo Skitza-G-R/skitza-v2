@@ -26,14 +26,20 @@ export function FAQ() {
                 <span style={{ fontWeight: 600 }}>{q.q}</span>
                 <span
                   aria-hidden
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-secondary))] transition-transform group-open:rotate-45"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-secondary))] transition-transform duration-200 group-open:rotate-45"
                 >
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                     <path d="M12 5v14M5 12h14" />
                   </svg>
                 </span>
               </summary>
-              <div className="px-6 pb-6 text-[rgb(var(--fg-secondary))]">
+              {/* Answer body slides + fades in when <details> opens.
+                  motion-safe so reduced-motion users see a static
+                  reveal. Uses the existing skitza-reveal-up keyframe
+                  scoped to :group-open via Tailwind's `group-open:`
+                  variant — zero JS, stays a11y-compatible with the
+                  native <details> toggle. */}
+              <div className="px-6 pb-6 text-[rgb(var(--fg-secondary))] motion-safe:group-open:[animation:skitza-reveal-up_260ms_cubic-bezier(0.16,1,0.3,1)_both]">
                 <p className="leading-relaxed">{q.a}</p>
               </div>
             </details>

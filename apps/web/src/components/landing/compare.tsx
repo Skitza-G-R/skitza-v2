@@ -86,7 +86,7 @@ export function Compare() {
             <article
               key={c.name}
               className={[
-                "rounded-[var(--radius-lg)] border p-5",
+                "sk-lift rounded-[var(--radius-lg)] border p-5",
                 c.highlight
                   ? "border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.06)]"
                   : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]",

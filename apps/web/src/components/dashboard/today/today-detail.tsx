@@ -38,9 +38,10 @@ export function TodayDetail({
 
   if (!selectedItemId) {
     return (
-      <div className="flex min-h-[240px] items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center">
-        <p className="text-sm text-[rgb(var(--fg-secondary))]">
-          Select an item from the list to see details.
+      // Batch C — empty state as typography, not a dashed box.
+      <div className="flex min-h-[240px] items-center justify-center p-8 text-center">
+        <p className="text-sm text-[rgb(var(--fg-muted))]">
+          Pick an item on the left to see details.
         </p>
       </div>
     );
@@ -49,7 +50,7 @@ export function TodayDetail({
   const item = items.find((i) => i.id === selectedItemId);
   if (!item) {
     return (
-      <div className="flex min-h-[240px] items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center">
+      <div className="flex min-h-[240px] items-center justify-center p-8 text-center">
         <p className="text-sm text-[rgb(var(--fg-secondary))]">
           That item is no longer in your inbox.{" "}
           <button
@@ -57,7 +58,7 @@ export function TodayDetail({
             onClick={clearSelection}
             className="text-[rgb(var(--brand-primary))] underline decoration-dotted underline-offset-2"
           >
-            Clear selection
+            Back to inbox
           </button>
         </p>
       </div>
@@ -65,15 +66,18 @@ export function TodayDetail({
   }
 
   return (
-    <article className="flex flex-col gap-5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6">
+    // Batch C — no card frame. The detail pane is the right half of a
+    // two-pane inbox; on mobile it's a full-bleed screen. Chrome on
+    // either would read as "card in a card."
+    <article className="flex flex-col gap-6 p-2 md:pl-8">
       <header>
-        <p className="font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+        <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
           {KIND_LABEL[item.kind]}
         </p>
-        <h2 className="mt-1 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]">
+        <h2 className="mt-2 font-display text-3xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-4xl">
           {item.title}
         </h2>
-        <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
+        <p className="mt-3 text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
           {item.subtitle}
         </p>
       </header>
@@ -119,14 +123,14 @@ export function TodayDetail({
               href={item.href}
               className="inline-flex h-9 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--border-strong))]"
             >
-              Accept
+              Accept lead
             </Link>
             <button
               type="button"
               onClick={clearSelection}
               className="inline-flex h-9 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--border-strong))]"
             >
-              Ignore
+              Skip for now
             </button>
           </>
         ) : null}

@@ -1,11 +1,17 @@
-// Download — DARK world. macOS is live (ish — see GitHub Releases); the
-// others are labelled "coming soon" so we don't promise binaries we
-// haven't shipped. Mobile: buttons stack full-width with min-h-12.
+import Link from "next/link";
+
+// Download — DARK world. Pre-launch state: every platform (macOS +
+// Windows + Linux + companion mobile apps) is flagged "coming soon".
+// The previous live macOS CTA pointed at a GitHub Releases URL that
+// 404s until a signed DMG is tagged — real signed binaries require
+// Apple Developer cert + Tauri CI, which is its own infra project.
+// Until that lands, the whole section presents a uniform honest
+// "coming soon" state so nothing on this page sends visitors to a
+// broken download.
 //
-// The GitHub Releases URL returns `/latest` which 404s until a release
-// has been tagged. The footnote below makes that honest — and the
-// unsigned-binary workaround is called out so first-launch doesn't
-// feel like it's broken.
+// Mobile: cards stack to min-h-12 single column. No new backend —
+// the waitlist signal is the same "Start free" conversion at the top
+// of the page; we'll email desktop-app availability when it ships.
 export function Download() {
   return (
     <section
@@ -22,7 +28,7 @@ export function Download() {
 
       <div className="relative mx-auto max-w-4xl px-6">
         <p className="text-center font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--brand-primary))]">
-          Desktop app
+          Desktop app · coming soon
         </p>
         <h2
           className="mt-3 text-center font-display text-[clamp(2rem,5vw,3.5rem)] leading-[1.05] tracking-tight"
@@ -34,51 +40,21 @@ export function Download() {
           </span>
         </h2>
         <p className="mx-auto mt-5 max-w-xl text-center text-[rgb(var(--fg-secondary))]">
-          The Skitza desktop app for macOS gives you Finder drag-and-drop, native
+          The Skitza desktop app gives you Finder drag-and-drop, native
           notifications, and a global{" "}
           <kbd className="rounded border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1.5 py-0.5 font-mono text-[0.72rem] text-[rgb(var(--fg-primary))]">
             ⌥ ⌘ Space
           </kbd>{" "}
-          shortcut — open any session in a tap.
+          shortcut — open any session in a tap. The web app is live today;
+          signed desktop binaries ship this quarter.
         </p>
 
         <div className="mt-10 grid gap-3 sm:grid-cols-2">
-          {/* macOS — live */}
-          <a
-            href="https://github.com/giasraf/skitza-v2/releases/latest"
-            target="_blank"
-            rel="noreferrer noopener"
-            className="group flex min-h-12 items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--bg-elevated))] p-5 transition-colors hover:border-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.06)]"
-          >
-            <div className="flex items-center gap-3">
-              <span
-                aria-hidden
-                className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]"
-              >
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
-                </svg>
-              </span>
-              <div className="text-left">
-                <p className="font-display text-lg tracking-tight" style={{ fontWeight: 700 }}>
-                  macOS
-                </p>
-                <p className="font-mono text-[0.7rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                  Apple silicon · 13+
-                </p>
-              </div>
-            </div>
-            <span className="font-mono text-[0.7rem] uppercase tracking-wider text-[rgb(var(--brand-primary))] transition-transform group-hover:translate-x-1">
-              Download →
-            </span>
-          </a>
-
-          {/* Platforms in progress */}
           {PLATFORMS.map((p) => (
             <div
               key={p.label}
               aria-disabled
-              className="flex min-h-12 items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 opacity-60"
+              className="flex min-h-12 items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 opacity-70"
             >
               <div className="flex items-center gap-3">
                 <span
@@ -104,24 +80,40 @@ export function Download() {
         </div>
 
         <p className="mt-6 text-center font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-          Releases are published from GitHub when a new version drops — the link
-          above tracks the latest Mac DMG. If it 404s, we haven&apos;t cut a
-          release yet; check back soon.
+          Desktop builds land when the signed Tauri pipeline + Apple
+          Developer cert are in place. In the meantime, the web app
+          covers every flow — bookings, contracts, audio, payments.
         </p>
         <p className="mt-2 text-center font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-          First launch: right-click the app and choose{" "}
-          <span className="text-[rgb(var(--fg-secondary))]">Open</span> (the
-          build isn&apos;t notarised yet, so Gatekeeper asks once).
-        </p>
-        <p className="mt-2 text-center font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-          System requirements: macOS 11 Big Sur or later · 4 GB RAM · 250 MB disk
+          Want a ping when the Mac build ships?{" "}
+          <Link
+            href="/sign-up"
+            className="text-[rgb(var(--brand-primary))] underline-offset-4 hover:underline"
+          >
+            Start free
+          </Link>{" "}
+          — we&rsquo;ll email you the moment it&rsquo;s available.
         </p>
       </div>
     </section>
   );
 }
 
+// Ordered macOS → Windows → Linux → mobile companions. macOS leads
+// because it's the most-requested platform among solo producers
+// (Logic / Ableton dominance), then Windows (FL / Cubase), then
+// Linux (Bitwig / Ardour), then the iOS / Android companion apps
+// that plug into the same account.
 const PLATFORMS: readonly { label: string; icon: React.ReactNode; note: string }[] = [
+  {
+    label: "macOS",
+    note: "Apple silicon · 13+",
+    icon: (
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden>
+        <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
+      </svg>
+    ),
+  },
   {
     label: "Windows",
     note: "10 / 11 · x64",

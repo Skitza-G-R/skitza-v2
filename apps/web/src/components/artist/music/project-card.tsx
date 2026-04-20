@@ -23,7 +23,7 @@ export function ProjectCard({
   return (
     <Link
       href={`/artist/music/${project.projectId}`}
-      className="flex items-center gap-3 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 transition-colors hover:border-[rgb(var(--brand-primary))]/50"
+      className="sk-lift flex items-center gap-3 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 hover:border-[rgb(var(--brand-primary))]/50"
     >
       <div
         className="h-14 w-14 shrink-0 rounded-sm bg-[rgb(var(--bg-sunken))]"

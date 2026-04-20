@@ -13,7 +13,7 @@ const TABS = [
   {
     key: "booking",
     label: "Storefront & Booking",
-    title: "Sell packages, not just time.",
+    title: "Sell services, not just time.",
     body: [
       `Share your Skitza link as your personal storefront. Clients select a service (e.g. "Full Production"), pick a date, and pay the deposit — all in one flow.`,
       `No more "does Thursday at 4 work?"`,
@@ -119,7 +119,7 @@ export function FeaturesTabs() {
 
         <div className="mt-14 grid gap-6 lg:grid-cols-[minmax(14rem,18rem)_1fr]">
           {/* Tab list */}
-          <nav aria-label="Feature list" className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+          <nav aria-label="Feature list" className="sk-scroll-x flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
             {TABS.map((t, i) => (
               <button
                 key={t.key}
@@ -140,8 +140,13 @@ export function FeaturesTabs() {
             ))}
           </nav>
 
-          {/* Active tab pane */}
-          <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 sm:p-8">
+          {/* Active tab pane — keyed on `active` so React remounts the
+              pane on tab change, replaying the .reveal-up animation so
+              content fades + slides in rather than snapping. */}
+          <div
+            key={current.key}
+            className="reveal-up rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 sm:p-8"
+          >
             <h3
               className="font-display text-2xl leading-tight tracking-tight text-[rgb(var(--fg-primary))] sm:text-3xl"
               style={{ fontWeight: 700 }}
@@ -173,7 +178,7 @@ function BookingMockup() {
     <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-4 font-mono text-xs">
       <div className="flex items-center justify-between rounded-[var(--radius-sm)] border border-[rgb(var(--brand-primary)/0.5)] bg-[rgb(var(--bg-elevated))] px-3 py-2">
         <div>
-          <div className="font-semibold text-[rgb(var(--brand-primary))]">Full Production Package</div>
+          <div className="font-semibold text-[rgb(var(--brand-primary))]">Full Production Service</div>
           <div className="mt-0.5 text-[rgb(var(--fg-muted))]">Beat · tracking · mix</div>
         </div>
         <div className="font-display text-sm" style={{ fontWeight: 700 }}>$1,500</div>

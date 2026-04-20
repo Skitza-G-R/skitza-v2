@@ -1,7 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type SyntheticEvent, useMemo, useState, useTransition } from "react";
+import { type SyntheticEvent, useEffect, useMemo, useState, useTransition } from "react";
+
+import { KeyboardHint } from "~/components/ui/keyboard-hint";
+import { useHotkey } from "~/lib/keyboard/use-shortcuts";
 
 import { AudioUploader } from "~/components/audio/audio-uploader";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
@@ -132,6 +135,24 @@ export function MusicSubTab({
   );
   const [selected, setSelected] = useState<Record<string, string | null>>(initialSelected);
 
+  // Batch C — responsive hero waveform height. 320px reads as the
+  // Samply "tall scrubbing surface" on desktop; 200px keeps a phone
+  // viewport from drowning in waveform. SSR default = 320 (desktop-
+  // first, no layout shift for the common case); the effect settles to
+  // the right value on mount.
+  const [heroHeight, setHeroHeight] = useState(320);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const apply = () => {
+      setHeroHeight(mq.matches ? 320 : 200);
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => {
+      mq.removeEventListener("change", apply);
+    };
+  }, []);
+
   function onCreateTrack(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const title = newTrackTitle.trim();
@@ -143,7 +164,7 @@ export function MusicSubTab({
         ...(newTrackArtist.trim() ? { artist: newTrackArtist.trim() } : {}),
       });
       if (res.ok) {
-        toast(`Track "${title}" added.`, "success");
+        toast(`Added "${title}".`, "success");
         setNewTrackTitle("");
         setNewTrackArtist("");
         setShowTrack(false);
@@ -161,7 +182,7 @@ export function MusicSubTab({
     startTransition(async () => {
       const res = await addTrackVersion({ projectId: project.id, trackId, label, audioUrl: null });
       if (res.ok) {
-        toast(`Version "${label}" added — drop your file to upload.`, "success");
+        toast(`"${label}" ready — drop your audio file to upload.`, "success");
         setNewVersionLabel("");
         setVersionFor(null);
         setSelected((s) => ({ ...s, [trackId]: res.data.id }));
@@ -172,11 +193,18 @@ export function MusicSubTab({
     });
   }
 
+  // Batch D — `U` on the Project Room Music sub-tab opens the "add
+  // track" form. Scoped to this sub-tab only (the hook mounts with
+  // the component, so switching to a different sub-tab unregisters).
+  useHotkey("u", () => {
+    setShowTrack(true);
+  });
+
   function onResolve(id: string, resolved: boolean) {
     startTransition(async () => {
       const res = await resolveVersionComment({ projectId: project.id, id, resolved });
       if (res.ok) {
-        toast(resolved ? "Comment resolved." : "Re-opened.", "success");
+        toast(resolved ? "Comment marked resolved." : "Comment re-opened.", "success");
         router.refresh();
       } else {
         toast(res.error, "error");
@@ -194,7 +222,7 @@ export function MusicSubTab({
       {tracks.length === 0 ? (
         <EmptyState
           title="No tracks yet."
-          description="Add the first track to start collecting versions + feedback. Use the + Add track button below to name it — you can upload a WAV right after."
+          description="Add a track, then drop in a mix. You'll be able to collect timestamped feedback and approve a final version from here."
         />
       ) : null}
 
@@ -239,7 +267,7 @@ export function MusicSubTab({
             </header>
 
             {tVersions.length > 0 ? (
-              <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+              <div className="sk-scroll-x mb-4 flex gap-2 overflow-x-auto pb-1" aria-label="Track versions">
                 {tVersions.map((v, vi) => {
                   const isSelected = v.id === selectedId;
                   const isLatest = vi === 0;
@@ -251,7 +279,8 @@ export function MusicSubTab({
                         setSelected((s) => ({ ...s, [t.id]: v.id }));
                       }}
                       className={[
-                        "whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors",
+                        "inline-flex min-h-[44px] items-center whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors sm:min-h-0",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
                         isSelected
                           ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
                           : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
@@ -265,24 +294,34 @@ export function MusicSubTab({
               </div>
             ) : (
               <p className="mb-4 text-sm text-[rgb(var(--fg-secondary))]">
-                No versions yet. Add the first one with + Version.
+                No versions yet. Tap + Version to upload your first mix.
               </p>
             )}
 
             {selectedVersion ? (
-              <div className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-3">
+              // Batch C — hero waveform for the active version. Samply
+              // makes the waveform the primary interaction surface: 320px
+              // tall, full-bleed inside the track card, bg-sunken panel
+              // so the amber waveform pops. Non-active versions (in the
+              // version chip row above) stay compact — producers tap one
+              // to swap the hero.
+              <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-4 sm:p-6">
                 {selectedVersion.audioUrl ? (
-                  <WaveformPlayer src={selectedVersion.audioUrl} label={t.title} />
+                  <WaveformPlayer
+                    src={selectedVersion.audioUrl}
+                    label={t.title}
+                    height={heroHeight}
+                  />
                 ) : (
                   <AudioUploader
                     trackVersionId={selectedVersion.id}
                     onComplete={() => {
-                      toast("Upload complete.", "success");
+                      toast("Mix uploaded. Waveform rendering now.", "success");
                       router.refresh();
                     }}
                   />
                 )}
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] pt-3">
                   <p className="font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
                     <span className="text-[rgb(var(--fg-secondary))]">{selectedVersion.label}</span>
                     {" · "}
@@ -414,15 +453,22 @@ export function MusicSubTab({
       })}
 
       {!showTrack ? (
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => {
-            setShowTrack(true);
-          }}
-        >
-          + Add track
-        </Button>
+        <KeyboardHint shortcut="U">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setShowTrack(true);
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              + Add track
+              <kbd className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-1 font-mono text-[0.62rem] text-[rgb(var(--fg-muted))]">
+                U
+              </kbd>
+            </span>
+          </Button>
+        </KeyboardHint>
       ) : (
         <form
           onSubmit={onCreateTrack}
@@ -506,7 +552,7 @@ function ProducerReplyForm({
         timestampMs: Math.round(secs * 1000),
       });
       if (res.ok) {
-        toast("Reply posted.", "success");
+        toast("Reply sent. The artist will see it on their timeline.", "success");
         setBody("");
         setTimestampSec("0");
         onDone();
@@ -538,12 +584,12 @@ function ProducerReplyForm({
         onChange={(e) => {
           setBody(e.target.value);
         }}
-        placeholder="Your reply at that timestamp…"
+        placeholder="Reply at that moment in the track…"
         required
         maxLength={2000}
       />
       <Button type="submit" size="sm" disabled={pending}>
-        {pending ? "…" : "Post"}
+        {pending ? "…" : "Send"}
       </Button>
     </form>
   );
@@ -577,7 +623,7 @@ function ApproveControl({
       if (res.ok) {
         toast(
           approved
-            ? "Version approved — we'll remind you about stems."
+            ? "Marked as final. We'll nudge you about stems next."
             : "Approval cleared.",
           "success",
         );
@@ -600,9 +646,9 @@ function ApproveControl({
         disabled={pending || !version.audioUrl}
         // If there's no uploaded audio yet the button is disabled —
         // approving a still-uploading version is nonsensical.
-        title={version.audioUrl ? "Mark this version as final" : "Upload audio before approving"}
+        title={version.audioUrl ? "Mark this version as the final" : "Upload the mix first, then approve it"}
       >
-        {pending ? "…" : "Approve"}
+        {pending ? "…" : "Mark as final"}
       </Button>
     );
   }
@@ -625,7 +671,7 @@ function ApproveControl({
               // the + Version button focus-wise is more involved;
               // for MVP we simply scroll + toast an instruction.
               toast(
-                "Add a new version labelled \"stems\" under this track.",
+                "Tap + Version and label it \"stems\" to send them.",
                 "info",
               );
             }}

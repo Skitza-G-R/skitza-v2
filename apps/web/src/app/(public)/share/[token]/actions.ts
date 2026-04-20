@@ -18,20 +18,20 @@ function toMessage(err: unknown): string {
   if (err instanceof TRPCError) {
     switch (err.code) {
       case "NOT_FOUND":
-        return "This project link isn't valid.";
+        return "This project link isn't valid — ask your producer to resend it.";
       case "TOO_MANY_REQUESTS":
-        return "Too many requests — try again in a moment.";
+        return "Too many tries in a row. Wait a few seconds and try again.";
       case "BAD_REQUEST":
       case "PRECONDITION_FAILED":
         // Forward the specific message — these are usually direct
         // explanations of *why* the action failed (e.g. "No saved
         // payment method on file yet ...") that the user can act on.
-        return err.message || "Invalid input.";
+        return err.message || "Check the form and try again.";
       default:
-        return "Something went wrong. Please try again.";
+        return "Something broke on our end. Try again in a moment.";
     }
   }
-  return err instanceof Error ? err.message : "Something went wrong.";
+  return err instanceof Error ? err.message : "Something broke on our end. Try again in a moment.";
 }
 
 export async function submitArtistComment(input: {

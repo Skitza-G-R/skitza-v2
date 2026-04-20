@@ -8,13 +8,18 @@ import {
   type Stage,
 } from "~/components/dashboard/projects/projects-list";
 import { AppShell } from "~/components/shell/app-shell";
+import { isProjectState } from "~/lib/projects/states";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Task 4: lightweight browse view for all of a producer's projects,
-// filterable by the seven Kanban-visible stages (lead → archived).
-// Replaces the drag-drop columns that lived here from Phase C.4
-// through Task 2 — per the design doc's anti-Kanban argument, the
-// columns never earned the UI cost they took.
+// filterable by the three display states (Live / Done / Archived).
+// Batch G collapsed the former 8-chip stage filter to a 3-chip
+// state filter — the ProjectsList client does the grouping; this
+// page just parses `?state=` and hands it down. The URL param was
+// renamed from `stage` to `state` to match the user-visible surface;
+// legacy `stage` query params fall through to "All" silently (not a
+// real regression: bookmarks to specific stages were never a
+// prominent flow).
 //
 // Note: we deliberately do NOT run the first-run onboarding redirect
 // here. /dashboard (the Today screen) owns that; users only reach
@@ -22,25 +27,8 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // empty state below hints at sharing a magic link instead.
 
 type PageProps = {
-  searchParams: Promise<{ stage?: string }>;
+  searchParams: Promise<{ state?: string }>;
 };
-
-// Allow-list of stage keys that match the router's `listByStage`
-// buckets. Any other value in ?stage is ignored (falls back to "All").
-const VALID_STAGES = new Set<Stage>([
-  "lead",
-  "booked",
-  "contract_sent",
-  "in_production",
-  "final_review",
-  "paid",
-  "archived",
-]);
-
-function coerceStage(input: string | undefined): Stage | null {
-  if (!input) return null;
-  return VALID_STAGES.has(input as Stage) ? (input as Stage) : null;
-}
 
 export default async function ProjectsPage({ searchParams }: PageProps) {
   const { userId } = await auth();
@@ -49,7 +37,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   const caller = appRouter.createCaller({ userId });
   const grouped = await caller.project.listByStage();
   const sp = await searchParams;
-  const activeStage = coerceStage(sp.stage);
+  const activeState = isProjectState(sp.state) ? sp.state : null;
 
   // Project down to the minimal row shape the client component needs.
   // Dates cross the RSC → client boundary as ISO strings; we drop
@@ -76,16 +64,28 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
 
   return (
     <AppShell active="projects">
-      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
-        <header>
-          <h1 className="font-display text-3xl tracking-tight text-[rgb(var(--fg-primary))]">
-            Projects
-          </h1>
-          <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
-            Browse and open the project room for any active engagement.
-          </p>
-        </header>
-        <ProjectsList grouped={clientGrouped} activeStage={activeStage} />
+      {/* Batch C — Projects page picks up the same editorial canvas
+          treatment as Today: full-bleed, gradient band at the top,
+          display-font page title at 4xl→5xl, mono eyebrow above it. */}
+      <div className="relative isolate">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+        />
+        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-8 pb-12 sm:px-8 lg:px-12 lg:pt-12">
+          <header>
+            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+              Pipeline
+            </p>
+            <h1 className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
+              Projects
+            </h1>
+            <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
+              Browse and open the project room for any active engagement.
+            </p>
+          </header>
+          <ProjectsList grouped={clientGrouped} activeState={activeState} />
+        </div>
       </div>
     </AppShell>
   );

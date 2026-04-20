@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "~/components/ui/button";
 import { Input, Label, Select } from "~/components/ui/input";
+import { SaveIndicator, useSaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
+import {
+  ValidationHint,
+  validateDisplayName,
+  validateSlug,
+  type ValidationState,
+} from "~/components/ui/validation";
 import { updateProducer } from "./actions";
 
 interface ProducerProfile {
@@ -39,6 +46,7 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const saveStatus = useSaveStatus({ saving: pending, error });
   const [displayName, setDisplayName] = useState(profile.displayName);
   const [slug, setSlug] = useState(profile.slug);
   const [defaultCurrency, setDefaultCurrency] = useState(profile.defaultCurrency);
@@ -46,6 +54,22 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
   const [primary, setPrimary] = useState(profile.brand.primary ?? DEFAULT_PRIMARY);
   const [accent, setAccent] = useState(profile.brand.accent ?? DEFAULT_ACCENT);
   const [logoUrl, setLogoUrl] = useState(profile.brand.logoUrl ?? "");
+  // "Touched" bookkeeping — fields don't flash required/invalid until
+  // the user has interacted with them. Keeps first paint calm.
+  const [displayNameTouched, setDisplayNameTouched] = useState(false);
+  const [slugTouched, setSlugTouched] = useState(false);
+
+  const displayNameState: ValidationState = displayNameTouched
+    ? validateDisplayName(displayName)
+    : { kind: "idle" };
+  // Slug mirrors the server's zod contract (3-48 chars, lowercase +
+  // digits + single dashes). We don't query the DB here for "taken"
+  // availability — the server is source of truth on uniqueness and the
+  // form still submits; a future availability check would plug into
+  // the `pending → valid/invalid` transition without touching callers.
+  const slugState: ValidationState = slugTouched
+    ? validateSlug(slug)
+    : { kind: "idle" };
 
   // Detect which fields actually changed so we only ship a minimal PATCH.
   // zod's .optional() at the server also accepts "same value"; this is
@@ -110,8 +134,15 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
               onChange={(e) => {
                 setDisplayName(e.target.value);
               }}
+              onBlur={() => {
+                setDisplayNameTouched(true);
+              }}
               required
+              aria-invalid={
+                displayNameState.kind === "invalid" || displayNameState.kind === "required"
+              }
             />
+            <ValidationHint state={displayNameState} />
           </div>
           <div className="sm:col-span-2">
             <Label htmlFor="slug">Studio URL</Label>
@@ -126,17 +157,23 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
                 onChange={(e) => {
                   setSlug(sanitizeSlug(e.target.value));
                 }}
+                onBlur={() => {
+                  setSlugTouched(true);
+                }}
                 required
                 className="pl-10 font-mono"
                 pattern="[a-z0-9-]+"
                 minLength={3}
                 maxLength={48}
+                aria-invalid={
+                  slugState.kind === "invalid" || slugState.kind === "required"
+                }
               />
             </div>
-            <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
-              Changing this invalidates your old URL. Any outstanding magic links stay valid (they
-              redirect by producer ID, not slug).
-            </p>
+            <ValidationHint
+              state={slugState}
+              hint="Changing this invalidates your old URL. Any outstanding magic links stay valid (they redirect by producer ID, not slug)."
+            />
           </div>
           <div>
             <Label htmlFor="defaultCurrency">Currency</Label>
@@ -221,13 +258,20 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
       ) : null}
 
       <div className="sticky bottom-4 z-10 flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base)/0.82)] px-5 py-3 backdrop-blur">
-        <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
-          {dirty
-            ? `${String(Object.keys(patch).length)} unsaved change${
-                Object.keys(patch).length === 1 ? "" : "s"
-              }`
-            : "No changes"}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
+            {dirty
+              ? `${String(Object.keys(patch).length)} unsaved change${
+                  Object.keys(patch).length === 1 ? "" : "s"
+                }`
+              : "No changes"}
+          </p>
+          {error ? (
+            <SaveIndicator status={saveStatus} errorMessage={error} />
+          ) : (
+            <SaveIndicator status={saveStatus} />
+          )}
+        </div>
         <Button type="submit" disabled={pending || !dirty}>
           {pending ? "Saving…" : "Save changes"}
         </Button>
