@@ -422,20 +422,45 @@ that fails CI if a new primitive skips the reduce gate.
 
 ---
 
-## Workflow when starting a new feature
+## Workflow when starting a new feature — use BMAD
 
-1. **Read this file** + `docs/product/PRD.md` for context.
-2. **Enter plan mode** (Shift+Tab twice in Claude Code). Iterate with user until plan is solid.
-3. **Write a plan doc** at `docs/plans/YYYY-MM-DD-<feature>.md` with TDD task breakdown.
-4. **Create a branch** off the current base (usually `feat/<feature>`). One PR per branch.
-5. **Use subagent-driven development** (`superpowers:subagent-driven-development`):
-   - Fresh subagent per task
-   - Spec-compliance review after each
-   - Code-quality review after spec passes
-   - Fix any issues, re-review
-6. **Commit per task** with the message format above.
-7. **Run `/skitza-verify`** before pushing.
-8. **Push + open PR** (use `gh pr create`).
+The canonical workflow is **BMAD** (Breakthrough Method for Agile AI-Driven Development),
+adapted for Skitza's existing structure.
+
+- **Skill:** `.claude/skills/bmad/SKILL.md`
+- **User guide:** `docs/bmad-workflow.md`
+- **Templates:** `.claude/skills/bmad/templates/` (brief.md, epic.md, story.md)
+
+**3 tracks** — pick by scope:
+
+- **Quick**: 1-file fix / copy tweak → skip straight to Dev (no brief, no PRD delta)
+- **Standard**: 2-10 files → Brief → PRD delta → Architecture lite → Dev → QA
+- **Large**: new surface / schema / multi-sub-tab → Brief → PRD section → standalone Architecture doc → Epic + Stories → Dev (per story, fresh subagent) → QA
+
+**5 roles** (each with its own artifact):
+
+1. **Analyst** — 3 questions, 1-page brief at `docs/plans/<date>-<feature>-brief.md`
+2. **PM** — PRD delta in `docs/product/PRD.md`, committed as `docs(prd):` **BEFORE** any code lands
+3. **Architect** — technical design in plan doc or standalone; cites `packages/db/src/schema.ts` + exact file paths; specifies `/skitza-migrate` for DB changes
+4. **Scrum Master** (Large only) — self-contained story files at `docs/plans/stories/<feature>-NN-<title>.md`
+5. **Dev + QA** — Dev via `.claude/agents/skitza-tdd-implementer.md`; QA via spec-compliance subagent + `.claude/agents/skitza-ux-critic.md`
+
+**Always:**
+- Read `CLAUDE.md` + `docs/product/PRD.md` before PM phase
+- Fresh subagent per Dev story (prevents context rot)
+- Commit PRD delta BEFORE any code
+- `/skitza-verify` between stories + before push
+- New commits (never `--amend`)
+- Update the mistake log below when a surprise surfaces
+
+**User magic phrases:**
+- `Quick BMAD: <thing>` — trivial work, skip to Dev
+- `Standard BMAD: <thing>` — default, full phase flow
+- `Large BMAD: <thing>` — big scope, multiple subagent dispatches
+- `BMAD me: <thing>` — Claude picks the track
+- `Switch to <role>` / `Re-dispatch QA` / `Rewind to <phase>` — mid-feature interjections
+
+See `docs/bmad-workflow.md` §Magic phrases for the full list.
 
 ---
 
