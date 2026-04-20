@@ -1,8 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 
 import { EmptyState } from "~/components/ui/empty-state";
+import {
+  ListSearchInput,
+  listSearchMatches,
+  useListSearch,
+} from "~/components/ui/list-search";
 import { fmtDateTime, formatRelativeTime } from "~/lib/time/relative";
 
 // Minimal row shape the list renders. Mirrors the server router's
@@ -36,20 +42,52 @@ export type MusicRow = {
 // Click target = whole card; deep-links into the Project Room's Music
 // sub-tab with ?version=<id> so the producer lands on that exact mix.
 export function MusicLibrary({ tracks }: { tracks: MusicRow[] }) {
+  const { value: q, setValue: setQ, inputRef } = useListSearch();
+
+  // Filter tracks by title / project / artist / label — all of which a
+  // producer is likely to remember. Cheap in-memory filter; the Music
+  // grid is a single page of results (server already paginates), so
+  // no server round-trip is warranted.
+  const filteredTracks = useMemo(
+    () =>
+      tracks.filter((row) =>
+        listSearchMatches(q, [row.trackTitle, row.projectTitle, row.clientName, row.label]),
+      ),
+    [tracks, q],
+  );
+
   if (tracks.length === 0) {
     return <MusicLibraryEmpty />;
   }
 
   return (
     <div className="mt-6">
-      <ul
-        role="list"
-        className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 md:grid-cols-4 md:gap-6 lg:grid-cols-5 xl:grid-cols-6"
-      >
-        {tracks.map((row, i) => (
-          <MusicCard key={row.id} row={row} index={i} />
-        ))}
-      </ul>
+      <div className="mb-5 sm:max-w-xs">
+        <ListSearchInput
+          value={q}
+          onChange={setQ}
+          inputRef={inputRef}
+          placeholder="Search music"
+          ariaLabel="Search music library"
+        />
+      </div>
+      {filteredTracks.length === 0 ? (
+        <div
+          role="status"
+          className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center text-sm text-[rgb(var(--fg-secondary))]"
+        >
+          No tracks match “{q}”.
+        </div>
+      ) : (
+        <ul
+          role="list"
+          className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 md:grid-cols-4 md:gap-6 lg:grid-cols-5 xl:grid-cols-6"
+        >
+          {filteredTracks.map((row, i) => (
+            <MusicCard key={row.id} row={row} index={i} />
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

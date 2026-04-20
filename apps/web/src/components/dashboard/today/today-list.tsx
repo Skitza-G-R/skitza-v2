@@ -1,8 +1,13 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTransition } from "react";
+import { useMemo, useTransition } from "react";
 
+import {
+  ListSearchInput,
+  listSearchMatches,
+  useListSearch,
+} from "~/components/ui/list-search";
 import { formatRelativeTime } from "~/lib/time/relative";
 
 // Row shape matches the `producer.today` items payload projected down
@@ -33,6 +38,16 @@ export function TodayList({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const { value: q, setValue: setQ, inputRef } = useListSearch();
+
+  // Filter rows by title / subtitle / kind — the three text fields a
+  // producer is likely to remember. We keep filtering client-side
+  // because the Today payload is already tiny (a handful of urgent
+  // items), so no server round-trip is worth the latency.
+  const filteredItems = useMemo(
+    () => items.filter((it) => listSearchMatches(q, [it.title, it.subtitle, it.kind])),
+    [items, q],
+  );
 
   const select = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -54,13 +69,31 @@ export function TodayList({
     // between rows carries the hierarchy; the active item gets a
     // thin brand left-border accent (sk-row-active style) rather than
     // a wash fill.
+    <div>
+      <div className="mb-3 pr-2">
+        <ListSearchInput
+          value={q}
+          onChange={setQ}
+          inputRef={inputRef}
+          placeholder="Search inbox"
+          ariaLabel="Search today's inbox"
+        />
+      </div>
+      {filteredItems.length === 0 ? (
+        <div
+          role="status"
+          className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center text-sm text-[rgb(var(--fg-secondary))]"
+        >
+          No inbox items match “{q}”.
+        </div>
+      ) : (
     <ul
       role="list"
       aria-label="Today's inbox"
       aria-live="polite"
       className="divide-y divide-[rgb(var(--border-subtle))]"
     >
-      {items.map((item, i) => {
+      {filteredItems.map((item, i) => {
         const isSelected = selectedItemId === item.id;
         return (
           <li
@@ -112,6 +145,8 @@ export function TodayList({
         );
       })}
     </ul>
+      )}
+    </div>
   );
 }
 

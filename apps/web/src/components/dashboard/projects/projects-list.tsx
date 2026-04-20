@@ -2,8 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useMemo, useTransition } from "react";
 
+import {
+  ListSearchInput,
+  listSearchMatches,
+  useListSearch,
+} from "~/components/ui/list-search";
 import { formatRelativeTime } from "~/lib/time/relative";
 import { STAGE_LABEL, VISIBLE_STAGES as STAGE_ORDER, type VisibleStage } from "~/lib/projects/stages";
 import {
@@ -54,36 +59,46 @@ export function ProjectsList({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { value: q, setValue: setQ, inputRef } = useListSearch();
 
   // Collapse the per-stage server grouping into per-state client
   // grouping. Each state bucket preserves the underlying stage on
   // the row so the row renderer can show it as the fine-grained
   // label under the bold state chip.
-  const byState: Record<ProjectState, ProjectRow[]> = {
-    live: [],
-    done: [],
-    archived: [],
-  };
-  for (const stage of STAGE_ORDER) {
-    const rows = grouped[stage];
-    const state = stageToState(stage);
-    for (const r of rows) {
-      byState[state].push(r);
+  const { byState, totalCount, unfilteredTotalCount } = useMemo(() => {
+    const out: Record<ProjectState, ProjectRow[]> = {
+      live: [],
+      done: [],
+      archived: [],
+    };
+    let unfiltered = 0;
+    for (const stage of STAGE_ORDER) {
+      const rows = grouped[stage];
+      const state = stageToState(stage);
+      for (const r of rows) {
+        unfiltered += 1;
+        // Apply the inline search filter at bucket time so the chip
+        // counts reflect what the producer is actually scanning. An
+        // empty q matches all rows via `listSearchMatches`.
+        if (listSearchMatches(q, [r.title, r.artistName, STAGE_LABEL[r.stage]])) {
+          out[state].push(r);
+        }
+      }
     }
-  }
-  // Each state bucket should stay newest-updated-first. Server
-  // already orders rows desc; across stages the result is consistent
-  // within each state after the fold because STAGE_ORDER is stable
-  // but the rows come in at the per-stage order the server gave us.
-  // Re-sort to guarantee the across-stage interleave is by recency.
-  for (const state of PROJECT_STATES) {
-    byState[state].sort((a, b) =>
-      new Date(b.updatedAtIso).getTime() - new Date(a.updatedAtIso).getTime(),
-    );
-  }
-
-  const totalCount =
-    byState.live.length + byState.done.length + byState.archived.length;
+    // Each state bucket should stay newest-updated-first. Server
+    // already orders rows desc; across stages the result is consistent
+    // within each state after the fold because STAGE_ORDER is stable
+    // but the rows come in at the per-stage order the server gave us.
+    // Re-sort to guarantee the across-stage interleave is by recency.
+    for (const state of PROJECT_STATES) {
+      out[state].sort(
+        (a, b) =>
+          new Date(b.updatedAtIso).getTime() - new Date(a.updatedAtIso).getTime(),
+      );
+    }
+    const total = out.live.length + out.done.length + out.archived.length;
+    return { byState: out, totalCount: total, unfilteredTotalCount: unfiltered };
+  }, [grouped, q]);
 
   const selectState = (next: ProjectState | null) => {
     const query = next ? `?state=${next}` : "";
@@ -95,8 +110,10 @@ export function ProjectsList({
   // Nothing across any state — offer the lead-gen funnel CTA. Magic
   // links are the upstream source of Projects, so we nudge the producer
   // back toward creating one rather than leaving them staring at a
-  // blank list.
-  if (totalCount === 0) {
+  // blank list. `unfilteredTotalCount` avoids swapping to this empty
+  // state when the producer has typed a non-matching query (we want
+  // the "no matches" inline nudge in that case, not the CTA).
+  if (unfilteredTotalCount === 0) {
     return (
       <div className="mt-10 flex flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-6 py-16 text-center">
         <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))]">
@@ -128,13 +145,35 @@ export function ProjectsList({
 
   return (
     <div className="mt-6 flex flex-col gap-6">
-      <StateChipBar
-        byState={byState}
-        totalCount={totalCount}
-        activeState={activeState}
-        disabled={isPending}
-        onSelect={selectState}
-      />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <div className="sm:max-w-xs sm:flex-1">
+          <ListSearchInput
+            value={q}
+            onChange={setQ}
+            inputRef={inputRef}
+            placeholder="Search projects"
+            ariaLabel="Search projects"
+          />
+        </div>
+        <div className="min-w-0 sm:flex-1">
+          <StateChipBar
+            byState={byState}
+            totalCount={totalCount}
+            activeState={activeState}
+            disabled={isPending}
+            onSelect={selectState}
+          />
+        </div>
+      </div>
+
+      {totalCount === 0 ? (
+        <div
+          role="status"
+          className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center text-sm text-[rgb(var(--fg-secondary))]"
+        >
+          No projects match “{q}”.
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-8">
         {statesToRender.map((state) => {
