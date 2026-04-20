@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 import { Button } from "~/components/ui/button";
 import { Input, Label, Select } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
+import {
+  ValidationHint,
+  validateDisplayName,
+  validateSlug,
+  type ValidationState,
+} from "~/components/ui/validation";
 import { updateProducer } from "./actions";
 
 interface ProducerProfile {
@@ -46,6 +52,22 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
   const [primary, setPrimary] = useState(profile.brand.primary ?? DEFAULT_PRIMARY);
   const [accent, setAccent] = useState(profile.brand.accent ?? DEFAULT_ACCENT);
   const [logoUrl, setLogoUrl] = useState(profile.brand.logoUrl ?? "");
+  // "Touched" bookkeeping — fields don't flash required/invalid until
+  // the user has interacted with them. Keeps first paint calm.
+  const [displayNameTouched, setDisplayNameTouched] = useState(false);
+  const [slugTouched, setSlugTouched] = useState(false);
+
+  const displayNameState: ValidationState = displayNameTouched
+    ? validateDisplayName(displayName)
+    : { kind: "idle" };
+  // Slug mirrors the server's zod contract (3-48 chars, lowercase +
+  // digits + single dashes). We don't query the DB here for "taken"
+  // availability — the server is source of truth on uniqueness and the
+  // form still submits; a future availability check would plug into
+  // the `pending → valid/invalid` transition without touching callers.
+  const slugState: ValidationState = slugTouched
+    ? validateSlug(slug)
+    : { kind: "idle" };
 
   // Detect which fields actually changed so we only ship a minimal PATCH.
   // zod's .optional() at the server also accepts "same value"; this is
@@ -110,8 +132,15 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
               onChange={(e) => {
                 setDisplayName(e.target.value);
               }}
+              onBlur={() => {
+                setDisplayNameTouched(true);
+              }}
               required
+              aria-invalid={
+                displayNameState.kind === "invalid" || displayNameState.kind === "required"
+              }
             />
+            <ValidationHint state={displayNameState} />
           </div>
           <div className="sm:col-span-2">
             <Label htmlFor="slug">Studio URL</Label>
@@ -126,17 +155,23 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
                 onChange={(e) => {
                   setSlug(sanitizeSlug(e.target.value));
                 }}
+                onBlur={() => {
+                  setSlugTouched(true);
+                }}
                 required
                 className="pl-10 font-mono"
                 pattern="[a-z0-9-]+"
                 minLength={3}
                 maxLength={48}
+                aria-invalid={
+                  slugState.kind === "invalid" || slugState.kind === "required"
+                }
               />
             </div>
-            <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
-              Changing this invalidates your old URL. Any outstanding magic links stay valid (they
-              redirect by producer ID, not slug).
-            </p>
+            <ValidationHint
+              state={slugState}
+              hint="Changing this invalidates your old URL. Any outstanding magic links stay valid (they redirect by producer ID, not slug)."
+            />
           </div>
           <div>
             <Label htmlFor="defaultCurrency">Currency</Label>

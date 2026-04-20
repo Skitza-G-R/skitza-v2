@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 import { Button } from "~/components/ui/button";
 import { Input, Label } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
+import {
+  ValidationHint,
+  validateDisplayName,
+  validateEmail,
+  type ValidationState,
+} from "~/components/ui/validation";
 import { createProject } from "../actions";
 
 type Contact = { id: string; email: string; name: string };
@@ -92,8 +98,28 @@ export function NewProjectForm({
   const [title, setTitle] = useState("");
   const [artistName, setArtistName] = useState("");
   const [artistEmail, setArtistEmail] = useState("");
+  // Track whether each field has been "touched" (user moved focus off
+  // it) so we don't flash red "Required" messages the instant the
+  // form mounts. Matches the Stripe / Linear pattern: idle until the
+  // user has interacted, then live feedback as they type.
+  const [titleTouched, setTitleTouched] = useState(false);
+  const [artistNameTouched, setArtistNameTouched] = useState(false);
+  const [artistEmailTouched, setArtistEmailTouched] = useState(false);
   const [issued, setIssued] = useState<{ url: string; id: string } | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Compute validation states. `idle` when untouched so the first
+  // paint looks clean. `validateDisplayName` doubles for the title
+  // field — same "non-empty, ≤80 chars" contract as a studio name.
+  const titleState: ValidationState = titleTouched
+    ? validateDisplayName(title)
+    : { kind: "idle" };
+  const artistNameState: ValidationState = artistNameTouched
+    ? validateDisplayName(artistName)
+    : { kind: "idle" };
+  const artistEmailState: ValidationState = artistEmailTouched
+    ? validateEmail(artistEmail)
+    : { kind: "idle" };
 
   // Client-side fuzzy match against the server-fetched contact list.
   // Cheap (typical producer has dozens, not thousands) and avoids a
@@ -161,11 +187,16 @@ export function NewProjectForm({
               onChange={(e) => {
                 setTitle(e.target.value);
               }}
+              onBlur={() => {
+                setTitleTouched(true);
+              }}
               placeholder="Marcus T. — Full Production"
               required
               maxLength={120}
               autoFocus
+              aria-invalid={titleState.kind === "invalid" || titleState.kind === "required"}
             />
+            <ValidationHint state={titleState} />
           </div>
           <div>
             <Label htmlFor="artistName">Artist name</Label>
@@ -176,9 +207,16 @@ export function NewProjectForm({
               onChange={(e) => {
                 setArtistName(e.target.value);
               }}
+              onBlur={() => {
+                setArtistNameTouched(true);
+              }}
               required
               maxLength={80}
+              aria-invalid={
+                artistNameState.kind === "invalid" || artistNameState.kind === "required"
+              }
             />
+            <ValidationHint state={artistNameState} />
           </div>
           <div className="relative">
             <Label htmlFor="artistEmail">Artist email</Label>
@@ -194,6 +232,7 @@ export function NewProjectForm({
                 setShowSuggestions(true);
               }}
               onBlur={() => {
+                setArtistEmailTouched(true);
                 // Delay so mousedown on a suggestion has time to fire.
                 window.setTimeout(() => {
                   setShowSuggestions(false);
@@ -201,7 +240,11 @@ export function NewProjectForm({
               }}
               autoComplete="off"
               required
+              aria-invalid={
+                artistEmailState.kind === "invalid" || artistEmailState.kind === "required"
+              }
             />
+            <ValidationHint state={artistEmailState} />
             {showSuggestions && suggestions.length > 0 ? (
               <ul
                 role="listbox"
