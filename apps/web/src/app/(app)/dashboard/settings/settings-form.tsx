@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "~/components/ui/button";
 import { Input, Label, Select } from "~/components/ui/input";
+import { SaveIndicator, useSaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
 import {
   ValidationHint,
@@ -45,6 +46,7 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const saveStatus = useSaveStatus({ saving: pending, error });
   const [displayName, setDisplayName] = useState(profile.displayName);
   const [slug, setSlug] = useState(profile.slug);
   const [defaultCurrency, setDefaultCurrency] = useState(profile.defaultCurrency);
@@ -256,13 +258,20 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
       ) : null}
 
       <div className="sticky bottom-4 z-10 flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base)/0.82)] px-5 py-3 backdrop-blur">
-        <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
-          {dirty
-            ? `${String(Object.keys(patch).length)} unsaved change${
-                Object.keys(patch).length === 1 ? "" : "s"
-              }`
-            : "No changes"}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
+            {dirty
+              ? `${String(Object.keys(patch).length)} unsaved change${
+                  Object.keys(patch).length === 1 ? "" : "s"
+                }`
+              : "No changes"}
+          </p>
+          {error ? (
+            <SaveIndicator status={saveStatus} errorMessage={error} />
+          ) : (
+            <SaveIndicator status={saveStatus} />
+          )}
+        </div>
         <Button type="submit" disabled={pending || !dirty}>
           {pending ? "Saving…" : "Save changes"}
         </Button>

@@ -21,6 +21,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { SaveIndicator, useSaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
 import { updateAutopilot } from "~/app/(app)/dashboard/settings/actions";
 
@@ -82,6 +83,9 @@ export function AutopilotSection({
   const [pendingKey, setPendingKey] = useState<keyof AutopilotSettings | null>(
     null,
   );
+  // Which field most recently saved — the `<SaveIndicator>` in that
+  // row flashes "Saved ✓". null = no recent save → nothing to flash.
+  const [lastSavedKey, setLastSavedKey] = useState<keyof AutopilotSettings | null>(null);
   const [, startTransition] = useTransition();
   const router = useRouter();
   const { toast } = useToast();
@@ -95,20 +99,22 @@ export function AutopilotSection({
     // path is what makes the UI feel like a hardware switch.
     setSettings((s) => ({ ...s, [key]: next }));
     setPendingKey(key);
+    setLastSavedKey(key);
     startTransition(async () => {
       const res = await updateAutopilot({ key, enabled: next });
       setPendingKey(null);
       if (!res.ok) {
         setSettings((s) => ({ ...s, [key]: prev }));
+        // Clear the "recent save" on this row — the chip transitions
+        // to its error variant via the useSaveStatus hook picking up
+        // the saving=false + error signal.
+        setLastSavedKey(null);
         toast(res.error, "error");
         return;
       }
-      toast(
-        next
-          ? "Autopilot on. Skitza will take it from here."
-          : "Autopilot off. You're back in manual mode.",
-        "success",
-      );
+      // Drop the heavy toast on success — the inline "Saved ✓" chip
+      // is the feedback now. Producers flipping multiple switches no
+      // longer cascade 5 toasts into the corner.
       router.refresh();
     });
   }
@@ -142,6 +148,11 @@ export function AutopilotSection({
             description={description}
             enabled={settings[key]}
             pending={pendingKey === key}
+            // Only the most-recently-acted-on row renders an autosave
+            // chip. Other rows stay quiet — the green flash is a
+            // targeted piece of feedback, not a persistent state.
+            saving={pendingKey === key}
+            recentlySaved={lastSavedKey === key}
             onToggle={() => {
               flip(key);
             }}
@@ -163,23 +174,37 @@ function ToggleRow({
   description,
   enabled,
   pending,
+  saving,
+  recentlySaved,
   onToggle,
 }: {
   label: string;
   description: string;
   enabled: boolean;
   pending: boolean;
+  saving: boolean;
+  recentlySaved: boolean;
   onToggle: () => void;
 }) {
+  // The hook owns the "flash for 2s" timing. We pass saving=true while
+  // the mutation is in flight, then saving=false after, and the chip
+  // transitions saving → saved → idle on its own schedule.
+  const saveStatus = useSaveStatus({
+    saving,
+    error: null,
+  });
   return (
     <li className="flex flex-wrap items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
-        <p
-          className="text-sm text-[rgb(var(--fg-primary))]"
-          style={{ fontWeight: 600 }}
-        >
-          {label}
-        </p>
+        <div className="flex items-center gap-3">
+          <p
+            className="text-sm text-[rgb(var(--fg-primary))]"
+            style={{ fontWeight: 600 }}
+          >
+            {label}
+          </p>
+          {recentlySaved ? <SaveIndicator status={saveStatus} /> : null}
+        </div>
         <p className="mt-1 text-xs text-[rgb(var(--fg-secondary))]">
           {description}
         </p>
