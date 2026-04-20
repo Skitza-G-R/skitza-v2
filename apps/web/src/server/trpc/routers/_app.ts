@@ -12,6 +12,7 @@ import { paletteRouter } from "./palette";
 import { portfolioRouter } from "./portfolio";
 import { producerRouter } from "./producer";
 import { projectRouter } from "./project";
+import { publicProfileRouter } from "./public-profile";
 import { stripeRouter } from "./stripe";
 
 export const appRouter = router({
@@ -28,6 +29,7 @@ export const appRouter = router({
   portfolio: portfolioRouter,
   producer: producerRouter,
   project: projectRouter,
+  publicProfile: publicProfileRouter,
   stripe: stripeRouter,
 });
 
