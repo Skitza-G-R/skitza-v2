@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { UserButton } from "@clerk/nextjs";
 
+import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
 import { NotificationBell } from "./notification-bell";
@@ -25,7 +26,14 @@ import { ThemeToggle } from "./theme-toggle";
 
 export type ActiveKey = "today" | "music" | "projects" | "setup";
 
-type NavItem = { id: ActiveKey; label: string; href: string; icon: ReactNode };
+type NavItem = {
+  id: ActiveKey;
+  label: string;
+  href: string;
+  icon: ReactNode;
+  /** Two-key G-leader shortcut (e.g. "G T" for Today). */
+  shortcut: string;
+};
 
 const STORAGE_KEY = "skitza-sidebar-collapsed";
 
@@ -36,10 +44,10 @@ const STORAGE_KEY = "skitza-sidebar-collapsed";
 // top-level item — it's always reached by tapping a project in
 // the Projects list, so it's per-project not a global nav.
 export const NAV_ITEMS: readonly NavItem[] = [
-  { id: "today", label: "Today", href: "/dashboard", icon: <HomeIcon /> },
-  { id: "music", label: "Music", href: "/dashboard/music", icon: <LibraryIcon /> },
-  { id: "projects", label: "Projects", href: "/dashboard/projects", icon: <PortfolioIcon /> },
-  { id: "setup", label: "Setup", href: "/dashboard/settings", icon: <SettingsIcon /> },
+  { id: "today", label: "Today", href: "/dashboard", icon: <HomeIcon />, shortcut: "G T" },
+  { id: "music", label: "Music", href: "/dashboard/music", icon: <LibraryIcon />, shortcut: "G M" },
+  { id: "projects", label: "Projects", href: "/dashboard/projects", icon: <PortfolioIcon />, shortcut: "G P" },
+  { id: "setup", label: "Setup", href: "/dashboard/settings", icon: <SettingsIcon />, shortcut: "G S" },
 ] as const;
 
 export function Sidebar({
@@ -207,6 +215,7 @@ function SidebarItem({
   // doesn't break the rail layout. Matches the Superhuman/Gmail pattern.
   const badgeLabel = badgeCount > 99 ? "99+" : badgeCount.toString();
   return (
+    <KeyboardHint shortcut={item.shortcut} side="bottom">
     <Link
       href={item.href}
       data-tour-id={`nav-${item.id}`}
@@ -258,6 +267,7 @@ function SidebarItem({
         </>
       )}
     </Link>
+    </KeyboardHint>
   );
 }
 

@@ -16,4 +16,11 @@ describe("Sidebar NAV_ITEMS", () => {
     expect(NAV_ITEMS.find((i) => i.id === "projects")?.href).toBe("/dashboard/projects");
     expect(NAV_ITEMS.find((i) => i.id === "setup")?.href).toBe("/dashboard/settings");
   });
+
+  it("assigns a G-leader shortcut to each item matching the global map", () => {
+    expect(NAV_ITEMS.find((i) => i.id === "today")?.shortcut).toBe("G T");
+    expect(NAV_ITEMS.find((i) => i.id === "music")?.shortcut).toBe("G M");
+    expect(NAV_ITEMS.find((i) => i.id === "projects")?.shortcut).toBe("G P");
+    expect(NAV_ITEMS.find((i) => i.id === "setup")?.shortcut).toBe("G S");
+  });
 });
