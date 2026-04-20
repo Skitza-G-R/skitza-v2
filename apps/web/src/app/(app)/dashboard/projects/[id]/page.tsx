@@ -16,6 +16,7 @@ import {
   type SessionBooking,
 } from "~/components/dashboard/project/sub-tabs/sessions-sub-tab";
 import { AppShell } from "~/components/shell/app-shell";
+import { Breadcrumbs } from "~/components/ui/breadcrumbs";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { getStripe } from "~/server/stripe/client";
 
@@ -220,6 +221,13 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
           ultra-wide 2560px+ displays without feeling stretched on
           a 1280px MacBook Air. */}
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+        <Breadcrumbs
+          className="mb-3"
+          items={[
+            { label: "Projects", href: "/dashboard/projects" },
+            { label: data.project.title },
+          ]}
+        />
         <ProjectHeader project={headerProject} />
         <div className="mt-6">
           <ProjectSubTabs activeTab={activeTab}>

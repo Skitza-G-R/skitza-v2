@@ -11,9 +11,24 @@ import {
   type SetupSectionKey,
 } from "~/components/dashboard/setup/setup-deeplink";
 import { SetupTabs } from "~/components/dashboard/setup/setup-tabs";
+import { Breadcrumbs } from "~/components/ui/breadcrumbs";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { SettingsForm } from "./settings-form";
 import { StripeCard } from "./stripe-card";
+
+// Human-readable labels for the breadcrumb trail. We could derive
+// these from the tab bar, but keeping the mapping co-located with the
+// page makes it obvious which labels ship to both places. Matches
+// SetupTabs' label column.
+const SETUP_SECTION_LABEL: Record<SetupSectionKey, string> = {
+  profile: "Profile",
+  services: "Services",
+  portfolio: "Portfolio",
+  availability: "Availability",
+  autopilot: "Autopilot",
+  connections: "Connections",
+  account: "Account",
+};
 
 // Setup — the four-screen producer-dashboard consolidation of what used
 // to be three separate routes (Settings, Portfolio, Booking/availability
@@ -68,6 +83,20 @@ export default async function SetupPage({
           bigger screens while tightening the ratio of chrome-to-
           content on small ones. */}
       <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-14">
+        {/* Show a breadcrumb trail once the producer has drilled into a
+            non-default tab — on the default Profile view the page
+            title alone is enough orientation. The trail makes the tab
+            name explicit above the fold, so producers on a deep-linked
+            URL (magic-link, bookmark) always know where they are. */}
+        {active !== "profile" ? (
+          <Breadcrumbs
+            className="mb-3 reveal-up"
+            items={[
+              { label: "Setup", href: "/dashboard/settings" },
+              { label: SETUP_SECTION_LABEL[active] },
+            ]}
+          />
+        ) : null}
         <header className="reveal-up mb-6">
           <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
             Setup
