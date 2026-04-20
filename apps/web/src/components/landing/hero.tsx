@@ -2,9 +2,10 @@ import Link from "next/link";
 
 import { SkitzaMark } from "~/components/brand/skitza-mark";
 
-// Hero — LIGHT world. Opens the page. "Sign up free" is the single
-// conversion moment; "Download for Mac" anchors to the download section
-// below for visitors who want the desktop binary first.
+// Hero — LIGHT world. Opens the page. "Start free" is the single
+// conversion moment; "Desktop app soon" anchors to the Download
+// section below, which surfaces a coming-soon state for all
+// platforms until the signed Tauri builds ship.
 //
 // Anatomy: brand mark → label → headline (Fraunces, italic color-break
 // on line 2) → sub-copy → CTA pair → trust microcopy → product mockup
@@ -65,6 +66,11 @@ export function Hero() {
           >
             <span className="relative z-10">Start free →</span>
           </Link>
+          {/* Secondary CTA: web app is live today. Desktop (.dmg / .exe
+              / .AppImage) ships once the Tauri build + Apple Developer
+              cert infrastructure lands — see the Download section below
+              for platform-by-platform status. Copy is deliberately
+              honest to avoid pointing at an unsigned/404ing binary. */}
           <a
             href="#download"
             className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-6 py-3.5 text-base font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-sunken))] sm:w-auto"
@@ -79,12 +85,12 @@ export function Hero() {
             >
               <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
             </svg>
-            Download for Mac
+            Desktop app soon
           </a>
         </div>
 
         <p className="mt-4 font-mono text-xs text-[rgb(var(--fg-muted))]">
-          Free to start. No card needed. Cancel anytime.
+          Web app is live today. Desktop (.dmg, .exe, .AppImage) this quarter.
         </p>
 
         {/* Product mockup — CSS-built Kanban + sidebar glimpse, pointer-
