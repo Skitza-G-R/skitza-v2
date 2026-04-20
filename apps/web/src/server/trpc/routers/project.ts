@@ -212,6 +212,72 @@ export const projectRouter = router({
     return grouped;
   }),
 
+  // Batch G — money summary for the Project Room's Money sub-tab.
+  // Returns Paid / Outstanding totals plus the next scheduled charge
+  // date. Keeps the payload tiny (3 numbers + 1 timestamp) and the
+  // query lean — one producer-scoped SELECT over invoices filtered by
+  // projectId. We intentionally don't return the full invoice list
+  // here: the Money sub-tab no longer pretends to reproduce Stripe's
+  // ledger (see Task 4 commit); producers who want the full row-by-row
+  // view click "Open in Stripe" to land in the Connect dashboard.
+  money: producerProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      // Auth-scoping — same pattern as detail: load the project row
+      // first and assert producer ownership before we read invoices.
+      const [row] = await ctx.db
+        .select({
+          producerId: projects.producerId,
+          currency: projects.currency,
+          nextChargeAt: projects.nextChargeAt,
+        })
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1);
+      if (!row || row.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+
+      const rows = await ctx.db
+        .select({
+          amountCents: invoices.amountCents,
+          currency: invoices.currency,
+          status: invoices.status,
+        })
+        .from(invoices)
+        .where(eq(invoices.projectId, input.projectId));
+
+      // Paid = status 'paid' AND 'refunded' excluded. Outstanding =
+      // draft + sent + uncollectible (matches the today.KPI rollup so
+      // counts align between Today and the per-project surface).
+      let paidCents = 0;
+      let outstandingCents = 0;
+      // Resolve display currency from the project row (set at booking
+      // time); fall back to the first invoice's currency for legacy
+      // rows without a persisted `currency`. Mixed-currency ledgers
+      // are excluded from the sums to avoid adding USD + EUR.
+      const currency = row.currency ?? rows[0]?.currency ?? "USD";
+      for (const inv of rows) {
+        if (inv.currency !== currency) continue;
+        if (inv.status === "paid") {
+          paidCents += inv.amountCents;
+        } else if (
+          inv.status === "draft" ||
+          inv.status === "sent" ||
+          inv.status === "uncollectible"
+        ) {
+          outstandingCents += inv.amountCents;
+        }
+      }
+
+      return {
+        paidCents,
+        outstandingCents,
+        currency,
+        nextChargeAt: row.nextChargeAt,
+      };
+    }),
+
   // Returns the project + its full tracks/versions/comments tree.
   // Producer-side read; artist-side uses publicByToken below.
   detail: producerProcedure

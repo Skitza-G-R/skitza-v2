@@ -47,6 +47,27 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     notFound();
   }
 
+  // Batch G Task 4 — money summary for the Money sub-tab's 3-metric
+  // strip (Paid / Outstanding / Next charge). Degrade gracefully:
+  // zero everywhere if the router errors, matching the "no invoices"
+  // render path.
+  let moneyForProject: {
+    paidCents: number;
+    outstandingCents: number;
+    currency: string;
+    nextChargeAt: Date | null;
+  } = {
+    paidCents: 0,
+    outstandingCents: 0,
+    currency: "USD",
+    nextChargeAt: null,
+  };
+  try {
+    moneyForProject = await caller.project.money({ projectId: id });
+  } catch (err) {
+    console.warn("[projects] project.money failed", err);
+  }
+
   // Contracts: list all producer contracts and client-filter by
   // contract.projectId. Degrade gracefully if the router errors
   // (cross-branch schema skew).
@@ -235,7 +256,11 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
               <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
             ) : null}
             {activeTab === "money" ? (
-              <MoneySubTab projectId={data.project.id} contracts={contractsForProject} />
+              <MoneySubTab
+                projectId={data.project.id}
+                money={moneyForProject}
+                contracts={contractsForProject}
+              />
             ) : null}
             {activeTab === "notes" ? (
               <NotesSubTab

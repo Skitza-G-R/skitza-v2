@@ -1,30 +1,37 @@
 "use client";
 
 import Link from "next/link";
+import { useTransition } from "react";
 
-import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { EmptyState } from "~/components/ui/empty-state";
+import { useToast } from "~/components/ui/toast";
 import { fmtDateTime } from "~/lib/time/relative";
+import { openStripeDashboard } from "~/app/(app)/dashboard/settings/stripe-actions";
 
-// Task 8 — Project Room Money sub-tab.
+// Batch G, Task 4 — Money sub-tab collapsed to a 3-metric strip.
 //
-// Merges the old inner "Contract" + "Invoices" tabs from project-view.tsx
-// into a single project-scoped Money surface. Contract section renders
-// first (send-on-demand or signed list with audit trail), invoices
-// ledger below (currently an empty-state placeholder — the invoicing
-// flow is scheduled for a later phase).
+// Before: Contract section on top + an "Invoices" empty-state stub.
+// The stub implied a full ledger was coming, which directly contradicts
+// the simplification goal — Skitza is not going to reproduce Stripe's
+// ledger. Producers want Paid / Outstanding / Next-charge at a glance,
+// and a one-click bridge to the real ledger when they need it.
 //
-// MoneySubTab is rendered directly by page.tsx when `tab === "money"`,
-// replacing the MoneyPlaceholder stub introduced in Task 7. The outer
-// ProjectSubTabs nav still owns the tab button that controls this
-// panel, so the ARIA ids are `panel-money` / `tab-money` to match
-// project-sub-tabs.tsx.
+// The Invoices table is STILL the source of truth (webhooks insert
+// rows on every Checkout / subscription invoice event; audit trail is
+// intact). The UI just stops pretending to be a ledger and shows the
+// producer the 3 numbers that actually matter.
 
-// Shape of a contract row consumed by ContractSection — matches what
-// page.tsx already derives from caller.contract.list(). Keep this
-// minimal: the deep contract detail view lives at /dashboard/contracts,
-// not here.
+// Money summary produced by the project.money query. See
+// apps/web/src/server/trpc/routers/project.ts for the shape.
+export interface MoneySummary {
+  paidCents: number;
+  outstandingCents: number;
+  currency: string;
+  nextChargeAt: Date | null;
+}
+
+// Contract row shape (passed through to ContractSection — unchanged
+// surface for Task 4; Task 5 takes over the Contract section).
 export interface ContractRow {
   id: string;
   title: string;
@@ -35,9 +42,11 @@ export interface ContractRow {
 
 export function MoneySubTab({
   projectId,
+  money,
   contracts,
 }: {
   projectId: string;
+  money: MoneySummary;
   contracts: ContractRow[];
 }) {
   return (
@@ -48,16 +57,14 @@ export function MoneySubTab({
       className="space-y-8"
     >
       <ContractSection projectId={projectId} contracts={contracts} />
-      <InvoicesSection />
+      <MoneyStrip money={money} />
     </section>
   );
 }
 
 // ─── Contract section ────────────────────────────────────────────────
-// Lifted verbatim from project-view.tsx's old ContractTab. The outer
-// <section role="tabpanel"> wrapper is removed (MoneySubTab owns the
-// panel now); this renders as a plain <div> so the two sections stack
-// inside a single tabpanel.
+// Unchanged in Task 4 — Task 5 takes this over. Kept the existing
+// behavior so the Task 4 commit is strictly the money-strip swap.
 function ContractSection({
   projectId,
   contracts,
@@ -82,17 +89,11 @@ function ContractSection({
       </div>
 
       {contracts.length === 0 ? (
-        <EmptyState
-          title="No contract yet."
-          description="Send one before kickoff. The artist gets a single signing link, and every view and signature is timestamped for your records."
-          action={
-            <Button asChild size="sm">
-              <Link href={`/dashboard/contracts/new?projectId=${projectId}`}>
-                Send a contract
-              </Link>
-            </Button>
-          }
-        />
+        <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center">
+          <p className="text-sm text-[rgb(var(--fg-secondary))]">
+            No contract yet — send one before kickoff.
+          </p>
+        </div>
       ) : (
         <ul className="space-y-2">
           {contracts.map((c) => (
@@ -111,18 +112,18 @@ function ContractSection({
                       {c.signedAt ? ` · signed ${fmtDateTime(c.signedAt)}` : ""}
                     </p>
                   </div>
-                  <Badge
-                    variant={
+                  <span
+                    className={[
+                      "inline-flex items-center rounded-full border px-2 py-0.5 text-[0.62rem] font-medium uppercase tracking-[0.1em]",
                       c.status === "signed"
-                        ? "active"
+                        ? "border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]"
                         : c.status === "cancelled" || c.status === "expired"
-                          ? "danger"
-                          : "neutral"
-                    }
-                    dot
+                          ? "border-[rgb(var(--fg-danger)/0.35)] bg-[rgb(var(--fg-danger)/0.12)] text-[rgb(var(--fg-danger))]"
+                          : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))]",
+                    ].join(" ")}
                   >
                     {c.status}
-                  </Badge>
+                  </span>
                 </div>
               </Link>
             </li>
@@ -133,31 +134,132 @@ function ContractSection({
   );
 }
 
-// ─── Invoices section ────────────────────────────────────────────────
-// Lifted verbatim from project-view.tsx's old InvoicesTab. For MVP this
-// is still a "coming next phase" placeholder — no tRPC fetch here, so
-// the old pattern of "InvoicesTab does its own client-side fetch" did
-// not actually exist. If/when invoice ledger rendering lands, this is
-// the entry point to wire a `trpc.invoice.listByProject.useQuery` call.
-//
-// TODO(invoices-list): replace with real ledger once invoice.listByProject
-// ships. Until then, the Overview pay-flags on the Project header + the
-// Stripe dashboard remain the source of truth for payment state.
-function InvoicesSection() {
+// ─── Money strip ─────────────────────────────────────────────────────
+// Three metrics + an "Open in Stripe" CTA. The CTA is a Server
+// Action roundtrip because Stripe's Express dashboard link is
+// single-use and time-limited — minting it client-side would leak a
+// secret; minting it via the Server Action keeps the secret on the
+// server and the producer's tab gets a fresh URL each click.
+function MoneyStrip({ money }: { money: MoneySummary }) {
+  const { toast } = useToast();
+  const [pending, startTransition] = useTransition();
+
+  function onOpenStripe() {
+    startTransition(async () => {
+      const res = await openStripeDashboard();
+      if (!res.ok) {
+        toast(res.error, "error");
+        return;
+      }
+      // Full-page redirect, not Next.js navigation: Stripe's hosted
+      // dashboard sets its own cookies/referer and doesn't play nice
+      // with a client router push.
+      window.location.href = res.url;
+    });
+  }
+
   return (
     <div className="space-y-4">
       <div>
         <h2 className="font-display text-xl tracking-tight" style={{ fontWeight: 700 }}>
-          Invoices
+          Money
         </h2>
         <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-          Ledger of charges tied to this project.
+          Paid, outstanding, and what&rsquo;s next at a glance. Deep ledger
+          lives in Stripe.
         </p>
       </div>
-      <EmptyState
-        title="No invoices yet."
-        description="Full invoicing is coming soon. For now, mark deposits and final payments on the project header — that's what unlocks downloads for the artist."
-      />
+
+      <div
+        className="grid gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 sm:grid-cols-3"
+        role="group"
+        aria-label="Money summary"
+      >
+        <MoneyMetric
+          label="Paid"
+          value={formatMoney(money.paidCents, money.currency)}
+          tone="success"
+        />
+        <MoneyMetric
+          label="Outstanding"
+          value={
+            money.outstandingCents > 0
+              ? formatMoney(money.outstandingCents, money.currency)
+              : "—"
+          }
+          tone={money.outstandingCents > 0 ? "warn" : "muted"}
+        />
+        <MoneyMetric
+          label="Next charge"
+          value={
+            money.nextChargeAt
+              ? fmtShortDate(money.nextChargeAt)
+              : "—"
+          }
+          tone="neutral"
+        />
+      </div>
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={pending}
+          onClick={onOpenStripe}
+        >
+          {pending ? "Opening Stripe…" : "Open in Stripe →"}
+        </Button>
+      </div>
     </div>
   );
+}
+
+function MoneyMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "success" | "warn" | "muted" | "neutral";
+}) {
+  const color =
+    tone === "success"
+      ? "rgb(var(--brand-primary))"
+      : tone === "warn"
+        ? "rgb(var(--fg-warning))"
+        : tone === "muted"
+          ? "rgb(var(--fg-muted))"
+          : "rgb(var(--fg-primary))";
+  return (
+    <div>
+      <p className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+        {label}
+      </p>
+      <p
+        className="sk-num mt-1 font-display text-2xl leading-none"
+        style={{ fontWeight: 800, color }}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+function formatMoney(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
+}
+
+function fmtShortDate(d: Date): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+  }).format(d);
 }
