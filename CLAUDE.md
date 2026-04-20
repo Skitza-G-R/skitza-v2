@@ -356,14 +356,27 @@ that fails CI if a new primitive skips the reduce gate.
 
 ## Product decisions (guardrails)
 
+> Full vision + 70+ locked decisions in `docs/product/PRD.md` (v2). Key guardrails below.
+
 - **4-screen producer dashboard**: Today / Projects / Music / Setup. Do NOT add top-level nav items. New features go inside one of these 4.
 - **Stages**: schema has 9 values, UI shows 3 (Live / Done / Archived). Use `stageToState(stage)` from `~/lib/projects/states.ts`. Do NOT expose raw 9-value enum to the UI.
 - **"Packages" is dead terminology** — all user-facing copy says "Services". Internal types (`Product`, `packageNameSnapshot`) stay for audit.
 - **Auto-project on booking.confirm**: producer never manually creates a project in the common case. Manual `/dashboard/projects/new` is demoted to "Add offline client" in QuickActions.
-- **One permanent share link**: `skitza.app/p/<slug>`. No magic-link-per-client unless the producer explicitly generates a trackable variant for analytics.
+- **One permanent share link**: `skitza.app/join/<slug>` — IG-bio-friendly, no trackable-per-recipient variant until Phase 2+.
 - **Autopilot**: 5 toggle switches. Never build a rule-builder UI — user said "i always tend to get lost in these rules."
 - **Inbox + notification bell are both surfaces**: user explicitly said "leave them both." Don't consolidate.
 - **Setup tabs render full management UI inline** — no cross-link stubs. Every tab has its full config form on the Setup page itself.
+- **Pricing: 2 tiers only for launch** — Free + Pro ($29/mo, 5% platform fee). No Studio tier until Pro users ask for its features.
+- **No custom domains, ever** — Skitza subdomains only.
+- **Project model: one project, many bookings (Model 2)** — planned migration flips `projects.bookingId` 1:1 → `bookings.projectId` many-to-1. Single-session services create 1 booking per project; production services create many bookings under the same project.
+- **Services catalog**: 3 fixed categories (Production / Mixing & Mastering / Consulting) + 1 custom free-form type. Services start single-tier; producer can opt in to up to 3 tiers per service.
+- **Artist onboarding**: hybrid teaser (2-3 tracks playable pre-signup) → Clerk sign-up → welcome splash → `/artist` Home with producer auto-attached. Existing-account visitors get a confirm modal, not auto-attach.
+- **Audio uploads**: 100 MB max, WAV/FLAC/MP3/AAC only. Stems as a single zip on the final version.
+- **File retention**: forever for signed-in artists; 90-day for guest uploads (with visible notice).
+- **Email branding**: "Producer X via Skitza" format. No full white-label until a Studio tier exists.
+- **Mobile native apps**: ship via Tauri Mobile in parallel with v1 (reuses ~70% of web codebase). PWA + offline mode for artists are also v1.
+- **Monitoring**: Sentry (errors) + PostHog (product analytics) + BetterStack or Instatus (public status page).
+- **CI branch protection**: `test + typecheck + lint` enforced green on `main` before merge.
 
 ---
 
