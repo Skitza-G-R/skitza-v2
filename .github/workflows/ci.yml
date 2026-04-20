@@ -39,14 +39,15 @@ jobs:
         run: pnpm lint
 
       # Apply pending migrations to the test DB before running integration
-      # tests. Drizzle-kit tracks applied migrations in __drizzle_migrations,
-      # so this is idempotent — already-applied migrations are skipped. We
-      # export DATABASE_URL_TEST as DATABASE_URL because drizzle.config.ts
-      # reads the canonical env name.
+      # tests. We bypass `drizzle-kit migrate` because _journal.json is out
+      # of sync with migrations 0019+ (see CLAUDE.md). Instead we run the
+      # direct-SQL applier, which reads every .sql file in ./drizzle/ and
+      # executes statements via the neon HTTP client. Idempotent (every
+      # migration uses `ADD COLUMN IF NOT EXISTS`), so re-running is safe.
       - name: Apply DB migrations (test DB)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
-        run: pnpm --filter @skitza/db db:migrate
+        run: cd packages/db && node apply-migrations.mjs
 
       # Wired-ahead env vars for tests:
       # - `DATABASE_URL_TEST` is the Neon test branch with schema + migrations
