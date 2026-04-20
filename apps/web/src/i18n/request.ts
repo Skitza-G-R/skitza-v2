@@ -1,17 +1,21 @@
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { getRequestConfig } from "next-intl/server";
 
-import { LOCALE_COOKIE, isValidLocale, type Locale } from "./config";
-import { detectLocaleFromCountry } from "./locale-detect";
+import { DEFAULT_LOCALE, LOCALE_COOKIE, isValidLocale, type Locale } from "./config";
 
 // next-intl's request-time entry point. Called once per RSC render to
 // resolve (a) the active locale and (b) the messages bundle for it.
 //
 // Resolution order — earliest match wins:
-//   1. `NEXT_LOCALE` cookie (set by the language-switcher chip and by
-//      the IP-detection path in middleware.ts)
-//   2. Vercel's `x-vercel-ip-country` header → country-to-locale map
-//   3. `DEFAULT_LOCALE` (English)
+//   1. `NEXT_LOCALE` cookie (set exclusively by the in-app language
+//      switcher — see ~/components/shell/language-switcher.tsx)
+//   2. `DEFAULT_LOCALE` (English)
+//
+// IP-based auto-detection was removed in the v1 hotfix: defaulting
+// Israeli visitors to Hebrew created a stuck state on the landing
+// page (which is English-only by product decision) and didn't match
+// the "English is the universal default" onboarding promise. Hebrew
+// is now strictly opt-in via the switcher chip in the sidebar footer.
 //
 // Messages are loaded via dynamic `import()` so each locale's bundle
 // is code-split. The JSON lives under `apps/web/messages/<locale>.json`;
@@ -23,9 +27,7 @@ async function resolveLocale(): Promise<Locale> {
   if (cookieLocale && isValidLocale(cookieLocale)) {
     return cookieLocale;
   }
-  const headerList = await headers();
-  const country = headerList.get("x-vercel-ip-country");
-  return detectLocaleFromCountry(country);
+  return DEFAULT_LOCALE;
 }
 
 export default getRequestConfig(async () => {

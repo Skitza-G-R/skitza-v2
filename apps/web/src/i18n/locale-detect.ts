@@ -1,10 +1,14 @@
-// IP → locale mapping. Called from the middleware when a visitor has
-// no `NEXT_LOCALE` cookie set — i.e. the first-ever hit.
+// IP → locale mapping. Currently NOT WIRED into the request path —
+// the v1 i18n hotfix removed the middleware + getRequestConfig
+// country-detect branch after user feedback ("English as the
+// universal default; Hebrew is opt-in from inside the app"). The
+// helper is retained because the mapping itself is still correct
+// and some future surface (a one-time "we noticed you're in Israel,
+// switch to Hebrew?" toast, for example) may want to consume it.
 //
 // `country` comes from Vercel's `x-vercel-ip-country` header (ISO
 // 3166-1 alpha-2, uppercase). On non-Vercel hosts the header is
-// absent; we fall back to the default locale, which is fine — this
-// is a "nice touch" feature and not a correctness requirement.
+// absent; we fall back to the default locale.
 //
 // Arabic is stubbed. The mapping already points AE/SA/EG/JO at "ar",
 // but `ar.json` is an empty file (see messages/ar.json) — Commit 2's
