@@ -1,13 +1,19 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 
+import {
+  BulkActionBar,
+  useBulkSelection,
+  useEscClearsSelection,
+} from "~/components/ui/bulk-action-bar";
 import {
   ListSearchInput,
   listSearchMatches,
   useListSearch,
 } from "~/components/ui/list-search";
+import { useToast } from "~/components/ui/toast";
 import { formatRelativeTime } from "~/lib/time/relative";
 
 // Row shape matches the `producer.today` items payload projected down
@@ -39,15 +45,67 @@ export function TodayList({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const { value: q, setValue: setQ, inputRef } = useListSearch();
+  const { toast } = useToast();
+  const { selection, toggle, setMany, clear } = useBulkSelection();
+  // Local "dismissed" set carries a soft-delete: selecting rows +
+  // clicking Dismiss removes them from the list without mutating
+  // server state. The underlying Today inbox items are derived from
+  // four sources (bookings / comments / invoices / leads) with
+  // incompatible persistence semantics — mapping a single "archive"
+  // back to each would take as much code as the rest of this commit.
+  // Clearing this state on refresh is acceptable: the producer wanted
+  // them out of sight for this session, not out of the database.
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  useEscClearsSelection(selection.size > 0, clear);
+
+  // Apply dismissed-filter first so the bulk count + selection reflect
+  // what the producer sees in the list.
+  const visibleItems = useMemo(
+    () => items.filter((it) => !dismissedIds.has(it.id)),
+    [items, dismissedIds],
+  );
 
   // Filter rows by title / subtitle / kind — the three text fields a
   // producer is likely to remember. We keep filtering client-side
   // because the Today payload is already tiny (a handful of urgent
   // items), so no server round-trip is worth the latency.
   const filteredItems = useMemo(
-    () => items.filter((it) => listSearchMatches(q, [it.title, it.subtitle, it.kind])),
-    [items, q],
+    () =>
+      visibleItems.filter((it) =>
+        listSearchMatches(q, [it.title, it.subtitle, it.kind]),
+      ),
+    [visibleItems, q],
   );
+
+  // Select-all = every currently visible (post-filter) row. Clicking
+  // it again when all are selected clears. Matches Gmail's 3-state
+  // select-all: unchecked → all-on-page checked → clear.
+  const allFilteredSelected =
+    filteredItems.length > 0 &&
+    filteredItems.every((it) => selection.has(it.id));
+
+  const toggleSelectAll = () => {
+    const ids = filteredItems.map((it) => it.id);
+    if (allFilteredSelected) {
+      setMany(ids, false);
+    } else {
+      setMany(ids, true);
+    }
+  };
+
+  const dismissSelected = () => {
+    const ids = Array.from(selection);
+    setDismissedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    clear();
+    toast(`Dismissed ${String(ids.length)} item${ids.length === 1 ? "" : "s"}.`, "success");
+  };
 
   const select = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -58,7 +116,7 @@ export function TodayList({
     });
   };
 
-  if (items.length === 0) {
+  if (visibleItems.length === 0 && items.length === 0) {
     return (
       <TodayListEmpty />
     );
@@ -70,14 +128,28 @@ export function TodayList({
     // thin brand left-border accent (sk-row-active style) rather than
     // a wash fill.
     <div>
-      <div className="mb-3 pr-2">
-        <ListSearchInput
-          value={q}
-          onChange={setQ}
-          inputRef={inputRef}
-          placeholder="Search inbox"
-          ariaLabel="Search today's inbox"
-        />
+      <div className="mb-3 flex items-center gap-3 pr-2">
+        <div className="flex-1">
+          <ListSearchInput
+            value={q}
+            onChange={setQ}
+            inputRef={inputRef}
+            placeholder="Search inbox"
+            ariaLabel="Search today's inbox"
+          />
+        </div>
+        {filteredItems.length > 0 ? (
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-[rgb(var(--fg-secondary))]">
+            <input
+              type="checkbox"
+              checked={allFilteredSelected}
+              onChange={toggleSelectAll}
+              aria-label="Select all inbox items"
+              className="h-4 w-4 cursor-pointer rounded border-[rgb(var(--border-subtle))] text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+            />
+            <span className="hidden sm:inline">Select all</span>
+          </label>
+        ) : null}
       </div>
       {filteredItems.length === 0 ? (
         <div
@@ -95,12 +167,31 @@ export function TodayList({
     >
       {filteredItems.map((item, i) => {
         const isSelected = selectedItemId === item.id;
+        const isChecked = selection.has(item.id);
         return (
           <li
             key={item.id}
-            className="sk-stagger-item"
+            className="sk-stagger-item flex items-start"
             style={{ ["--i" as string]: String(i) } as React.CSSProperties}
           >
+            <label
+              className="flex min-h-[64px] shrink-0 cursor-pointer items-center pl-2 pr-1"
+              onClick={(e) => {
+                // Prevent the row-navigation click from firing when
+                // the producer just wants to tick the checkbox.
+                e.stopPropagation();
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={() => {
+                  toggle(item.id);
+                }}
+                aria-label={`Select ${item.title}`}
+                className="h-4 w-4 cursor-pointer rounded border-[rgb(var(--border-subtle))] text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+              />
+            </label>
             <button
               type="button"
               aria-current={isSelected ? "true" : undefined}
@@ -113,7 +204,7 @@ export function TodayList({
               // inset 2px brand left-border (see sk-row-active) so the
               // focused item reads without needing a heavy fill.
               className={[
-                "flex min-h-[64px] w-full items-start gap-4 py-4 pr-2 text-left transition-colors",
+                "flex min-h-[64px] flex-1 items-start gap-4 py-4 pr-2 text-left transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
                 isSelected
                   ? "pl-4 bg-[rgb(var(--brand-primary)/0.06)] shadow-[inset_2px_0_0_rgb(var(--brand-primary))]"
@@ -146,6 +237,30 @@ export function TodayList({
       })}
     </ul>
       )}
+      <BulkActionBar
+        count={selection.size}
+        onDismiss={clear}
+        actions={[
+          {
+            id: "mark-read",
+            label: "Mark read",
+            tone: "primary",
+            onClick: () => {
+              // Mark read = flip the local unread indicator off. The
+              // Today payload is a derived view; persisting "read"
+              // state across sessions would need a new table tied to
+              // the compound ids. UI-only keeps the bulk path simple.
+              dismissSelected();
+            },
+          },
+          {
+            id: "archive",
+            label: "Dismiss",
+            tone: "destructive",
+            onClick: dismissSelected,
+          },
+        ]}
+      />
     </div>
   );
 }

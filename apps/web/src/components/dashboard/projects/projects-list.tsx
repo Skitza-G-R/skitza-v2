@@ -5,10 +5,16 @@ import { useRouter } from "next/navigation";
 import { useMemo, useTransition } from "react";
 
 import {
+  BulkActionBar,
+  useBulkSelection,
+  useEscClearsSelection,
+} from "~/components/ui/bulk-action-bar";
+import {
   ListSearchInput,
   listSearchMatches,
   useListSearch,
 } from "~/components/ui/list-search";
+import { useToast } from "~/components/ui/toast";
 import { formatRelativeTime } from "~/lib/time/relative";
 import { STAGE_LABEL, VISIBLE_STAGES as STAGE_ORDER, type VisibleStage } from "~/lib/projects/stages";
 import {
@@ -18,6 +24,7 @@ import {
   stageToState,
   type ProjectState,
 } from "~/lib/projects/states";
+import { bulkSetProjectStage } from "~/app/(app)/dashboard/projects/actions";
 
 // Batch G — the projects list now surfaces THREE display states
 // instead of eight-plus stage chips. The underlying stage enum is
@@ -59,7 +66,11 @@ export function ProjectsList({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [isBulkPending, startBulkTransition] = useTransition();
   const { value: q, setValue: setQ, inputRef } = useListSearch();
+  const { toast } = useToast();
+  const { selection, toggle, setMany, clear } = useBulkSelection();
+  useEscClearsSelection(selection.size > 0, clear);
 
   // Collapse the per-stage server grouping into per-state client
   // grouping. Each state bucket preserves the underlying stage on
@@ -143,6 +154,46 @@ export function ProjectsList({
     ? [activeState]
     : PROJECT_STATES;
 
+  // Flat list of every id visible across the rendered states, used by
+  // the select-all checkbox + bulk actions.
+  const visibleIds: string[] = statesToRender.flatMap((s) =>
+    byState[s].map((r) => r.id),
+  );
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selection.has(id));
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setMany(visibleIds, false);
+    } else {
+      setMany(visibleIds, true);
+    }
+  };
+
+  // Shared dispatcher for archive / mark-done. Optimistic-ish: the
+  // server-action revalidates /dashboard/projects on success so the
+  // rows refresh with their new stage. Clearing the selection after
+  // the mutation matches the Gmail "selection is gone once the action
+  // ran" convention.
+  const runBulkStage = (stage: "archived" | "paid") => {
+    const ids = Array.from(selection);
+    if (ids.length === 0) return;
+    startBulkTransition(async () => {
+      const res = await bulkSetProjectStage({ ids, stage });
+      if (res.ok) {
+        toast(
+          `${stage === "archived" ? "Archived" : "Marked done"} · ${String(ids.length)} project${
+            ids.length === 1 ? "" : "s"
+          }.`,
+          "success",
+        );
+        clear();
+        router.refresh();
+      } else {
+        toast(res.error, "error");
+      }
+    });
+  };
+
   return (
     <div className="mt-6 flex flex-col gap-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
@@ -173,6 +224,19 @@ export function ProjectsList({
         >
           No projects match “{q}”.
         </div>
+      ) : null}
+
+      {visibleIds.length > 0 ? (
+        <label className="flex w-fit cursor-pointer items-center gap-2 text-xs text-[rgb(var(--fg-secondary))]">
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={toggleSelectAll}
+            aria-label="Select all projects"
+            className="h-4 w-4 cursor-pointer rounded border-[rgb(var(--border-subtle))] text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+          />
+          Select all ({String(visibleIds.length)})
+        </label>
       ) : null}
 
       <div className="flex flex-col gap-8">
@@ -210,13 +274,45 @@ export function ProjectsList({
                 className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]"
               >
                 {rows.map((row, i) => (
-                  <ProjectRowItem key={row.id} row={row} index={i} />
+                  <ProjectRowItem
+                    key={row.id}
+                    row={row}
+                    index={i}
+                    selected={selection.has(row.id)}
+                    onToggle={() => {
+                      toggle(row.id);
+                    }}
+                  />
                 ))}
               </ul>
             </section>
           );
         })}
       </div>
+      <BulkActionBar
+        count={selection.size}
+        onDismiss={clear}
+        actions={[
+          {
+            id: "mark-done",
+            label: "Mark done",
+            tone: "primary",
+            disabled: isBulkPending,
+            onClick: () => {
+              runBulkStage("paid");
+            },
+          },
+          {
+            id: "archive",
+            label: "Archive",
+            tone: "destructive",
+            disabled: isBulkPending,
+            onClick: () => {
+              runBulkStage("archived");
+            },
+          },
+        ]}
+      />
     </div>
   );
 }
@@ -314,21 +410,46 @@ function Chip({
 
 // ─── Row ─────────────────────────────────────────────────────────────
 
-function ProjectRowItem({ row, index }: { row: ProjectRow; index: number }) {
+function ProjectRowItem({
+  row,
+  index,
+  selected,
+  onToggle,
+}: {
+  row: ProjectRow;
+  index: number;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   const state = stageToState(row.stage);
   const tone = STATE_TONE[state];
   return (
     <li
-      className="sk-stagger-item"
+      className="sk-stagger-item flex items-stretch"
       style={{ ["--i" as string]: String(index) } as React.CSSProperties}
     >
+      {/* Checkbox sits outside the Link so a tick doesn't navigate. */}
+      <label
+        className="flex shrink-0 cursor-pointer items-center pl-2 pr-1"
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          aria-label={`Select ${row.title}`}
+          className="h-4 w-4 cursor-pointer rounded border-[rgb(var(--border-subtle))] text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+        />
+      </label>
       <Link
         href={`/dashboard/projects/${row.id}`}
         // Batch C — rows live un-framed now, so the hover wash has to
         // be strong enough to read on its own. min-h-[64px] matches
         // Today's inbox rhythm so the three list surfaces (Today,
         // Projects, Music grid) feel like one app.
-        className="flex min-h-[64px] items-start gap-3 px-2 py-4 transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+        className="flex min-h-[64px] flex-1 items-start gap-3 px-2 py-4 transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">

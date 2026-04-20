@@ -262,3 +262,25 @@ export async function setStageAction(input: {
     return { ok: false, error: toMessage(err) };
   }
 }
+
+// Bulk stage transition for the Projects-list multi-select. Dispatches
+// a single setStageBulk tRPC call — the UPDATE is scoped by
+// producer_id + id IN (…) server-side so a tampered id array can't
+// mutate someone else's projects. We revalidate /dashboard/projects
+// (where the list lives) plus the Kanban root — both surfaces render
+// the project stage.
+export async function bulkSetProjectStage(input: {
+  ids: string[];
+  stage: Stage;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.setStageBulk(input);
+    revalidatePath("/dashboard/projects");
+    revalidatePath(PATH_LIST);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}

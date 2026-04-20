@@ -6,6 +6,7 @@ import {
   asc,
   bookings,
   createDb,
+  inArray,
   invoices,
   projectTracks,
   projects,
@@ -393,6 +394,44 @@ export const projectRouter = router({
       .where(eq(projects.id, input.id));
     return { ok: true as const };
   }),
+
+  // Bulk variant of setStage for the Projects-list multi-select.
+  // Same guardrails as the single-id version:
+  //   - cancelled / payment_paused refused (they're owned by other
+  //     code paths that coordinate Stripe + DB transitions)
+  //   - UPDATE scoped to producer_id so a tampered id array can't
+  //     mutate another producer's projects
+  // The producer-id WHERE clause on the UPDATE itself is the auth
+  // boundary — cheaper than N round-trips to verify each id first.
+  setStageBulk: producerProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string().uuid()).min(1).max(200),
+        stage: SetStageInput.shape.stage,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.stage === "cancelled" || input.stage === "payment_paused") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            input.stage === "cancelled"
+              ? "Use the Cancel project button — it stops Stripe charges before transitioning."
+              : "payment_paused is set automatically by webhook handlers when payments fail.",
+        });
+      }
+      const now = new Date();
+      await ctx.db
+        .update(projects)
+        .set({ stage: input.stage, updatedAt: now })
+        .where(
+          and(
+            eq(projects.producerId, ctx.producerId),
+            inArray(projects.id, input.ids),
+          ),
+        );
+      return { ok: true as const, count: input.ids.length };
+    }),
 
   addTrack: producerProcedure.input(AddTrackInput).mutation(async ({ ctx, input }) => {
     const [project] = await ctx.db
