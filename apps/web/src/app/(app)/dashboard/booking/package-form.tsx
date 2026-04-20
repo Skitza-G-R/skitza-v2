@@ -8,6 +8,12 @@ import { Button } from "~/components/ui/button";
 import { Input, Label, Select, Textarea } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import {
+  ValidationHint,
+  validateDisplayName,
+  validateNumber,
+  type ValidationState,
+} from "~/components/ui/validation";
+import {
   createPackage,
   deactivatePackage,
   updatePackage,
@@ -67,6 +73,7 @@ export function NewPackageForm({
   onClose,
   initialPlans = [{ kind: "full" }],
   initialValues,
+  fromTemplate = false,
 }: {
   onClose: () => void;
   initialPlans?: PaymentPlan[];
@@ -75,13 +82,21 @@ export function NewPackageForm({
   // and the initialPlans default is overridden by whatever plans the
   // product was saved with.
   initialValues?: InitialPackageValues;
+  // When true, initialValues are a template pre-fill (no real row
+  // exists in the DB yet). Submit routes through createPackage()
+  // instead of updatePackage(); the synthetic id on initialValues is
+  // ignored server-side.
+  fromTemplate?: boolean;
 }) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const isEdit = initialValues !== undefined;
+  // EDIT mode only fires when we have an existing-row initialValues
+  // *and* the template flag isn't set. Templates hydrate the same
+  // controlled-input seeds but still create a fresh row on save.
+  const isEdit = initialValues !== undefined && !fromTemplate;
   // Prefer plans saved on the product over the caller-provided default.
   const effectiveInitialPlans =
     initialValues?.paymentPlans ?? initialPlans;
@@ -117,6 +132,31 @@ export function NewPackageForm({
   const [minLeadHours, setMinLeadHours] = useState(
     initialValues?.minLeadHours ?? 12,
   );
+  // Touched-bit for the name field so an EDIT form doesn't flash a
+  // required error the moment it mounts with a prefilled name.
+  const [nameTouched, setNameTouched] = useState(false);
+
+  const nameState: ValidationState = nameTouched
+    ? validateDisplayName(name)
+    : { kind: "idle" };
+  // Duration / price always have a value in the component (number
+  // inputs aren't nullable in the underlying state), so we validate
+  // them eagerly — the live echo ("≈ $150.00") is the whole point.
+  const durationState: ValidationState = validateNumber(durationMin, {
+    min: 15,
+    max: 24 * 60,
+    label: "minutes",
+    formatParsed: (n) =>
+      n === 60 ? "1 hour" : n % 60 === 0 ? `${String(n / 60)} hours` : `${String(n)} min`,
+  });
+  const priceState: ValidationState = validateNumber(priceDollars, {
+    min: 0,
+    label: currency,
+    formatParsed: (n) =>
+      n === 0
+        ? `Free · ${currency}`
+        : `${CURRENCY_SYMBOL[currency]}${n.toFixed(2)} ${currency}`,
+  });
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -174,7 +214,7 @@ export function NewPackageForm({
       */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <Label htmlFor="name">Package name</Label>
+          <Label htmlFor="name">Service name</Label>
           <Input
             id="name"
             type="text"
@@ -182,12 +222,17 @@ export function NewPackageForm({
             onChange={(e) => {
               setName(e.target.value);
             }}
+            onBlur={() => {
+              setNameTouched(true);
+            }}
             placeholder="Full Production"
             required
             maxLength={80}
             autoFocus
             className="text-base"
+            aria-invalid={nameState.kind === "invalid" || nameState.kind === "required"}
           />
+          <ValidationHint state={nameState} />
         </div>
 
         <div className="sm:col-span-2">
@@ -238,7 +283,9 @@ export function NewPackageForm({
             }}
             required
             className="text-base"
+            aria-invalid={durationState.kind === "invalid"}
           />
+          <ValidationHint state={durationState} />
         </div>
 
         <div className="sm:col-span-2">
@@ -312,10 +359,12 @@ export function NewPackageForm({
             }}
             required
             className="text-base"
+            aria-invalid={priceState.kind === "invalid"}
           />
-          <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
-            Use 0 for free discovery sessions.
-          </p>
+          <ValidationHint
+            state={priceState}
+            hint="Use 0 for free discovery sessions."
+          />
         </div>
 
         <div>
@@ -452,7 +501,7 @@ export function NewPackageForm({
             ? "Saving…"
             : isEdit
               ? "Save changes"
-              : "Save package"}
+              : "Save service"}
         </Button>
         <Button type="button" variant="ghost" onClick={onClose} disabled={pending} className="min-h-11">
           Cancel

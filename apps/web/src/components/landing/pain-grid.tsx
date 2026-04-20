@@ -45,7 +45,7 @@ export function PainGrid() {
           {PAINS.map((p, i) => (
             <article
               key={p.title}
-              className={`rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 reveal-up-delay-${String(Math.min(i + 1, 4))}`}
+              className={`sk-lift rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 reveal-up-delay-${String(Math.min(i + 1, 4))}`}
             >
               <span
                 aria-hidden
@@ -68,7 +68,7 @@ export function PainGrid() {
           className="mt-14 text-center font-display text-xl leading-tight tracking-tight text-[rgb(var(--brand-primary))]"
           style={{ fontWeight: 700 }}
         >
-          Every one of these problems disappears with Skitza. ↓
+          Skitza kills every one of these. Keep reading. ↓
         </p>
       </div>
     </section>

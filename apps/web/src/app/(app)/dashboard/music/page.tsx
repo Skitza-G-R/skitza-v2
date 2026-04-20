@@ -35,16 +35,26 @@ export default async function MusicPage() {
 
   return (
     <AppShell active="music">
-      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
-        <header>
-          <h1 className="font-display text-3xl tracking-tight text-[rgb(var(--fg-primary))]">
-            Music
-          </h1>
-          <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
-            Every track you've uploaded, newest first.
-          </p>
-        </header>
-        <MusicLibrary tracks={rows} />
+      {/* Batch C — Music library matches the Today full-bleed canvas. */}
+      <div className="relative isolate">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+        />
+        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-8 pb-12 sm:px-8 lg:px-12 lg:pt-12">
+          <header className="mb-4">
+            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+              Library
+            </p>
+            <h1 className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
+              Music
+            </h1>
+            <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
+              Every track you&apos;ve uploaded, newest first. Tap a cover to open its Project Room.
+            </p>
+          </header>
+          <MusicLibrary tracks={rows} />
+        </div>
       </div>
     </AppShell>
   );

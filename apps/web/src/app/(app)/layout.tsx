@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { currentUser } from "@clerk/nextjs/server";
 import { createDb, producers, eq } from "@skitza/db";
+import { AppI18nProvider } from "~/i18n/app-i18n-provider";
 import { isAutoSlug } from "~/lib/slug";
 
 // Gate: any authed (app) route requires a "complete" Producer profile.
@@ -34,5 +35,5 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const incomplete = row.displayName === null || isAutoSlug(row.slug, row.email);
   if (incomplete) redirect("/onboarding");
 
-  return <>{children}</>;
+  return <AppI18nProvider>{children}</AppI18nProvider>;
 }

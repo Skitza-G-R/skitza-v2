@@ -44,12 +44,12 @@ export default async function BookSuccessPage(
       >
         {status === "paid"
           ? "You're booked."
-          : "Hang tight — we're confirming with Stripe."}
+          : "Hang tight — just confirming with Stripe."}
       </h1>
       <p className="mx-auto mt-5 max-w-md text-[rgb(var(--fg-secondary))]">
         {status === "paid"
-          ? "A receipt is on its way to your inbox. The producer has been notified."
-          : "This page will reflect 'paid' once Stripe pings us — usually within a few seconds."}
+          ? "Check your inbox for a receipt and session details. The producer is on it."
+          : "This usually takes just a few seconds. The page refreshes once Stripe confirms."}
       </p>
       <a
         href={`/p/${slug}`}
@@ -67,11 +67,11 @@ export default async function BookSuccessPage(
       */}
       <div className="mx-auto mt-12 max-w-md rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 text-center">
         <h2 className="font-display text-lg tracking-tight">
-          Save your studios.
+          Keep every producer in one place.
         </h2>
         <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-          Sign in with Google so you can track this project, book future
-          sessions, and see all your producers in one place.
+          Sign in to track this project, book future sessions, and listen to
+          every mix without digging through emails.
         </p>
         <Link
           href="/sign-in?redirect_url=/artist%3Fwelcome%3D1"

@@ -147,7 +147,11 @@ export function PersistentPlayer() {
     <div
       role="region"
       aria-label="Audio player"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 shadow-lg md:px-6"
+      // `sk-safe-bottom` pads the iOS home-indicator inset so the
+      // play button doesn't overlap the gesture strip when the app
+      // is installed as a PWA. Inset resolves to 0 in a standard
+      // browser, so no change elsewhere.
+      className="sk-safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 shadow-lg md:px-6"
     >
       <div className="mx-auto flex max-w-5xl items-center gap-3">
         <button

@@ -41,23 +41,51 @@ export function TodayView({
   const hasSelection = Boolean(selectedItemId);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-10">
       <KpiStrip kpis={data.kpis} />
 
-      <div className="grid gap-4 md:grid-cols-[minmax(0,_28rem)_minmax(0,_1fr)]">
-        {/* List — hidden on mobile while an item is selected so the
-            detail can take over the full viewport. */}
-        <div className={hasSelection ? "hidden md:block" : "block"}>
-          <TodayList items={data.items} selectedItemId={selectedItemId} />
+      {/* Batch C — Inbox section gets an editorial eyebrow + heading
+          instead of jumping straight into rows. Pairs with the ShareLink
+          hero at the top so the page reads: hero → KPIs → Inbox. */}
+      <section aria-labelledby="today-inbox-heading" data-tour-id="today-inbox">
+        <div className="mb-4 flex items-baseline justify-between gap-4 border-b border-[rgb(var(--border-subtle))] pb-3">
+          <div>
+            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+              Inbox
+            </p>
+            <h2
+              id="today-inbox-heading"
+              className="mt-1 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+            >
+              What needs you today
+            </h2>
+          </div>
         </div>
 
-        {/* Detail — always rendered on desktop (shows the empty
-            prompt when nothing is selected); mobile hides it until
-            there's a selection. */}
-        <div className={hasSelection ? "block" : "hidden md:block"}>
-          <TodayDetail items={data.items} selectedItemId={selectedItemId} />
+        <div className="grid gap-0 md:grid-cols-[minmax(0,_30rem)_minmax(0,_1fr)]">
+          {/* List — hidden on mobile while an item is selected so the
+              detail can take over the full viewport. */}
+          <div className={hasSelection ? "hidden md:block" : "block"}>
+            <TodayList items={data.items} selectedItemId={selectedItemId} />
+          </div>
+
+          {/* Detail — always rendered on desktop (shows the empty
+              prompt when nothing is selected); mobile hides it until
+              there's a selection. Logical-start-border hairline
+              separates the two panes on desktop only; `border-s`
+              renders as border-left under LTR and border-right under
+              RTL, keeping the divider between the list and detail
+              panes regardless of text direction. */}
+          <div
+            className={[
+              hasSelection ? "block" : "hidden md:block",
+              "md:border-s md:border-[rgb(var(--border-subtle))]",
+            ].join(" ")}
+          >
+            <TodayDetail items={data.items} selectedItemId={selectedItemId} />
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

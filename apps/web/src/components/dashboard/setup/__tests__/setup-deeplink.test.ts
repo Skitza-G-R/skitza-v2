@@ -3,12 +3,18 @@ import { describe, it, expect } from "vitest";
 import { SETUP_SECTION_KEYS, isSetupSectionKey } from "../setup-deeplink";
 
 describe("Setup deep-link keys", () => {
-  it("exposes exactly six sections, in canonical order", () => {
+  it("exposes exactly seven sections, in canonical order", () => {
+    // Batch G added the Autopilot tab between Availability and
+    // Connections. Position matters: Autopilot sits AFTER the core
+    // studio setup (profile/services/portfolio/availability) because
+    // the producer typically configures those first; Autopilot then
+    // automates routine outcomes once the studio is running.
     expect(SETUP_SECTION_KEYS).toEqual([
       "profile",
       "services",
       "portfolio",
       "availability",
+      "autopilot",
       "connections",
       "account",
     ]);

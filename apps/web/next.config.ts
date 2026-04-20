@@ -1,4 +1,11 @@
+import createNextIntlPlugin from "next-intl/plugin";
 import type { NextConfig } from "next";
+
+// next-intl integration — threads the request-config loader so RSCs
+// can call `useTranslations` / `getTranslations` without the provider
+// being mounted inside each page. Points at our src/i18n/request.ts
+// where locale + messages are resolved per request.
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 // Security headers. CSP is deliberately permissive for Clerk + Vercel
 // live-region rendering (both need inline styles/scripts and connect
@@ -72,4 +79,4 @@ const config: NextConfig = {
   },
 };
 
-export default config;
+export default withNextIntl(config);

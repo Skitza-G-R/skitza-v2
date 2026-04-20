@@ -3,8 +3,10 @@ import type { ReactNode } from "react";
 import { PersistentPlayer } from "~/components/audio/persistent-player";
 import { getShellState } from "~/server/shell-data";
 
+import { CoachmarkTour } from "./coachmark-tour";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
 import { DesktopMenuBridge } from "./desktop-menu-bridge";
+import { MobileBottomNav } from "./mobile-bottom-nav";
 import { ShortcutsBridge } from "./shortcuts-bridge";
 import { Sidebar, type ActiveKey } from "./sidebar";
 
@@ -51,13 +53,23 @@ export async function AppShell({
         unreadCount={unreadCount}
         unreadItems={unreadItems}
       />
-      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1">
+      {/* pb-16 on mobile so the fixed bottom nav never hides content;
+          md:pb-0 restores default padding on desktop where the bar
+          isn't rendered. */}
+      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 pb-16 md:pb-0">
         {children}
       </main>
+      <MobileBottomNav />
       <CommandPaletteTrigger />
       <ShortcutsBridge />
       <DesktopMenuBridge />
       <PersistentPlayer />
+      {/* First-run guided coachmark tour. Self-gates on a localStorage
+          flag (`skitza:producer-tour-seen:v1`), so returning producers
+          never see it. Replayable via the "Replay onboarding tour"
+          button in Setup → Account, which dispatches a
+          `skitza:replay-tour` window event. */}
+      <CoachmarkTour />
     </div>
   );
 }

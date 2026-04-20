@@ -258,6 +258,35 @@ export function AvailabilityEditor({
     });
   }
 
+  // Copy one weekday's block list to every other weekday — matches the
+  // StudioFlow "apply Monday to all weekdays" affordance. Overwrites any
+  // existing blocks on the target days.
+  function copyToAllWeekdays(sourceWeekday: number) {
+    setDraft((d) => {
+      const src = (d[sourceWeekday] ?? []).map((b) => ({
+        id: makeId(),
+        startMin: b.startMin,
+        endMin: b.endMin,
+      }));
+      const next: Draft = { ...d };
+      for (const { num } of WEEKDAYS) {
+        if (num === sourceWeekday) continue;
+        next[num] = src.map((b) => ({
+          id: makeId(),
+          startMin: b.startMin,
+          endMin: b.endMin,
+        }));
+      }
+      return next;
+    });
+  }
+
+  // Fast "clear this day" — matches the screenshot's per-day toggle
+  // where a day with N blocks collapses to "closed" in one tap.
+  function clearDay(weekday: number) {
+    setDraft((d) => ({ ...d, [weekday]: [] }));
+  }
+
   function applyPreset(preset: Preset) {
     setDraft(buildDraft(preset.blocks));
     setPendingPreset(null);
@@ -273,7 +302,7 @@ export function AvailabilityEditor({
     startTransition(async () => {
       const res = await setAvailabilityWeek({ blocks });
       if (res.ok) {
-        toast("Availability saved.", "success");
+        toast("Hours saved. Clients see updated slots on your booking page.", "success");
         router.refresh();
       } else {
         toast(res.error, "error");
@@ -355,18 +384,33 @@ export function AvailabilityEditor({
         <div className="divide-y divide-[rgb(var(--border-subtle))]">
           {WEEKDAYS.map(({ num, label }) => {
             const list = draft[num] ?? [];
+            const count = list.length;
             return (
               <div
                 key={num}
                 className="flex flex-col gap-3 py-3 sm:flex-row sm:items-start sm:gap-4"
               >
-                <div className="w-12 flex-shrink-0 pt-2 font-mono text-sm text-[rgb(var(--fg-primary))]">
-                  {label}
+                <div className="flex flex-shrink-0 flex-row items-center gap-2 pt-2 sm:w-32 sm:flex-col sm:items-start sm:gap-1">
+                  <span className="font-mono text-sm text-[rgb(var(--fg-primary))]">
+                    {label}
+                  </span>
+                  {count > 0 ? (
+                    <span
+                      className="inline-flex h-5 items-center rounded-full bg-[rgb(var(--brand-primary)/0.1)] px-2 text-[0.65rem] font-mono text-[rgb(var(--brand-primary))]"
+                      aria-label={`${String(count)} window${count === 1 ? "" : "s"}`}
+                    >
+                      {count} window{count === 1 ? "" : "s"}
+                    </span>
+                  ) : (
+                    <span className="inline-flex h-5 items-center rounded-full bg-[rgb(var(--fg-muted)/0.12)] px-2 text-[0.65rem] font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+                      Closed
+                    </span>
+                  )}
                 </div>
                 <div className="flex flex-1 flex-col gap-2">
-                  {list.length === 0 ? (
-                    <div className="flex min-h-11 items-center font-mono text-xs uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                      Off
+                  {count === 0 ? (
+                    <div className="flex min-h-11 items-center text-xs text-[rgb(var(--fg-muted))]">
+                      Nothing booked on {label}. Add a window to open the day.
                     </div>
                   ) : (
                     list.map((b, idx) => {
@@ -388,7 +432,7 @@ export function AvailabilityEditor({
                       );
                     })
                   )}
-                  <div>
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
                       variant="ghost"
@@ -397,8 +441,8 @@ export function AvailabilityEditor({
                       onClick={() => {
                         addBlock(num);
                       }}
-                      disabled={list.length >= MAX_BLOCKS_PER_DAY}
-                      aria-label={`Add a block on ${label}`}
+                      disabled={count >= MAX_BLOCKS_PER_DAY}
+                      aria-label={`Add a window on ${label}`}
                     >
                       <svg
                         aria-hidden
@@ -410,10 +454,50 @@ export function AvailabilityEditor({
                       >
                         <path d="M10 4v12M4 10h12" strokeLinecap="round" />
                       </svg>
-                      Add block
+                      Add window
                     </Button>
-                    {list.length >= MAX_BLOCKS_PER_DAY ? (
-                      <span className="ml-2 text-xs text-[rgb(var(--fg-muted))]">
+                    {count > 0 ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="min-h-11 text-[rgb(var(--fg-secondary))]"
+                          onClick={() => {
+                            copyToAllWeekdays(num);
+                          }}
+                          title={`Copy ${label} windows to every other weekday`}
+                          aria-label={`Copy ${label} schedule to every weekday`}
+                        >
+                          <svg
+                            aria-hidden
+                            viewBox="0 0 20 20"
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                          >
+                            <rect x="6" y="6" width="10" height="10" rx="1.5" />
+                            <path d="M4 4h10v2M4 4v10h2" />
+                          </svg>
+                          Copy to all
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="min-h-11 text-[rgb(var(--fg-muted))]"
+                          onClick={() => {
+                            clearDay(num);
+                          }}
+                          aria-label={`Clear all windows on ${label}`}
+                        >
+                          Clear
+                        </Button>
+                      </>
+                    ) : null}
+                    {count >= MAX_BLOCKS_PER_DAY ? (
+                      <span className="text-xs text-[rgb(var(--fg-muted))]">
                         Max {String(MAX_BLOCKS_PER_DAY)} per day
                       </span>
                     ) : null}

@@ -26,13 +26,16 @@ import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
 import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
 import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/input";
+import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import { useToast } from "~/components/ui/toast";
+import { useHotkey } from "~/lib/keyboard/use-shortcuts";
 import {
   isTerminalStage,
   SELECTABLE_STAGES,
   STAGE_LABEL,
   type Stage,
 } from "~/lib/projects/stages";
+import { STATE_LABEL, stageToState } from "~/lib/projects/states";
 import {
   cancelProjectAction,
   chargeFinalAction,
@@ -41,6 +44,7 @@ import {
 } from "~/app/(app)/dashboard/projects/actions";
 
 import { ProjectTimeline } from "./project-timeline";
+import { TagEditor } from "./tag-editor";
 
 export interface ProjectHeaderProject {
   id: string;
@@ -71,8 +75,17 @@ export interface ProjectHeaderProject {
 
 export function ProjectHeader({
   project,
+  clientContact,
+  tagVocabulary = [],
 }: {
   project: ProjectHeaderProject;
+  // Batch D — the matching client_contacts row for this project's
+  // client, if the lookup found one. Undefined/null on legacy rows
+  // with no CRM entry; the header omits the tag strip in that case.
+  clientContact?: { id: string; tags: string[] } | null;
+  // Distinct set of tags this producer has used across their contacts,
+  // sorted by frequency. Feeds the TagEditor autocomplete dropdown.
+  tagVocabulary?: string[];
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -130,7 +143,7 @@ export function ProjectHeader({
         toast(res.error, "error");
         return;
       }
-      toast(`Stage → ${STAGE_LABEL[next]}.`, "success");
+      toast(`Moved to ${STAGE_LABEL[next]}.`, "success");
       router.refresh();
     });
   }
@@ -151,7 +164,7 @@ export function ProjectHeader({
           return;
         }
         setFinalPaid(false);
-        toast("Final cleared.", "success");
+        toast("Final payment flag cleared.", "success");
         router.refresh();
       });
       return;
@@ -171,7 +184,7 @@ export function ProjectHeader({
         return;
       }
       setFinalPaid(true);
-      toast("Final marked paid · downloads unlocked.", "success");
+      toast("Marked paid. The artist can now download the final.", "success");
       router.refresh();
     });
   }
@@ -183,6 +196,23 @@ export function ProjectHeader({
     router.push(`/dashboard/projects/${project.id}?tab=music&action=upload`);
   }
 
+  // Batch D — Project Room keyboard shortcuts. Scoped to the header's
+  // mount (the Project Room renders one header per page), so they
+  // disappear when the producer navigates to another surface.
+  //
+  //   T → toggle the "final delivered" flag (mark/unmark done)
+  //   E → move focus to the stage <select> (primary edit on this page)
+  useHotkey("t", () => {
+    if (isTerminalStage(stage)) return;
+    onMarkFinalClick();
+  });
+  useHotkey("e", () => {
+    const el = document.getElementById(
+      "project-header-stage-select",
+    ) as HTMLSelectElement | null;
+    el?.focus();
+  });
+
   function onCancelClick() {
     setMenuOpen(false);
     setCancelOpen(true);
@@ -193,7 +223,7 @@ export function ProjectHeader({
     if (!res.ok) throw new Error(res.error);
     setCancelOpen(false);
     setStage("cancelled");
-    toast("Project cancelled. Future charges stopped.", "success");
+    toast("Project cancelled. Future charges stopped automatically.", "success");
     router.refresh();
   }
 
@@ -210,7 +240,7 @@ export function ProjectHeader({
     if (!flipRes.ok) {
       toast(flipRes.error, "error");
     } else {
-      toast("Final charged · downloads unlocked.", "success");
+      toast("Charged. The artist can now download the final.", "success");
     }
     router.refresh();
   }
@@ -232,19 +262,48 @@ export function ProjectHeader({
         </div>
 
         <div className="min-w-0 flex-1">
+          {/* Batch C — Project Room page title lifts to the editorial
+              display-4xl/5xl so the Project Room reads as a room, not
+              a grid item. Paired with a mono eyebrow above it on
+              desktop (hidden on narrow widths where the avatar + title
+              alone is already a lot). */}
+          <p className="hidden font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))] sm:block">
+            Project Room
+          </p>
           <h1
-            className="truncate font-display text-2xl leading-tight tracking-tight sm:text-3xl"
+            className="mt-1 truncate font-display text-3xl leading-tight tracking-tight sm:text-4xl"
             style={{ fontWeight: 800 }}
           >
             {project.title}
           </h1>
-          <p className="mt-0.5 truncate text-sm text-[rgb(var(--fg-secondary))]">
-            {displayName}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="truncate text-sm text-[rgb(var(--fg-secondary))]">
+              {displayName}
+            </p>
+            {clientContact ? (
+              <TagEditor
+                contactId={clientContact.id}
+                initialTags={clientContact.tags}
+                vocabulary={tagVocabulary}
+              />
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="neutral">{STAGE_LABEL[stage]}</Badge>
+          {/* Batch G — badge now shows the high-level STATE as the
+              primary label, with the fine-grained STAGE label small
+              and muted underneath it. Advanced users still see the
+              funnel position without being forced to read the 9-value
+              taxonomy as the primary cue. */}
+          <div className="flex flex-col items-start">
+            <Badge variant="neutral">{STATE_LABEL[stageToState(stage)]}</Badge>
+            {STAGE_LABEL[stage] !== STATE_LABEL[stageToState(stage)] ? (
+              <span className="mt-0.5 font-mono text-[0.62rem] uppercase tracking-[0.08em] text-[rgb(var(--fg-muted))]">
+                {STAGE_LABEL[stage]}
+              </span>
+            ) : null}
+          </div>
 
           {/* Inline stage select — hidden for terminal stages so the
               producer doesn't try to walk back a cancelled project via
@@ -387,42 +446,50 @@ function ActionsMenu({
 }: ActionsMenuProps) {
   return (
     <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label="Project actions"
-        onClick={() => {
-          onOpenChange(!open);
-        }}
-        disabled={pending}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-primary))] disabled:opacity-60"
-      >
-        {/* Three vertical dots */}
-        <span aria-hidden="true" className="font-mono text-sm leading-none">
-          ⋮
-        </span>
-      </button>
+      <KeyboardHint shortcut="T">
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Project actions"
+          onClick={() => {
+            onOpenChange(!open);
+          }}
+          disabled={pending}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-primary))] disabled:opacity-60"
+        >
+          {/* Three vertical dots */}
+          <span aria-hidden="true" className="font-mono text-sm leading-none">
+            ⋮
+          </span>
+        </button>
+      </KeyboardHint>
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-9 z-20 w-56 overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-lg"
+          // Right-aligned dropdown: override the default top-left
+          // origin so the scale-in visually springs from the 3-dot
+          // trigger sitting to the upper-right of the menu.
+          style={{ transformOrigin: "top right" }}
+          className="sk-pop absolute right-0 top-9 z-20 w-56 overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-lg"
         >
           <MenuItem
             onClick={onMarkFinal}
             disabled={pending}
-            label={finalPaid ? "Clear final mark" : "Mark final delivered"}
+            label={finalPaid ? "Unmark as delivered" : "Mark final delivered"}
+            shortcut="T"
           />
           <MenuItem
             onClick={onUploadTrack}
             disabled={pending}
-            label="Upload track"
+            label="Upload a new track"
+            shortcut="U"
           />
           {!isTerminal ? (
             <MenuItem
               onClick={onCancelProject}
               disabled={pending}
-              label="Cancel project"
+              label="Cancel project…"
               destructive
             />
           ) : null}
@@ -437,11 +504,15 @@ function MenuItem({
   disabled,
   label,
   destructive,
+  shortcut,
 }: {
   onClick: () => void;
   disabled: boolean;
   label: string;
   destructive?: boolean;
+  // Optional inline shortcut pill (e.g. "T" for toggle done). Pairs
+  // with the matching useHotkey wired up on the ProjectHeader.
+  shortcut?: string;
 }) {
   return (
     <button
@@ -450,14 +521,19 @@ function MenuItem({
       onClick={onClick}
       disabled={disabled}
       className={[
-        "block w-full px-4 py-2 text-left text-sm transition-colors",
+        "flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm transition-colors",
         destructive
           ? "text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)]"
           : "text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-sunken))]",
         "disabled:opacity-60",
       ].join(" ")}
     >
-      {label}
+      <span>{label}</span>
+      {shortcut ? (
+        <kbd className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-1 font-mono text-[0.62rem] text-[rgb(var(--fg-muted))]">
+          {shortcut}
+        </kbd>
+      ) : null}
     </button>
   );
 }

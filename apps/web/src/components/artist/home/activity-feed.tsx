@@ -27,7 +27,7 @@ export function ActivityFeed({ events }: { events: ActivityItem[] }) {
           Activity
         </h2>
         <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-          Quiet for now. Updates from your studios will land here.
+          Quiet for now. New mixes, sessions, and payments will land here.
         </p>
       </section>
     );

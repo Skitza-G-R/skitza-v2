@@ -49,7 +49,7 @@ export function ProjectSubTabs({
       <nav
         aria-label="Project sections"
         role="tablist"
-        className="-mx-4 overflow-x-auto border-b border-[rgb(var(--border-subtle))] sm:mx-0"
+        className="sk-scroll-x -mx-4 overflow-x-auto border-b border-[rgb(var(--border-subtle))] sm:mx-0"
       >
         <div className="flex min-w-max gap-1 px-4 sm:px-0">
           {TABS.map((t) => {
@@ -63,8 +63,13 @@ export function ProjectSubTabs({
                 {...(isActive ? { "aria-current": "page" as const } : {})}
                 id={`tab-${t.id}`}
                 aria-controls={`panel-${t.id}`}
+                // min-h-[44px] on mobile → the existing py-2.5 (~40px)
+                // on desktop keeps the tab strip compact. rounded-t-sm
+                // clips the inset focus-visible ring to the tab's own
+                // rectangle instead of flying across the underline.
                 className={[
-                  "-mb-px whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+                  "-mb-px inline-flex min-h-[44px] items-center whitespace-nowrap rounded-t-sm border-b-2 px-4 py-2.5 text-sm font-medium transition-colors sm:min-h-0",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
                   isActive
                     ? "border-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))]"
                     : "border-transparent text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
@@ -77,7 +82,14 @@ export function ProjectSubTabs({
           })}
         </div>
       </nav>
-      <div className="pt-6">{children}</div>
+      {/* Keying the panel on activeTab forces React to remount when
+          the tab changes, which replays the `reveal-up` animation so
+          the new content slides + fades in instead of hard-cutting.
+          The animation itself respects prefers-reduced-motion via
+          globals.css's @media block. */}
+      <div key={activeTab} className="reveal-up pt-6">
+        {children}
+      </div>
     </div>
   );
 }

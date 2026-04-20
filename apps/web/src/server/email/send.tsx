@@ -33,7 +33,7 @@ export async function sendBookingRequestEmail(
   },
 ): Promise<void> {
   const reviewUrl =
-    props.reviewUrl ?? `${SITE_URL}/dashboard/booking?tab=requests`;
+    props.reviewUrl ?? `${SITE_URL}/dashboard/booking?tab=upcoming`;
   const html = await render(
     <BookingRequestReceived {...props} reviewUrl={reviewUrl} />,
   );

@@ -81,6 +81,15 @@ export default clerkMiddleware(async (auth, req) => {
     signInUrl.searchParams.set("redirect_url", target);
     await auth.protect({ unauthenticatedUrl: signInUrl.toString() });
   }
+
+  // No locale cookie stamping here: the NEXT_LOCALE cookie is written
+  // exclusively by the in-app language switcher (see
+  // ~/components/shell/language-switcher.tsx). Everyone defaults to
+  // English; Hebrew is explicit opt-in from inside the authenticated
+  // app. IP-based auto-switching was the wrong UX — users in IL don't
+  // necessarily want Hebrew, and the landing page has no "switch to
+  // English" surface (by product decision, landing is English-only).
+  return NextResponse.next();
 });
 
 export const config = { matcher: ["/((?!_next|.*\\..*).*)", "/(api|trpc)(.*)"] };

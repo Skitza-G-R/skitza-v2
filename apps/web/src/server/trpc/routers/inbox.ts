@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, desc, eq, isNull, isNotNull, notifications, type Db } from "@skitza/db";
+import { and, desc, eq, inArray, isNull, isNotNull, notifications, type Db } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 
 import { router } from "../init";
@@ -54,6 +54,46 @@ export const inboxRouter = router({
         .set({ readAt: new Date() })
         .where(eq(notifications.id, input.id));
       return { ok: true as const };
+    }),
+
+  // Bulk variant of markRead. The multi-select Today inbox calls this
+  // with the selected ids; the single-id markRead above is still
+  // dispatched by the detail pane when an individual row is opened.
+  // We scope the UPDATE to producer_id + id IN (…) so a tampered id
+  // array can never mark another producer's rows as read.
+  markReadBulk: producerProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      await ctx.db
+        .update(notifications)
+        .set({ readAt: now })
+        .where(
+          and(
+            eq(notifications.producerId, ctx.producerId),
+            inArray(notifications.id, input.ids),
+            isNull(notifications.readAt),
+          ),
+        );
+      return { ok: true as const, count: input.ids.length };
+    }),
+
+  // Bulk archive — Gmail-style "select many, clear them out in one
+  // shot." Archiving implies read (mirrors the single-id archive).
+  archiveBulk: producerProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      await ctx.db
+        .update(notifications)
+        .set({ archivedAt: now, readAt: now })
+        .where(
+          and(
+            eq(notifications.producerId, ctx.producerId),
+            inArray(notifications.id, input.ids),
+          ),
+        );
+      return { ok: true as const, count: input.ids.length };
     }),
 
   markAllRead: producerProcedure.mutation(async ({ ctx }) => {

@@ -84,8 +84,8 @@ export function SessionsSubTab({
       {booking === null ? (
         <EmptyState
           icon={<CalendarIcon />}
-          title="No session scheduled yet."
-          description="This project isn't linked to a booking yet. Sessions land here once an artist books through your public link, or once you schedule one manually from the Booking surface."
+          title="No session on the calendar."
+          description="Sessions show up here when the artist books through your public link, or when you schedule one from the Booking page."
           action={
             <Button asChild variant="secondary">
               <Link href="/dashboard/booking?tab=upcoming">Open booking</Link>
@@ -131,7 +131,7 @@ function BookingCard({
     // For Task 7 we stub with a toast; the button is visible so the
     // surface matches the plan but the CTA makes its state honest.
     toast(
-      "Rescheduling isn't wired yet - share your public link.",
+      "Rescheduling in-app is coming soon. For now, share your booking link.",
       "info",
     );
   }
@@ -148,7 +148,7 @@ function BookingCard({
     // stays responsive. The full flow is tracked as a follow-up.
     startTransition(() => {
       toast(
-        "Cancel-after-confirm isn't wired - use the 3-dot menu.",
+        "Use the 3-dot menu above to cancel the whole project.",
         "info",
       );
       router.refresh();

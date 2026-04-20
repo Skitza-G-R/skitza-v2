@@ -17,7 +17,7 @@ export function BookingActionButtons({ id, artistName }: { id: string; artistNam
     startTransition(async () => {
       const res = await confirmBooking({ id });
       if (res.ok) {
-        toast(`Confirmed booking with ${artistName}.`, "success");
+        toast(`Booked ${artistName}. They'll get a confirmation email.`, "success");
         router.refresh();
       } else {
         toast(res.error, "error");
@@ -29,7 +29,7 @@ export function BookingActionButtons({ id, artistName }: { id: string; artistNam
     startTransition(async () => {
       const res = await rejectBooking({ id });
       if (res.ok) {
-        toast("Booking rejected.", "info");
+        toast("Request declined. The slot is free again.", "info");
         setRejectConfirm(false);
         router.refresh();
       } else {
@@ -52,7 +52,7 @@ export function BookingActionButtons({ id, artistName }: { id: string; artistNam
             onClick={onReject}
             disabled={pending}
           >
-            {pending ? "…" : "Confirm reject"}
+            {pending ? "…" : "Yes, decline"}
           </Button>
           <Button
             type="button"
@@ -63,7 +63,7 @@ export function BookingActionButtons({ id, artistName }: { id: string; artistNam
             }}
             disabled={pending}
           >
-            Cancel
+            Nevermind
           </Button>
         </>
       ) : (
@@ -76,7 +76,7 @@ export function BookingActionButtons({ id, artistName }: { id: string; artistNam
           }}
           disabled={pending}
         >
-          Reject
+          Decline
         </Button>
       )}
     </div>

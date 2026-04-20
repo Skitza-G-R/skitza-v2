@@ -4,17 +4,23 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { UserButton } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 
+import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
+import { LanguageSwitcher } from "./language-switcher";
 import { NotificationBell } from "./notification-bell";
 import { ThemeToggle } from "./theme-toggle";
 
 // Left-rail sidebar, Linear/Splice-flavoured. Persists collapsed state
 // to localStorage so it survives reloads. Listens for a custom
 // `skitza:toggle-sidebar` event the shortcut layer dispatches on `[` —
-// this keeps the hook decoupled from sidebar internals. Mobile gets
-// a hamburger and an overlay drawer; desktop gets a 56↔240 rail.
+// this keeps the hook decoupled from sidebar internals. Mobile is
+// served by MobileBottomNav (see ~/components/shell/mobile-bottom-nav);
+// this component is desktop-only (`md:flex hidden`) and renders a
+// 56↔240 rail. The old hamburger + overlay-drawer was retired when
+// the bottom nav landed — same 4 entry points, no second surface.
 //
 // Flash-of-wrong-width: on SSR we don't know the user's preference,
 // so we always render expanded first, then the mount effect nudges
@@ -22,7 +28,19 @@ import { ThemeToggle } from "./theme-toggle";
 
 export type ActiveKey = "today" | "music" | "projects" | "setup";
 
-type NavItem = { id: ActiveKey; label: string; href: string; icon: ReactNode };
+type NavItem = {
+  id: ActiveKey;
+  /** English source-of-truth label. Retained for tests + as the
+   *  fallback when next-intl hasn't hydrated yet. Runtime rendering
+   *  uses `labelKey` via `useTranslations("sidebar")`. */
+  label: string;
+  /** Translation key under `sidebar.*` — matches ActiveKey by design. */
+  labelKey: ActiveKey;
+  href: string;
+  icon: ReactNode;
+  /** Two-key G-leader shortcut (e.g. "G T" for Today). */
+  shortcut: string;
+};
 
 const STORAGE_KEY = "skitza-sidebar-collapsed";
 
@@ -33,10 +51,10 @@ const STORAGE_KEY = "skitza-sidebar-collapsed";
 // top-level item — it's always reached by tapping a project in
 // the Projects list, so it's per-project not a global nav.
 export const NAV_ITEMS: readonly NavItem[] = [
-  { id: "today", label: "Today", href: "/dashboard", icon: <HomeIcon /> },
-  { id: "music", label: "Music", href: "/dashboard/music", icon: <LibraryIcon /> },
-  { id: "projects", label: "Projects", href: "/dashboard/projects", icon: <PortfolioIcon /> },
-  { id: "setup", label: "Setup", href: "/dashboard/settings", icon: <SettingsIcon /> },
+  { id: "today", label: "Today", labelKey: "today", href: "/dashboard", icon: <HomeIcon />, shortcut: "G T" },
+  { id: "music", label: "Music", labelKey: "music", href: "/dashboard/music", icon: <LibraryIcon />, shortcut: "G M" },
+  { id: "projects", label: "Projects", labelKey: "projects", href: "/dashboard/projects", icon: <PortfolioIcon />, shortcut: "G P" },
+  { id: "setup", label: "Setup", labelKey: "setup", href: "/dashboard/settings", icon: <SettingsIcon />, shortcut: "G S" },
 ] as const;
 
 export function Sidebar({
@@ -52,7 +70,6 @@ export function Sidebar({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -92,60 +109,23 @@ export function Sidebar({
   const widthClass = effectiveCollapsed ? "w-14" : "w-60";
 
   return (
-    <>
-      {/* Mobile hamburger — fixed top-left, never shown on md+ */}
-      <button
-        type="button"
-        aria-label="Open menu"
-        onClick={() => {
-          setMobileOpen(true);
-        }}
-        className="fixed left-3 top-3 z-40 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 text-[rgb(var(--fg-primary))] md:hidden"
-      >
-        <HamburgerIcon />
-      </button>
-
-      {/* Mobile overlay drawer */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-[70] md:hidden" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            aria-label="Close menu"
-            onClick={() => {
-              setMobileOpen(false);
-            }}
-            className="absolute inset-0 bg-black/40"
-          />
-          <div className="relative h-full w-64 border-r border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
-            <SidebarBody
-              active={active}
-              collapsed={false}
-              producerSlug={producerSlug}
-              unreadCount={unreadCount}
-              unreadItems={unreadItems}
-              onItemClick={() => {
-                setMobileOpen(false);
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Desktop sidebar */}
-      <aside
-        className={`${widthClass} sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-[width] duration-200 md:flex`}
-        data-collapsed={effectiveCollapsed}
-      >
-        <SidebarBody
-          active={active}
-          collapsed={effectiveCollapsed}
-          producerSlug={producerSlug}
-          unreadCount={unreadCount}
-          unreadItems={unreadItems}
-          onToggle={toggle}
-        />
-      </aside>
-    </>
+    <aside
+      // RTL — sidebar rails against the page's trailing edge in RTL
+      // (right → left flip puts it on the left), so the separator
+      // needs to be on the logical END side. `border-e` is the logical
+      // alias: `border-right` in LTR, `border-left` in RTL.
+      className={`${widthClass} sticky top-0 hidden h-dvh shrink-0 flex-col border-e border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-[width] duration-200 md:flex`}
+      data-collapsed={effectiveCollapsed}
+    >
+      <SidebarBody
+        active={active}
+        collapsed={effectiveCollapsed}
+        producerSlug={producerSlug}
+        unreadCount={unreadCount}
+        unreadItems={unreadItems}
+        onToggle={toggle}
+      />
+    </aside>
   );
 }
 
@@ -156,7 +136,6 @@ function SidebarBody({
   unreadCount,
   unreadItems,
   onToggle,
-  onItemClick,
 }: {
   active: ActiveKey;
   collapsed: boolean;
@@ -164,14 +143,13 @@ function SidebarBody({
   unreadCount: number;
   unreadItems: readonly ShellNotificationItem[];
   onToggle?: () => void;
-  onItemClick?: () => void;
 }) {
+  const t = useTranslations("sidebar");
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-2 p-3">
         <Link
           href="/dashboard"
-          {...(onItemClick ? { onClick: onItemClick } : {})}
           className="flex items-center gap-2 font-display text-lg tracking-tight text-[rgb(var(--fg-primary))]"
         >
           <SkitzaMark />
@@ -180,15 +158,23 @@ function SidebarBody({
         {onToggle && (
           <button
             type="button"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? t("expand") : t("collapse")}
             onClick={onToggle}
-            className="rounded-md p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
+            // Desktop-only control (the desktop rail mounts SidebarBody
+            // via onToggle); mouse precision means we can keep this at
+            // a tight 28×28 without falling below the desktop target
+            // floor. Adds focus-visible for keyboard.
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
           >
             <ChevronIcon flipped={collapsed} />
           </button>
         )}
       </div>
-      <nav aria-label="Primary" className="flex-1 space-y-0.5 px-2">
+      <nav
+        aria-label="Primary"
+        data-tour-id="sidebar-nav"
+        className="flex-1 space-y-0.5 px-2"
+      >
         {NAV_ITEMS.map((item) => (
           <SidebarItem
             key={item.id}
@@ -196,7 +182,6 @@ function SidebarBody({
             isActive={active === item.id}
             collapsed={collapsed}
             badgeCount={item.id === "today" ? unreadCount : 0}
-            {...(onItemClick ? { onClick: onItemClick } : {})}
           />
         ))}
       </nav>
@@ -208,13 +193,14 @@ function SidebarBody({
             rel="noreferrer"
             className="rounded-md px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--brand-primary))]"
           >
-            Public profile →
+            {t("publicProfile")} →
           </Link>
         ) : null}
         <div className={`flex items-center ${collapsed ? "flex-col gap-2" : "justify-between"} px-1`}>
           <div className={`flex items-center ${collapsed ? "flex-col" : ""} gap-1`}>
             <ThemeToggle />
             <NotificationBell unreadCount={unreadCount} unreadItems={unreadItems} />
+            <LanguageSwitcher collapsed={collapsed} />
           </div>
           <UserButton
             appearance={{
@@ -232,45 +218,72 @@ function SidebarItem({
   isActive,
   collapsed,
   badgeCount,
-  onClick,
 }: {
   item: NavItem;
   isActive: boolean;
   collapsed: boolean;
   badgeCount: number;
-  onClick?: () => void;
 }) {
+  const t = useTranslations("sidebar");
+  const label = t(item.labelKey);
   // Cap large counts visually so a thousand-comment neglected account
   // doesn't break the rail layout. Matches the Superhuman/Gmail pattern.
   const badgeLabel = badgeCount > 99 ? "99+" : badgeCount.toString();
   return (
+    <KeyboardHint shortcut={item.shortcut} side="bottom">
     <Link
       href={item.href}
-      {...(onClick ? { onClick } : {})}
+      data-tour-id={`nav-${item.id}`}
       {...(isActive ? { "aria-current": "page" as const } : {})}
-      {...(collapsed ? { title: item.label } : {})}
-      className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors ${
+      {...(collapsed ? { title: label } : {})}
+      // min-h-[44px] tap target (both mobile bottom-nav and the
+      // collapsed desktop rail still target keyboard/touch users
+      // here) → md:min-h-[36px] lets the collapsed desktop rail
+      // breathe without ballooning the row. `title` on collapsed
+      // gives a native hover tooltip so icons aren't guessing games.
+      //
+      // Active indicator: a 2px copper bar anchored to the left edge
+      // via absolute positioning. Scale-Y transitions from 0 → 1 when
+      // active, giving a subtle slide-in effect without the DOM cost
+      // of a shared element (one bar per item, only one visible at a
+      // time). `sk-trans` governs the hover colour + bar transition.
+      className={`sk-trans relative flex min-h-[44px] items-center gap-3 rounded-md px-2 py-2 text-sm md:min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] ${
         isActive
           ? "bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-primary))]"
           : "text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
       }`}
     >
+      {/* RTL — the active-state indicator bar lives on the logical
+          start edge. `start-0` is the logical-property equivalent of
+          `left-0` under LTR + `right-0` under RTL, so Tailwind v4
+          resolves it against the ambient `dir`. No JS needed. */}
+      <span
+        aria-hidden
+        className={`sk-trans absolute start-0 top-1.5 bottom-1.5 w-[2px] origin-center rounded-full bg-[rgb(var(--brand-primary))] ${
+          isActive ? "scale-y-100 opacity-100" : "scale-y-50 opacity-0"
+        }`}
+      />
       <span className="relative shrink-0">
         {item.icon}
         {collapsed && badgeCount > 0 ? (
+          // `-end-1` is the RTL-aware equivalent of the old `-right-1` —
+          // the unread dot floats at the trailing edge of the icon
+          // regardless of text direction.
           <span
             aria-hidden
-            className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))] ring-2 ring-[rgb(var(--bg-elevated))]"
+            className="absolute -end-1 -top-1 h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))] ring-2 ring-[rgb(var(--bg-elevated))]"
           />
         ) : null}
       </span>
       {!collapsed && (
         <>
-          <span className="truncate">{item.label}</span>
+          <span className="truncate">{label}</span>
           {badgeCount > 0 ? (
+            // `ms-auto` (margin-start) pushes the badge to the trailing
+            // edge in both directions — LTR: far right; RTL: far left.
             <span
               aria-label={`${badgeCount.toString()} unread`}
-              className="ml-auto rounded-full bg-[rgb(var(--brand-primary))] px-1.5 py-[1px] font-mono text-[0.625rem] font-semibold text-[rgb(var(--fg-inverse))]"
+              className="ms-auto rounded-full bg-[rgb(var(--brand-primary))] px-1.5 py-[1px] font-mono text-[0.625rem] font-semibold text-[rgb(var(--fg-inverse))]"
             >
               {badgeLabel}
             </span>
@@ -278,6 +291,7 @@ function SidebarItem({
         </>
       )}
     </Link>
+    </KeyboardHint>
   );
 }
 
@@ -347,15 +361,16 @@ function SettingsIcon() {
   );
 }
 
-function HamburgerIcon() {
-  return (
-    <svg aria-hidden width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
-      <path d="M2.5 5h13M2.5 9h13M2.5 13h13" />
-    </svg>
-  );
-}
-
 function ChevronIcon({ flipped }: { flipped: boolean }) {
+  // RTL: the chevron is an SVG path that physically points "left" in
+  // its natural orientation. Under LTR, `flipped` (= sidebar collapsed)
+  // rotates it to point right. Under RTL, the sidebar is on the
+  // leading side (the right edge), so the glyph needs to point the
+  // opposite way in both states. Composing `rtl:rotate-180` gives us:
+  //   LTR, expanded:   "<" (points toward content)
+  //   LTR, collapsed:  ">" (points away, toward sidebar)
+  //   RTL, expanded:   ">" (points toward content — LTR rotated 180)
+  //   RTL, collapsed:  "<" (LTR collapsed + rtl rotation cancel to 0)
   return (
     <svg
       aria-hidden
@@ -367,7 +382,7 @@ function ChevronIcon({ flipped }: { flipped: boolean }) {
       strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`transition-transform ${flipped ? "rotate-180" : ""}`}
+      className={`transition-transform rtl:rotate-180 ${flipped ? "rotate-180 rtl:rotate-0" : ""}`}
     >
       <path d="M9 3.5 4.5 7 9 10.5" />
     </svg>

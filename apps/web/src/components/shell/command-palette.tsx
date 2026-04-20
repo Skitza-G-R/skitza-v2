@@ -168,7 +168,12 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         }}
         className="absolute inset-0 bg-black/35 backdrop-blur-sm"
       />
-      <div className="relative mx-auto w-full max-w-xl rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-2xl">
+      <div
+        // Palette opens from the top — origin-top makes the scale-in
+        // feel like it's dropping from the keyboard shortcut bar.
+        style={{ transformOrigin: "top" }}
+        className="sk-pop-center relative mx-auto w-full max-w-xl rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-2xl"
+      >
         <Command label="Skitza command palette" shouldFilter={false}>
           <div className="flex items-center gap-2 border-b border-[rgb(var(--border-subtle))] px-4 py-3">
             <span className="font-mono text-[11px] uppercase tracking-wider text-[rgb(var(--fg-muted))]">

@@ -19,6 +19,10 @@ coverage/
 pnpm-debug.log*
 .env.production
 
-# Claude Code local state (worktrees, agent transcripts)
-.claude/
+# Claude Code local state (worktrees, agent transcripts). Keep committed
+# config (commands, agents, settings) — ignore only per-machine runtime state.
+.claude/worktrees/
+.claude/transcripts/
+.claude/cache/
+.claude/settings.local.json
 .playwright-mcp/
