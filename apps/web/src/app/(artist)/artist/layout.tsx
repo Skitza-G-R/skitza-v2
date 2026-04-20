@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { createDb, eq, producers, clientContacts } from "@skitza/db";
 import { ArtistAppShell } from "~/components/artist/artist-app-shell";
+import { AppI18nProvider } from "~/i18n/app-i18n-provider";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Server component. Runs on every /artist/* navigation. Decides:
@@ -53,8 +54,10 @@ export default async function ArtistLayout({
   const { studios } = await caller.artist.studios();
 
   return (
-    <ArtistAppShell isProducer={!!producerRow} studios={studios}>
-      {children}
-    </ArtistAppShell>
+    <AppI18nProvider>
+      <ArtistAppShell isProducer={!!producerRow} studios={studios}>
+        {children}
+      </ArtistAppShell>
+    </AppI18nProvider>
   );
 }

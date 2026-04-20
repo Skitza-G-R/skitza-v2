@@ -3,12 +3,9 @@ import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Fraunces, Outfit, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
-import { NextIntlClientProvider } from "next-intl";
-import { getLocale, getMessages } from "next-intl/server";
 
 import { SwRegister } from "~/components/shell/sw-register";
 import { ToastProvider } from "~/components/ui/toast";
-import { isRtl } from "~/i18n/config";
 import "./globals.css";
 
 // Warm cream typography stack (Phase D).
@@ -133,26 +130,25 @@ const clerkAppearance = {
   },
 } as const;
 
-export default async function RootLayout({ children }: { children: ReactNode }) {
-  // Locale + messages resolved by next-intl's getRequestConfig
-  // (see src/i18n/request.ts). `getMessages` returns the full bundle
-  // for the active locale — a shallow copy is fine for the provider.
-  const locale = await getLocale();
-  const messages = await getMessages();
-  const rtl = isRtl(locale);
-
+export default function RootLayout({ children }: { children: ReactNode }) {
+  // Root layout intentionally pins `lang="en" dir="ltr"`. i18n is
+  // scoped to the authenticated app surfaces ((app), (artist),
+  // (artist-welcome), (onboarding)) — each of those layouts mounts its
+  // own <NextIntlClientProvider> and wraps its content in a <div
+  // dir={...}> so RTL only fires where it's wanted. The landing,
+  // public storefront, sign-in/up, and the magic-link handler stay
+  // English/LTR regardless of the NEXT_LOCALE cookie, matching the
+  // "English is the universal default" product decision.
   return (
     <ClerkProvider appearance={clerkAppearance}>
-      {/* `suppressHydrationWarning` is required because next-themes sets
+      {/* `suppressHydrationWarning` stays on <html>: next-themes sets
           the `data-theme` attribute via an inline script before React
-          hydrates, and React would otherwise warn on attribute
-          mismatch. The warning is suppressed only on <html>, not on
-          child elements.
-          `dir` is resolved from the locale's RTL set (src/i18n/config.ts)
-          so Tailwind's `rtl:` variants fire app-wide for Hebrew/Arabic. */}
+          hydrates, and React would otherwise warn on the resulting
+          attribute mismatch. The warning is suppressed only on <html>,
+          not on child elements. */}
       <html
-        lang={locale}
-        dir={rtl ? "rtl" : "ltr"}
+        lang="en"
+        dir="ltr"
         className={`${fraunces.variable} ${outfit.variable} ${jetbrainsMono.variable}`}
         suppressHydrationWarning
       >
@@ -173,24 +169,18 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             enableSystem
             disableTransitionOnChange
           >
-            {/* NextIntlClientProvider makes the active locale's messages
-                available to every Client Component via `useTranslations`.
-                RSCs bypass this and read from `getTranslations` directly —
-                both paths resolve against the same `getRequestConfig`. */}
-            <NextIntlClientProvider locale={locale} messages={messages}>
-              {/* Skip-to-content link — keyboard-only users hit Tab on page
-                  load, see this first, and jump past the shell navigation
-                  straight to the main content. */}
-              <a href="#main-content" className="skip-to-content">
-                Skip to content
-              </a>
-              {/* Registers the app-shell Service Worker — makes the
-                  installed Tauri Mac app feel near-native on repeat
-                  visits by serving the shell + Next.js chunks from
-                  cache. Fails open in unsupported environments. */}
-              <SwRegister />
-              <ToastProvider>{children}</ToastProvider>
-            </NextIntlClientProvider>
+            {/* Skip-to-content link — keyboard-only users hit Tab on page
+                load, see this first, and jump past the shell navigation
+                straight to the main content. */}
+            <a href="#main-content" className="skip-to-content">
+              Skip to content
+            </a>
+            {/* Registers the app-shell Service Worker — makes the
+                installed Tauri Mac app feel near-native on repeat
+                visits by serving the shell + Next.js chunks from
+                cache. Fails open in unsupported environments. */}
+            <SwRegister />
+            <ToastProvider>{children}</ToastProvider>
           </ThemeProvider>
         </body>
       </html>
