@@ -12,6 +12,7 @@ import { BlackoutsEditor } from "./blackouts-editor";
 import { BookingActionButtons } from "./booking-controls";
 import { DurationPicker } from "./duration-picker";
 import { EditPackageButton } from "./edit-product-client";
+import { GCalSyncBadge } from "./gcal-sync-badge";
 import { PoliciesEditor } from "./policies-editor";
 import {
   CURRENCY_SYMBOL,
@@ -163,6 +164,12 @@ export default async function BookingPage({ searchParams }: PageProps) {
 
           {tab === "availability" ? (
             <div className="space-y-4">
+              {/* GCal sync status — UI stub ahead of real OAuth integration.
+                  Shown first because the screenshot puts it at the top of
+                  the Sessions column. Hard-coded to `not_connected` until
+                  the OAuth flow ships; the component accepts a `status`
+                  prop so the wiring site is one-line when that lands. */}
+              <GCalSyncBadge status="not_connected" />
               <DurationPicker initialDefaultMin={availabilitySettings.defaultSessionMin} />
               <PoliciesEditor
                 initialAutoConfirm={availabilitySettings.autoConfirmBookings}
