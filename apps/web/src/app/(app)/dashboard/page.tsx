@@ -103,20 +103,35 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   return (
     <AppShell active="today">
-      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
-        <h1 className="sr-only">Today</h1>
-        {showSetupNudge ? <FinishSetupNudge /> : null}
-        {/* Today Cockpit — the permanent share link sits ABOVE the KPI
-            strip so it's the first thing in the producer's eye-line.
-            The share-first workflow is the whole point of the Today
-            screen; KPIs come second. */}
-        <ShareLinkCard slug={me.slug} publicBaseUrl={publicBaseUrl} />
-        {/* 8 time-saving actions — primary row (4 big buttons) +
-            secondary row (4 chips). Lives between the share card and
-            the KPI strip so frequent moves are never more than one
-            click away. */}
-        <QuickActions shareUrl={shareUrl} recentProjectId={recentProjectId} />
-        <TodayView data={data} selectedItemId={selectedItemId} />
+      {/* Batch C — Today goes full-bleed. A subtle radial brand
+          gradient sits on top of the warm cream base so the upper
+          fold glows with amber instead of looking like a bordered
+          white card. The gradient fades to bg-base before the
+          content reaches the fold, keeping the list + detail surface
+          on a flat background (so typography, not framing, does the
+          work). max-width lifts to 1920px for ultrawide producers; we
+          still center below 1920 so the Samply-feel breathing room
+          never degrades into an empty-gutter wasteland. */}
+      <div className="relative isolate">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.12)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+        />
+        <div className="mx-auto max-w-[1920px] px-4 pt-8 pb-10 sm:px-8 lg:px-12 lg:pt-12">
+          <h1 className="sr-only">Today</h1>
+          {showSetupNudge ? <FinishSetupNudge /> : null}
+          {/* Today Cockpit — the permanent share link sits ABOVE the KPI
+              strip so it's the first thing in the producer's eye-line.
+              The share-first workflow is the whole point of the Today
+              screen; KPIs come second. */}
+          <ShareLinkCard slug={me.slug} publicBaseUrl={publicBaseUrl} />
+          {/* 8 time-saving actions — primary row (4 big buttons) +
+              secondary row (4 chips). Lives between the share card and
+              the KPI strip so frequent moves are never more than one
+              click away. */}
+          <QuickActions shareUrl={shareUrl} recentProjectId={recentProjectId} />
+          <TodayView data={data} selectedItemId={selectedItemId} />
+        </div>
       </div>
     </AppShell>
   );

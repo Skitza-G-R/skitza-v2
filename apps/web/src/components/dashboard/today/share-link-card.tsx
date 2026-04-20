@@ -86,26 +86,35 @@ export function ShareLinkCard({
   };
 
   return (
+    // Batch C — ShareLinkCard is the hero anchor of the Today gradient
+    // canvas. No heavy border, editorial heading, slug in a generous
+    // mono pill that reads as a URL chip on a dashboard, not a
+    // greyish input.
     <section
-      className="mb-6 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
+      className="mb-10"
       aria-labelledby="share-link-title"
     >
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0 flex-1">
+          <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+            Your share link
+          </p>
           <h2
             id="share-link-title"
-            className="text-base font-semibold text-[rgb(var(--fg-primary))]"
+            className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl"
           >
-            Your share link.
+            Drop this anywhere.
           </h2>
-          <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-            Put this in your Instagram bio, send it to fans, embed it anywhere.
+          <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
+            Instagram bio, DMs, email signatures — fans tap once and they're booking you.
           </p>
           <div
-            className="mt-3 overflow-x-auto rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-3 py-2 font-mono text-sm text-[rgb(var(--fg-primary))] sm:text-base"
+            className="mt-5 inline-flex max-w-full items-center gap-2 overflow-x-auto rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 font-mono text-sm text-[rgb(var(--fg-primary))] shadow-[var(--shadow-sm)] sm:text-base"
             title={fullUrl}
           >
-            {displayUrl}
+            <span className="text-[rgb(var(--fg-muted))]">skitza.app</span>
+            <span className="text-[rgb(var(--fg-muted))]">/p/</span>
+            <span className="font-semibold">{slug}</span>
           </div>
         </div>
 
@@ -113,7 +122,7 @@ export function ShareLinkCard({
           <button
             type="button"
             onClick={copy}
-            className="sk-lift sk-cta-shine inline-flex min-h-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110"
+            className="sk-lift sk-cta-shine inline-flex min-h-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-md)] hover:brightness-110"
             aria-label={justCopied ? "Copied to clipboard" : "Copy link to clipboard"}
           >
             {justCopied ? "Copied!" : "Copy link"}
@@ -128,6 +137,9 @@ export function ShareLinkCard({
           </a>
         </div>
       </div>
+      {/* displayUrl kept in the DOM for a11y + in case we need the
+          plain URL surface back (e.g. when the brand font fails). */}
+      <span className="sr-only">{displayUrl}</span>
     </section>
   );
 }

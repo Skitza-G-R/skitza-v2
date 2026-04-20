@@ -50,11 +50,15 @@ export function TodayList({
   }
 
   return (
+    // Batch C — shed the card frame. Typography and a single hairline
+    // between rows carries the hierarchy; the active item gets a
+    // thin brand left-border accent (sk-row-active style) rather than
+    // a wash fill.
     <ul
       role="list"
       aria-label="Today's inbox"
       aria-live="polite"
-      className="divide-y divide-[rgb(var(--border-subtle))] overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+      className="divide-y divide-[rgb(var(--border-subtle))]"
     >
       {items.map((item) => {
         const isSelected = selectedItemId === item.id;
@@ -67,38 +71,36 @@ export function TodayList({
                 select(item.id);
               }}
               disabled={isPending}
-              // min-h-[56px] keeps each inbox row comfortably tappable
-              // on mobile (the kind-icon column alone is 28px, so py-3
-              // floors the total height around 50px — this pushes past
-              // it for reliability across fonts). Inset focus ring so
-              // keyboard users see the selection highlight without the
-              // outline overlapping the previous row's bottom border.
+              // min-h-[64px] — a nudge taller than before so text
+              // breathes like Spotify track rows. Active state uses an
+              // inset 2px brand left-border (see sk-row-active) so the
+              // focused item reads without needing a heavy fill.
               className={[
-                "flex min-h-[56px] w-full items-start gap-3 px-4 py-3 text-left transition-colors",
+                "flex min-h-[64px] w-full items-start gap-4 py-4 pr-2 text-left transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
                 isSelected
-                  ? "bg-[rgb(var(--brand-primary)/0.08)]"
-                  : "hover:bg-[rgb(var(--bg-sunken))]",
+                  ? "pl-4 bg-[rgb(var(--brand-primary)/0.06)] shadow-[inset_2px_0_0_rgb(var(--brand-primary))]"
+                  : "pl-2 hover:bg-[rgb(var(--bg-overlay))]",
               ].join(" ")}
             >
               <KindIcon kind={item.kind} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="truncate text-sm font-medium text-[rgb(var(--fg-primary))]">
+                  <p className="truncate text-[0.95rem] font-medium leading-6 text-[rgb(var(--fg-primary))]">
                     {item.title}
                   </p>
                   <p className="sk-num shrink-0 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
                     {formatRelativeTime(new Date(item.occurredAtIso))}
                   </p>
                 </div>
-                <p className="mt-0.5 truncate text-xs text-[rgb(var(--fg-secondary))]">
+                <p className="mt-1 truncate text-sm leading-5 text-[rgb(var(--fg-secondary))]">
                   {item.subtitle}
                 </p>
               </div>
               {item.unread ? (
                 <span
                   aria-label="unread"
-                  className="mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
+                  className="mt-2 inline-block h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
                 />
               ) : null}
             </button>

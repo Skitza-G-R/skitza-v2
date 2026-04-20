@@ -26,7 +26,12 @@ export function KpiStrip({ kpis }: Props) {
     }).format(cents / 100);
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    // Batch C — KPIs float on the gradient instead of sitting in
+    // bordered cards. A thin divider rule between columns keeps them
+    // legible on desktop; mobile drops the divider (2-col grid would
+    // land a stray line in the middle). Metric values get the display
+    // font at 3xl/4xl — editorial, not utility.
+    <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4 sm:divide-x sm:divide-[rgb(var(--border-subtle))]">
       <Kpi label="Active projects" value={String(kpis.activeProjects)} />
       <Kpi label="Revenue · month" value={format(kpis.revenueMonthCents)} />
       <Kpi label="Sessions · 7d" value={String(kpis.upcomingSessions7d)} />
@@ -49,13 +54,16 @@ function Kpi({
   tone?: "default" | "warn";
 }) {
   return (
-    <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
-      <p className="font-mono text-[0.62rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+    // Column-level padding-left handles the divider inset on desktop;
+    // first column has no leading padding so the eyebrow aligns with
+    // the page gutter. No border/background — typography carries it.
+    <div className="sm:px-5 sm:first:pl-0">
+      <p className="font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
         {label}
       </p>
       <p
-        className={`mt-1 font-display text-2xl tracking-tight ${
-          tone === "warn" ? "text-[rgb(var(--fg-warning))]" : ""
+        className={`mt-2 font-display text-3xl tracking-tight sm:text-4xl ${
+          tone === "warn" ? "text-[rgb(var(--fg-warning))]" : "text-[rgb(var(--fg-primary))]"
         }`}
       >
         {value}
