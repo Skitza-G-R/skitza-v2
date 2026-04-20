@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
+import { ShareLinkCard } from "~/components/dashboard/today/share-link-card";
 import { TodayView, type TodayViewData } from "~/components/dashboard/today/today-view";
 import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -36,7 +37,22 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   }
 
   const caller = appRouter.createCaller({ userId });
-  const today = await caller.producer.today();
+  // Fetch the today payload AND the producer's slug in parallel —
+  // ShareLinkCard needs the slug to render the permanent URL, Today
+  // needs KPIs + inbox items.
+  const [today, me] = await Promise.all([
+    caller.producer.today(),
+    caller.producer.me(),
+  ]);
+
+  // Public origin used by ShareLinkCard to render the /p/<slug> URL.
+  // Falls back to the canonical Vercel deployment when NEXT_PUBLIC_SITE_URL
+  // isn't configured (local dev). Matches the fallback chain in
+  // getSiteUrl() over in server/stripe/client.ts.
+  const publicBaseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    process.env.SITE_URL ??
+    "https://skitza.app";
 
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
@@ -72,6 +88,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
         <h1 className="sr-only">Today</h1>
         {showSetupNudge ? <FinishSetupNudge /> : null}
+        {/* Today Cockpit — the permanent share link sits ABOVE the KPI
+            strip so it's the first thing in the producer's eye-line.
+            The share-first workflow is the whole point of the Today
+            screen; KPIs come second. */}
+        <ShareLinkCard slug={me.slug} publicBaseUrl={publicBaseUrl} />
         <TodayView data={data} selectedItemId={selectedItemId} />
       </div>
     </AppShell>
