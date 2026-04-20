@@ -52,6 +52,13 @@ export const producers = pgTable("producers", {
   // for the slot grid when a product omits its own duration. Common
   // presets in the UI: 60 / 90 / 120 / 180 / 240 (or custom integer).
   defaultSessionMin: integer("default_session_min").notNull().default(60),
+  // When true, incoming public booking requests transition straight to
+  // `confirmed` instead of `pending` — saves the producer a manual
+  // approval click per request. Read by the booking.publicRequest path.
+  autoConfirmBookings: boolean("auto_confirm_bookings").notNull().default(false),
+  // Hours of advance notice required to cancel a confirmed booking.
+  // Stored today; enforcement (cancel-by-artist flow) is a follow-up.
+  cancellationPolicyHours: integer("cancellation_policy_hours").notNull().default(24),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

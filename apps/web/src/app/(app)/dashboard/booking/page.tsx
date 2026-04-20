@@ -12,6 +12,7 @@ import { BlackoutsEditor } from "./blackouts-editor";
 import { BookingActionButtons } from "./booking-controls";
 import { DurationPicker } from "./duration-picker";
 import { EditPackageButton } from "./edit-product-client";
+import { PoliciesEditor } from "./policies-editor";
 import {
   CURRENCY_SYMBOL,
   DeactivatePackageButton,
@@ -163,6 +164,10 @@ export default async function BookingPage({ searchParams }: PageProps) {
           {tab === "availability" ? (
             <div className="space-y-4">
               <DurationPicker initialDefaultMin={availabilitySettings.defaultSessionMin} />
+              <PoliciesEditor
+                initialAutoConfirm={availabilitySettings.autoConfirmBookings}
+                initialCancellationHours={availabilitySettings.cancellationPolicyHours}
+              />
               {availabilityBlocks.length === 0 ? (
                 <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-5 py-4">
                   <p className="text-sm text-[rgb(var(--fg-primary))]">

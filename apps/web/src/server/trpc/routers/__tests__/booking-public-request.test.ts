@@ -253,6 +253,74 @@ describe("booking.publicRequest paused-project guard", () => {
   });
 });
 
+// ─── Batch B: producer auto-confirm toggle ──────────────────────────
+//
+// When `producers.auto_confirm_bookings = true` the booking insert
+// transitions straight to `confirmed` instead of the default `pending`.
+// Covers the off-by-default case (legacy producers) + the explicit-on
+// case, both keyed on the single producer lookup that carries the
+// flag alongside the id.
+describe("booking.publicRequest auto-confirm", () => {
+  function seedForAutoConfirm(autoConfirm: boolean) {
+    // Producer row now carries the autoConfirmBookings flag alongside
+    // the id so the router can seed the booking status without a
+    // separate round-trip.
+    producerSelectQueue.push([
+      { id: PRODUCER_ID, autoConfirmBookings: autoConfirm },
+    ]);
+    productSelectQueue.push([
+      {
+        id: PRODUCT_ID,
+        producerId: PRODUCER_ID,
+        name: "Mix",
+        durationMin: 0,
+        minLeadHours: 0,
+        bufferMinutes: 0,
+        depositModel: "flat",
+        depositPct: 0,
+        currency: "USD",
+        priceCents: 10000,
+        paymentPlans: [{ kind: "full" }],
+      },
+    ]);
+    // No paused project.
+    projectSelectQueue.push([]);
+    // No slot-conflict candidates.
+    bookingSelectQueue.push([]);
+  }
+
+  it("inserts with status 'pending' when auto-confirm is off (default)", async () => {
+    seedForAutoConfirm(false);
+    const caller = await buildCaller();
+    await caller.booking.publicRequest({
+      slug: PRODUCER_SLUG,
+      productId: PRODUCT_ID,
+      artistName: "Pending Client",
+      artistEmail: "pending@example.com",
+    });
+    // The first values() call is the bookings insert. Assert status.
+    const firstCall = insertValuesSpy.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const payload = firstCall?.[0] as Record<string, unknown>;
+    expect(payload.status).toBe("pending");
+  });
+
+  it("inserts with status 'confirmed' when auto-confirm is on", async () => {
+    seedForAutoConfirm(true);
+    const caller = await buildCaller();
+    await caller.booking.publicRequest({
+      slug: PRODUCER_SLUG,
+      productId: PRODUCT_ID,
+      artistName: "Auto Client",
+      artistEmail: "auto@example.com",
+    });
+    const firstCall = insertValuesSpy.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const payload = firstCall?.[0] as Record<string, unknown>;
+    expect(payload.status).toBe("confirmed");
+  });
+});
+
 // ─── monthly first charge: invoice ledger no duplicate (regression) ─
 //
 // The bug: booking.publicRequest used to write a booking-time invoice

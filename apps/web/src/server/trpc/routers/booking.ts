@@ -727,18 +727,23 @@ export const bookingRouter = router({
       }),
 
     // Producer-level booking settings surfaced on the availability
-    // editor: default session length. Kept alongside the week editor so
-    // a single round-trip fetches everything the editor needs.
+    // editor: default session length, auto-confirm toggle, cancellation
+    // policy. Kept alongside the week editor so a single round-trip
+    // fetches everything the editor needs.
     getSettings: producerProcedure.query(async ({ ctx }) => {
       const [row] = await ctx.db
         .select({
           defaultSessionMin: producers.defaultSessionMin,
+          autoConfirmBookings: producers.autoConfirmBookings,
+          cancellationPolicyHours: producers.cancellationPolicyHours,
         })
         .from(producers)
         .where(eq(producers.id, ctx.producerId))
         .limit(1);
       return {
         defaultSessionMin: row?.defaultSessionMin ?? 60,
+        autoConfirmBookings: row?.autoConfirmBookings ?? false,
+        cancellationPolicyHours: row?.cancellationPolicyHours ?? 24,
       };
     }),
 
@@ -749,6 +754,10 @@ export const bookingRouter = router({
           // 8h max (a full workday). Custom values outside presets are
           // fine — the picker just shows "Custom".
           defaultSessionMin: z.number().int().min(15).max(8 * 60).optional(),
+          autoConfirmBookings: z.boolean().optional(),
+          // 0 = no policy, up to 30 days advance notice. The UI caps
+          // at 168h (7d) for the spinner but any value is accepted.
+          cancellationPolicyHours: z.number().int().min(0).max(30 * 24).optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -1254,7 +1263,13 @@ export const bookingRouter = router({
       if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
 
       const [producer] = await db
-        .select({ id: producers.id })
+        .select({
+          id: producers.id,
+          // Batch B — producer-level auto-confirm toggle. Fetched here
+          // alongside the id so we don't add a round-trip later. When
+          // on, the booking insert lands in `confirmed` directly.
+          autoConfirmBookings: producers.autoConfirmBookings,
+        })
         .from(producers)
         .where(eq(producers.slug, input.slug))
         .limit(1);
@@ -1378,6 +1393,12 @@ export const bookingRouter = router({
         }
       }
 
+      // Batch B — auto-confirm toggle: when the producer has opted in,
+      // new public booking requests land directly in `confirmed` state
+      // instead of the default `pending`. The flag was fetched on the
+      // initial slug→id lookup above so we don't add a round-trip here.
+      const initialStatus = producer.autoConfirmBookings ? "confirmed" : "pending";
+
       const [row] = await db
         .insert(bookings)
         .values({
@@ -1390,7 +1411,12 @@ export const bookingRouter = router({
           ...(input.notes ? { notes: input.notes } : {}),
           startsAt: startsAt ?? new Date(),
           durationMin: prod.durationMin,
-          status: "pending",
+          status: initialStatus,
+          // TODO(cancellation-policy): enforce cancellationPolicyHours
+          // at the cancel-by-artist mutation when that flow ships.
+          // For now the value is stored on the producer row so it's
+          // available to the (future) cancel handler + the artist
+          // confirmation email copy.
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
