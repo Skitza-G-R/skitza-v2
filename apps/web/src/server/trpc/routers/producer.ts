@@ -63,6 +63,28 @@ const UpdateInput = z.object({
   brand: BrandInput.optional(),
 });
 
+// ─── Autopilot toggles (Batch G) ───────────────────────────────────
+// The UI contract is deliberately tiny: one key + one boolean per
+// switch flip. No rule-builder, no conditions. The router maps the
+// five known keys onto the matching drizzle column. Adding a new
+// autopilot is a one-line entry here + a column in the schema.
+const AUTOPILOT_COLUMN_MAP = {
+  welcomeEmail: "autopilotWelcomeEmail",
+  unpaidReminder: "autopilotUnpaidReminder",
+  requestTestimonial: "autopilotRequestTestimonial",
+  commentNotify: "autopilotCommentNotify",
+  autoArchive: "autopilotAutoArchive",
+} as const satisfies Record<string, keyof typeof producers.$inferInsert>;
+
+export type AutopilotKey = keyof typeof AUTOPILOT_COLUMN_MAP;
+
+const AutopilotInput = z.object({
+  key: z.enum(
+    Object.keys(AUTOPILOT_COLUMN_MAP) as [AutopilotKey, ...AutopilotKey[]],
+  ),
+  enabled: z.boolean(),
+});
+
 // ─── Helpers (producer.today item shaping) ─────────────────────────
 function truncate(s: string, max: number): string {
   const trimmed = s.trim();
@@ -160,8 +182,37 @@ export const producerRouter = router({
       // signed URL when the producer asks for it.
       stripeConnected: Boolean(row.stripeAccountId),
       stripeChargesEnabled: row.stripeChargesEnabled,
+      // Batch G — five Autopilot flags. Returned as a single nested
+      // object so the client can spread `autopilot` into state without
+      // pulling each field individually.
+      autopilot: {
+        welcomeEmail: row.autopilotWelcomeEmail,
+        unpaidReminder: row.autopilotUnpaidReminder,
+        requestTestimonial: row.autopilotRequestTestimonial,
+        commentNotify: row.autopilotCommentNotify,
+        autoArchive: row.autopilotAutoArchive,
+      },
     };
   }),
+
+  // Batch G — flip a single Autopilot switch. Tiny, named mutation:
+  // the client sends { key, enabled }, we map key → column, stamp it.
+  // Scoping: producer-procedure already resolved ctx.producerId from
+  // the caller's Clerk userId; the UPDATE's WHERE clause pins the
+  // write to that row and nothing else.
+  updateAutopilot: producerProcedure
+    .input(AutopilotInput)
+    .mutation(async ({ ctx, input }) => {
+      const column = AUTOPILOT_COLUMN_MAP[input.key];
+      // Dynamic column assignment — each of the 5 columns is a plain
+      // boolean so the shape of the payload is known at compile time.
+      // `[column]: input.enabled` is the whole payload.
+      await ctx.db
+        .update(producers)
+        .set({ [column]: input.enabled, updatedAt: new Date() })
+        .where(eq(producers.id, ctx.producerId));
+      return { ok: true as const };
+    }),
 
   // Producer's "Today" dashboard — one call returns the four KPI
   // counters AND the unified inbox of actionable items (upcoming

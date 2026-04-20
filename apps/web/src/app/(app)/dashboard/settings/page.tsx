@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "~/components/shell/app-shell";
+import { AutopilotSection } from "~/components/dashboard/setup/autopilot-section";
 import {
   isSetupSectionKey,
   type SetupSectionKey,
@@ -136,6 +137,10 @@ export default async function SetupPage({
               linkHref="/dashboard/booking?tab=sessions"
               linkLabel="Edit hours & blackouts"
             />
+          )}
+
+          {active === "autopilot" && (
+            <AutopilotSection initial={profile.autopilot} />
           )}
 
           {active === "connections" && (

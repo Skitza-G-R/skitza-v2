@@ -59,6 +59,18 @@ export const producers = pgTable("producers", {
   // Hours of advance notice required to cancel a confirmed booking.
   // Stored today; enforcement (cancel-by-artist flow) is a follow-up.
   cancellationPolicyHours: integer("cancellation_policy_hours").notNull().default(24),
+  // ─── Batch G — Autopilot toggles ─────────────────────────────────
+  // Five named behaviors the producer can flip on/off. No rule-builder,
+  // no conditions — each column is a discrete outcome. See migration
+  // 0027 for the column-level rationale. Defaults:
+  //   * welcomeEmail=false / unpaidReminder=false /
+  //     requestTestimonial=false / autoArchive=false — opt-in.
+  //   * commentNotify=true — matches existing unconditional behavior.
+  autopilotWelcomeEmail: boolean("autopilot_welcome_email").notNull().default(false),
+  autopilotUnpaidReminder: boolean("autopilot_unpaid_reminder").notNull().default(false),
+  autopilotRequestTestimonial: boolean("autopilot_request_testimonial").notNull().default(false),
+  autopilotCommentNotify: boolean("autopilot_comment_notify").notNull().default(true),
+  autopilotAutoArchive: boolean("autopilot_auto_archive").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

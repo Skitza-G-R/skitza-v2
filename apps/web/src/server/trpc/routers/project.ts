@@ -967,15 +967,28 @@ export const projectRouter = router({
         console.warn("[contacts] recordContact failed in project.publicComment", err);
       }
 
+      // Batch G — Autopilot gate. `autopilot_comment_notify` defaults
+      // to ON, so the existing (always-notify) behavior is preserved
+      // for producers who never touch the setting. Only the explicit
+      // opt-OUT path skips the notifications insert. Fetched lazily
+      // inside the try so a missing producer row falls back to "send"
+      // — the same no-row-safe behavior the rest of this block has.
       try {
-        await emitCommentCreated(db, {
-          producerId: project.producerId,
-          commentId: row.id,
-          trackVersionId: input.versionId,
-          projectId: project.id,
-          authorName: input.authorName,
-          preview: input.body,
-        });
+        const [producer] = await db
+          .select({ autopilotCommentNotify: producers.autopilotCommentNotify })
+          .from(producers)
+          .where(eq(producers.id, project.producerId))
+          .limit(1);
+        if (producer?.autopilotCommentNotify !== false) {
+          await emitCommentCreated(db, {
+            producerId: project.producerId,
+            commentId: row.id,
+            trackVersionId: input.versionId,
+            projectId: project.id,
+            authorName: input.authorName,
+            preview: input.body,
+          });
+        }
       } catch (err) {
         console.warn("[notify] emitCommentCreated failed in project.publicComment", err);
       }

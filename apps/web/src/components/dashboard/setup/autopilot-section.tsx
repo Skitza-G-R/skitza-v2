@@ -1,0 +1,216 @@
+"use client";
+
+// Batch G — Autopilot section (Setup → Autopilot tab).
+//
+// Design principle, straight from the plan: NO rule builder, NO if/
+// then, NO conditions. Five named outcomes the producer flips on or
+// off. Each row is a prominent card with a large switch; the click
+// mutation is fire-and-forget with optimistic state + rollback on
+// error. The five named behaviors map 1:1 to the five boolean columns
+// on `producers` added in migration 0027.
+//
+// Event-driven Autopilots (welcome email on booking confirm; comment
+// notify on artist comment) are wired today. The three time-based
+// ones (unpaid reminder, testimonial request, auto-archive) share a
+// single cron endpoint at /api/cron/autopilot that is not yet
+// scheduled on Vercel Hobby. The UI deliberately does NOT hint at
+// this — the producer enables the behavior and Skitza makes it
+// happen whenever the infrastructure allows. The copy says what the
+// behavior IS, not when it runs.
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+
+import { useToast } from "~/components/ui/toast";
+import { updateAutopilot } from "~/app/(app)/dashboard/settings/actions";
+
+export interface AutopilotSettings {
+  welcomeEmail: boolean;
+  unpaidReminder: boolean;
+  requestTestimonial: boolean;
+  commentNotify: boolean;
+  autoArchive: boolean;
+}
+
+// The five toggles in display order. Order matches the plan: ones the
+// producer is most likely to flip first at the top. Labels start with
+// a verb, framed as the behavior itself ("Send X", "Remind about Y")
+// so there's zero "what does this do" ambiguity.
+const SWITCHES: readonly {
+  key: keyof AutopilotSettings;
+  label: string;
+  description: string;
+}[] = [
+  {
+    key: "welcomeEmail",
+    label: "Send a welcome email when a booking lands",
+    description:
+      "Confirms the booking to the artist with their session details.",
+  },
+  {
+    key: "unpaidReminder",
+    label: "Remind about unpaid invoices after 7 days",
+    description:
+      "If an invoice stays open past a week, we nudge you so nothing slips.",
+  },
+  {
+    key: "requestTestimonial",
+    label: "Ask for a testimonial when a project completes",
+    description:
+      "Once you mark a project paid, the artist gets a short quote request.",
+  },
+  {
+    key: "commentNotify",
+    label: "Ping me when an artist comments",
+    description:
+      "Every time an artist leaves a timestamped comment, it shows up in your Inbox.",
+  },
+  {
+    key: "autoArchive",
+    label: "Auto-archive projects 30 days after final payment",
+    description:
+      "Keeps your Projects list tight. Archived projects are still searchable.",
+  },
+];
+
+export function AutopilotSection({
+  initial,
+}: {
+  initial: AutopilotSettings;
+}) {
+  const [settings, setSettings] = useState<AutopilotSettings>(initial);
+  const [pendingKey, setPendingKey] = useState<keyof AutopilotSettings | null>(
+    null,
+  );
+  const [, startTransition] = useTransition();
+  const router = useRouter();
+  const { toast } = useToast();
+
+  function flip(key: keyof AutopilotSettings) {
+    const prev = settings[key];
+    const next = !prev;
+    // Optimistic update — the switch flips instantly; a server error
+    // rolls it back and surfaces a toast. Most producers will never
+    // see an error (auth-scoped UPDATE is cheap), and the optimistic
+    // path is what makes the UI feel like a hardware switch.
+    setSettings((s) => ({ ...s, [key]: next }));
+    setPendingKey(key);
+    startTransition(async () => {
+      const res = await updateAutopilot({ key, enabled: next });
+      setPendingKey(null);
+      if (!res.ok) {
+        setSettings((s) => ({ ...s, [key]: prev }));
+        toast(res.error, "error");
+        return;
+      }
+      toast(
+        next
+          ? "Autopilot on. Skitza will take it from here."
+          : "Autopilot off. You're back in manual mode.",
+        "success",
+      );
+      router.refresh();
+    });
+  }
+
+  return (
+    <section
+      aria-labelledby="setup-autopilot-heading"
+      className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
+    >
+      <header className="mb-5">
+        <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+          Autopilot
+        </p>
+        <h2
+          id="setup-autopilot-heading"
+          className="mt-2 font-display text-xl tracking-tight"
+        >
+          What Skitza handles for you
+        </h2>
+        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
+          Flip a switch and it&rsquo;s automatic. Flip it back whenever you
+          want — nothing here is locked in.
+        </p>
+      </header>
+
+      <ul className="divide-y divide-[rgb(var(--border-subtle))]">
+        {SWITCHES.map(({ key, label, description }) => (
+          <ToggleRow
+            key={key}
+            label={label}
+            description={description}
+            enabled={settings[key]}
+            pending={pendingKey === key}
+            onToggle={() => {
+              flip(key);
+            }}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// ─── ToggleRow ──────────────────────────────────────────────────────
+// Full-width row with label + description on the left and a large
+// switch on the right. Click anywhere on the row flips it; the visual
+// switch is the clickable control (keyboard-accessible via `role=
+// "switch"`). Min-height 64px so touch targets stay ≥44px even with
+// a 2-line description.
+function ToggleRow({
+  label,
+  description,
+  enabled,
+  pending,
+  onToggle,
+}: {
+  label: string;
+  description: string;
+  enabled: boolean;
+  pending: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li className="flex flex-wrap items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
+      <div className="min-w-0 flex-1">
+        <p
+          className="text-sm text-[rgb(var(--fg-primary))]"
+          style={{ fontWeight: 600 }}
+        >
+          {label}
+        </p>
+        <p className="mt-1 text-xs text-[rgb(var(--fg-secondary))]">
+          {description}
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={label}
+        disabled={pending}
+        onClick={onToggle}
+        className={[
+          // Slightly larger than the policies-editor switch (14×28 vs
+          // 12×24) — these are the primary controls on this tab, so
+          // they get a little more visual weight.
+          "relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:ring-[rgb(var(--brand-primary))]",
+          enabled
+            ? "bg-[rgb(var(--brand-primary))]"
+            : "bg-[rgb(var(--fg-muted)/0.3)]",
+          pending ? "opacity-60" : "",
+        ].join(" ")}
+      >
+        <span
+          aria-hidden
+          className={[
+            "inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform",
+            enabled ? "translate-x-6" : "translate-x-1",
+          ].join(" ")}
+        />
+      </button>
+    </li>
+  );
+}

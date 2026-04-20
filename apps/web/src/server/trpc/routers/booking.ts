@@ -1037,43 +1037,51 @@ export const bookingRouter = router({
       // Email the artist that their session is confirmed. Fully
       // best-effort: catch + warn so a Resend hiccup doesn't unwind
       // the status transition the producer just performed.
+      //
+      // Batch G — Autopilot gate. Reads `autopilotWelcomeEmail` off
+      // the producer row; skips the send when the switch is off. We
+      // still fetch the producer row below (it feeds the email copy
+      // when on), so gating is a single extra column in the SELECT.
       try {
         const [producer] = await ctx.db
           .select({
             displayName: producers.displayName,
             timezone: producers.timezone,
             defaultCurrency: producers.defaultCurrency,
+            autopilotWelcomeEmail: producers.autopilotWelcomeEmail,
           })
           .from(producers)
           .where(eq(producers.id, existing.producerId))
           .limit(1);
-        const product = existing.productId
-          ? (
-              await ctx.db
-                .select({
-                  name: products.name,
-                  priceCents: products.priceCents,
-                  currency: products.currency,
-                  depositPct: products.depositPct,
-                })
-                .from(products)
-                .where(eq(products.id, existing.productId))
-                .limit(1)
-            )[0]
-          : undefined;
-        const priceCents = product?.priceCents ?? 0;
-        const depositPct = product?.depositPct ?? 0;
-        const depositCents = Math.round((priceCents * depositPct) / 100);
-        await sendBookingConfirmedEmail(existing.artistEmail, {
-          artistName: existing.artistName,
-          producerName: producer?.displayName ?? "Your producer",
-          productName: product?.name ?? existing.packageNameSnapshot ?? "Session",
-          startsAt: existing.durationMin > 0 ? existing.startsAt : null,
-          producerTimezone: producer?.timezone ?? "UTC",
-          currency: product?.currency ?? producer?.defaultCurrency ?? "USD",
-          priceCents,
-          depositCents,
-        });
+        if (producer && producer.autopilotWelcomeEmail) {
+          const product = existing.productId
+            ? (
+                await ctx.db
+                  .select({
+                    name: products.name,
+                    priceCents: products.priceCents,
+                    currency: products.currency,
+                    depositPct: products.depositPct,
+                  })
+                  .from(products)
+                  .where(eq(products.id, existing.productId))
+                  .limit(1)
+              )[0]
+            : undefined;
+          const priceCents = product?.priceCents ?? 0;
+          const depositPct = product?.depositPct ?? 0;
+          const depositCents = Math.round((priceCents * depositPct) / 100);
+          await sendBookingConfirmedEmail(existing.artistEmail, {
+            artistName: existing.artistName,
+            producerName: producer.displayName ?? "Your producer",
+            productName: product?.name ?? existing.packageNameSnapshot ?? "Session",
+            startsAt: existing.durationMin > 0 ? existing.startsAt : null,
+            producerTimezone: producer.timezone,
+            currency: product?.currency ?? producer.defaultCurrency,
+            priceCents,
+            depositCents,
+          });
+        }
       } catch (err) {
         console.warn("[email] sendBookingConfirmedEmail failed in booking.confirm", err);
       }
@@ -1269,6 +1277,13 @@ export const bookingRouter = router({
           // alongside the id so we don't add a round-trip later. When
           // on, the booking insert lands in `confirmed` directly.
           autoConfirmBookings: producers.autoConfirmBookings,
+          // Batch G — welcome-email autopilot. Read alongside the
+          // auto-confirm flag so the same row resolve covers the
+          // auto-confirm → welcome-email path without a second query.
+          autopilotWelcomeEmail: producers.autopilotWelcomeEmail,
+          displayName: producers.displayName,
+          timezone: producers.timezone,
+          defaultCurrency: producers.defaultCurrency,
         })
         .from(producers)
         .where(eq(producers.slug, input.slug))
@@ -1472,6 +1487,34 @@ export const bookingRouter = router({
         }
       } catch (err) {
         console.warn("[email] sendBookingRequestEmail failed in booking.publicRequest", err);
+      }
+
+      // Batch G — Autopilot "welcome email when a booking lands".
+      // Only fires on the auto-confirm path (the manual confirm in
+      // booking.confirm already gates on the same flag). If auto-
+      // confirm is off, the producer has to click Approve anyway —
+      // the confirm handler will send the welcome email at that
+      // point. Gating here keeps artist-facing emails from firing
+      // before the producer signals acceptance.
+      if (initialStatus === "confirmed" && producer.autopilotWelcomeEmail) {
+        try {
+          const depositCents = Math.round((prod.priceCents * prod.depositPct) / 100);
+          await sendBookingConfirmedEmail(input.artistEmail.toLowerCase(), {
+            artistName: input.artistName,
+            producerName: producer.displayName ?? "Your producer",
+            productName: prod.name,
+            startsAt: prod.durationMin > 0 ? (startsAt ?? null) : null,
+            producerTimezone: producer.timezone,
+            currency: prod.currency,
+            priceCents: prod.priceCents,
+            depositCents,
+          });
+        } catch (err) {
+          console.warn(
+            "[email] sendBookingConfirmedEmail failed on auto-confirm path in booking.publicRequest",
+            err,
+          );
+        }
       }
 
       // Phase H.5 — when the producer has Stripe Connect on and the

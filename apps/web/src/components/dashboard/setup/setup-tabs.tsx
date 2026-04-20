@@ -20,6 +20,7 @@ const TABS: readonly { id: SetupSectionKey; label: string }[] = [
   { id: "services", label: "Services" },
   { id: "portfolio", label: "Portfolio" },
   { id: "availability", label: "Availability" },
+  { id: "autopilot", label: "Autopilot" },
   { id: "connections", label: "Connections" },
   { id: "account", label: "Account" },
 ];

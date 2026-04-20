@@ -20,6 +20,7 @@ export const SETUP_SECTION_KEYS = [
   "services",
   "portfolio",
   "availability",
+  "autopilot",
   "connections",
   "account",
 ] as const;
