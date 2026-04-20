@@ -163,12 +163,17 @@ function PrimaryButton({
   onClick?: () => void;
   disabled?: boolean;
 }) {
+  // Batch C — primary buttons keep their interactive border (they ARE
+  // buttons — the border is an affordance, not decoration) but drop
+  // the heavy shadow + swap the fill for bg-elevated with a brand-
+  // primary accent on the left edge, so the row reads as a module bar
+  // rather than four generic boxed cards.
   const classes =
-    "sk-lift flex min-h-[80px] flex-col items-start justify-center gap-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 text-left shadow-[var(--shadow-sm)] hover:bg-[rgb(var(--bg-sunken))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:transform-none disabled:hover:bg-[rgb(var(--bg-elevated))]";
+    "sk-lift flex min-h-[84px] flex-col items-start justify-center gap-1.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 pl-5 text-left transition-all hover:border-[rgb(var(--brand-primary)/0.4)] hover:bg-[rgb(var(--bg-elevated))] hover:shadow-[inset_3px_0_0_rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:transform-none disabled:hover:shadow-none";
 
   const content = (
     <>
-      <span className="text-sm font-semibold text-[rgb(var(--fg-primary))]">
+      <span className="text-[0.95rem] font-semibold text-[rgb(var(--fg-primary))]">
         {label}
       </span>
       <span className="text-xs text-[rgb(var(--fg-secondary))]">

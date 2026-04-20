@@ -160,9 +160,13 @@ export function ProjectsList({
                 </h2>
               ) : null}
 
+              {/* Batch C — shed the card frame, keep the per-row
+                  hairline divider. Rows are dense list items, not
+                  cards, so framing them in a bordered box reads as
+                  a dated "table widget." */}
               <ul
                 role="list"
-                className="divide-y divide-[rgb(var(--border-subtle))] overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+                className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]"
               >
                 {rows.map((row) => (
                   <ProjectRowItem key={row.id} row={row} />
@@ -276,11 +280,11 @@ function ProjectRowItem({ row }: { row: ProjectRow }) {
     <li>
       <Link
         href={`/dashboard/projects/${row.id}`}
-        // min-h-[56px] mirrors the Today inbox rows for consistency —
-        // a 2-line row (title + artist/state-badge) needs the vertical
-        // room or the badge crowds the row baseline. Inset focus ring
-        // stays clipped to the row.
-        className="flex min-h-[56px] items-start gap-3 px-4 py-3 transition-colors hover:bg-[rgb(var(--bg-sunken))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+        // Batch C — rows live un-framed now, so the hover wash has to
+        // be strong enough to read on its own. min-h-[64px] matches
+        // Today's inbox rhythm so the three list surfaces (Today,
+        // Projects, Music grid) feel like one app.
+        className="flex min-h-[64px] items-start gap-3 px-2 py-4 transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
