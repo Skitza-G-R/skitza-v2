@@ -345,6 +345,87 @@ export const clientContactsRouter = router({
       return { view: "by-client" as const, clients: rows };
     }),
 
+  // Batch D — overwrite the tags array on a single contact. Lighter
+  // than `updateClientMeta` (which can also touch notes / referral):
+  // the Project Room tag editor only ever cares about tags, so a
+  // dedicated procedure keeps the wire shape + Zod parse minimal.
+  //
+  // Tags are normalized before write: trimmed, lower-cased for the
+  // dedupe key but the first casing seen is preserved for display.
+  // An empty input array drops every tag (the column is non-null
+  // since 0028 so we store '{}' rather than NULL).
+  setTags: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        tags: z.array(z.string().trim().min(1).max(80)).max(20),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({ producerId: clientContacts.producerId })
+        .from(clientContacts)
+        .where(eq(clientContacts.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      // Case-insensitive dedupe, first-casing-wins. Matches the
+      // updateClientMeta normalizer so a producer doesn't end up with
+      // "VIP" + "vip" as two separate tags after flipping paths.
+      const seen = new Set<string>();
+      const cleaned: string[] = [];
+      for (const t of input.tags) {
+        const key = t.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        cleaned.push(t);
+      }
+      await ctx.db
+        .update(clientContacts)
+        .set({ tags: cleaned })
+        .where(eq(clientContacts.id, input.id));
+      return { ok: true as const, tags: cleaned };
+    }),
+
+  // Batch D — autocomplete source for the tag editor. Returns the
+  // distinct set of tags the producer has used across all their
+  // contacts, sorted by most-used first. Keeps the tag vocabulary
+  // consistent ("#vip" vs "#VIP") and encourages reuse of prior
+  // labels. Caps the returned list at 40; producers with bigger
+  // vocabularies can still add fresh tags — autocomplete is a nudge,
+  // not a constraint.
+  listTags: producerProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db
+      .select({ tags: clientContacts.tags })
+      .from(clientContacts)
+      .where(eq(clientContacts.producerId, ctx.producerId));
+    // Count occurrences case-insensitively; preserve the first-seen
+    // casing per key so the UI has a single canonical spelling to
+    // display for each tag.
+    const counts = new Map<string, { canonical: string; n: number }>();
+    for (const row of rows) {
+      const arr = row.tags;
+      for (const raw of arr) {
+        const t = raw.trim();
+        if (!t) continue;
+        const key = t.toLowerCase();
+        const prev = counts.get(key);
+        if (prev) {
+          prev.n += 1;
+        } else {
+          counts.set(key, { canonical: t, n: 1 });
+        }
+      }
+    }
+    const sorted = Array.from(counts.values())
+      .sort((a, b) => (b.n - a.n) || a.canonical.localeCompare(b.canonical))
+      .slice(0, 40)
+      .map((e) => e.canonical);
+    return sorted;
+  }),
+
   // Patch the CRM meta fields in isolation — keeps the existing
   // `update` procedure focused on name/email (which has different
   // dedupe semantics). Any subset of the three fields may be passed;
@@ -370,14 +451,15 @@ export const clientContactsRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       const patch: {
-        tags?: string[] | null;
+        tags?: string[];
         notes?: string | null;
         referralSource?: string | null;
       } = {};
       if (input.tags !== undefined) {
         // Deduplicate case-insensitively while preserving the first
         // casing seen — producers usually type "Hip-Hop" then "hip-hop"
-        // and expect one tag.
+        // and expect one tag. Since 0028 tags is NOT NULL + default
+        // '{}', we store an empty array (rather than null) to clear.
         const seen = new Set<string>();
         const cleaned: string[] = [];
         for (const t of input.tags) {
@@ -386,7 +468,7 @@ export const clientContactsRouter = router({
           seen.add(key);
           cleaned.push(t);
         }
-        patch.tags = cleaned.length > 0 ? cleaned : null;
+        patch.tags = cleaned;
       }
       if (input.notes !== undefined) {
         const trimmed = input.notes.trim();

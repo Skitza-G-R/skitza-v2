@@ -42,6 +42,7 @@ import {
 } from "~/app/(app)/dashboard/projects/actions";
 
 import { ProjectTimeline } from "./project-timeline";
+import { TagEditor } from "./tag-editor";
 
 export interface ProjectHeaderProject {
   id: string;
@@ -72,8 +73,17 @@ export interface ProjectHeaderProject {
 
 export function ProjectHeader({
   project,
+  clientContact,
+  tagVocabulary = [],
 }: {
   project: ProjectHeaderProject;
+  // Batch D — the matching client_contacts row for this project's
+  // client, if the lookup found one. Undefined/null on legacy rows
+  // with no CRM entry; the header omits the tag strip in that case.
+  clientContact?: { id: string; tags: string[] } | null;
+  // Distinct set of tags this producer has used across their contacts,
+  // sorted by frequency. Feeds the TagEditor autocomplete dropdown.
+  tagVocabulary?: string[];
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -247,9 +257,18 @@ export function ProjectHeader({
           >
             {project.title}
           </h1>
-          <p className="mt-1 truncate text-sm text-[rgb(var(--fg-secondary))]">
-            {displayName}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="truncate text-sm text-[rgb(var(--fg-secondary))]">
+              {displayName}
+            </p>
+            {clientContact ? (
+              <TagEditor
+                contactId={clientContact.id}
+                initialTags={clientContact.tags}
+                vocabulary={tagVocabulary}
+              />
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

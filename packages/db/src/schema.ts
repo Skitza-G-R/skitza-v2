@@ -577,7 +577,11 @@ export const clientContacts = pgTable("client_contacts", {
   // with chips; `notes` is a multi-line producer-only field; and
   // `referralSource` captures "how did they hear about me" for
   // marketing intelligence.
-  tags: text("tags").array(),
+  //
+  // Batch D (0028) narrowed `tags` from nullable → NOT NULL DEFAULT
+  // '{}'. Every read site can now treat the array as present, which
+  // simplifies the tag-pill renderers on Project Room + CRM.
+  tags: text("tags").array().notNull().default(sql`'{}'`),
   notes: text("notes"),
   referralSource: text("referral_source"),
   // Stamped by the Clerk user.created webhook on first artist sign-in.

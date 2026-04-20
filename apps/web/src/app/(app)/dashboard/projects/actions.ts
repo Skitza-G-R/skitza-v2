@@ -284,3 +284,24 @@ export async function bulkSetProjectStage(input: {
     return { ok: false, error: toMessage(err) };
   }
 }
+
+// Batch D — set the tag set on a single client contact. Thin wrapper
+// around clientContacts.setTags. Revalidates /dashboard/projects (so
+// the Project Room header picks up the new pills), /dashboard/clients
+// (CRM list renders tags too), and the shell layout (sidebar-adjacent
+// client counters).
+export async function setClientTagsAction(input: {
+  id: string;
+  tags: string[];
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.clientContacts.setTags(input);
+    revalidatePath("/dashboard/projects", "layout");
+    revalidatePath("/dashboard/clients");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}

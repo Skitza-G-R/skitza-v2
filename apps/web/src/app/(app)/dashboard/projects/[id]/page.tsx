@@ -185,6 +185,39 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     }
   }
 
+  // Batch D — look up the client contact linked to this project so
+  // the header can render per-client tags + the inline tag editor.
+  // Matches on project.artistEmail; for legacy rows with clientEmail
+  // but no artistEmail the clientContacts.listWithProjects fallback
+  // would catch them, but this path is simpler and covers 99% of
+  // projects. Failure degrades to `null` (header omits the tag strip).
+  let clientContact: {
+    id: string;
+    tags: string[];
+  } | null = null;
+  let tagVocabulary: string[] = [];
+  try {
+    const [contact, vocab] = await Promise.all([
+      caller.clientContacts.list({ q: data.project.artistEmail }),
+      caller.clientContacts.listTags(),
+    ]);
+    const match = contact.find(
+      (c) => c.email.toLowerCase() === data.project.artistEmail.toLowerCase(),
+    );
+    if (match) {
+      // The list query projects a slim row; fetch the full record for
+      // tags since autocomplete values aren't exposed on the list shape.
+      const detail = await caller.clientContacts.detail({ id: match.id });
+      clientContact = {
+        id: detail.contact.id,
+        tags: detail.contact.tags,
+      };
+    }
+    tagVocabulary = vocab;
+  } catch (err) {
+    console.warn("[projects] client contact lookup failed", err);
+  }
+
   // Shared header props — consumed by ProjectHeader's top row, payment
   // strip, timeline, and 3-dot action handlers. finalDelivered mirrors
   // finalPaid for now (pre-Task-6 there's no dedicated "delivered"
@@ -228,7 +261,11 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
             { label: data.project.title },
           ]}
         />
-        <ProjectHeader project={headerProject} />
+        <ProjectHeader
+          project={headerProject}
+          clientContact={clientContact}
+          tagVocabulary={tagVocabulary}
+        />
         <div className="mt-6">
           <ProjectSubTabs activeTab={activeTab}>
             {activeTab === "music" ? (
