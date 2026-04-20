@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
 import { useGlobalShortcuts } from "~/lib/keyboard/use-shortcuts";
@@ -15,7 +15,6 @@ import { ShortcutCheatsheet } from "./shortcut-cheatsheet";
 export function ShortcutsBridge() {
   const [cheatOpen, setCheatOpen] = useState(false);
   const router = useRouter();
-  const pathname = usePathname();
 
   const openCheatsheet = useCallback(() => {
     setCheatOpen(true);
@@ -24,23 +23,14 @@ export function ShortcutsBridge() {
     window.dispatchEvent(new CustomEvent("skitza:toggle-sidebar"));
   }, []);
   const createContextAware = useCallback(() => {
-    // Default target is "new project" — pipeline is the busiest surface,
-    // so it's the pragmatic fallback when nothing else matches.
-    if (pathname === "/dashboard/clients") {
-      // Clients list listens for this and pops its "Add client" sheet.
-      window.dispatchEvent(new CustomEvent("skitza:new-client"));
-      return;
-    }
-    if (pathname.startsWith("/dashboard/contracts")) {
-      router.push("/dashboard/contracts");
-      return;
-    }
-    if (pathname.startsWith("/dashboard/portfolio")) {
-      router.push("/dashboard/portfolio");
-      return;
-    }
+    // In the 4-screen world "create" always means "start a new
+    // project" — projects are the container for every other entity
+    // (contracts, bookings, files, tracks), so there's no ambiguity
+    // about the right target. Previously this branched on pathname
+    // (clients / contracts / portfolio) but none of those pages
+    // exist anymore.
     router.push("/dashboard/projects/new");
-  }, [pathname, router]);
+  }, [router]);
 
   const handlers = useMemo(
     () => ({ openCheatsheet, toggleSidebar, createContextAware }),

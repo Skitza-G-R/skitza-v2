@@ -24,6 +24,14 @@ import {
 //   that it still feels instant.
 // - `>` prefix restricts to actions (mirrors Raycast).
 //
+// Nav surface: the 4-screen shell (Today / Music / Projects / Setup)
+// collapsed the previous 9-route nav, so "Go to …" commands match.
+// Clients and contracts no longer have dedicated detail pages, so
+// palette results for those entities deep-link into the Project Room
+// (contracts via their stored projectId, clients via the projects
+// list — we don't have a per-client filter on the list page yet, so
+// for now the list itself is the landing surface).
+//
 // Controlled component: `open` + `onClose` come from the trigger so
 // the keydown listener can stay mounted without loading cmdk.
 
@@ -83,44 +91,35 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         },
       },
       {
-        id: "goto-pipeline",
-        label: "Go to pipeline",
-        shortcut: "G P",
+        id: "goto-today",
+        label: "Go to Today",
+        shortcut: "G T",
         run: () => {
           onClose();
           router.push("/dashboard");
         },
       },
       {
-        id: "goto-library",
-        label: "Go to library",
-        shortcut: "G L",
+        id: "goto-music",
+        label: "Go to Music",
+        shortcut: "G M",
         run: () => {
           onClose();
-          router.push("/dashboard/library");
+          router.push("/dashboard/music");
         },
       },
       {
-        id: "goto-contracts",
-        label: "Go to contracts",
-        shortcut: "G N",
+        id: "goto-projects",
+        label: "Go to Projects",
+        shortcut: "G P",
         run: () => {
           onClose();
-          router.push("/dashboard/contracts");
+          router.push("/dashboard/projects");
         },
       },
       {
-        id: "goto-bookings",
-        label: "Go to bookings",
-        shortcut: "G B",
-        run: () => {
-          onClose();
-          router.push("/dashboard/booking");
-        },
-      },
-      {
-        id: "goto-settings",
-        label: "Go to settings",
+        id: "goto-setup",
+        label: "Go to Setup",
         shortcut: "G S",
         run: () => {
           onClose();
@@ -128,7 +127,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         },
       },
     ],
-    [router],
+    [router, onClose],
   );
 
   // Filter actions by substring. `>` prefix restricts to actions by
@@ -146,7 +145,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       onClose();
       router.push(`/dashboard/projects/${id}`);
     },
-    [router],
+    [router, onClose],
   );
 
   if (!open) return null;
@@ -248,10 +247,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     key={c.id}
                     value={`client ${c.name} ${c.email}`}
                     onSelect={() => {
+                      // Clients no longer have their own detail page
+                      // post-Task-2. Land on the Projects list — the
+                      // producer can then pick the specific project
+                      // room they want. If they want to start fresh
+                      // work with this client, the "New project"
+                      // action handles that separately.
                       onClose();
-                      router.push(
-                        `/dashboard/projects/new?email=${encodeURIComponent(c.email)}`,
-                      );
+                      router.push("/dashboard/projects");
                     }}
                     className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
                   >
@@ -274,8 +277,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     key={t.id}
                     value={`track ${t.title} ${t.label}`}
                     onSelect={() => {
-                      onClose();
-                      router.push(`/dashboard/library?v=${t.id}`);
+                      // Tracks live inside a Project Room — deep-link
+                      // via the known projectId. (Previously pointed at
+                      // /dashboard/library?v=… which no longer exists.)
+                      gotoProject(t.projectId);
                     }}
                     className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
                   >
@@ -298,8 +303,16 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     key={c.id}
                     value={`contract ${c.title}`}
                     onSelect={() => {
+                      // Contracts no longer have a list page — each one
+                      // lives inside its Project Room. Route there when
+                      // we know the projectId; otherwise fall back to
+                      // the projects list so the producer can find it.
                       onClose();
-                      router.push(`/dashboard/contracts`);
+                      if (c.projectId) {
+                        router.push(`/dashboard/projects/${c.projectId}`);
+                      } else {
+                        router.push("/dashboard/projects");
+                      }
                     }}
                     className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
                   >

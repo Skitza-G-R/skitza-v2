@@ -25,15 +25,10 @@ export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: 
     {
       title: "Navigate",
       keys: [
-        { k: "g p", desc: "Pipeline" },
-        { k: "g i", desc: "Inbox" },
-        { k: "g c", desc: "Clients" },
-        { k: "g l", desc: "Library" },
-        { k: "g n", desc: "Contracts" },
-        { k: "g b", desc: "Bookings" },
-        { k: "g r", desc: "Leads" },
-        { k: "g o", desc: "Portfolio" },
-        { k: "g s", desc: "Settings" },
+        { k: "g t", desc: "Today" },
+        { k: "g m", desc: "Music" },
+        { k: "g p", desc: "Projects" },
+        { k: "g s", desc: "Setup" },
       ],
     },
     {
