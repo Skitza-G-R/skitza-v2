@@ -87,8 +87,12 @@ export function QuickActions({
 
   return (
     <section
+      id="quick-actions"
       aria-label="Quick actions"
-      className="mb-6 flex flex-col gap-3"
+      // scroll-mt-20 clears the sticky mobile header so a
+      // `#quick-actions` hash-jump (from the mobile bottom-nav FAB)
+      // lands the producer on the first row, not underneath chrome.
+      className="mb-6 flex scroll-mt-20 flex-col gap-3"
     >
       {/* ── Primary row ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -13,8 +13,11 @@ import { ThemeToggle } from "./theme-toggle";
 // Left-rail sidebar, Linear/Splice-flavoured. Persists collapsed state
 // to localStorage so it survives reloads. Listens for a custom
 // `skitza:toggle-sidebar` event the shortcut layer dispatches on `[` —
-// this keeps the hook decoupled from sidebar internals. Mobile gets
-// a hamburger and an overlay drawer; desktop gets a 56↔240 rail.
+// this keeps the hook decoupled from sidebar internals. Mobile is
+// served by MobileBottomNav (see ~/components/shell/mobile-bottom-nav);
+// this component is desktop-only (`md:flex hidden`) and renders a
+// 56↔240 rail. The old hamburger + overlay-drawer was retired when
+// the bottom nav landed — same 4 entry points, no second surface.
 //
 // Flash-of-wrong-width: on SSR we don't know the user's preference,
 // so we always render expanded first, then the mount effect nudges
@@ -52,7 +55,6 @@ export function Sidebar({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -92,62 +94,19 @@ export function Sidebar({
   const widthClass = effectiveCollapsed ? "w-14" : "w-60";
 
   return (
-    <>
-      {/* Mobile hamburger — fixed top-left, never shown on md+.
-          `sk-tap` (44×44) + a real focus-visible ring meet WCAG 2.5.5
-          and are large enough to thumb on an iPhone SE. */}
-      <button
-        type="button"
-        aria-label="Open menu"
-        onClick={() => {
-          setMobileOpen(true);
-        }}
-        className="sk-tap fixed left-3 top-3 z-40 flex items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] md:hidden"
-      >
-        <HamburgerIcon />
-      </button>
-
-      {/* Mobile overlay drawer */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-[70] md:hidden" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            aria-label="Close menu"
-            onClick={() => {
-              setMobileOpen(false);
-            }}
-            className="absolute inset-0 bg-black/40"
-          />
-          <div className="relative h-full w-64 border-r border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
-            <SidebarBody
-              active={active}
-              collapsed={false}
-              producerSlug={producerSlug}
-              unreadCount={unreadCount}
-              unreadItems={unreadItems}
-              onItemClick={() => {
-                setMobileOpen(false);
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Desktop sidebar */}
-      <aside
-        className={`${widthClass} sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-[width] duration-200 md:flex`}
-        data-collapsed={effectiveCollapsed}
-      >
-        <SidebarBody
-          active={active}
-          collapsed={effectiveCollapsed}
-          producerSlug={producerSlug}
-          unreadCount={unreadCount}
-          unreadItems={unreadItems}
-          onToggle={toggle}
-        />
-      </aside>
-    </>
+    <aside
+      className={`${widthClass} sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-[width] duration-200 md:flex`}
+      data-collapsed={effectiveCollapsed}
+    >
+      <SidebarBody
+        active={active}
+        collapsed={effectiveCollapsed}
+        producerSlug={producerSlug}
+        unreadCount={unreadCount}
+        unreadItems={unreadItems}
+        onToggle={toggle}
+      />
+    </aside>
   );
 }
 
@@ -158,7 +117,6 @@ function SidebarBody({
   unreadCount,
   unreadItems,
   onToggle,
-  onItemClick,
 }: {
   active: ActiveKey;
   collapsed: boolean;
@@ -166,14 +124,12 @@ function SidebarBody({
   unreadCount: number;
   unreadItems: readonly ShellNotificationItem[];
   onToggle?: () => void;
-  onItemClick?: () => void;
 }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-2 p-3">
         <Link
           href="/dashboard"
-          {...(onItemClick ? { onClick: onItemClick } : {})}
           className="flex items-center gap-2 font-display text-lg tracking-tight text-[rgb(var(--fg-primary))]"
         >
           <SkitzaMark />
@@ -202,7 +158,6 @@ function SidebarBody({
             isActive={active === item.id}
             collapsed={collapsed}
             badgeCount={item.id === "today" ? unreadCount : 0}
-            {...(onItemClick ? { onClick: onItemClick } : {})}
           />
         ))}
       </nav>
@@ -238,13 +193,11 @@ function SidebarItem({
   isActive,
   collapsed,
   badgeCount,
-  onClick,
 }: {
   item: NavItem;
   isActive: boolean;
   collapsed: boolean;
   badgeCount: number;
-  onClick?: () => void;
 }) {
   // Cap large counts visually so a thousand-comment neglected account
   // doesn't break the rail layout. Matches the Superhuman/Gmail pattern.
@@ -252,13 +205,13 @@ function SidebarItem({
   return (
     <Link
       href={item.href}
-      {...(onClick ? { onClick } : {})}
       {...(isActive ? { "aria-current": "page" as const } : {})}
       {...(collapsed ? { title: item.label } : {})}
-      // min-h-[44px] on mobile (drawer has `onClick` handler wired)
-      // → min-h-[36px] on desktop where the collapsed rail must stay
-      // dense. `title` on collapsed gives a native hover tooltip so
-      // icons aren't guessing games when the rail is narrow.
+      // min-h-[44px] tap target (both mobile bottom-nav and the
+      // collapsed desktop rail still target keyboard/touch users
+      // here) → md:min-h-[36px] lets the collapsed desktop rail
+      // breathe without ballooning the row. `title` on collapsed
+      // gives a native hover tooltip so icons aren't guessing games.
       //
       // Active indicator: a 2px copper bar anchored to the left edge
       // via absolute positioning. Scale-Y transitions from 0 → 1 when
@@ -365,14 +318,6 @@ function SettingsIcon() {
     <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="8" cy="8" r="2" />
       <path d="M13 8a5 5 0 0 0-.1-1l1.4-1.1-1.3-2.3-1.7.6a5 5 0 0 0-1.8-1L9.3 1.5H6.7l-.2 1.7a5 5 0 0 0-1.8 1l-1.7-.6L1.7 5.9 3.1 7a5 5 0 0 0 0 2l-1.4 1.1 1.3 2.3 1.7-.6a5 5 0 0 0 1.8 1l.2 1.7h2.6l.2-1.7a5 5 0 0 0 1.8-1l1.7.6 1.3-2.3L12.9 9a5 5 0 0 0 .1-1Z" />
-    </svg>
-  );
-}
-
-function HamburgerIcon() {
-  return (
-    <svg aria-hidden width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
-      <path d="M2.5 5h13M2.5 9h13M2.5 13h13" />
     </svg>
   );
 }
