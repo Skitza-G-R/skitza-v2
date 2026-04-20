@@ -9,6 +9,7 @@ import { useTranslations } from "next-intl";
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
+import { LanguageSwitcher } from "./language-switcher";
 import { NotificationBell } from "./notification-bell";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -195,6 +196,7 @@ function SidebarBody({
           <div className={`flex items-center ${collapsed ? "flex-col" : ""} gap-1`}>
             <ThemeToggle />
             <NotificationBell unreadCount={unreadCount} unreadItems={unreadItems} />
+            <LanguageSwitcher collapsed={collapsed} />
           </div>
           <UserButton
             appearance={{
