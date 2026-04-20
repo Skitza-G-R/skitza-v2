@@ -189,9 +189,23 @@ export const projectRouter = router({
       archived: [],
     };
     for (const r of rows) {
-      // payment_paused + cancelled are valid DB stages but intentionally
-      // excluded from the Kanban view — the CRM surfaces them elsewhere.
-      if (r.stage === "payment_paused" || r.stage === "cancelled") continue;
+      // Batch G — the UI now groups by a 3-state display layer (Live
+      // / Done / Archived) ON TOP of the stage enum. `payment_paused`
+      // folds into Live (it's recoverable, not terminal); `cancelled`
+      // folds into Archived. The server return shape stays on the
+      // Kanban-visible 7-stage dictionary, so the client can still
+      // pick from it by state; the two formerly-excluded stages ride
+      // along inside `archived` (cancelled) and `lead` (paused — the
+      // projects list treats paused as pre-booked state so the
+      // producer can resume).
+      if (r.stage === "payment_paused") {
+        grouped.lead.push({ ...r, stage: "lead" });
+        continue;
+      }
+      if (r.stage === "cancelled") {
+        grouped.archived.push({ ...r, stage: "archived" });
+        continue;
+      }
       const stage: Stage = r.stage;
       grouped[stage].push({ ...r, stage });
     }

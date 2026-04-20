@@ -6,58 +6,29 @@ import { useTransition } from "react";
 
 import { formatRelativeTime } from "~/lib/time/relative";
 import { STAGE_LABEL, VISIBLE_STAGES as STAGE_ORDER, type VisibleStage } from "~/lib/projects/stages";
+import {
+  PROJECT_STATES,
+  STATE_LABEL,
+  STATE_TONE,
+  stageToState,
+  type ProjectState,
+} from "~/lib/projects/states";
+
+// Batch G — the projects list now surfaces THREE display states
+// instead of eight-plus stage chips. The underlying stage enum is
+// untouched on the server; we just collapse it on render. The chip
+// bar goes from "All + 7 stages" to "All + Live/Done/Archived".
+//
+// Per-row rendering keeps the fine-grained stage label small+muted
+// under the bold state tag — same treatment as the Project Room
+// header — so a producer who really does want to know "is this in
+// final_review or in_production" can still see it without any tab
+// click.
 
 // Local alias kept for this file's existing export surface. The list
 // only ever deals with Kanban-visible stages (no cancelled / paused),
 // so `Stage` here is the narrower `VisibleStage`.
 export type Stage = VisibleStage;
-
-// Per-stage tint. We roll a small on-the-fly palette keyed to the
-// design tokens rather than reaching into the shared Badge variants
-// — the seven-bucket breakdown is specific to this surface and a
-// proper StageBadge primitive can come later if other screens need
-// one. Each entry pairs a foreground/background/border triple that
-// all compose from CSS vars (zero hex), so theme switches just work.
-const STAGE_TONE: Record<
-  Stage,
-  { text: string; bg: string; border: string }
-> = {
-  lead: {
-    text: "rgb(var(--fg-secondary))",
-    bg: "rgb(var(--bg-elevated))",
-    border: "rgb(var(--border-subtle))",
-  },
-  booked: {
-    text: "rgb(var(--brand-primary))",
-    bg: "rgb(var(--brand-primary) / 0.12)",
-    border: "rgb(var(--brand-primary) / 0.35)",
-  },
-  contract_sent: {
-    text: "rgb(var(--brand-accent))",
-    bg: "rgb(var(--brand-accent) / 0.12)",
-    border: "rgb(var(--brand-accent) / 0.35)",
-  },
-  in_production: {
-    text: "rgb(var(--brand-primary))",
-    bg: "rgb(var(--brand-primary) / 0.08)",
-    border: "rgb(var(--brand-primary) / 0.25)",
-  },
-  final_review: {
-    text: "rgb(var(--fg-warning))",
-    bg: "rgb(var(--fg-warning) / 0.12)",
-    border: "rgb(var(--fg-warning) / 0.35)",
-  },
-  paid: {
-    text: "rgb(var(--brand-primary))",
-    bg: "rgb(var(--brand-primary) / 0.15)",
-    border: "rgb(var(--brand-primary) / 0.45)",
-  },
-  archived: {
-    text: "rgb(var(--fg-muted))",
-    bg: "rgb(var(--bg-sunken))",
-    border: "rgb(var(--border-subtle))",
-  },
-};
 
 // Minimum row shape we render. Mirrors the drizzle projects row
 // subset we actually use — date timestamps cross the RSC → client
@@ -76,28 +47,52 @@ export type GroupedProjects = Record<Stage, ProjectRow[]>;
 
 export function ProjectsList({
   grouped,
-  activeStage,
+  activeState,
 }: {
   grouped: GroupedProjects;
-  activeStage: Stage | null;
+  activeState: ProjectState | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  // Total across buckets — drives the top-level empty state decision.
-  const totalCount = STAGE_ORDER.reduce(
-    (n, s) => n + grouped[s].length,
-    0,
-  );
+  // Collapse the per-stage server grouping into per-state client
+  // grouping. Each state bucket preserves the underlying stage on
+  // the row so the row renderer can show it as the fine-grained
+  // label under the bold state chip.
+  const byState: Record<ProjectState, ProjectRow[]> = {
+    live: [],
+    done: [],
+    archived: [],
+  };
+  for (const stage of STAGE_ORDER) {
+    const rows = grouped[stage];
+    const state = stageToState(stage);
+    for (const r of rows) {
+      byState[state].push(r);
+    }
+  }
+  // Each state bucket should stay newest-updated-first. Server
+  // already orders rows desc; across stages the result is consistent
+  // within each state after the fold because STAGE_ORDER is stable
+  // but the rows come in at the per-stage order the server gave us.
+  // Re-sort to guarantee the across-stage interleave is by recency.
+  for (const state of PROJECT_STATES) {
+    byState[state].sort((a, b) =>
+      new Date(b.updatedAtIso).getTime() - new Date(a.updatedAtIso).getTime(),
+    );
+  }
 
-  const selectStage = (next: Stage | null) => {
-    const query = next ? `?stage=${next}` : "";
+  const totalCount =
+    byState.live.length + byState.done.length + byState.archived.length;
+
+  const selectState = (next: ProjectState | null) => {
+    const query = next ? `?state=${next}` : "";
     startTransition(() => {
       router.replace(`/dashboard/projects${query}`, { scroll: false });
     });
   };
 
-  // Nothing across any stage — offer the lead-gen funnel CTA. Magic
+  // Nothing across any state — offer the lead-gen funnel CTA. Magic
   // links are the upstream source of Projects, so we nudge the producer
   // back toward creating one rather than leaving them staring at a
   // blank list.
@@ -124,43 +119,41 @@ export function ProjectsList({
     );
   }
 
-  // Rows to render below the chip bar. When no stage filter is set we
-  // render every bucket with its heading; when one is set we flatten
-  // to just that bucket's rows (no heading) — the chip itself serves
-  // as the header at that point.
-  const stagesToRender: readonly Stage[] = activeStage ? [activeStage] : STAGE_ORDER;
+  // States to render: just the active one if filtered, else all three
+  // in declared order (live → done → archived). Empty states inside
+  // each bucket are handled at the section level.
+  const statesToRender: readonly ProjectState[] = activeState
+    ? [activeState]
+    : PROJECT_STATES;
 
   return (
     <div className="mt-6 flex flex-col gap-6">
-      <StageChipBar
-        grouped={grouped}
-        activeStage={activeStage}
+      <StateChipBar
+        byState={byState}
+        totalCount={totalCount}
+        activeState={activeState}
         disabled={isPending}
-        onSelect={selectStage}
+        onSelect={selectState}
       />
 
       <div className="flex flex-col gap-8">
-        {stagesToRender.map((stage) => {
-          const rows = grouped[stage];
-          // If the producer deep-linked to an empty stage, show the
-          // narrower "nothing in this stage" prompt. Otherwise when
-          // we're rendering "all" we just skip empty buckets so the
-          // page stays tight rather than padding out seven headers.
+        {statesToRender.map((state) => {
+          const rows = byState[state];
           if (rows.length === 0) {
-            if (activeStage) {
-              return <StageEmpty key={stage} />;
+            if (activeState) {
+              return <StateEmpty key={state} />;
             }
             return null;
           }
 
           return (
-            <section key={stage} aria-labelledby={`stage-${stage}-heading`}>
-              {!activeStage ? (
+            <section key={state} aria-labelledby={`state-${state}-heading`}>
+              {!activeState ? (
                 <h2
-                  id={`stage-${stage}-heading`}
+                  id={`state-${state}-heading`}
                   className="mb-3 font-mono text-[0.68rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
                 >
-                  {STAGE_LABEL[stage]}{" "}
+                  {STATE_LABEL[state]}{" "}
                   <span className="sk-num text-[rgb(var(--fg-secondary))]">
                     · {rows.length.toString()}
                   </span>
@@ -185,44 +178,43 @@ export function ProjectsList({
 
 // ─── Chip bar ────────────────────────────────────────────────────────
 
-function StageChipBar({
-  grouped,
-  activeStage,
+function StateChipBar({
+  byState,
+  totalCount,
+  activeState,
   disabled,
   onSelect,
 }: {
-  grouped: GroupedProjects;
-  activeStage: Stage | null;
+  byState: Record<ProjectState, ProjectRow[]>;
+  totalCount: number;
+  activeState: ProjectState | null;
   disabled: boolean;
-  onSelect: (stage: Stage | null) => void;
+  onSelect: (state: ProjectState | null) => void;
 }) {
-  const totalCount = STAGE_ORDER.reduce((n, s) => n + grouped[s].length, 0);
-
   return (
-    // Horizontal scroll on mobile — eight chips (All + 7 stages) at
-    // 360px width would otherwise wrap-cram. The rail stays single-row
-    // and swipable on narrow screens, naturally wraps on desktop.
-    // `sk-scroll-x` gives the momentum-scroll feel on iOS.
-    <nav aria-label="Filter by stage" className="-mx-4 sm:mx-0">
+    // Four chips on desktop, still uses the sk-scroll-x momentum rail
+    // on mobile. Far less cramped than the old 8-chip version — the
+    // whole thing fits without scrolling on any realistic screen.
+    <nav aria-label="Filter by state" className="-mx-4 sm:mx-0">
       <div className="sk-scroll-x flex gap-2 overflow-x-auto px-4 pb-1 sm:flex-wrap sm:overflow-visible sm:px-0">
         <Chip
           label="All"
           count={totalCount}
-          active={activeStage === null}
+          active={activeState === null}
           disabled={disabled}
           onClick={() => {
             onSelect(null);
           }}
         />
-        {STAGE_ORDER.map((stage) => (
+        {PROJECT_STATES.map((state) => (
           <Chip
-            key={stage}
-            label={STAGE_LABEL[stage]}
-            count={grouped[stage].length}
-            active={activeStage === stage}
+            key={state}
+            label={STATE_LABEL[state]}
+            count={byState[state].length}
+            active={activeState === state}
             disabled={disabled}
             onClick={() => {
-              onSelect(stage);
+              onSelect(state);
             }}
           />
         ))}
@@ -251,10 +243,9 @@ function Chip({
       disabled={disabled}
       aria-current={active ? "page" : undefined}
       className={[
-        // min-h-[44px] on mobile → h-8 on ≥sm so the dense 8-chip rail
-        // still fits on a 1280px dashboard without wrapping. The extra
-        // vertical padding on mobile bumps the touch target past the
-        // Apple/Google 44×44 minimum.
+        // Four chips fit comfortably without the mobile-only min-h
+        // crammed feel of the old 8-chip rail. Touch target still
+        // ≥44px on mobile.
         "inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors sm:min-h-0 sm:h-8",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
         active
@@ -279,15 +270,16 @@ function Chip({
 // ─── Row ─────────────────────────────────────────────────────────────
 
 function ProjectRowItem({ row }: { row: ProjectRow }) {
-  const tone = STAGE_TONE[row.stage];
+  const state = stageToState(row.stage);
+  const tone = STATE_TONE[state];
   return (
     <li>
       <Link
         href={`/dashboard/projects/${row.id}`}
         // min-h-[56px] mirrors the Today inbox rows for consistency —
-        // a 2-line row (title + artist/stage-badge) needs the vertical
-        // room or the stage badge crowds the row baseline. Inset focus
-        // ring stays clipped to the row.
+        // a 2-line row (title + artist/state-badge) needs the vertical
+        // room or the badge crowds the row baseline. Inset focus ring
+        // stays clipped to the row.
         className="flex min-h-[56px] items-start gap-3 px-4 py-3 transition-colors hover:bg-[rgb(var(--bg-sunken))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
       >
         <div className="min-w-0 flex-1">
@@ -311,8 +303,17 @@ function ProjectRowItem({ row }: { row: ProjectRow }) {
                 borderColor: tone.border,
               }}
             >
-              {STAGE_LABEL[row.stage]}
+              {STATE_LABEL[state]}
             </span>
+            {/* Secondary: the fine-grained stage, muted. Hidden when
+                the state label is already the same word (e.g. the
+                `archived` stage → "Archived" state), otherwise shown
+                in the muted font-mono style used for timestamps. */}
+            {STAGE_LABEL[row.stage] !== STATE_LABEL[state] ? (
+              <span className="font-mono text-[0.6rem] uppercase tracking-[0.08em] text-[rgb(var(--fg-muted))]">
+                · {STAGE_LABEL[row.stage]}
+              </span>
+            ) : null}
           </div>
         </div>
       </Link>
@@ -322,11 +323,11 @@ function ProjectRowItem({ row }: { row: ProjectRow }) {
 
 // ─── Sub-states ──────────────────────────────────────────────────────
 
-function StageEmpty() {
+function StateEmpty() {
   return (
     <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center">
       <p className="text-sm text-[rgb(var(--fg-secondary))]">
-        No projects in this stage.{" "}
+        No projects in this state.{" "}
         <Link
           href="/dashboard/projects"
           className="text-[rgb(var(--brand-primary))] underline decoration-dotted underline-offset-2"
@@ -360,4 +361,3 @@ function FolderIcon() {
     </svg>
   );
 }
-

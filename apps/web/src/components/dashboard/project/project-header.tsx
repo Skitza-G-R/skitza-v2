@@ -33,6 +33,7 @@ import {
   STAGE_LABEL,
   type Stage,
 } from "~/lib/projects/stages";
+import { STATE_LABEL, stageToState } from "~/lib/projects/states";
 import {
   cancelProjectAction,
   chargeFinalAction,
@@ -244,7 +245,19 @@ export function ProjectHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="neutral">{STAGE_LABEL[stage]}</Badge>
+          {/* Batch G — badge now shows the high-level STATE as the
+              primary label, with the fine-grained STAGE label small
+              and muted underneath it. Advanced users still see the
+              funnel position without being forced to read the 9-value
+              taxonomy as the primary cue. */}
+          <div className="flex flex-col items-start">
+            <Badge variant="neutral">{STATE_LABEL[stageToState(stage)]}</Badge>
+            {STAGE_LABEL[stage] !== STATE_LABEL[stageToState(stage)] ? (
+              <span className="mt-0.5 font-mono text-[0.62rem] uppercase tracking-[0.08em] text-[rgb(var(--fg-muted))]">
+                {STAGE_LABEL[stage]}
+              </span>
+            ) : null}
+          </div>
 
           {/* Inline stage select — hidden for terminal stages so the
               producer doesn't try to walk back a cancelled project via

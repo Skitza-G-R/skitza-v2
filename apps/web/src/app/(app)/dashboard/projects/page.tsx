@@ -8,13 +8,18 @@ import {
   type Stage,
 } from "~/components/dashboard/projects/projects-list";
 import { AppShell } from "~/components/shell/app-shell";
+import { isProjectState } from "~/lib/projects/states";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Task 4: lightweight browse view for all of a producer's projects,
-// filterable by the seven Kanban-visible stages (lead → archived).
-// Replaces the drag-drop columns that lived here from Phase C.4
-// through Task 2 — per the design doc's anti-Kanban argument, the
-// columns never earned the UI cost they took.
+// filterable by the three display states (Live / Done / Archived).
+// Batch G collapsed the former 8-chip stage filter to a 3-chip
+// state filter — the ProjectsList client does the grouping; this
+// page just parses `?state=` and hands it down. The URL param was
+// renamed from `stage` to `state` to match the user-visible surface;
+// legacy `stage` query params fall through to "All" silently (not a
+// real regression: bookmarks to specific stages were never a
+// prominent flow).
 //
 // Note: we deliberately do NOT run the first-run onboarding redirect
 // here. /dashboard (the Today screen) owns that; users only reach
@@ -22,25 +27,8 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // empty state below hints at sharing a magic link instead.
 
 type PageProps = {
-  searchParams: Promise<{ stage?: string }>;
+  searchParams: Promise<{ state?: string }>;
 };
-
-// Allow-list of stage keys that match the router's `listByStage`
-// buckets. Any other value in ?stage is ignored (falls back to "All").
-const VALID_STAGES = new Set<Stage>([
-  "lead",
-  "booked",
-  "contract_sent",
-  "in_production",
-  "final_review",
-  "paid",
-  "archived",
-]);
-
-function coerceStage(input: string | undefined): Stage | null {
-  if (!input) return null;
-  return VALID_STAGES.has(input as Stage) ? (input as Stage) : null;
-}
 
 export default async function ProjectsPage({ searchParams }: PageProps) {
   const { userId } = await auth();
@@ -49,7 +37,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   const caller = appRouter.createCaller({ userId });
   const grouped = await caller.project.listByStage();
   const sp = await searchParams;
-  const activeStage = coerceStage(sp.stage);
+  const activeState = isProjectState(sp.state) ? sp.state : null;
 
   // Project down to the minimal row shape the client component needs.
   // Dates cross the RSC → client boundary as ISO strings; we drop
@@ -85,7 +73,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
             Browse and open the project room for any active engagement.
           </p>
         </header>
-        <ProjectsList grouped={clientGrouped} activeStage={activeStage} />
+        <ProjectsList grouped={clientGrouped} activeState={activeState} />
       </div>
     </AppShell>
   );
