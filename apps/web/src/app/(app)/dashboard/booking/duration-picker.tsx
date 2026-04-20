@@ -91,7 +91,7 @@ export function DurationPicker({
           Default session length
         </h3>
         <p className="mt-0.5 text-xs text-[rgb(var(--fg-secondary))]">
-          The default duration we book for — used to seed new packages and as a
+          The default duration we book for — used to seed new services and as a
           fallback when one isn&apos;t pinned. Change it any time.
         </p>
       </div>

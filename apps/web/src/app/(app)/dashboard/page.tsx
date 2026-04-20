@@ -137,7 +137,7 @@ function FinishSetupNudge() {
           Two minutes to your first bookable link
         </p>
         <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-          Add a package and your hours so clients can actually book you.
+          Add a service and your hours so clients can actually book you.
         </p>
       </div>
       <a

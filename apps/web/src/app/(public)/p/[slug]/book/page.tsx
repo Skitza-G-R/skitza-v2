@@ -96,7 +96,7 @@ export default async function BookPage({ params }: PageProps) {
           </h1>
           <p className="mt-4 text-[rgb(var(--fg-secondary))]">
             With <span className="font-semibold text-[rgb(var(--fg-primary))]">{producer.displayName}</span>.
-            Pick a package, pick a slot — they&apos;ll confirm within 24h.
+            Pick a service, pick a slot — they&apos;ll confirm within 24h.
           </p>
         </header>
 

@@ -79,7 +79,7 @@ export default async function SetupPage({
           </h1>
           <p className="mt-3 max-w-xl text-sm text-[rgb(var(--fg-secondary))]">
             Everything that&rsquo;s not day-to-day client work — your identity,
-            packages, portfolio, hours, and payments — lives on one page.
+            services, portfolio, hours, and payments — lives on one page.
           </p>
         </header>
 
@@ -113,9 +113,9 @@ export default async function SetupPage({
             <CrossLinkSection
               eyebrow="Services"
               title="What you sell"
-              description="Each package is one thing clients can book — sessions, mixing, mastering, production days. Set a price, a duration, and a deposit rule."
+              description="Each service is one thing clients can book — sessions, mixing, mastering, production days. Set a price, a duration, and a deposit rule."
               linkHref="/dashboard/booking?tab=packages"
-              linkLabel="Manage packages"
+              linkLabel="Manage services"
             />
           )}
 

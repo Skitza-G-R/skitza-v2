@@ -91,7 +91,7 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
       const priceDollars = Number(pkgPriceDollars);
       const depositPct = Number(pkgDepositPct || "0");
       if (!pkgName.trim()) {
-        setError("Give your package a name.");
+        setError("Give your service a name.");
         return;
       }
       if (!Number.isFinite(duration) || duration < 15) {

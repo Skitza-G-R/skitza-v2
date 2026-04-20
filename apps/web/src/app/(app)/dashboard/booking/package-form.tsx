@@ -174,7 +174,7 @@ export function NewPackageForm({
       */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <Label htmlFor="name">Package name</Label>
+          <Label htmlFor="name">Service name</Label>
           <Input
             id="name"
             type="text"
@@ -452,7 +452,7 @@ export function NewPackageForm({
             ? "Saving…"
             : isEdit
               ? "Save changes"
-              : "Save package"}
+              : "Save service"}
         </Button>
         <Button type="button" variant="ghost" onClick={onClose} disabled={pending} className="min-h-11">
           Cancel

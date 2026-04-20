@@ -18,7 +18,7 @@ export function PackageToolbar() {
             setOpen(true);
           }}
         >
-          + New package
+          + New service
         </Button>
       ) : null}
       {open ? (

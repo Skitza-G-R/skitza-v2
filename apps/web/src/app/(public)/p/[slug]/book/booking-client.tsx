@@ -196,7 +196,7 @@ export function BookingClient({
       {/* Step indicator */}
       <div className="mb-8 flex items-center justify-center gap-3 font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
         <span className={step === "package" ? "text-[rgb(var(--brand-primary))] font-semibold" : ""}>
-          1 · Package
+          1 · Service
         </span>
         <span>›</span>
         <span className={step === "slot" ? "text-[rgb(var(--brand-primary))] font-semibold" : ""}>
@@ -327,7 +327,7 @@ export function BookingClient({
                 setStep("package");
               }}
             >
-              ← Change package
+              ← Change service
             </Button>
           </div>
 

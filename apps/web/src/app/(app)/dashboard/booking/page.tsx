@@ -103,14 +103,15 @@ export default async function BookingPage({ searchParams }: PageProps) {
             Your storefront.
           </h1>
           <p className="mt-3 max-w-xl text-sm text-[rgb(var(--fg-secondary))]">
-            Packages you sell, hours you&apos;re open, sessions clients want. One link
+            Services you sell, hours you&apos;re open, sessions clients want. One link
             drives all three.
           </p>
         </header>
 
         {/* Tab nav — 3 primary tabs (Sessions / Weekly / Upcoming).
-            Packages is reachable via ?tab=packages (Setup → Services
-            cross-link) but not in the bar. */}
+            Services is reachable via ?tab=packages (Setup → Services
+            cross-link) but not in the bar. The URL key stays
+            `packages` for back-compat; the label is "Services". */}
         <nav
           aria-label="Booking sections"
           className="sk-scroll-x mt-8 flex gap-1 overflow-x-auto border-b border-[rgb(var(--border-subtle))] pb-px"
@@ -351,7 +352,7 @@ function PackagesTab({ packages }: { packages: PackageRow[] }) {
         <EmptyState
           icon={<CalendarIcon />}
           title="Your bookable services live here."
-          description="A package is one offering — a mixing session, a mastering run, a production day. Visitors pick a package first, then a time slot."
+          description="A service is one offering — a mixing session, a mastering run, a production day. Visitors pick a service first, then a time slot."
           className="min-h-[60vh] justify-center"
         />
       ) : (

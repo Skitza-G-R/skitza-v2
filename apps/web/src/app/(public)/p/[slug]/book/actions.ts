@@ -18,7 +18,7 @@ function toMessage(err: unknown): string {
   if (err instanceof TRPCError) {
     switch (err.code) {
       case "NOT_FOUND":
-        return "This producer or package isn't available. Refresh and try again.";
+        return "This producer or service isn't available. Refresh and try again.";
       case "BAD_REQUEST":
         return err.message || "Check the form and try again.";
       case "CONFLICT":

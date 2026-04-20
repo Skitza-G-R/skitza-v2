@@ -13,7 +13,7 @@ const TABS = [
   {
     key: "booking",
     label: "Storefront & Booking",
-    title: "Sell packages, not just time.",
+    title: "Sell services, not just time.",
     body: [
       `Share your Skitza link as your personal storefront. Clients select a service (e.g. "Full Production"), pick a date, and pay the deposit — all in one flow.`,
       `No more "does Thursday at 4 work?"`,
@@ -178,7 +178,7 @@ function BookingMockup() {
     <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-4 font-mono text-xs">
       <div className="flex items-center justify-between rounded-[var(--radius-sm)] border border-[rgb(var(--brand-primary)/0.5)] bg-[rgb(var(--bg-elevated))] px-3 py-2">
         <div>
-          <div className="font-semibold text-[rgb(var(--brand-primary))]">Full Production Package</div>
+          <div className="font-semibold text-[rgb(var(--brand-primary))]">Full Production Service</div>
           <div className="mt-0.5 text-[rgb(var(--fg-muted))]">Beat · tracking · mix</div>
         </div>
         <div className="font-display text-sm" style={{ fontWeight: 700 }}>$1,500</div>
