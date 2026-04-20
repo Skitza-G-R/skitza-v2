@@ -1445,7 +1445,7 @@ export const bookingRouter = router({
 
       // Fire the producer's "new request" email. Best-effort: a Resend
       // outage must not roll back the booking insert — the producer
-      // can still see the request in /dashboard/booking?tab=requests.
+      // can still see the request in /dashboard/booking?tab=upcoming.
       try {
         const [producerRow] = await db
           .select({

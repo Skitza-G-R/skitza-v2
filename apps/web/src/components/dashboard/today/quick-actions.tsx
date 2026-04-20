@@ -12,9 +12,9 @@ import { useToast } from "~/components/ui/toast";
 //     2. Upload track         — deep-link into the most-recent project's
 //                               music tab in "upload mode" (?action=upload).
 //                               No recent project → nudge to create one.
-//     3. New booking          — jump to /dashboard/booking?tab=requests
-//                               where the producer can hand-enter a request
-//                               (the self-booking flow is in /p/<slug>).
+//     3. New booking          — jump to /dashboard/booking?tab=upcoming
+//                               where pending requests surface for producer
+//                               approval (the self-booking flow is in /p/<slug>).
 //     4. Send invoice         — deep-link into the money tab of the most-
 //                               recent project. No projects → tooltip only.
 //
@@ -110,7 +110,7 @@ export function QuickActions({
         <PrimaryButton
           label="New booking"
           description="Add by hand"
-          href="/dashboard/booking?tab=requests"
+          href="/dashboard/booking?tab=upcoming"
         />
         <PrimaryButton
           label="Send invoice"

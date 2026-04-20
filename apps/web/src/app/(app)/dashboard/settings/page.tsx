@@ -26,7 +26,7 @@ import { StripeCard } from "./stripe-card";
 //   services      — cross-link to /dashboard/booking?tab=packages
 //   portfolio     — cross-link to the public page (portfolio rehost
 //                   lives behind a follow-up task — see TODO below)
-//   availability  — cross-link to /dashboard/booking?tab=availability
+//   availability  — cross-link to /dashboard/booking?tab=sessions
 //   connections   — Stripe Connect (StripeCard)
 //   account       — data export + Clerk-managed email/password
 //
@@ -133,7 +133,7 @@ export default async function SetupPage({
               eyebrow="Availability"
               title={<>When you&rsquo;re open</>}
               description="Weekly hours, buffers between sessions, and blackout dates. Clients only see slots that fit inside these windows."
-              linkHref="/dashboard/booking?tab=availability"
+              linkHref="/dashboard/booking?tab=sessions"
               linkLabel="Edit hours & blackouts"
             />
           )}
