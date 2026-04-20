@@ -64,16 +64,28 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
 
   return (
     <AppShell active="projects">
-      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
-        <header>
-          <h1 className="font-display text-3xl tracking-tight text-[rgb(var(--fg-primary))]">
-            Projects
-          </h1>
-          <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
-            Browse and open the project room for any active engagement.
-          </p>
-        </header>
-        <ProjectsList grouped={clientGrouped} activeState={activeState} />
+      {/* Batch C — Projects page picks up the same editorial canvas
+          treatment as Today: full-bleed, gradient band at the top,
+          display-font page title at 4xl→5xl, mono eyebrow above it. */}
+      <div className="relative isolate">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+        />
+        <div className="mx-auto max-w-[1920px] px-4 pt-8 pb-12 sm:px-8 lg:px-12 lg:pt-12">
+          <header>
+            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+              Pipeline
+            </p>
+            <h1 className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
+              Projects
+            </h1>
+            <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
+              Browse and open the project room for any active engagement.
+            </p>
+          </header>
+          <ProjectsList grouped={clientGrouped} activeState={activeState} />
+        </div>
       </div>
     </AppShell>
   );

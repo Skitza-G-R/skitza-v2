@@ -149,15 +149,17 @@ export function ProjectsList({
           return (
             <section key={state} aria-labelledby={`state-${state}-heading`}>
               {!activeState ? (
-                <h2
-                  id={`state-${state}-heading`}
-                  className="mb-3 font-mono text-[0.68rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
-                >
-                  {STATE_LABEL[state]}{" "}
-                  <span className="sk-num text-[rgb(var(--fg-secondary))]">
-                    · {rows.length.toString()}
+                <div className="mb-3 flex items-baseline gap-3 border-b border-[rgb(var(--border-subtle))] pb-2">
+                  <h2
+                    id={`state-${state}-heading`}
+                    className="font-display text-xl tracking-tight text-[rgb(var(--fg-primary))]"
+                  >
+                    {STATE_LABEL[state]}
+                  </h2>
+                  <span className="sk-num font-mono text-xs text-[rgb(var(--fg-muted))]">
+                    {rows.length.toString()}
                   </span>
-                </h2>
+                </div>
               ) : null}
 
               {/* Batch C — shed the card frame, keep the per-row
@@ -288,7 +290,7 @@ function ProjectRowItem({ row }: { row: ProjectRow }) {
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <p className="truncate text-sm font-medium text-[rgb(var(--fg-primary))]">
+            <p className="truncate text-[0.95rem] font-semibold leading-6 text-[rgb(var(--fg-primary))]">
               {row.title}
             </p>
             <p className="sk-num shrink-0 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]">
@@ -296,7 +298,7 @@ function ProjectRowItem({ row }: { row: ProjectRow }) {
             </p>
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <p className="truncate text-xs text-[rgb(var(--fg-secondary))]">
+            <p className="truncate text-sm text-[rgb(var(--fg-secondary))]">
               {row.artistName}
             </p>
             <span

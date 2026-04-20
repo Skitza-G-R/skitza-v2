@@ -233,13 +233,21 @@ export function ProjectHeader({
         </div>
 
         <div className="min-w-0 flex-1">
+          {/* Batch C — Project Room page title lifts to the editorial
+              display-4xl/5xl so the Project Room reads as a room, not
+              a grid item. Paired with a mono eyebrow above it on
+              desktop (hidden on narrow widths where the avatar + title
+              alone is already a lot). */}
+          <p className="hidden font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))] sm:block">
+            Project Room
+          </p>
           <h1
-            className="truncate font-display text-2xl leading-tight tracking-tight sm:text-3xl"
+            className="mt-1 truncate font-display text-3xl leading-tight tracking-tight sm:text-4xl"
             style={{ fontWeight: 800 }}
           >
             {project.title}
           </h1>
-          <p className="mt-0.5 truncate text-sm text-[rgb(var(--fg-secondary))]">
+          <p className="mt-1 truncate text-sm text-[rgb(var(--fg-secondary))]">
             {displayName}
           </p>
         </div>
