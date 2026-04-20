@@ -47,7 +47,7 @@ export function TodayView({
       {/* Batch C — Inbox section gets an editorial eyebrow + heading
           instead of jumping straight into rows. Pairs with the ShareLink
           hero at the top so the page reads: hero → KPIs → Inbox. */}
-      <section aria-labelledby="today-inbox-heading">
+      <section aria-labelledby="today-inbox-heading" data-tour-id="today-inbox">
         <div className="mb-4 flex items-baseline justify-between gap-4 border-b border-[rgb(var(--border-subtle))] pb-3">
           <div>
             <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">

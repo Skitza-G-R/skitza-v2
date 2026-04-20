@@ -36,6 +36,7 @@ export function ShareLinkCard({
       <div
         className="mb-6 flex flex-col gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.06)] p-5 sm:flex-row sm:items-center sm:justify-between"
         aria-labelledby="share-link-missing-title"
+        data-tour-id="share-link-card"
       >
         <div className="min-w-0">
           <p
@@ -93,6 +94,7 @@ export function ShareLinkCard({
     <section
       className="mb-10"
       aria-labelledby="share-link-title"
+      data-tour-id="share-link-card"
     >
       <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0 flex-1">

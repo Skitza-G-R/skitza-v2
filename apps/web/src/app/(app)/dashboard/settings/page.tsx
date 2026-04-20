@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "~/components/shell/app-shell";
+import { ReplayTourButton } from "~/components/shell/replay-tour-button";
 import { AutopilotSection } from "~/components/dashboard/setup/autopilot-section";
 import {
   isSetupSectionKey,
@@ -195,6 +196,19 @@ function AccountSection() {
         Change email, password, or 2FA from the avatar menu (top-right) → Manage
         account.
       </p>
+      <hr className="my-6 border-t border-[rgb(var(--border-subtle))]" />
+      <div className="flex flex-col gap-2">
+        <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+          Tour
+        </p>
+        <p className="text-sm text-[rgb(var(--fg-secondary))]">
+          Forgot where things live? Walk through the 4-screen orientation
+          again.
+        </p>
+        <div className="mt-2">
+          <ReplayTourButton />
+        </div>
+      </div>
     </section>
   );
 }

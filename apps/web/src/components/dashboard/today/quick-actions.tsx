@@ -88,6 +88,7 @@ export function QuickActions({
   return (
     <section
       id="quick-actions"
+      data-tour-id="quick-actions"
       aria-label="Quick actions"
       // scroll-mt-20 clears the sticky mobile header so a
       // `#quick-actions` hash-jump (from the mobile bottom-nav FAB)

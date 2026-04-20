@@ -150,7 +150,11 @@ function SidebarBody({
           </button>
         )}
       </div>
-      <nav aria-label="Primary" className="flex-1 space-y-0.5 px-2">
+      <nav
+        aria-label="Primary"
+        data-tour-id="sidebar-nav"
+        className="flex-1 space-y-0.5 px-2"
+      >
         {NAV_ITEMS.map((item) => (
           <SidebarItem
             key={item.id}
@@ -205,6 +209,7 @@ function SidebarItem({
   return (
     <Link
       href={item.href}
+      data-tour-id={`nav-${item.id}`}
       {...(isActive ? { "aria-current": "page" as const } : {})}
       {...(collapsed ? { title: item.label } : {})}
       // min-h-[44px] tap target (both mobile bottom-nav and the

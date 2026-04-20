@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { PersistentPlayer } from "~/components/audio/persistent-player";
 import { getShellState } from "~/server/shell-data";
 
+import { CoachmarkTour } from "./coachmark-tour";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
 import { DesktopMenuBridge } from "./desktop-menu-bridge";
 import { MobileBottomNav } from "./mobile-bottom-nav";
@@ -63,6 +64,12 @@ export async function AppShell({
       <ShortcutsBridge />
       <DesktopMenuBridge />
       <PersistentPlayer />
+      {/* First-run guided coachmark tour. Self-gates on a localStorage
+          flag (`skitza:producer-tour-seen:v1`), so returning producers
+          never see it. Replayable via the "Replay onboarding tour"
+          button in Setup → Account, which dispatches a
+          `skitza:replay-tour` window event. */}
+      <CoachmarkTour />
     </div>
   );
 }
