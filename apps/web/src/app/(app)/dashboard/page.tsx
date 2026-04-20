@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
+import { QuickActions } from "~/components/dashboard/today/quick-actions";
 import { ShareLinkCard } from "~/components/dashboard/today/share-link-card";
 import { TodayView, type TodayViewData } from "~/components/dashboard/today/today-view";
 import { AppShell } from "~/components/shell/app-shell";
@@ -37,12 +38,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   }
 
   const caller = appRouter.createCaller({ userId });
-  // Fetch the today payload AND the producer's slug in parallel —
-  // ShareLinkCard needs the slug to render the permanent URL, Today
-  // needs KPIs + inbox items.
-  const [today, me] = await Promise.all([
+  // Fetch the today payload, the producer profile, and the project
+  // list in parallel. ShareLinkCard needs the slug; QuickActions needs
+  // the most-recent project id for Upload/Invoice deep-links.
+  const [today, me, projectList] = await Promise.all([
     caller.producer.today(),
     caller.producer.me(),
+    caller.project.list(),
   ]);
 
   // Public origin used by ShareLinkCard to render the /p/<slug> URL.
@@ -53,6 +55,22 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     process.env.NEXT_PUBLIC_SITE_URL ??
     process.env.SITE_URL ??
     "https://skitza.app";
+
+  // project.list is ordered by desc(updatedAt); take the first row that
+  // isn't in a terminal state as the "most recent active". Producers
+  // with only archived/cancelled projects fall through to null so the
+  // Upload/Invoice quick-actions nudge them to create a new project.
+  const mostRecentProject = projectList.find(
+    (p) => p.stage !== "archived" && p.stage !== "cancelled",
+  );
+  const recentProjectId = mostRecentProject?.id ?? null;
+
+  // Full share URL ready for Copy + Preview buttons. Null when the
+  // producer hasn't picked a slug — QuickActions downgrades both
+  // actions to disabled/tooltip in that case.
+  const shareUrl = me.slug
+    ? `${publicBaseUrl.replace(/\/$/, "")}/p/${me.slug}`
+    : null;
 
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
@@ -93,6 +111,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             The share-first workflow is the whole point of the Today
             screen; KPIs come second. */}
         <ShareLinkCard slug={me.slug} publicBaseUrl={publicBaseUrl} />
+        {/* 8 time-saving actions — primary row (4 big buttons) +
+            secondary row (4 chips). Lives between the share card and
+            the KPI strip so frequent moves are never more than one
+            click away. */}
+        <QuickActions shareUrl={shareUrl} recentProjectId={recentProjectId} />
         <TodayView data={data} selectedItemId={selectedItemId} />
       </div>
     </AppShell>
