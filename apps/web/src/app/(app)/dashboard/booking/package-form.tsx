@@ -73,6 +73,7 @@ export function NewPackageForm({
   onClose,
   initialPlans = [{ kind: "full" }],
   initialValues,
+  fromTemplate = false,
 }: {
   onClose: () => void;
   initialPlans?: PaymentPlan[];
@@ -81,13 +82,21 @@ export function NewPackageForm({
   // and the initialPlans default is overridden by whatever plans the
   // product was saved with.
   initialValues?: InitialPackageValues;
+  // When true, initialValues are a template pre-fill (no real row
+  // exists in the DB yet). Submit routes through createPackage()
+  // instead of updatePackage(); the synthetic id on initialValues is
+  // ignored server-side.
+  fromTemplate?: boolean;
 }) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const isEdit = initialValues !== undefined;
+  // EDIT mode only fires when we have an existing-row initialValues
+  // *and* the template flag isn't set. Templates hydrate the same
+  // controlled-input seeds but still create a fresh row on save.
+  const isEdit = initialValues !== undefined && !fromTemplate;
   // Prefer plans saved on the product over the caller-provided default.
   const effectiveInitialPlans =
     initialValues?.paymentPlans ?? initialPlans;
