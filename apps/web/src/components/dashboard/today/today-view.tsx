@@ -71,12 +71,15 @@ export function TodayView({
 
           {/* Detail — always rendered on desktop (shows the empty
               prompt when nothing is selected); mobile hides it until
-              there's a selection. Left-border hairline separates the
-              two panes on desktop only. */}
+              there's a selection. Logical-start-border hairline
+              separates the two panes on desktop only; `border-s`
+              renders as border-left under LTR and border-right under
+              RTL, keeping the divider between the list and detail
+              panes regardless of text direction. */}
           <div
             className={[
               hasSelection ? "block" : "hidden md:block",
-              "md:border-l md:border-[rgb(var(--border-subtle))]",
+              "md:border-s md:border-[rgb(var(--border-subtle))]",
             ].join(" ")}
           >
             <TodayDetail items={data.items} selectedItemId={selectedItemId} />

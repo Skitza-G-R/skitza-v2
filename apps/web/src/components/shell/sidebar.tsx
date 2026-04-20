@@ -110,7 +110,11 @@ export function Sidebar({
 
   return (
     <aside
-      className={`${widthClass} sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-[width] duration-200 md:flex`}
+      // RTL — sidebar rails against the page's trailing edge in RTL
+      // (right → left flip puts it on the left), so the separator
+      // needs to be on the logical END side. `border-e` is the logical
+      // alias: `border-right` in LTR, `border-left` in RTL.
+      className={`${widthClass} sticky top-0 hidden h-dvh shrink-0 flex-col border-e border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-[width] duration-200 md:flex`}
       data-collapsed={effectiveCollapsed}
     >
       <SidebarBody
@@ -249,18 +253,25 @@ function SidebarItem({
           : "text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
       }`}
     >
+      {/* RTL — the active-state indicator bar lives on the logical
+          start edge. `start-0` is the logical-property equivalent of
+          `left-0` under LTR + `right-0` under RTL, so Tailwind v4
+          resolves it against the ambient `dir`. No JS needed. */}
       <span
         aria-hidden
-        className={`sk-trans absolute left-0 top-1.5 bottom-1.5 w-[2px] origin-center rounded-full bg-[rgb(var(--brand-primary))] ${
+        className={`sk-trans absolute start-0 top-1.5 bottom-1.5 w-[2px] origin-center rounded-full bg-[rgb(var(--brand-primary))] ${
           isActive ? "scale-y-100 opacity-100" : "scale-y-50 opacity-0"
         }`}
       />
       <span className="relative shrink-0">
         {item.icon}
         {collapsed && badgeCount > 0 ? (
+          // `-end-1` is the RTL-aware equivalent of the old `-right-1` —
+          // the unread dot floats at the trailing edge of the icon
+          // regardless of text direction.
           <span
             aria-hidden
-            className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))] ring-2 ring-[rgb(var(--bg-elevated))]"
+            className="absolute -end-1 -top-1 h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))] ring-2 ring-[rgb(var(--bg-elevated))]"
           />
         ) : null}
       </span>
@@ -268,9 +279,11 @@ function SidebarItem({
         <>
           <span className="truncate">{label}</span>
           {badgeCount > 0 ? (
+            // `ms-auto` (margin-start) pushes the badge to the trailing
+            // edge in both directions — LTR: far right; RTL: far left.
             <span
               aria-label={`${badgeCount.toString()} unread`}
-              className="ml-auto rounded-full bg-[rgb(var(--brand-primary))] px-1.5 py-[1px] font-mono text-[0.625rem] font-semibold text-[rgb(var(--fg-inverse))]"
+              className="ms-auto rounded-full bg-[rgb(var(--brand-primary))] px-1.5 py-[1px] font-mono text-[0.625rem] font-semibold text-[rgb(var(--fg-inverse))]"
             >
               {badgeLabel}
             </span>
@@ -349,6 +362,15 @@ function SettingsIcon() {
 }
 
 function ChevronIcon({ flipped }: { flipped: boolean }) {
+  // RTL: the chevron is an SVG path that physically points "left" in
+  // its natural orientation. Under LTR, `flipped` (= sidebar collapsed)
+  // rotates it to point right. Under RTL, the sidebar is on the
+  // leading side (the right edge), so the glyph needs to point the
+  // opposite way in both states. Composing `rtl:rotate-180` gives us:
+  //   LTR, expanded:   "<" (points toward content)
+  //   LTR, collapsed:  ">" (points away, toward sidebar)
+  //   RTL, expanded:   ">" (points toward content — LTR rotated 180)
+  //   RTL, collapsed:  "<" (LTR collapsed + rtl rotation cancel to 0)
   return (
     <svg
       aria-hidden
@@ -360,7 +382,7 @@ function ChevronIcon({ flipped }: { flipped: boolean }) {
       strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`transition-transform ${flipped ? "rotate-180" : ""}`}
+      className={`transition-transform rtl:rotate-180 ${flipped ? "rotate-180 rtl:rotate-0" : ""}`}
     >
       <path d="M9 3.5 4.5 7 9 10.5" />
     </svg>

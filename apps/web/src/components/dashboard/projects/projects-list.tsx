@@ -445,7 +445,7 @@ function ProjectRowItem({
     >
       {/* Checkbox sits outside the Link so a tick doesn't navigate. */}
       <label
-        className="flex shrink-0 cursor-pointer items-center pl-2 pr-1"
+        className="flex shrink-0 cursor-pointer items-center ps-2 pe-1"
         onClick={(e) => {
           e.stopPropagation();
         }}

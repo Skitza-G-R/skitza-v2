@@ -128,7 +128,7 @@ export function TodayList({
     // thin brand left-border accent (sk-row-active style) rather than
     // a wash fill.
     <div>
-      <div className="mb-3 flex items-center gap-3 pr-2">
+      <div className="mb-3 flex items-center gap-3 pe-2">
         <div className="flex-1">
           <ListSearchInput
             value={q}
@@ -175,7 +175,7 @@ export function TodayList({
             style={{ ["--i" as string]: String(i) } as React.CSSProperties}
           >
             <label
-              className="flex min-h-[64px] shrink-0 cursor-pointer items-center pl-2 pr-1"
+              className="flex min-h-[64px] shrink-0 cursor-pointer items-center ps-2 pe-1"
               onClick={(e) => {
                 // Prevent the row-navigation click from firing when
                 // the producer just wants to tick the checkbox.
@@ -201,14 +201,16 @@ export function TodayList({
               disabled={isPending}
               // min-h-[64px] — a nudge taller than before so text
               // breathes like Spotify track rows. Active state uses an
-              // inset 2px brand left-border (see sk-row-active) so the
-              // focused item reads without needing a heavy fill.
+              // inset 2px brand start-border (logical) so the focused
+              // item reads without needing a heavy fill, and the bar
+              // moves to the correct edge under RTL. `text-start`
+              // keeps the multi-line body aligned to the reading edge.
               className={[
-                "flex min-h-[64px] flex-1 items-start gap-4 py-4 pr-2 text-left transition-colors",
+                "flex min-h-[64px] flex-1 items-start gap-4 py-4 pe-2 text-start transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
                 isSelected
-                  ? "pl-4 bg-[rgb(var(--brand-primary)/0.06)] shadow-[inset_2px_0_0_rgb(var(--brand-primary))]"
-                  : "pl-2 hover:bg-[rgb(var(--bg-overlay))]",
+                  ? "ps-4 bg-[rgb(var(--brand-primary)/0.06)] rtl:shadow-[inset_-2px_0_0_rgb(var(--brand-primary))] shadow-[inset_2px_0_0_rgb(var(--brand-primary))]"
+                  : "ps-2 hover:bg-[rgb(var(--bg-overlay))]",
               ].join(" ")}
             >
               <KindIcon kind={item.kind} />

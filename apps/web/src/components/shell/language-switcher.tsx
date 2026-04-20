@@ -112,7 +112,10 @@ export function LanguageSwitcher({ collapsed = false }: { collapsed?: boolean })
         <ul
           role="listbox"
           aria-label={t("switch")}
-          className="absolute bottom-full left-0 z-50 mb-2 min-w-[8rem] rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 shadow-[var(--shadow-md)]"
+          // `start-0` = left-0 under LTR, right-0 under RTL — the
+          // popover anchors to the logical start edge of the trigger
+          // in both directions.
+          className="absolute bottom-full start-0 z-50 mb-2 min-w-[8rem] rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 shadow-[var(--shadow-md)]"
         >
           {LOCALES.map((code) => {
             const isActive = code === locale;

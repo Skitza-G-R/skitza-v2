@@ -172,8 +172,13 @@ function PrimaryButton({
   // the heavy shadow + swap the fill for bg-elevated with a brand-
   // primary accent on the left edge, so the row reads as a module bar
   // rather than four generic boxed cards.
+  // `ps-5` replaces the `pl-5` that used to widen the leading padding
+  // for the brand-primary inset bar on hover. `text-start` aligns the
+  // label + hint to the logical start edge (left in LTR, right in
+  // RTL). The hover inset-shadow flips per-direction so the accent
+  // bar always lives on the start edge.
   const classes =
-    "sk-lift flex min-h-[84px] flex-col items-start justify-center gap-1.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 pl-5 text-left transition-all hover:border-[rgb(var(--brand-primary)/0.4)] hover:bg-[rgb(var(--bg-elevated))] hover:shadow-[inset_3px_0_0_rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:transform-none disabled:hover:shadow-none";
+    "sk-lift flex min-h-[84px] flex-col items-start justify-center gap-1.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 ps-5 text-start transition-all hover:border-[rgb(var(--brand-primary)/0.4)] hover:bg-[rgb(var(--bg-elevated))] hover:shadow-[inset_3px_0_0_rgb(var(--brand-primary))] rtl:hover:shadow-[inset_-3px_0_0_rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:transform-none disabled:hover:shadow-none";
 
   const content = (
     <>

@@ -128,11 +128,13 @@
     border: 0;
   }
 
-  /* Skip-to-content anchor — visible on keyboard focus. */
+  /* Skip-to-content anchor — visible on keyboard focus. Uses the
+     logical `inset-inline-start` so it anchors to the reading edge
+     (left under LTR, right under RTL) without a duplicate rule. */
   .skip-to-content {
     position: fixed;
     top: 0.5rem;
-    left: 0.5rem;
+    inset-inline-start: 0.5rem;
     z-index: 100;
     padding: 0.5rem 0.75rem;
     border-radius: var(--radius-md);
@@ -334,6 +336,11 @@
   .sk-row-active {
     background: rgb(var(--bg-overlay));
     box-shadow: inset 2px 0 0 rgb(var(--brand-primary));
+  }
+  /* RTL — flip the inset accent bar to the right edge so the
+     leading-edge highlight stays at the reading edge. */
+  [dir="rtl"] .sk-row-active {
+    box-shadow: inset -2px 0 0 rgb(var(--brand-primary));
   }
   .sk-num {
     font-variant-numeric: tabular-nums;

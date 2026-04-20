@@ -64,10 +64,13 @@ function Kpi({
   tone?: "default" | "warn";
 }) {
   return (
-    // Column-level padding-left handles the divider inset on desktop;
+    // Column-level padding-start handles the divider inset on desktop;
     // first column has no leading padding so the eyebrow aligns with
     // the page gutter. No border/background — typography carries it.
-    <div className="sm:px-5 sm:first:pl-0">
+    // `ps-0` on first:child is the logical equivalent of the old
+    // `pl-0`, so the zeroing happens on the leading edge in both
+    // directions.
+    <div className="sm:px-5 sm:first:ps-0">
       <p className="font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
         {label}
       </p>
