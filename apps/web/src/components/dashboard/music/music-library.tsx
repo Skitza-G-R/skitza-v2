@@ -20,13 +20,21 @@ export type MusicRow = {
   audioUrl: string | null;
 };
 
-// Cross-project library view — one row per track version across every
-// project the producer owns, newest-first. Tapping a row deep-links
-// into the Project Room's Music sub-tab with the version preselected
-// via ?version=<versionId>.
+// Batch C — Music library is now a Spotify-style tactile grid of
+// cover-art cards instead of a text list. Each card shows:
+//   • Generated "cover art" at top — a procedural gradient keyed on
+//     the track id hash (stable per track, visually distinct across
+//     the grid). A faint waveform silhouette overlays the gradient so
+//     the card still reads as a music asset, not just a color block.
+//   • Track title, bold (display font, tight tracking).
+//   • Project / artist line, muted.
+//   • Hover: play-triangle chip animates in over the cover.
 //
-// Empty state gets its own panel so a producer with zero uploads sees
-// a friendly "nothing yet" prompt instead of a blank page.
+// Responsive columns: 2 cols mobile → 3 @sm → 4 @md → 5 @lg → 6 @xl.
+// Gap scales with viewport (tight on mobile, generous on desktop).
+//
+// Click target = whole card; deep-links into the Project Room's Music
+// sub-tab with ?version=<id> so the producer lands on that exact mix.
 export function MusicLibrary({ tracks }: { tracks: MusicRow[] }) {
   if (tracks.length === 0) {
     return <MusicLibraryEmpty />;
@@ -36,10 +44,10 @@ export function MusicLibrary({ tracks }: { tracks: MusicRow[] }) {
     <div className="mt-6">
       <ul
         role="list"
-        className="divide-y divide-[rgb(var(--border-subtle))] overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+        className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 md:grid-cols-4 md:gap-6 lg:grid-cols-5 xl:grid-cols-6"
       >
         {tracks.map((row) => (
-          <MusicRowItem key={row.id} row={row} />
+          <MusicCard key={row.id} row={row} />
         ))}
       </ul>
     </div>
@@ -71,9 +79,9 @@ export function MusicLibraryEmpty() {
   );
 }
 
-// ─── Row ─────────────────────────────────────────────────────────────
+// ─── Card ────────────────────────────────────────────────────────────
 
-function MusicRowItem({ row }: { row: MusicRow }) {
+function MusicCard({ row }: { row: MusicRow }) {
   const uploadedAt = new Date(row.uploadedAtIso);
   // The Project Room page reads ?tab=music + ?version=<id> off
   // searchParams — our Music sub-tab pre-selects the version via that
@@ -91,62 +99,122 @@ function MusicRowItem({ row }: { row: MusicRow }) {
     <li>
       <Link
         href={href}
-        // min-h-[56px] matches the Today + Projects row rhythm so
-        // scanning the three list surfaces feels like one app. The
-        // 32px PlayIcon disc + two-line text keeps a comfortable
-        // vertical centre at 56px.
-        className="flex min-h-[56px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[rgb(var(--bg-sunken))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+        className="sk-lift group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
       >
-        <PlayIcon />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <div className="flex min-w-0 items-baseline gap-2">
-              <p className="truncate text-sm font-medium text-[rgb(var(--fg-primary))]">
-                {row.trackTitle}
-              </p>
-              <span className="shrink-0 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                {row.label}
-              </span>
-            </div>
-            <p
-              className="sk-num shrink-0 font-mono text-[0.66rem] text-[rgb(var(--fg-muted))]"
-              title={fmtDateTime(uploadedAt)}
-            >
-              {formatRelativeTime(uploadedAt)}
-            </p>
-          </div>
+        <CoverArt trackId={row.id} title={row.trackTitle} />
+        <div className="min-w-0">
+          <p className="truncate font-display text-base font-semibold leading-tight tracking-tight text-[rgb(var(--fg-primary))]">
+            {row.trackTitle}
+          </p>
           <p className="mt-1 truncate text-xs text-[rgb(var(--fg-secondary))]">
             {projectLine}
           </p>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="font-mono text-[0.62rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+              {row.label}
+            </span>
+            <span
+              className="sk-num font-mono text-[0.62rem] text-[rgb(var(--fg-muted))]"
+              title={fmtDateTime(uploadedAt)}
+            >
+              · {formatRelativeTime(uploadedAt)}
+            </span>
+          </div>
         </div>
       </Link>
     </li>
   );
 }
 
-// ─── Icons ───────────────────────────────────────────────────────────
+// ─── Cover art ───────────────────────────────────────────────────────
 
-function PlayIcon() {
-  // Small filled triangle in a muted disc. The list is Samply-flavoured
-  // — producers scan down looking for a specific mix — so a play
-  // affordance on every row is the primary visual anchor.
+// Generated cover art. Samply / Spotify lean on real artwork, but we
+// don't have uploaded covers yet — so we produce one procedurally from
+// the track id. The result is visually stable (same id → same cover)
+// and distinct across the grid, giving the library a tactile,
+// "record-sleeve" feel rather than text-only rows.
+//
+// Design:
+//   • Square aspect via padding-top:100% on the wrapper.
+//   • Two-stop linear gradient keyed on a hash of the id, rotated at
+//     a hash-derived angle. Colors come from the brand palette (amber
+//     + copper with varying alpha) so the grid keeps its brand voice.
+//   • Waveform silhouette overlay — 5 vertical bars in the foreground
+//     at varying heights, also hash-derived, so the cover still reads
+//     as "this is music" at a glance.
+//   • Hover: a round play-triangle chip rises in the bottom-right
+//     corner (Spotify-style), brand-primary with a subtle glow.
+function CoverArt({ trackId, title }: { trackId: string; title: string }) {
+  const hash = hashString(trackId);
+  // Two hue tweaks (in 0..1 space) used to mix the amber/copper stops.
+  // Keeps colors in-palette (no random rainbows) but differentiated.
+  const hueA = (hash % 60) / 360;
+  const hueB = ((hash >> 4) % 60) / 360;
+  const angle = (hash >> 8) % 360;
+  // Waveform bar heights — 7 bars, each between 30-90% of card height.
+  const bars = Array.from({ length: 7 }, (_, i) => {
+    const seed = (hash >> (i * 3)) & 0x3f;
+    return 30 + (seed % 60);
+  });
+
   return (
-    <span
+    <div
       aria-hidden
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))]"
+      className="relative w-full overflow-hidden rounded-[var(--radius-lg)] shadow-[var(--shadow-sm)] transition-shadow group-hover:shadow-[var(--shadow-md)]"
+      style={{
+        paddingTop: "100%",
+        background: `linear-gradient(${String(angle)}deg,
+          rgb(var(--brand-primary) / ${String(0.7 + hueA * 0.3)}),
+          rgb(var(--brand-accent) / ${String(0.6 + hueB * 0.3)}))`,
+      }}
     >
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 12 12"
-        fill="currentColor"
-        stroke="none"
+      {/* Waveform silhouette — absolute-positioned, spans the lower
+          half so the upper half still reads as open sky for brand. */}
+      <div
+        aria-label={`Cover art for ${title}`}
+        className="absolute inset-x-4 bottom-4 flex items-end justify-between gap-1"
+        style={{ height: "40%" }}
       >
-        <path d="M3.5 2.5v7l6-3.5-6-3.5Z" />
-      </svg>
-    </span>
+        {bars.map((h, i) => (
+          <span
+            key={i}
+            className="flex-1 rounded-sm bg-[rgb(255_255_255_/_0.55)]"
+            style={{ height: `${String(h)}%` }}
+          />
+        ))}
+      </div>
+      {/* Subtle inner shadow so the card has a tactile edge even on
+          the cream background. Doesn't interfere with the gradient. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-[var(--radius-lg)] shadow-[inset_0_1px_0_0_rgb(255_255_255_/_0.25),inset_0_-1px_0_0_rgb(0_0_0_/_0.08)]"
+      />
+      {/* Play chip — hidden by default, fades + lifts in on hover.
+          Reduced-motion users see it with no motion (opacity flips
+          instantly). */}
+      <span
+        className="absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] opacity-0 shadow-[var(--shadow-md)] transition-[opacity,transform] duration-200 group-hover:opacity-100 motion-safe:translate-y-1 motion-safe:group-hover:translate-y-0 motion-safe:group-focus-visible:opacity-100 motion-safe:group-focus-visible:translate-y-0"
+      >
+        <svg width="14" height="14" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+          <path d="M3.5 2.5v7l6-3.5-6-3.5Z" />
+        </svg>
+      </span>
+    </div>
   );
 }
+
+// Simple 32-bit FNV-1a — deterministic, spreads well, and we only
+// need a handful of bits. Avoids pulling in a hash lib for cover art.
+function hashString(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+// ─── Icons ───────────────────────────────────────────────────────────
 
 function WaveformIcon() {
   return (
