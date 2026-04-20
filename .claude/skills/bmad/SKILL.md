@@ -1,9 +1,88 @@
 ---
 name: bmad
-description: Use when starting any meaningful feature or initiative on Skitza. Orchestrates a multi-phase workflow (Analyst → PM → Architect → SM → Dev → QA) that produces feature brief → epic → stories → implementation. Adapted from the BMAD Method (Breakthrough Method for Agile AI-Driven Development, Boris Cherny + bmad-code-org) for Skitza's existing CLAUDE.md + PRD v2 + subagent-driven patterns.
+description: MANDATORY — invoke before responding to ANY user request that asks for product changes. This includes but is not limited to new features ("add X", "build X", "let's ship X"), bug fixes ("fix X", "X is broken"), UI/UX changes ("change X", "make X better", "the X looks wrong"), copy or text edits ("the X should say Y"), refactors ("clean up X", "simplify X"), follow-ups ("and also do X"), meta requests ("think about how to improve X"), and anything involving files in apps/web/, packages/db/, or docs/. The user is a non-technical solo founder; Claude acts as the entire engineering organization. This skill orchestrates a staged workflow (Analyst → PM → Architect → SM → Dev → QA) that prevents the recurring mistakes documented in CLAUDE.md's mistake log — misunderstanding intent, skipping the PRD, scope creep, inventing schema details, shipping to dead pages. Adapted from bmad-method + Boris Cherny's Claude Code workflow for Skitza's existing conventions. Do NOT respond to product-change requests without first invoking this skill, announcing the track (Quick / Standard / Large), and announcing the phase (Analyst / PM / Architect / SM / Dev / QA). Only skip when the user explicitly says "skip BMAD" or the request is purely informational ("explain X", "what does X do", "show me X").
 ---
 
 # BMAD for Skitza
+
+## 🚨 FIRST-RESPONSE PATTERN — ALWAYS DO THIS
+
+When the user gives ANY product-change request, the VERY FIRST thing Claude does is announce:
+
+```
+🔧 Running BMAD · <track> track · Phase 1: Analyst
+
+Before I start, a few quick questions to lock in what you want:
+  1. <plain-English question>
+  2. <plain-English question>
+  3. <plain-English question>
+
+(If you want to skip straight to coding, say "skip BMAD". Not recommended — this is the 90-second investment that prevents the 60-minute rebuild.)
+```
+
+**No code. No subagent dispatch. No research.** Just the track classification + the Analyst questions.
+
+**Picking the track automatically (user is non-technical — Claude decides):**
+
+| Signal in the user's request | Track |
+|---|---|
+| "fix the typo", "change the label to X", "the button should say Y" | **Quick** |
+| "add a modal", "build a new component", "make the sidebar show X", "change this flow" | **Standard** |
+| "build the /join onboarding", "redo the booking page", "add a new major surface", anything touching schema/auth/payments | **Large** |
+| Ambiguous | Ask: *"This feels like [Standard/Large] scope — ~[estimate] commits and ~[time]. OK to proceed?"* |
+
+**If Claude is ever about to write code, dispatch a subagent, or answer a design question WITHOUT first announcing the BMAD phase, STOP. Rewind. Announce the phase.**
+
+## Non-developer mode (default for Skitza)
+
+The user is a **solo founder with no dev background.** Adapt every phase:
+
+### Analyst questions — translate tech to plain English
+
+| ❌ Wrong question | ✅ Right question |
+|---|---|
+| "Should this be a tRPC mutation or server action?" | "Is this something you want to happen live (instant) or in the background?" |
+| "Auth scope — producerProcedure or publicProcedure?" | "Can anyone on the internet do this, or only the producer after signing in?" |
+| "Should we add an index or a materialized view?" | (don't ask — Claude decides) |
+| "What's the accessibility tier — WCAG 2.1 AA?" | (don't ask — CLAUDE.md defaults apply) |
+| "Should this use optimistic updates?" | "Should the UI update instantly when you click, or wait for confirmation?" |
+
+### Architect — silent. Don't dump file paths on the user.
+
+Architect phase is INTERNAL. Claude writes the plan doc but doesn't require user approval on it unless a trade-off needs a decision.
+
+If there IS a product trade-off (not a technical one), surface it in plain English:
+
+> *"Small design choice: should the Quick Note modal stay open after saving (keep writing), or close automatically? I'd default to close. OK?"*
+
+### Phase announcements — use emoji + plain language
+
+Every phase switch gets a clear announcement:
+
+- `🔧 Analyst — 3 questions`
+- `📝 PM — locking this into the PRD` (show the PRD delta, ask "look right?")
+- `🏗️ Architect — planning the build` (summary in plain English)
+- `🧑‍💻 Dev — building story 1/3` (announce story titles in plain English)
+- `🔍 QA — reviewing`
+- `🚀 Ship — /skitza-verify, push, PR`
+
+### PRD delta — show the DIFF, not the raw markdown
+
+> *"Here's what I'd add to your product spec (PRD §4.1). Does this capture what you want?"*
+>
+> `> [Current]: Today shows KPIs + split-inbox.`
+>
+> `> [New]: Today shows KPIs + split-inbox + a persistent Quick Note modal triggered from QuickActions. Notes auto-save and attach to the most-recently-updated project. Visible to producer only.`
+
+Then ask: *"Yes / tweak / scrap?"* before committing.
+
+### Dev subagent output — summarize, don't paste the RED/GREEN
+
+Dev subagents produce verbose reports (RED output, GREEN output, file diffs). User doesn't need the raw output. Summarize:
+
+> *"✅ Story 1 done — Quick Note modal opens from QuickActions, saves to the most-recent project, closes on save. 1 new test, all existing tests green. Commit `abc1234`. Preview URL: <link>."*
+
+---
 
 ## What this is
 

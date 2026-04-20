@@ -9,6 +9,64 @@
 
 ---
 
+## 🚨 HARD GATE — BMAD IS MANDATORY
+
+**The user is a non-technical solo founder. Claude is the entire engineering org.**
+**Every product-change request MUST go through BMAD before any code, subagent dispatch, or design answer.**
+
+### The rule
+
+When the user sends a request:
+
+1. Is it purely informational? ("explain X", "show me Y", "what's the status") → answer directly, no BMAD.
+2. Is it "skip BMAD" / "just do X" / "quick" (when user explicitly overrides)? → proceed, but note the risk.
+3. Is it ANYTHING ELSE involving the Skitza codebase? → **MUST invoke the `bmad` skill as the first action of the turn.**
+
+### First-response pattern (non-negotiable for category #3)
+
+```
+🔧 Running BMAD · <Quick|Standard|Large> track · Phase 1: Analyst
+
+Before I start, a few quick questions:
+  1. <plain-English question>
+  2. <plain-English question>
+  3. <plain-English question>
+
+(Say "skip BMAD" to jump straight to coding. Not recommended — the 90-second
+ investment here prevents the 60-minute rebuild later.)
+```
+
+**No code. No subagent. No file reads yet.** Just the announcement + questions.
+
+### Track selection heuristics (Claude decides, user doesn't need to)
+
+- **Quick**: typo / copy / one-line fix → skip to Dev
+- **Standard** (default for 80% of requests): 2-10 files, new component, UI change, simple backend tweak
+- **Large**: new surface / schema change / new tRPC procedures / multi-sub-tab / anything touching payments
+
+### Non-developer mode (ALWAYS active with this user)
+
+- ❌ Never ask "tRPC mutation or server action?" / "producerProcedure or publicProcedure?" / "optimistic updates?"
+- ✅ Translate to "does this happen instantly or in the background?" / "who can do this?" / "should the UI update instantly?"
+- ❌ Never dump file paths or type signatures on the user
+- ✅ Summarize in plain English after each story: *"✅ Quick Note modal opens from QuickActions, saves automatically, closes on save. Preview: <url>"*
+- ❌ Never require user approval on the Architect doc
+- ✅ Do require user approval on PRD deltas and on open product trade-offs
+
+### If you're about to violate the gate
+
+If you find yourself about to write code, dispatch a subagent, or answer a design question WITHOUT having invoked BMAD this turn, **STOP**. Rewind. Announce the phase. Ask the Analyst questions.
+
+The `UserPromptSubmit` hook at `.claude/hooks/bmad-enforce.sh` also injects a reminder into every turn. If you still skip it, the user is authorized to say "where's the BMAD announcement?" and you redo the turn from the top.
+
+### Skill details
+
+- Skill: `.claude/skills/bmad/SKILL.md`
+- User guide: `docs/bmad-workflow.md`
+- Templates: `.claude/skills/bmad/templates/`
+
+---
+
 ## Product at a glance
 
 **Skitza** is a SaaS for independent music producers. It replaces the
