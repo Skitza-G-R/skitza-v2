@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { UserButton } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import type { ShellNotificationItem } from "~/server/shell-data";
@@ -28,7 +29,12 @@ export type ActiveKey = "today" | "music" | "projects" | "setup";
 
 type NavItem = {
   id: ActiveKey;
+  /** English source-of-truth label. Retained for tests + as the
+   *  fallback when next-intl hasn't hydrated yet. Runtime rendering
+   *  uses `labelKey` via `useTranslations("sidebar")`. */
   label: string;
+  /** Translation key under `sidebar.*` — matches ActiveKey by design. */
+  labelKey: ActiveKey;
   href: string;
   icon: ReactNode;
   /** Two-key G-leader shortcut (e.g. "G T" for Today). */
@@ -44,10 +50,10 @@ const STORAGE_KEY = "skitza-sidebar-collapsed";
 // top-level item — it's always reached by tapping a project in
 // the Projects list, so it's per-project not a global nav.
 export const NAV_ITEMS: readonly NavItem[] = [
-  { id: "today", label: "Today", href: "/dashboard", icon: <HomeIcon />, shortcut: "G T" },
-  { id: "music", label: "Music", href: "/dashboard/music", icon: <LibraryIcon />, shortcut: "G M" },
-  { id: "projects", label: "Projects", href: "/dashboard/projects", icon: <PortfolioIcon />, shortcut: "G P" },
-  { id: "setup", label: "Setup", href: "/dashboard/settings", icon: <SettingsIcon />, shortcut: "G S" },
+  { id: "today", label: "Today", labelKey: "today", href: "/dashboard", icon: <HomeIcon />, shortcut: "G T" },
+  { id: "music", label: "Music", labelKey: "music", href: "/dashboard/music", icon: <LibraryIcon />, shortcut: "G M" },
+  { id: "projects", label: "Projects", labelKey: "projects", href: "/dashboard/projects", icon: <PortfolioIcon />, shortcut: "G P" },
+  { id: "setup", label: "Setup", labelKey: "setup", href: "/dashboard/settings", icon: <SettingsIcon />, shortcut: "G S" },
 ] as const;
 
 export function Sidebar({
@@ -133,6 +139,7 @@ function SidebarBody({
   unreadItems: readonly ShellNotificationItem[];
   onToggle?: () => void;
 }) {
+  const t = useTranslations("sidebar");
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-2 p-3">
@@ -146,7 +153,7 @@ function SidebarBody({
         {onToggle && (
           <button
             type="button"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? t("expand") : t("collapse")}
             onClick={onToggle}
             // Desktop-only control (the desktop rail mounts SidebarBody
             // via onToggle); mouse precision means we can keep this at
@@ -181,7 +188,7 @@ function SidebarBody({
             rel="noreferrer"
             className="rounded-md px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--brand-primary))]"
           >
-            Public profile →
+            {t("publicProfile")} →
           </Link>
         ) : null}
         <div className={`flex items-center ${collapsed ? "flex-col gap-2" : "justify-between"} px-1`}>
@@ -211,6 +218,8 @@ function SidebarItem({
   collapsed: boolean;
   badgeCount: number;
 }) {
+  const t = useTranslations("sidebar");
+  const label = t(item.labelKey);
   // Cap large counts visually so a thousand-comment neglected account
   // doesn't break the rail layout. Matches the Superhuman/Gmail pattern.
   const badgeLabel = badgeCount > 99 ? "99+" : badgeCount.toString();
@@ -220,7 +229,7 @@ function SidebarItem({
       href={item.href}
       data-tour-id={`nav-${item.id}`}
       {...(isActive ? { "aria-current": "page" as const } : {})}
-      {...(collapsed ? { title: item.label } : {})}
+      {...(collapsed ? { title: label } : {})}
       // min-h-[44px] tap target (both mobile bottom-nav and the
       // collapsed desktop rail still target keyboard/touch users
       // here) → md:min-h-[36px] lets the collapsed desktop rail
@@ -255,7 +264,7 @@ function SidebarItem({
       </span>
       {!collapsed && (
         <>
-          <span className="truncate">{item.label}</span>
+          <span className="truncate">{label}</span>
           {badgeCount > 0 ? (
             <span
               aria-label={`${badgeCount.toString()} unread`}

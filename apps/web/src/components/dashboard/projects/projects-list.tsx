@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useTransition } from "react";
+import { useTranslations } from "next-intl";
 
 import {
   BulkActionBar,
@@ -69,6 +70,9 @@ export function ProjectsList({
   const [isBulkPending, startBulkTransition] = useTransition();
   const { value: q, setValue: setQ, inputRef } = useListSearch();
   const { toast } = useToast();
+  const tP = useTranslations("projects");
+  const tState = useTranslations("projects.state");
+  const tBulk = useTranslations("projects.bulk");
   const { selection, toggle, setMany, clear } = useBulkSelection();
   useEscClearsSelection(selection.size > 0, clear);
 
@@ -131,17 +135,16 @@ export function ProjectsList({
           <FolderIcon />
         </div>
         <h3 className="font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]">
-          No projects yet
+          {tP("empty.title")}
         </h3>
         <p className="mt-2 max-w-md text-sm text-[rgb(var(--fg-secondary))]">
-          Projects appear here once you create one — a shareable link is generated
-          automatically for the client.
+          {tP("empty.description")}
         </p>
         <Link
           href="/dashboard/projects/new"
           className="mt-6 inline-flex h-10 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-medium text-[rgb(var(--fg-inverse))] hover:brightness-110"
         >
-          Create a project
+          {tP("empty.cta")}
         </Link>
       </div>
     );
@@ -180,8 +183,11 @@ export function ProjectsList({
     startBulkTransition(async () => {
       const res = await bulkSetProjectStage({ ids, stage });
       if (res.ok) {
+        // Keep the plural "s" English-only for now — Hebrew pluralisation
+        // is rule-based (no simple +s) and deserves a proper `t.rich`
+        // pass in a follow-up. See Commit 2 scope note in the PR doc.
         toast(
-          `${stage === "archived" ? "Archived" : "Marked done"} · ${String(ids.length)} project${
+          `${stage === "archived" ? tBulk("archived") : tBulk("markedDone")} · ${String(ids.length)} project${
             ids.length === 1 ? "" : "s"
           }.`,
           "success",
@@ -202,8 +208,8 @@ export function ProjectsList({
             value={q}
             onChange={setQ}
             inputRef={inputRef}
-            placeholder="Search projects"
-            ariaLabel="Search projects"
+            placeholder={tP("search")}
+            ariaLabel={tP("search")}
           />
         </div>
         <div className="min-w-0 sm:flex-1">
@@ -222,7 +228,7 @@ export function ProjectsList({
           role="status"
           className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center text-sm text-[rgb(var(--fg-secondary))]"
         >
-          No projects match “{q}”.
+          {tP("noMatches")} “{q}”.
         </div>
       ) : null}
 
@@ -232,10 +238,10 @@ export function ProjectsList({
             type="checkbox"
             checked={allVisibleSelected}
             onChange={toggleSelectAll}
-            aria-label="Select all projects"
+            aria-label={tP("selectAll")}
             className="h-4 w-4 cursor-pointer rounded border-[rgb(var(--border-subtle))] text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
           />
-          Select all ({String(visibleIds.length)})
+          {tP("selectAll")} ({String(visibleIds.length)})
         </label>
       ) : null}
 
@@ -244,7 +250,13 @@ export function ProjectsList({
           const rows = byState[state];
           if (rows.length === 0) {
             if (activeState) {
-              return <StateEmpty key={state} />;
+              return (
+                <StateEmpty
+                  key={state}
+                  emptyState={tP("emptyState")}
+                  showAll={tP("showAll")}
+                />
+              );
             }
             return null;
           }
@@ -257,7 +269,7 @@ export function ProjectsList({
                     id={`state-${state}-heading`}
                     className="font-display text-xl tracking-tight text-[rgb(var(--fg-primary))]"
                   >
-                    {STATE_LABEL[state]}
+                    {tState(state)}
                   </h2>
                   <span className="sk-num font-mono text-xs text-[rgb(var(--fg-muted))]">
                     {rows.length.toString()}
@@ -295,7 +307,7 @@ export function ProjectsList({
         actions={[
           {
             id: "mark-done",
-            label: "Mark done",
+            label: tBulk("markDone"),
             tone: "primary",
             disabled: isBulkPending,
             onClick: () => {
@@ -304,7 +316,7 @@ export function ProjectsList({
           },
           {
             id: "archive",
-            label: "Archive",
+            label: tBulk("archive"),
             tone: "destructive",
             disabled: isBulkPending,
             onClick: () => {
@@ -332,6 +344,7 @@ function StateChipBar({
   disabled: boolean;
   onSelect: (state: ProjectState | null) => void;
 }) {
+  const tState = useTranslations("projects.state");
   return (
     // Four chips on desktop, still uses the sk-scroll-x momentum rail
     // on mobile. Far less cramped than the old 8-chip version — the
@@ -339,7 +352,7 @@ function StateChipBar({
     <nav aria-label="Filter by state" className="-mx-4 sm:mx-0">
       <div className="sk-scroll-x flex gap-2 overflow-x-auto px-4 pb-1 sm:flex-wrap sm:overflow-visible sm:px-0">
         <Chip
-          label="All"
+          label={tState("all")}
           count={totalCount}
           active={activeState === null}
           disabled={disabled}
@@ -350,7 +363,7 @@ function StateChipBar({
         {PROJECT_STATES.map((state) => (
           <Chip
             key={state}
-            label={STATE_LABEL[state]}
+            label={tState(state)}
             count={byState[state].length}
             active={activeState === state}
             disabled={disabled}
@@ -421,8 +434,10 @@ function ProjectRowItem({
   selected: boolean;
   onToggle: () => void;
 }) {
+  const tState = useTranslations("projects.state");
   const state = stageToState(row.stage);
   const tone = STATE_TONE[state];
+  const stateLabel = tState(state);
   return (
     <li
       className="sk-stagger-item flex items-stretch"
@@ -472,12 +487,16 @@ function ProjectRowItem({
                 borderColor: tone.border,
               }}
             >
-              {STATE_LABEL[state]}
+              {stateLabel}
             </span>
             {/* Secondary: the fine-grained stage, muted. Hidden when
                 the state label is already the same word (e.g. the
                 `archived` stage → "Archived" state), otherwise shown
-                in the muted font-mono style used for timestamps. */}
+                in the muted font-mono style used for timestamps.
+                STAGE_LABEL + STATE_LABEL still used for the dedupe check
+                — they're English source constants; translated display
+                uses `stateLabel`. Translating STAGE_LABEL is a follow-up
+                (lots of fine-grained funnel labels). */}
             {STAGE_LABEL[row.stage] !== STATE_LABEL[state] ? (
               <span className="font-mono text-[0.6rem] uppercase tracking-[0.08em] text-[rgb(var(--fg-muted))]">
                 · {STAGE_LABEL[row.stage]}
@@ -492,17 +511,17 @@ function ProjectRowItem({
 
 // ─── Sub-states ──────────────────────────────────────────────────────
 
-function StateEmpty() {
+function StateEmpty({ emptyState, showAll }: { emptyState: string; showAll: string }) {
   return (
     <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center">
       <p className="text-sm text-[rgb(var(--fg-secondary))]">
-        No projects in this state.{" "}
+        {emptyState}{" "}
         <Link
           href="/dashboard/projects"
           className="text-[rgb(var(--brand-primary))] underline decoration-dotted underline-offset-2"
           scroll={false}
         >
-          Show all
+          {showAll}
         </Link>
       </p>
     </div>

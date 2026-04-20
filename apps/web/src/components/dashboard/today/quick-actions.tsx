@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 
 import { useToast } from "~/components/ui/toast";
 
@@ -43,20 +44,22 @@ export function QuickActions({
   recentProjectId,
 }: QuickActionsProps) {
   const { toast } = useToast();
+  const t = useTranslations("today.quickActions");
+  const tToasts = useTranslations("today.toasts");
   const [quickNoteOpen, setQuickNoteOpen] = useState(false);
 
   const copyShareLink = () => {
     if (!shareUrl) {
-      toast("Set your slug first", "info");
+      toast(tToasts("setSlugFirst"), "info");
       return;
     }
     void navigator.clipboard
       .writeText(shareUrl)
       .then(() => {
-        toast("Copied", "success");
+        toast(tToasts("copied"), "success");
       })
       .catch(() => {
-        toast("Couldn't copy", "error");
+        toast(tToasts("couldNotCopy"), "error");
       });
   };
 
@@ -89,7 +92,7 @@ export function QuickActions({
     <section
       id="quick-actions"
       data-tour-id="quick-actions"
-      aria-label="Quick actions"
+      aria-label={t("ariaLabel")}
       // scroll-mt-20 clears the sticky mobile header so a
       // `#quick-actions` hash-jump (from the mobile bottom-nav FAB)
       // lands the producer on the first row, not underneath chrome.
@@ -98,24 +101,24 @@ export function QuickActions({
       {/* ── Primary row ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <PrimaryButton
-          label="Copy share link"
-          description="Paste anywhere"
+          label={t("copyShareLink")}
+          description={t("copyShareLinkHint")}
           onClick={copyShareLink}
           disabled={!shareUrl}
         />
         <PrimaryButton
-          label="Upload track"
-          description={recentProjectId ? "To recent project" : "Create a project first"}
+          label={t("uploadTrack")}
+          description={recentProjectId ? t("uploadTrackHint") : t("uploadTrackHintEmpty")}
           href={uploadTrackHref}
         />
         <PrimaryButton
-          label="New booking"
-          description="Add by hand"
+          label={t("newBooking")}
+          description={t("newBookingHint")}
           href="/dashboard/booking?tab=upcoming"
         />
         <PrimaryButton
-          label="Send invoice"
-          description={recentProjectId ? "On recent project" : "No projects yet"}
+          label={t("sendInvoice")}
+          description={recentProjectId ? t("sendInvoiceHint") : t("sendInvoiceHintEmpty")}
           href={sendInvoiceHref}
           disabled={!sendInvoiceHref}
         />
@@ -123,16 +126,16 @@ export function QuickActions({
 
       {/* ── Secondary row ───────────────────────────────────────── */}
       <div className="flex gap-2 overflow-x-auto sk-scroll-x pb-1 sm:grid sm:grid-cols-4 sm:gap-3 sm:overflow-visible">
-        <Chip label="Search" shortcut="⌘K" onClick={openPalette} />
-        <Chip label="Add offline client" href="/dashboard/projects/new" />
+        <Chip label={t("search")} shortcut="⌘K" onClick={openPalette} />
+        <Chip label={t("addOfflineClient")} href="/dashboard/projects/new" />
         <Chip
-          label="Quick note"
+          label={t("quickNote")}
           onClick={() => {
             setQuickNoteOpen(true);
           }}
         />
         <Chip
-          label="Preview public page"
+          label={t("previewPublic")}
           onClick={previewPublicPage}
           disabled={!shareUrl}
         />
@@ -249,12 +252,13 @@ function Chip({
 // TODO(today-cockpit): wire to the notes service when it lands.
 function QuickNoteModal({ onClose }: { onClose: () => void }) {
   const { toast } = useToast();
+  const t = useTranslations("today.quickActions.quickNoteModal");
   const [body, setBody] = useState("");
 
   const save = () => {
     const trimmed = body.trim();
     if (!trimmed) {
-      toast("Note is empty", "info");
+      toast(t("emptyToast"), "info");
       return;
     }
     try {
@@ -273,7 +277,7 @@ function QuickNoteModal({ onClose }: { onClose: () => void }) {
       // the whole feature is v1-stub and we don't want to block the
       // "I can feel productive" feedback on a storage quirk.
     }
-    toast("Quick note saved", "success");
+    toast(t("savedToast"), "success");
     onClose();
   };
 
@@ -292,10 +296,10 @@ function QuickNoteModal({ onClose }: { onClose: () => void }) {
           id="quick-note-title"
           className="text-base font-semibold text-[rgb(var(--fg-primary))]"
         >
-          Quick note
+          {t("title")}
         </h3>
         <p className="mt-1 text-xs text-[rgb(var(--fg-secondary))]">
-          A scratchpad for the thought you don&apos;t want to lose.
+          {t("subtitle")}
         </p>
         <textarea
           autoFocus
@@ -305,7 +309,7 @@ function QuickNoteModal({ onClose }: { onClose: () => void }) {
           }}
           className="mt-3 w-full resize-y rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3 text-sm text-[rgb(var(--fg-primary))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary))]"
           rows={4}
-          placeholder="e.g. Ping Alice about Friday's mix feedback"
+          placeholder={t("placeholder")}
         />
         <div className="mt-3 flex justify-end gap-2">
           <button
@@ -313,14 +317,14 @@ function QuickNoteModal({ onClose }: { onClose: () => void }) {
             onClick={onClose}
             className="sk-tap inline-flex items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-sm font-semibold text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-sunken))]"
           >
-            Cancel
+            {t("cancel")}
           </button>
           <button
             type="button"
             onClick={save}
             className="sk-tap inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110"
           >
-            Save
+            {t("save")}
           </button>
         </div>
       </div>

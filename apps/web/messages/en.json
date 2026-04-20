@@ -1,4 +1,124 @@
 {
+  "sidebar": {
+    "today": "Today",
+    "music": "Music",
+    "projects": "Projects",
+    "setup": "Setup",
+    "publicProfile": "Public profile",
+    "expand": "Expand sidebar",
+    "collapse": "Collapse sidebar"
+  },
+  "today": {
+    "shareLink": {
+      "eyebrow": "Your share link",
+      "headline": "Drop this anywhere.",
+      "description": "Instagram bio, DMs, email signatures — fans tap once and they're booking you.",
+      "copyButton": "Copy link",
+      "copied": "Copied!",
+      "preview": "Preview",
+      "missingTitle": "Set your share link",
+      "missingDescription": "Pick a memorable slug so fans can find you from Instagram.",
+      "missingCta": "Set your slug"
+    },
+    "kpi": {
+      "activeProjects": "Active projects",
+      "revenueMonth": "Revenue · month",
+      "sessions7d": "Sessions · 7d",
+      "unresolved": "Unresolved"
+    },
+    "quickActions": {
+      "ariaLabel": "Quick actions",
+      "copyShareLink": "Copy share link",
+      "copyShareLinkHint": "Paste anywhere",
+      "uploadTrack": "Upload track",
+      "uploadTrackHint": "To recent project",
+      "uploadTrackHintEmpty": "Create a project first",
+      "newBooking": "New booking",
+      "newBookingHint": "Add by hand",
+      "sendInvoice": "Send invoice",
+      "sendInvoiceHint": "On recent project",
+      "sendInvoiceHintEmpty": "No projects yet",
+      "search": "Search",
+      "addOfflineClient": "Add offline client",
+      "quickNote": "Quick note",
+      "previewPublic": "Preview public page",
+      "quickNoteModal": {
+        "title": "Quick note",
+        "subtitle": "A scratchpad for the thought you don't want to lose.",
+        "placeholder": "e.g. Ping Alice about Friday's mix feedback",
+        "cancel": "Cancel",
+        "save": "Save",
+        "emptyToast": "Note is empty",
+        "savedToast": "Quick note saved"
+      }
+    },
+    "toasts": {
+      "copied": "Copied",
+      "couldNotCopy": "Couldn't copy",
+      "setSlugFirst": "Set your slug first"
+    }
+  },
+  "projects": {
+    "search": "Search projects",
+    "state": {
+      "all": "All",
+      "live": "Live",
+      "done": "Done",
+      "archived": "Archived"
+    },
+    "empty": {
+      "title": "No projects yet",
+      "description": "Projects appear here once you create one — a shareable link is generated automatically for the client.",
+      "cta": "Create a project"
+    },
+    "noMatches": "No projects match",
+    "selectAll": "Select all",
+    "emptyState": "No projects in this state.",
+    "showAll": "Show all",
+    "bulk": {
+      "markDone": "Mark done",
+      "archive": "Archive",
+      "markedDone": "Marked done",
+      "archived": "Archived"
+    }
+  },
+  "setup": {
+    "tabs": {
+      "profile": "Profile",
+      "services": "Services",
+      "portfolio": "Portfolio",
+      "availability": "Availability",
+      "autopilot": "Autopilot",
+      "connections": "Connections",
+      "account": "Account"
+    }
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "next": "Next",
+    "back": "Back",
+    "close": "Close",
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "error": "Error",
+    "success": "Success"
+  },
+  "landing": {
+    "hero": {
+      "eyebrow": "The studio around the work",
+      "headlinePart1": "Run your producer business",
+      "headlinePart2": "like you run a session.",
+      "description": "One tool for every producer: bookings, contracts, audio feedback, and payments. One URL for every client, every session, every bounce.",
+      "ctaPrimary": "Start free",
+      "ctaDesktop": "Desktop app soon",
+      "availabilityNote": "Web app is live today. Desktop (.dmg, .exe, .AppImage) this quarter.",
+      "trust": "Built in public · open-source core · made for producers who ship"
+    }
+  },
   "language": {
     "switch": "Change language",
     "english": "English",

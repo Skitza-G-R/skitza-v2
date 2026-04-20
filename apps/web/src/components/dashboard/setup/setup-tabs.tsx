@@ -12,20 +12,25 @@
 // mobile horizontal-scroll with `.sk-scroll-x`.
 
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 
 import type { SetupSectionKey } from "./setup-deeplink";
 
-const TABS: readonly { id: SetupSectionKey; label: string }[] = [
-  { id: "profile", label: "Profile" },
-  { id: "services", label: "Services" },
-  { id: "portfolio", label: "Portfolio" },
-  { id: "availability", label: "Availability" },
-  { id: "autopilot", label: "Autopilot" },
-  { id: "connections", label: "Connections" },
-  { id: "account", label: "Account" },
+// Tab ids line up with `setup.tabs.*` translation keys by design —
+// `labelKey` is the same string as the SetupSectionKey, so we just
+// look up `t(tab.id)` at render time.
+const TABS: readonly { id: SetupSectionKey }[] = [
+  { id: "profile" },
+  { id: "services" },
+  { id: "portfolio" },
+  { id: "availability" },
+  { id: "autopilot" },
+  { id: "connections" },
+  { id: "account" },
 ];
 
 export function SetupTabs({ active }: { active: SetupSectionKey }) {
+  const t = useTranslations("setup.tabs");
   return (
     <nav
       aria-label="Setup sections"
@@ -36,17 +41,17 @@ export function SetupTabs({ active }: { active: SetupSectionKey }) {
       className="sk-scroll-x -mx-4 overflow-x-auto border-b border-[rgb(var(--border-subtle))] sm:mx-0"
     >
       <div className="flex min-w-max gap-1 px-4 sm:px-0">
-        {TABS.map((t) => {
-          const isActive = active === t.id;
+        {TABS.map((tab) => {
+          const isActive = active === tab.id;
           return (
             <Link
-              key={t.id}
-              href={`/dashboard/settings?section=${t.id}`}
+              key={tab.id}
+              href={`/dashboard/settings?section=${tab.id}`}
               role="tab"
               aria-selected={isActive}
               {...(isActive ? { "aria-current": "page" as const } : {})}
-              id={`setup-tab-${t.id}`}
-              aria-controls={`setup-panel-${t.id}`}
+              id={`setup-tab-${tab.id}`}
+              aria-controls={`setup-panel-${tab.id}`}
               // min-h-[44px] mobile / compact on desktop — matches
               // project-sub-tabs exactly. `scroll={false}` on the
               // Link prevents Next from jumping to top when the URL
@@ -61,7 +66,7 @@ export function SetupTabs({ active }: { active: SetupSectionKey }) {
                   : "border-transparent text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
               ].join(" ")}
             >
-              {t.label}
+              {t(tab.id)}
             </Link>
           );
         })}

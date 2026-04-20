@@ -1,4 +1,124 @@
 {
+  "sidebar": {
+    "today": "היום",
+    "music": "מוזיקה",
+    "projects": "פרויקטים",
+    "setup": "הגדרות",
+    "publicProfile": "פרופיל ציבורי",
+    "expand": "הרחב סרגל צד",
+    "collapse": "כווץ סרגל צד"
+  },
+  "today": {
+    "shareLink": {
+      "eyebrow": "קישור השיתוף שלך",
+      "headline": "הדבק בכל מקום.",
+      "description": "ביו באינסטגרם, הודעות, חתימת מייל — לקוחות מקישים פעם אחת ומזמינים אותך.",
+      "copyButton": "העתק קישור",
+      "copied": "הועתק!",
+      "preview": "תצוגה מקדימה",
+      "missingTitle": "הגדר את קישור השיתוף שלך",
+      "missingDescription": "בחר שם משתמש זכיר כדי שלקוחות ימצאו אותך מאינסטגרם.",
+      "missingCta": "הגדר שם משתמש"
+    },
+    "kpi": {
+      "activeProjects": "פרויקטים פעילים",
+      "revenueMonth": "הכנסות · חודש",
+      "sessions7d": "סשנים · 7 ימים",
+      "unresolved": "פתוחים"
+    },
+    "quickActions": {
+      "ariaLabel": "פעולות מהירות",
+      "copyShareLink": "העתק קישור שיתוף",
+      "copyShareLinkHint": "הדבק בכל מקום",
+      "uploadTrack": "העלה טראק",
+      "uploadTrackHint": "לפרויקט האחרון",
+      "uploadTrackHintEmpty": "צור פרויקט תחילה",
+      "newBooking": "הזמנה חדשה",
+      "newBookingHint": "הוסף ידנית",
+      "sendInvoice": "שלח חשבונית",
+      "sendInvoiceHint": "בפרויקט האחרון",
+      "sendInvoiceHintEmpty": "אין פרויקטים עדיין",
+      "search": "חיפוש",
+      "addOfflineClient": "הוסף לקוח ידני",
+      "quickNote": "פתק מהיר",
+      "previewPublic": "תצוגה מקדימה של העמוד הציבורי",
+      "quickNoteModal": {
+        "title": "פתק מהיר",
+        "subtitle": "מקום לרשום את המחשבה שאתה לא רוצה לאבד.",
+        "placeholder": "לדוגמה: לתזכר את עליס על פידבק למיקס ביום שישי",
+        "cancel": "ביטול",
+        "save": "שמור",
+        "emptyToast": "הפתק ריק",
+        "savedToast": "הפתק נשמר"
+      }
+    },
+    "toasts": {
+      "copied": "הועתק",
+      "couldNotCopy": "העתקה נכשלה",
+      "setSlugFirst": "הגדר שם משתמש קודם"
+    }
+  },
+  "projects": {
+    "search": "חיפוש פרויקטים",
+    "state": {
+      "all": "הכול",
+      "live": "פעיל",
+      "done": "הושלם",
+      "archived": "בארכיון"
+    },
+    "empty": {
+      "title": "אין עדיין פרויקטים",
+      "description": "פרויקטים יופיעו כאן ברגע שתיצור אחד — קישור לשיתוף עם הלקוח נוצר אוטומטית.",
+      "cta": "צור פרויקט"
+    },
+    "noMatches": "אין פרויקטים התואמים",
+    "selectAll": "בחר הכול",
+    "emptyState": "אין פרויקטים במצב הזה.",
+    "showAll": "הצג הכול",
+    "bulk": {
+      "markDone": "סמן כהושלם",
+      "archive": "העבר לארכיון",
+      "markedDone": "סומן כהושלם",
+      "archived": "הועבר לארכיון"
+    }
+  },
+  "setup": {
+    "tabs": {
+      "profile": "פרופיל",
+      "services": "שירותים",
+      "portfolio": "תיק עבודות",
+      "availability": "זמינות",
+      "autopilot": "Autopilot",
+      "connections": "חיבורים",
+      "account": "חשבון"
+    }
+  },
+  "common": {
+    "save": "שמור",
+    "cancel": "ביטול",
+    "delete": "מחק",
+    "edit": "ערוך",
+    "next": "הבא",
+    "back": "חזרה",
+    "close": "סגור",
+    "loading": "טוען…",
+    "saving": "שומר…",
+    "saved": "נשמר",
+    "error": "שגיאה",
+    "success": "הצלחה"
+  },
+  "landing": {
+    "hero": {
+      "eyebrow": "הסטודיו שמסביב לעבודה",
+      "headlinePart1": "נהל את עסקי ההפקה שלך",
+      "headlinePart2": "בדיוק כמו שאתה מנהל סשן.",
+      "description": "כלי אחד לכל מפיק: הזמנות, חוזים, פידבק על אודיו ותשלומים. כתובת אחת לכל לקוח, כל סשן, כל באונס.",
+      "ctaPrimary": "התחל בחינם",
+      "ctaDesktop": "אפליקציית דסקטופ בקרוב",
+      "availabilityNote": "אפליקציית הרשת זמינה כבר עכשיו. דסקטופ (.dmg, .exe, .AppImage) ברבעון הזה.",
+      "trust": "נבנה בפומבי · ליבה בקוד פתוח · עבור מפיקים שמשלימים"
+    }
+  },
   "language": {
     "switch": "שנה שפה",
     "english": "English",

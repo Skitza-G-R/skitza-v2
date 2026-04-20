@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import { useToast } from "~/components/ui/toast";
@@ -28,6 +29,8 @@ export function ShareLinkCard({
   publicBaseUrl: string;
 }) {
   const { toast } = useToast();
+  const t = useTranslations("today.shareLink");
+  const tToasts = useTranslations("today.toasts");
   const [justCopied, setJustCopied] = useState(false);
 
   // If the slug is missing, render a nudge card pointing the producer
@@ -45,17 +48,17 @@ export function ShareLinkCard({
             id="share-link-missing-title"
             className="text-base font-semibold text-[rgb(var(--fg-primary))]"
           >
-            Set your share link
+            {t("missingTitle")}
           </p>
           <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-            Pick a memorable slug (e.g. <code className="font-mono">/p/your-name</code>) so fans can find you from Instagram.
+            {t("missingDescription")}
           </p>
         </div>
         <a
           href="/dashboard/settings?section=profile"
           className="sk-lift inline-flex min-h-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110"
         >
-          Set your slug
+          {t("missingCta")}
         </a>
       </div>
     );
@@ -76,7 +79,7 @@ export function ShareLinkCard({
       .writeText(fullUrl)
       .then(() => {
         setJustCopied(true);
-        toast("Copied", "success");
+        toast(tToasts("copied"), "success");
         // Brief flash on the label so repeat-clickers see feedback even
         // if the toast is dismissed. Fades back after 1.5s.
         setTimeout(() => {
@@ -84,7 +87,7 @@ export function ShareLinkCard({
         }, 1500);
       })
       .catch(() => {
-        toast("Couldn't copy — please copy manually", "error");
+        toast(tToasts("couldNotCopy"), "error");
       });
   };
 
@@ -108,16 +111,16 @@ export function ShareLinkCard({
       <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0 flex-1">
           <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
-            Your share link
+            {t("eyebrow")}
           </p>
           <h2
             id="share-link-title"
             className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl"
           >
-            Drop this anywhere.
+            {t("headline")}
           </h2>
           <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
-            Instagram bio, DMs, email signatures — fans tap once and they're booking you.
+            {t("description")}
           </p>
           <div
             className="mt-5 inline-flex max-w-full items-center gap-2 overflow-x-auto rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 font-mono text-sm text-[rgb(var(--fg-primary))] shadow-[var(--shadow-sm)] sm:text-base"
@@ -135,9 +138,9 @@ export function ShareLinkCard({
               type="button"
               onClick={copy}
               className="sk-lift sk-cta-shine sk-pulse-hover inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-md)] hover:brightness-110"
-              aria-label={justCopied ? "Copied to clipboard" : "Copy link to clipboard"}
+              aria-label={justCopied ? t("copied") : t("copyButton")}
             >
-              {justCopied ? "Copied!" : "Copy link"}
+              {justCopied ? t("copied") : t("copyButton")}
               <kbd className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-[rgb(var(--fg-inverse)/0.3)] bg-[rgb(var(--fg-inverse)/0.12)] px-1 font-mono text-[0.62rem]">
                 C
               </kbd>
@@ -149,7 +152,7 @@ export function ShareLinkCard({
             rel="noreferrer noopener"
             className="sk-lift inline-flex min-h-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-sm font-semibold text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-sunken))]"
           >
-            Preview
+            {t("preview")}
           </a>
         </div>
       </div>

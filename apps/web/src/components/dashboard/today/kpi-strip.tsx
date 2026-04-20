@@ -1,7 +1,16 @@
-// KPI strip for the Today dashboard. Pure projection — a server
-// component that formats the numbers and renders 4 small tiles.
-// Tone swaps to warn when there are unresolved items, drawing the
-// producer's eye to the one action-demanding metric on the strip.
+"use client";
+
+// KPI strip for the Today dashboard. Pure projection — formats the
+// numbers and renders 4 small tiles. Tone swaps to warn when there
+// are unresolved items, drawing the producer's eye to the one
+// action-demanding metric on the strip.
+//
+// Client component (invoked from the client-side TodayView) so it uses
+// the `useTranslations` hook rather than `getTranslations`. The messages
+// are already hydrated in the NextIntlClientProvider mounted at the
+// root layout; calling the hook here is zero-cost.
+
+import { useTranslations } from "next-intl";
 
 type Props = {
   kpis: {
@@ -14,6 +23,7 @@ type Props = {
 };
 
 export function KpiStrip({ kpis }: Props) {
+  const t = useTranslations("today.kpi");
   // cents → major-units via Intl. 0 fraction digits is deliberate —
   // the strip is a glance, not an invoice. Fallback to USD when the
   // producer hasn't set a default (shouldn't happen post-onboarding).
@@ -32,11 +42,11 @@ export function KpiStrip({ kpis }: Props) {
     // land a stray line in the middle). Metric values get the display
     // font at 3xl/4xl — editorial, not utility.
     <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4 sm:divide-x sm:divide-[rgb(var(--border-subtle))]">
-      <Kpi label="Active projects" value={String(kpis.activeProjects)} />
-      <Kpi label="Revenue · month" value={format(kpis.revenueMonthCents)} />
-      <Kpi label="Sessions · 7d" value={String(kpis.upcomingSessions7d)} />
+      <Kpi label={t("activeProjects")} value={String(kpis.activeProjects)} />
+      <Kpi label={t("revenueMonth")} value={format(kpis.revenueMonthCents)} />
+      <Kpi label={t("sessions7d")} value={String(kpis.upcomingSessions7d)} />
       <Kpi
-        label="Unresolved"
+        label={t("unresolved")}
         value={String(kpis.unresolvedItems)}
         tone={kpis.unresolvedItems > 0 ? "warn" : "default"}
       />
