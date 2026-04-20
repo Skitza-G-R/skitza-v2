@@ -136,14 +136,25 @@ Plus: `StudioSwitcher`, `SoftSignInBanner` on public surfaces, `PersistentMiniPl
 
 ### 6.2 First visit (not signed in)
 
-**Hybrid teaser page:**
+**Hybrid teaser page** with TWO audio sections:
+
+**Section A — Skitza-uploaded tracks (producer-curated samples):**
+- Each track in the producer's portfolio has a boolean `is_public_sample` flag (default `false`)
+- Only tracks with the flag `true` play for un-signed-in visitors
+- Cap: 3 displayed (if more are flagged, show the 3 most-recently-uploaded)
+- Remaining uploaded tracks are visible but locked behind "Sign up to play" overlay
+
+**Section B — external streaming links (always public):**
+- Producer can paste URLs from 7 supported platforms: Spotify, Apple Music, YouTube / YouTube Music, SoundCloud, Bandcamp, Tidal, Instagram Reels
+- These render as inline embeds (platform-native iframes / oEmbed) — playable without leaving the page
+- Stored in a new `producer_external_links` table: `(id, producer_id, platform, url, title, position, created_at)`
+- No gating — these tracks are already public on their origin platforms, re-gating makes no sense
+
+**Other page elements:**
 - Producer's name, logo, bio
-- **2-3 sample tracks playable** (producer curates which ones in Portfolio settings)
 - Prominent "Sign up to hear the full catalog + book a session" CTA
 - Social proof: testimonials if any, stage badges
 - Footer: "Powered by Skitza" (subtle; see §7 Pricing)
-
-Remaining tracks are locked — visible but with a "Sign up to play" overlay.
 
 ### 6.3 Sign-up flow
 
@@ -168,6 +179,28 @@ Visitor is already signed in to Skitza with other producers → clicks `/join/<s
 > [Add studio] [Cancel]
 
 Confirm → Producer X joins the artist's Studios list. No full signup needed.
+
+### 6.5 Engagement approval model
+
+When a signed-in artist clicks "Start [Service]" on `/join/<slug>` (or from their `/artist` app):
+
+1. Skitza creates a **pending engagement** (a project with `stage: 'lead'` and approval state `pending`).
+2. Producer gets a notification on Today: "[Artist Name] wants to start [Service Name] — approve?"
+3. Producer clicks **Approve** or **Decline** in-app.
+4. On approve → artist is shown the payment step (deposit via Stripe Connect, or "Mark paid offline" stub until Connect is live — see §12.3).
+5. On payment success → project transitions to `stage: 'booked'` and artist gains access to schedule sessions.
+
+**Inside an approved + paid project, all subsequent session bookings auto-confirm** without producer approval. The Model 2 schema (§9) already supports this — approval happens at the project level, sessions are just bookings rolled under the project.
+
+**No per-service or per-client approval flags for v1.** Every new engagement requires one click. Keep the model simple. If producers complain, add nuance later (per-service "auto-approve" flag, per-client trust toggle).
+
+### 6.6 Legacy `/p/<slug>` URL removal
+
+The old public portfolio route `/p/<slug>` and its public booking sub-route `/p/<slug>/book` are removed. Hitting either returns a 404.
+
+- All artist interaction funnels through `/join/<slug>` + Clerk signup.
+- Producer can still access their own public preview via "Preview public page" in QuickActions (which now links to `/join/<slug>`, not `/p/<slug>`).
+- Anyone with an old `/p/<slug>` URL (emailed, bookmarked, shared in DMs) gets a 404. Since the product is pre-launch, this is acceptable collateral; post-launch we can add a server redirect if needed.
 
 ---
 
