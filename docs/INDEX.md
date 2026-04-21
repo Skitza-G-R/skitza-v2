@@ -6,10 +6,15 @@
 
 ---
 
-## 🎯 The three canonical files
+## 🚨 Read first, every session
+
+**[`session_recap.md`](session_recap.md)** — live handoff snapshot. Current branch, what just finished, what's next. Overwritten at every checkpoint. If you read only one thing before picking up work, read this.
+
+## 🎯 The canonical files
 
 | File | What it is | When to read |
 |---|---|---|
+| **[session_recap.md](session_recap.md)** | Live handoff. Current state as of last checkpoint. | **Every session start.** |
 | **[PRD.md](product/PRD.md)** | Product spec. WHAT we build. 27 sections, 70+ locked decisions. **Normative.** | Any time a product question comes up. |
 | **[CLAUDE.md](../CLAUDE.md)** | Claude's conventions. HOW we work. Commands, mistake log, file rules. | Auto-loaded every session. |
 | **[decisions/360-prd-answers.md](decisions/360-prd-answers.md)** | WHY the PRD says what it says — the Socratic Q&A journey behind every locked decision. | When you need to understand reasoning behind a PRD choice. |
@@ -24,6 +29,7 @@
 ├── CLAUDE.md                    ← HOW we work (conventions, commands, mistakes)
 └── docs/
     ├── INDEX.md                 ← this file (master map)
+    ├── session_recap.md         ← LIVE handoff state (read first, every session)
     ├── product/
     │   └── PRD.md               ← WHAT we build (canonical spec)
     ├── decisions/

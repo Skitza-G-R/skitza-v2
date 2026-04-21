@@ -28,9 +28,10 @@ Skitza uses a structured docs system. If you're about to create or edit an `.md`
 
 ### 📍 Start every session here
 
-1. **[`docs/INDEX.md`](docs/INDEX.md)** — the master map. Active work, canonical files, current branch state.
-2. **[`docs/product/PRD.md`](docs/product/PRD.md)** — WHAT we build (product spec). 27 sections, 70+ locked decisions.
-3. **This file (CLAUDE.md)** — HOW we work (conventions, mistakes, commands).
+1. **This file (CLAUDE.md)** — HOW we work (conventions, mistakes, commands). Auto-loaded.
+2. **[`docs/session_recap.md`](docs/session_recap.md)** — **LIVE handoff state.** Read FIRST thing. Tells you what we just did, current branch, what's next. Updated at every checkpoint.
+3. **[`docs/INDEX.md`](docs/INDEX.md)** — the master map. Where everything lives.
+4. **[`docs/product/PRD.md`](docs/product/PRD.md)** — WHAT we build (product spec). 27 sections, 70+ locked decisions.
 
 ### 📂 Where new `.md` files go
 
@@ -53,6 +54,33 @@ Skitza uses a structured docs system. If you're about to create or edit an `.md`
 ### 🧹 Keeping it clean
 
 Run **`/docs-audit`** (slash command) any time to get a drift report.
+
+---
+
+## Session handoff protocol (READ — applies to you, Claude)
+
+You **must** keep [`docs/session_recap.md`](docs/session_recap.md) current. It is the single file that makes context resets painless.
+
+### Update it at these triggers
+
+- After opening or merging a PR
+- After a major product decision or tech pivot
+- After a BMAD phase completes (Analyst → PM → Architect → SM → Dev → Ship)
+- Before dispatching a long sequence of subagents
+- When conversation feels long/dense (heuristic: 5+ tool calls this turn, or many exchanges without a save-point) — a context reset may be near
+- When the user types **`/checkpoint`** (the slash command formalizes this)
+
+### How to update
+
+- **Overwrite, never append.** The file is a snapshot, not a log. `git log docs/session_recap.md` preserves history.
+- Keep it under ~80 lines.
+- Preserve the section structure (Last checkpoint / What we just finished / Current state / What's next / Context that matters / How to resume / Files to glance at / Update discipline).
+- Timestamp the "Last checkpoint" line with today's date.
+- Commit with `docs(recap): checkpoint — <one-line>`. Push if not on main.
+
+### Why
+
+Before this protocol, every context reset cost 5-10 minutes of re-discovery. With it, a fresh session reads one file and knows the state. Do not skip the checkpoints.
 
 ---
 
