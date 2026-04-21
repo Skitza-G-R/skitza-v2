@@ -22,28 +22,73 @@ Full product vision: see `docs/product/PRD.md`.
 
 ---
 
+## Documentation rules (READ FIRST)
+
+Skitza uses a structured docs system. If you're about to create or edit an `.md` file, follow these rules.
+
+### 📍 Start every session here
+
+1. **This file (CLAUDE.md)** — HOW we work (conventions, mistakes, commands). Auto-loaded.
+2. **[`docs/session_recap.md`](docs/session_recap.md)** — **LIVE handoff state.** Read FIRST thing. Tells you what we just did, current branch, what's next. Updated at every checkpoint.
+3. **[`docs/INDEX.md`](docs/INDEX.md)** — the master map. Where everything lives.
+4. **[`docs/product/PRD.md`](docs/product/PRD.md)** — WHAT we build (product spec). 27 sections, 70+ locked decisions.
+
+### 📂 Where new `.md` files go
+
+| Type | Location | Example |
+|---|---|---|
+| Active implementation plan | `docs/plans/active/` | current sprint work |
+| Shipped/merged plan | `docs/plans/archive/` | move here when PR merges |
+| Design doc for a plan | Same folder as the plan | `foo-design.md` next to `foo.md` |
+| Per-story detail | `docs/plans/stories/` | S01/S02/S03 files |
+| Product decision log | `docs/decisions/` | Q&A behind a PRD change |
+| QA review | `docs/qa/` | dated phase reviews |
+
+### 🚫 Do NOT
+
+- Create loose `.md` files at the repo root (PRD and CLAUDE are the only ones).
+- Copy product rules from PRD.md into this file — link to the PRD section instead.
+- Copy conventions from this file into PRD.md — link here instead.
+- Leave shipped plans in `docs/plans/` — move them to `archive/` when their PR merges.
+
+### 🧹 Keeping it clean
+
+Run **`/docs-audit`** (slash command) any time to get a drift report.
+
+---
+
+## Session handoff protocol (READ — applies to you, Claude)
+
+You **must** keep [`docs/session_recap.md`](docs/session_recap.md) current. It is the single file that makes context resets painless.
+
+### Update it at these triggers
+
+- After opening or merging a PR
+- After a major product decision or tech pivot
+- After a BMAD phase completes (Analyst → PM → Architect → SM → Dev → Ship)
+- Before dispatching a long sequence of subagents
+- When conversation feels long/dense (heuristic: 5+ tool calls this turn, or many exchanges without a save-point) — a context reset may be near
+- When the user types **`/checkpoint`** (the slash command formalizes this)
+
+### How to update
+
+- **Overwrite, never append.** The file is a snapshot, not a log. `git log docs/session_recap.md` preserves history.
+- Keep it under ~80 lines.
+- Preserve the section structure (Last checkpoint / What we just finished / Current state / What's next / Context that matters / How to resume / Files to glance at / Update discipline).
+- Timestamp the "Last checkpoint" line with today's date.
+- Commit with `docs(recap): checkpoint — <one-line>`. Push if not on main.
+
+### Why
+
+Before this protocol, every context reset cost 5-10 minutes of re-discovery. With it, a fresh session reads one file and knows the state. Do not skip the checkpoints.
+
+---
+
 ## Tech stack
 
-| Concern | Choice |
-|---|---|
-| Framework | **Next.js 15 App Router** (RSC + Server Actions) |
-| Language | TypeScript, strict mode |
-| Package manager | **pnpm** (workspace monorepo) — never npm/yarn |
-| Monorepo layout | `apps/web/` (Next app), `packages/db/` (Drizzle schema + migrations) |
-| API | **tRPC v11** + TanStack Query; routes in `apps/web/src/server/trpc/routers/` |
-| Database | **Neon Postgres** (serverless) + **Drizzle ORM 0.36** |
-| Auth | **Clerk v7** (producers + artists) — webhook-driven `client_contacts.clerk_user_id` stamping |
-| Payments | **Stripe Connect Express** destination charges + subscription schedules for installment plans |
-| Media | **Cloudflare R2** (S3-API) + `audiowaveform`/ffmpeg pipeline for peaks |
-| Real-time / comments | no Liveblocks yet — server actions + revalidation |
-| Audio | `wavesurfer.js` v7 (player + regions + timeline plugins) |
-| Styling | **Tailwind v4** + CSS variables (tokenized brand) |
-| UI primitives | shadcn/ui via `~/components/ui/` + custom shell/dashboard/artist components |
-| Icons | Inline SVGs (no icon library) |
-| Testing | **Vitest** — unit + integration; DB-touching tests use `DATABASE_URL_TEST` |
-| Animations | CSS-only (`.sk-lift`, `.sk-pop`, `.sk-cta-shine`, `.sk-pulse-hover`, `.reveal-up`, stagger) — **no framer-motion** |
-| Desktop shell | Tauri 2 (separate app in `apps/desktop/`) |
-| Internationalization | **next-intl** in cookie-driven mode (no URL prefix) — see i18n section below |
+Canonical list: **[`docs/product/PRD.md` §27 (Appendix: tech-stack commitments)](docs/product/PRD.md)**.
+
+This file used to duplicate that table, which created drift risk. If a stack decision changes, update PRD §27 only.
 
 ---
 
@@ -354,40 +399,15 @@ that fails CI if a new primitive skips the reduce gate.
 
 ---
 
-## Product decisions (guardrails)
+## Product decisions — where they live
 
-> Full vision + 70+ locked decisions in `docs/product/PRD.md` (v2). Key guardrails below.
+All 70+ locked product decisions live in **[`docs/product/PRD.md`](docs/product/PRD.md)** (27 sections).
 
-- **4-screen producer dashboard**: Today / Projects / Music / Setup. Do NOT add top-level nav items. New features go inside one of these 4.
-- **Stages**: schema has 9 values, UI shows 3 (Live / Done / Archived). Use `stageToState(stage)` from `~/lib/projects/states.ts`. Do NOT expose raw 9-value enum to the UI.
-- **"Packages" is dead terminology** — all user-facing copy says "Services". Internal types (`Product`, `packageNameSnapshot`) stay for audit.
-- **Auto-project on booking.confirm**: producer never manually creates a project in the common case. Manual `/dashboard/projects/new` is demoted to "Add offline client" in QuickActions.
-- **One permanent share link**: `skitza.app/join/<slug>` — IG-bio-friendly, no trackable-per-recipient variant until Phase 2+.
-- **Autopilot**: 5 toggle switches. Never build a rule-builder UI — user said "i always tend to get lost in these rules."
-- **Inbox + notification bell are both surfaces**: user explicitly said "leave them both." Don't consolidate.
-- **Setup tabs render full management UI inline** — no cross-link stubs. Every tab has its full config form on the Setup page itself.
-- **Pricing: 2 tiers only for launch** — Free + Pro ($29/mo, 5% platform fee). No Studio tier until Pro users ask for its features.
-- **No custom domains, ever** — Skitza subdomains only.
-- **Project model: one project, many bookings (Model 2)** — planned migration flips `projects.bookingId` 1:1 → `bookings.projectId` many-to-1. Single-session services create 1 booking per project; production services create many bookings under the same project.
-- **Services catalog**: 3 fixed categories (Production / Mixing & Mastering / Consulting) + 1 custom free-form type. Services start single-tier; producer can opt in to up to 3 tiers per service.
-- **Artist onboarding**: hybrid teaser (2-3 tracks playable pre-signup) → Clerk sign-up → welcome splash → `/artist` Home with producer auto-attached. Existing-account visitors get a confirm modal, not auto-attach.
-- **Audio uploads**: 100 MB max, WAV/FLAC/MP3/AAC only. Stems as a single zip on the final version.
-- **File retention**: forever for signed-in artists; 90-day for guest uploads (with visible notice).
-- **Email branding**: "Producer X via Skitza" format. No full white-label until a Studio tier exists.
-- **Mobile native apps**: ship via Tauri Mobile in parallel with v1 (reuses ~70% of web codebase). PWA + offline mode for artists are also v1.
-- **Monitoring**: Sentry (errors) + PostHog (product analytics) + BetterStack or Instatus (public status page).
-- **CI branch protection**: `test + typecheck + lint` enforced green on `main` before merge.
+The Q&A journey that produced those decisions is in **[`docs/decisions/360-prd-answers.md`](docs/decisions/360-prd-answers.md)** (explains the *why* behind each PRD choice).
 
----
+Hard non-goals (what NOT to build) live in **[PRD §25](docs/product/PRD.md)**.
 
-## What NOT to build (hard constraints from user)
-
-- **No AI Copilot / LLM calls** — user does not want API key dependency right now.
-- **No voice input / transcription** — same reason.
-- **No auto-generated social content** — tracks are private; artists distribute via DistroKid themselves.
-- **No producer referral network** — out of scope.
-- **No framer-motion** — CSS-only animations.
-- **No new ORM / DB / auth provider** — Drizzle + Neon + Clerk are locked in.
+**Rule:** if a product rule changes, update PRD.md only. Do not copy rules into this file — it creates drift. CLAUDE.md describes HOW we work (conventions, commands, mistakes); PRD.md describes WHAT we build.
 
 ---
 
