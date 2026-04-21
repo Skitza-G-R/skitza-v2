@@ -182,6 +182,14 @@ Confirm → Producer X joins the artist's Studios list. No full signup needed.
 
 **Payment**: Stripe Connect Express handles tier upgrades via subscription. Producer charged monthly; Skitza takes the platform fee on each producer-to-artist transaction.
 
+### 7.1 Beta pricing (first 5 producers only)
+
+The first 5 beta producers get a **"pay what you want"** flow for Pro — no price lock, just a number field. Purpose: discover real willingness-to-pay before $29 is set in stone for the rest of the market.
+
+After the beta ends (milestone-based — closes when the first paid booking completes end-to-end with zero manual intervention), betas keep their Pro features **free for 6 months** (grandfather window), then transition to the $29 Pro price like everyone else.
+
+New signups after beta close: **$29 Pro** from Day 1. No exceptions without Claude proposing a price change + user ack (per Round 2 D5 autonomy rule).
+
 ---
 
 ## 8. Services catalog
@@ -399,13 +407,21 @@ Full white-label (no Skitza mention) would be a Studio-tier feature but Studio t
 
 5 named toggle switches on Setup → Autopilot. No rule builder, no if/then UI.
 
-| Toggle | Default | What it does |
-|---|---|---|
-| Send a welcome email when a booking lands | OFF | Confirms the booking to the artist with session details |
-| Remind about unpaid invoices after 7 days | OFF | Cron-driven; auto-pings the artist |
-| Ask for a testimonial when a project completes | OFF | On stage → 'paid', sends testimonial request |
-| Ping me when an artist comments | **ON** | Notification on `trackComments` insert |
-| Auto-archive projects 30 days after final payment | OFF | Stage → 'archived' automatically |
+| Toggle | Default | What it does | Launch status |
+|---|---|---|---|
+| Send a welcome email when a booking lands | OFF | Confirms the booking to the artist with session details | ✅ **Working** |
+| Ping me when an artist comments | **ON** | Notification on `trackComments` insert | ✅ **Working** |
+| Remind about unpaid invoices after 7 days | OFF | Cron-driven; auto-pings the artist | ⏳ Stub (hidden at launch) |
+| Ask for a testimonial when a project completes | OFF | On stage → 'paid', sends testimonial request | ⏳ Stub (hidden at launch) |
+| Auto-archive projects 30 days after final payment | OFF | Stage → 'archived' automatically | ⏳ Stub (hidden at launch) |
+
+### 15.1 Launch scope (Round 2 decision, 2026-04-21)
+
+**Only the 2 working toggles are visible at launch.** The 3 stubs (`unpaidReminder`, `requestTestimonial`, `autoArchive`) ship hidden behind "Coming soon" badges — DB columns retained, UI rows disabled. Wiring them requires a Vercel cron job + email template + tests (~1 day each). Deferred to Phase 2 of the post-launch roadmap (see `docs/plans/active/2026-04-21-post-launch-roadmap.md`) to protect the runway.
+
+**Rationale**: a producer flipping a stub toggle ON and seeing nothing happen is worse for trust than not seeing the toggle at all.
+
+### 15.2 Full vision (once all 5 wire up)
 
 5 boolean columns on `producers`. Event-driven (booking.confirm, trackComment.insert) fire synchronously; cron-driven (unpaid, testimonial, auto-archive) need Vercel Pro cron (minimum 1×/day suffices).
 
@@ -566,6 +582,14 @@ Timestamped per-version. Artist + producer only. Resolved-state synced across se
 
 **BetterStack or Instatus** (free tier) → public `status.skitza.app`. Users bookmark it. Automatic pages to you (email or Slack) on outage.
 
+### 22.2b On-call paging rule (Round 2 E5)
+
+**Phone-page Gili only for p0**: site fully down, payments fully broken, data loss detected. Everything else lands in the Sentry dashboard and waits for Gili's next session. Rationale: Gili's sleep is the bottleneck resource in a solo-founder company. Don't burn it on 500 errors that affect one user.
+
+Sentry alert rules to configure:
+- Page on: 50%+ requests returning 5xx for >5min, OR any Stripe webhook failure, OR any database connection loss
+- Silent: single-user 4xx/5xx, slow queries under the 1% threshold, deprecation warnings
+
 ### 22.3 CI branch protection
 
 **Enforced on `main`**: `test + typecheck + lint` must all be green before merge. GitHub branch protection settings locked.
@@ -714,4 +738,71 @@ See `CLAUDE.md` for exhaustive detail. Highlights:
 
 ---
 
-*PRD v2 locked 2026-04-20. Next revision when a Section 26 question gets answered or a §23 trigger fires.*
+## 28. GTM playbook (Round 2 addition — 2026-04-21)
+
+Product strategy belongs in the PRD. This section captures the GTM/launch decisions so they're part of the normative spec, not scattered in plan docs.
+
+### 28.1 The elevator pitch
+
+> **"Everything a music producer needs to run their studio as a business, in one link."**
+
+The "one link" is `skitza.app/join/<slug>`. It's the product's core magic and should anchor every piece of marketing copy.
+
+### 28.2 Target audience — wedge-thin
+
+**For**: solo music producers, making money from music as paid work, spanning production/mixing/mastering.
+
+**NOT for**: bands, studios with multiple engineers, labels, hobbyists, non-music creators (no podcasters, no voiceover, no video editors).
+
+Keep the wedge razor-thin. Expansion is earned, not planned.
+
+### 28.3 Vision — 24 months out
+
+Profitable lifestyle business. ~200 producers × $29/mo ≈ $5.8k MRR. Gili runs it solo. The product design reinforces this (solo focus, no team mode, no custom domains). Fundable-startup pivot is optional if traction dictates; bootstrap is the default path.
+
+### 28.4 Geographic scope at launch
+
+**Global English from Day 1.** Skitza is not Israel-first. Hebrew UI is deferred to Month 2+ only if beta producers explicitly ask.
+
+### 28.5 Go-to-market channels (v1)
+
+1. **Instagram DMs** — Gili personally reaches out to ~50 producers whose work he respects. First channel, highest signal.
+2. **Content** — weekly cadence: 1 Instagram reel + 1 blog post + 1 YouTube walkthrough per month. All "how I use Skitza" / case-study framing.
+3. **Referral loop** — two-prong:
+   - Active: "Refer a producer, get 3 months free" (classic SaaS referral)
+   - Passive: "Powered by Skitza" badge on free-tier producers' `/join/<slug>` pages
+4. **Soft launch** — network first (Gili's IG), then Product Hunt one week later.
+
+**No paid ads** until unit economics validate with the first paying cohort.
+
+### 28.6 Beta cohort (launch validation)
+
+**5 beta producers**, milestone-based beta (ends at first paid booking end-to-end with zero manual intervention). Cohort diversity target: 3 similar to Gili + 2 different genres/regions.
+
+**Feedback surface**: weekly 30-min 1-on-1 calls + shared WhatsApp group + in-app support widget.
+
+**Beta pricing** (see §7.1): "pay what you want" during beta, 6 months grandfather free after close, $29 Pro price thereafter.
+
+### 28.7 Success metrics
+
+- **Breakeven**: 100 paying producers (≈ $2,900 MRR, 5% fee on their volume = pure gross).
+- **Launch-window deadline**: first revenue by July 2026 (runway-driven). If at that point MRR < $500, iterate/pivot; if MRR > $2k, continue bootstrap; if MRR > $5k, start seed-raise conversations.
+
+### 28.8 Funding stance
+
+**Bootstrap to $5k MRR.** Only then consider a small seed (~$250k) if and only if it unlocks meaningfully faster growth. Friends-and-family or grants not being pursued.
+
+### 28.9 Positioning vs competitors
+
+| Competitor | Their lane | How we're different |
+|---|---|---|
+| **Samply** | Audio review + collab | We add booking + payments + contracts; they stay audio-only |
+| **HoneyBook / Dubsado** | Generic service-business CRM | We're audio-native (waveform, timestamped comments, stems) |
+| **Studioflow / Booking-focused tools** | Studio scheduling | We combine scheduling with the artist-signup loop (`/join`) |
+| **Splice / Soundtrap** | Collaboration tooling | We're about the business, not the production itself |
+
+Skitza is the only tool that owns the entire solo producer's business surface in one place. That's the positioning.
+
+---
+
+*PRD v2 locked 2026-04-20. Round 2 GTM section added 2026-04-21. Next revision when a §26 question gets answered or a §23 trigger fires.*
