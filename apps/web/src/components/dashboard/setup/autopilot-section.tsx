@@ -37,40 +37,53 @@ export interface AutopilotSettings {
 // producer is most likely to flip first at the top. Labels start with
 // a verb, framed as the behavior itself ("Send X", "Remind about Y")
 // so there's zero "what does this do" ambiguity.
-const SWITCHES: readonly {
+//
+// `status` gates launch scope per PRD §15.1 (locked Round 2, 2026-04-21).
+// Only `active` toggles fire at launch. `coming_soon` toggles render
+// disabled with a "Coming soon" badge — their DB columns exist but no
+// cron/trigger is wired yet (see Phase 6 of the post-launch roadmap).
+// Promoting a stub to "active" requires both (a) wiring the behavior
+// and (b) updating this array. The test suite will otherwise fail.
+export const SWITCHES: readonly {
   key: keyof AutopilotSettings;
   label: string;
   description: string;
+  status: "active" | "coming_soon";
 }[] = [
   {
     key: "welcomeEmail",
     label: "Send a welcome email when a booking lands",
     description:
       "Confirms the booking to the artist with their session details.",
+    status: "active",
   },
   {
     key: "unpaidReminder",
     label: "Remind about unpaid invoices after 7 days",
     description:
       "If an invoice stays open past a week, we nudge you so nothing slips.",
+    status: "coming_soon",
   },
   {
     key: "requestTestimonial",
     label: "Ask for a testimonial when a project completes",
     description:
       "Once you mark a project paid, the artist gets a short quote request.",
+    status: "coming_soon",
   },
   {
     key: "commentNotify",
     label: "Ping me when an artist comments",
     description:
       "Every time an artist leaves a timestamped comment, it shows up in your Inbox.",
+    status: "active",
   },
   {
     key: "autoArchive",
     label: "Auto-archive projects 30 days after final payment",
     description:
       "Keeps your Projects list tight. Archived projects are still searchable.",
+    status: "coming_soon",
   },
 ];
 
@@ -141,7 +154,7 @@ export function AutopilotSection({
       </header>
 
       <ul className="divide-y divide-[rgb(var(--border-subtle))]">
-        {SWITCHES.map(({ key, label, description }) => (
+        {SWITCHES.map(({ key, label, description, status }) => (
           <ToggleRow
             key={key}
             label={label}
@@ -153,6 +166,7 @@ export function AutopilotSection({
             // targeted piece of feedback, not a persistent state.
             saving={pendingKey === key}
             recentlySaved={lastSavedKey === key}
+            comingSoon={status === "coming_soon"}
             onToggle={() => {
               flip(key);
             }}
@@ -176,6 +190,7 @@ function ToggleRow({
   pending,
   saving,
   recentlySaved,
+  comingSoon,
   onToggle,
 }: {
   label: string;
@@ -184,6 +199,7 @@ function ToggleRow({
   pending: boolean;
   saving: boolean;
   recentlySaved: boolean;
+  comingSoon: boolean;
   onToggle: () => void;
 }) {
   // The hook owns the "flash for 2s" timing. We pass saving=true while
@@ -194,16 +210,35 @@ function ToggleRow({
     error: null,
   });
   return (
-    <li className="flex flex-wrap items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
+    <li
+      className={[
+        "flex flex-wrap items-start justify-between gap-4 py-4 first:pt-0 last:pb-0",
+        // Coming-soon rows fade back so the 2 working toggles are the
+        // visual focus. The row is still readable (label + description)
+        // so producers know what's coming, just not interactive yet.
+        comingSoon ? "opacity-60" : "",
+      ].join(" ")}
+    >
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <p
             className="text-sm text-[rgb(var(--fg-primary))]"
             style={{ fontWeight: 600 }}
           >
             {label}
           </p>
-          {recentlySaved ? <SaveIndicator status={saveStatus} /> : null}
+          {comingSoon ? (
+            // Small muted badge — not a CTA, just information. Mono font
+            // matches the "eyebrow" style used elsewhere for technical
+            // metadata. Absolute-less so it stays in reading flow next
+            // to the label.
+            <span className="inline-flex items-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-0.5 font-mono text-[0.62rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+              Coming soon
+            </span>
+          ) : null}
+          {!comingSoon && recentlySaved ? (
+            <SaveIndicator status={saveStatus} />
+          ) : null}
         </div>
         <p className="mt-1 text-xs text-[rgb(var(--fg-secondary))]">
           {description}
@@ -214,7 +249,9 @@ function ToggleRow({
         role="switch"
         aria-checked={enabled}
         aria-label={label}
-        disabled={pending}
+        // Coming-soon toggles are always disabled. `pending` on an
+        // active toggle disables briefly during optimistic mutation.
+        disabled={pending || comingSoon}
         onClick={onToggle}
         className={[
           // Slightly larger than the policies-editor switch (14×28 vs
@@ -226,6 +263,7 @@ function ToggleRow({
             ? "bg-[rgb(var(--brand-primary))]"
             : "bg-[rgb(var(--fg-muted)/0.3)]",
           pending ? "opacity-60" : "",
+          comingSoon ? "cursor-not-allowed" : "",
         ].join(" ")}
       >
         <span
