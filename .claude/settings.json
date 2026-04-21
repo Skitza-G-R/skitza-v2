@@ -1,6 +1,16 @@
 {
   "$schema": "https://json-schema.claudia.anthropic.com/schemas/claude-code/settings.schema.json",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/bmad-enforce.sh\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",

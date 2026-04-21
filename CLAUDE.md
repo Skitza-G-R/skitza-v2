@@ -9,6 +9,64 @@
 
 ---
 
+## 🚨 HARD GATE — BMAD IS MANDATORY
+
+**The user is a non-technical solo founder. Claude is the entire engineering org.**
+**Every product-change request MUST go through BMAD before any code, subagent dispatch, or design answer.**
+
+### The rule
+
+When the user sends a request:
+
+1. Is it purely informational? ("explain X", "show me Y", "what's the status") → answer directly, no BMAD.
+2. Is it "skip BMAD" / "just do X" / "quick" (when user explicitly overrides)? → proceed, but note the risk.
+3. Is it ANYTHING ELSE involving the Skitza codebase? → **MUST invoke the `bmad` skill as the first action of the turn.**
+
+### First-response pattern (non-negotiable for category #3)
+
+```
+🔧 Running BMAD · <Quick|Standard|Large> track · Phase 1: Analyst
+
+Before I start, a few quick questions:
+  1. <plain-English question>
+  2. <plain-English question>
+  3. <plain-English question>
+
+(Say "skip BMAD" to jump straight to coding. Not recommended — the 90-second
+ investment here prevents the 60-minute rebuild later.)
+```
+
+**No code. No subagent. No file reads yet.** Just the announcement + questions.
+
+### Track selection heuristics (Claude decides, user doesn't need to)
+
+- **Quick**: typo / copy / one-line fix → skip to Dev
+- **Standard** (default for 80% of requests): 2-10 files, new component, UI change, simple backend tweak
+- **Large**: new surface / schema change / new tRPC procedures / multi-sub-tab / anything touching payments
+
+### Non-developer mode (ALWAYS active with this user)
+
+- ❌ Never ask "tRPC mutation or server action?" / "producerProcedure or publicProcedure?" / "optimistic updates?"
+- ✅ Translate to "does this happen instantly or in the background?" / "who can do this?" / "should the UI update instantly?"
+- ❌ Never dump file paths or type signatures on the user
+- ✅ Summarize in plain English after each story: *"✅ Quick Note modal opens from QuickActions, saves automatically, closes on save. Preview: <url>"*
+- ❌ Never require user approval on the Architect doc
+- ✅ Do require user approval on PRD deltas and on open product trade-offs
+
+### If you're about to violate the gate
+
+If you find yourself about to write code, dispatch a subagent, or answer a design question WITHOUT having invoked BMAD this turn, **STOP**. Rewind. Announce the phase. Ask the Analyst questions.
+
+The `UserPromptSubmit` hook at `.claude/hooks/bmad-enforce.sh` also injects a reminder into every turn. If you still skip it, the user is authorized to say "where's the BMAD announcement?" and you redo the turn from the top.
+
+### Skill details
+
+- Skill: `.claude/skills/bmad/SKILL.md`
+- User guide: `docs/bmad-workflow.md`
+- Templates: `.claude/skills/bmad/templates/`
+
+---
+
 ## Product at a glance
 
 **Skitza** is a SaaS for independent music producers. It replaces the
@@ -442,20 +500,45 @@ Hard non-goals (what NOT to build) live in **[PRD §25](docs/product/PRD.md)**.
 
 ---
 
-## Workflow when starting a new feature
+## Workflow when starting a new feature — use BMAD
 
-1. **Read this file** + `docs/product/PRD.md` for context.
-2. **Enter plan mode** (Shift+Tab twice in Claude Code). Iterate with user until plan is solid.
-3. **Write a plan doc** at `docs/plans/YYYY-MM-DD-<feature>.md` with TDD task breakdown.
-4. **Create a branch** off the current base (usually `feat/<feature>`). One PR per branch.
-5. **Use subagent-driven development** (`superpowers:subagent-driven-development`):
-   - Fresh subagent per task
-   - Spec-compliance review after each
-   - Code-quality review after spec passes
-   - Fix any issues, re-review
-6. **Commit per task** with the message format above.
-7. **Run `/skitza-verify`** before pushing.
-8. **Push + open PR** (use `gh pr create`).
+The canonical workflow is **BMAD** (Breakthrough Method for Agile AI-Driven Development),
+adapted for Skitza's existing structure.
+
+- **Skill:** `.claude/skills/bmad/SKILL.md`
+- **User guide:** `docs/bmad-workflow.md`
+- **Templates:** `.claude/skills/bmad/templates/` (brief.md, epic.md, story.md)
+
+**3 tracks** — pick by scope:
+
+- **Quick**: 1-file fix / copy tweak → skip straight to Dev (no brief, no PRD delta)
+- **Standard**: 2-10 files → Brief → PRD delta → Architecture lite → Dev → QA
+- **Large**: new surface / schema / multi-sub-tab → Brief → PRD section → standalone Architecture doc → Epic + Stories → Dev (per story, fresh subagent) → QA
+
+**5 roles** (each with its own artifact):
+
+1. **Analyst** — 3 questions, 1-page brief at `docs/plans/<date>-<feature>-brief.md`
+2. **PM** — PRD delta in `docs/product/PRD.md`, committed as `docs(prd):` **BEFORE** any code lands
+3. **Architect** — technical design in plan doc or standalone; cites `packages/db/src/schema.ts` + exact file paths; specifies `/skitza-migrate` for DB changes
+4. **Scrum Master** (Large only) — self-contained story files at `docs/plans/stories/<feature>-NN-<title>.md`
+5. **Dev + QA** — Dev via `.claude/agents/skitza-tdd-implementer.md`; QA via spec-compliance subagent + `.claude/agents/skitza-ux-critic.md`
+
+**Always:**
+- Read `CLAUDE.md` + `docs/product/PRD.md` before PM phase
+- Fresh subagent per Dev story (prevents context rot)
+- Commit PRD delta BEFORE any code
+- `/skitza-verify` between stories + before push
+- New commits (never `--amend`)
+- Update the mistake log below when a surprise surfaces
+
+**User magic phrases:**
+- `Quick BMAD: <thing>` — trivial work, skip to Dev
+- `Standard BMAD: <thing>` — default, full phase flow
+- `Large BMAD: <thing>` — big scope, multiple subagent dispatches
+- `BMAD me: <thing>` — Claude picks the track
+- `Switch to <role>` / `Re-dispatch QA` / `Rewind to <phase>` — mid-feature interjections
+
+See `docs/bmad-workflow.md` §Magic phrases for the full list.
 
 ---
 
