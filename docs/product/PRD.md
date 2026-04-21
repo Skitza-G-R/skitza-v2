@@ -109,6 +109,20 @@ Spotify credits, word of mouth.
 6. **Connections** — Stripe Connect onboarding + Google Calendar OAuth
 7. **Account** — email (via Clerk), language switcher, delete account (30-day grace), replay onboarding tour
 
+### 4.5 Producer first-run onboarding wizard
+
+New producers who sign up hit a **5-step wizard** before the dashboard is fully usable. Skippable in one click (the Setup-nudge banner re-prompts any skippers on Today). Each step is a single screen with one clear action.
+
+1. **Profile** — slug (pre-filled from Clerk display name, editable), display name, bio, logo upload, brand color picker
+2. **Portfolio** — upload at least 1 portfolio track (drag-and-drop or file picker); this is the minimum viable profile (per Round 2 A2 → slug + name + 1 track)
+3. **Services** — pick 1+ service from the 4-category quickstart (Production / Mixing & Mastering / Consulting / Custom) or create a new one; deposit % pre-filled to 30%
+4. **Availability** — set weekly windows (default Mon-Fri 10am-6pm) + default session length
+5. **Stripe Connect** — "Connect with Stripe" CTA (Connect Express onboarding); **skippable** — producer can share portfolio + accept offline payments without Stripe, but Booking/Services stay locked until Connect is linked (per Round 2 A1)
+
+**Exit criteria**: all 5 steps complete → lands on `/dashboard` (Today) with no nudge. **Partial completion** → Today shows the Setup-nudge banner with "Resume setup" CTA pointing to the first incomplete step.
+
+**"Replay tour" lives in Setup → Account** so returning producers can walk through the flow again.
+
 ---
 
 ## 5. The 4 Artist app tabs
