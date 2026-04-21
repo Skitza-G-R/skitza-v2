@@ -27,10 +27,12 @@ const TRACK_ID_3 = "00000000-0000-0000-0000-000000000003";
 
 const producersMarker = { __table: "producers" };
 const portfolioTracksMarker = { __table: "portfolio_tracks" };
+const externalLinksMarker = { __table: "producer_external_links" };
 
 type Row = Record<string, unknown>;
 const producerSelectMock = vi.fn<() => Promise<Row[]>>();
 const trackSelectMock = vi.fn<() => Promise<Row[]>>();
+const externalLinksSelectMock = vi.fn<() => Promise<Row[]>>();
 
 // Capture the last WHERE args handed to the portfolio-tracks select
 // so the public-sample-filter test can assert the `isPublicSample` eq
@@ -39,6 +41,9 @@ let lastTrackWhereArgs: unknown = null;
 // Capture the limit the router requested — acceptance criterion
 // says "limit 3", so assert it on the chain.
 let lastTrackLimit: number | null = null;
+// Capture the WHERE args for external links — used to verify producer
+// scoping (only the caller's producer's links are returned).
+let lastExternalLinksWhereArgs: unknown = null;
 
 const dbMock = {
   select: () => ({
@@ -58,6 +63,14 @@ const dbMock = {
                 },
               }),
             };
+          },
+        };
+      }
+      if (table === externalLinksMarker) {
+        return {
+          where: (args: unknown) => {
+            lastExternalLinksWhereArgs = args;
+            return { orderBy: () => externalLinksSelectMock() };
           },
         };
       }
@@ -84,8 +97,10 @@ vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
   portfolioTracks: portfolioTracksMarker,
+  producerExternalLinks: externalLinksMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  asc: (col: unknown) => ({ asc: col }),
   desc: (col: unknown) => ({ desc: col }),
 }));
 
@@ -126,8 +141,10 @@ function sensitiveProducerRow(): Row {
 beforeEach(() => {
   producerSelectMock.mockReset().mockResolvedValue([]);
   trackSelectMock.mockReset().mockResolvedValue([]);
+  externalLinksSelectMock.mockReset().mockResolvedValue([]);
   lastTrackWhereArgs = null;
   lastTrackLimit = null;
+  lastExternalLinksWhereArgs = null;
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -155,7 +172,7 @@ function containsEq(tree: unknown, columnMarker: unknown, value: unknown): boole
 }
 
 describe("publicProfile.forJoin — happy path", () => {
-  it("returns producer + public samples + empty externalLinks", async () => {
+  it("returns producer + public samples + empty externalLinks when producer has none", async () => {
     producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
     trackSelectMock.mockResolvedValueOnce([
       {
@@ -169,7 +186,7 @@ describe("publicProfile.forJoin — happy path", () => {
         createdAt: new Date("2026-03-03"),
       },
     ]);
-
+    // externalLinksSelectMock default in beforeEach is [] — no links
     const caller = await buildCaller();
     const result = await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
 
@@ -181,6 +198,60 @@ describe("publicProfile.forJoin — happy path", () => {
     expect(result.publicSamples).toHaveLength(1);
     expect(result.publicSamples[0]?.title).toBe("Sample A");
     expect(result.externalLinks).toEqual([]);
+  });
+});
+
+describe("publicProfile.forJoin — external links (Wave 2, PRD §6.2 Section B)", () => {
+  it("returns external links in position order with all required fields", async () => {
+    producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
+    trackSelectMock.mockResolvedValueOnce([]);
+    externalLinksSelectMock.mockResolvedValueOnce([
+      {
+        id: "link-1",
+        platform: "spotify",
+        url: "https://open.spotify.com/artist/abc",
+        title: "My latest single",
+        position: 0,
+      },
+      {
+        id: "link-2",
+        platform: "youtube",
+        url: "https://www.youtube.com/watch?v=xyz",
+        title: null,
+        position: 1,
+      },
+    ]);
+
+    const caller = await buildCaller();
+    const result = await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
+
+    expect(result.externalLinks).toHaveLength(2);
+    expect(result.externalLinks[0]).toEqual({
+      id: "link-1",
+      platform: "spotify",
+      url: "https://open.spotify.com/artist/abc",
+      title: "My latest single",
+      position: 0,
+    });
+    expect(result.externalLinks[1]?.platform).toBe("youtube");
+  });
+
+  it("scopes external links to the resolved producer", async () => {
+    producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
+    trackSelectMock.mockResolvedValueOnce([]);
+    externalLinksSelectMock.mockResolvedValueOnce([]);
+
+    const caller = await buildCaller();
+    await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
+
+    const { producerExternalLinks } = await import("@skitza/db");
+    expect(
+      containsEq(
+        lastExternalLinksWhereArgs,
+        producerExternalLinks.producerId,
+        PRODUCER_ID,
+      ),
+    ).toBe(true);
   });
 });
 

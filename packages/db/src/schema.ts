@@ -738,3 +738,56 @@ export const stripeCustomers = pgTable("stripe_customers", {
 
 export type StripeCustomer = typeof stripeCustomers.$inferSelect;
 export type NewStripeCustomer = typeof stripeCustomers.$inferInsert;
+
+// ─── Producer external links (Wave 2 of /join flow) ────────────────
+// PRD §6.2 Section B: the `/join/<slug>` teaser has two audio sections.
+// Section A (portfolioTracks + is_public_sample) holds Skitza-uploaded
+// tracks. Section B is this table — external streaming URLs from 7
+// supported platforms that render as inline embeds on the teaser.
+// These tracks are already public on their origin platforms, so no
+// gating. Producer can curate up to N links (UI enforces reasonable
+// cap; schema permits any number). Render order comes from `position`
+// — the Setup UI exposes reorder, CRUD, and platform-picker.
+//
+// Platform enum is intentionally fixed. Adding a platform requires
+// migration + embed component + Setup UI update. Keeps the producer-
+// facing platform list curated, not a free-form URL bucket.
+export const externalPlatform = pgEnum("external_platform", [
+  "spotify",
+  "apple_music",
+  "youtube",
+  "soundcloud",
+  "bandcamp",
+  "tidal",
+  "instagram_reels",
+]);
+
+export const producerExternalLinks = pgTable(
+  "producer_external_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    platform: externalPlatform("platform").notNull(),
+    url: text("url").notNull(),
+    title: text("title"),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    // Per-producer list-by-position lookup hits this directly. Ordering
+    // columns in the index to match the ORDER BY on the render path
+    // avoids a sort on rows.
+    producerIdx: index("producer_external_links_producer_idx").on(
+      t.producerId,
+      t.position,
+    ),
+  }),
+);
+
+export type ProducerExternalLink = typeof producerExternalLinks.$inferSelect;
+export type NewProducerExternalLink = typeof producerExternalLinks.$inferInsert;
+export type ExternalPlatform = (typeof externalPlatform.enumValues)[number];
