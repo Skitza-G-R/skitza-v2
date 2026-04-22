@@ -38,8 +38,15 @@ import { emailHashFor } from "~/server/artist/identity";
 // been invited by another producer before.
 
 export async function joinArtistWorkspace(slug: string): Promise<void> {
+  // Diagnostic logging — surfaces in Vercel Function Logs so we can
+  // trace whether this path ran on a given session when the user
+  // reports "I signed up and ended up on the orphan welcome." Remove
+  // once Sentry is wired (roadmap S2.3) and the flow is proven stable.
+  console.log("[joinArtistWorkspace] entry, slug:", slug);
+
   const { userId } = await auth();
   if (!userId) {
+    console.log("[joinArtistWorkspace] no userId — redirect to /sign-in");
     redirect(
       `/sign-in?redirect_url=/artist-welcome/${encodeURIComponent(slug)}`,
     );
@@ -52,6 +59,10 @@ export async function joinArtistWorkspace(slug: string): Promise<void> {
   const user = await currentUser();
   const rawEmail = user?.emailAddresses[0]?.emailAddress;
   if (!user || !rawEmail) {
+    console.error("[joinArtistWorkspace] currentUser returned without email", {
+      userId,
+      hasUser: !!user,
+    });
     throw new Error("unable to resolve email from Clerk session");
   }
   const email = rawEmail.trim().toLowerCase();
@@ -67,22 +78,38 @@ export async function joinArtistWorkspace(slug: string): Promise<void> {
     .where(eq(producers.slug, slug))
     .limit(1);
   if (!producer) {
+    console.log(
+      "[joinArtistWorkspace] slug did not resolve to producer — redirect to /artist",
+      { slug },
+    );
     redirect("/artist");
   }
 
   // Upsert the client_contacts row. The UNIQUE(producer_id, email_hash)
   // constraint + onConflictDoNothing means re-running this (e.g. if
   // the webhook already fired) is a safe no-op.
-  await db
-    .insert(clientContacts)
-    .values({
-      producerId: producer.id,
-      emailHash,
-      email,
-      name: firstName || email.split("@")[0] || "Artist",
-      clerkUserId: userId,
-    })
-    .onConflictDoNothing();
+  try {
+    await db
+      .insert(clientContacts)
+      .values({
+        producerId: producer.id,
+        emailHash,
+        email,
+        name: firstName || email.split("@")[0] || "Artist",
+        clerkUserId: userId,
+      })
+      .onConflictDoNothing();
+    console.log(
+      "[joinArtistWorkspace] client_contacts insert complete (or no-op on conflict)",
+      { producerId: producer.id, userId },
+    );
+  } catch (err) {
+    console.error(
+      "[joinArtistWorkspace] client_contacts INSERT threw",
+      err instanceof Error ? err.message : err,
+    );
+    throw err;
+  }
 
   // Stamp clerkUserId on any OTHER pre-existing client_contacts rows
   // for this email (across all producers). Mirrors the webhook's
@@ -99,5 +126,6 @@ export async function joinArtistWorkspace(slug: string): Promise<void> {
       ),
     );
 
+  console.log("[joinArtistWorkspace] done — redirect to /artist", { userId });
   redirect("/artist");
 }
