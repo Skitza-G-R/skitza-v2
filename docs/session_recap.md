@@ -8,7 +8,7 @@
 
 ## 🕐 Last checkpoint
 
-**2026-04-22 — Audit Tasks 1, 2, 15, 16 all ✅ Fixed + committed on PR #30. Task 17 design brief published, awaiting Gili's approval before implementation.**
+**2026-04-22 — Audit Tasks 1, 2, 15, 16 all ✅ Fixed. Task 17 Phase 1 (UserButton + "← Studio" moved into its menu) shipped on PR #30. Task 17 Phase 2 (desktop sidebar + artist notification bell) + Phase 3 (`/artist/settings`) up next — Gili answered all 3 design-brief open questions.**
 
 ---
 

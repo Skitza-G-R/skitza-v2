@@ -32,7 +32,7 @@
 | 14 | No Sentry + no PostHog (observability) | 🟢 | ⏳ Pending | — | — | Roadmap S2.3 |
 | 15 | `/join/<slug>` signup registers visitor as Producer, not Artist | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | Webhook + layout + routes rewritten; 11 new tests, full TDD. Fix v2 added catch-all + `path` prop |
 | 16 | Artist role not isolated — can navigate to producer routes (e.g. `/onboarding`) | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | `resolveUserRole` helper + hardened `/onboarding` layout + defense-in-depth action check. 16 new tests, strict TDD |
-| 17 | Artist UI missing UserButton (no logout) + needs full desktop parity | 🟠 | 📐 Design brief pending approval | — | — | Scope confirmed with Gili: desktop-side matches producer premium feel, keep artist-only feature set. See `docs/plans/active/2026-04-22-artist-ui-rebuild-design.md` |
+| 17 | Artist UI missing UserButton + needs full desktop parity | 🟠 | ▶️ Phase 1/3 done | 2026-04-22 (Phase 1) | *(PR #30)* | Phase 1: UserButton shipped, "← Studio" moved into its menu. Phase 2 (desktop sidebar) + Phase 3 (settings page) next. Design brief: `docs/plans/active/2026-04-22-artist-ui-rebuild-design.md` |
 
 **Legend:** ⏳ Pending · ▶️ In progress · ✅ Fixed · ❌ Won't fix (document reason)
 
@@ -329,9 +329,15 @@ Both scheduled in roadmap S2.3.
 
 **Design brief:** [`docs/plans/active/2026-04-22-artist-ui-rebuild-design.md`](plans/active/2026-04-22-artist-ui-rebuild-design.md). Requires Gili's approval before implementation starts.
 
+**Gili's answers to the 3 open questions in the design brief §7 (2026-04-22):**
+1. Desktop sidebar: **collapsible, like producer** (use the same persistent-collapse pattern `[` key + localStorage).
+2. Artist notifications: **yes** — Phase 2 scope includes a notification bell for new mix uploaded / payment reminders / session confirmations.
+3. Mobile settings placement: **nested in UserButton menu** — no 5th tab.
+
 **Fix Log:**
-- **2026-04-22 — Analysis + scope locked with Gili.** Design brief in progress (separate plan doc per CLAUDE.md docs rules).
-- *(Implementation entries follow once the brief is approved.)*
+- **2026-04-22 — Analysis + scope locked with Gili.** Design brief published at `docs/plans/active/2026-04-22-artist-ui-rebuild-design.md`.
+- **2026-04-22 — Phase 1 shipped** (triggered by Gili's screenshot flagging the naked "← STUDIO" link in the header — see PR #30 commit `<pending>`): replaced the standalone "← Studio" `<Link>` in `ArtistAppShell` with a proper Clerk `<UserButton />` carrying `appearance` tokens matching the producer sidebar's avatar. For dual-role users (`isProducer === true`), a `<UserButton.Link label="Producer dashboard" />` custom menu item preserves the producer-dashboard shortcut, but it's now tucked inside the avatar dropdown instead of advertised in the artist chrome. This keeps Task 16's hard role wall visible — artists see an artist surface, producers-who-are-artists discover the cross-over through an explicit action. Typecheck ✅ / lint ✅ / tests 611 pass unchanged. Files touched: `apps/web/src/components/artist/artist-app-shell.tsx`.
+- *(Phase 2 — desktop sidebar rebuild + artist notification bell — coming next. Phase 3 — `/artist/settings` — after that.)*
 
 ---
 
