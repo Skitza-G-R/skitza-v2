@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 
+import { saveQuickNote } from "~/app/(app)/dashboard/quick-note-actions";
 import { useToast } from "~/components/ui/toast";
 
 // Today Cockpit — QuickActions.
@@ -253,15 +254,22 @@ function Chip({
   );
 }
 
-// Quick note v1: lightweight single-textarea modal. Saves nowhere real
-// yet — stashes in localStorage so the producer's jot doesn't evaporate,
-// then toasts "Quick note saved". The proper notes service + surface
-// is tracked separately.
-// TODO(today-cockpit): wire to the notes service when it lands.
+// Quick Note — backed by producer_notes table (audit Task 11, Task C
+// of the 2026-04-22 overnight plan). Replaces the v1 localStorage stub
+// that didn't sync across devices or survive cache clears.
+//
+// Flow:
+//   1. User types → save button posts body via `saveQuickNote` server
+//      action (wraps the producerNotes.save tRPC procedure).
+//   2. While the request is in flight, useTransition's `pending` flag
+//      disables both buttons + shows a subtle "Saving…" label on Save.
+//   3. Success → toast + close. Failure → toast + keep modal open so
+//      the body stays and the producer can retry.
 function QuickNoteModal({ onClose }: { onClose: () => void }) {
   const { toast } = useToast();
   const t = useTranslations("today.quickActions.quickNoteModal");
   const [body, setBody] = useState("");
+  const [pending, startTransition] = useTransition();
 
   const save = () => {
     const trimmed = body.trim();
@@ -269,24 +277,17 @@ function QuickNoteModal({ onClose }: { onClose: () => void }) {
       toast(t("emptyToast"), "info");
       return;
     }
-    try {
-      const key = "skitza:quick-notes";
-      const existing = localStorage.getItem(key);
-      const notes: Array<{ id: string; body: string; createdAt: string }> =
-        existing ? (JSON.parse(existing) as Array<{ id: string; body: string; createdAt: string }>) : [];
-      notes.unshift({
-        id: crypto.randomUUID(),
-        body: trimmed,
-        createdAt: new Date().toISOString(),
-      });
-      localStorage.setItem(key, JSON.stringify(notes.slice(0, 50)));
-    } catch {
-      // localStorage can throw in private-mode Safari. Fail silently —
-      // the whole feature is v1-stub and we don't want to block the
-      // "I can feel productive" feedback on a storage quirk.
-    }
-    toast(t("savedToast"), "success");
-    onClose();
+    startTransition(async () => {
+      const result = await saveQuickNote(trimmed);
+      if (result.ok) {
+        toast(t("savedToast"), "success");
+        onClose();
+      } else {
+        // Keep the modal + body so the producer can try again or
+        // copy the text somewhere safe.
+        toast(result.error, "error");
+      }
+    });
   };
 
   return (
@@ -323,16 +324,18 @@ function QuickNoteModal({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={onClose}
-            className="sk-tap inline-flex items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-sm font-semibold text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-sunken))]"
+            disabled={pending}
+            className="sk-tap inline-flex items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-sm font-semibold text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-sunken))] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {t("cancel")}
           </button>
           <button
             type="button"
             onClick={save}
-            className="sk-tap inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110"
+            disabled={pending}
+            className="sk-tap inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {t("save")}
+            {pending ? "Saving…" : t("save")}
           </button>
         </div>
       </div>
