@@ -10,6 +10,7 @@ import {
   producerExternalLinks,
   producers,
   type Db,
+  type ProducerExternalLink,
 } from "@skitza/db";
 import { headers } from "next/headers";
 import { z } from "zod";
@@ -120,17 +121,41 @@ export const publicProfileRouter = router({
       // (producer_id, position) index from migration 0031. No limit —
       // a producer with 12 links gets all 12. The UI can choose to
       // paginate or truncate if reasonable cap is needed.
-      const externalLinkRows = await db
-        .select({
-          id: producerExternalLinks.id,
-          platform: producerExternalLinks.platform,
-          url: producerExternalLinks.url,
-          title: producerExternalLinks.title,
-          position: producerExternalLinks.position,
-        })
-        .from(producerExternalLinks)
-        .where(eq(producerExternalLinks.producerId, producerRow.id))
-        .orderBy(asc(producerExternalLinks.position));
+      //
+      // Defensive wrapper: the /join page is our primary cold-visitor
+      // surface — a stranger pasting the URL from an IG bio. External
+      // links are a progressive enhancement (Section B of the PRD);
+      // the samples + signup CTA (Sections A + C) carry the page on
+      // their own. If this query fails for ANY reason — migration
+      // drift, partial DB outage, schema-change-in-flight — we log
+      // server-side (future Sentry will pick it up) and fall back to
+      // an empty list. The page still renders, no 500 reaches the
+      // user. See docs/audit-report.md Tasks 1 + 2 for the production
+      // incident that motivated this wrapper (2026-04-22).
+      let externalLinkRows: Array<
+        Pick<
+          ProducerExternalLink,
+          "id" | "platform" | "url" | "title" | "position"
+        >
+      > = [];
+      try {
+        externalLinkRows = await db
+          .select({
+            id: producerExternalLinks.id,
+            platform: producerExternalLinks.platform,
+            url: producerExternalLinks.url,
+            title: producerExternalLinks.title,
+            position: producerExternalLinks.position,
+          })
+          .from(producerExternalLinks)
+          .where(eq(producerExternalLinks.producerId, producerRow.id))
+          .orderBy(asc(producerExternalLinks.position));
+      } catch (err) {
+        console.error(
+          "[publicProfile.forJoin] externalLinks query failed; most likely migration 0031 not applied. Falling back to [] so /join still renders:",
+          err,
+        );
+      }
 
       return {
         producer: {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
+import type { UserRole } from "~/server/auth/role";
 
 // Chain mock for db.insert().values().onConflictDoUpdate()
 const onConflictDoUpdateMock = vi
@@ -13,6 +14,20 @@ const dbMock = { insert: insertMock };
 
 let mockUserId: string | null = "user_test_1";
 let mockEmail: string | undefined = "ada@example.com";
+// Stateful role mock — Task 16 added a role check to the action.
+// Default: "producer-incomplete" so the 8 pre-existing tests pass
+// unchanged. Individual tests override this to simulate the artist-
+// POSTing-the-form attack (must reject) and orphan webhook-race
+// (must proceed).
+let mockRole: UserRole = {
+  kind: "producer-incomplete",
+  producer: {
+    id: "producer-incomplete-1",
+    displayName: null,
+    slug: "ada-abcd",
+    email: "ada@example.com",
+  },
+};
 vi.mock("@clerk/nextjs/server", () => ({
   auth: () => Promise.resolve({ userId: mockUserId }),
   currentUser: () =>
@@ -22,6 +37,9 @@ vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: { clerkUserId: "clerk_user_id" },
   eq: (a: unknown, b: unknown) => ({ a, b }),
+}));
+vi.mock("~/server/auth/role", () => ({
+  fetchUserRole: () => Promise.resolve(mockRole),
 }));
 
 const validInput = {
@@ -37,6 +55,15 @@ beforeEach(() => {
   onConflictDoUpdateMock.mockReset().mockResolvedValue(undefined);
   mockUserId = "user_test_1";
   mockEmail = "ada@example.com";
+  mockRole = {
+    kind: "producer-incomplete",
+    producer: {
+      id: "producer-incomplete-1",
+      displayName: null,
+      slug: "ada-abcd",
+      email: "ada@example.com",
+    },
+  };
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -112,5 +139,51 @@ describe("completeOnboarding", () => {
     onConflictDoUpdateMock.mockRejectedValueOnce(new Error("connection lost"));
     const { completeOnboarding } = await import("../actions");
     await expect(completeOnboarding(validInput)).rejects.toThrow("connection lost");
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // audit Task 16 — role-based hardening. The layout now blocks
+  // artists from reaching /onboarding in the first place, but these
+  // tests close the "raw HTTP POST" hole: a signed-in artist crafting
+  // a direct POST to this server action (via devtools / curl / a
+  // script) would bypass the layout. Without this check they'd
+  // silently upsert a producers row and "become" a producer.
+  // ─────────────────────────────────────────────────────────────────
+  it("🔴 TASK 16: rejects when caller role is 'artist' (closes raw-POST hole)", async () => {
+    mockRole = { kind: "artist" };
+    const { completeOnboarding } = await import("../actions");
+    await expect(completeOnboarding(validInput)).rejects.toThrow(
+      /artist|forbidden/i,
+    );
+    // Invariant: the DB insert MUST NOT fire. Otherwise the artist
+    // gets a producers row and becomes a producer via HTTP.
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("proceeds when caller role is 'orphan' (Clerk webhook race — action's upsert handles it)", async () => {
+    mockRole = { kind: "orphan" };
+    const { completeOnboarding } = await import("../actions");
+    await completeOnboarding(validInput);
+    expect(insertMock).toHaveBeenCalledOnce();
+  });
+
+  it("proceeds when caller role is 'producer-complete' (idempotent re-save — no harm)", async () => {
+    // Per Q1 the layout redirects complete producers away from
+    // /onboarding. But if one reaches the action anyway (e.g. stale
+    // client-side form submit after the layout would have redirected
+    // on navigation), the upsert is idempotent by (clerkUserId) — no
+    // double row created, just a harmless update.
+    mockRole = {
+      kind: "producer-complete",
+      producer: {
+        id: "producer-complete-1",
+        displayName: "Ada Studios",
+        slug: "ada-studios",
+        email: "ada@example.com",
+      },
+    };
+    const { completeOnboarding } = await import("../actions");
+    await completeOnboarding(validInput);
+    expect(insertMock).toHaveBeenCalledOnce();
   });
 });

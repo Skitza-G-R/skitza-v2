@@ -21,13 +21,20 @@ interface SignupCtaProps {
 }
 
 export function SignupCta({ slug }: SignupCtaProps) {
-  // Redirect target is `/artist-welcome/<slug>` (placeholder until
-  // Wave 2 builds the first-time splash). Clerk's sign-up page reads
-  // `redirect_url` and bounces there after the account is provisioned.
-  // Use plain URLSearchParams so special chars in `slug` are encoded
-  // (unlikely — slugs are kebab-case — but belt + suspenders).
-  const redirectTarget = `/artist-welcome/${encodeURIComponent(slug)}`;
-  const href = `/sign-up?redirect_url=${encodeURIComponent(redirectTarget)}`;
+  // 2026-04-22 — FIX (docs/audit-report.md Task 15). Previous shape
+  // sent visitors to `/sign-up?redirect_url=/artist-welcome/<slug>`
+  // and hoped Clerk's default sign-up page would honor the query
+  // param. It didn't (that page had `forceRedirectUrl` set), AND
+  // even if it had, the Clerk webhook unconditionally created a
+  // producer row for every new user — so /join-origin visitors got
+  // registered as producers and funneled into producer onboarding.
+  //
+  // New shape: point at the dedicated /sign-up/join/<slug> route,
+  // which (a) sets `unsafeMetadata={signupOrigin:"join", producerSlug}`
+  // on Clerk's <SignUp>, so the webhook can branch correctly, and
+  // (b) uses `fallbackRedirectUrl` to land the user on the
+  // /artist-welcome/<slug> splash post-signup.
+  const href = `/sign-up/join/${encodeURIComponent(slug)}`;
 
   return (
     <section

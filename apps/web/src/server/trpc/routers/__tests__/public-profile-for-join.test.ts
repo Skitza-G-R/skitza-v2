@@ -255,6 +255,55 @@ describe("publicProfile.forJoin — external links (Wave 2, PRD §6.2 Section B)
   });
 });
 
+describe("publicProfile.forJoin — external-links resilience (audit 2026-04-22 Task 2)", () => {
+  // Guard against the production incident logged in docs/audit-report.md:
+  // migration 0031 hadn't been applied to prod, so the external-links
+  // query threw `relation "producer_external_links" does not exist`,
+  // which propagated up and 500'd the whole /join page. The fix wraps
+  // the query in try/catch and falls back to []. This test pins that
+  // contract so a future refactor can't silently re-introduce the crash.
+  it("returns externalLinks: [] when the external-links query throws, without losing producer or samples", async () => {
+    producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
+    trackSelectMock.mockResolvedValueOnce([
+      {
+        id: TRACK_ID_1,
+        title: "Sample A",
+        artist: "Artist A",
+        audioUrl: "https://example.com/a.mp3",
+        durationMs: 180_000,
+        peaksR2Key: "peaks/a.json",
+        isPublicSample: true,
+        createdAt: new Date("2026-03-03"),
+      },
+    ]);
+    // Simulate the exact Neon error we saw in prod: the table doesn't
+    // exist because the migration hasn't landed yet. Any rejected
+    // promise here would do — we pick this one for realism.
+    externalLinksSelectMock.mockRejectedValueOnce(
+      new Error('relation "producer_external_links" does not exist'),
+    );
+    // Spy on the server-side log so we can (a) keep test output clean
+    // and (b) assert the observability path still fires — Sentry will
+    // subscribe to console.error in S2.3.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const caller = await buildCaller();
+    const result = await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
+
+    // Page still renders: producer + samples present, links degrade
+    // gracefully to [].
+    expect(result.producer.id).toBe(PRODUCER_ID);
+    expect(result.publicSamples).toHaveLength(1);
+    expect(result.externalLinks).toEqual([]);
+    // Observability invariant: the error must reach the log, so when
+    // Sentry is wired this gets captured. If this assertion fails,
+    // someone swallowed the error silently — bad.
+    expect(errorSpy).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+});
+
 describe("publicProfile.forJoin — 404", () => {
   it("throws NOT_FOUND when slug has no producer", async () => {
     producerSelectMock.mockResolvedValueOnce([]);

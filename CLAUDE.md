@@ -558,6 +558,7 @@ they're tribal knowledge.
 - **2026-04-20**: Put next-intl provider at root layout → crashed on Hebrew due to `<html dir>` conflict with next-themes + Clerk. Fix: pin root html to en/ltr, scope i18n to authenticated route groups only.
 - **2026-04-20**: `drizzle-kit migrate` skipped 0019-0028 because `_journal.json` was stale. Production DB was missing 8 columns → dashboard crashed. Fix: direct SQL via neon client (`/skitza-migrate`).
 - **2026-04-20**: `sql.query(stmt)` and `sql.unsafe(stmt)` don't exist in neon HTTP client. The ONLY way to execute raw SQL with no placeholders is the TemplateStringsArray trick: `sql(Object.assign([stmt], { raw: [stmt] }))`.
+- **2026-04-22**: Went straight to code for audit Fix #2 (try/catch wrapper in `publicProfile.forJoin`) — no failing test first, no RED phase, no TDD. User called it out with *"did you tdd?"*. Remediation: wrote the resilience test after the fact, temporarily reverted the try/catch to prove the test goes RED against the original bug (it did — same `TRPCError: relation "producer_external_links" does not exist` as prod), then restored the fix and confirmed GREEN across the full 584-test suite. **Rule going forward: applying a migration (infra) is not testable and correctly skips TDD. Adding a code branch / error-handler / defensive wrapper IS production behavior and MUST have a failing test first.** Without the RED phase, a test can pass vacuously and pin nothing.
 
 ---
 

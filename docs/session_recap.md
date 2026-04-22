@@ -8,17 +8,23 @@
 
 ## 🕐 Last checkpoint
 
-**2026-04-21 — Round 2 BMAD complete. Post-launch roadmap written. PR #19 about to be opened.**
+**2026-04-22 — Audit Tasks 1, 2, 15, 16 all ✅ Fixed. Task 17 Phase 1 (UserButton + "← Studio" moved into its menu) shipped on PR #30. Task 17 Phase 2 (desktop sidebar + artist notification bell) + Phase 3 (`/artist/settings`) up next — Gili answered all 3 design-brief open questions.**
 
 ---
 
 ## ✅ What we just finished
 
-- **Round 2 Analyst pass done** — 45 more questions answered on vision / GTM / beta / financial / ops / legal / PRD gaps / roadmap / brand. Locked to `docs/decisions/360-prd-answers.md`.
-- **PRD updated** with Round 2 deltas: §7.1 (beta pricing), §15.1-2 (Autopilot launch scope — 2 toggles working, 3 hidden stubs), §22.2b (p0-only paging), §28 (new GTM playbook section).
-- **Post-launch roadmap written** at `docs/plans/active/2026-04-21-post-launch-roadmap.md` — 6 phases × ~28 stories, targeting 100 paying producers by July 10, 2026 (runway-driven).
-- **Autopilot investigated**: 2 of 5 toggles work (welcomeEmail, commentNotify); 3 are stubs (unpaidReminder, requestTestimonial, autoArchive). Launch treatment: hide 3 stubs, ship 2.
-- **Memory synced**: `project_360_prd_answers.md` reduced to a pointer (canonical is in repo now). No duplication.
+**Task 16 — Strict role isolation (🔴 critical, done today):**
+- **`resolveUserRole` helper** (`apps/web/src/server/auth/role.ts`) — pure function classifying every authed user as `unauthenticated` / `artist` / `producer-incomplete` / `producer-complete` / `orphan`. 8 unit tests, RED-verified first.
+- **`/onboarding` layout gate** — new `decide-redirect.ts` policy (5 tests) wired into the layout. Artists typing `/onboarding` now redirect to `/artist`; fully-onboarded producers redirect to `/dashboard`.
+- **`completeOnboarding` action hardening** — server-side role check rejects artists even if they craft a raw POST (closes the Q2 hole Gili asked me to close). 3 new tests.
+- **16 new tests total, strict TDD everywhere.** Full suite: **611 passed / 4 skipped / 0 failed** (up from 595).
+
+**Task 17 — Design brief published, not built yet:**
+- Scope confirmed with Gili: Option C (full rebuild) but **artist-only feature set**. Desktop sidebar chrome matching producer side, mobile stays PWA-style bottom nav.
+- Design brief at [`docs/plans/active/2026-04-22-artist-ui-rebuild-design.md`](plans/active/2026-04-22-artist-ui-rebuild-design.md).
+- 3-phase implementation plan (UserButton unblock → desktop sidebar → settings page).
+- **3 open questions for Gili in §7 of the brief.**
 
 ---
 
@@ -26,38 +32,43 @@
 
 | Thing | State |
 |---|---|
-| **Active branch** | `docs/round-2-bmad` (branched off `docs/cleanup`) — about to commit Round 2 work + plan |
-| **Working tree** | 3 modified files + 1 new file staged for commit |
-| **Open PRs awaiting merge** | **#18** docs/cleanup · **#17** feat/bmad-skill · **#16** fix/db-consolidate · **#1** old CI bump (stale) |
-| **About to open** | **#19** docs/round-2-bmad — Round 2 decisions + post-launch roadmap plan |
-| **Unpushed commits** | 5 on `feat/join-flow` (Wave 1 of /join, code-complete, never PR'd) |
-| **Stashed work** | `prd-section-4.5 + dashboard-plan-rewrite` (2 files, ready for Phase 1 S1.6) |
-| **Launch clock** | Day 1 of 12-week post-launch roadmap; target revenue July 10, 2026 |
+| **Active branch** | `fix/audit-tasks-2-15-artist-signup` — contains Tasks 1 + 2 + 15 + 16 |
+| **Open PR** | [#30](https://github.com/giasraf/skitza-v2/pull/30) — preview URL auto-updates per push |
+| **Production DB** | ✅ Migrated through 0031 |
+| **Typecheck** | ✅ Passes |
+| **Lint** | ✅ Passes |
+| **Tests** | ✅ 611 passed / 4 skipped / 0 failed |
+| **Launch clock** | Day 2 of 12-week post-launch roadmap; target revenue July 10, 2026 |
 
 ---
 
 ## 🎯 What's next (in order)
 
-1. **Commit + push Round 2 work → PR #19**  ← immediately next for Claude
-2. **👤 Gili reviews + merges PR #18, #17, #19** (that order) → `main` is clean and includes docs cleanup + BMAD enforcement + Round 2 + plan
-3. **🤖 Start Phase 1 of the roadmap** — rebase feat/join-flow on main, PR #20, merge; pop stash → PR #21 + #22
-4. **Move into Phase 2 — product polish** (/join Wave 2 + Resend + Sentry + PostHog + legal pages + Autopilot UI gating)
+1. **👤 Gili re-tests the full /join signup flow on the preview URL** — Tasks 15 v2 + 16 both live in the branch. Expected:
+   - Signup via `/join/<slug>` completes (email verification works, no white page).
+   - New artist lands on `/artist-welcome/<slug>` → `/artist` (artist home renders).
+   - Typing `/dashboard` redirects to `/artist` ✓
+   - **NEW:** typing `/onboarding` ALSO redirects to `/artist` (Task 16's main win) ✓
+2. **👤 Gili reviews Task 17 design brief + answers 3 open questions** in §7 of the brief (collapsible sidebar, notifications, settings-tab-on-mobile).
+3. **🤖 Claude implements Task 17 in 3 phases**, per the brief. Each phase is a separate commit on the same PR branch.
+4. **👤 Gili merges PR #30** once Task 17 lands. Closes audit Tasks 1 + 2 + 15 + 16 + 17 in one PR.
+5. **Remaining audit items**: 10 tasks still ⏳ Pending. Next-highest impact:
+   - Task 10 (landing placeholder content — credibility win, ~30 min)
+   - Task 4 (onboarding 4 vs 5 steps — spec drift, ~1-2h)
+   - Task 7 (Privacy + Terms counsel-reviewed — pre-launch legal)
 
-Full plan: `docs/plans/active/2026-04-21-post-launch-roadmap.md`.
+Full list: [`docs/audit-report.md`](audit-report.md).
 
 ---
 
 ## 🧠 Context that matters right now
 
-- **🔴 Runway: 3 months** — revenue by July 2026 is non-negotiable. Everything downstream is time-compressed.
-- **Breakeven**: 100 paying producers at $29 = ~$2,900 MRR.
-- **Gili's WHY**: lived the admin pain himself.
-- **Geography**: global English from Day 1, NOT Israel-first.
-- **Pricing**: "pay what you want" for first 5 betas; $29 Pro for all after.
-- **Autopilot**: ship 2 toggles, hide 3 stubs behind "Coming soon."
-- **עוסק פטור registration** is the single biggest risk to the July deadline (gates Stripe Connect).
-- **Content commitment**: 1 IG reel/week + 1 blog/week + 1 YouTube/month (~4-5 hrs of Gili's time weekly).
-- **Producer #0 content** (Gili's own `/join/gili-asraf`) needs 3-5 real tracks uploaded, logo redesigned, landing copy polished.
+- **🔴 Runway: ~3 months.** Revenue by July 2026 is non-negotiable.
+- **Paper-trail discipline (proven today):** every audit fix updates `docs/audit-report.md` in the same commit. Tasks 16 Fix Log + Task 17 design brief captured alongside the code.
+- **TDD rule reinforced**: Task 16 went RED-first for every new behavior (3 separate RED verifications: resolveUserRole, decide-redirect, action hardening). No vacuous tests.
+- **Migration journal still broken**: continue using `node packages/db/apply-migrations.mjs` until someone repairs `_journal.json`.
+- **Auto mode is on**: continuous execution with manual verification checkpoints.
+- **BMAD enforcement** active on `main`. Task 17 correctly went through the full BMAD flow (Analyst → PM → Architect → *waiting on user* → Dev).
 
 ---
 
@@ -65,30 +76,26 @@ Full plan: `docs/plans/active/2026-04-21-post-launch-roadmap.md`.
 
 1. Read this file (you're here).
 2. Read [CLAUDE.md](../CLAUDE.md) — auto-loaded.
-3. Read [docs/INDEX.md](INDEX.md) for map.
-4. Run `git status && git log --oneline -10 && gh pr list --state open`.
-5. Default next action: if PR #19 is open, wait for Gili to merge. If merged, execute Phase 1 of `docs/plans/active/2026-04-21-post-launch-roadmap.md`.
+3. Read [docs/audit-report.md](audit-report.md) — 17-task paper trail + per-task fix logs.
+4. Read [docs/INDEX.md](INDEX.md) for the master map.
+5. Read [docs/plans/active/](plans/active/) — Task 17 design brief lives here.
+6. Run `git status && git log --oneline -10 && gh pr list --state open`.
+7. Default next action: check if Gili has answered Task 17's §7 questions. If yes, start Phase 1 implementation. If no, wait.
 
 ---
 
 ## 📋 Files to glance at if diving back in
 
-- **PR #19 (about to open)** — Round 2 BMAD + post-launch roadmap (this branch: `docs/round-2-bmad`)
-- [docs/plans/active/2026-04-21-post-launch-roadmap.md](plans/active/2026-04-21-post-launch-roadmap.md) — **the 12-week plan**
-- [docs/decisions/360-prd-answers.md](decisions/360-prd-answers.md) — Round 1 + Round 2 reasoning trace
-- [docs/product/PRD.md](product/PRD.md) — normative spec, now with §7.1 / §15.1-2 / §22.2b / §28 added
-- [docs/INDEX.md](INDEX.md) — master map
+- [docs/audit-report.md](audit-report.md) — **the paper trail** (17 tasks, status, fix logs)
+- [docs/plans/active/2026-04-22-artist-ui-rebuild-design.md](plans/active/2026-04-22-artist-ui-rebuild-design.md) — Task 17 design brief (pending Gili)
+- [apps/web/src/server/auth/role.ts](../apps/web/src/server/auth/role.ts) — Task 16 shared role resolver
+- [apps/web/src/app/(onboarding)/onboarding/decide-redirect.ts](../apps/web/src/app/(onboarding)/onboarding/decide-redirect.ts) — Task 16 routing policy
+- [apps/web/src/app/(onboarding)/onboarding/actions.ts](../apps/web/src/app/(onboarding)/onboarding/actions.ts) — Task 16 action hardening
+- [docs/plans/active/2026-04-21-post-launch-roadmap.md](plans/active/2026-04-21-post-launch-roadmap.md) — the 12-week plan
+- [docs/product/PRD.md](product/PRD.md) — normative spec
 
 ---
 
 ## 🧹 Update discipline
 
 **This file is overwritten, never appended.** Update at every natural checkpoint per `CLAUDE.md` § Session handoff protocol.
-
-Update triggers:
-- After opening or merging a PR
-- After a major product decision
-- After a BMAD phase completes
-- Before a long subagent dispatch
-- When conversation feels dense
-- On `/checkpoint`
