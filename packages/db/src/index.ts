@@ -11,7 +11,10 @@ export * from "./client";
 //   (max(viewedAt)) in magicLink.list — drizzle has no first-class
 //   helper for arbitrary SQL fragments yet
 // - `asc`: ORDER BY direction for packages.list (by position ASC)
-// - `gte/lte`: range filters on booking.startsAt in slot computation
+// - `gt/gte/lt/lte`: range filters — booking.startsAt in slot
+//   computation + autopilot cron's 7d/30d cutoff comparisons (audit
+//   Task 12). `lt` is strict-less-than which is what the cron wants
+//   for "created before now-7d" / "updatedAt before now-30d".
 // - `inArray`: WHERE status IN (...) for filtering confirmed+pending
 // - `notInArray`: WHERE stage NOT IN (...) — artist.book.availability
 //   excludes "paid"/"archived"/"cancelled" projects when resolving a
@@ -20,4 +23,4 @@ export * from "./client";
 // - `ilike`: case-insensitive LIKE for the same
 // - `isNull`/`isNotNull`: nullness predicates for the inbox router —
 //   active = archivedAt IS NULL, archived = archivedAt IS NOT NULL.
-export { eq, and, or, desc, asc, sql, gte, lte, inArray, notInArray, ilike, isNull, isNotNull } from "drizzle-orm";
+export { eq, and, or, desc, asc, sql, gt, gte, lt, lte, inArray, notInArray, ilike, isNull, isNotNull } from "drizzle-orm";

@@ -393,6 +393,13 @@ export const projects = pgTable("projects", {
   nextChargeAt: timestamp("next_charge_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  // Stamped once by the Autopilot cron's request-testimonial sweep
+  // the first time it emails the artist asking for a testimonial on
+  // this project. Null = never asked. Ensures idempotency — no double
+  // asks on subsequent ticks. Migration 0033 (audit Task 12).
+  testimonialRequestedAt: timestamp("testimonial_requested_at", {
+    withTimezone: true,
+  }),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
@@ -697,6 +704,11 @@ export const invoices = pgTable("invoices", {
   customerEmail: text("customer_email"),
   customerName: text("customer_name"),
   paidAt: timestamp("paid_at", { withTimezone: true }),
+  // Stamped once by the Autopilot cron's unpaid-reminder sweep the
+  // first time it emails the producer about this invoice. Null =
+  // never sent. Idempotency key for the cron. Migration 0033 (audit
+  // Task 12).
+  reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   // Covers the dashboard list query: producer-scoped, ordered desc.
