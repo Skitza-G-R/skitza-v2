@@ -7,6 +7,10 @@ import { AppShell } from "~/components/shell/app-shell";
 import { ReplayTourButton } from "~/components/shell/replay-tour-button";
 import { AutopilotSection } from "~/components/dashboard/setup/autopilot-section";
 import {
+  PortfolioSection,
+  type PortfolioTrackRow,
+} from "~/components/dashboard/setup/portfolio-section";
+import {
   isSetupSectionKey,
   type SetupSectionKey,
 } from "~/components/dashboard/setup/setup-deeplink";
@@ -74,6 +78,18 @@ export default async function SetupPage({
 
   const caller = appRouter.createCaller({ userId });
   const profile = await caller.producer.me();
+  // Only fetch portfolio tracks when the tab is active — cheap query
+  // but the Setup page renders seven tabs and we want each to pay
+  // only for its own data.
+  const portfolioTracks: PortfolioTrackRow[] =
+    active === "portfolio"
+      ? (await caller.portfolio.list()).map((t) => ({
+          id: t.id,
+          title: t.title,
+          artist: t.artist,
+          isPublicSample: t.isPublicSample,
+        }))
+      : [];
 
   return (
     <AppShell active="setup">
@@ -150,13 +166,7 @@ export default async function SetupPage({
           )}
 
           {active === "portfolio" && (
-            <CrossLinkSection
-              eyebrow="Portfolio"
-              title="Your tracklist"
-              description="The tracks that play on your public page. Leads land here first — give them a reason to stick around."
-              linkHref={profile.slug ? `/p/${profile.slug}` : "/dashboard/settings?section=profile"}
-              linkLabel={profile.slug ? "View your public page" : "Set a URL first"}
-            />
+            <PortfolioSection tracks={portfolioTracks} />
           )}
 
           {active === "availability" && (

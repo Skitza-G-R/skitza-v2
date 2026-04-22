@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 // One-time explainer shown to artists after first sign-in. Triggered
-// by a ?welcome=1 URL param (set by the book/success CTA + the Clerk
-// post-signup redirect). On dismiss, the param is stripped from the
-// URL so a back-nav doesn't re-open it. Also sets a localStorage flag
-// to short-circuit future ?welcome=1 hits (a user linking
-// /artist?welcome=1 into a chat + re-opening won't re-modal).
+// by a ?welcome=1 URL param (set by the Clerk post-signup redirect
+// from `/join/<slug>`; previously also set by the retired public
+// `/p/<slug>/book/success` page — removed in Story 03 per PRD §6.6).
+// On dismiss, the param is stripped from the URL so a back-nav
+// doesn't re-open it. Also sets a localStorage flag to short-circuit
+// future ?welcome=1 hits (a user linking /artist?welcome=1 into a
+// chat + re-opening won't re-modal).
 export function WelcomeModal() {
   const searchParams = useSearchParams();
   const router = useRouter();

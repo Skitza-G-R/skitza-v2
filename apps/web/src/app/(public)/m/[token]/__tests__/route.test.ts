@@ -134,13 +134,13 @@ beforeEach(() => {
 });
 
 describe("GET /m/[token]", () => {
-  it("happy-path portfolio: 302s to /p/<slug>?via=<viewId> and logs a view row", async () => {
+  it("happy-path portfolio: 302s to /join/<slug>?via=<viewId> and logs a view row", async () => {
     const GET = await importHandler();
     const res = (await GET(buildRequest(), buildContext())) as unknown as RedirectMarker;
 
     expect(res.__kind).toBe("redirect");
     expect(res.status).toBe(302);
-    expect(res.url).toBe(`http://test/p/${PRODUCER_SLUG}?via=${VIEW_ID}`);
+    expect(res.url).toBe(`http://test/join/${PRODUCER_SLUG}?via=${VIEW_ID}`);
 
     expect(viewInsertMock).toHaveBeenCalledOnce();
     expect(lastViewInsertValues).toMatchObject({
@@ -158,7 +158,10 @@ describe("GET /m/[token]", () => {
     expect(where?.eq?.[1]).toBe(TOKEN_HASH);
   });
 
-  it("happy-path booking: 302s to /p/<slug>/book?via=<viewId>", async () => {
+  // Post-Story-03 (PRD §6.6): booking-target magic links also resolve
+  // to /join/<slug>. Booking-without-signup is gone; artist-side signup
+  // happens on /join first and the Book tab opens inside the artist app.
+  it("happy-path booking: 302s to /join/<slug>?via=<viewId> (collapsed per PRD §6.6)", async () => {
     linkLookupMock.mockResolvedValueOnce([
       {
         id: LINK_ID,
@@ -173,7 +176,7 @@ describe("GET /m/[token]", () => {
     const res = (await GET(buildRequest(), buildContext())) as unknown as RedirectMarker;
     expect(res.__kind).toBe("redirect");
     expect(res.status).toBe(302);
-    expect(res.url).toBe(`http://test/p/${PRODUCER_SLUG}/book?via=${VIEW_ID}`);
+    expect(res.url).toBe(`http://test/join/${PRODUCER_SLUG}?via=${VIEW_ID}`);
   });
 
   it("MagicTokenInvalid → 404 with no DB writes", async () => {
@@ -242,7 +245,7 @@ describe("GET /m/[token]", () => {
       expect(res.__kind).toBe("redirect");
       expect(res.status).toBe(302);
       // No `via` query param when the view row was never persisted.
-      expect(res.url).toBe(`http://test/p/${PRODUCER_SLUG}`);
+      expect(res.url).toBe(`http://test/join/${PRODUCER_SLUG}`);
       expect(errorSpy).toHaveBeenCalled();
       // The error log includes the link id so an operator can correlate.
       const loggedArgs = errorSpy.mock.calls[0] ?? [];

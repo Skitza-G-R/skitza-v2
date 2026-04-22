@@ -5,9 +5,10 @@
  * --------------------------------------------------------
  * The producer's workspace + landing default to LIGHT (warm cream).
  * Public content pages opt into [data-theme="chrome-dark"] so the
- * /p/<slug> storefront reads like a record sleeve. A global dark mode
- * is also available — next-themes owns the attribute on <html> and
- * flips to the same "chrome-dark" token set on user preference.
+ * /join/<slug> artist funnel reads like a record sleeve. A global
+ * dark mode is also available — next-themes owns the attribute on
+ * <html> and flips to the same "chrome-dark" token set on user
+ * preference.
  *
  * Token resolution order (lowest → highest precedence):
  *   1. :root (LIGHT warm-cream default, WCAG AA sharpened)

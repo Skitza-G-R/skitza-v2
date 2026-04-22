@@ -97,7 +97,7 @@ export default function OnboardingPage() {
             <Label htmlFor="slug">Studio URL</Label>
             <div className="relative">
               <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center font-mono text-xs text-[rgb(var(--fg-muted))]">
-                /p/
+                /join/
               </span>
               <Input
                 id="slug"

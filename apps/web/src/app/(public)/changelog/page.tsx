@@ -147,7 +147,7 @@ const RELEASES: readonly {
       "Producer workspace matures: brand settings, magic-link analytics, accessibility pass, rate limiting, data export, dark mode, error boundaries.",
     items: [
       "Producer onboarding + brand settings",
-      "Public portfolio at /p/<you>",
+      "Public portfolio at /p/<you> (retired in Story 03; see /join/<you>)",
       "Smart lead links (magic URL + open / dwell / referrer analytics)",
       "Next-themes dark mode + warm-cream light mode",
       "A11y pass, in-memory rate limiting, one-click data export",

@@ -123,11 +123,14 @@ function BookingCard({
   function onReschedule() {
     // TODO(sessions-reschedule): wire to a real rescheduling flow. No
     // booking.reschedule procedure exists today — the producer currently
-    // has to cancel + rebook via the public link. Options for follow-up:
+    // has to cancel + rebook via the artist-app Book tab. Options for
+    // follow-up:
     //  1. Add booking.reschedule(id, startsAtIso) that re-runs the slot
     //     availability check from booking.publicRequest.
-    //  2. Open a modal with the existing slot picker (apps/web/src/app/p/
-    //     [slug]/book/) wired server-side to producer credentials.
+    //  2. Open a modal with the existing slot picker (now housed in the
+    //     signed-in artist Book tab; the old public `/p/[slug]/book`
+    //     flow was removed in Story 03 per PRD §6.6) wired server-side
+    //     to producer credentials.
     // For Task 7 we stub with a toast; the button is visible so the
     // surface matches the plan but the CTA makes its state honest.
     toast(

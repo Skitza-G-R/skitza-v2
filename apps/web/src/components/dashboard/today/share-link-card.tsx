@@ -66,11 +66,11 @@ export function ShareLinkCard({
 
   // `publicBaseUrl` arrives as e.g. "https://skitza.app" or the Vercel
   // preview origin. Strip the trailing slash so the mono display doesn't
-  // render "skitza.app//p/alice".
+  // render "skitza.app//join/alice".
   const origin = publicBaseUrl.replace(/\/$/, "");
-  const fullUrl = `${origin}/p/${slug}`;
+  const fullUrl = `${origin}/join/${slug}`;
   // Display form: drop the scheme ("https://") — producers think of
-  // this as "skitza.app/p/alice", not a URL. The copy/preview actions
+  // this as "skitza.app/join/alice", not a URL. The copy/preview actions
   // still use the fully qualified URL so pasting works everywhere.
   const displayUrl = fullUrl.replace(/^https?:\/\//, "");
 
@@ -127,7 +127,7 @@ export function ShareLinkCard({
             title={fullUrl}
           >
             <span className="text-[rgb(var(--fg-muted))]">skitza.app</span>
-            <span className="text-[rgb(var(--fg-muted))]">/p/</span>
+            <span className="text-[rgb(var(--fg-muted))]">/join/</span>
             <span className="font-semibold">{slug}</span>
           </div>
         </div>

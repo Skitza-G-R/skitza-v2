@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
-// Public route group (`/p/[slug]`, `/m/[token]`, legal pages).
+// Public route group (`/join/[slug]`, `/m/[token]`, legal pages).
+// The legacy `/p/[slug]` subtree was removed in Story 03 per PRD §6.6.
 //
 // `:root` in globals.css is LIGHT (warm cream) — that's the landing +
 // producer workspace default. This wrapper opts public CONTENT pages

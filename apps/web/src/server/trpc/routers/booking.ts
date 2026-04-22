@@ -1117,7 +1117,13 @@ export const bookingRouter = router({
 
   // ── Public procedures ────────────────────────────────────────────
 
-  /** Public: list active products for a producer. Used by /p/<slug>/book. */
+  /**
+   * Public: list active products for a producer.
+   *
+   * Historically surfaced on `/p/<slug>/book` (deleted in Story 03 per
+   * PRD §6.6). The procedure is retained because the new `/join/<slug>`
+   * flow and the signed-in artist Book tab both need this shape.
+   */
   publicProducts: publicProcedure
     .input(z.object({ slug: z.string().min(3).max(48) }))
     .query(async ({ input }) => {
@@ -1585,8 +1591,14 @@ export const bookingRouter = router({
               metadata: {
                 bookingId: row.id,
               },
-              successUrl: `${base}/p/${producerRow.slug}/book/success?session_id={CHECKOUT_SESSION_ID}`,
-              cancelUrl: `${base}/p/${producerRow.slug}/book?cancelled=1`,
+              // Post-Story-03 (PRD §6.6): the legacy `/p/<slug>/book`
+              // URLs are gone. Return URLs now point at the new
+              // `/join/<slug>` entry — the signed-in artist lands
+              // back in the funnel and we surface checkout outcome
+              // there. Story 02 wires the ?booked=1/?cancelled=1
+              // params into a toast on /join/<slug>.
+              successUrl: `${base}/join/${producerRow.slug}?session_id={CHECKOUT_SESSION_ID}&booked=1`,
+              cancelUrl: `${base}/join/${producerRow.slug}?cancelled=1`,
             });
             checkoutUrl = result.checkoutUrl;
 
@@ -1618,8 +1630,11 @@ export const bookingRouter = router({
                   },
                 ],
                 customer_email: input.artistEmail.toLowerCase(),
-                success_url: `${base}/p/${producerRow.slug}/book/success?session_id={CHECKOUT_SESSION_ID}`,
-                cancel_url: `${base}/p/${producerRow.slug}/book?cancelled=1`,
+                // Post-Story-03 (PRD §6.6): the legacy `/p/<slug>/book`
+                // URLs are gone. Return URLs now point at the new
+                // `/join/<slug>` entry.
+                success_url: `${base}/join/${producerRow.slug}?session_id={CHECKOUT_SESSION_ID}&booked=1`,
+                cancel_url: `${base}/join/${producerRow.slug}?cancelled=1`,
                 payment_intent_data: {
                   transfer_data: { destination: producerRow.stripeAccountId },
                 },

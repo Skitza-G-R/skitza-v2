@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import type { PaymentPlan } from "@skitza/db";
 
-import { PlanPicker } from "~/app/(public)/p/[slug]/book/plan-picker";
+import { PlanPicker } from "~/components/checkout/plan-picker";
 import { Button } from "~/components/ui/button";
 import { startStoreCheckoutAction } from "./actions";
 

@@ -15,7 +15,10 @@ import { useToast } from "~/components/ui/toast";
 //                               No recent project → nudge to create one.
 //     3. New booking          — jump to /dashboard/booking?tab=upcoming
 //                               where pending requests surface for producer
-//                               approval (the self-booking flow is in /p/<slug>).
+//                               approval. (Artist-side booking now lives
+//                               behind Clerk signup on /join/<slug> →
+//                               artist app Book tab; the public /p/<slug>
+//                               self-booking flow is gone per PRD §6.6.)
 //     4. Send invoice         — deep-link into the money tab of the most-
 //                               recent project. No projects → tooltip only.
 //
@@ -26,7 +29,7 @@ import { useToast } from "~/components/ui/toast";
 //                               manual-add flow).
 //     7. Quick note           — v1 stub: localStorage scratchpad + toast.
 //                               TODO(today-cockpit): wire to notes service.
-//     8. Preview public page  — opens /p/<slug> in a new tab. No slug →
+//     8. Preview public page  — opens /join/<slug> in a new tab. No slug →
 //                               button is disabled with a tooltip.
 //
 // Mobile: primary collapses to 2x2 grid; secondary row uses sk-scroll-x.
