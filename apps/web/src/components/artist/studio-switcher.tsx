@@ -11,7 +11,20 @@ import type { Studio } from "~/server/artist/identity";
 //
 // When studios.length === 1, renders as a non-interactive chip —
 // no dropdown chevron, no click affordance.
-export function StudioSwitcher({ studios }: { studios: Studio[] }) {
+//
+// 2026-04-22 — `compact` mode added for the collapsed desktop
+// sidebar. When compact=true, only the studio avatar renders — no
+// name, no chevron. The dropdown still opens on click (assuming
+// the user has multiple studios) so switching remains possible
+// even in the 56px collapsed rail. Fix for the Phase 2+3 audit's
+// "StudioSwitcher disappears in collapsed sidebar" finding.
+export function StudioSwitcher({
+  studios,
+  compact = false,
+}: {
+  studios: Studio[];
+  compact?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -42,8 +55,15 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
     return `${pathname}?${params.toString()}`;
   };
 
-  // Single studio: static chip, no dropdown
+  // Single studio: static chip (full) or just avatar (compact). No dropdown.
   if (studios.length <= 1) {
+    if (compact) {
+      return (
+        <div className="flex justify-center" title={active.name}>
+          <StudioAvatar studio={active} />
+        </div>
+      );
+    }
     return (
       <div className="flex items-center gap-2">
         <StudioAvatar studio={active} />
@@ -52,7 +72,7 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
     );
   }
 
-  // Multi-studio: clickable chip + dropdown
+  // Multi-studio: clickable chip (full) or avatar-only button (compact) + dropdown
   return (
     <div ref={dropdownRef} className="relative">
       <button
@@ -62,11 +82,21 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[rgb(var(--bg-sunken))]"
+        aria-label={compact ? `Current studio: ${active.name}. Click to switch.` : undefined}
+        {...(compact ? { title: `${active.name} — click to switch studio` } : {})}
+        className={
+          compact
+            ? "flex items-center justify-center rounded-md p-1 transition-colors hover:bg-[rgb(var(--bg-sunken))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+            : "flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[rgb(var(--bg-sunken))]"
+        }
       >
         <StudioAvatar studio={active} />
-        <span className="font-display text-sm tracking-tight">{active.name}</span>
-        <span aria-hidden className="text-xs text-[rgb(var(--fg-muted))]">▾</span>
+        {!compact && (
+          <>
+            <span className="font-display text-sm tracking-tight">{active.name}</span>
+            <span aria-hidden className="text-xs text-[rgb(var(--fg-muted))]">▾</span>
+          </>
+        )}
       </button>
       {open ? (
         <ul

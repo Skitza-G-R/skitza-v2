@@ -122,8 +122,19 @@ export function ArtistNotificationBell({
           </div>
           <ul aria-live="polite" className="max-h-[60vh] overflow-y-auto">
             {unreadItems.length === 0 ? (
-              <li className="px-3 py-6 text-center text-sm text-[rgb(var(--fg-muted))]">
-                You&apos;re all caught up.
+              // While the notification data layer is still being wired
+              // (roadmap S2.3), this empty state makes the stub status
+              // explicit — otherwise the bell looks broken ("I'll never
+              // get notifications?"). The "Coming soon" pill matches
+              // the same language the Settings page uses for the
+              // corresponding preference toggles.
+              <li className="space-y-2 px-3 py-5 text-center">
+                <p className="text-sm text-[rgb(var(--fg-muted))]">
+                  You&apos;re all caught up.
+                </p>
+                <p className="inline-block rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-0.5 font-mono text-[0.625rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+                  Live notifications coming soon
+                </p>
               </li>
             ) : (
               unreadItems.map((item) => (

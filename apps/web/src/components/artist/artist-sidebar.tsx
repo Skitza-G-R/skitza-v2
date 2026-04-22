@@ -141,15 +141,21 @@ export function ArtistSidebar({
           </button>
         </div>
 
-        {/* Studio Switcher — artist-specific context, surfaced at top of nav */}
-        {!effectiveCollapsed ? (
-          <div className="border-b border-[rgb(var(--border-subtle))] px-3 pb-3">
+        {/* Studio Switcher — artist-specific context, surfaced at top
+            of nav. Expanded: shows "Studio" label + full dropdown.
+            Collapsed: shows just the avatar as a clickable button
+            (still opens the dropdown for multi-studio users), so an
+            artist with 2+ studios can switch without expanding first.
+            Fix for the Phase 2+3 audit's "StudioSwitcher disappears
+            in collapsed sidebar" finding. */}
+        <div className="border-b border-[rgb(var(--border-subtle))] px-3 pb-3">
+          {!effectiveCollapsed && (
             <p className="mb-2 font-mono text-[0.625rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
               Studio
             </p>
-            <StudioSwitcher studios={studios} />
-          </div>
-        ) : null}
+          )}
+          <StudioSwitcher studios={studios} compact={effectiveCollapsed} />
+        </div>
 
         {/* Primary nav */}
         <nav

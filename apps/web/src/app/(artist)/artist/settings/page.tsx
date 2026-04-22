@@ -1,6 +1,5 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 
 import { LanguageSwitcher } from "~/components/shell/language-switcher";
 import { SignOutButton } from "./sign-out-button";
@@ -15,9 +14,12 @@ import { SignOutButton } from "./sign-out-button";
 // sidebar's UserButton.
 //
 // What this page does today:
-//   1. Account — links into Clerk's hosted user-profile via an explicit
-//      "Manage account" button (the UserButton modal also covers this,
-//      but a dedicated link gives users a familiar Settings-page target).
+//   1. Account — email readout + SignOut button. "Manage account"
+//      (password + profile edits) happens via the UserButton avatar
+//      modal in the header/sidebar, which already covers those flows
+//      via Clerk's hosted UI — we do NOT duplicate that here (earlier
+//      versions of this page linked to a /user route that didn't exist,
+//      producing a 404; caught in the 2026-04-22 Phase-2/3 audit).
 //   2. Language — reuses the existing LanguageSwitcher from the
 //      producer shell. Same EN ↔ HE toggle, same cookie persistence.
 //   3. Notification preferences — stubbed as "Coming soon" toggles.
@@ -72,13 +74,11 @@ export default async function ArtistSettingsPage() {
             </dd>
           </div>
         </dl>
-        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-          <Link
-            href="/user"
-            className="inline-flex min-h-[40px] items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-strong))] px-4 py-2 font-mono text-[0.75rem] uppercase tracking-wider text-[rgb(var(--fg-primary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-          >
-            Manage account →
-          </Link>
+        <p className="mt-3 text-xs text-[rgb(var(--fg-muted))]">
+          To change your email, password, or profile picture, open the
+          account menu (your avatar) in the top-right.
+        </p>
+        <div className="mt-5">
           <SignOutButton />
         </div>
       </section>
