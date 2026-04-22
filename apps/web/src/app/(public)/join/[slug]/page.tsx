@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 
 import { createDb, eq, portfolioTracks } from "@skitza/db";
 import { appRouter } from "~/server/trpc/routers/_app";
+import { ExternalLinksSection } from "~/components/join/external-links-section";
 import { JoinHero } from "~/components/join/join-hero";
 import { PublicSamplesPlayer } from "~/components/join/public-samples-player";
 import { SignupCta } from "~/components/join/signup-cta";
@@ -95,6 +96,14 @@ export default async function JoinPage({ params }: PageProps) {
         <JoinHero producer={data.producer} />
 
         <PublicSamplesPlayer samples={data.publicSamples} />
+
+        {/* Wave 2 Section B — external streaming links. Hidden when the
+            producer hasn't added any. Renders inline embeds where we can
+            parse a URL; falls back to "Listen on <Platform>" buttons for
+            Bandcamp or malformed URLs. See PRD §6.2. */}
+        <div className="mx-auto w-full max-w-3xl px-6 sm:px-10">
+          <ExternalLinksSection links={data.externalLinks} />
+        </div>
 
         {/* Locked-tracks teaser — just a text line for Wave 1. Only
             renders when there are actually more tracks the producer
