@@ -30,7 +30,9 @@
 | 12 | Autopilot cron route is 95% TODO | 🟡 | ⏳ Pending | — | — | 3 behaviors unwired; correctly gated in UI |
 | 13 | Only 4 of 10 Resend email templates shipped | 🟢 | ⏳ Pending | — | — | PRD §14 |
 | 14 | No Sentry + no PostHog (observability) | 🟢 | ⏳ Pending | — | — | Roadmap S2.3 |
-| 15 | `/join/<slug>` signup registers visitor as Producer, not Artist | 🔴 | ✅ Fixed | 2026-04-22 | *(uncommitted on `main`)* | Webhook + layout + routes rewritten; 11 new tests, full TDD |
+| 15 | `/join/<slug>` signup registers visitor as Producer, not Artist | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | Webhook + layout + routes rewritten; 11 new tests, full TDD. Fix v2 added catch-all + `path` prop |
+| 16 | Artist role not isolated — can navigate to producer routes (e.g. `/onboarding`) | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | `resolveUserRole` helper + hardened `/onboarding` layout + defense-in-depth action check. 16 new tests, strict TDD |
+| 17 | Artist UI missing UserButton (no logout) + needs full desktop parity | 🟠 | 📐 Design brief pending approval | — | — | Scope confirmed with Gili: desktop-side matches producer premium feel, keep artist-only feature set. See `docs/plans/active/2026-04-22-artist-ui-rebuild-design.md` |
 
 **Legend:** ⏳ Pending · ▶️ In progress · ✅ Fixed · ❌ Won't fix (document reason)
 
@@ -281,6 +283,55 @@ Both scheduled in roadmap S2.3.
   - Re-uses the existing `client_contacts.(producerId, emailHash) UNIQUE` constraint — `onConflictDoNothing` makes the JOIN insert idempotent and safe for pre-invited-then-self-serving artists (the trailing UPDATE still stamps clerkUserId across all their contact rows).
   - Producer sign-up flow is byte-for-byte unchanged in behavior (Test B + D enforce this).
   - New routes: `/sign-up/join/[slug]`, `/artist-welcome/[slug]`. No schema migration required.
+
+---
+
+### Task 16 — Strict role isolation (hard wall between Artist + Producer)
+
+**Severity:** 🔴 Critical (role boundary broken — artist could accidentally enter the producer-onboarding funnel)
+**Status:** ✅ Fixed 2026-04-22
+**Discovered:** Manual QA of Task 15, 2026-04-22 — after signing in as an artist, Gili navigated to a producer route and triggered the producer onboarding.
+
+**Plain-English:** Task 15's fix handled the **entry point** — `/join/<slug>` signup correctly routes to artist identity. But the **exit point was still leaky**: `/onboarding` lived in its own route group `(onboarding)/` whose layout ran no role check. An artist typing `/onboarding` directly bypassed `(app)/layout.tsx`'s gate and landed on the producer wizard. Additionally, the `completeOnboarding` server action had its own hole: a signed-in artist could POST the form via devtools and the `INSERT … ON CONFLICT DO UPDATE` would silently convert them into a producer.
+
+**Fix (two layers, strict TDD):**
+1. **Shared role resolver** — new `apps/web/src/server/auth/role.ts` exports `resolveUserRole()` (pure, 8 tests) + `fetchUserRole()` (I/O wrapper). Classifies every authed user as one of five discriminated-union variants: `unauthenticated` / `artist` / `producer-incomplete` / `producer-complete` / `orphan` (Clerk webhook race).
+2. **Onboarding gate** — new `apps/web/src/app/(onboarding)/onboarding/decide-redirect.ts` maps role → redirect (pure, 5 tests). `(onboarding)/onboarding/layout.tsx` now calls `fetchUserRole` + policy + redirects on a mismatch. Rules:
+   - `artist` → `/artist` (the hard wall — core Task 16 fix)
+   - `producer-complete` → `/dashboard` (per Gili's Q1: fully-onboarded producers don't belong here)
+   - `producer-incomplete` or `orphan` → render the wizard
+3. **Defense in depth on the action** — `completeOnboarding` now calls `fetchUserRole` server-side and explicitly rejects `artist` role (per Gili's Q2). Closes the raw-HTTP-POST hole; 3 new tests including the critical "artists can't write a producer row via crafted POST" regression guard.
+
+**Fix Log:**
+- **2026-04-22 — strict TDD** (all tests RED-verified before GREEN):
+  - Phase A: `resolveUserRole` tests — RED by missing-module import error → GREEN (8/8 tests).
+  - Phase B: onboarding `decideOnboardingRedirect` tests — RED by missing-module → GREEN (5/5 tests).
+  - Phase C: `completeOnboarding` hardening — RED with *"rejects when caller role is 'artist': promise resolved 'undefined' instead of rejecting"* → GREEN (11/11 tests in the file).
+  - Phase D: wired `(onboarding)/layout.tsx` to the helpers. No new tests (the pure helpers cover the policy; the layout is a thin I/O wrapper).
+  - Phase E (refactor `(app)/decide-redirect.ts` to delegate to `resolveUserRole`): **intentionally skipped** — would require cascading changes in 7 existing tests; deferred to a standalone cleanup PR.
+- **2026-04-22 — verification:** typecheck ✅ / lint ✅ / full suite **611 passed / 4 skipped / 0 failed** (up from 595 — 16 new tests).
+- **Files touched:** `apps/web/src/server/auth/role.ts` (new), `apps/web/src/server/auth/__tests__/role.test.ts` (new, 8), `apps/web/src/app/(onboarding)/onboarding/decide-redirect.ts` (new), `apps/web/src/app/(onboarding)/onboarding/__tests__/decide-redirect.test.ts` (new, 5), `apps/web/src/app/(onboarding)/onboarding/layout.tsx` (modified), `apps/web/src/app/(onboarding)/onboarding/actions.ts` (modified), `apps/web/src/app/(onboarding)/onboarding/__tests__/actions.test.ts` (modified, +3 tests).
+
+---
+
+### Task 17 — Artist UI/UX rebuild: desktop parity with producer, logout, settings
+
+**Severity:** 🟠 UX/credibility (functional gap + major quality gap)
+**Status:** 📐 Design brief pending Gili's approval before Dev
+**Discovered:** Manual QA of Task 15, 2026-04-22 — Gili: *"The /artist UI looks cheap, barebones, and is missing basic controls like a Logout button. It doesn't feel like my app."*
+
+**Scope confirmed with Gili 2026-04-22 (Q4/Q5/Q6/Q7):**
+- Option C (full rebuild) **with artist-only feature set**: Home / Music / Book / Store.
+- Desktop `/artist/*` must feel like the producer desktop side — sidebar, premium chrome, UserButton.
+- Mobile stays bottom-nav PWA-style (intentional — it's a client-facing product, thumb-zone matters).
+- Real `/artist/settings` page (Q6: B) — the artist app IS the client-facing product producers are paying for; settings is table-stakes.
+- Sign-out → `/` (landing) for now; eventually a native-app welcome screen (Q7: A).
+
+**Design brief:** [`docs/plans/active/2026-04-22-artist-ui-rebuild-design.md`](plans/active/2026-04-22-artist-ui-rebuild-design.md). Requires Gili's approval before implementation starts.
+
+**Fix Log:**
+- **2026-04-22 — Analysis + scope locked with Gili.** Design brief in progress (separate plan doc per CLAUDE.md docs rules).
+- *(Implementation entries follow once the brief is approved.)*
 
 ---
 

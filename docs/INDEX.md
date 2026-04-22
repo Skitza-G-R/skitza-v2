@@ -68,12 +68,17 @@ Do NOT update PRD.md with how-we-work stuff.
 
 ---
 
-## 🛠️ Current active work (as of 2026-04-21)
+## 🛠️ Current active work (as of 2026-04-22)
 
-- **Active branch**: `feat/join-flow` — /join flow Wave 1 shipped as 5 commits, unpushed, no PR yet
-- **Active plan**: [/join flow architecture (Wave 1 done, Wave 2 pending)](plans/active/2026-04-20-join-flow-architecture.md)
-- **Pending merge**: `feat/bmad-skill` — the BMAD enforcement layer (skill + hook + templates). Never merged to main. Merge this before starting the next product-change mission.
-- **Uncommitted stashed work**: PRD §4.5 (Producer first-run onboarding wizard spec) + a 2,616-line rewrite of the dashboard refactor plan. Stashed under message `"prd-section-4.5 + dashboard-plan-rewrite"`. Each belongs on its own branch when the user is ready.
+- **Active branch**: `fix/audit-tasks-2-15-artist-signup` — audit Tasks 1 + 2 + 15 + 16 shipped; Task 17 design brief awaiting Gili's approval.
+- **Open PR**: [#30 — audit Tasks 2 + 15 + 16](https://github.com/giasraf/skitza-v2/pull/30). Preview URL auto-updates per push.
+- **Active plans**:
+  - [2026-04-22 Artist UI rebuild — design brief](plans/active/2026-04-22-artist-ui-rebuild-design.md) (Task 17 — pending Gili's approval before implementation)
+  - [2026-04-21 Post-launch roadmap](plans/active/2026-04-21-post-launch-roadmap.md) (12-week execution plan)
+- **Audit status** (from [`audit-report.md`](audit-report.md)):
+  - ✅ Fixed: Tasks 1, 2, 15, 16 (2026-04-22)
+  - 📐 Design-phase: Task 17
+  - ⏳ Pending: Tasks 3-14 (see audit-report for severity + priority)
 
 ---
 

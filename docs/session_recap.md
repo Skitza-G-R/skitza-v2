@@ -8,25 +8,23 @@
 
 ## 🕐 Last checkpoint
 
-**2026-04-22 — Critical /join sign-up routing bug fixed (audit Task 15). Strict TDD. Awaiting Gili's manual verification of the full /join → /sign-up/join/<slug> → /artist-welcome/<slug> → /artist flow.**
+**2026-04-22 — Audit Tasks 1, 2, 15, 16 all ✅ Fixed + committed on PR #30. Task 17 design brief published, awaiting Gili's approval before implementation.**
 
 ---
 
 ## ✅ What we just finished
 
-- **Audit Tasks 1 + 2** fixed earlier in the session (migration 0031 applied; `publicProfile.forJoin` wrapped in try/catch; post-hoc TDD with RED-verified test).
-- **Audit Task 15** (newly discovered during manual QA): **`/join/<slug>` sign-up was registering visitors as Producers** and funneling them into producer onboarding. Three compounding bugs:
-  1. Default `/sign-up` page had `forceRedirectUrl` hardcoded — overrode query-param redirects.
-  2. Clerk webhook unconditionally created a producer row for every new user — no role concept.
-  3. `(app)/layout.tsx` saw the fresh producer row and sent users to `/onboarding`.
-- **Fix (3 layers + 1 splash), strict TDD:**
-  - **New route:** `/sign-up/join/[slug]/page.tsx` renders Clerk's `<SignUp>` with `unsafeMetadata={signupOrigin:"join", producerSlug:slug}`.
-  - **Webhook** (`api/webhooks/clerk/route.ts`): reads `unsafe_metadata`, resolves slug against DB, branches. JOIN → insert `client_contacts`; DEFAULT → existing producer-insert (unchanged). Malformed slug → safe fallback to default.
-  - **Layout decision:** extracted `decideAppLayoutRedirect` as pure function (testable without Clerk + DB mocks). Layout now routes artists-with-client_contacts to `/artist`, not `/onboarding`.
-  - **Artist-welcome splash:** new `/artist-welcome/[slug]/page.tsx` greets just-joined artists with producer name + CTA to `/artist`.
-  - **Default `/sign-up`:** `forceRedirectUrl` → `fallbackRedirectUrl` (defense-in-depth).
-- **TDD rigor**: 4 new webhook tests (A/B/C/D) + 7 decide-redirect tests. TDD-A, TDD-C, and all 7 decide-redirect tests were RED first (verified). All 11 GREEN after the fix. **595 passed / 4 skipped / 0 failed** (up from 584).
-- **Paper trail updated**: `docs/audit-report.md` Task 15 added with full fix log + architectural notes.
+**Task 16 — Strict role isolation (🔴 critical, done today):**
+- **`resolveUserRole` helper** (`apps/web/src/server/auth/role.ts`) — pure function classifying every authed user as `unauthenticated` / `artist` / `producer-incomplete` / `producer-complete` / `orphan`. 8 unit tests, RED-verified first.
+- **`/onboarding` layout gate** — new `decide-redirect.ts` policy (5 tests) wired into the layout. Artists typing `/onboarding` now redirect to `/artist`; fully-onboarded producers redirect to `/dashboard`.
+- **`completeOnboarding` action hardening** — server-side role check rejects artists even if they craft a raw POST (closes the Q2 hole Gili asked me to close). 3 new tests.
+- **16 new tests total, strict TDD everywhere.** Full suite: **611 passed / 4 skipped / 0 failed** (up from 595).
+
+**Task 17 — Design brief published, not built yet:**
+- Scope confirmed with Gili: Option C (full rebuild) but **artist-only feature set**. Desktop sidebar chrome matching producer side, mobile stays PWA-style bottom nav.
+- Design brief at [`docs/plans/active/2026-04-22-artist-ui-rebuild-design.md`](plans/active/2026-04-22-artist-ui-rebuild-design.md).
+- 3-phase implementation plan (UserButton unblock → desktop sidebar → settings page).
+- **3 open questions for Gili in §7 of the brief.**
 
 ---
 
@@ -34,62 +32,43 @@
 
 | Thing | State |
 |---|---|
-| **Active branch** | `main` — working tree DIRTY with Task 15 fix unstaged |
-| **Unstaged changes** | 10 files (4 new, 6 modified) |
+| **Active branch** | `fix/audit-tasks-2-15-artist-signup` — contains Tasks 1 + 2 + 15 + 16 |
+| **Open PR** | [#30](https://github.com/giasraf/skitza-v2/pull/30) — preview URL auto-updates per push |
 | **Production DB** | ✅ Migrated through 0031 |
 | **Typecheck** | ✅ Passes |
 | **Lint** | ✅ Passes |
-| **Tests** | ✅ 595 passed / 4 skipped / 0 failed |
-| **Open PRs** | None — awaiting Gili's manual verification before opening one for Tasks 1+2+15 combined |
+| **Tests** | ✅ 611 passed / 4 skipped / 0 failed |
 | **Launch clock** | Day 2 of 12-week post-launch roadmap; target revenue July 10, 2026 |
-
-### Files touched this session (cumulative: Tasks 1 + 2 + 15)
-
-**New files:**
-- `apps/web/src/app/(auth)/sign-up/join/[slug]/page.tsx` — dedicated join-origin sign-up route
-- `apps/web/src/app/(artist-welcome)/artist-welcome/[slug]/page.tsx` — joined-artist splash
-- `apps/web/src/app/(app)/decide-redirect.ts` — pure routing-decision function
-- `apps/web/src/app/(app)/__tests__/decide-redirect.test.ts` — 7 TDD tests
-- `docs/audit-report.md` — the paper trail
-
-**Modified files:**
-- `apps/web/src/app/api/webhooks/clerk/route.ts` — metadata branching
-- `apps/web/src/app/api/webhooks/clerk/route.test.ts` — 4 new TDD tests + upgraded mocks
-- `apps/web/src/app/(app)/layout.tsx` — wired to decide-redirect + client_contacts lookup
-- `apps/web/src/app/(auth)/sign-up/[[...sign-up]]/page.tsx` — dropped `forceRedirectUrl`
-- `apps/web/src/components/join/signup-cta.tsx` — point at new join route
-- `apps/web/src/server/trpc/routers/public-profile.ts` — Task 2 try/catch (from earlier)
-- `apps/web/src/server/trpc/routers/__tests__/public-profile-for-join.test.ts` — Task 2 resilience test
-- `docs/INDEX.md` — audit-report link
-- `CLAUDE.md` — mistake log entry for the Task 2 TDD miss
 
 ---
 
 ## 🎯 What's next (in order)
 
-1. **👤 Gili manually verifies the /join → /sign-up/join/<slug> → /artist-welcome/<slug> → /artist flow** in production (or preview).
-   - Expected: signup succeeds, no producer row created for the artist, Welcome splash shows producer's name, "Open my artist workspace" lands on `/artist`, manual visit to `/dashboard` redirects to `/artist` (not `/onboarding`).
-2. **Claude commits everything** (Tasks 1 + 2 + 15) in logical chunks once Gili confirms. Likely 2-3 commits:
-   - `fix(public-profile)`: Task 2 try/catch + resilience test
-   - `fix(clerk-webhook,auth,app-layout)`: Task 15 full 3-layer fix
-   - `docs(audit)`: paper-trail updates
-3. **Remaining audit items**: 12 tasks still ⏳ Pending. Next-highest impact per earlier ordering:
+1. **👤 Gili re-tests the full /join signup flow on the preview URL** — Tasks 15 v2 + 16 both live in the branch. Expected:
+   - Signup via `/join/<slug>` completes (email verification works, no white page).
+   - New artist lands on `/artist-welcome/<slug>` → `/artist` (artist home renders).
+   - Typing `/dashboard` redirects to `/artist` ✓
+   - **NEW:** typing `/onboarding` ALSO redirects to `/artist` (Task 16's main win) ✓
+2. **👤 Gili reviews Task 17 design brief + answers 3 open questions** in §7 of the brief (collapsible sidebar, notifications, settings-tab-on-mobile).
+3. **🤖 Claude implements Task 17 in 3 phases**, per the brief. Each phase is a separate commit on the same PR branch.
+4. **👤 Gili merges PR #30** once Task 17 lands. Closes audit Tasks 1 + 2 + 15 + 16 + 17 in one PR.
+5. **Remaining audit items**: 10 tasks still ⏳ Pending. Next-highest impact:
    - Task 10 (landing placeholder content — credibility win, ~30 min)
-   - Task 4 (onboarding 4 vs 5 steps — real spec drift, ~1-2h)
+   - Task 4 (onboarding 4 vs 5 steps — spec drift, ~1-2h)
    - Task 7 (Privacy + Terms counsel-reviewed — pre-launch legal)
 
-Full list: `docs/audit-report.md`.
+Full list: [`docs/audit-report.md`](audit-report.md).
 
 ---
 
 ## 🧠 Context that matters right now
 
 - **🔴 Runway: ~3 months.** Revenue by July 2026 is non-negotiable.
-- **Paper-trail discipline**: every audit fix updates `docs/audit-report.md` in the same commit as the code. Never let the tracker drift from reality.
+- **Paper-trail discipline (proven today):** every audit fix updates `docs/audit-report.md` in the same commit. Tasks 16 Fix Log + Task 17 design brief captured alongside the code.
+- **TDD rule reinforced**: Task 16 went RED-first for every new behavior (3 separate RED verifications: resolveUserRole, decide-redirect, action hardening). No vacuous tests.
 - **Migration journal still broken**: continue using `node packages/db/apply-migrations.mjs` until someone repairs `_journal.json`.
-- **TDD rule reinforced** (CLAUDE.md mistake log, 2026-04-22): any defensive wrapper / error-handler / new code branch gets a failing test first. Migrations + infra work correctly skip TDD.
 - **Auto mode is on**: continuous execution with manual verification checkpoints.
-- **BMAD enforcement** active on `main` (hook + skill + hard-gate). Task 15 correctly invoked BMAD Standard track.
+- **BMAD enforcement** active on `main`. Task 17 correctly went through the full BMAD flow (Analyst → PM → Architect → *waiting on user* → Dev).
 
 ---
 
@@ -97,22 +76,23 @@ Full list: `docs/audit-report.md`.
 
 1. Read this file (you're here).
 2. Read [CLAUDE.md](../CLAUDE.md) — auto-loaded.
-3. Read [docs/audit-report.md](audit-report.md) — for the 15-task paper trail + status.
+3. Read [docs/audit-report.md](audit-report.md) — 17-task paper trail + per-task fix logs.
 4. Read [docs/INDEX.md](INDEX.md) for the master map.
-5. Run `git status && git diff --stat && gh pr list --state open`.
-6. Default next action: if Tasks 1 + 2 + 15 are ✅ Fixed and working tree is dirty, wait for Gili to verify the /join signup flow, then commit. If committed, pick the next-highest-impact audit task.
+5. Read [docs/plans/active/](plans/active/) — Task 17 design brief lives here.
+6. Run `git status && git log --oneline -10 && gh pr list --state open`.
+7. Default next action: check if Gili has answered Task 17's §7 questions. If yes, start Phase 1 implementation. If no, wait.
 
 ---
 
 ## 📋 Files to glance at if diving back in
 
-- [docs/audit-report.md](audit-report.md) — **the paper trail** (15 tasks, status, fix logs)
-- [apps/web/src/app/api/webhooks/clerk/route.ts](../apps/web/src/app/api/webhooks/clerk/route.ts) — Task 15 webhook branching
-- [apps/web/src/app/(app)/decide-redirect.ts](../apps/web/src/app/(app)/decide-redirect.ts) — Task 15 pure routing function
-- [apps/web/src/app/(auth)/sign-up/join/[slug]/page.tsx](../apps/web/src/app/(auth)/sign-up/join/[slug]/page.tsx) — Task 15 dedicated join sign-up
+- [docs/audit-report.md](audit-report.md) — **the paper trail** (17 tasks, status, fix logs)
+- [docs/plans/active/2026-04-22-artist-ui-rebuild-design.md](plans/active/2026-04-22-artist-ui-rebuild-design.md) — Task 17 design brief (pending Gili)
+- [apps/web/src/server/auth/role.ts](../apps/web/src/server/auth/role.ts) — Task 16 shared role resolver
+- [apps/web/src/app/(onboarding)/onboarding/decide-redirect.ts](../apps/web/src/app/(onboarding)/onboarding/decide-redirect.ts) — Task 16 routing policy
+- [apps/web/src/app/(onboarding)/onboarding/actions.ts](../apps/web/src/app/(onboarding)/onboarding/actions.ts) — Task 16 action hardening
 - [docs/plans/active/2026-04-21-post-launch-roadmap.md](plans/active/2026-04-21-post-launch-roadmap.md) — the 12-week plan
 - [docs/product/PRD.md](product/PRD.md) — normative spec
-- [docs/INDEX.md](INDEX.md) — master map
 
 ---
 
