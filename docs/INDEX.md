@@ -10,11 +10,14 @@
 
 **[`session_recap.md`](session_recap.md)** — live handoff snapshot. Current branch, what just finished, what's next. Overwritten at every checkpoint. If you read only one thing before picking up work, read this.
 
+**[`audit-report.md`](audit-report.md)** — live paper trail for the 2026-04-22 codebase audit. 14 tracked tasks with per-task fix logs. Every fix must flip its row from ⏳ Pending → ✅ Fixed and append to the task's Fix Log. If you're about to touch a known bug, start here so you don't duplicate work.
+
 ## 🎯 The canonical files
 
 | File | What it is | When to read |
 |---|---|---|
 | **[session_recap.md](session_recap.md)** | Live handoff. Current state as of last checkpoint. | **Every session start.** |
+| **[audit-report.md](audit-report.md)** | Paper trail of all known bugs + fixes from 2026-04-22 audit. | Before fixing anything, and immediately after you fix something (to update status). |
 | **[PRD.md](product/PRD.md)** | Product spec. WHAT we build. 27 sections, 70+ locked decisions. **Normative.** | Any time a product question comes up. |
 | **[CLAUDE.md](../CLAUDE.md)** | Claude's conventions. HOW we work. Commands, mistake log, file rules. | Auto-loaded every session. |
 | **[decisions/360-prd-answers.md](decisions/360-prd-answers.md)** | WHY the PRD says what it says — the Socratic Q&A journey behind every locked decision. | When you need to understand reasoning behind a PRD choice. |
