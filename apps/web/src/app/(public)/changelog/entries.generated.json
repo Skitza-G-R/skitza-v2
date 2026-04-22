@@ -1,0 +1,929 @@
+{
+  "generatedAt": "2026-04-22T21:00:58.818Z",
+  "source": "git log main --no-merges -500",
+  "entries": [
+    {
+      "date": "2026-04-22",
+      "items": [
+        {
+          "hash": "3662a2b",
+          "kind": "fix",
+          "scope": "audit",
+          "title": "Tasks 1+2+15+16+17.1 — /join signup routing, role isolation, artist UserButton (#30)"
+        },
+        {
+          "hash": "3cb4fff",
+          "kind": "new",
+          "scope": "join",
+          "title": "Wave 2 S04 — producer_external_links backend (migration + tRPC + forJoin) (#27)"
+        },
+        {
+          "hash": "d5da235",
+          "kind": "new",
+          "scope": "autopilot",
+          "title": "gate 3 stub toggles behind 'Coming soon' at launch (#22)"
+        },
+        {
+          "hash": "fdb7967",
+          "kind": "new",
+          "scope": "join",
+          "title": "Wave 1 — /join/<slug> public teaser + is_public_sample toggle + legacy /p removal (#21)"
+        }
+      ]
+    },
+    {
+      "date": "2026-04-21",
+      "items": [
+        {
+          "hash": "ab6725a",
+          "kind": "new",
+          "scope": "skill",
+          "title": "BMAD workflow — Skitza-tailored (#17)"
+        }
+      ]
+    },
+    {
+      "date": "2026-04-20",
+      "items": [
+        {
+          "hash": "84ffb44",
+          "kind": "new",
+          "scope": null,
+          "title": "master-polish + today-cockpit + i18n + dev-workflow combined (#15)"
+        }
+      ]
+    },
+    {
+      "date": "2026-04-19",
+      "items": [
+        {
+          "hash": "28dabbb",
+          "kind": "fix",
+          "scope": "routing",
+          "title": "magic-link booking redirect + protected-route sign-in UX"
+        },
+        {
+          "hash": "3f8cab0",
+          "kind": "new",
+          "scope": null,
+          "title": "Skitza Artist App (signed-in client surface, 4-tab Spotify-style) (#8)"
+        },
+        {
+          "hash": "d113101",
+          "kind": "fix",
+          "scope": "webhook+tests",
+          "title": "handle payment_failed cancellation as recoverable"
+        },
+        {
+          "hash": "72459aa",
+          "kind": "new",
+          "scope": "share",
+          "title": "cancelled-state banner on client share page"
+        },
+        {
+          "hash": "075a9fd",
+          "kind": "fix",
+          "scope": "project",
+          "title": "persist currency on project, single source of truth"
+        },
+        {
+          "hash": "355def0",
+          "kind": "fix",
+          "scope": "stripe",
+          "title": "constant-time share-token compare for portal session"
+        },
+        {
+          "hash": "c90536d",
+          "kind": "fix",
+          "scope": "stripe",
+          "title": "rate-limit createCustomerPortalSession (10/min/IP)"
+        },
+        {
+          "hash": "1992c84",
+          "kind": "fix",
+          "scope": "booking",
+          "title": "don't insert booking-time invoice for monthly plans"
+        },
+        {
+          "hash": "0463e5c",
+          "kind": "fix",
+          "scope": "project",
+          "title": "reject cancelled/payment_paused via setStage"
+        },
+        {
+          "hash": "274bb86",
+          "kind": "fix",
+          "scope": "webhook",
+          "title": "don't double-count monthly first charge"
+        }
+      ]
+    },
+    {
+      "date": "2026-04-18",
+      "items": [
+        {
+          "hash": "f249bda",
+          "kind": "new",
+          "scope": "project",
+          "title": "paused-state banner + Stripe Portal deep link"
+        },
+        {
+          "hash": "5dbc5cc",
+          "kind": "new",
+          "scope": "project",
+          "title": "cancel mutation + type-to-confirm UI"
+        },
+        {
+          "hash": "c0c5aa2",
+          "kind": "new",
+          "scope": "project",
+          "title": "payment status strip in project room"
+        },
+        {
+          "hash": "b1b8dd0",
+          "kind": "new",
+          "scope": "project",
+          "title": "producer-triggered final charge for 50-50 plans"
+        },
+        {
+          "hash": "cfc1da3",
+          "kind": "fix",
+          "scope": "webhook",
+          "title": "prevent duplicate invoice rows on webhook race"
+        },
+        {
+          "hash": "a37df17",
+          "kind": "new",
+          "scope": "webhook",
+          "title": "payment-plan-aware Stripe event handlers"
+        },
+        {
+          "hash": "16e4ddd",
+          "kind": "fix",
+          "scope": "checkout",
+          "title": "idempotency key + label math under remainder"
+        },
+        {
+          "hash": "012ff96",
+          "kind": "fix",
+          "scope": "stripe",
+          "title": "Customer on platform (not Connect) for destination charges"
+        },
+        {
+          "hash": "ec17f00",
+          "kind": "new",
+          "scope": "checkout",
+          "title": "plan picker + 3-shape Checkout integration"
+        },
+        {
+          "hash": "5280969",
+          "kind": "new",
+          "scope": "payments",
+          "title": "buildCheckoutSessionParams for all 3 plan kinds"
+        },
+        {
+          "hash": "0d04ce4",
+          "kind": "new",
+          "scope": "products",
+          "title": "payment plans section in product editor"
+        },
+        {
+          "hash": "ff4cc47",
+          "kind": "fix",
+          "scope": "stripe",
+          "title": "race-safe getOrCreateStripeCustomer"
+        },
+        {
+          "hash": "3962b11",
+          "kind": "new",
+          "scope": "stripe",
+          "title": "getOrCreateStripeCustomer helper"
+        },
+        {
+          "hash": "f3df9f2",
+          "kind": "fix",
+          "scope": "types",
+          "title": "handle new project stages across downstream consumers"
+        },
+        {
+          "hash": "0163ff6",
+          "kind": "new",
+          "scope": "payments",
+          "title": "calculateCharges + advancePlanState helpers"
+        },
+        {
+          "hash": "4977040",
+          "kind": "new",
+          "scope": "db",
+          "title": "stripe_customers.stripe_customer_id index for webhook lookup"
+        },
+        {
+          "hash": "41a97a9",
+          "kind": "new",
+          "scope": "db",
+          "title": "payment plan schema for auto-installments"
+        },
+        {
+          "hash": "33b2c91",
+          "kind": "fix",
+          "scope": "sw",
+          "title": "network-first HTML to avoid stale-chunk ERR_FAILED"
+        },
+        {
+          "hash": "d4e8a89",
+          "kind": "fix",
+          "scope": "pdf",
+          "title": "align worker with react-pdf's pinned pdfjs-dist version"
+        },
+        {
+          "hash": "0521ce5",
+          "kind": "new",
+          "scope": "booking",
+          "title": "Checkout redirect on public request when charges enabled"
+        },
+        {
+          "hash": "4a31317",
+          "kind": "new",
+          "scope": "ui",
+          "title": "Settings payments card + /dashboard/invoices list"
+        },
+        {
+          "hash": "73c8e64",
+          "kind": "new",
+          "scope": "stripe",
+          "title": "client + Connect onboarding + webhook handler"
+        },
+        {
+          "hash": "e218b92",
+          "kind": "new",
+          "scope": "db",
+          "title": "stripe account on producers + invoices table + checkout session on bookings"
+        },
+        {
+          "hash": "2387143",
+          "kind": "new",
+          "scope": "booking",
+          "title": "wire emails on request + approve + /api/cron/session-reminders"
+        },
+        {
+          "hash": "729c2de",
+          "kind": "new",
+          "scope": "email",
+          "title": "Resend client + React Email templates (request / confirmed / reminders)"
+        },
+        {
+          "hash": "aca6bf3",
+          "kind": "new",
+          "scope": "db",
+          "title": "bookings reminder_sent_24h + reminder_sent_1h flags"
+        },
+        {
+          "hash": "cc2f3d7",
+          "kind": "new",
+          "scope": "booking",
+          "title": "Products v2 — pricing models, tiers, deliverables, milestones"
+        },
+        {
+          "hash": "860f546",
+          "kind": "new",
+          "scope": "booking",
+          "title": "multi-block availability UI + overlap validation"
+        },
+        {
+          "hash": "c4a755c",
+          "kind": "new",
+          "scope": "clients",
+          "title": "CRM hub — by-client + all-projects toggle, filters, pro extras"
+        },
+        {
+          "hash": "e3ccd26",
+          "kind": "new",
+          "scope": "trpc",
+          "title": "client-contacts listWithProjects + updateClientMeta"
+        },
+        {
+          "hash": "db16ec3",
+          "kind": "new",
+          "scope": "web",
+          "title": "service worker for shell + dashboard route caching"
+        },
+        {
+          "hash": "9357aa7",
+          "kind": "new",
+          "scope": "db",
+          "title": "client_contacts meta fields (tags, notes, referralSource)"
+        },
+        {
+          "hash": "291084e",
+          "kind": "new",
+          "scope": "desktop",
+          "title": "deep-link to /sign-in on launch"
+        },
+        {
+          "hash": "aaeb0d7",
+          "kind": "fix",
+          "scope": "storage",
+          "title": "actually apply non-ASCII filename fallback (prior commit was incomplete)"
+        },
+        {
+          "hash": "2ca54d1",
+          "kind": "fix",
+          "scope": "storage",
+          "title": "non-ASCII filename fallback (track-<hex>.ext) prevents collisions"
+        },
+        {
+          "hash": "738b03e",
+          "kind": "new",
+          "scope": "rename",
+          "title": "deals → projects — UI + actions + redirects + callers"
+        },
+        {
+          "hash": "2a92919",
+          "kind": "new",
+          "scope": "desktop",
+          "title": "Skitza-branded app icons (S monogram on cream squircle)"
+        },
+        {
+          "hash": "878a6cb",
+          "kind": "new",
+          "scope": "desktop",
+          "title": "mac window polish + show-on-load + app metadata"
+        },
+        {
+          "hash": "b944950",
+          "kind": "new",
+          "scope": "db",
+          "title": "rename deals→projects (second rename, data-preserving RENAME TO)"
+        },
+        {
+          "hash": "10bb6c9",
+          "kind": "new",
+          "scope": "landing",
+          "title": "production homepage — rip waitlist, wire sign-up + download"
+        },
+        {
+          "hash": "beb2b86",
+          "kind": "new",
+          "scope": "ui",
+          "title": "empty-state education sweep across dashboard lists"
+        },
+        {
+          "hash": "1cb1b4f",
+          "kind": "new",
+          "scope": "dashboard",
+          "title": "upcoming-sessions strip + revenue tile"
+        },
+        {
+          "hash": "484b04f",
+          "kind": "new",
+          "scope": "deals",
+          "title": "approveVersion + stems-requested notification + UI prompt"
+        },
+        {
+          "hash": "892438e",
+          "kind": "new",
+          "scope": "portfolio",
+          "title": "Spotify/SoundCloud/YouTube/Apple URL as alternative to audio upload"
+        },
+        {
+          "hash": "d76aba3",
+          "kind": "new",
+          "scope": "onboarding",
+          "title": "4-step first-run wizard"
+        }
+      ]
+    },
+    {
+      "date": "2026-04-17",
+      "items": [
+        {
+          "hash": "a3a1abb",
+          "kind": "new",
+          "scope": "ui",
+          "title": "sidebar + shortcut remaps + palette tracks group"
+        },
+        {
+          "hash": "3bf79f0",
+          "kind": "new",
+          "scope": "library",
+          "title": "list page + side panel + comment form"
+        },
+        {
+          "hash": "318f497",
+          "kind": "new",
+          "scope": "library",
+          "title": "router + persistent player"
+        },
+        {
+          "hash": "9d12868",
+          "kind": "new",
+          "scope": "ui",
+          "title": "booking v2 — packages with kind/location/buffer, blackout management"
+        },
+        {
+          "hash": "ecf2091",
+          "kind": "new",
+          "scope": "trpc",
+          "title": "booking router — blackouts, buffers, lead time, location"
+        },
+        {
+          "hash": "175b545",
+          "kind": "new",
+          "scope": "db",
+          "title": "booking v2 columns + blackouts table"
+        },
+        {
+          "hash": "dabedad",
+          "kind": "new",
+          "scope": "clients",
+          "title": "timeline detail page"
+        },
+        {
+          "hash": "0d7bb25",
+          "kind": "new",
+          "scope": "clients",
+          "title": "list page + add/edit/delete + send magic link"
+        },
+        {
+          "hash": "15bf4e8",
+          "kind": "new",
+          "scope": "clients",
+          "title": "CRUD + enriched list procedures"
+        },
+        {
+          "hash": "4926bfe",
+          "kind": "new",
+          "scope": null,
+          "title": "lazy-load cmdk + react-pdf, dedup AppShell fetches, route loading states"
+        },
+        {
+          "hash": "d7db0f3",
+          "kind": "new",
+          "scope": "desktop",
+          "title": "Tauri activation — file drop, notifications, menu, global shortcut, CI"
+        },
+        {
+          "hash": "6763be5",
+          "kind": "new",
+          "scope": "inbox",
+          "title": "unified notifications — schema, emit helpers, router, +UI"
+        },
+        {
+          "hash": "3368aa6",
+          "kind": "new",
+          "scope": "theme",
+          "title": "dense table utility classes + motion polish (140ms default, reduced-motion guarded)"
+        },
+        {
+          "hash": "86d3124",
+          "kind": "new",
+          "scope": "shell",
+          "title": "collapsible sidebar + global keyboard shortcuts + cheatsheet"
+        },
+        {
+          "hash": "e53f9be",
+          "kind": "new",
+          "scope": "ui",
+          "title": "command palette ⌘K — fuzzy search deals/clients/contracts + actions"
+        },
+        {
+          "hash": "7fd4357",
+          "kind": "new",
+          "scope": "theme",
+          "title": "sharpened palette (WCAG AA) + Fraunces/Outfit/JetBrains Mono + dark mode"
+        },
+        {
+          "hash": "5bb8bc8",
+          "kind": "new",
+          "scope": "clients",
+          "title": "contact cache — auto-upsert on booking/deal create + autocomplete"
+        },
+        {
+          "hash": "beae940",
+          "kind": "fix",
+          "scope": "kanban",
+          "title": "functional state updates prevent stale-closure revert"
+        },
+        {
+          "hash": "ed08411",
+          "kind": "new",
+          "scope": "dashboard",
+          "title": "pipeline Kanban replaces default /dashboard view"
+        },
+        {
+          "hash": "433607b",
+          "kind": "fix",
+          "scope": "storage",
+          "title": "publicUrl drops bucket from path — R2 pub-*.r2.dev is bucket-scoped"
+        },
+        {
+          "hash": "453daa4",
+          "kind": "fix",
+          "scope": "storage",
+          "title": "publicUrl drops bucket from path — R2 pub-*.r2.dev is bucket-scoped"
+        },
+        {
+          "hash": "b355124",
+          "kind": "new",
+          "scope": "deals",
+          "title": "deal detail with 5-tab layout, restore share route, delete disabled dirs"
+        },
+        {
+          "hash": "d60fa5e",
+          "kind": "new",
+          "scope": "db",
+          "title": "rename projects→deals + stage enum + client cache fields"
+        },
+        {
+          "hash": "0e1c404",
+          "kind": "new",
+          "scope": "contracts",
+          "title": "rip legacy markdown UI, add contracts list page"
+        },
+        {
+          "hash": "64fedff",
+          "kind": "new",
+          "scope": "contracts",
+          "title": "signer UI at /sign/[token] — PDF view + inline inputs + signature modal"
+        },
+        {
+          "hash": "ac36c10",
+          "kind": "new",
+          "scope": "contracts",
+          "title": "3-pane PDF editor — upload, drag fields, assign signers, send"
+        },
+        {
+          "hash": "4071a2a",
+          "kind": "new",
+          "scope": "contracts",
+          "title": "flatten + audit cert merge pipeline (seal env-gated)"
+        },
+        {
+          "hash": "d0f2334",
+          "kind": "fix",
+          "scope": "contracts",
+          "title": "saveFields rejects field id from a different contract"
+        },
+        {
+          "hash": "3b7026d",
+          "kind": "new",
+          "scope": "trpc",
+          "title": "contract router — upload, fields, recipients, send, sign (flatten stub)"
+        },
+        {
+          "hash": "f4016f6",
+          "kind": "new",
+          "scope": "contracts",
+          "title": "coord transform top-left% ↔ pdf-lib bottom-left pts"
+        },
+        {
+          "hash": "8b3cea7",
+          "kind": "new",
+          "scope": "contracts",
+          "title": "hard-cut markdown contracts schema — PDF + recipients + fields"
+        },
+        {
+          "hash": "7f76815",
+          "kind": "fix",
+          "scope": "audio",
+          "title": "auto-select new track version so uploader appears instantly"
+        },
+        {
+          "hash": "5e2c809",
+          "kind": "new",
+          "scope": "audio",
+          "title": "wire AudioUploader into project-version flow; audioUrl nullable"
+        },
+        {
+          "hash": "fa5aef3",
+          "kind": "new",
+          "scope": "audio",
+          "title": "WaveformPlayer via wavesurfer.js for project rooms"
+        },
+        {
+          "hash": "4b77cc2",
+          "kind": "new",
+          "scope": "audio",
+          "title": "AudioUploader drop-zone component"
+        },
+        {
+          "hash": "b12e2a6",
+          "kind": "new",
+          "scope": "audio",
+          "title": "useMultipartUpload hook + Server Actions wrapper"
+        },
+        {
+          "hash": "bf58c1d",
+          "kind": "new",
+          "scope": "trpc",
+          "title": "audio router — multipart init/sign/complete/abort"
+        },
+        {
+          "hash": "9e54bec",
+          "kind": "new",
+          "scope": "db",
+          "title": "audio upload columns on trackVersions + portfolioTracks"
+        },
+        {
+          "hash": "14244dd",
+          "kind": "fix",
+          "scope": "storage",
+          "title": "sanitize rejects empty filenames + publicUrl strips trailing slash"
+        },
+        {
+          "hash": "693f024",
+          "kind": "new",
+          "scope": "storage",
+          "title": "R2 client + key builders with tests"
+        },
+        {
+          "hash": "f51dca7",
+          "kind": "new",
+          "scope": "web",
+          "title": "contracts v1 UI — producer templates/send + public /sign/[token]"
+        },
+        {
+          "hash": "c8ad581",
+          "kind": "new",
+          "scope": "db+trpc",
+          "title": "contracts v1 \\u2014 templates, send, sign, audit trail"
+        },
+        {
+          "hash": "fa6b2fb",
+          "kind": "new",
+          "scope": "web",
+          "title": "project rooms — Samply-grade audio collab for music producers"
+        },
+        {
+          "hash": "8afc871",
+          "kind": "new",
+          "scope": "trpc",
+          "title": "project router \\u2014 rooms, tracks, version stacks, comments"
+        },
+        {
+          "hash": "9106fde",
+          "kind": "new",
+          "scope": "db",
+          "title": "project rooms schema (Samply equivalent)"
+        },
+        {
+          "hash": "4748cfc",
+          "kind": "fix",
+          "scope": "trpc",
+          "title": "booking slots respect producer's IANA timezone (was off by DST offset)"
+        },
+        {
+          "hash": "651f5bf",
+          "kind": "new",
+          "scope": "web",
+          "title": "public /p/<slug>/book — 3-step visitor booking flow"
+        },
+        {
+          "hash": "c7b1dc5",
+          "kind": "new",
+          "scope": "web",
+          "title": "/dashboard/booking — packages, availability, requests, upcoming"
+        },
+        {
+          "hash": "1682e2d",
+          "kind": "new",
+          "scope": "trpc",
+          "title": "booking router — packages, availability, slots, public request flow"
+        },
+        {
+          "hash": "e01c2e1",
+          "kind": "new",
+          "scope": "db",
+          "title": "booking v1 schema — packages, availabilityBlocks, bookings"
+        },
+        {
+          "hash": "52ce1cd",
+          "kind": "new",
+          "scope": "web",
+          "title": "port user-supplied landing.html — 8 sections, full Phase A scope"
+        },
+        {
+          "hash": "fbf99c2",
+          "kind": "new",
+          "scope": "web",
+          "title": "brand mark, landing nav, waitlist form"
+        },
+        {
+          "hash": "f14b33d",
+          "kind": "new",
+          "scope": "web",
+          "title": "joinWaitlist Server Action + 4 tests"
+        },
+        {
+          "hash": "9dec595",
+          "kind": "new",
+          "scope": "db",
+          "title": "waitlist table for landing page email capture"
+        },
+        {
+          "hash": "0b053d3",
+          "kind": "new",
+          "scope": "web",
+          "title": "dashboard stats summary + sitemap includes legal pages"
+        },
+        {
+          "hash": "4cfeefe",
+          "kind": "new",
+          "scope": "web",
+          "title": "phase 7 — a11y, rate limiting, data export"
+        },
+        {
+          "hash": "e33cec9",
+          "kind": "new",
+          "scope": "web",
+          "title": "phase 6 — audio player, link drill-in, recent feed, skeletons, about/privacy/terms, auth shell"
+        },
+        {
+          "hash": "28d260e",
+          "kind": "new",
+          "scope": "web",
+          "title": "phase 5 — error boundaries, reorder, settings, QR code"
+        },
+        {
+          "hash": "9b1a7c4",
+          "kind": "fix",
+          "scope": "web",
+          "title": "Satori single-background-layer + Next 15.5 typedRoutes"
+        },
+        {
+          "hash": "24c7429",
+          "kind": "new",
+          "scope": "web",
+          "title": "phase 4 polish — beacon, toasts, OG images, 404, health, security headers"
+        }
+      ]
+    },
+    {
+      "date": "2026-04-16",
+      "items": [
+        {
+          "hash": "2e91caa",
+          "kind": "new",
+          "scope": "web",
+          "title": "Studio Monitor UI pass — landing + dashboard + portfolio + leads + public portfolio + onboarding"
+        },
+        {
+          "hash": "cd238e0",
+          "kind": "fix",
+          "scope": "trpc",
+          "title": "coerce aggregated timestamp strings to Date at router edge"
+        },
+        {
+          "hash": "32b89e3",
+          "kind": "fix",
+          "scope": "onboarding",
+          "title": "upsert producer so webhook is optional"
+        },
+        {
+          "hash": "52c5476",
+          "kind": "fix",
+          "scope": "web",
+          "title": "use existing --bg-elevated token in portfolio tab"
+        },
+        {
+          "hash": "339ac41",
+          "kind": "fix",
+          "scope": "web",
+          "title": "lead-link banner clipboard error path + types"
+        },
+        {
+          "hash": "be5fe8b",
+          "kind": "new",
+          "scope": "web",
+          "title": "dashboard Lead Links tab"
+        },
+        {
+          "hash": "409b3ff",
+          "kind": "fix",
+          "scope": "trpc",
+          "title": "cast magicLink.analytics median to int"
+        },
+        {
+          "hash": "ffb2a67",
+          "kind": "new",
+          "scope": "trpc",
+          "title": "magicLink.analytics aggregation procedure"
+        },
+        {
+          "hash": "fcc4164",
+          "kind": "new",
+          "scope": "web",
+          "title": "public /m/[token] landing — verify, log view, redirect"
+        },
+        {
+          "hash": "774d72e",
+          "kind": "new",
+          "scope": "trpc",
+          "title": "magicLink router (issue/list/revoke)"
+        },
+        {
+          "hash": "8f577c5",
+          "kind": "fix",
+          "scope": "web",
+          "title": "cache /p/[slug] loader + reject auto-slug profiles"
+        },
+        {
+          "hash": "5eba4da",
+          "kind": "new",
+          "scope": "web",
+          "title": "public /p/[slug] portfolio page"
+        },
+        {
+          "hash": "94957cb",
+          "kind": "new",
+          "scope": "web",
+          "title": "dashboard portfolio CRUD UI"
+        },
+        {
+          "hash": "93949b9",
+          "kind": "new",
+          "scope": "trpc",
+          "title": "portfolio router (list/create/update/delete/reorder)"
+        },
+        {
+          "hash": "6fca8c8",
+          "kind": "fix",
+          "scope": "onboarding",
+          "title": "detect 0-row update on webhook race + surface error"
+        },
+        {
+          "hash": "999bf91",
+          "kind": "new",
+          "scope": "web",
+          "title": "onboarding gate via (app) RSC layout + route-group split"
+        },
+        {
+          "hash": "e276c9e",
+          "kind": "new",
+          "scope": "web",
+          "title": "producer onboarding form + completeOnboarding Server Action"
+        },
+        {
+          "hash": "8866cc9",
+          "kind": "new",
+          "scope": "db",
+          "title": "add leads, magic_links, magic_link_views, portfolio_tracks"
+        },
+        {
+          "hash": "121d184",
+          "kind": "new",
+          "scope": "auth",
+          "title": "clerk integration + producer provisioning webhook"
+        },
+        {
+          "hash": "8a6bc27",
+          "kind": "new",
+          "scope": "db",
+          "title": "drizzle + neon + producers table with integration test"
+        },
+        {
+          "hash": "a539263",
+          "kind": "fix",
+          "scope": "desktop",
+          "title": "point Tauri shell at live Vercel production URL"
+        },
+        {
+          "hash": "35cf4fb",
+          "kind": "new",
+          "scope": "desktop",
+          "title": "tauri 2.x shell loading the web app"
+        },
+        {
+          "hash": "5f16682",
+          "kind": "new",
+          "scope": "branding",
+          "title": "theme resolver maps producer brand to CSS variables"
+        },
+        {
+          "hash": "82e6ba5",
+          "kind": "new",
+          "scope": "magic-links",
+          "title": "signed token issuer with TTL + tamper detection"
+        },
+        {
+          "hash": "d0e663a",
+          "kind": "new",
+          "scope": "api",
+          "title": "tRPC root with health.check procedure"
+        },
+        {
+          "hash": "6090029",
+          "kind": "new",
+          "scope": "web",
+          "title": "tailwind v4 + shadcn baseline with chrome-dark/room-paper themes"
+        },
+        {
+          "hash": "27be978",
+          "kind": "new",
+          "scope": "web",
+          "title": "scaffold Next.js 15 app with strict TS"
+        }
+      ]
+    }
+  ]
+}
