@@ -8,7 +8,7 @@
 
 ## 🕐 Last checkpoint
 
-**2026-04-22 — Audit Tasks 1, 2, 15, 16 all ✅ Fixed. Task 17 Phase 1 (UserButton + "← Studio" moved into its menu) shipped on PR #30. Task 17 Phase 2 (desktop sidebar + artist notification bell) + Phase 3 (`/artist/settings`) up next — Gili answered all 3 design-brief open questions.**
+**2026-04-22 — Audit Tasks 1, 2, 15, 16, 17 (all 3 phases) ✅ Fixed. PR #30 merged. Task 17 Phases 2 + 3 on new branch `feat/task-17-artist-desktop-sidebar` — awaiting Gili's preview test before merge. 5 critical/UX audit tasks closed in a single day.**
 
 ---
 

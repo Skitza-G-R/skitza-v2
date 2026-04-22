@@ -25,7 +25,8 @@ export function BottomNav() {
       // nav (not below it) so the tab icons themselves clear the gesture
       // strip on iPhone PWAs. `sk-safe-x` keeps side-landscape notches
       // from clipping the first/last tab label.
-      className="sk-safe-bottom sk-safe-x fixed inset-x-0 bottom-0 z-30 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]/95 backdrop-blur"
+      // Hidden on desktop (md+) — the ArtistSidebar replaces bottom nav.
+      className="sk-safe-bottom sk-safe-x fixed inset-x-0 bottom-0 z-30 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]/95 backdrop-blur md:hidden"
     >
       <ul className="mx-auto grid max-w-2xl grid-cols-4">
         {TABS.map((tab) => {
