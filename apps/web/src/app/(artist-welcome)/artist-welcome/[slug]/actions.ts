@@ -42,11 +42,11 @@ export async function joinArtistWorkspace(slug: string): Promise<void> {
   // trace whether this path ran on a given session when the user
   // reports "I signed up and ended up on the orphan welcome." Remove
   // once Sentry is wired (roadmap S2.3) and the flow is proven stable.
-  console.log("[joinArtistWorkspace] entry, slug:", slug);
+  console.error("[joinArtistWorkspace] entry, slug:", slug);
 
   const { userId } = await auth();
   if (!userId) {
-    console.log("[joinArtistWorkspace] no userId — redirect to /sign-in");
+    console.error("[joinArtistWorkspace] no userId — redirect to /sign-in");
     redirect(
       `/sign-in?redirect_url=/artist-welcome/${encodeURIComponent(slug)}`,
     );
@@ -78,7 +78,7 @@ export async function joinArtistWorkspace(slug: string): Promise<void> {
     .where(eq(producers.slug, slug))
     .limit(1);
   if (!producer) {
-    console.log(
+    console.error(
       "[joinArtistWorkspace] slug did not resolve to producer — redirect to /artist",
       { slug },
     );
@@ -97,7 +97,7 @@ export async function joinArtistWorkspace(slug: string): Promise<void> {
     .where(eq(producers.clerkUserId, userId))
     .limit(1);
   if (ownProducer && ownProducer.id === producer.id) {
-    console.log(
+    console.error(
       "[joinArtistWorkspace] user is the target producer — redirect to /dashboard",
       { userId, producerId: producer.id },
     );
@@ -118,7 +118,7 @@ export async function joinArtistWorkspace(slug: string): Promise<void> {
         clerkUserId: userId,
       })
       .onConflictDoNothing();
-    console.log(
+    console.error(
       "[joinArtistWorkspace] client_contacts insert complete (or no-op on conflict)",
       { producerId: producer.id, userId },
     );
@@ -145,6 +145,6 @@ export async function joinArtistWorkspace(slug: string): Promise<void> {
       ),
     );
 
-  console.log("[joinArtistWorkspace] done — redirect to /artist", { userId });
+  console.error("[joinArtistWorkspace] done — redirect to /artist", { userId });
   redirect("/artist");
 }
