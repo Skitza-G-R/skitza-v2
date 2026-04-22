@@ -85,6 +85,25 @@ export async function joinArtistWorkspace(slug: string): Promise<void> {
     redirect("/artist");
   }
 
+  // Self-join edge case: the signed-in user's OWN producer row has the
+  // same slug they're trying to join. This happens when a producer
+  // signs into their own /join/<slug> link (usually while testing).
+  // Making them a client of themselves creates a confusing dual-role
+  // row in client_contacts. Bounce them to their producer dashboard
+  // instead — that's where they actually belong.
+  const [ownProducer] = await db
+    .select({ id: producers.id })
+    .from(producers)
+    .where(eq(producers.clerkUserId, userId))
+    .limit(1);
+  if (ownProducer && ownProducer.id === producer.id) {
+    console.log(
+      "[joinArtistWorkspace] user is the target producer — redirect to /dashboard",
+      { userId, producerId: producer.id },
+    );
+    redirect("/dashboard");
+  }
+
   // Upsert the client_contacts row. The UNIQUE(producer_id, email_hash)
   // constraint + onConflictDoNothing means re-running this (e.g. if
   // the webhook already fired) is a safe no-op.

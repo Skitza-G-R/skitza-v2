@@ -50,10 +50,22 @@ export default async function JoinSignUpPage({ params }: Props) {
   //
   // `fallbackRedirectUrl` IS URL-encoded — Next's router handles the
   // final navigation and expects a valid URL.
+  // If the user's email is already registered, Clerk shows an
+  // "Already have an account? Sign in" affordance that navigates to
+  // signInUrl. We want that navigation to preserve the /join context
+  // so post-sign-in they land back at /artist-welcome/<slug> — where
+  // our auto-redirect page will stamp their client_contacts row and
+  // send them to /artist. Otherwise they'd fall into the default
+  // producer flow (dashboard → onboarding), which is wrong for a user
+  // who clearly came via an artist invite link.
+  const signInHref = `/sign-in?redirect_url=${encodeURIComponent(
+    `/artist-welcome/${slug}`,
+  )}`;
+
   return (
     <SignUp
       path={`/sign-up/join/${slug}`}
-      signInUrl="/sign-in"
+      signInUrl={signInHref}
       fallbackRedirectUrl={`/artist-welcome/${encodeURIComponent(slug)}`}
       unsafeMetadata={{ signupOrigin: "join", producerSlug: slug }}
     />

@@ -43,10 +43,18 @@ vi.mock("@clerk/nextjs/server", () => ({
     ),
 }));
 
-// DB chain mocks. Track SELECT result for producer lookup + INSERT
-// into client_contacts (values) + UPDATE (set + where args).
-let producerLookupResult: Array<{ id: string }> = [];
-const producerSelectMock = vi.fn(() => Promise.resolve(producerLookupResult));
+// DB chain mocks. The action now makes TWO distinct SELECT calls:
+//   1) producer lookup by slug (the target producer)
+//   2) own producer lookup by clerkUserId (self-join detection — if
+//      the target is the user's own producer row, bounce to /dashboard)
+// Use a FIFO queue so each test can stage the results both calls
+// should return. Queue is drained in order — first select consumes
+// the first element, second select consumes the next.
+let selectQueue: Array<Array<{ id: string }>> = [];
+const producerSelectMock = vi.fn(() => {
+  const next = selectQueue.shift() ?? [];
+  return Promise.resolve(next);
+});
 
 const insertValuesMock = vi.fn();
 const insertOnConflictMock = vi.fn(() => Promise.resolve());
@@ -95,7 +103,10 @@ beforeEach(() => {
   mockUserId = "user_test_artist";
   mockEmail = "ada@example.com";
   mockFirstName = "Ada";
-  producerLookupResult = [{ id: "producer-target-1" }];
+  // Default queue: slug lookup finds the target producer; own-producer
+  // lookup finds nothing (user isn't a producer — normal artist path).
+  selectQueue = [[{ id: "producer-target-1" }], []];
+  producerSelectMock.mockClear();
   insertMock.mockClear();
   insertValuesMock.mockClear();
   insertOnConflictMock.mockClear();
@@ -159,12 +170,44 @@ describe("joinArtistWorkspace (webhook-race fix)", () => {
   });
 
   it("redirects to /artist (safe fallback) when slug doesn't resolve to a producer", async () => {
-    producerLookupResult = []; // producer not found
+    // Slug lookup returns empty → action short-circuits before the
+    // own-producer lookup fires.
+    selectQueue = [[]];
     const target = await runAction("does-not-exist");
     // Safe fallback — artist lands on /artist and sees the generic
     // orphan welcome if they have no other studios. Better than 500.
     expect(target).toBe("/artist");
     expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("redirects to /dashboard when the user's OWN producer has this slug (self-join edge)", async () => {
+    // Scenario: a producer signs into their own /join/<slug> link
+    // (usually while testing). The action should detect that the
+    // target producer IS the current user's producer row and bounce
+    // to /dashboard instead of creating a weird self-client row.
+    selectQueue = [
+      [{ id: "producer-self" }], // slug lookup: target producer
+      [{ id: "producer-self" }], // own producer lookup: SAME id
+    ];
+    const target = await runAction("my-own-slug");
+    expect(target).toBe("/dashboard");
+    // Critical: no client_contacts insert for the self-join case.
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("still inserts client_contacts when the user is a producer of a DIFFERENT studio (dual-role legit)", async () => {
+    // Scenario: producer X signs into producer Y's /join link. They
+    // legitimately want to become Y's artist. Insert should fire.
+    selectQueue = [
+      [{ id: "producer-Y-target" }], // slug lookup
+      [{ id: "producer-X-self" }], // own producer lookup: different id
+    ];
+    const target = await runAction("producer-Y");
+    expect(target).toBe("/artist");
+    expect(insertMock).toHaveBeenCalledOnce();
+    const values = insertValuesMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(values.producerId).toBe("producer-Y-target");
   });
 
   it("trims + lowercases the email before hashing (matches the webhook's idiom)", async () => {
