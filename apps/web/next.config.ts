@@ -1,4 +1,5 @@
 import createNextIntlPlugin from "next-intl/plugin";
+import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 // next-intl integration — threads the request-config loader so RSCs
@@ -77,6 +78,63 @@ const config: NextConfig = {
       },
     ];
   },
+
+  // PostHog proxy rewrites. Routes /ingest/* to PostHog's
+  // ingestion endpoints so the browser talks to our own origin
+  // instead of app.posthog.com — bypasses aggressive ad-blockers
+  // that kill product analytics on /i.posthog.com. See PostHog's
+  // recommended Next.js pattern.
+  //
+  // NEXT_PUBLIC_POSTHOG_HOST should be the REGION host — e.g.
+  // https://us.i.posthog.com (US) or https://eu.i.posthog.com (EU).
+  // If unset, rewrites degrade to passthroughs (won't break anything).
+  async rewrites() {
+    const host =
+      process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
+    return [
+      { source: "/ingest/static/:path*", destination: `${host}/static/:path*` },
+      { source: "/ingest/:path*", destination: `${host}/:path*` },
+      {
+        source: "/ingest/decide",
+        destination: `${host}/decide`,
+      },
+    ];
+  },
+  // PostHog needs trailing-slash handling flipped so the rewrites
+  // above don't hit the default 308 redirect before reaching PostHog.
+  skipTrailingSlashRedirect: true,
 };
 
-export default withNextIntl(config);
+// Compose: next-intl on the inside, Sentry on the outside. Sentry's
+// build-time source-map upload hooks into the Next.js webpack config,
+// which next-intl's wrapper also touches. Nesting in this order means
+// both plugins see the final config object.
+//
+// 2026-04-22 — audit Task 14 (observability). If SENTRY_AUTH_TOKEN
+// and org/project slugs aren't set (local dev, preview without
+// secrets), withSentryConfig silently skips the source-map upload
+// step but still produces a working build.
+// Compose the Sentry options via conditional spread so undefined env
+// vars don't clash with `exactOptionalPropertyTypes: true` in tsconfig.
+// Only include each field when it's actually set.
+const sentryBuildOptions = {
+  ...(process.env.SENTRY_ORG ? { org: process.env.SENTRY_ORG } : {}),
+  ...(process.env.SENTRY_PROJECT
+    ? { project: process.env.SENTRY_PROJECT }
+    : {}),
+  ...(process.env.SENTRY_AUTH_TOKEN
+    ? { authToken: process.env.SENTRY_AUTH_TOKEN }
+    : {}),
+  // Keeps bundle small by stripping Sentry's internal debug logging.
+  disableLogger: true,
+  // Don't fail the build if source-map upload errors. Sentry
+  // recommends this for CI reliability — missing source maps
+  // degrade error-readability but don't block deploys.
+  silent: !process.env.CI,
+  // Tunnel client-side SDK requests through our origin for the
+  // same ad-blocker-bypass reason as the PostHog rewrites.
+  tunnelRoute: "/monitoring",
+  widenClientFileUpload: true,
+};
+
+export default withSentryConfig(withNextIntl(config), sentryBuildOptions);

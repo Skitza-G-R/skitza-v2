@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Fraunces, Outfit, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
+import { PostHogProvider } from "~/components/observability/posthog-provider";
 import { SwRegister } from "~/components/shell/sw-register";
 import { ToastProvider } from "~/components/ui/toast";
 import "./globals.css";
@@ -180,7 +181,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 visits by serving the shell + Next.js chunks from
                 cache. Fails open in unsupported environments. */}
             <SwRegister />
-            <ToastProvider>{children}</ToastProvider>
+            {/* PostHog product analytics. Mounted INSIDE ClerkProvider
+                so its identify-hook can read `useUser()` without a
+                separate provider boundary. No-ops when
+                NEXT_PUBLIC_POSTHOG_KEY is unset (dev / preview
+                without secrets). 2026-04-22 — audit Task 14. */}
+            <PostHogProvider>
+              <ToastProvider>{children}</ToastProvider>
+            </PostHogProvider>
           </ThemeProvider>
         </body>
       </html>
