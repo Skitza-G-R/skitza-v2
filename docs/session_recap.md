@@ -1,30 +1,39 @@
 # Session Recap — Live Handoff State
 
 > **READ THIS FIRST at the start of every session.** This file is a rolling snapshot of the current project state. It's overwritten at every checkpoint so it always reflects "right now." If you need history, `git log` this file.
->
-> **For Claude**: you are required to update this file at natural checkpoints (see `CLAUDE.md` § Session handoff protocol). For the user: this is the answer to "where did we stop?"
 
 ---
 
 ## 🕐 Last checkpoint
 
-**2026-04-22 — Audit Tasks 1, 2, 15, 16 all ✅ Fixed. Task 17 Phase 1 (UserButton + "← Studio" moved into its menu) shipped on PR #30. Task 17 Phase 2 (desktop sidebar + artist notification bell) + Phase 3 (`/artist/settings`) up next — Gili answered all 3 design-brief open questions.**
+**2026-04-22 late — PR #31 closed without merging. Back on `main`. Overnight execution plan drafted at [`docs/plans/active/2026-04-22-overnight-execution-plan.md`](plans/active/2026-04-22-overnight-execution-plan.md) — awaiting Gili's go-ahead.**
 
 ---
 
-## ✅ What we just finished
+## ✅ What landed today on main (via PR #30, commit `3662a2b`)
 
-**Task 16 — Strict role isolation (🔴 critical, done today):**
-- **`resolveUserRole` helper** (`apps/web/src/server/auth/role.ts`) — pure function classifying every authed user as `unauthenticated` / `artist` / `producer-incomplete` / `producer-complete` / `orphan`. 8 unit tests, RED-verified first.
-- **`/onboarding` layout gate** — new `decide-redirect.ts` policy (5 tests) wired into the layout. Artists typing `/onboarding` now redirect to `/artist`; fully-onboarded producers redirect to `/dashboard`.
-- **`completeOnboarding` action hardening** — server-side role check rejects artists even if they craft a raw POST (closes the Q2 hole Gili asked me to close). 3 new tests.
-- **16 new tests total, strict TDD everywhere.** Full suite: **611 passed / 4 skipped / 0 failed** (up from 595).
+- **Task 1** — Migration 0031 applied to prod DB.
+- **Task 2** — `publicProfile.forJoin` try/catch + RED-verified resilience test.
+- **Task 15** — `/join` signup routes to Artist identity (3-layer fix: `/sign-up/join/<slug>` catch-all, Clerk webhook branches on `unsafeMetadata`, `(app)/layout` role-based redirects).
+- **Task 16** — Strict role isolation: `resolveUserRole` helper + `/onboarding` gate + action hardening + 16 new tests.
+- **Task 17 Phase 1** — UserButton in artist shell + "Producer dashboard" menu item for dual-role users.
+- Paper trail: `docs/audit-report.md` + `CLAUDE.md` mistake log kept current.
 
-**Task 17 — Design brief published, not built yet:**
-- Scope confirmed with Gili: Option C (full rebuild) but **artist-only feature set**. Desktop sidebar chrome matching producer side, mobile stays PWA-style bottom nav.
-- Design brief at [`docs/plans/active/2026-04-22-artist-ui-rebuild-design.md`](plans/active/2026-04-22-artist-ui-rebuild-design.md).
-- 3-phase implementation plan (UserButton unblock → desktop sidebar → settings page).
-- **3 open questions for Gili in §7 of the brief.**
+---
+
+## ❌ What we abandoned today (branch `feat/task-17-artist-desktop-sidebar`, PR #31 closed)
+
+Spent several hours trying to fix bugs Gili caught during manual QA:
+- `/sign-in` `forceRedirectUrl` bug (fix trivially correct but bundled)
+- `/artist-welcome` (no slug) had no role guard for authed users with real studios
+- Webhook race on `/artist-welcome/<slug>` (fast-clickers beat the Clerk webhook)
+- My own `(artist)/layout` self-heal created an infinite redirect loop
+
+Task 17 Phases 2 + 3 (desktop sidebar + `/artist/settings`) were also built on that branch but went down with it.
+
+**Root lesson:** can't fix production Clerk/webhook bugs without observability. Every attempt looked green in tests but failed in prod with no diagnosable signal. → Sentry is Task 1 of the overnight plan.
+
+**Branch preserved on GitHub** for later salvage when the surrounding bugs are properly diagnosed.
 
 ---
 
@@ -32,67 +41,81 @@
 
 | Thing | State |
 |---|---|
-| **Active branch** | `fix/audit-tasks-2-15-artist-signup` — contains Tasks 1 + 2 + 15 + 16 |
-| **Open PR** | [#30](https://github.com/giasraf/skitza-v2/pull/30) — preview URL auto-updates per push |
-| **Production DB** | ✅ Migrated through 0031 |
-| **Typecheck** | ✅ Passes |
-| **Lint** | ✅ Passes |
-| **Tests** | ✅ 611 passed / 4 skipped / 0 failed |
-| **Launch clock** | Day 2 of 12-week post-launch roadmap; target revenue July 10, 2026 |
+| **Active branch** | `main` |
+| **HEAD** | `3662a2b` (PR #30 merge) |
+| **Working tree** | Clean except this recap + the overnight plan |
+| **Open PRs** | None |
+| **Typecheck** | ✅ |
+| **Lint** | ✅ |
+| **Tests** | ✅ 623 pass / 4 skipped / 0 fail |
+| **Audit status** | 5 ✅ Fixed (Tasks 1, 2, 15, 16, 17.1) · 12 ⏳ Pending · 17 total |
+| **Launch clock** | Day 2 of 12-week post-launch roadmap |
 
 ---
 
-## 🎯 What's next (in order)
+## 🟠 Known bugs still on main
 
-1. **👤 Gili re-tests the full /join signup flow on the preview URL** — Tasks 15 v2 + 16 both live in the branch. Expected:
-   - Signup via `/join/<slug>` completes (email verification works, no white page).
-   - New artist lands on `/artist-welcome/<slug>` → `/artist` (artist home renders).
-   - Typing `/dashboard` redirects to `/artist` ✓
-   - **NEW:** typing `/onboarding` ALSO redirects to `/artist` (Task 16's main win) ✓
-2. **👤 Gili reviews Task 17 design brief + answers 3 open questions** in §7 of the brief (collapsible sidebar, notifications, settings-tab-on-mobile).
-3. **🤖 Claude implements Task 17 in 3 phases**, per the brief. Each phase is a separate commit on the same PR branch.
-4. **👤 Gili merges PR #30** once Task 17 lands. Closes audit Tasks 1 + 2 + 15 + 16 + 17 in one PR.
-5. **Remaining audit items**: 10 tasks still ⏳ Pending. Next-highest impact:
-   - Task 10 (landing placeholder content — credibility win, ~30 min)
-   - Task 4 (onboarding 4 vs 5 steps — spec drift, ~1-2h)
-   - Task 7 (Privacy + Terms counsel-reviewed — pre-launch legal)
+Parked until Task 14 (Sentry) lands and we can diagnose them with real logs:
 
-Full list: [`docs/audit-report.md`](audit-report.md).
+1. `/sign-in` has `forceRedirectUrl="/dashboard"` — ignores `redirect_url` query param. Same pattern we fixed on `/sign-up` earlier today but the `/sign-in` one slipped through.
+2. `/artist-welcome` (no slug) renders orphan copy even for authed users with real studios (no role check).
+3. Webhook race on `/artist-welcome/<slug>` — fast-clickers can land on `/artist` before their `client_contacts` row exists.
+
+These don't break the producer side. Real artist clients hit the webhook-race window ~5% of the time at most (most wait a second on the welcome splash). Fix properly with Sentry data after Task 14.
+
+---
+
+## 🎯 What's next — overnight plan is drafted
+
+See [`docs/plans/active/2026-04-22-overnight-execution-plan.md`](plans/active/2026-04-22-overnight-execution-plan.md) for the full brief. Summary:
+
+**5 overnight-safe tasks, priority order:**
+- **Task A** — Sentry + PostHog install (audit Task 14) — 1-2h — **do first**
+- **Task B** — Ship 6-8 missing Resend email templates (audit Task 13) — 3-4h
+- **Task C** — Wire Quick Note modal to DB (audit Task 11) — 1-2h
+- **Task D** — Auto-generated changelog via GitHub Actions (audit Task 8) — 1-2h
+- **Task E** — Wire 3 Autopilot cron TODO behaviors (audit Task 12) — 2-3h
+
+**Quarantine list** — DO NOT touch overnight (implicated in the artist-welcome ping-pong, need Sentry first):
+- `apps/web/src/app/(auth)/sign-in/*`, `/sign-up/*`
+- `apps/web/src/app/(artist)/artist/layout.tsx`
+- `apps/web/src/app/(artist-welcome)/**/*`
+- `apps/web/src/app/api/webhooks/clerk/**/*`
+
+**Tasks parked for Gili's input** (not overnight):
+- Task 3 (S04 UI), 4 (onboarding 5-step), 5 (refund-policy content), 6 (cookie banner), 7 (legal copy), 9 (kill /dashboard/booking), 10 (landing copy), 17 Phases 2+3 (abandoned today)
 
 ---
 
 ## 🧠 Context that matters right now
 
 - **🔴 Runway: ~3 months.** Revenue by July 2026 is non-negotiable.
-- **Paper-trail discipline (proven today):** every audit fix updates `docs/audit-report.md` in the same commit. Tasks 16 Fix Log + Task 17 design brief captured alongside the code.
-- **TDD rule reinforced**: Task 16 went RED-first for every new behavior (3 separate RED verifications: resolveUserRole, decide-redirect, action hardening). No vacuous tests.
-- **Migration journal still broken**: continue using `node packages/db/apply-migrations.mjs` until someone repairs `_journal.json`.
-- **Auto mode is on**: continuous execution with manual verification checkpoints.
-- **BMAD enforcement** active on `main`. Task 17 correctly went through the full BMAD flow (Analyst → PM → Architect → *waiting on user* → Dev).
+- **Observability is now the #1 priority.** Today's 8-hour ping-pong on artist-welcome happened because we were flying blind. Sentry first.
+- **Quarantine discipline.** Don't touch auth/webhook/artist-welcome files until Sentry is live and Gili's reviewed the data.
+- **BMAD remains active on main** (hook + skill + hard-gate).
+- **Migration journal still broken** — continue using `node packages/db/apply-migrations.mjs`.
+- **TDD rule:** failing test first, RED-verified via seeing the failure message, then GREEN. Pure-config tasks (Sentry install) can skip.
 
 ---
 
 ## 🔑 How to resume from cold
 
-1. Read this file (you're here).
+1. Read this file.
 2. Read [CLAUDE.md](../CLAUDE.md) — auto-loaded.
-3. Read [docs/audit-report.md](audit-report.md) — 17-task paper trail + per-task fix logs.
-4. Read [docs/INDEX.md](INDEX.md) for the master map.
-5. Read [docs/plans/active/](plans/active/) — Task 17 design brief lives here.
-6. Run `git status && git log --oneline -10 && gh pr list --state open`.
-7. Default next action: check if Gili has answered Task 17's §7 questions. If yes, start Phase 1 implementation. If no, wait.
+3. Read [docs/plans/active/2026-04-22-overnight-execution-plan.md](plans/active/2026-04-22-overnight-execution-plan.md) — tonight's brief.
+4. Read [docs/audit-report.md](audit-report.md) — 17-task status.
+5. `git status && gh pr list --state open` — confirm clean.
+6. If overnight execution is in progress, continue from the next-task marker in the overnight plan. Otherwise wait for Gili's go-ahead.
 
 ---
 
 ## 📋 Files to glance at if diving back in
 
-- [docs/audit-report.md](audit-report.md) — **the paper trail** (17 tasks, status, fix logs)
-- [docs/plans/active/2026-04-22-artist-ui-rebuild-design.md](plans/active/2026-04-22-artist-ui-rebuild-design.md) — Task 17 design brief (pending Gili)
-- [apps/web/src/server/auth/role.ts](../apps/web/src/server/auth/role.ts) — Task 16 shared role resolver
-- [apps/web/src/app/(onboarding)/onboarding/decide-redirect.ts](../apps/web/src/app/(onboarding)/onboarding/decide-redirect.ts) — Task 16 routing policy
-- [apps/web/src/app/(onboarding)/onboarding/actions.ts](../apps/web/src/app/(onboarding)/onboarding/actions.ts) — Task 16 action hardening
-- [docs/plans/active/2026-04-21-post-launch-roadmap.md](plans/active/2026-04-21-post-launch-roadmap.md) — the 12-week plan
+- [docs/plans/active/2026-04-22-overnight-execution-plan.md](plans/active/2026-04-22-overnight-execution-plan.md) — **the brief**
+- [docs/audit-report.md](audit-report.md) — 17-task tracker
+- [docs/plans/active/2026-04-21-post-launch-roadmap.md](plans/active/2026-04-21-post-launch-roadmap.md) — 12-week plan
 - [docs/product/PRD.md](product/PRD.md) — normative spec
+- [docs/INDEX.md](INDEX.md) — master map
 
 ---
 
