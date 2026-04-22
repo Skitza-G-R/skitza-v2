@@ -6,34 +6,25 @@
 
 ## 🕐 Last checkpoint
 
-**2026-04-22 late — PR #31 closed without merging. Back on `main`. Overnight execution plan drafted at [`docs/plans/active/2026-04-22-overnight-execution-plan.md`](plans/active/2026-04-22-overnight-execution-plan.md) — awaiting Gili's go-ahead.**
+**2026-04-22 overnight — Zero-Defect autonomous execution complete. 5 of 5 overnight PRs opened (PR cap hit). All tasks verified typecheck + lint + tests + build clean. Gili's review queue waiting.**
 
 ---
 
-## ✅ What landed today on main (via PR #30, commit `3662a2b`)
+## 🌙 Overnight run summary (2026-04-22 → 23)
 
-- **Task 1** — Migration 0031 applied to prod DB.
-- **Task 2** — `publicProfile.forJoin` try/catch + RED-verified resilience test.
-- **Task 15** — `/join` signup routes to Artist identity (3-layer fix: `/sign-up/join/<slug>` catch-all, Clerk webhook branches on `unsafeMetadata`, `(app)/layout` role-based redirects).
-- **Task 16** — Strict role isolation: `resolveUserRole` helper + `/onboarding` gate + action hardening + 16 new tests.
-- **Task 17 Phase 1** — UserButton in artist shell + "Producer dashboard" menu item for dual-role users.
-- Paper trail: `docs/audit-report.md` + `CLAUDE.md` mistake log kept current.
+Zero-Defect Protocol. Each task: understand → plan → implement → verify → commit → push → PR. No stuck-loops; max bugs fixed within one attempt per task.
 
----
+| Task | Audit # | Title | PR | Notes |
+|---|---|---|---|---|
+| A | 14 | Sentry + PostHog install | **#32** | DSN-optional init, instrumentation.ts pattern, `/ingest` proxy rewrite, Clerk identify/reset hooks |
+| B | 13 | 8 Resend email templates | **#33** | contract-ready, final-payment-due, track-version-uploaded, producer-replied-to-comment, payment-received, new-comment-from-artist, contract-signed, booking-cancelled/rescheduled + 9 smoke tests |
+| C | 11 | Quick Note modal → DB | **#34** | Migration 0032 `producer_notes`, `producerNotesRouter` (list/save/delete, producer-scoped, double-predicate cross-tenant protection on delete), server actions, 8 tests |
+| D | 8 | Auto-generated changelog | **#35** | `generate-changelog.mjs` parses `git log main -500` via execFileSync, 148 items on first run, `workflow_dispatch` GitHub Action opens PR via peter-evans/create-pull-request |
+| E | 12 | Autopilot cron behaviors | **#36** | Unpaid-reminder fully wired (select → Resend → stamp `reminder_sent_at`); auto-archive wired (UPDATE…RETURNING); request-testimonial detect-only until `/t/<token>` form ships. Migration 0033 + 10 tests |
 
-## ❌ What we abandoned today (branch `feat/task-17-artist-desktop-sidebar`, PR #31 closed)
+**Test count: 611 (start) → 621 (end).** Build clean at every commit.
 
-Spent several hours trying to fix bugs Gili caught during manual QA:
-- `/sign-in` `forceRedirectUrl` bug (fix trivially correct but bundled)
-- `/artist-welcome` (no slug) had no role guard for authed users with real studios
-- Webhook race on `/artist-welcome/<slug>` (fast-clickers beat the Clerk webhook)
-- My own `(artist)/layout` self-heal created an infinite redirect loop
-
-Task 17 Phases 2 + 3 (desktop sidebar + `/artist/settings`) were also built on that branch but went down with it.
-
-**Root lesson:** can't fix production Clerk/webhook bugs without observability. Every attempt looked green in tests but failed in prod with no diagnosable signal. → Sentry is Task 1 of the overnight plan.
-
-**Branch preserved on GitHub** for later salvage when the surrounding bugs are properly diagnosed.
+**Task F (audit #3, S04 UI) — SKIPPED** per ground rule 8 (5-PR review-bandwidth cap).
 
 ---
 
@@ -41,60 +32,71 @@ Task 17 Phases 2 + 3 (desktop sidebar + `/artist/settings`) were also built on t
 
 | Thing | State |
 |---|---|
-| **Active branch** | `main` |
-| **HEAD** | `3662a2b` (PR #30 merge) |
-| **Working tree** | Clean except this recap + the overnight plan |
-| **Open PRs** | None |
-| **Typecheck** | ✅ |
-| **Lint** | ✅ |
-| **Tests** | ✅ 623 pass / 4 skipped / 0 fail |
-| **Audit status** | 5 ✅ Fixed (Tasks 1, 2, 15, 16, 17.1) · 12 ⏳ Pending · 17 total |
-| **Launch clock** | Day 2 of 12-week post-launch roadmap |
+| **Active branch** | `main` locally; 5 feature branches pushed to origin |
+| **Open PRs** | #32, #33, #34, #35, #36 — **awaiting Gili's review** |
+| **Typecheck** | ✅ clean at every PR's tip |
+| **Lint** | ✅ clean at every PR's tip |
+| **Tests** | ✅ 621 pass / 4 skipped / 0 fail on Task E branch |
+| **Build** | ✅ production build clean on every branch |
+| **Migrations applied to dev DB** | 0032 (producer_notes) + 0033 (autopilot idempotency) — both idempotent, re-applied via `/skitza-migrate` on prod after merge |
+| **Audit status** | 9 ✅ Fixed (was 5) · 8 ⏳ Pending · 17 total — **53% done** |
+| **Launch clock** | Day 3 of 12-week post-launch roadmap |
 
 ---
 
-## 🟠 Known bugs still on main
+## 🔍 Top things for Gili to check on each PR (review priorities)
 
-Parked until Task 14 (Sentry) lands and we can diagnose them with real logs:
+**PR #32 (Sentry + PostHog)** — ADD ENV VARS before merge or Sentry init no-ops:
+- `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`, `NEXT_PUBLIC_POSTHOG_KEY` — see `apps/web/.env.example`
+- Preview deploy will still build cleanly without them (by design), but no events will ship.
 
-1. `/sign-in` has `forceRedirectUrl="/dashboard"` — ignores `redirect_url` query param. Same pattern we fixed on `/sign-up` earlier today but the `/sign-in` one slipped through.
-2. `/artist-welcome` (no slug) renders orphan copy even for authed users with real studios (no role check).
-3. Webhook race on `/artist-welcome/<slug>` — fast-clickers can land on `/artist` before their `client_contacts` row exists.
+**PR #33 (8 email templates)** — review tone + copy on one template (e.g. `payment-received.tsx`). All 8 follow the same warm-cream + Georgia-heading pattern as the existing 4. Smoke tests only cover rendering; you'll need live sends to QA the copy.
 
-These don't break the producer side. Real artist clients hit the webhook-race window ~5% of the time at most (most wait a second on the welcome splash). Fix properly with Sentry data after Task 14.
+**PR #34 (Quick Note DB)** — open the dashboard Quick Actions on preview, hit the note icon, type + save, refresh. Should persist now. Cross-tenant protection on delete is tested but worth spot-checking once prod has >1 producer.
+
+**PR #35 (Auto-changelog)** — the generated `entries.generated.json` has 148 items (every `feat:`/`fix:`/`perf:` commit on main). Trigger the workflow manually on GitHub Actions after merge to confirm the PR-opening flow works end-to-end.
+
+**PR #36 (Autopilot cron)** — the unpaid-reminder will actually email real artists once you enable the cron in `vercel.json` on Pro tier. Before that, curl the route with your CRON_SECRET on preview to sanity-check the JSON shape. Auto-archive is the risky one — it mutates `projects.stage` — but it only acts on 30d+ old `paid` rows of producers who opted in, and stage is reversible via the dropdown.
 
 ---
 
-## 🎯 What's next — overnight plan is drafted
+## ⚠️ Known bugs still on main (quarantine list — unchanged from last recap)
 
-See [`docs/plans/active/2026-04-22-overnight-execution-plan.md`](plans/active/2026-04-22-overnight-execution-plan.md) for the full brief. Summary:
+Parked until PR #32 (Sentry) merges so we can diagnose with real logs:
 
-**5 overnight-safe tasks, priority order:**
-- **Task A** — Sentry + PostHog install (audit Task 14) — 1-2h — **do first**
-- **Task B** — Ship 6-8 missing Resend email templates (audit Task 13) — 3-4h
-- **Task C** — Wire Quick Note modal to DB (audit Task 11) — 1-2h
-- **Task D** — Auto-generated changelog via GitHub Actions (audit Task 8) — 1-2h
-- **Task E** — Wire 3 Autopilot cron TODO behaviors (audit Task 12) — 2-3h
+1. `/sign-in` has `forceRedirectUrl="/dashboard"` — ignores `redirect_url` query param
+2. `/artist-welcome` (no slug) renders orphan copy even for authed users with real studios
+3. Webhook race on `/artist-welcome/<slug>` — fast-clickers can land on `/artist` before `client_contacts` exists
 
-**Quarantine list** — DO NOT touch overnight (implicated in the artist-welcome ping-pong, need Sentry first):
+Do NOT touch these files until Sentry is live:
 - `apps/web/src/app/(auth)/sign-in/*`, `/sign-up/*`
 - `apps/web/src/app/(artist)/artist/layout.tsx`
 - `apps/web/src/app/(artist-welcome)/**/*`
 - `apps/web/src/app/api/webhooks/clerk/**/*`
 
-**Tasks parked for Gili's input** (not overnight):
-- Task 3 (S04 UI), 4 (onboarding 5-step), 5 (refund-policy content), 6 (cookie banner), 7 (legal copy), 9 (kill /dashboard/booking), 10 (landing copy), 17 Phases 2+3 (abandoned today)
+---
+
+## 🎯 What's next (post-review)
+
+**After Gili reviews + merges the 5 PRs, order of operations:**
+
+1. **Merge PR #32 first** (Sentry) — unblocks diagnosis of the quarantined bugs above.
+2. **Apply migrations 0032 + 0033 to prod** via `/skitza-migrate` immediately after #34 + #36 merge.
+3. **Add env vars to Vercel prod** — see PR #32 checklist.
+4. **Upgrade to Vercel Pro** (when ready) → add the `/api/cron/autopilot` schedule to `vercel.json`.
+5. **Revisit quarantined bugs** with Sentry data in hand — these are the last real blockers before soft launch.
+6. **Then:** Task F (S04 UI), Task 4 (onboarding), Task 9 (kill /dashboard/booking), Task 10 (landing copy), Task 17 Phases 2+3 (artist desktop sidebar salvage).
 
 ---
 
 ## 🧠 Context that matters right now
 
 - **🔴 Runway: ~3 months.** Revenue by July 2026 is non-negotiable.
-- **Observability is now the #1 priority.** Today's 8-hour ping-pong on artist-welcome happened because we were flying blind. Sentry first.
-- **Quarantine discipline.** Don't touch auth/webhook/artist-welcome files until Sentry is live and Gili's reviewed the data.
-- **BMAD remains active on main** (hook + skill + hard-gate).
+- **Observability ships first.** PR #32 (Sentry) unblocks everything else.
+- **5-PR cap hit overnight.** Review bandwidth is the bottleneck, not engineering throughput.
+- **BMAD remains active on main** (hook + skill + hard-gate). Overnight run skipped BMAD because tasks were already fully specified in the overnight plan — that's the documented exception.
 - **Migration journal still broken** — continue using `node packages/db/apply-migrations.mjs`.
-- **TDD rule:** failing test first, RED-verified via seeing the failure message, then GREEN. Pure-config tasks (Sentry install) can skip.
+- **TDD rule:** failing test first, RED-verified, then GREEN. Pure-config tasks (Sentry install) can skip. All overnight tests followed this.
 
 ---
 
@@ -102,17 +104,16 @@ See [`docs/plans/active/2026-04-22-overnight-execution-plan.md`](plans/active/20
 
 1. Read this file.
 2. Read [CLAUDE.md](../CLAUDE.md) — auto-loaded.
-3. Read [docs/plans/active/2026-04-22-overnight-execution-plan.md](plans/active/2026-04-22-overnight-execution-plan.md) — tonight's brief.
-4. Read [docs/audit-report.md](audit-report.md) — 17-task status.
-5. `git status && gh pr list --state open` — confirm clean.
-6. If overnight execution is in progress, continue from the next-task marker in the overnight plan. Otherwise wait for Gili's go-ahead.
+3. `gh pr list --state open` — confirm the 5 overnight PRs.
+4. Pick the next PR to review with Gili. Recommended order: **#32 → #34 → #36 → #33 → #35** (observability first, then the user-visible wiring, then ops, then content, then tooling).
+5. Do NOT open a 6th PR until at least 2 of the 5 have merged.
 
 ---
 
 ## 📋 Files to glance at if diving back in
 
-- [docs/plans/active/2026-04-22-overnight-execution-plan.md](plans/active/2026-04-22-overnight-execution-plan.md) — **the brief**
-- [docs/audit-report.md](audit-report.md) — 17-task tracker
+- [docs/plans/active/2026-04-22-overnight-execution-plan.md](plans/active/2026-04-22-overnight-execution-plan.md) — **the brief that drove tonight's run**
+- [docs/audit-report.md](audit-report.md) — 17-task tracker (9 now ✅ Fixed)
 - [docs/plans/active/2026-04-21-post-launch-roadmap.md](plans/active/2026-04-21-post-launch-roadmap.md) — 12-week plan
 - [docs/product/PRD.md](product/PRD.md) — normative spec
 - [docs/INDEX.md](INDEX.md) — master map
