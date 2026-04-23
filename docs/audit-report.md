@@ -33,7 +33,8 @@
 | 15 | `/join/<slug>` signup registers visitor as Producer, not Artist | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | Webhook + layout + routes rewritten; 11 new tests, full TDD. Fix v2 added catch-all + `path` prop |
 | 16 | Artist role not isolated — can navigate to producer routes (e.g. `/onboarding`) | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | `resolveUserRole` helper + hardened `/onboarding` layout + defense-in-depth action check. 16 new tests, strict TDD |
 | 17 | Artist UI missing UserButton + needs full desktop parity | 🟠 | ⏸ Phase 1 shipped, 2+3 abandoned | 2026-04-22 (Phase 1 only) | *(PR #30)* | Phase 1 (UserButton) ✅ shipped. Phase 2 (desktop sidebar) + Phase 3 (settings page) built on branch `feat/task-17-artist-desktop-sidebar` (PR #31 closed unmerged 2026-04-22 after artist-welcome ping-pong). Branch preserved on GitHub for later salvage. Revisit after Task 14 (Sentry) lands so we can diagnose the surrounding bugs properly. |
-| 18 | `/dashboard/projects/[id]` crashes for every project — RSC boundary violation | 🔴 | ✅ Fixed | 2026-04-23 | *(PR pending)* | Server page called `isProjectSubTabId()` imported from `project-sub-tabs.tsx` (`"use client"`). RSC forbids calling a client-module function from server code. Fix: extracted pure types + type-guard into new server-safe module `project-sub-tab-shared.ts`; client `.tsx` now re-exports from it; server page imports the guard from shared. First bug caught end-to-end by the new Sentry + Vercel runtime-logs wiring. 5 new tests (type-guard behavior + "no 'use client' directive" invariant). |
+| 18 | `/dashboard/projects/[id]` crashes for every project — RSC boundary violation | 🔴 | ✅ Fixed | 2026-04-23 | *(PR #39)* | Server page called `isProjectSubTabId()` imported from `project-sub-tabs.tsx` (`"use client"`). RSC forbids calling a client-module function from server code. Fix: extracted pure types + type-guard into new server-safe module `project-sub-tab-shared.ts`; client `.tsx` now re-exports from it; server page imports the guard from shared. First bug caught end-to-end by the new Sentry + Vercel runtime-logs wiring. 5 new tests (type-guard behavior + "no 'use client' directive" invariant). |
+| 19 | Audio upload fails with "Failed to fetch" — R2 bucket has no CORS policy | 🔴 | ✅ Fixed | 2026-04-23 | *(PR pending)* | Browser PUTs to the presigned R2 URL failed the CORS preflight (OPTIONS → 403). Server-side `initAudioUpload` + `signAudioPart` returned 200s (Vercel logs confirmed), but the direct browser→R2 PUT was blocked. Fix: new `r2-cors.ts` module builds the policy + `scripts/apply-r2-cors.mjs` applies it to both buckets via `PutBucketCorsCommand`. Policy: origins `skitza.app`, `*.vercel.app`, `localhost:3000`; methods PUT/GET/HEAD; ExposeHeaders `ETag` (required for multipart). 7 new tests pin the policy shape so nobody drops ETag exposure by accident. Script runs once against prod post-merge. |
 
 **Legend:** ⏳ Pending · ▶️ In progress · ✅ Fixed · ❌ Won't fix (document reason)
 
@@ -377,6 +378,49 @@ The root cause: `project-sub-tabs.tsx` starts with `"use client";`, which marks 
   5. Updated `project-sub-tabs.tsx` to import from shared + re-export.
   6. Updated `page.tsx` to import `isProjectSubTabId` + `ProjectSubTabId` from shared.
   7. Full gate: typecheck ✅ · lint ✅ · **643 tests pass** / 4 skip (was 638, +5 new) · build ✅.
+
+---
+
+### Task 19 — Audio upload fails with "Failed to fetch" — R2 bucket has no CORS policy
+
+**Severity:** 🔴 Critical (every audio upload broken for every producer)
+**Status:** ✅ Fixed 2026-04-23
+**Location:** Cloudflare R2 buckets `skitza-audio` + `skitza-docs` — infra config, not code bug
+
+**Plain-English:** Right after PR #39 shipped, Gili hit a project's Music sub-tab and tried to upload a track. The upload dropzone flashed red: *"Failed to fetch (skitza-audio.38eae08b9d1c0a37909bcd06c6b0ea16.r2.cloudflarestorage.com)"*. The client uploads audio directly to R2 via presigned URLs (multipart: `initAudioUpload` → `signAudioPart × N` → `completeAudioUpload`). The server-side tRPC procedures all returned 200 (confirmed via Vercel runtime logs). The failure was on the browser → R2 direct PUT, which the browser silently blocked on CORS preflight.
+
+Root cause confirmed empirically:
+
+```bash
+curl -X OPTIONS "https://skitza-audio.<account>.r2.cloudflarestorage.com/test" \
+  -H "Origin: https://skitza.app" -H "Access-Control-Request-Method: PUT"
+# → HTTP/1.1 403 Forbidden
+```
+
+R2 returns 403 on preflight when the bucket has no CORS policy. The browser then blocks the PUT before it fires and surfaces `TypeError: Failed to fetch` to the JS — no response object, no HTTP status.
+
+**Fix approach:** R2 supports S3-compatible `PutBucketCorsCommand`. Built a minimal policy, wrote a one-shot script that applies it to both buckets. Also wrote TDD tests that pin the policy shape so a future edit can't accidentally drop `ExposeHeaders: ["ETag"]` (which would silently break multipart — the client reads `resp.headers.get("etag")` to pass to completeMultipart).
+
+Policy shipped:
+
+- **Origins:** `https://skitza.app`, `https://*.vercel.app` (previews), `http://localhost:3000`
+- **Methods:** PUT, GET, HEAD
+- **Headers:** `*` (covers `content-type` + `x-amz-*` signed headers)
+- **ExposeHeaders:** `ETag` — required for multipart
+- **MaxAgeSeconds:** 3600 (1h — caps preflights for busy uploads; policy edits still propagate same-day)
+
+Security note: CORS is defense-in-depth, not primary auth. Every upload is already gated by the presigned URL (`producerProcedure` mints them, key prefix = `producers/<producerId>/...`). A malicious origin can't upload even with full-wildcard CORS because they'd need a valid presigned URL.
+
+**Fix Log:**
+- **2026-04-23 (TDD, RED-verified)** —
+  1. Confirmed hypothesis via curl OPTIONS → 403.
+  2. Wrote `apps/web/src/server/storage/__tests__/r2-cors.test.ts` with 7 invariants (PUT/GET/HEAD allowed, ETag exposed, 3 origins present, wildcard headers, reasonable MaxAgeSeconds).
+  3. Ran against non-existent module → RED.
+  4. Created `apps/web/src/server/storage/r2-cors.ts` exporting `buildR2CorsRules()`.
+  5. Re-ran tests → GREEN (7/7).
+  6. Created `apps/web/scripts/apply-r2-cors.mjs` one-shot script using `@aws-sdk/client-s3`'s `PutBucketCorsCommand`.
+  7. Full gate: typecheck ✅ · lint ✅ · **650 tests pass** / 4 skip (was 643, +7 new) · build ✅.
+  8. Script to be run against prod post-merge. Verification one-liner: same OPTIONS curl from step 1 should return 200 + `Access-Control-Allow-Origin: https://skitza.app`.
 
 ---
 
