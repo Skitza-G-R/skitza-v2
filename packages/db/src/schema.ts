@@ -791,3 +791,34 @@ export const producerExternalLinks = pgTable(
 export type ProducerExternalLink = typeof producerExternalLinks.$inferSelect;
 export type NewProducerExternalLink = typeof producerExternalLinks.$inferInsert;
 export type ExternalPlatform = (typeof externalPlatform.enumValues)[number];
+
+// ─── Producer notes (Today cockpit Quick Note backing) ─────────────
+// Audit Task 11 (2026-04-22). Was localStorage-only; promoted to a
+// real DB-backed surface so producers' ad-hoc jots persist across
+// devices + cache clears. Indexed on (producer_id, created_at desc)
+// so the Today list reads newest-first in one page-scope query.
+export const producerNotes = pgTable(
+  "producer_notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    byProducerCreated: index("producer_notes_producer_created_idx").on(
+      t.producerId,
+      t.createdAt,
+    ),
+  }),
+);
+
+export type ProducerNote = typeof producerNotes.$inferSelect;
+export type NewProducerNote = typeof producerNotes.$inferInsert;

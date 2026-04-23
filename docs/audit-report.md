@@ -26,7 +26,7 @@
 | 8 | Changelog is hand-seeded, not auto-generated | 🟠 | ⏳ Pending | — | — | Roadmap S5.5 |
 | 9 | `/dashboard/booking` still alive (duplicates Setup) | 🟠 | ⏳ Pending | — | — | Roadmap S2.4 |
 | 10 | Landing `founder.tsx` + `site-footer.tsx` have TODO placeholders | 🟡 | ⏳ Pending | — | — | Credibility hit on cold visit |
-| 11 | Quick Note modal is localStorage stub | 🟡 | ⏳ Pending | — | — | Feature appears real but doesn't persist |
+| 11 | Quick Note modal is localStorage stub | 🟡 | ✅ Fixed | 2026-04-22 | *(Task C, PR pending)* | Migration 0032 + `producerNotes` schema + `producerNotesRouter` (save/list/delete with producer-scoped WHERE) + server actions + modal wired to `saveQuickNote`. 8 tRPC tests cover happy path + zod validation + cross-tenant delete protection. Migration applied to dev DB. |
 | 12 | Autopilot cron route is 95% TODO | 🟡 | ⏳ Pending | — | — | 3 behaviors unwired; correctly gated in UI |
 | 13 | Only 4 of 10 Resend email templates shipped | 🟢 | ⏳ Pending | — | — | PRD §14 |
 | 14 | No Sentry + no PostHog (observability) | 🟢 | ✅ Fixed | 2026-04-22 | *(Task A, PR pending)* | Sentry client+server+edge + instrumentation.ts + PostHogProvider with Clerk identify + /ingest proxy rewrites. DSN/key optional (no-ops when unset). Env vars documented in `apps/web/.env.example`. |
