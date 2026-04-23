@@ -29,7 +29,7 @@
 | 11 | Quick Note modal is localStorage stub | 🟡 | ⏳ Pending | — | — | Feature appears real but doesn't persist |
 | 12 | Autopilot cron route is 95% TODO | 🟡 | ⏳ Pending | — | — | 3 behaviors unwired; correctly gated in UI |
 | 13 | Only 4 of 10 Resend email templates shipped | 🟢 | ⏳ Pending | — | — | PRD §14 |
-| 14 | No Sentry + no PostHog (observability) | 🟢 | ⏳ Pending | — | — | Roadmap S2.3 |
+| 14 | No Sentry + no PostHog (observability) | 🟢 | ✅ Fixed | 2026-04-22 | *(Task A, PR pending)* | Sentry client+server+edge + instrumentation.ts + PostHogProvider with Clerk identify + /ingest proxy rewrites. DSN/key optional (no-ops when unset). Env vars documented in `apps/web/.env.example`. |
 | 15 | `/join/<slug>` signup registers visitor as Producer, not Artist | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | Webhook + layout + routes rewritten; 11 new tests, full TDD. Fix v2 added catch-all + `path` prop |
 | 16 | Artist role not isolated — can navigate to producer routes (e.g. `/onboarding`) | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | `resolveUserRole` helper + hardened `/onboarding` layout + defense-in-depth action check. 16 new tests, strict TDD |
 | 17 | Artist UI missing UserButton + needs full desktop parity | 🟠 | ⏸ Phase 1 shipped, 2+3 abandoned | 2026-04-22 (Phase 1 only) | *(PR #30)* | Phase 1 (UserButton) ✅ shipped. Phase 2 (desktop sidebar) + Phase 3 (settings page) built on branch `feat/task-17-artist-desktop-sidebar` (PR #31 closed unmerged 2026-04-22 after artist-welcome ping-pong). Branch preserved on GitHub for later salvage. Revisit after Task 14 (Sentry) lands so we can diagnose the surrounding bugs properly. |
