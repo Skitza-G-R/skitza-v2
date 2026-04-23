@@ -10,7 +10,9 @@
 
 **[`session_recap.md`](session_recap.md)** — live handoff snapshot. Current branch, what just finished, what's next. Overwritten at every checkpoint. If you read only one thing before picking up work, read this.
 
-**[`audit-report.md`](audit-report.md)** — live paper trail for the 2026-04-22 codebase audit. 14 tracked tasks with per-task fix logs. Every fix must flip its row from ⏳ Pending → ✅ Fixed and append to the task's Fix Log. If you're about to touch a known bug, start here so you don't duplicate work.
+**[`audit-report.md`](audit-report.md)** — live paper trail for the 2026-04-22 codebase audit. 17 tracked tasks with per-task fix logs. Every fix must flip its row from ⏳ Pending → ✅ Fixed and append to the task's Fix Log. If you're about to touch a known bug, start here so you don't duplicate work.
+
+**[`qa/2026-04-23-overnight-prs-audit.md`](qa/2026-04-23-overnight-prs-audit.md)** — pre-merge verification of overnight PRs #32-36. Read this before merging any of them. Includes recommended merge sequence + post-merge checklist.
 
 ## 🎯 The canonical files
 
@@ -121,7 +123,9 @@ Run **`/docs-audit`** any time to check for drift between these rules and the ac
 ## 📚 Historical reference
 
 - [`docs/plans/archive/`](plans/archive/) — 18 shipped plans, dated 2026-04-16 → 2026-04-19. Kept for reasoning-trace only.
-- [`docs/qa/`](qa/) — phase C / D / E structural reviews (2026-04-17).
+- [`docs/qa/`](qa/) — phase + pre-merge review artifacts:
+  - [`2026-04-23-overnight-prs-audit.md`](qa/2026-04-23-overnight-prs-audit.md) — pre-merge verification of overnight PRs #32-36 + codebase health check
+  - `2026-04-17-phase-{c,d,e}-structural.md` — earlier phase reviews
 - [`docs/master-plan/`](master-plan/) — cross-batch followup notes.
 
 These don't need to be read during a normal session. They're preserved so we can reconstruct *why* something was done if needed months later.

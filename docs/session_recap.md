@@ -6,7 +6,9 @@
 
 ## 🕐 Last checkpoint
 
-**2026-04-22 overnight — Zero-Defect autonomous execution complete. 5 of 5 overnight PRs opened (PR cap hit). All tasks verified typecheck + lint + tests + build clean. Gili's review queue waiting.**
+**2026-04-23 morning — pre-merge audit complete on PRs #32-36. All 5 verified clean (typecheck + lint + tests + build) by independent re-run of every gate on every branch. Spot-checked claims against actual code. No blockers. Full report at [`docs/qa/2026-04-23-overnight-prs-audit.md`](qa/2026-04-23-overnight-prs-audit.md). Awaiting Gili's go-ahead to merge.**
+
+**Heads-up on CI red:** GitHub Actions test job didn't run on any PR — billing block on your account ("recent account payments have failed or your spending limit needs to be increased"). Vercel previews built clean on every PR, which proves the code works. Fix billing or merge manually.
 
 ---
 
