@@ -33,6 +33,7 @@
 | 15 | `/join/<slug>` signup registers visitor as Producer, not Artist | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | Webhook + layout + routes rewritten; 11 new tests, full TDD. Fix v2 added catch-all + `path` prop |
 | 16 | Artist role not isolated — can navigate to producer routes (e.g. `/onboarding`) | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | `resolveUserRole` helper + hardened `/onboarding` layout + defense-in-depth action check. 16 new tests, strict TDD |
 | 17 | Artist UI missing UserButton + needs full desktop parity | 🟠 | ⏸ Phase 1 shipped, 2+3 abandoned | 2026-04-22 (Phase 1 only) | *(PR #30)* | Phase 1 (UserButton) ✅ shipped. Phase 2 (desktop sidebar) + Phase 3 (settings page) built on branch `feat/task-17-artist-desktop-sidebar` (PR #31 closed unmerged 2026-04-22 after artist-welcome ping-pong). Branch preserved on GitHub for later salvage. Revisit after Task 14 (Sentry) lands so we can diagnose the surrounding bugs properly. |
+| 18 | `/dashboard/projects/[id]` crashes for every project — RSC boundary violation | 🔴 | ✅ Fixed | 2026-04-23 | *(PR pending)* | Server page called `isProjectSubTabId()` imported from `project-sub-tabs.tsx` (`"use client"`). RSC forbids calling a client-module function from server code. Fix: extracted pure types + type-guard into new server-safe module `project-sub-tab-shared.ts`; client `.tsx` now re-exports from it; server page imports the guard from shared. First bug caught end-to-end by the new Sentry + Vercel runtime-logs wiring. 5 new tests (type-guard behavior + "no 'use client' directive" invariant). |
 
 **Legend:** ⏳ Pending · ▶️ In progress · ✅ Fixed · ❌ Won't fix (document reason)
 
@@ -344,6 +345,38 @@ Both scheduled in roadmap S2.3.
 - **2026-04-22 — Analysis + scope locked with Gili.** Design brief published at `docs/plans/active/2026-04-22-artist-ui-rebuild-design.md`.
 - **2026-04-22 — Phase 1 shipped** (triggered by Gili's screenshot flagging the naked "← STUDIO" link in the header — see PR #30 commit `<pending>`): replaced the standalone "← Studio" `<Link>` in `ArtistAppShell` with a proper Clerk `<UserButton />` carrying `appearance` tokens matching the producer sidebar's avatar. For dual-role users (`isProducer === true`), a `<UserButton.Link label="Producer dashboard" />` custom menu item preserves the producer-dashboard shortcut, but it's now tucked inside the avatar dropdown instead of advertised in the artist chrome. This keeps Task 16's hard role wall visible — artists see an artist surface, producers-who-are-artists discover the cross-over through an explicit action. Typecheck ✅ / lint ✅ / tests 611 pass unchanged. Files touched: `apps/web/src/components/artist/artist-app-shell.tsx`.
 - *(Phase 2 — desktop sidebar rebuild + artist notification bell — coming next. Phase 3 — `/artist/settings` — after that.)*
+
+---
+
+### Task 18 — `/dashboard/projects/[id]` crashes with "Something buzzed" for every project
+
+**Severity:** 🔴 Critical (100% of project pages broken, the core producer workflow)
+**Status:** ✅ Fixed 2026-04-23
+**Location:** `apps/web/src/app/(app)/dashboard/projects/[id]/page.tsx` line 7, importing from `~/components/dashboard/project/project-sub-tabs.tsx`
+
+**Plain-English:** Gili hit a project URL on prod and got the red error page ("Something buzzed. Reference: 3969850916"). The page had been broken since its last change; no one noticed earlier because we rarely click into an individual project on prod.
+
+The root cause: `project-sub-tabs.tsx` starts with `"use client";`, which marks the whole module as client-only. The server page was importing a pure function (`isProjectSubTabId`) from that module and calling it at render time. React Server Components forbids this — quote from the runtime error: *"Attempted to call isProjectSubTabId() from the server but isProjectSubTabId is on the client. It's not possible to invoke a client function from the server, it can only be rendered as a Component or passed to props of a Client Component."*
+
+**Why the new observability paid off immediately:** This was the first bug diagnosed via the Sentry + Vercel runtime-logs wiring from PR #32. The `get_runtime_logs` MCP call surfaced the exact error message in < 5 seconds and pinned the stack trace to the page. Without observability, we would've guessed at fixes like we did during the 2026-04-22 artist-welcome ping-pong.
+
+**Fix (ordered):**
+1. Extract pure types + type-guard into new server-safe file `apps/web/src/components/dashboard/project/project-sub-tab-shared.ts` (no `"use client"` directive — safe for both sides to import).
+2. Update `project-sub-tabs.tsx` to import from shared + re-export for backward compat.
+3. Update the server page to import `isProjectSubTabId` + `ProjectSubTabId` from the shared file (not the `.tsx`).
+4. Write TDD regression test: a unit test that exercises the guard against known + unknown values, plus a "no `"use client"` directive" invariant test that reads the shared file's source and asserts the first non-empty line isn't `"use client"`. The second test pins the invariant so a future refactor that re-adds a hook or browser API to the shared file gets flagged before it reaches prod.
+
+**Scope check (other broken pages?):** Static sweep of all 66 `"use client"` files for lowercase (non-component) exports called by server files — no other offenders found. Three grep hits (`settings-form.tsx`, `package-form.tsx`, `new-project-form.tsx`) turned out to be client components themselves, so their imports from other `"use client"` files are fine. Vercel runtime logs (48h, prod) showed only this error — no other active broken pages.
+
+**Fix Log:**
+- **2026-04-23 (TDD, RED-verified)** —
+  1. Wrote test file `apps/web/src/components/dashboard/project/__tests__/project-sub-tab-shared.test.ts` with 5 tests (4 behavior + 1 invariant).
+  2. Ran it against a non-existent shared module → confirmed RED (`Error: Cannot find module '../project-sub-tab-shared'`).
+  3. Created `project-sub-tab-shared.ts` with `PROJECT_SUB_TAB_IDS`, `ProjectSubTabId`, `isProjectSubTabId` — no `"use client"`.
+  4. Re-ran tests → GREEN (5/5 pass).
+  5. Updated `project-sub-tabs.tsx` to import from shared + re-export.
+  6. Updated `page.tsx` to import `isProjectSubTabId` + `ProjectSubTabId` from shared.
+  7. Full gate: typecheck ✅ · lint ✅ · **643 tests pass** / 4 skip (was 638, +5 new) · build ✅.
 
 ---
 

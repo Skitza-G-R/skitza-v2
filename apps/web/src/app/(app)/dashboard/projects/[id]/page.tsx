@@ -3,11 +3,16 @@ import { auth } from "@clerk/nextjs/server";
 import { createDb, desc, eq, invoices, producers } from "@skitza/db";
 
 import { ProjectHeader } from "~/components/dashboard/project/project-header";
+// Server-safe imports (pure types + type-guard) come from the
+// shared module; the UI-only `ProjectSubTabs` component stays in
+// the `"use client"` file. Importing the guard from the client
+// module crashes RSC — that was the 2026-04-23 "Something buzzed"
+// bug on every project page.
 import {
   isProjectSubTabId,
-  ProjectSubTabs,
   type ProjectSubTabId,
-} from "~/components/dashboard/project/project-sub-tabs";
+} from "~/components/dashboard/project/project-sub-tab-shared";
+import { ProjectSubTabs } from "~/components/dashboard/project/project-sub-tabs";
 import { MoneySubTab } from "~/components/dashboard/project/sub-tabs/money-sub-tab";
 import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
 import { NotesSubTab } from "~/components/dashboard/project/sub-tabs/notes-sub-tab";

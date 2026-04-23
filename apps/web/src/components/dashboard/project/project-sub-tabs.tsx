@@ -6,13 +6,28 @@
 // work naturally. The active tab is driven by a prop (set by the
 // server-rendered page) rather than client-side state so that
 // re-renders don't fight the URL.
+//
+// 2026-04-23: the pure type-guard + shared types moved to
+// `./project-sub-tab-shared.ts` so the server page can import them
+// without crossing the RSC boundary. We re-export them here for
+// callers who already import from this module.
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
-export const PROJECT_SUB_TAB_IDS = ["music", "sessions", "money", "notes"] as const;
-export type ProjectSubTabId = (typeof PROJECT_SUB_TAB_IDS)[number];
+import {
+  isProjectSubTabId,
+  PROJECT_SUB_TAB_IDS,
+  type ProjectSubTabId,
+} from "./project-sub-tab-shared";
+
+// Re-export for backward compatibility with existing import paths.
+export {
+  isProjectSubTabId,
+  PROJECT_SUB_TAB_IDS,
+  type ProjectSubTabId,
+};
 
 const TABS: { id: ProjectSubTabId; label: string }[] = [
   { id: "music", label: "Music" },
@@ -20,13 +35,6 @@ const TABS: { id: ProjectSubTabId; label: string }[] = [
   { id: "money", label: "Money" },
   { id: "notes", label: "Notes" },
 ];
-
-// Narrow a string read from searchParams to a known tab id. Invalid
-// values fall back to "music" on the server side — see page.tsx.
-export function isProjectSubTabId(v: string | null | undefined): v is ProjectSubTabId {
-  if (!v) return false;
-  return (PROJECT_SUB_TAB_IDS as readonly string[]).includes(v);
-}
 
 export function ProjectSubTabs({
   activeTab,
