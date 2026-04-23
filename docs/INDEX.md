@@ -14,6 +14,8 @@
 
 **[`qa/2026-04-23-overnight-prs-audit.md`](qa/2026-04-23-overnight-prs-audit.md)** — pre-merge verification of overnight PRs #32-36. Read this before merging any of them. Includes recommended merge sequence + post-merge checklist.
 
+**[`qa/2026-04-23-observability-verification.md`](qa/2026-04-23-observability-verification.md)** — post-merge confirmation that Sentry + PostHog are live on prod (migrations applied, env vars set, real pageview traced). Bookend to the pre-merge audit.
+
 ## 🎯 The canonical files
 
 | File | What it is | When to read |
@@ -124,6 +126,7 @@ Run **`/docs-audit`** any time to check for drift between these rules and the ac
 
 - [`docs/plans/archive/`](plans/archive/) — 18 shipped plans, dated 2026-04-16 → 2026-04-19. Kept for reasoning-trace only.
 - [`docs/qa/`](qa/) — phase + pre-merge review artifacts:
+  - [`2026-04-23-observability-verification.md`](qa/2026-04-23-observability-verification.md) — post-merge confirmation Sentry + PostHog are live on prod
   - [`2026-04-23-overnight-prs-audit.md`](qa/2026-04-23-overnight-prs-audit.md) — pre-merge verification of overnight PRs #32-36 + codebase health check
   - `2026-04-17-phase-{c,d,e}-structural.md` — earlier phase reviews
 - [`docs/master-plan/`](master-plan/) — cross-batch followup notes.
