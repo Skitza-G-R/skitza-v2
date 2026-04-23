@@ -8,6 +8,7 @@ Skitza replaces the Calendly + Samply + Notion + DocuSign + Stripe + WhatsApp st
 
 | If you are… | Read this |
 |---|---|
+| **A new developer joining the project** | [`docs/contributor-onboarding.md`](docs/contributor-onboarding.md) — day-1 onboarding with tech stack, flows, conventions |
 | **A human picking this project up** | [`docs/INDEX.md`](docs/INDEX.md) — master map of all documentation |
 | **Claude starting a fresh session** | [`CLAUDE.md`](CLAUDE.md) + [`docs/INDEX.md`](docs/INDEX.md) — auto-loaded anchors |
 | **Trying to understand the product** | [`docs/product/PRD.md`](docs/product/PRD.md) — 27-section spec with 70+ locked decisions |

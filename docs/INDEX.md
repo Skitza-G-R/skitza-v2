@@ -16,14 +16,18 @@
 
 **[`qa/2026-04-23-observability-verification.md`](qa/2026-04-23-observability-verification.md)** — post-merge confirmation that Sentry + PostHog are live on prod (migrations applied, env vars set, real pageview traced). Bookend to the pre-merge audit.
 
+**[`contributor-onboarding.md`](contributor-onboarding.md)** — everything a new developer needs to know before starting: product shape, tech stack, crucial flows, how we work (BMAD + TDD), conventions, tribal knowledge. Share this with any collaborator on day 1.
+
 ## 🎯 The canonical files
 
 | File | What it is | When to read |
 |---|---|---|
 | **[session_recap.md](session_recap.md)** | Live handoff. Current state as of last checkpoint. | **Every session start.** |
+| **[contributor-onboarding.md](contributor-onboarding.md)** | Day-1 onboarding for new developers — tech stack, flows, conventions, tribal knowledge. | **Day 1 for any new human contributor.** |
 | **[audit-report.md](audit-report.md)** | Paper trail of all known bugs + fixes from 2026-04-22 audit. | Before fixing anything, and immediately after you fix something (to update status). |
 | **[PRD.md](product/PRD.md)** | Product spec. WHAT we build. 27 sections, 70+ locked decisions. **Normative.** | Any time a product question comes up. |
 | **[CLAUDE.md](../CLAUDE.md)** | Claude's conventions. HOW we work. Commands, mistake log, file rules. | Auto-loaded every session. |
+| **[bmad-workflow.md](bmad-workflow.md)** | Playbook for collaborating with Claude via BMAD — phases, magic phrases, tracks. | When Gili asks for a feature or fix. |
 | **[decisions/360-prd-answers.md](decisions/360-prd-answers.md)** | WHY the PRD says what it says — the Socratic Q&A journey behind every locked decision. | When you need to understand reasoning behind a PRD choice. |
 
 ---
