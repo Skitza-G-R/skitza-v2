@@ -23,7 +23,7 @@
 | 5 | `/refund-policy` route doesn't exist | 🟠 | ⏳ Pending | — | — | Roadmap S2.5 |
 | 6 | No cookie-consent banner | 🟠 | ⏳ Pending | — | — | EU compliance |
 | 7 | Privacy + Terms pages are placeholder | 🟠 | ⏳ Pending | — | — | Needs counsel review |
-| 8 | Changelog is hand-seeded, not auto-generated | 🟠 | ⏳ Pending | — | — | Roadmap S5.5 |
+| 8 | Changelog is hand-seeded, not auto-generated | 🟠 | ✅ Fixed | 2026-04-22 | *(Task D, PR pending)* | `apps/web/scripts/generate-changelog.mjs` parses last 500 commits on main, filters feat:/perf:/fix: conventional-commit prefixes, emits `entries.generated.json`. Changelog page renders auto "Recent changes" section alongside the hand-curated "Major releases" — both live. `pnpm -F web changelog:regen` for manual use. `.github/workflows/changelog-update.yml` workflow_dispatch action opens a PR with the diff. |
 | 9 | `/dashboard/booking` still alive (duplicates Setup) | 🟠 | ⏳ Pending | — | — | Roadmap S2.4 |
 | 10 | Landing `founder.tsx` + `site-footer.tsx` have TODO placeholders | 🟡 | ⏳ Pending | — | — | Credibility hit on cold visit |
 | 11 | Quick Note modal is localStorage stub | 🟡 | ✅ Fixed | 2026-04-22 | *(PR #34)* | Migration 0032 + `producerNotes` schema + `producerNotesRouter` (save/list/delete with producer-scoped WHERE) + server actions + modal wired to `saveQuickNote`. 8 tRPC tests cover happy path + zod validation + cross-tenant delete protection. Migration applied to dev DB. |

@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "copy-pdf-worker": "node scripts/copy-pdf-worker.mjs"
+    "copy-pdf-worker": "node scripts/copy-pdf-worker.mjs",
+    "changelog:regen": "node scripts/generate-changelog.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1031.0",

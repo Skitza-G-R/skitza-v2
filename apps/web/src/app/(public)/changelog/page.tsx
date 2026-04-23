@@ -1,14 +1,49 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-// Changelog — hand-seeded from recent git history so the landing nav's
-// "Changelog" link has a destination. Each release is a short article
-// with a dated header, a lede, and bulleted highlights. Newest first.
+import generatedChangelog from "./entries.generated.json";
+
+// Changelog — two sections:
 //
-// This is a /changelog route rather than an anchor on the landing so
-// visitors can deep-link, share, and bookmark specific releases as the
-// list grows. Rendered inside the `(public)` layout, which already sets
-// `chrome-dark` on its wrapper.
+// 1. "Recent changes" — auto-generated from `git log main` via
+//    `pnpm -F web changelog:regen` or the GitHub Action at
+//    `.github/workflows/changelog-update.yml`. Rendered from
+//    `entries.generated.json`. Groups commits by date; shows
+//    feat:/perf: as "new" and fix: as "fixes".
+//
+// 2. "Major releases" — the hand-curated v0.x releases below.
+//    These summarize sprint-level themes (Phase A–B, Phase C–F,
+//    Phase G, landing-v2) that are more than a single commit can
+//    capture. Updated by hand when a meaningful release lands.
+//
+// 2026-04-22 — audit Task 8 (overnight Task D). Previously this
+// page was fully hand-seeded; drift risk on every release. Now the
+// per-commit log is automated while the narrative release notes
+// stay manual.
+
+// Shape of the generated JSON. Matches scripts/generate-changelog.mjs.
+type GeneratedEntry = {
+  date: string;
+  items: Array<{
+    hash: string;
+    kind: "new" | "fix";
+    scope: string | null;
+    title: string;
+  }>;
+};
+type GeneratedChangelog = {
+  generatedAt: string;
+  source: string;
+  entries: GeneratedEntry[];
+};
+
+const generated = generatedChangelog as GeneratedChangelog;
+
+// Cap the displayed date groups to keep the page scrollable. Older
+// changes are still in git history + accessible via GitHub commit log.
+const MAX_RECENT_DATES = 12;
+const recentEntries = generated.entries.slice(0, MAX_RECENT_DATES);
+
 export const metadata: Metadata = {
   title: "Changelog",
   description:
@@ -37,7 +72,76 @@ export default function ChangelogPage() {
         You can also follow the GitHub tags for the full commit trail.
       </p>
 
-      <div className="mt-14 space-y-14">
+      {/* Recent changes — auto-generated from git */}
+      {recentEntries.length > 0 ? (
+        <section className="mt-14" aria-labelledby="recent-changes">
+          <h2
+            id="recent-changes"
+            className="font-display text-3xl tracking-tight"
+            style={{ fontWeight: 700 }}
+          >
+            Recent changes
+          </h2>
+          <p className="mt-2 text-sm text-[rgb(var(--fg-muted))]">
+            Auto-generated from git history. Showing the last {MAX_RECENT_DATES}{" "}
+            day(s) with commits.
+          </p>
+          <ol className="mt-6 space-y-6">
+            {recentEntries.map((entry) => (
+              <li
+                key={entry.date}
+                className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5"
+              >
+                <time
+                  dateTime={entry.date}
+                  className="font-mono text-[0.7rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
+                >
+                  {entry.date}
+                </time>
+                <ul className="mt-3 space-y-1.5">
+                  {entry.items.map((item) => (
+                    <li
+                      key={item.hash}
+                      className="flex items-start gap-2 text-sm text-[rgb(var(--fg-primary))]"
+                    >
+                      <span
+                        aria-hidden
+                        className={`mt-1 rounded-full px-1.5 py-0.5 font-mono text-[0.625rem] uppercase tracking-wider ${
+                          item.kind === "fix"
+                            ? "bg-[rgb(var(--fg-danger)/0.12)] text-[rgb(var(--fg-danger))]"
+                            : "bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]"
+                        }`}
+                      >
+                        {item.kind}
+                      </span>
+                      <span className="flex-1">
+                        {item.scope ? (
+                          <span className="font-mono text-xs text-[rgb(var(--fg-muted))]">
+                            {item.scope}:{" "}
+                          </span>
+                        ) : null}
+                        {item.title}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      <h2
+        id="major-releases"
+        className="mt-16 font-display text-3xl tracking-tight"
+        style={{ fontWeight: 700 }}
+      >
+        Major releases
+      </h2>
+      <p className="mt-2 text-sm text-[rgb(var(--fg-muted))]">
+        Curated sprint-level highlights.
+      </p>
+      <div className="mt-6 space-y-14">
         {RELEASES.map((r) => (
           <article
             key={r.version}
