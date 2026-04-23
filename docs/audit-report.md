@@ -26,10 +26,10 @@
 | 8 | Changelog is hand-seeded, not auto-generated | 🟠 | ⏳ Pending | — | — | Roadmap S5.5 |
 | 9 | `/dashboard/booking` still alive (duplicates Setup) | 🟠 | ⏳ Pending | — | — | Roadmap S2.4 |
 | 10 | Landing `founder.tsx` + `site-footer.tsx` have TODO placeholders | 🟡 | ⏳ Pending | — | — | Credibility hit on cold visit |
-| 11 | Quick Note modal is localStorage stub | 🟡 | ✅ Fixed | 2026-04-22 | *(Task C, PR pending)* | Migration 0032 + `producerNotes` schema + `producerNotesRouter` (save/list/delete with producer-scoped WHERE) + server actions + modal wired to `saveQuickNote`. 8 tRPC tests cover happy path + zod validation + cross-tenant delete protection. Migration applied to dev DB. |
-| 12 | Autopilot cron route is 95% TODO | 🟡 | ⏳ Pending | — | — | 3 behaviors unwired; correctly gated in UI |
+| 11 | Quick Note modal is localStorage stub | 🟡 | ✅ Fixed | 2026-04-22 | *(PR #34)* | Migration 0032 + `producerNotes` schema + `producerNotesRouter` (save/list/delete with producer-scoped WHERE) + server actions + modal wired to `saveQuickNote`. 8 tRPC tests cover happy path + zod validation + cross-tenant delete protection. Migration applied to dev DB. |
+| 12 | Autopilot cron route is 95% TODO | 🟡 | ✅ Fixed | 2026-04-22 | *(PR #36)* | Unpaid-reminder fully wired (select → email → stamp `reminder_sent_at` for idempotency). Auto-archive wired (UPDATE … RETURNING). Request-testimonial stays detect-only until `/t/<token>` capture form ships. Migration 0033 adds `invoices.reminder_sent_at` + `projects.testimonial_requested_at`. 10 new tests; still not scheduled in `vercel.json` (Hobby tier slot). |
 | 13 | Only 4 of 10 Resend email templates shipped | 🟢 | ⏳ Pending | — | — | PRD §14 |
-| 14 | No Sentry + no PostHog (observability) | 🟢 | ✅ Fixed | 2026-04-22 | *(Task A, PR pending)* | Sentry client+server+edge + instrumentation.ts + PostHogProvider with Clerk identify + /ingest proxy rewrites. DSN/key optional (no-ops when unset). Env vars documented in `apps/web/.env.example`. |
+| 14 | No Sentry + no PostHog (observability) | 🟢 | ✅ Fixed | 2026-04-22 | *(PR #32)* | Sentry client+server+edge + instrumentation.ts + PostHogProvider with Clerk identify + /ingest proxy rewrites. DSN/key optional (no-ops when unset). Env vars documented in `apps/web/.env.example`. |
 | 15 | `/join/<slug>` signup registers visitor as Producer, not Artist | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | Webhook + layout + routes rewritten; 11 new tests, full TDD. Fix v2 added catch-all + `path` prop |
 | 16 | Artist role not isolated — can navigate to producer routes (e.g. `/onboarding`) | 🔴 | ✅ Fixed | 2026-04-22 | *(PR #30)* | `resolveUserRole` helper + hardened `/onboarding` layout + defense-in-depth action check. 16 new tests, strict TDD |
 | 17 | Artist UI missing UserButton + needs full desktop parity | 🟠 | ⏸ Phase 1 shipped, 2+3 abandoned | 2026-04-22 (Phase 1 only) | *(PR #30)* | Phase 1 (UserButton) ✅ shipped. Phase 2 (desktop sidebar) + Phase 3 (settings page) built on branch `feat/task-17-artist-desktop-sidebar` (PR #31 closed unmerged 2026-04-22 after artist-welcome ping-pong). Branch preserved on GitHub for later salvage. Revisit after Task 14 (Sentry) lands so we can diagnose the surrounding bugs properly. |
@@ -207,13 +207,19 @@ UI works (modal opens, "saves", closes) but notes don't persist to the DB, don't
 ### Task 12 — Autopilot cron route is 95% TODO
 
 **Severity:** 🟡 Feature stub (but correctly gated in UI)
-**Status:** ⏳ Pending
+**Status:** ✅ Fixed (2026-04-22, PR #36)
 **Location:** `apps/web/src/app/api/cron/autopilot/route.ts` — 3 `TODO(...)` blocks for `unpaid-reminder`, `request-testimonial`, `auto-archive`. Route isn't scheduled in `vercel.json` (Hobby tier's only daily slot is on `session-reminders`).
 
 *(Context: We correctly hid these 3 toggles behind "Coming soon" in PR #22. The 2 shipped toggles — `welcomeEmail`, `commentNotify` — do work and fire real Resend emails.)*
 
 **Fix Log:**
-- *(To be filled when fixed.)*
+- **2026-04-22** *(PR #36)* — Wired 2 of 3 behaviors end-to-end and added the plumbing for the third:
+  - **unpaid-reminder** — Selects invoices older than 7 days still in `{draft, sent, uncollectible}` where the owning producer has `autopilot_unpaid_reminder=true` and `reminder_sent_at IS NULL`. Sends a branded nudge email via Resend and stamps `reminder_sent_at=now()` so the next tick skips the row. Per-row try/catch so a single Resend failure doesn't block the sweep.
+  - **auto-archive** — Pure `UPDATE … RETURNING` that flips `projects.stage='paid'` rows 30+ days old to `'archived'` when the producer opted in. Reversible via the stage dropdown.
+  - **request-testimonial** — Detect-only. Route returns the count of eligible projects in `requestTestimonial.eligible` and a `deferred` note explaining why email + stamp are gated on the `/t/<token>` testimonial capture form (not yet built — follow-up PR).
+  - **Idempotency plumbing** — Migration `0033_autopilot_idempotency.sql` adds `invoices.reminder_sent_at` + `projects.testimonial_requested_at` (both `ADD COLUMN IF NOT EXISTS`, applied via `/skitza-migrate` to dev; will re-run against prod on deploy).
+  - **Tests** — 10 new tests in `route.test.ts` covering auth/env guards, empty-DB happy path, 2 eligible invoices → 2 sent, null customerEmail skip, Resend error counted separately, testimonial detect-only (no email/stamp), auto-archive count.
+  - **Scheduling** — Still NOT added to `vercel.json` because Hobby tier caps daily crons at 1 and that slot belongs to `session-reminders`. Enablement is a one-line add once we upgrade to Pro.
 
 ---
 
