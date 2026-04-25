@@ -1,117 +1,67 @@
-import Link from "next/link";
-
-import { SkitzaMark } from "~/components/brand/skitza-mark";
-
-// Site footer — LIGHT world. Sits at the bottom of the landing. Four
-// columns on desktop, two on mobile. Only ships links that resolve to
-// real destinations — placeholder `href="#"` anchors were removed
-// because a link that scrolls to top-of-page is a visible credibility
-// hit on a cold visit (audit-report.md Task 10).
+// SiteFooter — verbatim port of source HTML lines 1810-1846.
+//
+// Server component: pure JSX. Footer columns + nav + bottom row. All
+// links go to in-page anchors (#features, #pricing) or are placeholders
+// (Blog, Contact, Socials, Legal) that resolve to "#" until those pages
+// ship — same behaviour as the source HTML.
 export function SiteFooter() {
-  const year = new Date().getFullYear();
-
   return (
-    <footer className="relative border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
-      <div className="mx-auto max-w-6xl px-6 py-16">
-        <div className="grid gap-10 sm:grid-cols-2 md:grid-cols-4">
-          {COLUMNS.map((col) => (
-            <div key={col.title}>
-              <p className="font-mono text-[0.66rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-                {col.title}
-              </p>
-              <ul className="mt-4 space-y-2.5 text-sm">
-                {col.links.map((l) =>
-                  l.kind === "route" ? (
-                    <li key={l.label}>
-                      <Link
-                        href={l.href}
-                        className="text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--brand-primary))]"
-                      >
-                        {l.label}
-                      </Link>
-                    </li>
-                  ) : (
-                    <li key={l.label}>
-                      <a
-                        href={l.href}
-                        {...(l.external
-                          ? { target: "_blank", rel: "noreferrer noopener" }
-                          : {})}
-                        className="text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--brand-primary))]"
-                      >
-                        {l.label}
-                      </a>
-                    </li>
-                  ),
-                )}
-              </ul>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-14 flex flex-col items-start justify-between gap-6 border-t border-[rgb(var(--border-subtle))] pt-8 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-3">
-            <SkitzaMark size="sm" />
-            <div>
-              <p
-                className="font-display text-base tracking-tight text-[rgb(var(--fg-primary))]"
-                style={{ fontWeight: 700 }}
-              >
-                Skitza
-              </p>
-              <p className="font-mono text-[10px] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                Made in the studio
-              </p>
-            </div>
+    <footer>
+      <div className="container">
+        <div className="footer-grid">
+          <div>
+            <a href="#" className="footer-logo">
+              Skitza
+            </a>
+            <p className="footer-tag">Your studio runs itself.</p>
           </div>
-
-          <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
-            © {String(year)} Skitza · All rights reserved
-          </p>
+          <div className="footer-col">
+            <h4>Product</h4>
+            <ul>
+              <li>
+                <a href="#features">Features</a>
+              </li>
+              <li>
+                <a href="#pricing">Pricing</a>
+              </li>
+              <li>
+                <a href="#">Blog</a>
+              </li>
+              <li>
+                <a href="#">Contact</a>
+              </li>
+            </ul>
+          </div>
+          <div className="footer-col">
+            <h4>Socials</h4>
+            <ul>
+              <li>
+                <a href="#">Instagram</a>
+              </li>
+              <li>
+                <a href="#">Twitter/X</a>
+              </li>
+              <li>
+                <a href="#">YouTube</a>
+              </li>
+            </ul>
+          </div>
+          <div className="footer-col">
+            <h4>Legal</h4>
+            <ul>
+              <li>
+                <a href="#">Privacy Policy</a>
+              </li>
+              <li>
+                <a href="#">Terms of Service</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div className="footer-bottom">
+          © 2026 Skitza. Built for producers, by producers.
         </div>
       </div>
     </footer>
   );
 }
-
-type FooterLink =
-  | { kind: "route"; label: string; href: "/about" | "/privacy" | "/terms" | "/changelog" | "/sign-in" | "/sign-up" }
-  | { kind: "anchor"; label: string; href: string; external?: boolean };
-
-const COLUMNS: readonly { title: string; links: readonly FooterLink[] }[] = [
-  {
-    title: "Product",
-    links: [
-      { kind: "anchor", label: "Features", href: "/#features" },
-      { kind: "anchor", label: "Pricing", href: "/#pricing" },
-      { kind: "route", label: "Changelog", href: "/changelog" },
-      { kind: "anchor", label: "Download", href: "/#download" },
-      { kind: "anchor", label: "Roadmap", href: "/#faq" },
-    ],
-  },
-  {
-    title: "Company",
-    links: [
-      { kind: "route", label: "About", href: "/about" },
-      { kind: "anchor", label: "Contact", href: "mailto:hello@skitza.app" },
-    ],
-  },
-  {
-    title: "Legal",
-    links: [
-      { kind: "route", label: "Privacy", href: "/privacy" },
-      { kind: "route", label: "Terms", href: "/terms" },
-    ],
-  },
-  {
-    title: "Social",
-    links: [
-      {
-        kind: "anchor",
-        label: "GitHub",
-        href: "https://github.com/giasraf/skitza-v2",
-        external: true,
-      },
-    ],
-  },
-];

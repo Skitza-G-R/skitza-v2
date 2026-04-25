@@ -66,9 +66,17 @@ export const metadata: Metadata = {
 // cached CSS. NoiseOverlay is rendered first so the SVG film-grain
 // layer composites above every section without affecting tab order.
 //
-// The 17 section components below are still the existing decomposed
-// versions — S2/S3 will rewrite them against landing.css. S1 only
-// scaffolds the foundation (CSS port + fonts + noise overlay).
+// S2 (2026-04-26): the 11 original sections are now ports of the
+// founder's source HTML and use only `landing.css` classes. The 6 new
+// sections (TrustBar, Compare, Security, FAQ, Founder, Download) are
+// still the old token-based components — S3 will restyle them.
+//
+// Why <main className="dark-world"> wraps the middle: source line 1275
+// puts the dark sections inside a single `<main class="dark-world">`
+// which lets `landing.css .dark-world` paint the bg-color and flip
+// every nested watermark/heading to its dark-palette colour in one
+// declaration. The light-themed sections (hero, trust bar, final CTA,
+// footer) sit outside the main element so they keep the warm light bg.
 export default async function HomePage() {
   const { userId } = await auth();
   if (userId) redirect("/dashboard");
@@ -78,18 +86,20 @@ export default async function HomePage() {
       <LandingNav />
       <Hero />
       <TrustBar />
-      <PainGrid />
-      <SolutionFlow />
-      <FeaturesTabs />
-      <Compare />
-      <HowItWorks />
-      <Consolidation />
-      <Security />
-      <Testimonials />
-      <Pricing />
-      <FAQ />
-      <Founder />
-      <Download />
+      <main className="dark-world">
+        <PainGrid />
+        <SolutionFlow />
+        <FeaturesTabs />
+        <Compare />
+        <HowItWorks />
+        <Consolidation />
+        <Security />
+        <Testimonials />
+        <Pricing />
+        <FAQ />
+        <Founder />
+        <Download />
+      </main>
       <FinalCTA />
       <SiteFooter />
     </div>

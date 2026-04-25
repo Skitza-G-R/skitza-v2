@@ -1,130 +1,100 @@
-// Consolidation — DARK world. "Cancel the rest." Replaces the old
-// 9-tool flat list with a clearer 7-bucket grid: every tool in the
-// competing producer stack, grouped by what it does, each row showing
-// the Skitza feature that eats it.
+// Consolidation — verbatim port of source HTML lines 1663-1704.
+//
+// Server component: pure JSX. The "See Everything Skitza Does" CTA's
+// onclick handler (source line 1701) is replaced with a plain <a>
+// anchor href to #features — same UX (browser smooth-scroll via the
+// `scroll-behavior: smooth` rule in landing.css), zero JS required.
 export function Consolidation() {
   return (
-    <section
-      data-theme="chrome-dark"
-      id="consolidation"
-      className="relative bg-[rgb(var(--bg-base))] py-24 text-[rgb(var(--fg-primary))] sm:py-32"
-    >
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mx-auto max-w-2xl text-center">
-          <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--brand-primary))]">
-            One tool. Full stop.
-          </p>
-          <h2
-            className="mt-4 font-display text-[clamp(2rem,5vw,3.5rem)] leading-[1.05] tracking-tight"
-            style={{ fontWeight: 800 }}
+    <section className="section" id="consolidation">
+      <div className="container">
+        <div
+          className="section-header reveal-up"
+          style={{ maxWidth: 700, margin: "0 auto 32px", textAlign: "center" }}
+        >
+          <span
+            className="watermark"
+            style={{
+              left: "50%",
+              transform: "translateX(-50%)",
+              opacity: 0.3,
+            }}
           >
-            Replace 7 tools with
-            <span className="block italic text-[rgb(var(--brand-primary))]">one Skitza.</span>
+            —
+          </span>
+          <span className="label">One tool. Full stop.</span>
+          <h2 className="syne" style={{ color: "var(--light-bg)" }}>
+            Cancel the rest.<br />Skitza is the only<br />tab you need open.
           </h2>
-          <p className="mx-auto mt-5 max-w-xl text-[rgb(var(--fg-secondary))]">
-            Most producers are paying for and context-switching between half a dozen
-            SaaS. Skitza replaces the lot — one subscription, one login, one place
-            where everything talks to everything.
+          <p className="body-text">
+            Most producers juggle multiple tools that barely talk to each
+            other. Skitza replaces all of them — one subscription, one login,
+            one place where everything just works.
           </p>
         </div>
 
-        <div className="mt-14 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {REPLACEMENTS.map((r) => (
-            <article
-              key={r.purpose}
-              className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5"
-            >
-              <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                {r.purpose}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {r.tools.map((t) => (
-                  <span
-                    key={t}
-                    className="inline-flex items-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 font-mono text-[10px] text-[rgb(var(--fg-muted))] line-through"
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-              <div className="mt-4 flex items-start gap-2 border-t border-[rgb(var(--border-subtle))] pt-3">
-                <span
-                  aria-hidden
-                  className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.15)] text-[rgb(var(--brand-primary))]"
-                >
-                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-                    <path d="M5 13l4 4L19 7" />
-                  </svg>
-                </span>
-                <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
-                  {r.skitza}
-                </p>
-              </div>
-            </article>
-          ))}
+        <div className="stats-grid reveal-up delay-1">
+          <div className="stat-card">
+            <div className="stat-num">9+</div>
+            <div className="stat-label">tools replaced</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-num">1</div>
+            <div className="stat-label">subscription</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-num">0</div>
+            <div className="stat-label">new apps to learn</div>
+          </div>
         </div>
 
-        <div className="mt-10 grid gap-3 sm:grid-cols-3">
-          {[
-            { num: "7+", label: "tools replaced" },
-            { num: "1", label: "subscription" },
-            { num: "$0", label: "extra apps to learn" },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-6 py-8 text-center"
-            >
-              <p
-                className="font-display text-5xl leading-none text-[rgb(var(--brand-primary))]"
-                style={{ fontWeight: 800 }}
-              >
-                {s.num}
-              </p>
-              <p className="mt-2 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
-                {s.label}
-              </p>
+        <div className="consolidation-footer reveal-up delay-2">
+          <div className="tools-replaced">
+            <div className="tool-chip replaced">
+              <span className="tool-icon">💬</span> WhatsApp
             </div>
-          ))}
+            <div className="tool-chip replaced">
+              <span className="tool-icon">🔗</span> Linktree
+            </div>
+            <div className="tool-chip replaced">
+              <span className="tool-icon">✍️</span> DocuSign
+            </div>
+            <div className="tool-chip replaced">
+              <span className="tool-icon">📤</span> WeTransfer
+            </div>
+            <div className="tool-chip replaced">
+              <span className="tool-icon">📊</span> Google Sheets
+            </div>
+            <div className="tool-chip replaced">
+              <span className="tool-icon">💸</span> PayPal / Wave
+            </div>
+            <div className="tool-chip replaced">
+              <span className="tool-icon">📁</span> Google Drive
+            </div>
+            <div className="tool-chip replaced">
+              <span className="tool-icon">📧</span> Gmail drafts
+            </div>
+            <div className="tool-chip replaced">
+              <span className="tool-icon">📅</span> Calendly
+            </div>
+            <div className="tool-chip skitza">
+              <span className="tool-icon">⚡</span> Skitza
+            </div>
+          </div>
+          <p
+            style={{
+              color: "var(--dark-body)",
+              fontSize: 13,
+              marginBottom: 24,
+            }}
+          >
+            One subscription. One login. Zero context-switching.
+          </p>
+          <a href="#features" className="btn-ghost dark-ghost">
+            See Everything Skitza Does →
+          </a>
         </div>
       </div>
     </section>
   );
 }
-
-const REPLACEMENTS: readonly { purpose: string; tools: readonly string[]; skitza: string }[] = [
-  {
-    purpose: "Booking",
-    tools: ["Calendly", "SavvyCal"],
-    skitza: "Skitza booking with service kinds, buffers, blackouts",
-  },
-  {
-    purpose: "Audio review",
-    tools: ["Samply", "WeTransfer"],
-    skitza: "Skitza audio library with waveform comments + version stacks",
-  },
-  {
-    purpose: "Contracts",
-    tools: ["DocuSign", "PandaDoc", "Documenso"],
-    skitza: "Skitza contracts with PKCS#7 e-sign + PDF/A archive",
-  },
-  {
-    purpose: "CRM & pipeline",
-    tools: ["Notion", "Airtable"],
-    skitza: "Skitza pipeline with client history and project stages",
-  },
-  {
-    purpose: "Payments",
-    tools: ["Stripe invoices", "PayPal"],
-    skitza: "Skitza deposits + balances via Stripe Connect",
-  },
-  {
-    purpose: "File delivery",
-    tools: ["Google Drive", "Dropbox"],
-    skitza: "Skitza signed-URL delivery, locked until paid",
-  },
-  {
-    purpose: "Scheduling DMs",
-    tools: ["WhatsApp", "Gmail drafts"],
-    skitza: "Skitza magic links — one click, zero follow-up chains",
-  },
-];

@@ -3,22 +3,31 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { SkitzaMark } from "~/components/brand/skitza-mark";
-
-// Landing top nav. Sticky on scroll with backdrop blur — transparent at
-// the very top so the hero's ambient blobs breathe, then opaque with a
-// frosted border once the user scrolls. Mobile collapses to a sheet
-// using a zero-JS `<details>` (no Radix dep needed for this one case).
+// Landing top nav — verbatim port of source HTML lines 1148-1187.
+// Two surgical changes from the original:
+//   1. The amber CTA button becomes a <Link> to /sign-up with the
+//      onboarding redirect (Clerk honours the query param after sign-up).
+//   2. A "Sign in" text link slots in just before the CTA — added per
+//      PRD §3.5 so existing producers always have a frictionless
+//      one-click way back into the dashboard from the marketing page.
 //
-// Anchor targets live on the page (`#features`, `#pricing`, `#download`)
-// while `/changelog` is a dedicated route so the nav's "Changelog" link
-// lands somewhere the user can hit directly.
+// "use client" is required for two reasons:
+//   - useEffect adds the .scrolled class on the <nav> when scrollY > 50,
+//     mirroring the source script (lines 1913-1918).
+//   - useState backs the mobile menu open/close toggle (replaces the
+//     inline-CSS-driven mobile sheet from the source). The button uses
+//     aria-expanded so screen readers can read the state.
+//
+// All decorative SVG-style markup (sk-rings, sk-papers, sk-char...)
+// is rendered as a tree of nested divs; the styles + animations live
+// in landing.css under .landing-root .sk-* selectors.
 export function LandingNav() {
   const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => {
-      setScrolled(window.scrollY > 12);
+      setScrolled(window.scrollY > 50);
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -28,166 +37,152 @@ export function LandingNav() {
   }, []);
 
   return (
-    <header
-      className={[
-        "sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-200",
-        scrolled
-          ? "border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base)/0.78)] backdrop-blur-md"
-          : "border-b border-transparent bg-transparent",
-      ].join(" ")}
-    >
-      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3 sm:py-4">
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <SkitzaMark size="sm" />
-          <span
-            className="font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))] transition-colors group-hover:text-[rgb(var(--brand-primary))]"
-            style={{ fontWeight: 800 }}
-          >
-            Skitza
-          </span>
-        </Link>
+    <nav id="navbar" className={scrolled ? "scrolled" : undefined}>
+      <div className="container nav-inner">
+        <a href="#" className="sk-brand-link">
+          <div className="sk-icon-wrap nav-scale">
+            <SkLogoIcon />
+          </div>
+          <div className="sk-wordmark-wrap">
+            <span className="sk-wordmark">Skitza</span>
+            <div className="sk-underline" />
+          </div>
+        </a>
 
-        <ul className="hidden items-center gap-7 text-sm font-medium text-[rgb(var(--fg-secondary))] md:flex">
-          {NAV_LINKS.map((l) =>
-            l.kind === "route" ? (
-              <li key={l.href}>
-                <Link
-                  href={l.href}
-                  className="transition-colors hover:text-[rgb(var(--fg-primary))]"
-                >
-                  {l.label}
-                </Link>
-              </li>
-            ) : (
-              <li key={l.href}>
-                <a
-                  href={l.href}
-                  className="transition-colors hover:text-[rgb(var(--fg-primary))]"
-                >
-                  {l.label}
-                </a>
-              </li>
-            ),
-          )}
+        <ul className="nav-links">
+          {NAV_LINKS.map((link) => (
+            <li key={link.href}>
+              <a href={link.href} className="nav-link">
+                {link.label}
+              </a>
+            </li>
+          ))}
         </ul>
 
-        <div className="hidden items-center gap-2 md:flex">
-          <Link
-            href="/sign-in"
-            className="inline-flex items-center justify-center rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-primary))]"
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/sign-up"
-            className="pulse-glow inline-flex items-center justify-center rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-4 py-2 text-sm font-semibold text-[#0C0A07] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.35)] transition-transform hover:scale-[1.04] hover:-translate-y-[1px] active:translate-y-[1px]"
-          >
-            Sign up free
-          </Link>
-        </div>
+        <Link
+          href="/sign-in"
+          className="nav-link nav-signin"
+          style={{ marginRight: 16 }}
+        >
+          Sign in
+        </Link>
 
-        {/* Mobile: zero-JS disclosure sheet. `sk-tap` (44×44) clears
-            the Apple/Google tap minimum; was 40×40 which fell one px
-            short on iPad Safari in standalone PWA mode. */}
-        <details className="group relative md:hidden">
-          <summary
-            aria-label="Open menu"
-            className="sk-tap flex cursor-pointer list-none items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] [&::-webkit-details-marker]:hidden"
-          >
-            <svg
-              aria-hidden
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              className="group-open:hidden"
-            >
-              <path d="M4 7h16M4 12h16M4 17h16" />
-            </svg>
-            <svg
-              aria-hidden
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              className="hidden group-open:block"
-            >
-              <path d="M6 6l12 12M6 18L18 6" />
-            </svg>
-          </summary>
-          <div className="absolute right-0 top-[calc(100%+0.5rem)] w-64 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 shadow-[0_20px_60px_-12px_rgb(0_0_0/0.25)]">
-            {/* Each menu row is min-h-11 (44px) + centred via flex so
-                the hit region matches the Apple/Google tap minimum on
-                small phones. Was `block py-2.5` which rendered ~40px
-                — short by 4px for iOS's accessibility audit. */}
-            <ul className="flex flex-col">
-              {NAV_LINKS.map((l) =>
-                l.kind === "route" ? (
-                  <li key={l.href}>
-                    <Link
-                      href={l.href}
-                      className="flex min-h-11 items-center rounded-[var(--radius-md)] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
-                    >
-                      {l.label}
-                    </Link>
-                  </li>
-                ) : (
-                  <li key={l.href}>
-                    <a
-                      href={l.href}
-                      className="flex min-h-11 items-center rounded-[var(--radius-md)] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
-                    >
-                      {l.label}
-                    </a>
-                  </li>
-                ),
-              )}
-              <li className="my-1 border-t border-[rgb(var(--border-subtle))]" aria-hidden />
-              <li>
-                <Link
-                  href="/sign-in"
-                  className="flex min-h-11 items-center rounded-[var(--radius-md)] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+        <Link
+          href="/sign-up?redirect_url=%2Fonboarding"
+          className="btn-primary small nav-btn"
+        >
+          Sign up now
+        </Link>
+
+        <button
+          type="button"
+          className="mobile-menu-btn"
+          aria-expanded={menuOpen}
+          aria-label="Toggle menu"
+          onClick={() => {
+            setMenuOpen((open) => !open);
+          }}
+        >
+          {menuOpen ? "✕" : "☰"}
+        </button>
+      </div>
+
+      {/* Mobile menu sheet — only renders when toggled open. The CSS in
+          landing.css hides the desktop nav-links + nav-btn at <=768px;
+          this sheet steps in to replicate them in a vertical stack so
+          the user still has access to the full navigation. */}
+      {menuOpen ? (
+        <div className="mobile-menu" role="menu">
+          <ul className="mobile-menu-list">
+            {NAV_LINKS.map((link) => (
+              <li key={link.href}>
+                <a
+                  href={link.href}
+                  className="nav-link"
+                  onClick={() => {
+                  setMenuOpen(false);
+                }}
                 >
-                  Sign in
-                </Link>
+                  {link.label}
+                </a>
               </li>
-              <li>
-                <Link
-                  href="/sign-up"
-                  className="mt-1 flex min-h-12 items-center justify-center rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-4 py-2 text-sm font-semibold text-[#0C0A07] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.35)]"
-                >
-                  Sign up free
-                </Link>
-              </li>
-            </ul>
-          </div>
-        </details>
-      </nav>
-    </header>
+            ))}
+            <li>
+              <Link
+                href="/sign-in"
+                className="nav-link"
+                onClick={() => {
+                  setMenuOpen(false);
+                }}
+              >
+                Sign in
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/sign-up?redirect_url=%2Fonboarding"
+                className="btn-primary small"
+                onClick={() => {
+                  setMenuOpen(false);
+                }}
+              >
+                Sign up now
+              </Link>
+            </li>
+          </ul>
+        </div>
+      ) : null}
+    </nav>
   );
 }
 
-// `Link` with anchor fragments works with Next typedRoutes when we use
-// relative route strings (`/#features` is not recognised) — so we use
-// the anchor-only hrefs which the browser treats as same-page jumps.
-// `kind` splits typedRoute `Link`s from raw anchor-fragment `<a>`s.
-// Fragment hrefs like `#features` don't round-trip through typedRoutes
-// (Next's `Route` type is the concrete route set, not anchors), so we
-// render fragment links as plain anchors — same behaviour, no type
-// noise.
-type NavLink =
-  | { kind: "route"; label: string; href: "/changelog" }
-  | { kind: "anchor"; label: string; href: `#${string}` };
+// SkLogoIcon — the animated emoji-character mark from the source. Same
+// nested-div tree used by both the nav and the hero (the hero scales
+// it up via the .hero-scale wrapper). Extracted into a tiny private
+// component so we don't duplicate ~25 lines of decorative markup.
+function SkLogoIcon() {
+  return (
+    <div className="sk-logo-icon">
+      <div className="sk-rings" />
+      <div className="sk-papers">
+        <div className="sk-paper p1" />
+        <div className="sk-paper p2" />
+        <div className="sk-paper p3">
+          <div className="sk-stamp">OVERDUE</div>
+        </div>
+      </div>
+      <div className="sk-char">
+        <div className="sk-headphone-band" />
+        <div className="sk-head">
+          <div className="sk-steam st1" />
+          <div className="sk-steam st2" />
+          <div className="sk-sweat" />
+          <div className="sk-brow l" />
+          <div className="sk-brow r" />
+          <div className="sk-eye l" />
+          <div className="sk-eye r" />
+          <div className="sk-mouth" />
+        </div>
+        <div className="sk-earcup l" />
+        <div className="sk-earcup r" />
+      </div>
+      <div className="sk-badge">9</div>
+    </div>
+  );
+}
 
-const NAV_LINKS: readonly NavLink[] = [
-  { kind: "anchor", label: "Features", href: "#features" },
-  { kind: "anchor", label: "Pricing", href: "#pricing" },
-  { kind: "route", label: "Changelog", href: "/changelog" },
-  { kind: "anchor", label: "Download", href: "#download" },
+// NAV_LINKS — the 3 in-page anchors from source line 1180-1182. Pinned
+// as a constant so the test can assert their order without spinning up
+// a renderer. If a section is renamed/reordered, both the markup AND
+// the test fail in the same commit.
+type NavLink = { label: string; href: `#${string}` };
+
+export const NAV_LINKS: readonly NavLink[] = [
+  { label: "Features", href: "#features" },
+  { label: "How It Works", href: "#how-it-works" },
+  { label: "Pricing", href: "#pricing" },
 ];
+
+// Re-exported so the hero (which lives in the same module) can pull the
+// shared logo icon if needed without circular imports.
+export { SkLogoIcon };
