@@ -115,17 +115,33 @@ Spotify credits, word of mouth.
 
 ### 4.5 Producer first-run onboarding wizard
 
-New producers who sign up hit a **5-step wizard** before the dashboard is fully usable. Skippable in one click (the Setup-nudge banner re-prompts any skippers on Today). Each step is a single screen with one clear action.
+**Rebuild — 2026-04-25.** Replaces the prior 5-step wizard (scattered fields, generic forms) with a focused **4-step full-screen stepper** that captures the minimum to make a public profile real, while reusing the production components from Setup so the data shape entered here is identical to what the producer would later edit. Prior 5-step rationale (Round 2 A1, A2) lives in `docs/decisions/360-prd-answers.md` for historical reference.
 
-1. **Profile** — slug (pre-filled from Clerk display name, editable), display name, bio, logo upload, brand color picker
-2. **Portfolio** — upload at least 1 portfolio track (drag-and-drop or file picker); this is the minimum viable profile (per Round 2 A2 → slug + name + 1 track)
-3. **Services** — pick 1+ service from the 4-category quickstart (Production / Mixing & Mastering / Consulting / Custom) or create a new one; deposit % pre-filled to 30%
-4. **Availability** — set weekly windows (default Mon-Fri 10am-6pm) + default session length
-5. **Stripe Connect** — "Connect with Stripe" CTA (Connect Express onboarding); **skippable** — producer can share portfolio + accept offline payments without Stripe, but Booking/Services stay locked until Connect is linked (per Round 2 A1)
+When a Clerk webhook fires on signup it seeds a `producers` row with an email-derived auto-slug + null `displayName`. The wizard overrides that pre-seed and bootstraps the rest of the profile.
 
-**Exit criteria**: all 5 steps complete → lands on `/dashboard` (Today) with no nudge. **Partial completion** → Today shows the Setup-nudge banner with "Resume setup" CTA pointing to the first incomplete step.
+**The 4 steps:**
 
-**"Replay tour" lives in Setup → Account** so returning producers can walk through the flow again.
+1. **Studio name** — single input: display name. Server auto-generates a slug from the display name + 4-char random hash (uniqueness guaranteed, slug never shown in UI). On submit, the row is marked "complete" by the existing role-resolution rule (`displayName IS NOT NULL` AND `slug !== emailToSlug(email)`), so all subsequent steps are skippable from the system's perspective.
+2. **First service** — reuses [`package-form.tsx`](../apps/web/src/app/(app)/dashboard/booking/package-form.tsx) in `create` mode (no edit / deactivate UI). All fields exposed (name, description, kind, duration, location, price, deposit, payment plans). Required: name + price; everything else falls back to safe defaults (60-min duration, kind=`session`, location=`studio`, pricingModel=`flat`, paymentPlans=`[{kind:"full"}]`). Writes to `products`.
+3. **Availability** — reuses [`availability-section.tsx`](../apps/web/src/components/dashboard/setup/availability-section.tsx) + its 5 child editors: GCal sync stub badge (per §18.1 — opens "coming soon — notify me" modal), default session duration, session policies (auto-confirm + cancellation hours), weekly windows, blackouts. Writes to `producers` columns + `availability_blocks` + `blackouts`.
+4. **Portfolio** — two new components stitched into one step:
+   - **External links editor** — three inputs (Spotify, YouTube, Instagram) writing to `producer_external_links` (platform enum: `spotify` | `youtube` | `instagram_reels`)
+   - **Track upload** — drag-or-pick widget reusing [`audio-uploader.tsx`](../apps/web/src/components/audio/audio-uploader.tsx) + the existing R2 multipart pipeline → `portfolio_tracks`
+   - At least one of the two is recommended (UI hint), neither is enforced.
+
+**Per-step skip.** Steps 2–4 each show a "Skip for now" ghost link below the primary CTA. Skipping advances to the next step (or `/dashboard` from Step 4). DB-completeness fires after Step 1 commits, so all later skips are safe — no orphaned data, no broken state.
+
+**Drop-off / resume.** Closing the tab mid-flow → next visit redirects to `/dashboard` (existing role-resolution rule applies once Step 1 is committed). Setup page exposes all four sections for later editing. **No `onboarding_step` column** — the Setup-nudge banner on Today (§4.1) handles the partial-profile case.
+
+**Layout pattern.** Full-screen stepper with persistent ambient layout: shared brand-glow gradient + display-font headers + `.reveal-up` / `.sk-pop` animations between steps + sticky bottom action bar (Back / Continue / Skip ghost). Each step is its own route (`/onboarding/studio`, `/onboarding/service`, `/onboarding/availability`, `/onboarding/portfolio`) so refresh / browser-back / iOS swipe-back all behave correctly.
+
+**Invisible localization.** No timezone or currency UI in the wizard. Server reads `Intl` browser timezone from a hidden form field; reads `x-vercel-ip-country` for currency inference (US / CA / AU / NZ → USD; UK → GBP; IL → ILS; EU member states → EUR; everything else → USD fallback). Both editable later in Setup → Profile / Setup → Services.
+
+**Calendar OAuth.** The GCal Sync badge in Step 3 reuses the existing UI-only stub at [`gcal-sync-badge.tsx`](../apps/web/src/app/(app)/dashboard/booking/gcal-sync-badge.tsx) — clicking Connect opens "coming soon — notify me". Real Google Calendar two-way sync (PRD §18.1) is deferred to a separate workstream; when it lands, the badge's `status` prop flips to `connected` with no other wizard changes.
+
+**Non-goals for this rebuild.** Avatar upload, brand color customization, bio/description, plan selection, second service, calendar OAuth wiring, language preference, Stripe Connect (deferred to Setup → Connections post-onboarding), social bio links beyond the three streaming/social platforms. All available in Setup post-onboarding.
+
+**Telemetry.** Each step commit fires `producer.onboarding.step_completed` with a `step` property (`studio` | `service` | `availability` | `portfolio`); skips fire `producer.onboarding.step_skipped` with the same step labels. Drop-off rate per step is the primary first-month metric for this surface.
 
 ---
 
