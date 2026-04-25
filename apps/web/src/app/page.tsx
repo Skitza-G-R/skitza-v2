@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
 import { NoiseOverlay } from "~/components/landing/noise-overlay";
+import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
 import { LandingNav } from "~/components/landing/landing-nav";
 import { Hero } from "~/components/landing/hero";
 import { TrustBar } from "~/components/landing/trust-bar";
@@ -83,6 +84,7 @@ export default async function HomePage() {
   return (
     <div className="landing-root">
       <NoiseOverlay />
+      <RevealOnScroll />
       <LandingNav />
       <Hero />
       <TrustBar />
