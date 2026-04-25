@@ -69,18 +69,37 @@ Spotify credits, word of mouth.
 
 ### 4.1 Today (the cockpit)
 
-`/dashboard` — the landing page after sign-in.
+`/dashboard` — the landing page after sign-in. **Redesigned 2026-04-25** ([brief](../plans/active/2026-04-25-today-redesign-brief.md), [architecture](../plans/active/2026-04-25-today-redesign-architecture.md)) to mirror the producer's actual 9am workflow: respond → produce → status. Replaces the prior layout (ShareLinkCard hero → 8-button QuickActions → KPI strip → 6-month chart → inbox below the fold), which was structured around what the codebase could render rather than what a producer does.
 
-**What renders:**
-- **ShareLinkCard** — permanent `skitza.app/join/<slug>` with one-click copy + preview. URL chip reads as a single cohesive string (no internal whitespace between `skitza.app`, `/join/`, and `<slug>`) with the slug bolded for emphasis. Copy + Preview are the **only** place these two actions live — they don't reappear inside QuickActions below.
-- **QuickActions strip** (8 actions, 2 rows): Upload track / New booking / Send invoice / **Share via WhatsApp** + ⌘K search / Add offline client / Quick note / **Edit /join page**. Two-tier visual hierarchy is intentional and locked: primary cards (top row) carry creation + share-creation actions; secondary pills (bottom row) carry utilities. Copy share link and Preview public page were removed as duplicates of the ShareLinkCard header actions.
-- **4-KPI strip**: Active projects / Revenue month / Sessions next 7 days / Unresolved items. Dividers run full column height with consistent baseline alignment between label and value.
-- **Revenue trend** (6-month SVG line graph). Empty state shows three faint horizontal grid lines + the dashed zero baseline so the surface reads as "graph paper ready to populate," not a flat ruler. No onboarding CTA on the empty state — Today is a daily workspace, not a funnel.
-- **Aggregate visitor analytics** — 30-day `/join/<slug>` visits, top-played tracks, conversion rate (visits → bookings)
-- **Split-inbox**: unified list of actionable items (sessions + comments + invoices + leads), sorted by urgency, detail pane on desktop / stack on mobile
-- **Setup-nudge banner** (first-run): "Finish setup" CTA if onboarding skipped + inbox empty
+**Three sections, in this order:**
 
-**Sidebar shortcut affordance.** Keyboard shortcuts (`G T`, `G M`, `G P`, `G S`) for primary nav render **inline** on each row — a right-aligned faded mono `kbd` chip that fades up on hover, suppressed on the active row (the active brand-bar already orients) and on rows with an unread badge (badge wins). The earlier portal-tooltip approach is retired — its absolute positioning collided with adjacent rows in the narrow sidebar gutter.
+1. **Inbox · What needs you** — split-inbox at the **top** of the page (was below the fold). Unified list of actionable items (sessions + comments + invoices + leads), sorted by urgency, detail pane on desktop / stack on mobile. The first thing the producer sees, because it's the first thing they're trying to find.
+
+2. **Studio · Recent uploads** — horizontal cover-art shelf, last 5 (visible) of up to 7 (loaded) track-version uploads across the producer's *active* projects. Each card shows deterministic gradient cover (no asset infrastructure — gradient is hash-derived from `trackId`), track title + version label, project client name, relative upload time. Unread-comment badge top-right corner when artists have replied since the version was uploaded. Click cover → deep-link to `/dashboard/projects/<id>?tab=music&versionId=<id>`. Click play overlay → existing PersistentPlayer takes over (no new audio infra). 5+ uploads → trailing "View all in Music →" link. Zero uploads → entire section hides (silence > "no tracks yet").
+
+3. **This month · Pulse + Quick** — single PulseCard (replaces the 4-KPI strip + 6-month chart, both retired from Today). One big number = revenue this month in producer's default currency, with a `+12% vs March`-style delta below (null when last month was 0 — no "+∞%"). 30-day daily-bucket sparkline sits behind the number at low alpha (ambient, not a deep chart). Footer row of three small mono stats: active projects · sessions next 7 days · unresolved items. Click the card → `/dashboard/revenue` for the deep chart. Below the Pulse: **ContextualActions** — 3 dynamic cards picked by priority algorithm (Reply to N → Continue with [recent track] → Send next invoice → Share your link → New project). Replaces the prior 8-button strip — context-aware, not menu-style.
+
+**Hero gradient stays.** The brand-primary radial wash on the top fold + the `sk-page-enter` mount animation + the `max-w-[1920px]` ultrawide breathing room are kept. Only the content within the gradient is restructured.
+
+**Empty state — day-1 producer.** When `recentUploads.length === 0 && pulseStats.activeProjects === 0 && items.length === 0`, the entire stack is replaced with a single centered `DashboardEmptyOnboarding` card: *"Your first booking is one share away."* + the share-link chip + copy button. No populated layout with zeros, no QuickActions guess-menu. Populated layout returns automatically when data exists (no flag flip required).
+
+**Setup-nudge banner** (first-run skipper): unchanged — fires when onboarding was skipped AND there are no inbox items. Pre-empts the empty-state card.
+
+**Aggregate visitor analytics** (30-day `/join/<slug>` visits, top-played tracks, conversion rate): deferred. Not part of the redesign v1; lives on the future `/dashboard/revenue` deep page or a dedicated `/dashboard/analytics` route TBD.
+
+**Share link surfacing.** No longer rendered as a Today hero. Lives in the **sidebar footer chip** (every authenticated page, every viewport) — compact inline `skitza.app/join/<slug>` with copy button. Slug-missing fallback: "Set your slug →" link to Setup → Profile. Sidebar-collapsed state collapses the chip to an icon-button. Copy hotkey `c` on Today still works (existing `useHotkey` binding). Preview action available via the sidebar chip's open-link affordance and from the ⌘K palette.
+
+**QuickActions strip retired.** The 8-button two-row strip ("Upload track / New booking / Send invoice / Share via WhatsApp + Search / Add offline client / Quick note / Edit /join page") that landed in PR #47 is removed in this redesign. Its actions are redistributed:
+  - `Search ⌘K` → already global via the command palette trigger in the sidebar; redundant on Today.
+  - `Quick note` → still available via the ⌘K palette (`> Quick note`); not on Today.
+  - `Add offline client` → folded into ContextualActions when there are no recent uploads (priority slot 5: "New project").
+  - `Upload track` / `New booking` / `Send invoice` → context-aware in ContextualActions (only surface when relevant, not always-on as buttons).
+  - `Share via WhatsApp` → fallback ContextualAction (priority slot 4, fires when nothing else needs the producer's attention).
+  - `Edit /join page` → reachable from the sidebar share-chip's gear affordance, and from Setup → Profile (the canonical home).
+
+**Sidebar shortcut affordance.** Keyboard shortcuts (`G T`, `G M`, `G P`, `G S`) for primary nav render inline on each row — right-aligned faded mono `kbd` chip that fades up on hover/focus-within, suppressed on the active row (brand bar carries orientation) and on rows with an unread badge (badge wins). Unchanged from PR #47.
+
+**Revenue deep page.** New route `/dashboard/revenue` hosts the existing `RevenueTrend` 6-month chart at a more breathable size (vertical, ~600×400, no `preserveAspectRatio="none"` stretching). For v1: just the chart, no toggles, no MoM/YoY, no export. Future passes add drill-down. The Pulse card's click target navigates here.
 
 ### 4.2 Projects
 
