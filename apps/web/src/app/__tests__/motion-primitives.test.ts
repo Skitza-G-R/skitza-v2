@@ -13,6 +13,18 @@ const GLOBALS_CSS = readFileSync(
   "utf8",
 );
 
+// Landing page (S1, 2026-04-26) ports the founder's original CSS into
+// apps/web/src/styles/landing.css. That file declares its own keyframes
+// (drift, pulse-ambient, pulse-glow, fadeInSteam, float-mockup,
+// float-mockup-alt, indicator-glow) and many `transition:` rules, so it
+// also needs a `prefers-reduced-motion: reduce` neutralising block. The
+// landing-specific assertions live further down in this file; we read
+// the CSS once here.
+const LANDING_CSS = readFileSync(
+  fileURLToPath(new URL("../../styles/landing.css", import.meta.url)),
+  "utf8",
+);
+
 // Extract the `@media (prefers-reduced-motion: reduce)` block so we
 // can assert each primitive's neutralisation lives there specifically.
 // Matches the last reduce block in the file (there may be more than
@@ -87,4 +99,53 @@ describe("Batch C motion primitives", () => {
       expect(reduceBlock).toContain(selector);
     },
   );
+});
+
+// Landing CSS (S1) is a verbatim port of the founder's original
+// stylesheet — a marketing-only surface scoped under `.landing-root`.
+// The source design uses heavy ambient motion (drifting blobs, pulsing
+// glow on the primary CTA, mockup floats, hero word fade, scroll
+// reveal). Visitors who enable `prefers-reduced-motion: reduce` MUST
+// see those animations neutralised, same a11y contract as the
+// in-app primitives.
+//
+// Strategy: rather than enumerate every `.btn-primary` / `.ambient-blob`
+// / `.hero-word` selector, we extract the landing.css's own
+// reduce-motion block and assert it contains a catch-all
+// `.landing-root *` rule that zeroes out animation + transition for
+// everything below the landing root. That covers the existing keyframes
+// + transitions AND any future ones added in S2/S3 without forcing
+// every story to remember to extend this test.
+describe("Landing CSS reduce-motion gate (S1, 2026-04-26)", () => {
+  function extractLandingReduceBlock(): string {
+    const blocks = [...LANDING_CSS.matchAll(
+      /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g,
+    )];
+    return blocks.map((m) => m[1] ?? "").join("\n");
+  }
+
+  it("declares at least one @media (prefers-reduced-motion: reduce) block", () => {
+    expect(LANDING_CSS).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
+  });
+
+  it("neutralises animation + transition for every descendant of .landing-root", () => {
+    const reduce = extractLandingReduceBlock();
+    // Catch-all selector: covers the 7 keyframes and every `transition:`
+    // declaration in the file in one rule, including the source's
+    // `animation: pulse-glow ...` on .btn-primary, the `animation:
+    // drift` on .ambient-blob, and the page-loaded fade-in on
+    // .hero-word / .mockup-wrapper.
+    expect(reduce).toMatch(/\.landing-root \*/);
+    expect(reduce).toMatch(/animation[^:]*:\s*none/);
+    expect(reduce).toMatch(/transition[^:]*:\s*none/);
+  });
+
+  it("also disables scroll-reveal so .reveal-up is visible without the entrance animation", () => {
+    const reduce = extractLandingReduceBlock();
+    // .reveal-up starts at opacity:0 + transform:translateY(20px) and
+    // becomes visible when JS adds .is-revealed. Under reduce, JS may
+    // never run (or the IntersectionObserver may fire late) — so the
+    // reduce gate must force the revealed state immediately.
+    expect(reduce).toMatch(/\.reveal-up/);
+  });
 });

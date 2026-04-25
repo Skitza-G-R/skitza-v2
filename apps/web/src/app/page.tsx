@@ -1,7 +1,10 @@
+import "~/styles/landing.css";
+
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
+import { NoiseOverlay } from "~/components/landing/noise-overlay";
 import { LandingNav } from "~/components/landing/landing-nav";
 import { Hero } from "~/components/landing/hero";
 import { TrustBar } from "~/components/landing/trust-bar";
@@ -55,11 +58,23 @@ export const metadata: Metadata = {
 // hero → trust bar → dark pain/solution/features/compare/how/
 // consolidation/security/testimonials/pricing/faq/founder/download → back
 // to light final CTA + footer. Each section is self-contained.
+//
+// Wrapper is `.landing-root` (S1, 2026-04-26) — every selector in
+// apps/web/src/styles/landing.css is scoped under it, so the warm
+// off-white tokens (`--light-bg`, `--amber`, `--copper`, `--font-head`,
+// `--font-body`) live ONLY here and cannot leak into the authed app via
+// cached CSS. NoiseOverlay is rendered first so the SVG film-grain
+// layer composites above every section without affecting tab order.
+//
+// The 17 section components below are still the existing decomposed
+// versions — S2/S3 will rewrite them against landing.css. S1 only
+// scaffolds the foundation (CSS port + fonts + noise overlay).
 export default async function HomePage() {
   const { userId } = await auth();
   if (userId) redirect("/dashboard");
   return (
-    <div className="bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
+    <div className="landing-root">
+      <NoiseOverlay />
       <LandingNav />
       <Hero />
       <TrustBar />
