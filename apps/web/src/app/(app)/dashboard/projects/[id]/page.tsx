@@ -20,7 +20,6 @@ import {
   SessionsSubTab,
   type SessionBooking,
 } from "~/components/dashboard/project/sub-tabs/sessions-sub-tab";
-import { AppShell } from "~/components/shell/app-shell";
 import { Breadcrumbs } from "~/components/ui/breadcrumbs";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { getStripe } from "~/server/stripe/client";
@@ -249,7 +248,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
   };
 
   return (
-    <AppShell active="projects">
+    <>
       {/* The Project Room has the richest content surface in the
           dashboard — ProjectHeader + 5-step timeline + payment strip
           + sub-tabs that can render a waveform player, a comment
@@ -343,6 +342,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
           </ProjectSubTabs>
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }

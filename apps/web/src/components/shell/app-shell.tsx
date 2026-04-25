@@ -8,31 +8,30 @@ import { CommandPaletteTrigger } from "./command-palette-trigger";
 import { DesktopMenuBridge } from "./desktop-menu-bridge";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { ShortcutsBridge } from "./shortcuts-bridge";
-import { Sidebar, type ActiveKey } from "./sidebar";
+import { Sidebar } from "./sidebar";
 
-// App shell used by /dashboard and its children. Rebuilt as a left
-// rail (Linear/Splice flavour) in D.6. The shell itself stays a
-// server component so we can await the Clerk user + look up the
-// producer slug once per render; everything interactive (sidebar
+// App shell used by /dashboard and its children. Hosted from the
+// shared (app)/dashboard/layout.tsx so the shell instance survives
+// sibling-route navigation — Sidebar, PersistentPlayer,
+// NotificationBell, CoachmarkTour, MobileBottomNav, and the command
+// palette no longer remount on every click between Today / Music /
+// Projects / Setup. Active nav state is derived inside Sidebar from
+// `usePathname()` rather than passed as a prop.
+//
+// Stays a server component so we can await the Clerk user + look up
+// the producer slug once per render; everything interactive (sidebar
 // state, command palette, keyboard shortcuts) lives in client
 // islands mounted inside this layout.
 //
-// Slug + unread-count lookup now lives in `server/shell-data` and is
-// wrapped with `React.cache()`, so any other server component in the
-// same request that needs the same pair gets a free hit instead of
-// re-running the SELECT. The parent layout already performs the full
-// gate check — this call is additive.
+// Slug + unread-count lookup lives in `server/shell-data` and is
+// wrapped with `React.cache()`. Now that the shell sits in a layout
+// rather than per-page, the call fires once per dashboard session
+// (until a layout re-render) instead of on every navigation.
 //
 // CommandPalette is lazy-loaded via CommandPaletteTrigger so cmdk
 // doesn't ship in the First Load JS of every dashboard route.
 
-export async function AppShell({
-  active,
-  children,
-}: {
-  active: ActiveKey;
-  children: ReactNode;
-}) {
+export async function AppShell({ children }: { children: ReactNode }) {
   const { slug, unreadCount, unreadItems } = await getShellState();
   return (
     <div className="flex min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
@@ -48,7 +47,6 @@ export async function AppShell({
         Skip to main content
       </a>
       <Sidebar
-        active={active}
         producerSlug={slug}
         unreadCount={unreadCount}
         unreadItems={unreadItems}

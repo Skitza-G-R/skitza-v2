@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
-import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { NewProjectForm } from "./new-project-form";
 
@@ -25,7 +24,7 @@ export default async function NewProjectPage() {
   }
 
   return (
-    <AppShell active="projects">
+    <>
       <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-14">
         <header className="reveal-up">
           <Link
@@ -50,6 +49,6 @@ export default async function NewProjectPage() {
           <NewProjectForm siteUrl={siteUrl} contacts={contacts} />
         </section>
       </div>
-    </AppShell>
+    </>
   );
 }

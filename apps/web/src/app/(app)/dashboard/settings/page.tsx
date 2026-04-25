@@ -3,7 +3,6 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { AppShell } from "~/components/shell/app-shell";
 import { ReplayTourButton } from "~/components/shell/replay-tour-button";
 import { AutopilotSection } from "~/components/dashboard/setup/autopilot-section";
 import {
@@ -92,7 +91,7 @@ export default async function SetupPage({
       : [];
 
   return (
-    <AppShell active="setup">
+    <>
       {/* Settings is a long-scroll page — on mobile, 40px of chrome
           above the first heading ate a noticeable chunk of viewport.
           py-6 mobile → sm:py-14 desktop keeps the editorial air on
@@ -193,7 +192,7 @@ export default async function SetupPage({
           {active === "account" && <AccountSection />}
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
 

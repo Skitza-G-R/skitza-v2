@@ -5,7 +5,6 @@ import { QuickActions } from "~/components/dashboard/today/quick-actions";
 import { RevenueTrend } from "~/components/dashboard/today/revenue-trend";
 import { ShareLinkCard } from "~/components/dashboard/today/share-link-card";
 import { TodayView, type TodayViewData } from "~/components/dashboard/today/today-view";
-import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
@@ -105,7 +104,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   };
 
   return (
-    <AppShell active="today">
+    <>
       {/* Batch C — Today goes full-bleed. A subtle radial brand
           gradient sits on top of the warm cream base so the upper
           fold glows with amber instead of looking like a bordered
@@ -148,7 +147,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           <TodayView data={data} selectedItemId={selectedItemId} />
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
 

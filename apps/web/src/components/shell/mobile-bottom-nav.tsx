@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { NAV_ITEMS, type ActiveKey } from "./sidebar";
+import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
+
+import { NAV_ITEMS } from "./sidebar";
 
 // Producer mobile bottom nav — native app-feel counterpart to the
 // artist app's BottomNav (see ~/components/artist/bottom-nav.tsx).
@@ -19,19 +21,6 @@ import { NAV_ITEMS, type ActiveKey } from "./sidebar";
 // than lifting QuickActions into a portal-rendered modal, and the
 // visual payoff (new screen, focused list) beats an in-place popover
 // for a 375px viewport.
-
-// Which NAV_ITEMS key matches the current pathname. Mirrors the
-// activation logic used by the desktop sidebar + artist bottom-nav:
-// /dashboard itself is exact-match (Today); everything else lights
-// up on any descendant route.
-function getActiveKey(pathname: string): ActiveKey | null {
-  if (pathname === "/dashboard") return "today";
-  for (const item of NAV_ITEMS) {
-    if (item.id === "today") continue;
-    if (pathname.startsWith(item.href)) return item.id;
-  }
-  return null;
-}
 
 // Look up a NAV_ITEMS entry by id. Returns null if the id isn't
 // present (shouldn't happen given the readonly-tuple source of truth,
