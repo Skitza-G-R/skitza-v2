@@ -44,20 +44,22 @@ export function InboxSection({ items, selectedItemId }: InboxSectionProps) {
     <section
       aria-labelledby="today-inbox-heading"
       data-tour-id="today-inbox"
-      className="mb-10"
     >
-      <div className="mb-4 flex items-baseline justify-between gap-4 border-b border-[rgb(var(--border-subtle))] pb-3">
-        <div>
-          <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
-            Inbox
-          </p>
-          <h2
-            id="today-inbox-heading"
-            className="mt-1 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
-          >
-            What needs you today
-          </h2>
-        </div>
+      {/* Section eyebrow + heading — same pattern as RecentUploadsShelf,
+          PulseCard, and ContextualActions on this page. Per UX-critic
+          on PR #48: dropped the `border-b` divider that no other
+          section had — consistency over decoration. Section spacing
+          owned by the page-level `space-y-12` wrapper. */}
+      <div className="mb-4">
+        <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+          Inbox
+        </p>
+        <h2
+          id="today-inbox-heading"
+          className="mt-1 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+        >
+          What needs you today
+        </h2>
       </div>
 
       <div className="grid gap-0 md:grid-cols-[minmax(0,_30rem)_minmax(0,_1fr)]">

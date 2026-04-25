@@ -387,8 +387,14 @@ describe("ContextualActions JSX — style matches PR #47 PrimaryButton", () => {
     expect(source).toContain("focus-visible:ring-[rgb(var(--brand-primary))]");
   });
 
-  it("section is labeled for screen-readers", () => {
-    expect(source).toMatch(/aria-label=["']Contextual actions["']/);
+  it("section is labeled for screen-readers via the heading", () => {
+    // Per UX-critic on PR #48: the section gained a visible eyebrow +
+    // heading ("Suggested" / "Next move") to read as a peer to Inbox /
+    // RecentUploadsShelf / Pulse. The a11y label is now derived from
+    // the heading via aria-labelledby instead of the inline aria-label.
+    expect(source).toMatch(/aria-labelledby=["']contextual-actions-heading["']/);
+    expect(source).toMatch(/id=["']contextual-actions-heading["']/);
+    expect(source).toContain("Next move");
   });
 
   it("renders cards in a 1-col mobile / 3-col desktop grid", () => {

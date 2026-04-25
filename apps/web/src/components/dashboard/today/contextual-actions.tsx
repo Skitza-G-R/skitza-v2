@@ -168,7 +168,26 @@ export function pickActions({
 export function ContextualActions(props: ContextualActionsProps) {
   const actions = pickActions(props);
   return (
-    <section aria-label="Contextual actions" className="mb-6">
+    // Per UX-critic on PR #48: added section eyebrow + heading so
+    // ContextualActions reads as a peer to Inbox / RecentUploadsShelf
+    // / Pulse — without it, the 3 cards just appeared with no
+    // signposting and broke the page's editorial rhythm. Section
+    // spacing owned by the page-level `space-y-12` wrapper.
+    <section
+      aria-labelledby="contextual-actions-heading"
+      data-tour-id="contextual-actions"
+    >
+      <div className="mb-4">
+        <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+          Suggested
+        </p>
+        <h2
+          id="contextual-actions-heading"
+          className="mt-1 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+        >
+          Next move
+        </h2>
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {actions.map((a) => (
           <ActionCardView key={a.id} action={a} />
@@ -186,8 +205,12 @@ export function ContextualActions(props: ContextualActionsProps) {
 //   - rtl:hover:shadow inset -3px = same bar, flipped to the start edge in RTL
 // Every alpha + color goes through CSS vars (CLAUDE.md style rule).
 function ActionCardView({ action }: { action: ActionCard }) {
+  // Per UX-critic on PR #48: lifted `min-h-[84px]` → `min-h-[112px]`
+  // and `p-4 ps-5` → `p-5 ps-6` so the row has equal visual weight to
+  // the PulseCard above it (was reading as "after-thought below the
+  // hero"). 112px matches Linear's quick-action card density.
   const classes =
-    "sk-lift flex min-h-[84px] flex-col items-start justify-center gap-1.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 ps-5 text-start transition-all hover:border-[rgb(var(--brand-primary)/0.4)] hover:shadow-[inset_3px_0_0_rgb(var(--brand-primary))] rtl:hover:shadow-[inset_-3px_0_0_rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]";
+    "sk-lift flex min-h-[112px] flex-col items-start justify-center gap-1.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 ps-6 text-start transition-all hover:border-[rgb(var(--brand-primary)/0.4)] hover:shadow-[inset_3px_0_0_rgb(var(--brand-primary))] rtl:hover:shadow-[inset_-3px_0_0_rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]";
 
   const content = (
     <>

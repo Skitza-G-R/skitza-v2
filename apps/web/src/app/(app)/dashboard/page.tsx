@@ -166,7 +166,16 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               inbox → recent uploads → pulse → contextual actions.
               Spec locks this in __tests__/page-rebuild.test.ts. */}
           {!empty ? (
-            <>
+            // Single vertical-rhythm rule for the populated stack.
+            // Per UX-critic on PR #48: replaces the prior per-component
+            // `mb-*` salad (was `mb-8`, `mb-10`, `mb-6` across sections)
+            // which made the page feel "made of components" rather than
+            // "designed as a page." `space-y-12` lands a deliberate
+            // 48-px gap between major sections — bigger than typical
+            // card spacing so sections read as sections, not stacked
+            // cards. The greeting still gets its own internal spacing
+            // because it's a header, not a section peer.
+            <div className="space-y-12">
               <DashboardGreeting
                 unresolvedItems={today.pulseStats.unresolvedItems}
               />
@@ -179,7 +188,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 activeProjectsCount={activeProjectsCount}
                 shareUrl={shareUrl}
               />
-            </>
+            </div>
           ) : null}
         </div>
       </div>

@@ -74,7 +74,7 @@ export function TodayDetail({
         <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
           {KIND_LABEL[item.kind]}
         </p>
-        <h2 className="mt-2 font-display text-3xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-4xl">
+        <h2 className="mt-2 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-3xl">
           {item.title}
         </h2>
         <p className="mt-3 text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">

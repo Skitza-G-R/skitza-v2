@@ -95,8 +95,9 @@ export function RecentUploadsShelf({ uploads }: RecentUploadsShelfProps) {
     <section
       aria-labelledby="recent-uploads-heading"
       data-tour-id="recent-uploads"
-      className="mb-10"
     >
+      {/* Section eyebrow + heading — section spacing owned by the
+          page-level `space-y-12` wrapper. */}
       <div className="mb-4">
         <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
           Studio · Recent uploads
@@ -131,7 +132,11 @@ function ViewAllCard() {
       className="group flex w-36 shrink-0 flex-col gap-2"
     >
       <div
-        className="flex h-36 w-36 items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors group-hover:border-[rgb(var(--brand-primary))] group-hover:text-[rgb(var(--brand-primary))]"
+        // Solid border (was dashed). Dashed reads as "drop zone" or
+        // "empty state" — per UX-critic on PR #48, "View all" is the
+        // opposite signal: more content available. Solid + bg-elevated
+        // matches the rail's neighbouring cover-art cards visually.
+        className="flex h-36 w-36 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors group-hover:border-[rgb(var(--brand-primary))] group-hover:text-[rgb(var(--brand-primary))]"
         aria-hidden
       >
         <span className="px-3 text-center leading-tight">View all in Music →</span>

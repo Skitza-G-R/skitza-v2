@@ -139,53 +139,72 @@ export function PulseCard({ stats }: Props) {
   };
 
   return (
-    <Link
-      href="/dashboard/revenue"
-      aria-label="Open revenue trend"
-      data-tour-id="pulse-card"
-      // sk-lift = -1px lift + soft shadow on hover. Hover-state border
-      // brightens to brand-primary so the card "wakes up" without a
-      // jarring color swap. relative is required so the absolute
-      // sparkline layer scopes to the card; overflow-hidden clips the
-      // sparkline inside the rounded corner.
-      className="sk-lift relative block overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 transition-colors hover:border-[rgb(var(--brand-primary))]"
-    >
-      {/* Eyebrow — same mono small-caps treatment as the rest of the
-          Today surface (RevenueTrend, KpiStrip). */}
-      <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
-        This month · Pulse
-      </p>
+    // Per UX-critic on PR #48: section eyebrow + heading were lifted
+    // OUT of the card so the Pulse section reads consistently with
+    // Inbox / RecentUploadsShelf / ContextualActions — every section on
+    // Today opens with the same eyebrow + display-2xl heading at the
+    // page level. Without this lift, Pulse looked like a card with a
+    // label rather than a section with a card.
+    <section aria-labelledby="pulse-heading" data-tour-id="pulse-section">
+      <div className="mb-4">
+        <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+          This month
+        </p>
+        <h2
+          id="pulse-heading"
+          className="mt-1 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+        >
+          Pulse
+        </h2>
+      </div>
 
-      {/* Layered content area. The sparkline is positioned absolute
-          inside this wrapper; the number + delta sit on top.
-          min-h sets a stable card height across empty / populated
-          states so the page doesn't reflow when revenue lands. */}
-      <div className="relative mt-4 min-h-[5rem]">
-        {!empty ? <PulseSparkline values={stats.sparkline} /> : null}
+      <Link
+        href="/dashboard/revenue"
+        aria-label="Open revenue trend"
+        data-tour-id="pulse-card"
+        // sk-lift = -1px lift + soft shadow on hover. Hover-state
+        // border brightens to brand-primary so the card "wakes up"
+        // without a jarring color swap. relative is required so the
+        // absolute sparkline layer scopes to the card; overflow-hidden
+        // clips the sparkline inside the rounded corner.
+        className="sk-lift relative block overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 transition-colors hover:border-[rgb(var(--brand-primary))]"
+      >
+        {/* Layered content area. The sparkline is positioned absolute
+            inside this wrapper; the number + delta sit on top.
+            min-h sets a stable card height across empty / populated
+            states so the page doesn't reflow when revenue lands. */}
+        <div className="relative min-h-[5rem]">
+          {!empty ? <PulseSparkline values={stats.sparkline} /> : null}
 
-        <div className="relative">
-          <p
-            className="sk-num font-display text-4xl leading-none tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl"
-          >
-            {headline}
-          </p>
-          <p
-            className="mt-2 font-mono text-xs tracking-wide"
-            style={{ color: TONE_TOKEN[tone] }}
-          >
-            {deltaCopy}
+          <div className="relative">
+            <p
+              className="sk-num font-display text-4xl leading-none tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl"
+            >
+              {headline}
+            </p>
+            <p
+              className="mt-2 font-mono text-xs tracking-wide"
+              style={{ color: TONE_TOKEN[tone] }}
+            >
+              {deltaCopy}
+            </p>
+          </div>
+        </div>
+
+        {/* Hairline divider + footer counts. Footer always renders,
+            even at zero — the producer should see "0 active · 0
+            sessions · 0 unresolved" so the surface holds shape on day
+            1. Per UX-critic on PR #48: dropped the `uppercase` +
+            `tracking-[0.16em]` from the footer because that treatment
+            made it look like a second eyebrow inside the card. Footer
+            is now a stat strip — same mono numerals, but normal-case
+            so it reads as data, not a label. */}
+        <div className="mt-5 border-t border-[rgb(var(--border-subtle))] pt-3">
+          <p className="sk-num font-mono text-xs text-[rgb(var(--fg-muted))]">
+            {footer}
           </p>
         </div>
-      </div>
-
-      {/* Hairline divider + footer counts. Footer always renders, even
-          at zero — the producer should see "0 active · 0 sessions · 0
-          unresolved" so the surface holds shape on day 1. */}
-      <div className="mt-5 border-t border-[rgb(var(--border-subtle))] pt-3">
-        <p className="sk-num font-mono text-[0.7rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
-          {footer}
-        </p>
-      </div>
-    </Link>
+      </Link>
+    </section>
   );
 }

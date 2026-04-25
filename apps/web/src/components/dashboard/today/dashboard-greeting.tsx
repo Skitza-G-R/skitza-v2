@@ -39,14 +39,14 @@ export function DashboardGreeting({
   const summary = formatGreetingSummary(unresolvedItems);
 
   return (
-    // Sits in the gradient hero, above the inbox. Eyebrow uses the
-    // mono small-caps treatment that runs throughout Today so the
-    // page header reads as one editorial composition.
-    <header className="mb-8 sm:mb-10">
-      <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
-        Today
-      </p>
-      <h2 className="mt-2 font-display text-3xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-4xl">
+    // Sits in the gradient hero, above the inbox. The page already has
+    // a sr-only `<h1>Today</h1>` and the sidebar nav says "Today" —
+    // dropping the redundant "Today" eyebrow here (UX-critic on PR #48
+    // flagged the triple-Today). The date is the heading; the summary
+    // line carries the daily-status copy. Margin is now owned by the
+    // page-level `space-y-12` wrapper.
+    <header>
+      <h2 className="font-display text-3xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-4xl">
         {dateLabel}
       </h2>
       <p className="mt-2 text-[0.95rem] leading-6 text-[rgb(var(--fg-secondary))]">
