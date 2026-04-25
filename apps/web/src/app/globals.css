@@ -287,20 +287,22 @@
    * .sk-card-glow — a static, brand-tinted glow that sits inside the
    * card's bounding box (no animation, no extra DOM). Used by the
    * Setup container card so the surface reads as "elevated" without
-   * shouting. Three layers, in order:
-   *   1. Soft brand glow (large, low alpha) — gives the warm copper
-   *      bloom around the edge.
-   *   2. Tight elevation drop-shadow (small, neutral) — lifts the
-   *      card off the page bg.
+   * shouting. Three layers, outside-in:
+   *   1. Soft brand glow (large blur, mid alpha) — warm copper bloom
+   *      that wraps the edge in light mode and reads bright in dark.
+   *   2. Tight elevation drop-shadow (small blur, neutral) — lifts
+   *      the card off the page bg, especially noticeable when bg-
+   *      elevated is only ~3% lighter than bg-base (light theme).
    *   3. (border lives on the element itself, not in box-shadow, so
    *      the radius behaves cleanly with focus-within rings.)
-   * Both shadows use rgb() with alpha to inherit dark-mode
-   * brand-primary tinting via the [data-theme] cascade.
+   * Alphas are tuned to match Skitza's editorial-but-grounded feel —
+   * the card should be obviously a surface, not an overlay panel.
    */
   .sk-card-glow {
     box-shadow:
-      0 0 28px -4px rgb(var(--brand-primary) / 0.14),
-      0 4px 12px -2px rgb(0 0 0 / 0.06);
+      0 0 36px -2px rgb(var(--brand-primary) / 0.22),
+      0 8px 24px -4px rgb(0 0 0 / 0.08),
+      0 2px 4px -1px rgb(0 0 0 / 0.04);
   }
 
   @media (prefers-reduced-motion: reduce) {

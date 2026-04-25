@@ -421,7 +421,7 @@ export function AvailabilityEditor({
       </div>
 
       {/* Day-tab strip */}
-      <div className="rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] p-2">
+      <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-1.5">
         <nav
           aria-label="Pick a day to edit"
           role="tablist"
@@ -628,7 +628,7 @@ function BlockRow({
   return (
     <div
       className={[
-        "flex flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border bg-[rgb(var(--bg-base))] px-1.5 py-1",
+        "inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border bg-[rgb(var(--bg-base))] px-1.5 py-1",
         errorBorder,
       ].join(" ")}
     >
@@ -641,9 +641,9 @@ function BlockRow({
         aria-label={`${weekdayLabel} window ${String(idx + 1)} start time`}
         aria-invalid={isHardError}
         // text-base avoids iOS zoom-on-focus (<16px triggers zoom).
-        // h-8 keeps the row compact; the time picker stays tappable
-        // because the native control sets its own min hit area.
-        className="h-8 w-[6rem] rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 font-mono text-base text-[rgb(var(--fg-primary))]"
+        // w-[7.5rem] reserves room for the value + the native time
+        // picker's clock icon — anything tighter clips the value.
+        className="h-8 w-[7.5rem] rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 font-mono text-base text-[rgb(var(--fg-primary))]"
       />
       <span className="text-xs text-[rgb(var(--fg-muted))]">–</span>
       <input
@@ -654,13 +654,13 @@ function BlockRow({
         }}
         aria-label={`${weekdayLabel} window ${String(idx + 1)} end time`}
         aria-invalid={isHardError}
-        className="h-8 w-[6rem] rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 font-mono text-base text-[rgb(var(--fg-primary))]"
+        className="h-8 w-[7.5rem] rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 font-mono text-base text-[rgb(var(--fg-primary))]"
       />
       <button
         type="button"
         onClick={onRemove}
         aria-label={`Remove ${weekdayLabel} window ${String(idx + 1)}`}
-        className="ms-auto inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] hover:text-[rgb(var(--fg-danger))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] hover:text-[rgb(var(--fg-danger))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
       >
         <TrashIcon />
       </button>

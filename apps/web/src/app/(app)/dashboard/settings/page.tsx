@@ -147,7 +147,7 @@ export default async function SetupPage({
             sk-card-glow primitive (in globals.css) layers a hairline
             border, a soft brand-tinted outer glow, and a subtle
             elevation drop-shadow restricted to the card boundary. */}
-        <div className="sk-card-glow rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-5 sm:px-6 sm:py-6">
+        <div className="sk-card-glow rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-5 sm:px-6 sm:py-6">
           <header className="reveal-up mb-4">
             <p className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
               Setup
