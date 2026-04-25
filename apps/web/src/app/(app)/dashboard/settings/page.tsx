@@ -1,63 +1,51 @@
-import type { ReactNode } from "react";
 import { auth } from "@clerk/nextjs/server";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ReplayTourButton } from "~/components/shell/replay-tour-button";
+import {
+  AvailabilitySection,
+  type AvailabilityBlock,
+  type Blackout,
+  type AvailabilitySettings,
+} from "~/components/dashboard/setup/availability-section";
 import { AutopilotSection } from "~/components/dashboard/setup/autopilot-section";
 import {
   PortfolioSection,
   type PortfolioTrackRow,
 } from "~/components/dashboard/setup/portfolio-section";
 import {
+  ServicesSection,
+  type ServicePackageRow,
+} from "~/components/dashboard/setup/services-section";
+import {
   isSetupSectionKey,
   type SetupSectionKey,
 } from "~/components/dashboard/setup/setup-deeplink";
+import { SETUP_SECTION_META } from "~/components/dashboard/setup/setup-headers";
 import { SetupTabs } from "~/components/dashboard/setup/setup-tabs";
-import { Breadcrumbs } from "~/components/ui/breadcrumbs";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { SettingsForm } from "./settings-form";
 import { StripeCard } from "./stripe-card";
 
-// Human-readable labels for the breadcrumb trail. We could derive
-// these from the tab bar, but keeping the mapping co-located with the
-// page makes it obvious which labels ship to both places. Matches
-// SetupTabs' label column.
-const SETUP_SECTION_LABEL: Record<SetupSectionKey, string> = {
-  profile: "Profile",
-  services: "Services",
-  portfolio: "Portfolio",
-  availability: "Availability",
-  autopilot: "Autopilot",
-  connections: "Connections",
-  account: "Account",
-};
-
-// Setup — the four-screen producer-dashboard consolidation of what used
-// to be three separate routes (Settings, Portfolio, Booking/availability
-// config). Post-Batch-A this page renders a proper tab bar (not a chip
-// jump-bar over a long-scroll page): only the active section mounts,
-// driven by `?section=<key>`. Legacy deep-links keep working — middleware
-// redirects `/dashboard/portfolio` → `?section=portfolio` and the same
-// Portfolio tab shows up as active.
+// Setup — the four-screen producer-dashboard consolidation. After the
+// 2026-04-25 flatten, every tab renders its full management UI inline:
+// Profile (SettingsForm), Services (ServicesSection — packages CRUD),
+// Portfolio (PortfolioSection), Availability (AvailabilitySection —
+// hours + blackouts + policies), Autopilot (AutopilotSection),
+// Connections (StripeCard), Account (AccountSection inline below).
+// No more cross-link "Manage X" buttons — those bounced to /dashboard/
+// booking, which still exists for the read-only Weekly schedule + the
+// Upcoming sessions list, but configuration now happens here.
 //
-// Six sections (profile default):
-//   profile       — studio profile + brand (SettingsForm)
-//   services      — cross-link to /dashboard/booking?tab=packages
-//   portfolio     — cross-link to the public page (portfolio rehost
-//                   lives behind a follow-up task — see TODO below)
-//   availability  — cross-link to /dashboard/booking?tab=sessions
-//   connections   — Stripe Connect (StripeCard)
-//   account       — data export + Clerk-managed email/password
+// The page-level <h1> + description swap per active tab via
+// SETUP_SECTION_META so producers always know what surface they're on
+// without scanning back to the tab bar; the breadcrumb dropped because
+// the dynamic title carries the same orientation.
 //
-// Task 11 scope: Portfolio and Availability are cross-linked (not yet
-// rehosted inline). The forms behind them are non-trivial — portfolio
-// has file-upload + reorder actions, availability has a weekly grid
-// editor + blackouts + timezone. A follow-up task will lift those in.
-//
-// The page stays a Server Component so we can await Clerk + the tRPC
-// caller once per render. The tab bar is a client island purely because
-// `next/link` + `aria-current` styling wants the pathname.
+// Stays a Server Component so we can await Clerk + the tRPC caller
+// once per render. Tab-active data fetches are gated so each tab pays
+// only for its own queries — fanning out everything would slow down
+// the most-common landing tab (Profile).
 export default async function SetupPage({
   searchParams,
 }: {
@@ -67,8 +55,9 @@ export default async function SetupPage({
   if (!userId) redirect("/sign-in");
 
   // Parse + narrow the `?section=` param. Unknown values fall back to
-  // "profile" — same defensive default as the old client-side deeplink,
-  // just evaluated server-side now so we only render one section.
+  // "profile" — same defensive default as the old client-side
+  // deeplink, just evaluated server-side now so we only render one
+  // section.
   const resolvedSearchParams = await searchParams;
   const rawSection = resolvedSearchParams.section;
   const active: SetupSectionKey = isSetupSectionKey(rawSection)
@@ -76,10 +65,13 @@ export default async function SetupPage({
     : "profile";
 
   const caller = appRouter.createCaller({ userId });
+
+  // Profile data is always needed — it powers the Profile tab AND
+  // feeds the Autopilot section (which reads `profile.autopilot`).
+  // Other tab-specific queries fan out only when the matching tab is
+  // active; gating keeps the cold-load cost of each tab bounded.
   const profile = await caller.producer.me();
-  // Only fetch portfolio tracks when the tab is active — cheap query
-  // but the Setup page renders seven tabs and we want each to pay
-  // only for its own data.
+
   const portfolioTracks: PortfolioTrackRow[] =
     active === "portfolio"
       ? (await caller.portfolio.list()).map((t) => ({
@@ -90,51 +82,93 @@ export default async function SetupPage({
         }))
       : [];
 
+  const servicesPackages: ServicePackageRow[] =
+    active === "services"
+      ? (await caller.booking.packages.list()).map((p) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          durationMin: p.durationMin,
+          sessionCount: p.sessionCount,
+          priceCents: p.priceCents,
+          currency: p.currency,
+          depositPct: p.depositPct,
+          active: p.active,
+          kind: p.kind,
+          locationType: p.locationType,
+          bufferMinutes: p.bufferMinutes,
+          minLeadHours: p.minLeadHours,
+          paymentPlans: p.paymentPlans,
+        }))
+      : [];
+
+  // Availability tab needs three queries — fan them out in parallel
+  // when active. The settings query has its own producer row read,
+  // so this is 3 round-trips, not 1.
+  let availabilityBlocks: AvailabilityBlock[] = [];
+  let availabilityBlackouts: Blackout[] = [];
+  let availabilitySettings: AvailabilitySettings = {
+    defaultSessionMin: 60,
+    autoConfirmBookings: false,
+    cancellationPolicyHours: 24,
+  };
+  if (active === "availability") {
+    const [blocks, blackouts, settings] = await Promise.all([
+      caller.booking.availability.list(),
+      caller.booking.blackouts.list(),
+      caller.booking.availability.getSettings(),
+    ]);
+    availabilityBlocks = blocks.map((b) => ({
+      weekday: b.weekday,
+      startMin: b.startMin,
+      endMin: b.endMin,
+    }));
+    availabilityBlackouts = blackouts.map((b) => ({
+      id: b.id,
+      startDate: b.startDate,
+      endDate: b.endDate,
+      reason: b.reason,
+    }));
+    availabilitySettings = {
+      defaultSessionMin: settings.defaultSessionMin,
+      autoConfirmBookings: settings.autoConfirmBookings,
+      cancellationPolicyHours: settings.cancellationPolicyHours,
+    };
+  }
+
+  const headerMeta = SETUP_SECTION_META[active];
+
   return (
     <>
-      {/* Settings is a long-scroll page — on mobile, 40px of chrome
-          above the first heading ate a noticeable chunk of viewport.
-          py-6 mobile → sm:py-14 desktop keeps the editorial air on
-          bigger screens while tightening the ratio of chrome-to-
-          content on small ones. */}
       <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-14">
-        {/* Show a breadcrumb trail once the producer has drilled into a
-            non-default tab — on the default Profile view the page
-            title alone is enough orientation. The trail makes the tab
-            name explicit above the fold, so producers on a deep-linked
-            URL (magic-link, bookmark) always know where they are. */}
-        {active !== "profile" ? (
-          <Breadcrumbs
-            className="mb-3 reveal-up"
-            items={[
-              { label: "Setup", href: "/dashboard/settings" },
-              { label: SETUP_SECTION_LABEL[active] },
-            ]}
-          />
-        ) : null}
         <header className="reveal-up mb-6">
           <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
             Setup
           </p>
+          {/* H1 + description vary per active tab. Re-keying on the
+              tab id replays the reveal-up animation so the swap feels
+              like a section transition, not a hard cut. */}
           <h1
-            className="mt-2 font-display text-4xl leading-tight tracking-tight sm:text-5xl"
+            key={`title-${active}`}
+            className="reveal-up mt-2 font-display text-4xl leading-tight tracking-tight sm:text-5xl"
             style={{ fontVariationSettings: '"opsz" 96' }}
           >
-            Your studio, dialed in.
+            {headerMeta.title}
           </h1>
-          <p className="mt-3 max-w-xl text-sm text-[rgb(var(--fg-secondary))]">
-            Everything that&rsquo;s not day-to-day client work — your identity,
-            services, portfolio, hours, and payments — lives on one page.
+          <p
+            key={`desc-${active}`}
+            className="reveal-up mt-3 max-w-xl text-sm text-[rgb(var(--fg-secondary))]"
+          >
+            {headerMeta.description}
           </p>
         </header>
 
         <SetupTabs active={active} />
 
         {/* Only the active section renders. Keying the wrapper on
-            `active` replays the reveal-up animation on tab change so
-            content slides in instead of hard-cutting — same pattern
-            as ProjectSubTabs. `role="tabpanel"` + aria-labelledby
-            point back at the tab button for AT wiring. */}
+            `active` replays reveal-up on tab change so content slides
+            in instead of hard-cutting. role="tabpanel" + aria-
+            labelledby point back at the tab button for AT wiring. */}
         <div
           key={active}
           id={`setup-panel-${active}`}
@@ -147,7 +181,11 @@ export default async function SetupPage({
               profile={{
                 displayName: profile.displayName ?? "",
                 slug: profile.slug,
-                defaultCurrency: profile.defaultCurrency as "USD" | "EUR" | "GBP" | "ILS",
+                defaultCurrency: profile.defaultCurrency as
+                  | "USD"
+                  | "EUR"
+                  | "GBP"
+                  | "ILS",
                 timezone: profile.timezone,
                 brand: profile.brand,
               }}
@@ -155,13 +193,7 @@ export default async function SetupPage({
           )}
 
           {active === "services" && (
-            <CrossLinkSection
-              eyebrow="Services"
-              title="What you sell"
-              description="Each service is one thing clients can book — sessions, mixing, mastering, production days. Set a price, a duration, and a deposit rule."
-              linkHref="/dashboard/booking?tab=packages"
-              linkLabel="Manage services"
-            />
+            <ServicesSection packages={servicesPackages} />
           )}
 
           {active === "portfolio" && (
@@ -169,12 +201,10 @@ export default async function SetupPage({
           )}
 
           {active === "availability" && (
-            <CrossLinkSection
-              eyebrow="Availability"
-              title={<>When you&rsquo;re open</>}
-              description="Weekly hours, buffers between sessions, and blackout dates. Clients only see slots that fit inside these windows."
-              linkHref="/dashboard/booking?tab=sessions"
-              linkLabel="Edit hours & blackouts"
+            <AvailabilitySection
+              blocks={availabilityBlocks}
+              blackouts={availabilityBlackouts}
+              settings={availabilitySettings}
             />
           )}
 
@@ -197,9 +227,9 @@ export default async function SetupPage({
 }
 
 // Account panel — data export + a hint about Clerk-managed
-// email/password. We don't build our own credentials UI because
-// Clerk's UserButton → "Manage account" modal does everything we'd
-// otherwise have to re-implement.
+// email/password. Two real subsections (Your data + Tour) so this
+// component keeps its inner h2s — those distinguish the two
+// subsections within one tab, not the tab from its siblings.
 function AccountSection() {
   return (
     <section
@@ -207,12 +237,9 @@ function AccountSection() {
       className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
     >
       <header className="mb-4">
-        <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-          Account
-        </p>
         <h2
           id="setup-account-heading"
-          className="mt-2 font-display text-xl tracking-tight"
+          className="font-display text-xl tracking-tight"
         >
           Your data
         </h2>
@@ -236,9 +263,7 @@ function AccountSection() {
       </p>
       <hr className="my-6 border-t border-[rgb(var(--border-subtle))]" />
       <div className="flex flex-col gap-2">
-        <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-          Tour
-        </p>
+        <h3 className="font-display text-base tracking-tight">Tour</h3>
         <p className="text-sm text-[rgb(var(--fg-secondary))]">
           Forgot where things live? Walk through the 4-screen orientation
           again.
@@ -246,53 +271,6 @@ function AccountSection() {
         <div className="mt-2">
           <ReplayTourButton />
         </div>
-      </div>
-    </section>
-  );
-}
-
-// Shared card for sections whose full rehost lives behind a follow-up
-// task (Services / Portfolio / Availability). Same visual treatment as
-// the existing Profile + Connections sections so the page doesn't feel
-// stitched together. A small CTA button links to the existing surface
-// so producers can still do the work — just via one more hop.
-function CrossLinkSection({
-  eyebrow,
-  title,
-  description,
-  linkHref,
-  linkLabel,
-}: {
-  eyebrow: string;
-  title: ReactNode;
-  description: string;
-  linkHref: string;
-  linkLabel: string;
-}) {
-  return (
-    <section
-      aria-labelledby={`setup-${eyebrow.toLowerCase()}-heading`}
-      className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
-    >
-      <header className="mb-4">
-        <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-          {eyebrow}
-        </p>
-        <h2
-          id={`setup-${eyebrow.toLowerCase()}-heading`}
-          className="mt-2 font-display text-xl tracking-tight"
-        >
-          {title}
-        </h2>
-        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">{description}</p>
-      </header>
-      <div className="flex flex-wrap items-center gap-3">
-        <Link
-          href={linkHref}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-4 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
-        >
-          {linkLabel}
-        </Link>
       </div>
     </section>
   );
