@@ -26,6 +26,13 @@ const STATIC_REDIRECTS: Record<string, string> = {
   "/dashboard/inbox":     "/dashboard",
   "/dashboard/library":   "/dashboard/music",
   "/dashboard/portfolio": "/dashboard/settings?section=portfolio",
+  // Services + Availability were never live as their own routes, but
+  // pre-flatten the Setup tabs cross-linked into /dashboard/booking.
+  // Per the PRD §4.4 delta we promise bookmarks / pasted email links
+  // to these "natural" URLs keep working — they redirect to the
+  // matching Setup sub-tab.
+  "/dashboard/services":     "/dashboard/settings?section=services",
+  "/dashboard/availability": "/dashboard/settings?section=availability",
 };
 
 // Dynamic paths — /dashboard/contracts/<id> etc. We collapse them all
