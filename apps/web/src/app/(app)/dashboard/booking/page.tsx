@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import type { PaymentPlan } from "@skitza/db";
 
-import { AppShell } from "~/components/shell/app-shell";
 import { Badge } from "~/components/ui/badge";
 import { EmptyState } from "~/components/ui/empty-state";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -90,7 +89,7 @@ export default async function BookingPage({ searchParams }: PageProps) {
   ]);
 
   return (
-    <AppShell active="projects">
+    <>
       <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
         <header className="reveal-up">
           <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
@@ -269,7 +268,7 @@ export default async function BookingPage({ searchParams }: PageProps) {
           ) : null}
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
 

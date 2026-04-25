@@ -5,7 +5,6 @@ import {
   MusicLibrary,
   type MusicRow,
 } from "~/components/dashboard/music/music-library";
-import { AppShell } from "~/components/shell/app-shell";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Task 10: Music top-level — Samply-style cross-project library. One
@@ -34,7 +33,7 @@ export default async function MusicPage() {
   }));
 
   return (
-    <AppShell active="music">
+    <>
       {/* Batch C — Music library matches the Today full-bleed canvas. */}
       <div className="relative isolate">
         <div
@@ -56,6 +55,6 @@ export default async function MusicPage() {
           <MusicLibrary tracks={rows} />
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }

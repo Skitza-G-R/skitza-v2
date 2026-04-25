@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { UserButton } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 
+import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
@@ -25,8 +27,12 @@ import { ThemeToggle } from "./theme-toggle";
 // Flash-of-wrong-width: on SSR we don't know the user's preference,
 // so we always render expanded first, then the mount effect nudges
 // to collapsed if stored. 200ms transition smooths the change.
-
-export type ActiveKey = "today" | "music" | "projects" | "setup";
+//
+// `ActiveKey` lives in `~/lib/dashboard/active-key` (a plain TS
+// module — no `"use client"`) so it stays importable from server
+// components if a future page-title helper needs it. Sidebar
+// re-uses `getActiveKey()` from there to derive the active nav key
+// from the current URL, replacing the old `active` prop.
 
 type NavItem = {
   id: ActiveKey;
@@ -58,16 +64,21 @@ export const NAV_ITEMS: readonly NavItem[] = [
 ] as const;
 
 export function Sidebar({
-  active,
   producerSlug,
   unreadCount = 0,
   unreadItems = [],
 }: {
-  active: ActiveKey;
   producerSlug: string | null;
   unreadCount?: number;
   unreadItems?: readonly ShellNotificationItem[];
 }) {
+  // Active nav key is derived from the current URL via the shared
+  // helper. `getActiveKey` falls back to "today" for any unrecognised
+  // path so the rail always has SOME active state — never a blank
+  // segment. Replaces the old `active: ActiveKey` prop that every
+  // dashboard page used to thread in by hand.
+  const pathname = usePathname();
+  const active: ActiveKey = getActiveKey(pathname);
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
 

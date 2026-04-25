@@ -7,7 +7,6 @@ import {
   type ProjectRow,
   type Stage,
 } from "~/components/dashboard/projects/projects-list";
-import { AppShell } from "~/components/shell/app-shell";
 import { isProjectState } from "~/lib/projects/states";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -63,7 +62,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   }
 
   return (
-    <AppShell active="projects">
+    <>
       {/* Batch C — Projects page picks up the same editorial canvas
           treatment as Today: full-bleed, gradient band at the top,
           display-font page title at 4xl→5xl, mono eyebrow above it. */}
@@ -87,6 +86,6 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
           <ProjectsList grouped={clientGrouped} activeState={activeState} />
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
