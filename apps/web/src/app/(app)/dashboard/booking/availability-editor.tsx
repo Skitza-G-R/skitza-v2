@@ -7,10 +7,13 @@ import { Button } from "~/components/ui/button";
 import { useToast } from "~/components/ui/toast";
 import { setAvailabilityWeek } from "./actions";
 
-// Multi-block availability: each weekday holds a dynamic list of
-// start/end time blocks. Producers can have e.g. a morning, afternoon,
-// and evening block on the same day ("studio hours") without being
-// capped at two. Times are minutes-from-day-start; UI renders `HH:MM`.
+// Multi-block availability with a Notion/Linear-style day-tab pattern:
+// 7 weekday chips at the top (Mon..Sun), only the selected day's
+// editor renders below. A small dot under each chip signals which days
+// already have windows so producers can scan their week without
+// clicking each tab. Pre-2026-04-25 this rendered all 7 days stacked
+// vertically — a long-scroll mobile layout that ate the entire fold
+// on desktop.
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -118,6 +121,22 @@ function overlapsWithin(list: readonly DraftBlock[], idx: number): boolean {
   return false;
 }
 
+// Pick the day to land on when the editor first mounts. We prefer
+// today (so a producer opening Setup on Friday sees Friday hours
+// first) but fall back to the first weekday that already has windows
+// configured — and finally to Monday if everything is empty. Pure so
+// it can be tested without React or state.
+export function defaultSelectedDay(
+  draft: Draft,
+  todayDow: number,
+): number {
+  if ((draft[todayDow] ?? []).length > 0) return todayDow;
+  for (const { num } of WEEKDAYS) {
+    if ((draft[num] ?? []).length > 0) return num;
+  }
+  return todayDow;
+}
+
 // ── Presets ─────────────────────────────────────────────────────────
 // Each preset is a list of (weekday, startMin, endMin) tuples. Applied
 // wholesale — overwrites the current draft when confirmed.
@@ -139,26 +158,26 @@ function mk(weekday: number, sh: number, eh: number): StoredBlock {
 const PRESETS: Preset[] = [
   {
     key: "9to6",
-    label: "9am–6pm Mon-Fri",
+    label: "9–6 Mon–Fri",
     description: "One block per weekday, 9:00 to 18:00.",
     blocks: MON_FRI.map((d) => mk(d, 9, 18)),
   },
   {
     key: "two-session",
-    label: "Two-session days (9-12 / 14-17)",
-    description: "Morning + afternoon blocks Mon-Fri.",
+    label: "Two-session days",
+    description: "Morning + afternoon Mon–Fri (9–12 / 14–17).",
     blocks: MON_FRI.flatMap((d) => [mk(d, 9, 12), mk(d, 14, 17)]),
   },
   {
     key: "studio-hours",
-    label: "Studio hours (9-12 / 14-17 / 18-21)",
-    description: "Three blocks Mon-Fri.",
+    label: "Studio hours",
+    description: "Three blocks Mon–Fri (9–12 / 14–17 / 18–21).",
     blocks: MON_FRI.flatMap((d) => [mk(d, 9, 12), mk(d, 14, 17), mk(d, 18, 21)]),
   },
   {
     key: "weekend-evenings",
-    label: "Weekend + evenings",
-    description: "Sat/Sun full days + Mon-Fri evenings.",
+    label: "Weekends + evenings",
+    description: "Sat/Sun 10–8 + Mon–Fri 18–22.",
     blocks: [
       ...SAT_SUN.flatMap((d) => [mk(d, 10, 20)]),
       ...MON_FRI.flatMap((d) => [mk(d, 18, 22)]),
@@ -183,6 +202,14 @@ export function AvailabilityEditor({
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState<Draft>(() => buildDraft(initialBlocks));
+
+  // Selected day for the day-tab pattern. Initialised once based on
+  // today + which days already have windows; producers can switch tabs
+  // freely after that. Using a lazy initialiser keeps the new Date()
+  // call out of every re-render.
+  const [selectedDay, setSelectedDay] = useState<number>(() =>
+    defaultSelectedDay(buildDraft(initialBlocks), new Date().getDay()),
+  );
 
   // Confirmation affordance for destructive preset application.
   const [pendingPreset, setPendingPreset] = useState<Preset | null>(null);
@@ -258,9 +285,7 @@ export function AvailabilityEditor({
     });
   }
 
-  // Copy one weekday's block list to every other weekday — matches the
-  // StudioFlow "apply Monday to all weekdays" affordance. Overwrites any
-  // existing blocks on the target days.
+  // Copy one weekday's block list to every other weekday.
   function copyToAllWeekdays(sourceWeekday: number) {
     setDraft((d) => {
       const src = (d[sourceWeekday] ?? []).map((b) => ({
@@ -281,8 +306,7 @@ export function AvailabilityEditor({
     });
   }
 
-  // Fast "clear this day" — matches the screenshot's per-day toggle
-  // where a day with N blocks collapses to "closed" in one tap.
+  // Fast "clear this day".
   function clearDay(weekday: number) {
     setDraft((d) => ({ ...d, [weekday]: [] }));
   }
@@ -310,31 +334,50 @@ export function AvailabilityEditor({
     });
   }
 
+  const selectedList = draft[selectedDay] ?? [];
+  const selectedLabel =
+    WEEKDAYS.find((w) => w.num === selectedDay)?.label ?? "Mon";
+
+  // Pre-compute "errors on this day" so we can dot the chip when the
+  // selected tab isn't the one with the broken row. Producers shouldn't
+  // have to hunt across tabs to find what's blocking save.
+  const errorDays = useMemo(() => {
+    const days = new Set<number>();
+    for (const e of errors) {
+      if (e.kind !== "short") days.add(e.weekday);
+    }
+    return days;
+  }, [errors]);
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Presets */}
-      <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="font-display text-sm tracking-tight text-[rgb(var(--fg-primary))]" style={{ fontWeight: 700 }}>
-              Presets
-            </h3>
-            <p className="mt-0.5 text-xs text-[rgb(var(--fg-secondary))]">
-              Starting points for common weekly patterns. Applying overwrites your current blocks.
-            </p>
-          </div>
+      <div className="rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] px-3 py-2.5">
+        <div className="mb-1.5 flex items-center justify-between gap-3">
+          <h3
+            className="text-[0.78rem] font-semibold text-[rgb(var(--fg-primary))]"
+          >
+            Presets
+          </h3>
+          <span className="text-[0.66rem] text-[rgb(var(--fg-muted))]">
+            Overwrites your current schedule
+          </span>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <div className="flex flex-wrap gap-1.5">
           {PRESETS.map((p) => {
             const isPending = pendingPreset?.key === p.key;
             if (isPending) {
               return (
                 <div
                   key={p.key}
-                  className="flex min-h-11 flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-overlay))] px-3 py-1.5"
+                  className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-2 py-1"
                 >
                   <span className="text-xs text-[rgb(var(--fg-secondary))]">
-                    Apply <span className="font-mono text-[rgb(var(--fg-primary))]">{p.label}</span>?
+                    Apply{" "}
+                    <span className="font-mono text-[rgb(var(--fg-primary))]">
+                      {p.label}
+                    </span>
+                    ?
                   </span>
                   <Button
                     type="button"
@@ -342,7 +385,7 @@ export function AvailabilityEditor({
                     onClick={() => {
                       applyPreset(p);
                     }}
-                    className="min-h-9"
+                    className="h-7 px-2 text-xs"
                   >
                     Apply
                   </Button>
@@ -353,7 +396,7 @@ export function AvailabilityEditor({
                     onClick={() => {
                       setPendingPreset(null);
                     }}
-                    className="min-h-9"
+                    className="h-7 px-2 text-xs"
                   >
                     Cancel
                   </Button>
@@ -361,157 +404,178 @@ export function AvailabilityEditor({
               );
             }
             return (
-              <Button
+              <button
                 key={p.key}
                 type="button"
-                variant="secondary"
-                size="sm"
-                className="min-h-11 justify-start text-left"
                 onClick={() => {
                   setPendingPreset(p);
                 }}
                 title={p.description}
+                className="h-7 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2.5 text-xs text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
               >
                 {p.label}
-              </Button>
+              </button>
             );
           })}
         </div>
       </div>
 
-      {/* Weekday rows */}
-      <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-        <div className="divide-y divide-[rgb(var(--border-subtle))]">
+      {/* Day-tab strip */}
+      <div className="rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] p-2">
+        <nav
+          aria-label="Pick a day to edit"
+          role="tablist"
+          className="flex gap-1"
+        >
           {WEEKDAYS.map(({ num, label }) => {
             const list = draft[num] ?? [];
-            const count = list.length;
+            const hasWindows = list.length > 0;
+            const hasError = errorDays.has(num);
+            const isActive = selectedDay === num;
             return (
-              <div
+              <button
                 key={num}
-                className="flex flex-col gap-3 py-3 sm:flex-row sm:items-start sm:gap-4"
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`day-panel-${String(num)}`}
+                id={`day-tab-${String(num)}`}
+                onClick={() => {
+                  setSelectedDay(num);
+                }}
+                className={[
+                  "relative flex h-9 flex-1 flex-col items-center justify-center rounded-[var(--radius-sm)] px-1 text-[0.72rem] font-mono uppercase tracking-wider transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
+                  isActive
+                    ? "bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary))]"
+                    : hasWindows
+                    ? "text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-base))]"
+                    : "text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-base))]",
+                ].join(" ")}
               >
-                <div className="flex flex-shrink-0 flex-row items-center gap-2 pt-2 sm:w-32 sm:flex-col sm:items-start sm:gap-1">
-                  <span className="font-mono text-sm text-[rgb(var(--fg-primary))]">
-                    {label}
-                  </span>
-                  {count > 0 ? (
-                    <span
-                      className="inline-flex h-5 items-center rounded-full bg-[rgb(var(--brand-primary)/0.1)] px-2 text-[0.65rem] font-mono text-[rgb(var(--brand-primary))]"
-                      aria-label={`${String(count)} window${count === 1 ? "" : "s"}`}
-                    >
-                      {count} window{count === 1 ? "" : "s"}
-                    </span>
-                  ) : (
-                    <span className="inline-flex h-5 items-center rounded-full bg-[rgb(var(--fg-muted)/0.12)] px-2 text-[0.65rem] font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                      Closed
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-1 flex-col gap-2">
-                  {count === 0 ? (
-                    <div className="flex min-h-11 items-center text-xs text-[rgb(var(--fg-muted))]">
-                      Nothing booked on {label}. Add a window to open the day.
-                    </div>
-                  ) : (
-                    list.map((b, idx) => {
-                      const rowErr = errors.find((e) => e.blockId === b.id);
-                      return (
-                        <BlockRow
-                          key={b.id}
-                          block={b}
-                          errorKind={rowErr?.kind}
-                          onChange={(patch) => {
-                            updateBlock(num, b.id, patch);
-                          }}
-                          onRemove={() => {
-                            removeBlock(num, b.id);
-                          }}
-                          weekdayLabel={label}
-                          idx={idx}
-                        />
-                      );
-                    })
-                  )}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="min-h-11"
-                      onClick={() => {
-                        addBlock(num);
-                      }}
-                      disabled={count >= MAX_BLOCKS_PER_DAY}
-                      aria-label={`Add a window on ${label}`}
-                    >
-                      <svg
-                        aria-hidden
-                        viewBox="0 0 20 20"
-                        className="h-4 w-4"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      >
-                        <path d="M10 4v12M4 10h12" strokeLinecap="round" />
-                      </svg>
-                      Add window
-                    </Button>
-                    {count > 0 ? (
-                      <>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="min-h-11 text-[rgb(var(--fg-secondary))]"
-                          onClick={() => {
-                            copyToAllWeekdays(num);
-                          }}
-                          title={`Copy ${label} windows to every other weekday`}
-                          aria-label={`Copy ${label} schedule to every weekday`}
-                        >
-                          <svg
-                            aria-hidden
-                            viewBox="0 0 20 20"
-                            className="h-4 w-4"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                          >
-                            <rect x="6" y="6" width="10" height="10" rx="1.5" />
-                            <path d="M4 4h10v2M4 4v10h2" />
-                          </svg>
-                          Copy to all
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="min-h-11 text-[rgb(var(--fg-muted))]"
-                          onClick={() => {
-                            clearDay(num);
-                          }}
-                          aria-label={`Clear all windows on ${label}`}
-                        >
-                          Clear
-                        </Button>
-                      </>
-                    ) : null}
-                    {count >= MAX_BLOCKS_PER_DAY ? (
-                      <span className="text-xs text-[rgb(var(--fg-muted))]">
-                        Max {String(MAX_BLOCKS_PER_DAY)} per day
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
+                <span>{label}</span>
+                {/* Indicator dot:
+                    - red if this day has a blocking error (so producers can
+                      jump straight to the broken tab)
+                    - brand-color filled if the day has windows
+                    - hidden if the day is empty
+                */}
+                {hasError ? (
+                  <span
+                    aria-hidden
+                    className="mt-0.5 h-1 w-1 rounded-full bg-[rgb(var(--fg-danger))]"
+                  />
+                ) : hasWindows ? (
+                  <span
+                    aria-hidden
+                    className="mt-0.5 h-1 w-1 rounded-full bg-[rgb(var(--brand-primary))]"
+                  />
+                ) : (
+                  <span aria-hidden className="mt-0.5 h-1 w-1" />
+                )}
+              </button>
             );
           })}
+        </nav>
+      </div>
+
+      {/* Selected day editor */}
+      <div
+        id={`day-panel-${String(selectedDay)}`}
+        role="tabpanel"
+        aria-labelledby={`day-tab-${String(selectedDay)}`}
+        key={selectedDay}
+        className="reveal-up rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] px-3 py-2.5"
+      >
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h3 className="text-[0.78rem] font-semibold text-[rgb(var(--fg-primary))]">
+              {selectedLabel}
+            </h3>
+            <span className="text-[0.66rem] text-[rgb(var(--fg-muted))]">
+              {selectedList.length === 0
+                ? "Closed"
+                : `${String(selectedList.length)} window${selectedList.length === 1 ? "" : "s"}`}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                addBlock(selectedDay);
+              }}
+              disabled={selectedList.length >= MAX_BLOCKS_PER_DAY}
+              aria-label={`Add a window on ${selectedLabel}`}
+              className="inline-flex h-7 items-center gap-1 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 text-xs text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+            >
+              <PlusIcon />
+              Add
+            </button>
+            {selectedList.length > 0 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    copyToAllWeekdays(selectedDay);
+                  }}
+                  title={`Copy ${selectedLabel} windows to every other weekday`}
+                  aria-label={`Copy ${selectedLabel} schedule to every weekday`}
+                  className="inline-flex h-7 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-xs text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-base))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+                >
+                  <CopyIcon />
+                  Copy to all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearDay(selectedDay);
+                  }}
+                  aria-label={`Clear all windows on ${selectedLabel}`}
+                  className="inline-flex h-7 items-center rounded-[var(--radius-sm)] px-2 text-xs text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-base))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+                >
+                  Clear
+                </button>
+              </>
+            ) : null}
+          </div>
         </div>
+
+        {selectedList.length === 0 ? (
+          <p className="py-2 text-xs text-[rgb(var(--fg-muted))]">
+            Closed. Add a window to open {selectedLabel} for booking.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {selectedList.map((b, idx) => {
+              const rowErr = errors.find((e) => e.blockId === b.id);
+              return (
+                <BlockRow
+                  key={b.id}
+                  block={b}
+                  errorKind={rowErr?.kind}
+                  onChange={(patch) => {
+                    updateBlock(selectedDay, b.id, patch);
+                  }}
+                  onRemove={() => {
+                    removeBlock(selectedDay, b.id);
+                  }}
+                  weekdayLabel={selectedLabel}
+                  idx={idx}
+                />
+              );
+            })}
+          </div>
+        )}
+        {selectedList.length >= MAX_BLOCKS_PER_DAY ? (
+          <p className="mt-2 text-[0.66rem] text-[rgb(var(--fg-muted))]">
+            Max {String(MAX_BLOCKS_PER_DAY)} per day
+          </p>
+        ) : null}
       </div>
 
       {/* Sticky save bar */}
-      <div className="sticky bottom-4 z-10 flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base)/0.82)] px-5 py-3 backdrop-blur">
-        <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
+      <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base)/0.85)] px-3 py-2 backdrop-blur">
+        <p className="text-xs text-[rgb(var(--fg-muted))]">
           {hasBlockingError
             ? "Fix errors to save"
             : isDirty
@@ -520,11 +584,12 @@ export function AvailabilityEditor({
         </p>
         <Button
           type="button"
+          size="sm"
           onClick={onSave}
           disabled={pending || !isDirty || hasBlockingError}
-          className="min-h-11"
+          className="h-8"
         >
-          {pending ? "Saving…" : "Save availability"}
+          {pending ? "Saving…" : "Save"}
         </Button>
       </div>
     </div>
@@ -548,23 +613,22 @@ function BlockRow({
   weekdayLabel: string;
   idx: number;
 }) {
-  const errorBorder =
-    errorKind === "overlap" || errorKind === "invalid"
-      ? "border-[rgb(var(--fg-danger))]"
-      : "border-[rgb(var(--border-subtle))]";
+  const isHardError = errorKind === "invalid" || errorKind === "overlap";
+  const errorBorder = isHardError
+    ? "border-[rgb(var(--fg-danger))]"
+    : "border-[rgb(var(--border-subtle))]";
   const errorMsg =
     errorKind === "invalid"
       ? "Start must be before end."
       : errorKind === "overlap"
-      ? "Overlaps another block on this day."
+      ? "Overlaps another window."
       : errorKind === "short"
-      ? `Shorter than ${String(MIN_BLOCK_DURATION_MIN)} min — OK but tight.`
+      ? `Shorter than ${String(MIN_BLOCK_DURATION_MIN)} min.`
       : null;
-  const isHardError = errorKind === "invalid" || errorKind === "overlap";
   return (
     <div
       className={[
-        "flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border px-2 py-1.5",
+        "flex flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border bg-[rgb(var(--bg-base))] px-1.5 py-1",
         errorBorder,
       ].join(" ")}
     >
@@ -574,47 +638,37 @@ function BlockRow({
         onChange={(e) => {
           onChange({ startMin: hhmmToMin(e.target.value) });
         }}
-        aria-label={`${weekdayLabel} block ${String(idx + 1)} start time`}
+        aria-label={`${weekdayLabel} window ${String(idx + 1)} start time`}
         aria-invalid={isHardError}
-        // min-h-11 + text-base keep the native time picker tappable +
-        // avoid iOS zoom-on-focus (<16px triggers zoom).
-        className="min-h-11 w-[7rem] rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-1 font-mono text-base text-[rgb(var(--fg-primary))]"
+        // text-base avoids iOS zoom-on-focus (<16px triggers zoom).
+        // h-8 keeps the row compact; the time picker stays tappable
+        // because the native control sets its own min hit area.
+        className="h-8 w-[6rem] rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 font-mono text-base text-[rgb(var(--fg-primary))]"
       />
-      <span className="text-xs text-[rgb(var(--fg-muted))]">—</span>
+      <span className="text-xs text-[rgb(var(--fg-muted))]">–</span>
       <input
         type="time"
         value={minToHHMM(block.endMin)}
         onChange={(e) => {
           onChange({ endMin: hhmmToMin(e.target.value) });
         }}
-        aria-label={`${weekdayLabel} block ${String(idx + 1)} end time`}
+        aria-label={`${weekdayLabel} window ${String(idx + 1)} end time`}
         aria-invalid={isHardError}
-        className="min-h-11 w-[7rem] rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-1 font-mono text-base text-[rgb(var(--fg-primary))]"
+        className="h-8 w-[6rem] rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 font-mono text-base text-[rgb(var(--fg-primary))]"
       />
-      <Button
+      <button
         type="button"
-        variant="ghost"
-        size="sm"
-        className="min-h-11 min-w-11 text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)]"
         onClick={onRemove}
-        aria-label={`Remove ${weekdayLabel} block ${String(idx + 1)}`}
+        aria-label={`Remove ${weekdayLabel} window ${String(idx + 1)}`}
+        className="ms-auto inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] hover:text-[rgb(var(--fg-danger))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
       >
-        <svg
-          aria-hidden
-          viewBox="0 0 20 20"
-          className="h-4 w-4"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        >
-          <path d="M5 6h10M8 6V4h4v2M7 6l1 10h4l1-10" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </Button>
+        <TrashIcon />
+      </button>
       {errorMsg ? (
         <p
           role={isHardError ? "alert" : undefined}
           className={[
-            "basis-full text-xs",
+            "basis-full text-[0.66rem]",
             isHardError
               ? "text-[rgb(var(--fg-danger))]"
               : "text-[rgb(var(--fg-muted))]",
@@ -624,5 +678,55 @@ function BlockRow({
         </p>
       ) : null}
     </div>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 20 20"
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    >
+      <path d="M10 4v12M4 10h12" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 20 20"
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    >
+      <rect x="6" y="6" width="10" height="10" rx="1.5" />
+      <path d="M4 4h10v2M4 4v10h2" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 20 20"
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    >
+      <path
+        d="M5 6h10M8 6V4h4v2M7 6l1 10h4l1-10"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

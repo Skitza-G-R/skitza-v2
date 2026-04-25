@@ -283,6 +283,26 @@
   .pulse-green { animation: skitza-pulse-green 1.4s cubic-bezier(0.4, 0, 0.6, 1) 1; }
   .pulse-glow  { animation: skitza-pulse-glow 3s ease-in-out infinite; }
 
+  /*
+   * .sk-card-glow — a static, brand-tinted glow that sits inside the
+   * card's bounding box (no animation, no extra DOM). Used by the
+   * Setup container card so the surface reads as "elevated" without
+   * shouting. Three layers, in order:
+   *   1. Soft brand glow (large, low alpha) — gives the warm copper
+   *      bloom around the edge.
+   *   2. Tight elevation drop-shadow (small, neutral) — lifts the
+   *      card off the page bg.
+   *   3. (border lives on the element itself, not in box-shadow, so
+   *      the radius behaves cleanly with focus-within rings.)
+   * Both shadows use rgb() with alpha to inherit dark-mode
+   * brand-primary tinting via the [data-theme] cascade.
+   */
+  .sk-card-glow {
+    box-shadow:
+      0 0 28px -4px rgb(var(--brand-primary) / 0.14),
+      0 4px 12px -2px rgb(0 0 0 / 0.06);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .reveal-up,
     .reveal-up-delay-1,

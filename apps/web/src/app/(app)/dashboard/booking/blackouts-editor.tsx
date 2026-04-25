@@ -123,103 +123,98 @@ export function BlackoutsEditor({ initialBlackouts }: { initialBlackouts: Blacko
   }
 
   return (
-    <div className="mt-10 space-y-4">
-      <div>
-        <h3 className="font-display text-xl tracking-tight" style={{ fontWeight: 700 }}>
-          Blackout dates
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[0.78rem] font-semibold text-[rgb(var(--fg-primary))]">
+          Blackouts
         </h3>
-        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-          Block ranges when you&apos;re unavailable — travel, holidays, studio closures.
-          Clients see &ldquo;no slots&rdquo; on blocked days.
-        </p>
+        <span className="text-[0.66rem] text-[rgb(var(--fg-muted))]">
+          {initialBlackouts.length === 0
+            ? "Schedule fully open"
+            : `${String(initialBlackouts.length)} block${initialBlackouts.length === 1 ? "" : "s"}`}
+        </span>
       </div>
 
-      {/* Add form */}
+      {/* Add form — single compact row, fields drop their labels in
+          favour of the placeholder + sr-only label, dates keep text-base
+          to dodge iOS zoom-on-focus. */}
       <form
         onSubmit={onAdd}
-        className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5"
+        className="rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] px-3 py-2.5"
       >
-        <div className="grid gap-4 sm:grid-cols-[1fr_1fr_2fr_auto]">
-          <div>
-            <Label htmlFor="bkStart">Start date</Label>
-            {/*
-              native type="date" gives OS-native pickers on iOS/Android
-              — no third-party calendar library needed. Font is 16px
-              via text-base to prevent iOS zoom-on-focus.
-            */}
-            <Input
-              id="bkStart"
-              type="date"
-              value={startDate}
-              min={today}
-              onChange={(e) => {
-                setStartDate(e.target.value);
-                // Auto-sync end if it was empty or before the new start
-                // — most blackouts are single-day.
-                if (!endDate || endDate < e.target.value) {
-                  setEndDate(e.target.value);
-                }
-              }}
-              required
-              className="text-base"
-            />
-          </div>
-          <div>
-            <Label htmlFor="bkEnd">End date</Label>
-            <Input
-              id="bkEnd"
-              type="date"
-              value={endDate}
-              min={startDate || today}
-              onChange={(e) => {
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Label htmlFor="bkStart" className="sr-only">
+            Start date
+          </Label>
+          <Input
+            id="bkStart"
+            type="date"
+            value={startDate}
+            min={today}
+            onChange={(e) => {
+              setStartDate(e.target.value);
+              // Auto-sync end if empty or before new start.
+              if (!endDate || endDate < e.target.value) {
                 setEndDate(e.target.value);
-              }}
-              required
-              aria-invalid={rangeInvalid}
-              className="text-base"
-            />
-            {rangeInvalid ? (
-              <p role="alert" className="mt-1 text-xs text-[rgb(var(--fg-danger))]">
-                Must be on or after the start date.
-              </p>
-            ) : null}
-          </div>
-          <div>
-            <Label htmlFor="bkReason">Reason (optional, private)</Label>
-            <Input
-              id="bkReason"
-              type="text"
-              value={reason}
-              onChange={(e) => {
-                setReason(e.target.value);
-              }}
-              placeholder="Tour / family trip / studio reno"
-              maxLength={200}
-              className="text-base"
-            />
-          </div>
-          <div className="flex items-end">
-            <Button type="submit" disabled={pending || rangeInvalid} className="min-h-11 w-full sm:w-auto">
-              {pending ? "Adding…" : "Add"}
-            </Button>
-          </div>
+              }
+            }}
+            required
+            className="h-8 w-[8.5rem] text-base"
+          />
+          <span className="text-xs text-[rgb(var(--fg-muted))]">→</span>
+          <Label htmlFor="bkEnd" className="sr-only">
+            End date
+          </Label>
+          <Input
+            id="bkEnd"
+            type="date"
+            value={endDate}
+            min={startDate || today}
+            onChange={(e) => {
+              setEndDate(e.target.value);
+            }}
+            required
+            aria-invalid={rangeInvalid}
+            className="h-8 w-[8.5rem] text-base"
+          />
+          <Label htmlFor="bkReason" className="sr-only">
+            Reason
+          </Label>
+          <Input
+            id="bkReason"
+            type="text"
+            value={reason}
+            onChange={(e) => {
+              setReason(e.target.value);
+            }}
+            placeholder="Reason (optional)"
+            maxLength={200}
+            className="h-8 min-w-[10rem] flex-1 text-base"
+          />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={pending || rangeInvalid}
+            className="h-8"
+          >
+            {pending ? "…" : "Add"}
+          </Button>
         </div>
+        {rangeInvalid ? (
+          <p role="alert" className="mt-1.5 text-[0.66rem] text-[rgb(var(--fg-danger))]">
+            End must be on or after the start date.
+          </p>
+        ) : null}
         {error ? (
-          <p role="alert" className="mt-3 text-sm text-[rgb(var(--fg-danger))]">
+          <p role="alert" className="mt-1.5 text-[0.66rem] text-[rgb(var(--fg-danger))]">
             {error}
           </p>
         ) : null}
       </form>
 
       {/* List */}
-      {initialBlackouts.length === 0 ? (
-        <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] px-5 py-6 text-center">
-          <p className="text-sm text-[rgb(var(--fg-secondary))]">
-            No blackout dates. Your full weekly schedule is live.
-          </p>
-        </div>
-      ) : (
-        <ul className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
+      {initialBlackouts.length > 0 ? (
+        <ul className="overflow-hidden rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)]">
           {initialBlackouts.map((b, idx) => {
             const status = statusOf(b, today);
             const isSingleDay = b.startDate === b.endDate;
@@ -227,20 +222,22 @@ export function BlackoutsEditor({ initialBlackouts }: { initialBlackouts: Blacko
               <li
                 key={b.id}
                 className={[
-                  "flex flex-wrap items-start justify-between gap-3 px-4 py-3 transition-colors",
-                  idx === 0 ? "" : "border-t border-[rgb(var(--border-subtle))]",
+                  "flex flex-wrap items-center justify-between gap-2 px-3 py-2 transition-colors",
+                  idx === 0
+                    ? ""
+                    : "border-t border-[rgb(var(--border-subtle))]",
                 ].join(" ")}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-sm text-[rgb(var(--fg-primary))]">
+                    <span className="font-mono text-xs text-[rgb(var(--fg-primary))]">
                       {isSingleDay
                         ? formatHuman(b.startDate)
                         : `${formatHuman(b.startDate)} → ${formatHuman(b.endDate)}`}
                     </span>
                     <span
                       className={[
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider",
+                        "inline-flex items-center rounded-full px-1.5 py-px text-[0.6rem] font-medium uppercase tracking-wider",
                         status.tone === "active"
                           ? "bg-[rgb(var(--brand-primary)/0.15)] text-[rgb(var(--brand-primary))]"
                           : status.tone === "upcoming"
@@ -250,39 +247,42 @@ export function BlackoutsEditor({ initialBlackouts }: { initialBlackouts: Blacko
                     >
                       {status.label}
                     </span>
+                    {b.reason ? (
+                      <span className="text-[0.66rem] text-[rgb(var(--fg-secondary))]">
+                        · {b.reason}
+                      </span>
+                    ) : null}
                   </div>
-                  {b.reason ? (
-                    <p className="mt-1 text-xs text-[rgb(var(--fg-secondary))]">{b.reason}</p>
-                  ) : null}
                 </div>
-                <Button
+                <button
                   type="button"
-                  variant="ghost"
-                  size="sm"
                   aria-label={`Remove blackout ${b.startDate}`}
-                  className="min-h-11 min-w-11 text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)]"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] hover:text-[rgb(var(--fg-danger))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:opacity-50"
                   onClick={() => {
                     onRemove(b.id);
                   }}
                   disabled={pending && removingId === b.id}
                 >
-                  {/* Trash icon */}
                   <svg
                     aria-hidden
                     viewBox="0 0 20 20"
-                    className="h-4 w-4"
+                    className="h-3.5 w-3.5"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="1.5"
                   >
-                    <path d="M5 6h10M8 6V4h4v2M7 6l1 10h4l1-10" strokeLinecap="round" strokeLinejoin="round" />
+                    <path
+                      d="M5 6h10M8 6V4h4v2M7 6l1 10h4l1-10"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
-                </Button>
+                </button>
               </li>
             );
           })}
         </ul>
-      )}
+      ) : null}
     </div>
   );
 }

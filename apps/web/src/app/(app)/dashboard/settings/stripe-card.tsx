@@ -73,11 +73,12 @@ export function StripeCard({
   }
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6">
+    <section>
       {/* Page-level header (settings/page.tsx) hosts the section title
-          + description after the 2026-04-25 flatten. The status badge
-          stays — it's a live indicator, not chrome. */}
-      <header className="mb-4 flex items-center justify-end">
+          + description; this section sits flat inside the outer Setup
+          container card. The status badge stays — it's a live
+          indicator, not chrome. */}
+      <header className="mb-3 flex items-center justify-end">
         <StatusBadge connected={connected} chargesEnabled={chargesEnabled} />
       </header>
 

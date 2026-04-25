@@ -86,28 +86,21 @@ export function PoliciesEditor({
   }
 
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-      <div className="mb-4">
-        <h3
-          className="font-display text-sm tracking-tight text-[rgb(var(--fg-primary))]"
-          style={{ fontWeight: 700 }}
-        >
+    <div className="rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] px-3 py-2.5">
+      <div className="mb-2">
+        <h3 className="text-[0.78rem] font-semibold text-[rgb(var(--fg-primary))]">
           Booking policies
         </h3>
-        <p className="mt-0.5 text-xs text-[rgb(var(--fg-secondary))]">
-          How requests flow through your inbox and how much notice cancellations need.
-        </p>
       </div>
 
       {/* Auto-confirm row */}
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgb(var(--border-subtle))] pb-4">
+      <div className="flex items-center justify-between gap-3 border-b border-[rgb(var(--border-subtle))] pb-2">
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-[rgb(var(--fg-primary))]" style={{ fontWeight: 600 }}>
+          <p className="text-xs font-semibold text-[rgb(var(--fg-primary))]">
             Auto-confirm bookings
           </p>
-          <p className="mt-1 text-xs text-[rgb(var(--fg-secondary))]">
-            New bookings are confirmed automatically without manual approval. The artist
-            gets a confirmation email instantly.
+          <p className="mt-0.5 text-[0.66rem] text-[rgb(var(--fg-muted))]">
+            Skip manual approval. Artist gets a confirmation email instantly.
           </p>
         </div>
         <button
@@ -120,7 +113,7 @@ export function PoliciesEditor({
             saveAutoConfirm(!autoConfirm);
           }}
           className={[
-            "relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors",
+            "relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]",
             autoConfirm
               ? "bg-[rgb(var(--brand-primary))]"
@@ -131,65 +124,59 @@ export function PoliciesEditor({
           <span
             aria-hidden
             className={[
-              "inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform",
-              autoConfirm ? "translate-x-6" : "translate-x-1",
+              "inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform",
+              autoConfirm ? "translate-x-5" : "translate-x-1",
             ].join(" ")}
           />
         </button>
       </div>
 
       {/* Cancellation policy row */}
-      <div className="mt-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm text-[rgb(var(--fg-primary))]" style={{ fontWeight: 600 }}>
-              Cancellation policy
-            </p>
-            <p className="mt-1 text-xs text-[rgb(var(--fg-secondary))]">
-              Hours in advance an artist must give to cancel. We&apos;ll enforce it in
-              the artist&apos;s cancel flow (coming soon); for now it shows in the
-              confirmation email.
-            </p>
-          </div>
-          <div className="flex items-end gap-2">
-            <div>
-              <Label htmlFor="cancellation-hours" className="sr-only">
-                Cancellation hours
-              </Label>
-              <Input
-                id="cancellation-hours"
-                type="number"
-                inputMode="numeric"
-                min={MIN_CANCELLATION_HOURS}
-                max={MAX_CANCELLATION_HOURS}
-                step={1}
-                value={hoursDraft}
-                onChange={(e) => {
-                  setHoursDraft(e.target.value);
-                }}
-                onBlur={saveHours}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    saveHours();
-                  }
-                }}
-                className="w-24 font-mono text-base"
-                disabled={pending}
-              />
-            </div>
-            <span className="pb-2 text-sm text-[rgb(var(--fg-muted))]">hours</span>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="min-h-11"
-              onClick={saveHours}
-              disabled={pending}
-            >
-              {pending ? "Saving…" : "Save"}
-            </Button>
-          </div>
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-[rgb(var(--fg-primary))]">
+            Cancellation policy
+          </p>
+          <p className="mt-0.5 text-[0.66rem] text-[rgb(var(--fg-muted))]">
+            Hours of notice the artist must give to cancel.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor="cancellation-hours" className="sr-only">
+            Cancellation hours
+          </Label>
+          <Input
+            id="cancellation-hours"
+            type="number"
+            inputMode="numeric"
+            min={MIN_CANCELLATION_HOURS}
+            max={MAX_CANCELLATION_HOURS}
+            step={1}
+            value={hoursDraft}
+            onChange={(e) => {
+              setHoursDraft(e.target.value);
+            }}
+            onBlur={saveHours}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                saveHours();
+              }
+            }}
+            className="h-8 w-16 font-mono text-base"
+            disabled={pending}
+          />
+          <span className="text-[0.66rem] text-[rgb(var(--fg-muted))]">h</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-8"
+            onClick={saveHours}
+            disabled={pending}
+          >
+            {pending ? "…" : "Save"}
+          </Button>
         </div>
       </div>
     </div>

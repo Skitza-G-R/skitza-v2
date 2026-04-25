@@ -68,12 +68,13 @@ export function PortfolioSection({ tracks }: { tracks: PortfolioTrackRow[] }) {
   }
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6">
+    <section>
       {/* Page-level header (settings/page.tsx) hosts the section title
-          + description after the 2026-04-25 flatten. We keep the live
-          "% public" counter though — it's data, not header. */}
+          + description; this section sits flat inside the outer Setup
+          container card. We keep the live "% public" counter — it's
+          data, not header. */}
       {rows.length > 0 ? (
-        <p className="mb-5 font-mono text-[0.7rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+        <p className="mb-3 font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
           {flaggedCount} / {rows.length} public
         </p>
       ) : null}

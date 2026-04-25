@@ -133,10 +133,10 @@ export function AutopilotSection({
   }
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6">
+    <section>
       {/* Page-level header (settings/page.tsx) hosts the section title
-          + description after the 2026-04-25 flatten. The toggle list
-          is the only content this card needs to render. */}
+          + description; this section sits flat inside the outer Setup
+          container card. */}
       <ul className="divide-y divide-[rgb(var(--border-subtle))]">
         {SWITCHES.map(({ key, label, description, status }) => (
           <ToggleRow

@@ -53,7 +53,7 @@ export function AvailabilitySection({
   settings: AvailabilitySettings;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <GCalSyncBadge status="not_connected" />
       <DurationPicker initialDefaultMin={settings.defaultSessionMin} />
       <PoliciesEditor
@@ -61,14 +61,12 @@ export function AvailabilitySection({
         initialCancellationHours={settings.cancellationPolicyHours}
       />
       {blocks.length === 0 ? (
-        <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-5 py-4">
-          <p className="text-sm text-[rgb(var(--fg-primary))]">
-            No weekly hours set — clients see no bookable slots.
-          </p>
-          <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
-            Tick a day below and drop in e.g. Monday 10am–6pm to get started.
-          </p>
-        </div>
+        <p className="rounded-[var(--radius-sm)] border-l-2 border-[rgb(var(--brand-primary))] bg-[rgb(var(--bg-overlay)/0.5)] px-3 py-1.5 text-[0.66rem] text-[rgb(var(--fg-secondary))]">
+          <span className="font-semibold text-[rgb(var(--fg-primary))]">
+            No weekly hours set.
+          </span>{" "}
+          Pick a day below and add a window to open it for booking.
+        </p>
       ) : null}
       <AvailabilityEditor initialBlocks={blocks} />
       <BlackoutsEditor initialBlackouts={blackouts} />

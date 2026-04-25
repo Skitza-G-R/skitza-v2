@@ -140,42 +140,49 @@ export default async function SetupPage({
 
   return (
     <>
-      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-14">
-        <header className="reveal-up mb-6">
-          <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Setup
-          </p>
-          {/* H1 + description vary per active tab. Re-keying on the
-              tab id replays the reveal-up animation so the swap feels
-              like a section transition, not a hard cut. */}
-          <h1
-            key={`title-${active}`}
-            className="reveal-up mt-2 font-display text-4xl leading-tight tracking-tight sm:text-5xl"
-            style={{ fontVariationSettings: '"opsz" 96' }}
-          >
-            {headerMeta.title}
-          </h1>
-          <p
-            key={`desc-${active}`}
-            className="reveal-up mt-3 max-w-xl text-sm text-[rgb(var(--fg-secondary))]"
-          >
-            {headerMeta.description}
-          </p>
-        </header>
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
+        {/* Centralized container card. Single source of visual
+            identity for the whole Setup surface — the per-tab content
+            renders flat inside (no nested heavy cards). The
+            sk-card-glow primitive (in globals.css) layers a hairline
+            border, a soft brand-tinted outer glow, and a subtle
+            elevation drop-shadow restricted to the card boundary. */}
+        <div className="sk-card-glow rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-5 sm:px-6 sm:py-6">
+          <header className="reveal-up mb-4">
+            <p className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+              Setup
+            </p>
+            {/* H1 + description vary per active tab. Re-keying on the
+                tab id replays reveal-up so the swap feels like a
+                section transition, not a hard cut. */}
+            <h1
+              key={`title-${active}`}
+              className="reveal-up mt-1 font-display text-2xl leading-tight tracking-tight sm:text-3xl"
+              style={{ fontVariationSettings: '"opsz" 36' }}
+            >
+              {headerMeta.title}
+            </h1>
+            <p
+              key={`desc-${active}`}
+              className="reveal-up mt-1.5 max-w-xl text-xs text-[rgb(var(--fg-secondary))]"
+            >
+              {headerMeta.description}
+            </p>
+          </header>
 
-        <SetupTabs active={active} />
+          <SetupTabs active={active} />
 
-        {/* Only the active section renders. Keying the wrapper on
-            `active` replays reveal-up on tab change so content slides
-            in instead of hard-cutting. role="tabpanel" + aria-
-            labelledby point back at the tab button for AT wiring. */}
-        <div
-          key={active}
-          id={`setup-panel-${active}`}
-          role="tabpanel"
-          aria-labelledby={`setup-tab-${active}`}
-          className="reveal-up pt-6"
-        >
+          {/* Only the active section renders. Keying the wrapper on
+              `active` replays reveal-up on tab change so content slides
+              in instead of hard-cutting. role="tabpanel" + aria-
+              labelledby point back at the tab button for AT wiring. */}
+          <div
+            key={active}
+            id={`setup-panel-${active}`}
+            role="tabpanel"
+            aria-labelledby={`setup-tab-${active}`}
+            className="reveal-up pt-4"
+          >
           {active === "profile" && (
             <SettingsForm
               profile={{
@@ -220,55 +227,55 @@ export default async function SetupPage({
           )}
 
           {active === "account" && <AccountSection />}
+          </div>
         </div>
       </div>
     </>
   );
 }
 
-// Account panel — data export + a hint about Clerk-managed
-// email/password. Two real subsections (Your data + Tour) so this
-// component keeps its inner h2s — those distinguish the two
-// subsections within one tab, not the tab from its siblings.
+// Account panel — data export + a hint about Clerk-managed email
+// /password + replay tour. Two real subsections (Your data + Tour) so
+// the inner h2/h3 stay; they distinguish subsections within this tab
+// rather than re-stating the tab title (the page header does that).
+// Renders flat inside the outer Setup container — no card frame.
 function AccountSection() {
   return (
-    <section
-      aria-labelledby="setup-account-heading"
-      className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
-    >
-      <header className="mb-4">
+    <section aria-labelledby="setup-account-heading">
+      <header className="mb-3">
         <h2
           id="setup-account-heading"
-          className="font-display text-xl tracking-tight"
+          className="font-display text-base tracking-tight"
+          style={{ fontWeight: 700 }}
         >
           Your data
         </h2>
-        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-          Export everything we have on you — profile, tracks, leads, magic
-          links, analytics — in a single JSON file.
+        <p className="mt-0.5 text-xs text-[rgb(var(--fg-secondary))]">
+          Export everything we have on you in a single JSON file.
         </p>
       </header>
       <a
         href="/api/export"
-        className="inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-4 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
+        className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 text-xs font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
       >
         Download my data
       </a>
-      <p className="mt-3 font-mono text-xs text-[rgb(var(--fg-muted))]">
+      <p className="mt-2 text-[0.66rem] text-[rgb(var(--fg-muted))]">
         Secret token hashes are excluded — they&apos;re one-way and useless to you.
       </p>
-      <p className="mt-6 text-xs text-[rgb(var(--fg-muted))]">
+      <p className="mt-4 text-[0.66rem] text-[rgb(var(--fg-muted))]">
         Change email, password, or 2FA from the avatar menu (top-right) → Manage
         account.
       </p>
-      <hr className="my-6 border-t border-[rgb(var(--border-subtle))]" />
-      <div className="flex flex-col gap-2">
-        <h3 className="font-display text-base tracking-tight">Tour</h3>
-        <p className="text-sm text-[rgb(var(--fg-secondary))]">
-          Forgot where things live? Walk through the 4-screen orientation
-          again.
+      <hr className="my-4 border-t border-[rgb(var(--border-subtle))]" />
+      <div className="flex flex-col gap-1.5">
+        <h3 className="font-display text-sm tracking-tight" style={{ fontWeight: 700 }}>
+          Tour
+        </h3>
+        <p className="text-xs text-[rgb(var(--fg-secondary))]">
+          Forgot where things live? Walk through the 4-screen orientation again.
         </p>
-        <div className="mt-2">
+        <div className="mt-1">
           <ReplayTourButton />
         </div>
       </div>

@@ -117,7 +117,7 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
   return (
     <form onSubmit={onSubmit} className="space-y-8">
       {/* Profile block */}
-      <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6">
+      <section className="rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] p-4">
         <header className="mb-5">
           <h2 className="font-display text-xl tracking-tight">Studio profile</h2>
           <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
@@ -207,7 +207,7 @@ export function SettingsForm({ profile }: { profile: ProducerProfile }) {
       </section>
 
       {/* Brand block — white-label-lite preview */}
-      <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6">
+      <section className="rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] p-4">
         <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 className="font-display text-xl tracking-tight">Brand</h2>
