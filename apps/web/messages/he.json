@@ -9,49 +9,14 @@
     "collapse": "כווץ סרגל צד"
   },
   "today": {
-    "shareLink": {
-      "eyebrow": "קישור השיתוף שלך",
-      "headline": "הדבק בכל מקום.",
-      "description": "ביו באינסטגרם, הודעות, חתימת מייל — לקוחות מקישים פעם אחת ומזמינים אותך.",
-      "copyButton": "העתק קישור",
-      "copied": "הועתק!",
-      "preview": "תצוגה מקדימה",
-      "missingTitle": "הגדר את קישור השיתוף שלך",
-      "missingDescription": "בחר שם משתמש זכיר כדי שלקוחות ימצאו אותך מאינסטגרם.",
-      "missingCta": "הגדר שם משתמש"
-    },
-    "kpi": {
-      "activeProjects": "פרויקטים פעילים",
-      "revenueMonth": "הכנסות · חודש",
-      "sessions7d": "סשנים · 7 ימים",
-      "unresolved": "פתוחים"
-    },
-    "quickActions": {
-      "ariaLabel": "פעולות מהירות",
-      "uploadTrack": "העלה טראק",
-      "uploadTrackHint": "לפרויקט האחרון",
-      "uploadTrackHintEmpty": "צור פרויקט תחילה",
-      "newBooking": "הזמנה חדשה",
-      "newBookingHint": "הוסף ידנית",
-      "sendInvoice": "שלח חשבונית",
-      "sendInvoiceHint": "בפרויקט האחרון",
-      "sendInvoiceHintEmpty": "אין פרויקטים עדיין",
-      "shareViaWhatsApp": "שתף בוואטסאפ",
-      "shareViaWhatsAppHint": "שלח את הקישור לאיש קשר",
-      "shareViaWhatsAppHintEmpty": "הגדר שם משתמש קודם",
-      "search": "חיפוש",
-      "addOfflineClient": "הוסף לקוח ידני",
-      "quickNote": "פתק מהיר",
-      "editJoinPage": "ערוך את עמוד /join",
-      "quickNoteModal": {
-        "title": "פתק מהיר",
-        "subtitle": "מקום לרשום את המחשבה שאתה לא רוצה לאבד.",
-        "placeholder": "לדוגמה: לתזכר את עליס על פידבק למיקס ביום שישי",
-        "cancel": "ביטול",
-        "save": "שמור",
-        "emptyToast": "הפתק ריק",
-        "savedToast": "הפתק נשמר"
-      }
+    "quickNoteModal": {
+      "title": "פתק מהיר",
+      "subtitle": "מקום לרשום את המחשבה שאתה לא רוצה לאבד.",
+      "placeholder": "לדוגמה: לתזכר את עליס על פידבק למיקס ביום שישי",
+      "cancel": "ביטול",
+      "save": "שמור",
+      "emptyToast": "הפתק ריק",
+      "savedToast": "הפתק נשמר"
     },
     "toasts": {
       "copied": "הועתק",

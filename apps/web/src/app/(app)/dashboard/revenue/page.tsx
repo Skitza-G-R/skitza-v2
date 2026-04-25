@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { RevenueTrend } from "~/components/dashboard/today/revenue-trend";
+import { RevenueTrend } from "~/components/dashboard/revenue/revenue-trend";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Story 07 — `/dashboard/revenue` deep-chart route.
@@ -15,13 +15,10 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // 800px column with proper page chrome (eyebrow + H1 + back-link)
 // instead.
 //
-// Option A sequencing note: Story 06 (page rebuild) is the cleanup
-// pass that removes the inline `<RevenueTrend>` from the Today page.
-// Until that happens, `revenue-trend.tsx` stays at its current path
-// (`~/components/dashboard/today/revenue-trend`) and we import from
-// there. Moving the file now would break Today's build mid-epic and
-// step into Story 06's territory. Component move deferred to Story
-// 06's cleanup pass.
+// File location: `~/components/dashboard/revenue/revenue-trend`.
+// The component originally lived under `dashboard/today/`, but Story
+// 06 retired the inline chart from Today and relocated the source
+// here so the import path matches the route that actually owns it.
 //
 // No new tRPC procedures — reuses `producer.revenueTrend()`
 // unchanged. The empty-state overlay is the only piece of behaviour
