@@ -32,31 +32,23 @@ export function GCalSyncBadge({
 
   return (
     <>
-      {/* Inline badge — sits above the availability editor so it's the
-          first thing producers see on the Sessions tab. Styled with the
-          same pill grammar as the existing status chips (Badge) so it
-          doesn't feel bolted-on. */}
-      <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <GoogleIcon />
-          <span
-            className="text-sm text-[rgb(var(--fg-primary))]"
-            style={{ fontWeight: 600 }}
-          >
-            Google Calendar
-          </span>
-        </div>
+      {/* Inline badge — first thing producers see on the Availability
+          tab. Compact single-row layout: icon + label + status chip on
+          the left, CTA on the right. Hint copy collapses on mobile. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] px-3 py-2">
+        <GoogleIcon />
+        <span className="text-xs font-semibold text-[rgb(var(--fg-primary))]">
+          Google Calendar
+        </span>
         {isConnected ? (
           <>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--fg-success)/0.12)] px-2 py-0.5 text-[0.7rem] text-[rgb(var(--fg-success))]">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--fg-success)/0.12)] px-1.5 py-px text-[0.62rem] text-[rgb(var(--fg-success))]">
               <CheckIcon />
               Connected
             </span>
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
-              className="ms-auto min-h-9 text-[rgb(var(--fg-secondary))]"
+              className="ms-auto inline-flex h-7 items-center rounded-[var(--radius-sm)] px-2 text-xs text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-base))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
               onClick={() => {
                 toast(
                   "Disconnect is part of the Google Calendar integration — coming soon.",
@@ -65,21 +57,21 @@ export function GCalSyncBadge({
               }}
             >
               Disconnect
-            </Button>
+            </button>
           </>
         ) : (
           <>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--fg-warning)/0.14)] px-2 py-0.5 text-[0.7rem] text-[rgb(var(--fg-warning))]">
+            <span className="inline-flex items-center rounded-full bg-[rgb(var(--fg-warning)/0.14)] px-1.5 py-px text-[0.62rem] text-[rgb(var(--fg-warning))]">
               Not connected
             </span>
-            <p className="basis-full text-xs text-[rgb(var(--fg-secondary))] sm:basis-auto sm:flex-1">
-              Block out busy times from your Google Calendar automatically.
-            </p>
+            <span className="hidden text-[0.66rem] text-[rgb(var(--fg-muted))] sm:inline">
+              · Auto-block busy times
+            </span>
             <Button
               type="button"
               size="sm"
               variant="secondary"
-              className="min-h-9"
+              className="ms-auto h-7 px-2.5 text-xs"
               onClick={() => {
                 setModalOpen(true);
               }}

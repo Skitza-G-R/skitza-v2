@@ -73,15 +73,12 @@ export function StripeCard({
   }
 
   return (
-    <section className="mt-8 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6">
-      <header className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="font-display text-xl tracking-tight">Payments</h2>
-          <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-            Connect Stripe to take deposits and final payments. Skitza takes no platform
-            fee — you keep everything minus Stripe&apos;s standard fees (2.9% + 30¢).
-          </p>
-        </div>
+    <section>
+      {/* Page-level header (settings/page.tsx) hosts the section title
+          + description; this section sits flat inside the outer Setup
+          container card. The status badge stays — it's a live
+          indicator, not chrome. */}
+      <header className="mb-3 flex items-center justify-end">
         <StatusBadge connected={connected} chargesEnabled={chargesEnabled} />
       </header>
 

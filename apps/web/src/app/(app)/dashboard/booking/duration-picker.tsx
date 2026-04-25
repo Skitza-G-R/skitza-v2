@@ -82,26 +82,20 @@ export function DurationPicker({
   }
 
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-      <div className="mb-3">
-        <h3
-          className="font-display text-sm tracking-tight text-[rgb(var(--fg-primary))]"
-          style={{ fontWeight: 700 }}
-        >
+    <div className="rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] px-3 py-2.5">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-[0.78rem] font-semibold text-[rgb(var(--fg-primary))]">
           Default session length
         </h3>
-        <p className="mt-0.5 text-xs text-[rgb(var(--fg-secondary))]">
-          The default duration we book for — used to seed new services and as a
-          fallback when one isn&apos;t pinned. Change it any time.
-        </p>
+        <span className="text-[0.66rem] text-[rgb(var(--fg-muted))]">
+          Seeds new services
+        </span>
       </div>
 
-      {/* Segmented preset control. Uses flex-wrap on mobile so the full
-          row stays tappable even when 6 options run past the viewport. */}
       <div
         role="radiogroup"
         aria-label="Default session length preset"
-        className="flex flex-wrap gap-2"
+        className="flex flex-wrap gap-1.5"
       >
         {PRESETS.map((p) => {
           const active = !customMode && value === p.min;
@@ -116,11 +110,11 @@ export function DurationPicker({
                 pickPreset(p.min);
               }}
               className={[
-                "min-h-11 min-w-[4rem] rounded-[var(--radius-md)] border px-4 py-2 text-sm font-mono transition-colors",
+                "h-7 min-w-[3rem] rounded-[var(--radius-sm)] border px-2.5 text-xs font-mono transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]",
                 active
-                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.1)] text-[rgb(var(--brand-primary))] font-semibold"
-                  : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--border-strong))]",
+                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
+                  : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))]",
                 pending ? "opacity-50" : "",
               ].join(" ")}
             >
@@ -138,11 +132,11 @@ export function DurationPicker({
             setCustomDraft(String(value));
           }}
           className={[
-            "min-h-11 min-w-[5rem] rounded-[var(--radius-md)] border px-4 py-2 text-sm font-mono transition-colors",
+            "h-7 rounded-[var(--radius-sm)] border px-2.5 text-xs font-mono transition-colors",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]",
             customMode
-              ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.1)] text-[rgb(var(--brand-primary))] font-semibold"
-              : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--border-strong))]",
+              ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
+              : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))]",
             pending ? "opacity-50" : "",
           ].join(" ")}
         >
@@ -151,43 +145,44 @@ export function DurationPicker({
       </div>
 
       {customMode ? (
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <div>
-            <Label htmlFor="default-session-custom">Custom minutes</Label>
-            <Input
-              id="default-session-custom"
-              type="number"
-              inputMode="numeric"
-              min={MIN_CUSTOM}
-              max={MAX_CUSTOM}
-              step={5}
-              value={customDraft}
-              onChange={(e) => {
-                setCustomDraft(e.target.value);
-              }}
-              onBlur={commitCustom}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitCustom();
-                }
-              }}
-              className="w-28 font-mono text-base"
-              disabled={pending}
-            />
-          </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Label htmlFor="default-session-custom" className="sr-only">
+            Custom minutes
+          </Label>
+          <Input
+            id="default-session-custom"
+            type="number"
+            inputMode="numeric"
+            min={MIN_CUSTOM}
+            max={MAX_CUSTOM}
+            step={5}
+            value={customDraft}
+            onChange={(e) => {
+              setCustomDraft(e.target.value);
+            }}
+            onBlur={commitCustom}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitCustom();
+              }
+            }}
+            className="h-8 w-20 font-mono text-base"
+            disabled={pending}
+          />
+          <span className="text-xs text-[rgb(var(--fg-muted))]">min</span>
           <Button
             type="button"
             size="sm"
-            className="min-h-11"
+            className="h-8"
             onClick={commitCustom}
             disabled={pending}
           >
-            {pending ? "Saving…" : "Apply"}
+            {pending ? "…" : "Apply"}
           </Button>
-          <p className="basis-full text-xs text-[rgb(var(--fg-muted))]">
-            Integer minutes, {String(MIN_CUSTOM)}-{String(MAX_CUSTOM)}.
-          </p>
+          <span className="text-[0.66rem] text-[rgb(var(--fg-muted))]">
+            {String(MIN_CUSTOM)}–{String(MAX_CUSTOM)}
+          </span>
         </div>
       ) : null}
     </div>

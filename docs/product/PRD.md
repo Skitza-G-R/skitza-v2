@@ -99,7 +99,11 @@ Spotify credits, word of mouth.
 
 ### 4.4 Setup
 
-`/dashboard/settings` — single page with 7 tabs. **Every tab renders its full management UI inline.** No cross-link stubs.
+`/dashboard/settings` — single page with 7 tabs. **Every tab renders its full management UI inline.** No cross-link stubs, no "Manage X" buttons that bounce to a separate page.
+
+**Page header is dynamic.** The eyebrow stays `SETUP`, but the H1 and one-line description swap per active tab so producers always know what surface they're on without scanning back to the tab bar. The breadcrumb is omitted — the H1 carries the orientation. Profile (the default landing) keeps the editorial "Your studio, dialed in." copy as the entry-point hero.
+
+**Legacy URL hygiene.** `/dashboard/services` and `/dashboard/availability` redirect (301) into the tabbed Setup so any pasted link, bookmark, or email reference lands on the correct tab. Same pattern as `/dashboard/portfolio` → `?section=portfolio`.
 
 1. **Profile** — display name, slug, bio, logo, brand color
 2. **Services** — full CRUD + 5 template quickstart (see §8)

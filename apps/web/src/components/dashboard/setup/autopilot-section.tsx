@@ -133,26 +133,10 @@ export function AutopilotSection({
   }
 
   return (
-    <section
-      aria-labelledby="setup-autopilot-heading"
-      className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
-    >
-      <header className="mb-5">
-        <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-          Autopilot
-        </p>
-        <h2
-          id="setup-autopilot-heading"
-          className="mt-2 font-display text-xl tracking-tight"
-        >
-          What Skitza handles for you
-        </h2>
-        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-          Flip a switch and it&rsquo;s automatic. Flip it back whenever you
-          want — nothing here is locked in.
-        </p>
-      </header>
-
+    <section>
+      {/* Page-level header (settings/page.tsx) hosts the section title
+          + description; this section sits flat inside the outer Setup
+          container card. */}
       <ul className="divide-y divide-[rgb(var(--border-subtle))]">
         {SWITCHES.map(({ key, label, description, status }) => (
           <ToggleRow

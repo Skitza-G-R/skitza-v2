@@ -68,31 +68,16 @@ export function PortfolioSection({ tracks }: { tracks: PortfolioTrackRow[] }) {
   }
 
   return (
-    <section
-      aria-labelledby="setup-portfolio-heading"
-      className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
-    >
-      <header className="mb-5">
-        <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-          Portfolio
+    <section>
+      {/* Page-level header (settings/page.tsx) hosts the section title
+          + description; this section sits flat inside the outer Setup
+          container card. We keep the live "% public" counter — it's
+          data, not header. */}
+      {rows.length > 0 ? (
+        <p className="mb-3 font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+          {flaggedCount} / {rows.length} public
         </p>
-        <h2
-          id="setup-portfolio-heading"
-          className="mt-2 font-display text-xl tracking-tight"
-        >
-          Your tracklist
-        </h2>
-        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-          Flip <em>Public sample</em> on a track and it plays for visitors on
-          your join page, even before they sign up. Up to 3 appear publicly —
-          pick the ones that sell the vibe.
-        </p>
-        {rows.length > 0 ? (
-          <p className="mt-3 font-mono text-[0.7rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
-            {flaggedCount} / {rows.length} public
-          </p>
-        ) : null}
-      </header>
+      ) : null}
 
       {rows.length === 0 ? (
         <PortfolioEmpty />
