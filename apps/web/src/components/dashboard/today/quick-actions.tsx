@@ -329,7 +329,7 @@ function QuickNoteModal({ onClose }: { onClose: () => void }) {
             disabled={pending}
             className="sk-tap inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? "Saving…" : t("save")}
+            {pending ? t("saving") : t("save")}
           </button>
         </div>
       </div>

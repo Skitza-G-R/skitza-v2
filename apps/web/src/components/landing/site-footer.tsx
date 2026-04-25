@@ -3,8 +3,10 @@ import Link from "next/link";
 import { SkitzaMark } from "~/components/brand/skitza-mark";
 
 // Site footer — LIGHT world. Sits at the bottom of the landing. Four
-// columns on desktop, two on mobile. Social links route to `#` until the
-// owner fills in real URLs — marked as TODO so they're easy to find.
+// columns on desktop, two on mobile. Only ships links that resolve to
+// real destinations — placeholder `href="#"` anchors were removed
+// because a link that scrolls to top-of-page is a visible credibility
+// hit on a cold visit (audit-report.md Task 10).
 export function SiteFooter() {
   const year = new Date().getFullYear();
 
@@ -91,9 +93,6 @@ const COLUMNS: readonly { title: string; links: readonly FooterLink[] }[] = [
     title: "Company",
     links: [
       { kind: "route", label: "About", href: "/about" },
-      // TODO: swap # for real blog / careers / contact routes
-      { kind: "anchor", label: "Blog", href: "#" },
-      { kind: "anchor", label: "Careers", href: "#" },
       { kind: "anchor", label: "Contact", href: "mailto:hello@skitza.app" },
     ],
   },
@@ -102,23 +101,17 @@ const COLUMNS: readonly { title: string; links: readonly FooterLink[] }[] = [
     links: [
       { kind: "route", label: "Privacy", href: "/privacy" },
       { kind: "route", label: "Terms", href: "/terms" },
-      // TODO: add /cookies route when a full cookie policy is written
-      { kind: "anchor", label: "Cookies", href: "#" },
     ],
   },
   {
     title: "Social",
     links: [
-      // TODO: replace # with real social URLs
-      { kind: "anchor", label: "Twitter / X", href: "#", external: true },
-      { kind: "anchor", label: "Instagram", href: "#", external: true },
       {
         kind: "anchor",
         label: "GitHub",
         href: "https://github.com/giasraf/skitza-v2",
         external: true,
       },
-      { kind: "anchor", label: "Discord", href: "#", external: true },
     ],
   },
 ];

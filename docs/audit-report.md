@@ -25,7 +25,7 @@
 | 7 | Privacy + Terms pages are placeholder | 🟠 | ⏳ Pending | — | — | Needs counsel review |
 | 8 | Changelog is hand-seeded, not auto-generated | 🟠 | ✅ Fixed | 2026-04-22 | *(Task D, PR pending)* | `apps/web/scripts/generate-changelog.mjs` parses last 500 commits on main, filters feat:/perf:/fix: conventional-commit prefixes, emits `entries.generated.json`. Changelog page renders auto "Recent changes" section alongside the hand-curated "Major releases" — both live. `pnpm -F web changelog:regen` for manual use. `.github/workflows/changelog-update.yml` workflow_dispatch action opens a PR with the diff. |
 | 9 | `/dashboard/booking` still alive (duplicates Setup) | 🟠 | ⏳ Pending | — | — | Roadmap S2.4 |
-| 10 | Landing `founder.tsx` + `site-footer.tsx` have TODO placeholders | 🟡 | ⏳ Pending | — | — | Credibility hit on cold visit |
+| 10 | Landing `founder.tsx` + `site-footer.tsx` have TODO placeholders | 🟡 | ✅ Fixed | 2026-04-25 | *(this commit)* | TODO comments stripped, broken `href="#"` anchors removed (Blog/Careers/Cookies/Twitter/Instagram/Discord) — only links resolving to real destinations ship; founder copy + initials confirmed real and kept |
 | 11 | Quick Note modal is localStorage stub | 🟡 | ✅ Fixed | 2026-04-22 | *(PR #34)* | Migration 0032 + `producerNotes` schema + `producerNotesRouter` (save/list/delete with producer-scoped WHERE) + server actions + modal wired to `saveQuickNote`. 8 tRPC tests cover happy path + zod validation + cross-tenant delete protection. Migration applied to dev DB. |
 | 12 | Autopilot cron route is 95% TODO | 🟡 | ✅ Fixed | 2026-04-22 | *(PR #36)* | Unpaid-reminder fully wired (select → email → stamp `reminder_sent_at` for idempotency). Auto-archive wired (UPDATE … RETURNING). Request-testimonial stays detect-only until `/t/<token>` capture form ships. Migration 0033 adds `invoices.reminder_sent_at` + `projects.testimonial_requested_at`. 10 new tests; still not scheduled in `vercel.json` (Hobby tier slot). |
 | 13 | Only 4 of 10 Resend email templates shipped | 🟢 | ✅ Fixed | 2026-04-22 | *(PR #33)* | All 8 missing templates shipped: contract-ready, final-payment-due, track-version-uploaded, producer-replied-to-comment, payment-received, new-comment-from-artist, contract-signed, booking-cancelled-or-rescheduled. 9 smoke-render tests cover all props paths. Dispatchers in `send.tsx`. Wiring at trigger-site events is a follow-up — templates + dispatchers are the ship-now piece. |
@@ -181,7 +181,7 @@ Roadmap S2.4 specifies killing it and folding booking settings into Setup. Not b
 ### Task 10 — Landing `founder.tsx` + `site-footer.tsx` have TODO placeholders
 
 **Severity:** 🟡 Credibility hit
-**Status:** ⏳ Pending
+**Status:** ✅ Fixed 2026-04-25
 **Location:**
 - `apps/web/src/components/landing/founder.tsx` — 4 TODOs (placeholder name, handle, initials, copy, social URLs).
 - `apps/web/src/components/landing/site-footer.tsx` — 4 TODOs (blog/careers/contact all → `#`; social icons → `#`; cookies route TODO).
@@ -189,7 +189,7 @@ Roadmap S2.4 specifies killing it and folding booking settings into Setup. Not b
 Two of the most-scanned sections on the landing page read as unfinished. Cold visitors judge credibility in ~2 seconds.
 
 **Fix Log:**
-- *(To be filled when fixed.)*
+- **2026-04-25** — Triage of the 4 TODOs in `founder.tsx`: name ("Gili"), initials ("GA"), and copy were already real (matched the actual founder per CLAUDE.md memory + the existing GitHub URL at `giasraf/skitza-v2`). Only the 3 stale TODO comments + 2 placeholder social anchors (`@skitza`, `Instagram`) were the actual bugs. Fix: stripped the misleading TODO comments; removed the 2 `href="#"` social anchors (a link that scrolls to top-of-page on click is a visible credibility hit on a cold visit); kept the working GitHub link. Module header rewritten to explain why only GitHub ships until real social handles are decided. In `site-footer.tsx`: removed broken anchors going to `#` — Blog, Careers, Cookies, Twitter/X, Instagram, Discord. Kept all working links (Product column unchanged; Company → About + Contact mailto; Legal → Privacy + Terms; Social → GitHub only). Module header rewritten with the same reasoning. **Cookies link removal note:** EU cookie policy is parked behind Task 6 + counsel review; better gone than visibly broken until the real `/cookies` route ships. Verification: typecheck ✅, lint ✅, 701 tests pass / 4 skipped / 0 failed (no landing tests to update). [status: ✅ fixed]
 
 ---
 

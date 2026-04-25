@@ -1,9 +1,8 @@
 // Founder — DARK world. Personal note signed by the founder. Keep it
 // short; the point is that a human built this, not a VC playbook.
-//
-// TODO: replace the placeholder name / handle / photo with the founder's
-// actual info before launch — leaving them in the source so the copy
-// reads right until the user swaps the values.
+// Only the GitHub link is shown — Twitter/Instagram placeholders were
+// removed (audit-report.md Task 10) until real handles exist; a `href=
+// "#"` link is a visible credibility hit on a cold visit.
 export function Founder() {
   return (
     <section
@@ -26,7 +25,6 @@ export function Founder() {
           </h2>
 
           <div className="mt-6 space-y-4 text-lg leading-relaxed text-[rgb(var(--fg-secondary))]">
-            {/* TODO: replace with actual founder copy */}
             <p>
               I've been producing for a decade. Every time a client booked a session,
               the same dance started: Calendly for the slot, DocuSign for the split
@@ -48,24 +46,13 @@ export function Founder() {
               className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] font-display text-lg text-[#0C0A07]"
               style={{ fontWeight: 800 }}
             >
-              {/* TODO: replace with actual founder initials */}
               GA
             </span>
             <div>
               <p className="font-display text-base tracking-tight" style={{ fontWeight: 700 }}>
-                {/* TODO: replace with actual founder name */}
                 Gili, founder of Skitza
               </p>
               <div className="mt-1 flex flex-wrap items-center gap-3 font-mono text-[0.72rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                {/* TODO: swap # for actual social URLs */}
-                <a href="#" className="transition-colors hover:text-[rgb(var(--brand-primary))]">
-                  @skitza
-                </a>
-                <span aria-hidden>·</span>
-                <a href="#" className="transition-colors hover:text-[rgb(var(--brand-primary))]">
-                  Instagram
-                </a>
-                <span aria-hidden>·</span>
                 <a
                   href="https://github.com/giasraf/skitza-v2"
                   target="_blank"
