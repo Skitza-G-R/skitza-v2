@@ -72,13 +72,15 @@ Spotify credits, word of mouth.
 `/dashboard` — the landing page after sign-in.
 
 **What renders:**
-- **ShareLinkCard** — permanent `skitza.app/join/<slug>` with one-click copy + preview
-- **QuickActions strip** (8 actions, 2 rows): Copy share link / Upload track / New booking / Send invoice + ⌘K search / Add offline client / Quick note / Preview public page
-- **4-KPI strip**: Active projects / Revenue month / Sessions next 7 days / Unresolved items
-- **Revenue trend** (6-month SVG line graph)
+- **ShareLinkCard** — permanent `skitza.app/join/<slug>` with one-click copy + preview. URL chip reads as a single cohesive string (no internal whitespace between `skitza.app`, `/join/`, and `<slug>`) with the slug bolded for emphasis. Copy + Preview are the **only** place these two actions live — they don't reappear inside QuickActions below.
+- **QuickActions strip** (8 actions, 2 rows): Upload track / New booking / Send invoice / **Share via WhatsApp** + ⌘K search / Add offline client / Quick note / **Edit /join page**. Two-tier visual hierarchy is intentional and locked: primary cards (top row) carry creation + share-creation actions; secondary pills (bottom row) carry utilities. Copy share link and Preview public page were removed as duplicates of the ShareLinkCard header actions.
+- **4-KPI strip**: Active projects / Revenue month / Sessions next 7 days / Unresolved items. Dividers run full column height with consistent baseline alignment between label and value.
+- **Revenue trend** (6-month SVG line graph). Empty state shows three faint horizontal grid lines + the dashed zero baseline so the surface reads as "graph paper ready to populate," not a flat ruler. No onboarding CTA on the empty state — Today is a daily workspace, not a funnel.
 - **Aggregate visitor analytics** — 30-day `/join/<slug>` visits, top-played tracks, conversion rate (visits → bookings)
 - **Split-inbox**: unified list of actionable items (sessions + comments + invoices + leads), sorted by urgency, detail pane on desktop / stack on mobile
 - **Setup-nudge banner** (first-run): "Finish setup" CTA if onboarding skipped + inbox empty
+
+**Sidebar shortcut affordance.** Keyboard shortcuts (`G T`, `G M`, `G P`, `G S`) for primary nav render **inline** on each row — a right-aligned faded mono `kbd` chip that fades up on hover, suppressed on the active row (the active brand-bar already orients) and on rows with an unread badge (badge wins). The earlier portal-tooltip approach is retired — its absolute positioning collided with adjacent rows in the narrow sidebar gutter.
 
 ### 4.2 Projects
 

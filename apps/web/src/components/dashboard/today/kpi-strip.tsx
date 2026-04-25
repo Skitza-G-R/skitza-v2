@@ -36,12 +36,14 @@ export function KpiStrip({ kpis }: Props) {
     }).format(cents / 100);
 
   return (
-    // Batch C — KPIs float on the gradient instead of sitting in
-    // bordered cards. A thin divider rule between columns keeps them
-    // legible on desktop; mobile drops the divider (2-col grid would
-    // land a stray line in the middle). Metric values get the display
-    // font at 3xl/4xl — editorial, not utility.
-    <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4 sm:divide-x sm:divide-[rgb(var(--border-subtle))]">
+    // KPIs float on the gradient instead of sitting in bordered cards.
+    // The desktop layout drops the horizontal `gap-x` so divider rules
+    // hug their column edges (gap+divide together left the divider
+    // floating in space, detached from either neighbour). Mobile keeps
+    // a 2-col grid with a comfortable `gap-y` and no divider — a
+    // vertical hairline mid-grid would just land between two unrelated
+    // pairs of cells. Metric values use the display font at 3xl/4xl.
+    <div className="grid grid-cols-2 gap-y-6 sm:grid-cols-4 sm:gap-x-0 sm:divide-x sm:divide-[rgb(var(--border-subtle))]">
       <Kpi label={t("activeProjects")} value={String(kpis.activeProjects)} />
       <Kpi label={t("revenueMonth")} value={format(kpis.revenueMonthCents)} />
       <Kpi label={t("sessions7d")} value={String(kpis.upcomingSessions7d)} />
@@ -64,18 +66,18 @@ function Kpi({
   tone?: "default" | "warn";
 }) {
   return (
-    // Column-level padding-start handles the divider inset on desktop;
-    // first column has no leading padding so the eyebrow aligns with
-    // the page gutter. No border/background — typography carries it.
-    // `ps-0` on first:child is the logical equivalent of the old
-    // `pl-0`, so the zeroing happens on the leading edge in both
-    // directions.
-    <div className="sm:px-5 sm:first:ps-0">
+    // `flex flex-col justify-end` anchors the value to the bottom of
+    // the cell so all four numbers sit on the same baseline regardless
+    // of label-wrap differences (e.g. when one column's label needs
+    // two lines and the others fit on one). Column-level `sm:px-5` +
+    // `sm:first:ps-0` insets the divider so it lives in negative space
+    // between the cells without crowding the text.
+    <div className="flex flex-col justify-end sm:px-5 sm:first:ps-0">
       <p className="font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
         {label}
       </p>
       <p
-        className={`mt-2 font-display text-3xl tracking-tight sm:text-4xl ${
+        className={`sk-num mt-2 font-display text-3xl leading-none tracking-tight sm:text-4xl ${
           tone === "warn" ? "text-[rgb(var(--fg-warning))]" : "text-[rgb(var(--fg-primary))]"
         }`}
       >

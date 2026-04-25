@@ -28,8 +28,6 @@
     },
     "quickActions": {
       "ariaLabel": "פעולות מהירות",
-      "copyShareLink": "העתק קישור שיתוף",
-      "copyShareLinkHint": "הדבק בכל מקום",
       "uploadTrack": "העלה טראק",
       "uploadTrackHint": "לפרויקט האחרון",
       "uploadTrackHintEmpty": "צור פרויקט תחילה",
@@ -38,10 +36,13 @@
       "sendInvoice": "שלח חשבונית",
       "sendInvoiceHint": "בפרויקט האחרון",
       "sendInvoiceHintEmpty": "אין פרויקטים עדיין",
+      "shareViaWhatsApp": "שתף בוואטסאפ",
+      "shareViaWhatsAppHint": "שלח את הקישור לאיש קשר",
+      "shareViaWhatsAppHintEmpty": "הגדר שם משתמש קודם",
       "search": "חיפוש",
       "addOfflineClient": "הוסף לקוח ידני",
       "quickNote": "פתק מהיר",
-      "previewPublic": "תצוגה מקדימה של העמוד הציבורי",
+      "editJoinPage": "ערוך את עמוד /join",
       "quickNoteModal": {
         "title": "פתק מהיר",
         "subtitle": "מקום לרשום את המחשבה שאתה לא רוצה לאבד.",
@@ -55,7 +56,8 @@
     "toasts": {
       "copied": "הועתק",
       "couldNotCopy": "העתקה נכשלה",
-      "setSlugFirst": "הגדר שם משתמש קודם"
+      "setSlugFirst": "הגדר שם משתמש קודם",
+      "whatsappIntro": "תראה את הסטודיו שלי:"
     }
   },
   "projects": {
