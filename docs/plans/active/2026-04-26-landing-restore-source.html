@@ -1,0 +1,2052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skitza | Business Automation for Music Producers</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+
+    <style>
+        /* ==========================================================================
+           1. CSS VARIABLES & THEME TOKENS
+           ========================================================================== */
+        :root {
+            /* Light Theme Tokens - Updated to Warm Off-White */
+            --light-bg: #F2EDE6;
+            --light-text: #1A1714;
+            --light-body: #6B6560;
+            --light-border: rgba(0,0,0,0.08);
+            --light-watermark: rgba(0,0,0,0.04);
+
+            /* Dark Theme Tokens */
+            --dark-bg: #111009;
+            --dark-surface: #1A1814;
+            --dark-elevated: #222018;
+            --dark-text: #EDE8E2;
+            --dark-body: #7A7268;
+            --dark-border: rgba(255,255,255,0.07);
+            --dark-watermark: rgba(255,255,255,0.025);
+
+            /* Accents */
+            --amber: #D4960A;
+            --copper: #B06830;
+            --amber-glow: rgba(212,150,10,0.15);
+            
+            /* Typography */
+            --font-head: 'Syne', sans-serif;
+            --font-body: 'Outfit', sans-serif;
+        }
+
+        /* ==========================================================================
+           2. RESET & GLOBAL STYLES
+           ========================================================================== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            font-family: var(--font-body);
+            background-color: var(--light-bg);
+            color: var(--light-text);
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Tactile Noise Texture */
+        .noise-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.02;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        a { text-decoration: none; color: inherit; }
+        ul { list-style: none; }
+        button { border: none; background: transparent; cursor: pointer; font-family: inherit; }
+
+        /* FLUID TYPOGRAPHY & STRICT SPACING UTILITIES */
+        .syne { font-family: var(--font-head); }
+        .outfit { font-family: var(--font-body); }
+        
+        h1, h2, h3, p { margin: 0; padding: 0; }
+        
+        .label {
+            font-family: var(--font-body);
+            text-transform: uppercase;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            font-size: 11px; /* Fixed */
+            color: var(--amber);
+            display: block;
+            margin-bottom: 10px; /* STRICT: 10px */
+        }
+
+        .section-header h2 {
+            font-size: clamp(28px, 4.5vw, 56px); /* FLUID */
+            line-height: 1.05;
+            margin-bottom: 16px; /* STRICT: 16px */
+            letter-spacing: -0.02em;
+        }
+
+        .section-header p, p.body-text {
+            font-size: clamp(15px, 1.5vw, 17px); /* FLUID */
+            color: var(--dark-body);
+            line-height: 1.6;
+            font-weight: 300;
+            max-width: min(640px, 90%); /* STRICT: max-width */
+            margin-left: auto;
+            margin-right: auto;
+            margin-bottom: 28px; /* STRICT: 28px to CTA */
+        }
+        
+        /* Section headers that don't have CTAs below them immediately */
+        .section-header.no-cta p {
+            margin-bottom: 0;
+        }
+
+        /* ==========================================================================
+           AMBIENT MOTION & BLOBS
+           ========================================================================== */
+        @keyframes drift {
+            0% { transform: translate(0px, 0px) scale(1); }
+            33% { transform: translate(40px, -50px) scale(1.1); }
+            66% { transform: translate(-30px, 30px) scale(0.9); }
+            100% { transform: translate(0px, 0px) scale(1); }
+        }
+        
+        @keyframes pulse-ambient {
+            0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(0.95); }
+            50% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+        }
+
+        .ambient-blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            pointer-events: none;
+            z-index: 0;
+            animation: drift 25s ease-in-out infinite alternate;
+        }
+        .blob-amber { background: rgba(212,150,10,0.06); width: 600px; height: 600px; }
+        .blob-copper { background: rgba(176,104,48,0.05); width: 500px; height: 500px; animation-delay: -5s; }
+
+        /* ==========================================================================
+           3. COMPONENTS
+           ========================================================================== */
+        
+        /* Buttons */
+        .btn-primary {
+            background: linear-gradient(135deg, var(--amber), var(--copper));
+            color: #0C0A07;
+            font-family: var(--font-body);
+            font-weight: 600;
+            border-radius: 8px;
+            padding: 15px 44px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+            animation: pulse-glow 3s ease-in-out infinite;
+            font-size: 16px;
+        }
+        .btn-primary:hover { box-shadow: 0 12px 40px rgba(212,150,10,0.35); transform: scale(1.04) translateY(-2px); }
+        .btn-primary.small { padding: 10px 24px; font-size: 14px; }
+        .btn-primary.full { width: 100%; }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(212,150,10,0); }
+            50% { box-shadow: 0 0 25px 6px rgba(212,150,10,0.2); }
+        }
+
+        .btn-ghost {
+            border: 1px solid rgba(0,0,0,0.15);
+            color: var(--light-text);
+            font-family: var(--font-body);
+            font-weight: 500;
+            border-radius: 8px;
+            padding: 15px 44px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        .btn-ghost:hover { border-color: var(--amber); transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+
+        /* Section Watermark */
+        .watermark {
+            position: absolute;
+            font-family: var(--font-head);
+            font-weight: 800;
+            font-size: clamp(48px, 10vw, 96px); /* FLUID */
+            color: var(--dark-watermark);
+            top: -10px;
+            left: 0;
+            z-index: 0;
+            line-height: 1;
+            pointer-events: none;
+            transition: transform 0.5s ease-out;
+        }
+        .section:hover .watermark { transform: translateX(10px) scale(1.02); }
+
+        /* ==========================================================================
+           SKITZA BRAND LOGO - THE STRESSED PRODUCER
+           ========================================================================== */
+        
+        .sk-brand-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            z-index: 50;
+            position: relative;
+        }
+
+        .sk-brand-link.hero-mode {
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* Scaling Wrappers */
+        .sk-icon-wrap { position: relative; }
+        
+        .sk-icon-wrap.nav-scale { width: 48px; height: 48px; }
+        .sk-icon-wrap.nav-scale .sk-logo-icon { transform: scale(0.6); transform-origin: top left; }
+        
+        .sk-icon-wrap.hero-scale { width: 80px; height: 80px; }
+        .sk-icon-wrap.hero-scale .sk-logo-icon { transform: scale(1); transform-origin: center; }
+
+        /* The Base 80x80 Canvas */
+        .sk-logo-icon {
+            width: 80px; height: 80px;
+            background: #111009;
+            border-radius: 18px;
+            position: absolute; top: 0; left: 0;
+            overflow: hidden;
+            box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset;
+        }
+
+        /* Notification Rings */
+        .sk-rings {
+            position: absolute;
+            bottom: -8px; left: -8px;
+            width: 32px; height: 32px;
+            border: 1.5px solid rgba(212,150,10,0.15);
+            border-radius: 50%;
+        }
+        .sk-rings::after {
+            content: ''; position: absolute;
+            top: 6px; left: 6px; bottom: 6px; right: 6px;
+            border: 1.5px solid rgba(212,150,10,0.25);
+            border-radius: 50%;
+        }
+
+        /* Stacked Papers (Overdue) */
+        .sk-papers {
+            position: absolute;
+            top: 8px; right: 8px;
+            width: 22px; height: 26px;
+        }
+        .sk-paper {
+            position: absolute;
+            width: 100%; height: 100%;
+            background: #1A1814;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 2px;
+        }
+        .sk-paper.p1 { transform: rotate(-8deg); opacity: 0.6; }
+        .sk-paper.p2 { transform: rotate(2deg); top: 2px; opacity: 0.8; }
+        .sk-paper.p3 { transform: rotate(10deg); top: 4px; }
+        
+        .sk-stamp {
+            position: absolute;
+            font-family: monospace;
+            font-size: 8px;
+            color: #B06830;
+            border: 1px solid #B06830;
+            padding: 1px 2px;
+            font-weight: 800;
+            top: 2px; left: -2px;
+            transform: scale(0.4) rotate(-15deg);
+            transform-origin: top left;
+            background: #1A1814;
+            letter-spacing: 0.05em;
+        }
+
+        /* Notification Badge */
+        .sk-badge {
+            position: absolute;
+            top: 8px; left: 8px;
+            width: 16px; height: 16px;
+            background: #D4960A;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-family: monospace; font-size: 10px; font-weight: 800;
+            color: #111009;
+            z-index: 10;
+        }
+
+        /* Character Base */
+        .sk-char {
+            position: absolute;
+            bottom: 8px; left: 50%; transform: translateX(-50%);
+            width: 32px; height: 32px;
+            z-index: 5;
+        }
+
+        /* Headphones */
+        .sk-headphone-band {
+            position: absolute;
+            width: 38px; height: 20px;
+            border: 3px solid #222018;
+            border-bottom: none;
+            border-radius: 20px 20px 0 0;
+            top: -12px; left: 50%; transform: translateX(-50%);
+            z-index: 1;
+        }
+        .sk-earcup {
+            position: absolute;
+            width: 6px; height: 14px;
+            background: #222018;
+            border-radius: 3px;
+            top: 10px;
+            z-index: 6;
+        }
+        .sk-earcup.l { left: -3px; }
+        .sk-earcup.r { right: -3px; }
+
+        /* Head & Face */
+        .sk-head {
+            width: 100%; height: 100%;
+            background: #C8A882;
+            border-radius: 10px;
+            position: relative;
+            z-index: 4;
+        }
+
+        .sk-eye {
+            position: absolute;
+            width: 6px; height: 2px;
+            background: #2A1F14;
+            border-radius: 1px;
+            top: 16px;
+        }
+        .sk-eye.l { left: 5px; }
+        .sk-eye.r { right: 5px; }
+
+        .sk-brow {
+            position: absolute;
+            width: 8px; height: 2px;
+            background: #2A1F14;
+            border-radius: 1px;
+            transition: transform 0.2s;
+        }
+        /* Asymmetric Expression */
+        .sk-brow.l { top: 12px; left: 4px; transform: rotate(15deg); } /* Frustration */
+        .sk-brow.r { top: 10px; right: 4px; transform: rotate(-10deg); } /* Panic */
+
+        .sk-brand-link:not(.hero-mode):hover .sk-brow.r {
+            transform: rotate(-10deg) translateY(-1px);
+        }
+
+        .sk-mouth {
+            position: absolute;
+            width: 10px; height: 4px;
+            border-top: 1.5px solid #2A1F14;
+            border-radius: 4px 4px 0 0;
+            top: 24px; left: 50%; transform: translateX(-50%);
+        }
+
+        .sk-sweat {
+            position: absolute;
+            width: 4px; height: 6px;
+            background: #7EC8E3;
+            border-radius: 50% 50% 40% 40%;
+            top: 6px; right: -2px;
+            opacity: 0.9;
+        }
+
+        /* Steam Lines (Animated) */
+        .sk-steam {
+            position: absolute;
+            width: 2px; height: 12px;
+            background: rgba(212,150,10,0.4);
+            border-radius: 1px;
+            top: -20px;
+            opacity: 0;
+        }
+        .sk-steam.st1 { left: 8px; transform: rotate(-8deg); animation-delay: 0.1s; }
+        .sk-steam.st2 { right: 8px; transform: rotate(8deg); animation-delay: 0.2s; }
+        
+        .page-loaded .sk-steam {
+            animation: fadeInSteam 0.8s ease-out forwards;
+        }
+        @keyframes fadeInSteam {
+            to { opacity: 1; transform: translateY(-2px) rotate(var(--rot)); }
+        }
+
+        /* Wordmark & Tagline */
+        .sk-wordmark-wrap {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            width: max-content;
+        }
+        
+        .hero-mode .sk-wordmark-wrap { align-items: center; }
+        
+        .sk-wordmark {
+            font-family: var(--font-head);
+            font-weight: 800;
+            color: var(--light-text);
+            letter-spacing: -0.04em;
+            line-height: 1;
+            transition: color 0.3s ease;
+        }
+        .scrolled .sk-wordmark { color: var(--dark-text); }
+        .hero-mode .sk-wordmark { color: var(--light-text); font-size: 32px; }
+        .sk-brand-link:not(.hero-mode) .sk-wordmark { font-size: 22px; }
+
+        .sk-underline {
+            position: absolute;
+            height: 2px;
+            background: var(--amber);
+            bottom: -4px;
+            left: 0; right: 0;
+            clip-path: inset(0 100% 0 0);
+        }
+        .page-loaded .sk-underline {
+            clip-path: inset(0 0% 0 0);
+            transition: clip-path 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.5s;
+        }
+        
+        .sk-tagline {
+            font-family: monospace;
+            font-size: 9px;
+            color: #4A4438;
+            margin-top: 6px;
+            text-align: center;
+            display: none;
+        }
+        .hero-mode .sk-tagline { display: block; }
+
+        /* ==========================================================================
+           4. LAYOUT & SECTIONS
+           ========================================================================== */
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Navbar */
+        nav {
+            position: fixed; top: 0; left: 0; width: 100%; padding: 20px 0; z-index: 100;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        nav.scrolled {
+            padding: 12px 0; background: rgba(17,16,9,0.88);
+            backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+            border-bottom: 1px solid var(--dark-border);
+        }
+        .nav-inner { display: flex; justify-content: space-between; align-items: center; }
+        .nav-links { display: flex; align-items: center; gap: 32px; }
+        .nav-link {
+            font-family: var(--font-body); font-weight: 400; font-size: 15px;
+            color: var(--light-body); transition: color 0.2s ease, transform 0.2s ease; display: inline-block;
+        }
+        .nav-link:hover { color: var(--light-text); transform: translateY(-1px); }
+        .scrolled .nav-link { color: var(--dark-body); }
+        .scrolled .nav-link:hover { color: var(--dark-text); }
+        .mobile-menu-btn { display: none; }
+
+        /* Hero Section */
+        .hero {
+            padding: 120px 0 0px; /* איפוס הריווח התחתון לגמרי */
+            position: relative; text-align: center; overflow: hidden; perspective: 1000px;
+            z-index: 2; /* שומר שההירו ירחף מעל הפייד הארוך */
+        }
+        .hero .blob-amber { top: -100px; left: 50%; transform: translateX(-50%); }
+        .hero .blob-copper { top: 200px; right: -100px; }
+        
+        .hero h1 {
+            font-size: clamp(36px, 6vw, 80px); /* FLUID & STRICT */
+            line-height: 0.95;
+            color: var(--light-text);
+            margin-bottom: 16px; /* STRICT: 16px */
+            letter-spacing: -0.03em;
+            position: relative; z-index: 2;
+        }
+        
+        .hero-word { 
+            display: inline-block; opacity: 0; 
+            transform: translateY(60px) scale(0.8) rotateX(-40deg); 
+            transform-origin: bottom center;
+            transition: all 1s cubic-bezier(0.16, 1, 0.3, 1); 
+        }
+        .page-loaded .hero-word { opacity: 1; transform: translateY(0) scale(1) rotateX(0); }
+        
+        .hero p.sub-copy {
+            color: var(--light-body);
+            opacity: 0; transform: translateY(20px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.6s;
+            margin-bottom: 28px; /* STRICT */
+        }
+        .page-loaded .hero p.sub-copy { opacity: 1; transform: translateY(0); }
+
+        .hero-ctas {
+            display: flex; gap: 16px; justify-content: center;
+            opacity: 0; transform: translateY(20px) scale(0.95);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.8s;
+            margin-bottom: 32px; /* Tighter to UI mockups */
+        }
+        .page-loaded .hero-ctas { opacity: 1; transform: translateY(0) scale(1); }
+
+        .trust-bar {
+            font-weight: 300; color: #A09890; font-size: 13px;
+            opacity: 0; transform: translateY(10px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1s;
+        }
+        .page-loaded .trust-bar { opacity: 1; transform: translateY(0); }
+
+        /* Hero Mockup UI - Floating effect */
+        @keyframes float-mockup { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+        @keyframes float-mockup-alt { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-18px); } }
+
+        .hero-mockup {
+            margin-top: 40px; /* Significantly tighter */
+            position: relative; max-width: 500px; margin-left: auto; margin-right: auto; height: 210px; /* Reduced height and width */
+        }
+        .mockup-glow {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 100%; height: 100%;
+            background: radial-gradient(circle, rgba(212,150,10,0.2) 0%, rgba(212,150,10,0) 70%);
+            filter: blur(50px); z-index: 0; animation: pulse-ambient 4s ease-in-out infinite alternate;
+        }
+        .mockup-wrapper { position: absolute; width: 100%; opacity: 0; transform: translateY(40px) scale(0.95); }
+        
+        .mockup-wrapper:nth-child(2) { top: 0px; left: -10px; width: 85%; transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.2s; }
+        .mockup-wrapper:nth-child(3) { top: 60px; right: -10px; width: 90%; transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.35s; }
+        .mockup-wrapper:nth-child(4) { top: 120px; left: 15px; width: 80%; transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.5s; }
+        
+        .page-loaded .mockup-wrapper { opacity: 1; transform: translateY(0) scale(1); }
+
+        .mockup-card {
+            background: var(--dark-elevated); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
+            padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;
+            color: var(--dark-text); font-family: var(--font-body); font-size: 13px; font-weight: 400;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.2); z-index: 1; /* Smaller padding and font size */
+        }
+        .mockup-wrapper:nth-child(2) .mockup-card { animation: float-mockup 6s ease-in-out infinite; }
+        .mockup-wrapper:nth-child(3) .mockup-card { animation: float-mockup-alt 7s ease-in-out infinite 1s; }
+        .mockup-wrapper:nth-child(4) .mockup-card { animation: float-mockup 6.5s ease-in-out infinite 2s; }
+        .mockup-card .check { color: var(--amber); text-shadow: 0 0 10px rgba(212,150,10,0.5); font-weight: 600;}
+
+        /* Transition World - Smooth Fade pulled behind hero to avoid dead space */
+        .theme-transition {
+            height: 100px; /* הוקטן עוד קצת לפייד ממש עדין */
+            background: linear-gradient(to bottom, rgba(17,16,9,0) 0%, rgba(17,16,9,0.7) 40%, rgba(17,16,9,1) 100%);
+            width: 100%;
+            margin-top: -60px; /* הותאם לגובה החדש כדי לשמור על מעבר חלק */
+            position: relative;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* Dark World Base Container */
+        .dark-world { background-color: var(--dark-bg); color: var(--dark-text); position: relative; }
+
+        /* Section Base - STRICT Padding */
+        .section { padding: 80px 0; position: relative; } /* הוגדל מ-64 ל-80 כדי להוסיף טיפה אוויר */
+        .section-header { position: relative; margin-bottom: 40px; max-width: 640px; z-index: 2; }
+        
+        /* Reusable Card */
+        .card {
+            background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 12px;
+            padding: 24px; /* Tighter padding */
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); position: relative; overflow: hidden;
+        }
+        
+        /* Pain Section & Illustrations */
+        .pain-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr);
+            gap: 16px; /* STRICT: 16px desktop */
+            position: relative; z-index: 2;
+        }
+        .pain-card { box-shadow: inset 0 0 0 0 var(--amber); }
+        .pain-card::before {
+            content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(800px circle at var(--mouse-x, 0) var(--mouse-y, 0), rgba(212,150,10,0.12), rgba(212,150,10,0) 40%);
+            opacity: 0; transition: opacity 0.5s ease; pointer-events: none; z-index: 0;
+        }
+        .pain-card:hover::before { opacity: 1; }
+        .pain-card:hover {
+            border-color: rgba(212,150,10,0.5);
+            box-shadow: inset 4px 0 0 0 var(--amber), 0 10px 30px rgba(0,0,0,0.5);
+            transform: translateY(-4px) scale(1.01);
+        }
+        
+        /* PAIN ILLUSTRATIONS */
+        .pain-ill {
+            margin: -24px -24px 24px -24px;
+            height: 80px; /* 48px + 16px + 16px padding */
+            padding: 16px;
+            background: rgba(0,0,0,0.15);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            display: flex; align-items: center; justify-content: flex-start;
+            position: relative; z-index: 1;
+        }
+        /* 1. Chat Bubbles */
+        .ill-chat-wrap { position: relative; width: 60px; height: 48px; display: flex; align-items: center; }
+        .ill-bubble {
+            width: 34px; height: 22px; border: 1px solid var(--amber); border-radius: 12px; border-bottom-left-radius: 2px;
+            display: flex; align-items: center; justify-content: center; gap: 3px; background: var(--dark-surface);
+            position: relative; z-index: 2;
+        }
+        .ill-bubble span { width: 3px; height: 3px; background: var(--copper); border-radius: 50%; }
+        .ill-bubble-2 {
+            position: absolute; left: 18px; top: 22px; width: 34px; height: 22px;
+            border: 1px solid rgba(212,150,10,0.4); border-radius: 12px; border-bottom-left-radius: 2px;
+            display: flex; align-items: center; justify-content: center; gap: 3px; background: var(--dark-bg); z-index: 1;
+        }
+        .ill-bubble-2 span { width: 3px; height: 3px; background: rgba(176,104,48,0.4); border-radius: 50%; }
+
+        /* 2. Calendar Grid */
+        .ill-calendar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; width: 64px; height: 44px; margin-left: 4px; }
+        .ill-cal-cell {
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 2px; display: flex; align-items: center; justify-content: center;
+            font-family: var(--font-body); font-size: 10px; font-weight: 500; color: var(--copper); background: var(--dark-surface);
+        }
+        .ill-cal-cell.amber-q { color: var(--amber); border-color: rgba(212,150,10,0.4); font-weight: 700; font-size: 11px; }
+
+        /* 3. Unpaid Stack */
+        .ill-stack-wrap { position: relative; width: 56px; height: 48px; display: flex; align-items: flex-end; margin-left: 10px;}
+        .ill-inv-card {
+            position: absolute; bottom: 0; left: 0; width: 38px; height: 46px; border: 1px solid rgba(255,255,255,0.1); 
+            background: var(--dark-surface); border-radius: 2px;
+        }
+        .ill-inv-card::before {
+            content: ''; position: absolute; top: 6px; left: 6px; right: 14px; height: 2px; background: rgba(255,255,255,0.05);
+            box-shadow: 0 6px 0 rgba(255,255,255,0.05), 0 12px 0 rgba(255,255,255,0.05);
+        }
+        .ill-inv-1 { transform: rotate(-6deg) translateX(-6px); opacity: 0.5; }
+        .ill-inv-2 { transform: rotate(3deg) translateX(4px); opacity: 0.8; }
+        .ill-inv-3 { transform: rotate(-2deg) translateY(2px); border-color: rgba(255,255,255,0.2); z-index: 3; display: flex; align-items: center; justify-content: center; }
+        .ill-stamp {
+            color: var(--copper); border: 1px solid var(--copper); border-radius: 2px; font-family: var(--font-body); 
+            font-size: 6px; font-weight: 800; padding: 2px 3px; transform: rotate(-8deg); letter-spacing: 0.05em;
+        }
+
+        /* 4. Resend Arrow */
+        .ill-resend-wrap { position: relative; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; margin-left: 4px; }
+        .ill-file-icon {
+            width: 22px; height: 28px; border: 1px solid rgba(255,255,255,0.15); border-radius: 2px; 
+            position: relative; background: var(--dark-surface);
+        }
+        .ill-file-icon::before {
+            content: ''; position: absolute; top: 0; right: 0; width: 8px; height: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.15); border-left: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2);
+        }
+        .ill-resend-arrow {
+            position: absolute; width: 44px; height: 44px; border: 1px dashed var(--amber); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; border-top-style: solid; border-left: 1px dotted var(--amber);
+        }
+        .ill-resend-arrow::after {
+            content: ''; position: absolute; top: -2px; right: 4px; border-left: 4px solid transparent; 
+            border-right: 4px solid transparent; border-bottom: 6px solid var(--amber); transform: rotate(30deg);
+        }
+        .ill-resend-num {
+            font-family: var(--font-head); font-size: 14px; font-weight: 800; color: var(--amber); z-index: 2; 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-shadow: 0 0 4px var(--dark-bg);
+        }
+
+        /* 5. Infinite Loop */
+        .ill-loop-wrap { position: relative; height: 48px; display: flex; align-items: center; padding: 0 16px; margin-left: -4px;}
+        .ill-loop-border {
+            position: absolute; top: 8px; bottom: 8px; left: 0; right: 0; border: 1px solid var(--amber); 
+            border-radius: 24px; border-bottom-color: transparent; /* Open the loop */
+        }
+        .ill-loop-border::after {
+            content: ''; position: absolute; bottom: -2px; right: 24px; border-left: 5px solid transparent; 
+            border-right: 5px solid transparent; border-top: 7px solid var(--amber); transform: rotate(-20deg);
+        }
+        .ill-loop-content {
+            display: flex; align-items: center; gap: 4px; position: relative; z-index: 2;
+            font-family: var(--font-body); font-size: 9px; font-weight: 600; color: var(--copper);
+            text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .ill-loop-content span { background: var(--dark-surface); padding: 2px 4px; border-radius: 2px; border: 1px solid rgba(176,104,48,0.2); }
+        .ill-loop-arrow-right { margin: 0 2px; color: rgba(176,104,48,0.5); font-size: 10px; }
+
+        /* 6. Mental Drain */
+        .ill-mental-wrap { display: flex; align-items: center; gap: 12px; height: 48px; margin-left: 4px; }
+        .ill-batt {
+            width: 44px; height: 22px; border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; 
+            padding: 2px; position: relative; background: var(--dark-surface);
+        }
+        .ill-batt::after {
+            content: ''; position: absolute; right: -5px; top: 5px; width: 4px; height: 10px; 
+            background: rgba(255,255,255,0.15); border-radius: 0 2px 2px 0;
+        }
+        .ill-batt-level { width: 8%; height: 100%; background: var(--copper); border-radius: 1px; }
+        .ill-drain-bolt {
+            width: 10px; height: 16px; background: var(--copper);
+            clip-path: polygon(60% 0%, 100% 0%, 40% 55%, 70% 55%, 20% 100%, 40% 45%, 10% 45%); opacity: 0.6;
+        }
+
+        /* ==========================================================================
+           MEME FACES (NEW LAYER)
+           ========================================================================== */
+        .meme-face { width: 28px; height: 28px; background: #C8A882; border-radius: 8px; position: relative; flex-shrink: 0; margin-right: 16px; z-index: 5; }
+        .m-eye { position: absolute; width: 6px; height: 5px; background: #2A1F14; border-radius: 2px; top: 12px; }
+        .m-eye.l { left: 4px; } .m-eye.r { right: 4px; }
+        .m-brow { position: absolute; width: 8px; height: 2px; background: #2A1F14; top: 8px; margin-top: 0; transition: margin-top 0.2s; }
+        .m-brow.l { left: 3px; } .m-brow.r { right: 3px; }
+        .m-mouth { position: absolute; left: 50%; transform: translateX(-50%); }
+        
+        .pain-card:hover .m-brow { margin-top: -2px; }
+        .pain-ill > div:not(.meme-face) { transition: filter 0.2s; }
+        .pain-card:hover .pain-ill > div:not(.meme-face) { filter: brightness(1.2); }
+        
+        /* Face 1: Rates */
+        .face-1 .m-eye { height: 3px; top: 13px; }
+        .face-1 .m-brow { top: 11px; }
+        .face-1 .m-mouth { width: 10px; height: 4px; bottom: 3px; border-top: 1.5px solid #2A1F14; border-radius: 4px 4px 0 0; }
+        .f1-acc { position: absolute; bottom: calc(100% + 4px); left: 50%; background: rgba(237,232,226,0.12); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 5px; font-weight: 600; color: #EDE8E2; white-space: nowrap; margin-left: -4px; }
+        .f1-acc::before { content: ''; position: absolute; bottom: -3px; left: 4px; width: 3px; height: 3px; background: rgba(237,232,226,0.12); border-radius: 50%; }
+        .f1-acc::after { content: ''; position: absolute; bottom: -6px; left: 2px; width: 1.5px; height: 1.5px; background: rgba(237,232,226,0.12); border-radius: 50%; }
+        
+        /* Face 2: Schedule */
+        .face-2 .m-brow.l { transform: rotate(25deg); top: 9px; }
+        .face-2 .m-brow.r { transform: rotate(-25deg); top: 6px; }
+        .face-2 .m-eye.l { top: 14px; left: 5px; }
+        .face-2 .m-eye.r { top: 11px; right: 3px; }
+        .face-2 .m-mouth { width: 10px; height: 5px; bottom: 4px; border: 1.5px solid #2A1F14; border-bottom: 0; border-radius: 4px 4px 0 0; background: rgba(255,255,255,0.2); }
+        .f2-acc { position: absolute; top: -6px; right: -6px; width: 10px; height: 10px; }
+        .f2-acc::before, .f2-acc::after { content: ''; position: absolute; width: 10px; height: 2px; background: rgba(212,150,10,0.6); top: 4px; left: 0; border-radius: 1px; }
+        .f2-acc::before { transform: rotate(45deg); }
+        .f2-acc::after { transform: rotate(-45deg); }
+        
+        /* Face 3: Unpaid */
+        .face-3 .m-eye { background: transparent; }
+        .face-3 .m-eye::before, .face-3 .m-eye::after { content: ''; position: absolute; width: 8px; height: 1.5px; background: #B06830; top: 2px; left: -1px; }
+        .face-3 .m-eye::before { transform: rotate(45deg); }
+        .face-3 .m-eye::after { transform: rotate(-45deg); }
+        .face-3 .m-brow.l { transform: rotate(90deg); top: 5px; left: 6px; }
+        .face-3 .m-brow.r { transform: rotate(-90deg); top: 5px; right: 6px; }
+        .face-3 .m-mouth { width: 8px; height: 10px; bottom: 2px; border: 1.5px solid #2A1F14; border-top: 0; border-radius: 0 0 8px 8px; }
+        .f3-acc { position: absolute; top: 4px; right: -6px; width: 6px; height: 9px; background: #7EC8E3; border-radius: 50% 50% 40% 40%; opacity: 0.8; }
+        
+        /* Face 4: Resend */
+        .face-4 .m-brow.l { transform: rotate(-15deg); top: 5px; }
+        .face-4 .m-brow.r { transform: rotate(10deg); top: 10px; }
+        .face-4 .m-eye { border-top: 2px solid #2A1F14; border-radius: 0 0 2px 2px; height: 4px; top: 13px; }
+        .face-4 .m-mouth { width: 12px; height: 0; bottom: 5px; border-top: 1.5px solid #2A1F14; }
+        .f4-acc { position: absolute; top: -8px; right: -8px; padding: 1px 4px; background: var(--dark-surface); border: 1px solid var(--amber); border-radius: 6px; color: var(--amber); font-family: monospace; font-size: 7px; font-weight: bold; }
+        
+        /* Face 5: Tomorrow */
+        .face-5 .m-brow { top: 9px; }
+        .face-5 .m-eye { height: 1px; top: 15px; border-radius: 0; }
+        .face-5 .m-mouth { width: 10px; height: 0; bottom: 6px; border-top: 1.5px solid #2A1F14; }
+        .f5-acc { position: absolute; top: -12px; right: -12px; font-family: monospace; font-weight: bold; color: rgba(237,232,226,0.15); line-height: 1; }
+        .f5-z1 { font-size: 8px; position: absolute; bottom: 0; left: 0; transform: rotate(-10deg); }
+        .f5-z2 { font-size: 6px; position: absolute; bottom: 8px; left: 8px; transform: rotate(5deg); }
+        .f5-z3 { font-size: 5px; position: absolute; bottom: 14px; left: 14px; transform: rotate(-5deg); }
+        
+        /* Face 6: Bandwidth */
+        .face-6 { transform: rotate(8deg); }
+        .face-6 .m-eye { background: transparent; }
+        .face-6 .m-eye::before, .face-6 .m-eye::after { content: ''; position: absolute; width: 6px; height: 1.5px; background: #B06830; top: 2px; left: -1px; }
+        .face-6 .m-eye::before { transform: rotate(45deg); }
+        .face-6 .m-eye::after { transform: rotate(-45deg); }
+        .face-6 .m-brow.l { transform: rotate(-10deg); top: 9px; left: 4px; }
+        .face-6 .m-brow.r { transform: rotate(10deg); top: 9px; right: 4px; }
+        .face-6 .m-mouth { width: 10px; height: 6px; bottom: 4px; border-bottom: 1.5px solid #2A1F14; border-right: 1.5px solid #2A1F14; border-radius: 0 0 8px 2px; }
+        .f6-acc { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); width: 16px; height: 16px; display: flex; align-items: flex-end; justify-content: center; overflow: hidden; }
+        .f6-arc { position: absolute; border: 1.5px solid rgba(255,255,255,0.06); border-radius: 50%; border-bottom-color: transparent; border-left-color: transparent; border-right-color: transparent; }
+        .f6-a1 { width: 16px; height: 16px; bottom: -8px; }
+        .f6-a2 { width: 10px; height: 10px; bottom: -5px; }
+        .f6-a3 { width: 4px; height: 4px; bottom: -2px; border-top-color: var(--amber); background: var(--amber); border-radius: 50%; border: none; }
+
+        .pain-card h3, .pain-card p { position: relative; z-index: 1; }
+        .pain-card h3 { font-family: var(--font-head); font-size: clamp(20px, 2vw, 22px); margin-bottom: 12px; color: var(--dark-text); }
+        .pain-card p { color: var(--dark-body); font-size: clamp(14px, 1.5vw, 15px); line-height: 1.6; font-weight: 300; }
+
+        /* Solution Section Flow Diagram */
+        .solution-flow {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-top: 40px; position: relative; padding: 12px 0; overflow-x: auto; z-index: 2;
+        }
+        .flow-line { position: absolute; top: 50%; left: 0; width: 100%; height: 2px; background: var(--dark-border); z-index: 0; transform: translateY(-50%); }
+        .flow-line-active { position: absolute; top: 50%; left: 0; width: 0%; height: 2px; background: var(--amber); z-index: 1; transform: translateY(-50%); transition: width 2s cubic-bezier(0.16, 1, 0.3, 1); box-shadow: 0 0 15px var(--amber); }
+        .flow-node { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 8px; padding: 10px 20px; font-weight: 500; font-size: 14px; position: relative; z-index: 2; transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        .flow-node .check { display: inline-block; margin-left: 6px; color: var(--amber); opacity: 0; transform: scale(0.5) rotate(-45deg); transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+        .flow-node.active { border-color: var(--amber); box-shadow: 0 0 30px rgba(212,150,10,0.25); transform: translateY(-5px); background: var(--dark-elevated); }
+        .flow-node.active .check { opacity: 1; transform: scale(1) rotate(0); }
+
+        /* Features Section */
+        .features-layout { display: grid; grid-template-columns: 1fr 1.5fr; gap: 48px; align-items: start; }
+        .features-list { position: relative; display: flex; flex-direction: column; gap: 8px; }
+        @keyframes indicator-glow {
+            0%, 100% { box-shadow: 0 0 8px rgba(212,150,10,0.4), 0 0 20px rgba(212,150,10,0.15); }
+            50%       { box-shadow: 0 0 18px rgba(212,150,10,0.8), 0 0 40px rgba(212,150,10,0.3); }
+        }
+        .feature-indicator {
+            position: absolute; left: -16px; top: 0; width: 4px; height: 44px;
+            background: linear-gradient(180deg, var(--amber), var(--copper));
+            border-radius: 4px;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                        height  0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: indicator-glow 2s ease-in-out infinite;
+        }
+        .feature-tab {
+            padding: 12px 0; font-family: var(--font-head); font-size: clamp(20px, 2vw, 22px);
+            color: var(--dark-body); cursor: pointer; transition: color 0.3s ease, transform 0.3s ease; text-align: left;
+        }
+        .feature-tab:hover { transform: translateX(5px); color: var(--dark-text); }
+        .feature-tab.active { color: var(--amber); }
+        
+        .feature-content { display: none; opacity: 0; transform: translateY(20px) scale(0.98); transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+        .feature-content.active { display: block; opacity: 1; transform: translateY(0) scale(1); }
+        .feature-content h3 { font-family: var(--font-head); font-size: clamp(20px, 2.5vw, 28px); margin-bottom: 16px; }
+        .feature-content p { color: var(--dark-body); font-weight: 300; line-height: 1.6; font-size: clamp(15px, 1.5vw, 17px); margin-bottom: 24px; }
+        
+        /* Feature UI Mockups Base */
+        .feature-mockup {
+            background: var(--dark-elevated); border: 1px solid var(--dark-border); border-radius: 12px;
+            display: flex; flex-direction: column; padding: 24px;
+            color: var(--dark-text); font-family: var(--font-body);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3); transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .feature-mockup:hover { transform: scale(1.02); border-color: rgba(212,150,10,0.3); }
+        
+        /* Contracts Split View */
+        .mu-contract-split { display: flex; flex-direction: row; gap: 16px; align-items: stretch; }
+
+        /* Booking Mockup */
+        .mu-booking-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 24px; text-align: center; }
+        .mu-day { font-size: 11px; text-transform: uppercase; color: var(--dark-body); margin-bottom: 4px; font-weight: 500;}
+        .mu-slot { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 4px; padding: 8px 0; font-size: 12px; color: var(--dark-body); }
+        .mu-slot.active { background: rgba(212,150,10,0.1); border-color: var(--amber); color: var(--amber); box-shadow: inset 0 0 10px rgba(212,150,10,0.1); font-weight: 600;}
+        .mu-confirm-card { background: var(--dark-surface); border-left: 2px solid var(--amber); padding: 16px; border-radius: 0 8px 8px 0; display: flex; justify-content: space-between; align-items: center; font-size: 14px;}
+        
+        /* Payments Mockup */
+        .mu-inv-main { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 8px; padding: 20px; margin-bottom: 16px;}
+        .mu-inv-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 15px; font-weight: 500;}
+        .mu-badge { background: rgba(212,150,10,0.1); color: var(--amber); padding: 4px 8px; border-radius: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;}
+        .mu-badge.copper { background: rgba(176,104,48,0.1); color: var(--copper); }
+        .mu-badge.ghost { background: transparent; border: 1px solid var(--dark-border); color: var(--dark-body); }
+        .mu-inv-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--dark-body); margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px;}
+        .mu-inv-total { display: flex; justify-content: space-between; font-size: 15px; font-weight: 600; color: var(--dark-text); padding-top: 6px;}
+        .mu-inv-mini { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: var(--dark-surface); border-radius: 6px; margin-bottom: 8px; font-size: 13px;}
+        
+        /* Music Mockup (Merged) */
+        .waveform-mockup { justify-content: space-between; gap: 16px; }
+        .mu-panel { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 8px; padding: 16px; width: 100%;}
+        .track-title { font-size: 13px; font-weight: 500; color: var(--dark-text); margin-bottom: 8px;}
+        .player-bar-container { position: relative; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; width: 100%; margin: 16px 0; }
+        .player-progress { position: absolute; left: 0; top: 0; height: 100%; width: 45%; background: var(--amber); border-radius: 2px; box-shadow: 0 0 10px rgba(212,150,10,0.5); }
+        .player-pin { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; background: var(--amber); border-radius: 50%; box-shadow: 0 0 10px rgba(212,150,10,0.8); cursor: pointer; border: 2px solid var(--dark-elevated); z-index: 2;}
+        .pin-1 { left: 30%; } .pin-2 { left: 75%; }
+        .comment-bubble { background: var(--dark-elevated); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 10px; font-size: 12px; color: var(--dark-body); line-height: 1.4; margin-top: 8px;}
+        .comment-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;}
+        .comment-time { color: var(--amber); font-family: monospace; font-size: 12px; background: rgba(212,150,10,0.1); padding: 2px 4px; border-radius: 4px; }
+        .mu-delivery-flex { display: flex; justify-content: space-between; align-items: center;}
+        .mu-dl-btn { background: var(--amber); color: #0C0A07; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;}
+        
+        /* CRM Mockup */
+        .mu-crm-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px;}
+        .mu-avatar { width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--amber); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 16px; color: var(--amber); background: rgba(212,150,10,0.1);}
+        .mu-crm-name { font-size: 18px; font-weight: 500;}
+        .mu-crm-stats { display: flex; gap: 8px; margin-bottom: 24px;}
+        .mu-stat-chip { background: var(--dark-surface); border: 1px solid var(--dark-border); padding: 6px 10px; border-radius: 4px; font-size: 12px; color: var(--dark-text);}
+        .mu-feed-item { display: flex; gap: 12px; margin-bottom: 12px; font-size: 13px; color: var(--dark-body); align-items: flex-start;}
+        .mu-dot { width: 6px; height: 6px; background: var(--dark-border); border-radius: 50%; margin-top: 6px; flex-shrink: 0;}
+        
+        /* Comms Mockup */
+        .mu-chat { display: flex; flex-direction: column; gap: 12px; height: 100%; justify-content: flex-end;}
+        .mu-bubble { max-width: 85%; padding: 12px 16px; border-radius: 12px; font-size: 13px; line-height: 1.5; position: relative;}
+        .mu-bubble.left { background: var(--dark-surface); border: 1px solid var(--dark-border); align-self: flex-start; border-bottom-left-radius: 4px;}
+        .mu-bubble.right { background: rgba(212,150,10,0.15); border: 1px solid rgba(212,150,10,0.3); color: var(--dark-text); align-self: flex-end; border-bottom-right-radius: 4px;}
+        .mu-chat-note { font-size: 11px; color: var(--amber); text-align: center; margin-top: 8px; font-weight: 500;}
+
+        /* Leads Mockup */
+        .mu-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; height: 100%;}
+        .mu-col { background: var(--dark-surface); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;}
+        .mu-col-title { font-size: 11px; text-transform: uppercase; color: var(--dark-body); font-weight: 600; margin-bottom: 4px;}
+        .mu-l-card { background: var(--dark-elevated); border: 1px solid var(--dark-border); padding: 10px; border-radius: 6px; font-size: 12px;}
+        .mu-l-card.active { border-color: rgba(212,150,10,0.4); position: relative;}
+        .mu-l-name { font-weight: 500; color: var(--dark-text); margin-bottom: 4px;}
+        .mu-l-sub { color: var(--dark-body); font-size: 11px;}
+        .mu-l-action { color: var(--amber); font-size: 10px; margin-top: 6px; display: flex; align-items: center; gap: 4px;}
+        .mu-pulse-dot { width: 6px; height: 6px; background: var(--amber); border-radius: 50%; box-shadow: 0 0 6px var(--amber); animation: pulse-glow 2s infinite;}
+
+        /* SECTION 4.5: Consolidation Section */
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 32px; z-index: 2; position: relative;}
+        .stat-card { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 12px; padding: 32px 24px; text-align: center; transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease; }
+        .stat-card:hover { transform: translateY(-5px); border-color: rgba(212,150,10,0.3); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .stat-num { font-family: var(--font-head); font-size: clamp(48px, 6vw, 64px); color: var(--amber); font-weight: 800; line-height: 1; margin-bottom: 8px; text-shadow: 0 10px 30px rgba(212,150,10,0.15); }
+        .stat-label { color: var(--dark-body); font-size: clamp(15px, 1.5vw, 17px); font-weight: 300; }
+        
+        .consolidation-footer { margin-top: 48px; text-align: center; position: relative; z-index: 2;}
+        .tools-replaced { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 20px; }
+        .tool-chip { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 100px; font-size: 13px; font-family: var(--font-body); font-weight: 400; }
+        .tool-chip.replaced { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--dark-body); text-decoration: line-through; text-decoration-color: rgba(176,104,48,0.5); }
+        .tool-chip.skitza { background: linear-gradient(135deg, var(--amber), var(--copper)); color: #0C0A07; font-weight: 600; border: none; }
+        .tool-icon { font-style: normal; }
+        .btn-ghost.dark-ghost { border-color: rgba(255,255,255,0.15); color: var(--dark-text); }
+        .btn-ghost.dark-ghost:hover { border-color: var(--amber); color: var(--amber); }
+
+        /* How It Works Section */
+        .steps-layout { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; position: relative; }
+        .steps-line { position: absolute; top: 24px; left: 10%; right: 10%; height: 1px; background: var(--dark-border); z-index: 0; }
+        .step-card { background: var(--dark-surface); padding: 24px; border-radius: 12px; border: 1px solid var(--dark-border); position: relative; z-index: 1; transition: all 0.3s ease; }
+        .step-card:hover { transform: translateY(-5px); border-color: rgba(255,255,255,0.15); }
+        .step-num { width: 40px; height: 40px; border-radius: 50%; background: var(--dark-elevated); border: 1px solid var(--amber); color: var(--amber); display: flex; align-items: center; justify-content: center; font-family: var(--font-head); font-weight: 700; font-size: 16px; margin-bottom: 16px; box-shadow: 0 0 15px rgba(212,150,10,0.2); }
+        .step-card h3 { font-family: var(--font-head); font-size: clamp(18px, 2vw, 20px); margin-bottom: 12px; }
+        .step-card p { color: var(--dark-body); font-size: clamp(14px, 1.5vw, 15px); font-weight: 300; line-height: 1.6; }
+
+        /* Testimonials */
+        .test-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .test-card { background: var(--dark-surface); border-radius: 0 12px 12px 0; border-left: 2px solid var(--amber); padding: 24px; transition: all 0.3s ease; }
+        .test-card:hover { transform: translateX(5px); background: var(--dark-elevated); }
+        .test-quote { font-weight: 300; font-style: italic; color: var(--dark-body); font-size: clamp(14px, 1.5vw, 15px); line-height: 1.6; margin-bottom: 16px; }
+        .test-author { color: var(--amber); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin: 0;}
+
+        /* Pricing - WOW 3D Tilt Card */
+        .pricing-wrap { display: flex; justify-content: center; perspective: 1200px; padding-bottom: 4px; }
+        .pricing-card {
+            background: var(--dark-surface); border: 1px solid rgba(255,255,255,0.1); border-top: 2px solid var(--amber); border-bottom: none;
+            border-radius: 16px; padding: 48px 32px; max-width: 420px; width: 100%; text-align: center;
+            position: relative; transform-style: preserve-3d; transition: transform 0.1s ease-out; box-shadow: 0 20px 50px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04);
+        }
+        .pricing-card > * { transform: translateZ(30px); position: relative; }
+        .price-plan { font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; color: var(--amber); font-size: 12px; margin-bottom: 12px; display: block;}
+        .price-amount { font-family: var(--font-head); font-size: clamp(48px, 8vw, 72px); color: var(--dark-text); font-weight: 800; line-height: 1; transform: translateZ(50px) !important; text-shadow: 0 10px 30px rgba(0,0,0,0.5);}
+        .price-period { font-weight: 300; color: var(--dark-body); font-size: 16px; }
+        .price-strike { text-decoration: line-through; color: var(--copper); font-weight: 300; margin-top: 8px; display: block; font-size: 14px;}
+        .price-sub { color: var(--amber); font-size: 13px; font-weight: 400; margin-bottom: 32px; display: block; margin-top: 4px;}
+        .pricing-features { text-align: left; margin-bottom: 32px; }
+        .pricing-features li { font-weight: 300; color: var(--dark-body); margin-bottom: 12px; display: flex; align-items: center; gap: 10px; font-size: 15px; }
+        .pricing-features li::before { content: '→'; color: var(--amber); }
+        .price-footer { font-size: 12px; color: var(--dark-body); font-weight: 300; margin-top: 16px; display: block; }
+
+        /* Final CTA */
+        .final-cta { text-align: center; padding: 100px 0 80px; position: relative; } /* הוגדל במקצת כדי לתת אוויר */
+        .final-glow {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 800px; height: 800px; background: radial-gradient(circle, rgba(212,150,10,0.2) 0%, rgba(212,150,10,0) 60%);
+            z-index: 0; pointer-events: none; animation: pulse-ambient 5s ease-in-out infinite alternate;
+        }
+        .final-cta h2 { font-size: clamp(36px, 8vw, 82px); margin-bottom: 16px; position: relative; z-index: 1;}
+        .final-ctas { display: flex; justify-content: center; gap: 16px; position: relative; z-index: 1;}
+
+        /* Footer - Compact */
+        footer { border-top: 1px solid var(--dark-border); padding: 40px 0 24px; background: var(--dark-bg); }
+        .footer-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+        .footer-logo { font-family: var(--font-head); font-size: 20px; color: var(--dark-text); font-weight: 700; position: relative; display: inline-block; margin-bottom: 8px; letter-spacing: -0.03em;}
+        .footer-logo::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 100%; height: 2px; background: var(--amber); }
+        .footer-tag { color: #4A4540; font-weight: 300; font-size: 14px; }
+        .footer-col h4 { color: var(--dark-text); font-weight: 500; margin-bottom: 16px; font-size: 15px;}
+        .footer-col ul { display: flex; flex-direction: column; gap: 8px; }
+        .footer-col a { color: var(--dark-body); font-weight: 300; font-size: 14px; transition: color 0.2s; }
+        .footer-col a:hover { color: var(--amber); }
+        .footer-bottom { border-top: 1px solid var(--dark-border); padding-top: 24px; color: #3A3530; font-size: 12px; font-weight: 300; text-align: center; }
+
+        /* ==========================================================================
+           SIGNUP MODAL
+           ========================================================================== */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75); backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 9000; display: flex; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+            padding: 20px;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: all; }
+        .modal-box {
+            background: #1A1814; border: 1px solid rgba(255,255,255,0.1);
+            border-top: 2px solid var(--amber); border-radius: 16px;
+            padding: 40px; max-width: 460px; width: 100%; position: relative;
+            transform: translateY(30px) scale(0.96);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+            opacity: 0;
+        }
+        .modal-overlay.active .modal-box { transform: translateY(0) scale(1); opacity: 1; }
+        .modal-close {
+            position: absolute; top: 16px; right: 18px;
+            color: #7A7268; font-size: 26px; cursor: pointer;
+            background: none; border: none; line-height: 1;
+            transition: color 0.2s; font-family: var(--font-body);
+        }
+        .modal-close:hover { color: var(--dark-text); }
+        .modal-eyebrow {
+            font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+            color: var(--amber); font-weight: 500; display: block; margin-bottom: 8px;
+        }
+        .modal-title {
+            font-family: var(--font-head); font-size: 28px; color: var(--dark-text);
+            margin-bottom: 8px; line-height: 1.1;
+        }
+        .modal-sub { color: var(--dark-body); font-size: 15px; font-weight: 300; margin-bottom: 28px; }
+        .modal-field { margin-bottom: 16px; }
+        .modal-field label { display: block; font-size: 13px; font-weight: 500; color: #7A7268; margin-bottom: 6px; }
+        .modal-field input {
+            width: 100%; background: #111009; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px; padding: 13px 16px; color: var(--dark-text);
+            font-family: var(--font-body); font-size: 15px; outline: none;
+            transition: border-color 0.2s;
+        }
+        .modal-field input:focus { border-color: var(--amber); }
+        .modal-field input::placeholder { color: #4A4540; }
+        .modal-question { margin-bottom: 24px; }
+        .modal-question label { display: block; font-size: 13px; font-weight: 500; color: #7A7268; margin-bottom: 10px; }
+        .modal-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .modal-option {
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+            padding: 11px 14px; font-size: 13px; color: var(--dark-body);
+            cursor: pointer; transition: all 0.2s; text-align: left;
+            background: #111009; font-family: var(--font-body); line-height: 1.4;
+        }
+        .modal-option:hover { border-color: rgba(212,150,10,0.4); color: var(--dark-text); }
+        .modal-option.selected { border-color: var(--amber); color: var(--amber); background: rgba(212,150,10,0.08); }
+        .modal-footer-note { font-size: 12px; color: #4A4540; text-align: center; margin-top: 12px; font-weight: 300; }
+        .modal-success { text-align: center; padding: 16px 0; display: none; }
+        .modal-success .success-icon { font-size: 52px; margin-bottom: 16px; display: block; }
+        .modal-success h3 { font-family: var(--font-head); font-size: 28px; color: var(--dark-text); margin-bottom: 12px; }
+        .modal-success p { color: var(--dark-body); font-weight: 300; font-size: 15px; line-height: 1.6; }
+
+        /* Mobile Sticky Bar */
+        .mobile-sticky {
+            display: none; position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(17,16,9,0.92);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-top: 1px solid var(--dark-border);
+            padding: 12px 20px; z-index: 90;
+        }
+
+        /* SCROLL REVEAL */
+        .reveal-up { opacity: 0; transform: translateY(20px) scale(0.98); transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+        .reveal-up.is-revealed { opacity: 1; transform: translateY(0) scale(1); }
+        .delay-1 { transition-delay: 0.1s; } .delay-2 { transition-delay: 0.2s; } .delay-3 { transition-delay: 0.3s; }
+        .delay-4 { transition-delay: 0.4s; } .delay-5 { transition-delay: 0.5s; } .delay-6 { transition-delay: 0.6s; }
+
+        /* ==========================================================================
+           6. RESPONSIVE DESIGN (STRICT MAX WIDTHS & MOBILE OPTIMIZATIONS)
+           ========================================================================== */
+        @media (max-width: 992px) {
+            .features-layout { grid-template-columns: 1fr; gap: 32px; }
+            .feature-indicator { display: none; }
+            
+            /* Premium Horizontal Scroll for Tabs on Mobile/Tablet */
+            .features-list { 
+                flex-direction: row; 
+                flex-wrap: nowrap; 
+                overflow-x: auto; 
+                -webkit-overflow-scrolling: touch; 
+                scrollbar-width: none; /* Firefox */
+                gap: 8px;
+                padding-bottom: 4px;
+                margin: 0 -24px; /* Bleed to edges */
+                padding: 0 24px 8px;
+            }
+            .features-list::-webkit-scrollbar { display: none; } /* Safari/Chrome */
+            
+            .feature-tab { 
+                border-left: none; 
+                border-bottom: 2px solid transparent; 
+                padding: 8px 16px; 
+                margin-bottom: 0; 
+                font-size: 15px;
+                white-space: nowrap;
+                flex-shrink: 0;
+                background: rgba(255,255,255,0.02);
+                border-radius: 8px;
+            }
+            .feature-tab.active { 
+                border-color: transparent; 
+                background: rgba(212,150,10,0.1); 
+                border-radius: 8px;
+            }
+            
+            .steps-layout { grid-template-columns: 1fr; }
+            .steps-line { display: none; }
+            .test-grid { grid-template-columns: 1fr; }
+            .pain-grid { grid-template-columns: 1fr; gap: 12px;} /* STRICT 12px mobile */
+            .stats-grid { grid-template-columns: 1fr; gap: 12px; }
+            .footer-grid { grid-template-columns: 1fr 1fr; gap: 24px;}
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 0 16px; } /* Give more room to content on small screens */
+            
+            html, body { overflow-x: hidden; width: 100%; } /* Strict mobile horizontal lock */
+            .hero-word { max-width: 100%; white-space: normal; } /* Fix mobile word wrap without breaking desktop JS */
+
+            .features-list { 
+                width: 100vw; 
+                margin-left: -16px; /* Bleed exactly to edges overriding container padding */
+                padding: 0 16px 8px; 
+            }
+
+            nav { padding: 16px 0; }
+            nav .nav-links, nav .btn-primary { display: none; }
+            .mobile-menu-btn { display: block; color: inherit; font-size: 24px; font-family: var(--font-head); }
+            
+            .sk-icon-wrap.nav-scale { width: 40px; height: 40px; }
+            .sk-icon-wrap.nav-scale .sk-logo-icon { transform: scale(0.5); }
+            .sk-brand-link:not(.hero-mode) .sk-wordmark { font-size: 18px; }
+
+            .hero { padding: 72px 0 0px; z-index: 2; } /* Tighter mobile hero padding */
+            .theme-transition { height: 70px; margin-top: -40px; } /* פייד מצומצם עוד קצת למובייל */
+            .section { padding: 56px 0; } /* ריווח מוגדל עוד קצת במובייל (מ-48 ל-56) */
+            
+            .hero-ctas, .final-ctas { flex-direction: column; gap: 12px; }
+            .hero-ctas .btn-primary, .hero-ctas .btn-ghost, .final-ctas .btn-primary, .final-ctas .btn-ghost { width: 100%; }
+            
+            .mockup-wrapper { position: relative; top: auto !important; left: auto !important; right: auto !important; width: 100% !important; margin-bottom: 8px; transform: translateY(0) !important; }
+            .hero-mockup { height: auto; margin-top: 32px; }
+            /* Disable heavy animations on mobile for better performance and clean stacking */
+            .mockup-wrapper:nth-child(n) .mockup-card { animation: none; transform: none; }
+            
+            /* Tighten feature mockups for narrow screens */
+            .feature-mockup { padding: 16px; min-height: auto; }
+            .mu-contract-split { flex-direction: column; } /* למוקאפ של החוזים במובייל */
+            .mu-booking-grid { gap: 4px; }
+            .mu-slot { font-size: 11px; padding: 6px 0; }
+            .waveform-mockup { flex-direction: column; }
+            
+            .mu-board { grid-template-columns: 1fr; }
+            
+            .footer-grid { grid-template-columns: 1fr; gap: 24px; }
+            
+            .mobile-sticky { display: block; }
+            body { padding-bottom: 72px; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Tactile Noise -->
+    <div class="noise-overlay"></div>
+
+    <!-- Navigation -->
+    <nav id="navbar">
+        <div class="container nav-inner">
+            <a href="#" class="sk-brand-link">
+                <div class="sk-icon-wrap nav-scale">
+                    <div class="sk-logo-icon">
+                        <div class="sk-rings"></div>
+                        <div class="sk-papers">
+                            <div class="sk-paper p1"></div>
+                            <div class="sk-paper p2"></div>
+                            <div class="sk-paper p3"><div class="sk-stamp">OVERDUE</div></div>
+                        </div>
+                        <div class="sk-char">
+                            <div class="sk-headphone-band"></div>
+                            <div class="sk-head">
+                                <div class="sk-steam st1"></div>
+                                <div class="sk-steam st2"></div>
+                                <div class="sk-sweat"></div>
+                                <div class="sk-brow l"></div><div class="sk-brow r"></div>
+                                <div class="sk-eye l"></div><div class="sk-eye r"></div>
+                                <div class="sk-mouth"></div>
+                            </div>
+                            <div class="sk-earcup l"></div><div class="sk-earcup r"></div>
+                        </div>
+                        <div class="sk-badge">9</div>
+                    </div>
+                </div>
+                <div class="sk-wordmark-wrap">
+                    <span class="sk-wordmark">Skitza</span>
+                    <div class="sk-underline"></div>
+                </div>
+            </a>
+            <ul class="nav-links">
+                <li><a href="#features" class="nav-link">Features</a></li>
+                <li><a href="#how-it-works" class="nav-link">How It Works</a></li>
+                <li><a href="#pricing" class="nav-link">Pricing</a></li>
+            </ul>
+            <button class="btn-primary small nav-btn">Join The Waiting List</button>
+            <button class="mobile-menu-btn">☰</button>
+        </div>
+    </nav>
+
+    <!-- SECTION 1: HERO (LIGHT OFF-WHITE) -->
+    <header class="hero" id="hero">
+        <div class="blob-amber ambient-blob"></div>
+        <div class="blob-copper ambient-blob"></div>
+        
+        <div class="container">
+            <div class="sk-brand-link hero-mode">
+                <div class="sk-icon-wrap hero-scale">
+                    <div class="sk-logo-icon">
+                        <div class="sk-rings"></div>
+                        <div class="sk-papers">
+                            <div class="sk-paper p1"></div>
+                            <div class="sk-paper p2"></div>
+                            <div class="sk-paper p3"><div class="sk-stamp">OVERDUE</div></div>
+                        </div>
+                        <div class="sk-char">
+                            <div class="sk-headphone-band"></div>
+                            <div class="sk-head">
+                                <div class="sk-steam st1"></div>
+                                <div class="sk-steam st2"></div>
+                                <div class="sk-sweat"></div>
+                                <div class="sk-brow l"></div><div class="sk-brow r"></div>
+                                <div class="sk-eye l"></div><div class="sk-eye r"></div>
+                                <div class="sk-mouth"></div>
+                            </div>
+                            <div class="sk-earcup l"></div><div class="sk-earcup r"></div>
+                        </div>
+                        <div class="sk-badge">9</div>
+                    </div>
+                </div>
+                <div class="sk-wordmark-wrap">
+                    <span class="sk-wordmark">Skitza</span>
+                </div>
+            </div>
+
+            <span class="label" style="opacity: 0; transform: translateY(10px); animation: fadeUp 1s forwards 0.3s; margin-top: 24px; margin-bottom: 24px;">The all-in-one business tool for music producers</span>
+            <style>@keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }</style>
+            
+            <h1 id="hero-title" class="syne">Stop chasing payments. Just make music.</h1>
+            
+            <p class="sub-copy body-text">
+                Skitza is the only link you need.<br>
+                Clients book sessions, sign contracts, and pay automatically<br>
+                and your final mixes stay locked
+                until the invoice is cleared.
+            </p>
+            
+            <div class="hero-ctas">
+                <button class="btn-primary">Join The Waiting List</button>
+                <button class="btn-ghost" onclick="document.getElementById('pain').scrollIntoView({behavior: 'smooth'})">See how it works &darr;</button>
+            </div>
+            
+            <p style="font-size: 13px; color: var(--light-body); margin-bottom: 20px; opacity: 0; animation: fadeUp 1s forwards 1s;">Share one link. Your clients handle everything else.</p>
+            <div class="trust-bar">
+                ★★★★★ Joined by 1,200+ producers on the waitlist
+            </div>
+
+            <!-- UI Mockup Cards with Floating Anim -->
+            <div class="hero-mockup">
+                <div class="mockup-glow"></div>
+                <div class="mockup-wrapper">
+                    <div class="mockup-card">
+                        <span>Session booked · Tuesday 3pm &mdash; Marcus T.</span>
+                        <span class="check">✓</span>
+                    </div>
+                </div>
+                <div class="mockup-wrapper">
+                    <div class="mockup-card">
+                        <span>Invoice paid · $450 received automatically</span>
+                        <span class="check">✓</span>
+                    </div>
+                </div>
+                <div class="mockup-wrapper">
+                    <div class="mockup-card">
+                        <span>Files delivered · Final mix + stems</span>
+                        <span class="check">✓</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- THE CINEMATIC DISSOLVE (Pulled behind hero) -->
+    <section class="theme-transition"></section>
+
+    <!-- DARK TERRITORY -->
+    <main class="dark-world">
+
+        <!-- SECTION 2: PAIN -->
+        <section class="section" id="pain">
+            <div class="container">
+                <div class="section-header no-cta reveal-up">
+                    <span class="watermark">01</span>
+                    <span class="label" style="color: var(--copper);">Sound familiar?</span>
+                    <h2 class="syne">You became a producer.<br>Not a secretary.</h2>
+                    <p class="body-text" style="margin-left: 0;">Yet here you are &mdash; scheduling, invoicing, chasing,<br>reminding, resending, following up.<br>Every day. Before you've played a single note.</p>
+                </div>
+                
+                <div class="pain-grid">
+                    <div class="card pain-card reveal-up delay-1">
+                        <div class="pain-ill">
+                            <div class="meme-face face-1">
+                                <div class="f1-acc">...same answer</div>
+                                <div class="m-brow l"></div><div class="m-brow r"></div>
+                                <div class="m-eye l"></div><div class="m-eye r"></div>
+                                <div class="m-mouth"></div>
+                            </div>
+                            <div class="ill-chat-wrap">
+                                <div class="ill-bubble"><span></span><span></span><span></span></div>
+                                <div class="ill-bubble-2"><span></span><span></span><span></span></div>
+                            </div>
+                        </div>
+                        <h3>"What are your rates?"</h3>
+                        <p>You've copy-pasted that answer so many times<br>you could send it in your sleep.</p>
+                    </div>
+                    
+                    <div class="card pain-card reveal-up delay-2">
+                        <div class="pain-ill">
+                            <div class="meme-face face-2">
+                                <div class="f2-acc"></div>
+                                <div class="m-brow l"></div><div class="m-brow r"></div>
+                                <div class="m-eye l"></div><div class="m-eye r"></div>
+                                <div class="m-mouth"></div>
+                            </div>
+                            <div class="ill-calendar">
+                                <div class="ill-cal-cell">&times;</div><div class="ill-cal-cell">&times;</div><div class="ill-cal-cell amber-q">?</div><div class="ill-cal-cell">&times;</div>
+                                <div class="ill-cal-cell">&times;</div><div class="ill-cal-cell amber-q">?</div><div class="ill-cal-cell">&times;</div><div class="ill-cal-cell">&times;</div>
+                            </div>
+                        </div>
+                        <h3>The scheduling nightmare</h3>
+                        <p>6 messages to confirm one session.<br>"Does Tuesday work? Actually Thursday?"</p>
+                    </div>
+                    
+                    <div class="card pain-card reveal-up delay-3">
+                        <div class="pain-ill">
+                            <div class="meme-face face-3">
+                                <div class="f3-acc"></div>
+                                <div class="m-brow l"></div><div class="m-brow r"></div>
+                                <div class="m-eye l"></div><div class="m-eye r"></div>
+                                <div class="m-mouth"></div>
+                            </div>
+                            <div class="ill-stack-wrap">
+                                <div class="ill-inv-card ill-inv-1"></div>
+                                <div class="ill-inv-card ill-inv-2"></div>
+                                <div class="ill-inv-card ill-inv-3">
+                                    <div class="ill-stamp">OVERDUE</div>
+                                </div>
+                            </div>
+                        </div>
+                        <h3>Unpaid invoices stacking up</h3>
+                        <p>Chasing clients for money is the worst part<br>of the job. Somehow it's also your job.</p>
+                    </div>
+                    
+                    <div class="card pain-card reveal-up delay-4">
+                        <div class="pain-ill">
+                            <div class="meme-face face-4">
+                                <div class="f4-acc">3</div>
+                                <div class="m-brow l"></div><div class="m-brow r"></div>
+                                <div class="m-eye l"></div><div class="m-eye r"></div>
+                                <div class="m-mouth"></div>
+                            </div>
+                            <div class="ill-resend-wrap">
+                                <div class="ill-resend-arrow"></div>
+                                <div class="ill-file-icon"></div>
+                                <div class="ill-resend-num">3</div>
+                            </div>
+                        </div>
+                        <h3>"Can you resend the files?"</h3>
+                        <p>For the third time.<br>On WhatsApp. At midnight.</p>
+                    </div>
+                    
+                    <div class="card pain-card reveal-up delay-5">
+                        <div class="pain-ill">
+                            <div class="meme-face face-5">
+                                <div class="f5-acc">
+                                    <span class="f5-z1">z</span><span class="f5-z2">z</span><span class="f5-z3">z</span>
+                                </div>
+                                <div class="m-brow l"></div><div class="m-brow r"></div>
+                                <div class="m-eye l"></div><div class="m-eye r"></div>
+                                <div class="m-mouth"></div>
+                            </div>
+                            <div class="ill-loop-wrap">
+                                <div class="ill-loop-border"></div>
+                                <div class="ill-loop-content">
+                                    <span>DMs</span> <span class="ill-loop-arrow-right">&rarr;</span>
+                                    <span>Session</span> <span class="ill-loop-arrow-right">&rarr;</span>
+                                    <span>Invoice</span> <span class="ill-loop-arrow-right">&rarr;</span>
+                                    <span>Chase</span>
+                                </div>
+                            </div>
+                        </div>
+                        <h3>Doing it all again tomorrow</h3>
+                        <p>Wake up. Answer DMs. Make a beat.<br>Chase payment. Repeat until you hate this.</p>
+                    </div>
+                    
+                    <div class="card pain-card reveal-up delay-6">
+                        <div class="pain-ill">
+                            <div class="meme-face face-6">
+                                <div class="f6-acc">
+                                    <div class="f6-arc f6-a1"></div>
+                                    <div class="f6-arc f6-a2"></div>
+                                    <div class="f6-arc f6-a3"></div>
+                                </div>
+                                <div class="m-brow l"></div><div class="m-brow r"></div>
+                                <div class="m-eye l"></div><div class="m-eye r"></div>
+                                <div class="m-mouth"></div>
+                            </div>
+                            <div class="ill-mental-wrap">
+                                <div class="ill-batt">
+                                    <div class="ill-batt-level"></div>
+                                </div>
+                                <div class="ill-drain-bolt"></div>
+                            </div>
+                        </div>
+                        <h3>Mental bandwidth, gone</h3>
+                        <p>By the time you open your DAW,<br>you're already running on empty.</p>
+                    </div>
+                </div>
+
+                <h3 class="syne reveal-up" style="text-align: center; color: var(--amber); margin-top: 56px; font-size: clamp(20px, 3vw, 28px); letter-spacing: -0.01em;">Every one of these problems disappears with Skitza. &darr;</h3>
+            </div>
+        </section>
+
+        <!-- SECTION 3: SOLUTION -->
+        <section class="section" id="solution">
+            <div class="blob-amber ambient-blob" style="top: 50%; right: -200px;"></div>
+            <div class="container">
+                <div class="section-header no-cta reveal-up">
+                    <span class="watermark">02</span>
+                    <span class="label">Enter Skitza</span>
+                    <h2 class="syne">One platform.<br>Everything automated.<br>Nothing missed.</h2>
+                    <p class="body-text" style="margin-left: 0; margin-bottom: 12px;">Skitza connects to your calendar, payments, and messaging &mdash; and runs your entire client workflow automatically.</p>
+                    <p class="body-text" style="margin-left: 0; color: var(--dark-body); line-height: 2.2; font-size: 15px;">
+                        📅 Clients book themselves &mdash; you just show up<br>
+                        💸 Invoices sent and chased automatically<br>
+                        📁 Files delivered securely &mdash; no WhatsApp links<br>
+                        💬 Follow-ups and reminders &mdash; done for you
+                    </p>
+                </div>
+                
+                <div class="solution-flow reveal-up delay-2" id="flow-diagram">
+                    <div class="flow-line"></div>
+                    <div class="flow-line-active" id="flow-line-active"></div>
+                    
+                    <div class="flow-node">Lead <span class="check">✓</span></div>
+                    <div class="flow-node">Booking <span class="check">✓</span></div>
+                    <div class="flow-node">Session <span class="check">✓</span></div>
+                    <div class="flow-node">Invoice <span class="check">✓</span></div>
+                    <div class="flow-node">Delivery <span class="check">✓</span></div>
+                    <div class="flow-node">Follow-up <span class="check">✓</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 4: FEATURES -->
+        <section class="section" id="features">
+            <div class="container">
+                <div class="section-header no-cta reveal-up">
+                    <span class="watermark">03</span>
+                    <span class="label">What Skitza does</span>
+                    <h2 class="syne">Your studio.<br>On autopilot.</h2>
+                </div>
+                
+                <div class="features-layout reveal-up delay-1">
+                    <div class="features-list">
+                        <div class="feature-indicator" id="feature-indicator"></div>
+                        <button class="feature-tab active" data-index="0">Storefront & Booking</button>
+                        <button class="feature-tab" data-index="1">Payments on autopilot</button>
+                        <button class="feature-tab" data-index="2">Files & Feedback</button>
+                        <button class="feature-tab" data-index="3">Client history</button>
+                        <button class="feature-tab" data-index="4">Follow-up on autopilot</button>
+                        <button class="feature-tab" data-index="5">Lead Management</button>
+                        <!-- ADDED TAB 7: Contracts -->
+                        <button class="feature-tab" data-index="6">Contracts & Protection</button>
+                    </div>
+                    
+                    <div class="features-views">
+                        
+                        <!-- 0. Booking -->
+                        <div class="feature-content active" id="feat-0">
+                            <h3>Sell packages, not just time.</h3>
+                            <p>Share your Skitza link as your personal storefront. Clients select a service (e.g. "Full Production"), pick a date, and pay the deposit &mdash; all in one flow.<br>No more "does Thursday at 4 work?"</p>
+                            <div class="feature-mockup" style="justify-content: center;">
+                                <div style="background: var(--dark-surface); border: 1px solid rgba(212,150,10,0.5); border-radius: 6px; padding: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; text-align: left;">
+                                    <div>
+                                        <div style="font-weight: 600; font-size: 13px; color: var(--amber);">Full Production Package</div>
+                                        <div style="font-size: 11px; color: var(--dark-body); margin-top: 2px;">Includes beat, tracking, and mix</div>
+                                    </div>
+                                    <div style="font-family: var(--font-head); font-weight: 700; color: var(--dark-text);">$1,500</div>
+                                </div>
+                                <div class="mu-booking-grid">
+                                    <div class="mu-day">Mon</div><div class="mu-day">Tue</div><div class="mu-day">Wed</div><div class="mu-day">Thu</div><div class="mu-day">Fri</div>
+                                    <div class="mu-slot">10am</div><div class="mu-slot">10am</div><div class="mu-slot">10am</div><div class="mu-slot">10am</div><div class="mu-slot">10am</div>
+                                    <div class="mu-slot">1pm</div><div class="mu-slot">1pm</div><div class="mu-slot">1pm</div><div class="mu-slot">1pm</div><div class="mu-slot">1pm</div>
+                                    <div class="mu-slot">4pm</div><div class="mu-slot active">3pm</div><div class="mu-slot">4pm</div><div class="mu-slot">4pm</div><div class="mu-slot">4pm</div>
+                                </div>
+                                <div class="mu-confirm-card">
+                                    <div>Marcus T. &middot; 2hr session &middot; $150 deposit paid</div>
+                                    <div style="color: var(--amber); font-weight: bold;">✓</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 1. Payments -->
+                        <div class="feature-content" id="feat-1">
+                            <h3>Payments on autopilot</h3>
+                            <p>Clients pay the deposit when they book &mdash; no invoice needed.<br>A contract is sent automatically and signed before the session.<br>After the session, the balance is collected without you asking.<br>Money in. No chasing. No awkward follow-ups.</p>
+                            <div class="feature-mockup" style="padding: 16px;">
+                                <div class="mu-inv-main">
+                                    <div class="mu-inv-head">
+                                        <span>Invoice #0042 &middot; Marcus T.</span>
+                                        <span class="mu-badge">Paid ✓</span>
+                                    </div>
+                                    <div class="mu-inv-row"><span>Recording session 2hr</span><span>$300</span></div>
+                                    <div class="mu-inv-row"><span>Mix revision</span><span>$150</span></div>
+                                    <div class="mu-inv-total"><span>Total</span><span>$450</span></div>
+                                </div>
+                                <div>
+                                    <div class="mu-inv-mini"><span>#0043 &middot; Alex D.</span><span class="mu-badge ghost" style="color: var(--amber); border-color: rgba(212,150,10,0.3);">Pending</span></div>
+                                    <div class="mu-inv-mini"><span>#0041 &middot; Jordan S.</span><span class="mu-badge copper">Overdue</span></div>
+                                    <div class="mu-inv-mini"><span>#0040 &middot; Marcus T.</span><span class="mu-badge">Paid ✓</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Music (Merged Delivery/Studio) -->
+                        <div class="feature-content" id="feat-2">
+                            <h3>Stream freely.<br>Download when paid.</h3>
+                            <p>Clients can listen to the latest mix and leave timestamped feedback. "Fix the snare at 1:42" stays at 1:42.</p>
+                            <p>But the high-res download button? <strong>That stays securely locked until the final invoice is paid.</strong><br>Deliver files via a clean, branded page. No more chasing money after sending the final WAV.</p>
+                            <div class="feature-mockup waveform-mockup">
+                                <!-- Top Panel: Player & Feedback -->
+                                <div class="mu-panel">
+                                    <div style="display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px;">
+                                        <div style="background: rgba(212,150,10,0.15); color: var(--amber); border: 1px solid var(--amber); border-radius: 4px; padding: 4px 8px; font-size: 10px; font-weight: 600; white-space: nowrap;">Mix V3 (Current)</div>
+                                        <div style="background: var(--dark-elevated); color: var(--dark-body); border: 1px solid var(--dark-border); border-radius: 4px; padding: 4px 8px; font-size: 10px; white-space: nowrap;">Mix V2 (Approved)</div>
+                                        <div style="background: var(--dark-elevated); color: var(--dark-body); border: 1px solid var(--dark-border); border-radius: 4px; padding: 4px 8px; font-size: 10px; white-space: nowrap;">Mix V1</div>
+                                    </div>
+                                    <div class="track-title">Draft_v3_unreleased.wav</div>
+                                    <div class="player-bar-container">
+                                        <div class="player-progress"></div>
+                                        <div class="player-pin pin-1"></div>
+                                        <div class="player-pin pin-2"></div>
+                                    </div>
+                                    <div class="comment-bubble">
+                                        <div class="comment-header">
+                                            <span class="comment-time">1:42</span>
+                                            <span style="color: var(--amber); font-size: 10px; text-transform: uppercase; font-weight: bold;">✓ Resolved</span>
+                                        </div>
+                                        "Snare too loud here"
+                                    </div>
+                                </div>
+                                <!-- Bottom Panel: Delivery -->
+                                <div class="mu-panel mu-delivery-flex">
+                                    <div>
+                                        <div class="track-title" style="margin-bottom: 2px;">Final Mix + Stems.zip</div>
+                                        <div style="font-size: 11px; color: var(--dark-body);">Ready for download &middot; 450MB</div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div class="mu-dl-btn" style="background: rgba(212,150,10,0.1); color: rgba(255,255,255,0.4); border: 1px solid rgba(212,150,10,0.3); cursor: not-allowed; display: inline-flex; align-items: center; gap: 6px;">🔒 Download</div>
+                                        <div style="font-size: 9px; color: var(--copper); margin-top: 6px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;">Unlocks after $150 payment</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. CRM -->
+                        <div class="feature-content" id="feat-3">
+                            <h3>Client Management</h3>
+                            <p>Every client's history, sessions, payments, notes,<br>and files in one place. Know who's coming back,<br>who owes you, and who sent you three referrals.</p>
+                            <div class="feature-mockup" style="padding: 24px;">
+                                <div class="mu-crm-head">
+                                    <div class="mu-avatar">MT</div>
+                                    <div class="mu-crm-name">Marcus T.</div>
+                                </div>
+                                <div class="mu-crm-stats">
+                                    <div class="mu-stat-chip">8 sessions</div>
+                                    <div class="mu-stat-chip">$3,200 total</div>
+                                    <div class="mu-stat-chip">2 referrals</div>
+                                </div>
+                                <div>
+                                    <div class="mu-feed-item"><div class="mu-dot"></div><div>Session booked &middot; 2 days ago</div></div>
+                                    <div class="mu-feed-item"><div class="mu-dot"></div><div>Invoice paid &middot; 5 days ago</div></div>
+                                    <div class="mu-feed-item"><div class="mu-dot"></div><div>Files delivered &middot; 1 week ago</div></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. Comms -->
+                        <div class="feature-content" id="feat-4">
+                            <h3>Follow-up on autopilot</h3>
+                            <p>Booking confirmations, session reminders, post-session thank-yous,<br>payment nudges &mdash; sent via WhatsApp or email, in your voice.<br>Clients feel taken care of. You didn't lift a finger.</p>
+                            <div class="feature-mockup">
+                                <div class="mu-chat">
+                                    <div class="mu-bubble left">Hey Marcus, your session is confirmed for Tuesday at 3pm 🎛</div>
+                                    <div class="mu-bubble left">Your files are ready — click here to download</div>
+                                    <div class="mu-bubble right">Perfect, thanks!</div>
+                                    <div class="mu-chat-note">Sent automatically by Skitza</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 5. Leads -->
+                        <div class="feature-content" id="feat-5">
+                            <h3>Lead Management</h3>
+                            <p>Someone DMs and goes quiet?<br>Skitza tracks the lead, sends automated follow-ups,<br>and tells you exactly when to reach back out.<br>Your pipeline, managed.</p>
+                            <div class="feature-mockup" style="padding: 16px;">
+                                <div class="mu-board">
+                                    <div class="mu-col">
+                                        <div class="mu-col-title">New</div>
+                                        <div class="mu-l-card"><div class="mu-l-name">Sarah J.</div><div class="mu-l-sub">DM inquiry &middot; Today</div></div>
+                                        <div class="mu-l-card" style="opacity:0.5;"><div class="mu-l-name">Jay K.</div><div class="mu-l-sub">Instagram DM</div></div>
+                                    </div>
+                                    <div class="mu-col" style="border: 1px dashed rgba(255,255,255,0.05);">
+                                        <div class="mu-col-title">Following Up</div>
+                                        <div class="mu-l-card active">
+                                            <div class="mu-l-name">Marcus T.</div>
+                                            <div class="mu-l-sub">Rates sent</div>
+                                            <div class="mu-l-action"><div class="mu-pulse-dot"></div> Auto-follow-up sent</div>
+                                        </div>
+                                        <div class="mu-l-card" style="opacity:0.5;"><div class="mu-l-name">Dana R.</div><div class="mu-l-sub">No reply · 3 days</div></div>
+                                    </div>
+                                    <div class="mu-col">
+                                        <div class="mu-col-title">Booked</div>
+                                        <div class="mu-l-card" style="opacity: 0.6;"><div class="mu-l-name">Alex D.</div><div class="mu-l-sub">Deposit paid</div></div>
+                                        <div class="mu-l-card" style="opacity:0.4;"><div class="mu-l-name">Mia L.</div><div class="mu-l-sub">Session confirmed</div></div>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--dark-border); display:flex; justify-content:space-between; font-size:11px; color:var(--dark-body);">
+                                    <span>6 active leads</span><span style="color:var(--amber);">2 need follow-up</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 6. Contracts (NEW) -->
+                        <div class="feature-content" id="feat-6">
+                            <h3>Zero disputes. Guaranteed.</h3>
+                            <p>Don't start a session without a signature. Skitza generates custom copyright agreements and split sheets that clients digitally sign right from their phone. Your final files remain securely locked until the balance is completely cleared.</p>
+                            <div class="feature-mockup mu-contract-split" style="padding: 24px; background: repeating-linear-gradient(45deg, var(--dark-elevated), var(--dark-elevated) 10px, var(--dark-surface) 10px, var(--dark-surface) 20px);">
+                                
+                                <!-- Contract Side -->
+                                <div style="flex: 1; background: var(--light-bg); color: var(--light-text); padding: 16px; border-radius: 6px; box-shadow: 0 15px 40px rgba(0,0,0,0.4); transform: rotate(-2deg); display: flex; flex-direction: column; justify-content: space-between;">
+                                    <div>
+                                        <div style="font-family: 'Times New Roman', serif; font-size: 14px; font-weight: bold; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 8px; text-align: center;">Master Agreement</div>
+                                        <div style="font-size: 9px; color: #444; line-height: 1.5;">Artist agrees to the 50% publishing split and acknowledges files remain securely locked until the balance is cleared.</div>
+                                    </div>
+                                    <div style="border-top: 1px dashed #ccc; padding-top: 8px; margin-top: 12px; display: flex; justify-content: space-between; align-items: flex-end;">
+                                        <div>
+                                            <div style="font-size: 8px; color: #666; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 2px;">Artist Signature</div>
+                                            <div style="font-family: cursive; font-size: 20px; color: #0015ff; transform: rotate(-5deg); display: inline-block;">Marcus T.</div>
+                                        </div>
+                                        <div style="background: #27ae60; color: white; font-size: 8px; padding: 3px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em;">Verified</div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Download Lock Side -->
+                                <div style="flex: 1; background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); transform: rotate(1deg);">
+                                    <div style="font-size: 28px; margin-bottom: 8px;">📁</div>
+                                    <div style="font-weight: 500; font-size: 13px; margin-bottom: 4px;">Final_Master.wav</div>
+                                    <div style="background: rgba(212,150,10,0.05); border: 1px solid rgba(212,150,10,0.3); color: rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; cursor: not-allowed;">
+                                        🔒 Download
+                                    </div>
+                                    <div style="font-size: 9px; color: var(--amber); margin-top: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Unlocks after $150 final payment</div>
+                                </div>
+
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 4.5: Consolidation Section -->
+        <section class="section" id="consolidation">
+            <div class="container">
+                <div class="section-header reveal-up" style="max-width: 700px; margin: 0 auto 32px; text-align: center;">
+                    <span class="watermark" style="left: 50%; transform: translateX(-50%); opacity: 0.3;">&mdash;</span>
+                    <span class="label">One tool. Full stop.</span>
+                    <h2 class="syne" style="color: var(--light-bg);">Cancel the rest.<br>Skitza is the only<br>tab you need open.</h2>
+                    <p class="body-text">Most producers juggle multiple tools that barely talk to each other. Skitza replaces all of them &mdash; one subscription, one login, one place where everything just works.</p>
+                </div>
+
+                <div class="stats-grid reveal-up delay-1">
+                    <div class="stat-card">
+                        <div class="stat-num">9+</div>
+                        <div class="stat-label">tools replaced</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-num">1</div>
+                        <div class="stat-label">subscription</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-num">0</div>
+                        <div class="stat-label">new apps to learn</div>
+                    </div>
+                </div>
+
+                <div class="consolidation-footer reveal-up delay-2">
+                    <div class="tools-replaced">
+                        <div class="tool-chip replaced"><span class="tool-icon">💬</span> WhatsApp</div>
+                        <div class="tool-chip replaced"><span class="tool-icon">🔗</span> Linktree</div>
+                        <div class="tool-chip replaced"><span class="tool-icon">✍️</span> DocuSign</div>
+                        <div class="tool-chip replaced"><span class="tool-icon">📤</span> WeTransfer</div>
+                        <div class="tool-chip replaced"><span class="tool-icon">📊</span> Google Sheets</div>
+                        <div class="tool-chip replaced"><span class="tool-icon">💸</span> PayPal / Wave</div>
+                        <div class="tool-chip replaced"><span class="tool-icon">📁</span> Google Drive</div>
+                        <div class="tool-chip replaced"><span class="tool-icon">📧</span> Gmail drafts</div>
+                        <div class="tool-chip replaced"><span class="tool-icon">📅</span> Calendly</div>
+                        <div class="tool-chip skitza"><span class="tool-icon">⚡</span> Skitza</div>
+                    </div>
+                    <p style="color: var(--dark-body); font-size: 13px; margin-bottom: 24px;">One subscription. One login. Zero context-switching.</p>
+                    <button class="btn-ghost dark-ghost" onclick="document.getElementById('features').scrollIntoView({behavior: 'smooth'})">See Everything Skitza Does &rarr;</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 5: HOW IT WORKS -->
+        <section class="section" id="how-it-works">
+            <div class="container">
+                <div class="section-header no-cta reveal-up">
+                    <span class="watermark">04</span>
+                    <span class="label">Setup</span>
+                    <h2 class="syne">Set it up once.<br>Let it run forever.</h2>
+                </div>
+                
+                <div class="steps-layout">
+                    <div class="steps-line"></div>
+                    <div class="step-card reveal-up delay-1">
+                        <div class="step-num">01</div>
+                        <h3>Connect your studio</h3>
+                        <p>Link your calendar, WhatsApp, payment method,<br>and file storage in under 10 minutes.</p>
+                    </div>
+                    <div class="step-card reveal-up delay-2">
+                        <div class="step-num">02</div>
+                        <h3>Set your rules</h3>
+                        <p>Your rates, your availability, your workflow.<br>Skitza learns how you work and automates it exactly.</p>
+                    </div>
+                    <div class="step-card reveal-up delay-3">
+                        <div class="step-num">03</div>
+                        <h3>Focus on music</h3>
+                        <p>New session? Handled.<br>Payment due? Handled.<br>File delivered? Handled.<br>You just open your DAW.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 6: TESTIMONIALS -->
+        <section class="section" id="testimonials">
+            <div class="container">
+                <div class="section-header no-cta reveal-up">
+                    <span class="watermark">05</span>
+                    <span class="label">Producers who got their time back</span>
+                    <h2 class="syne">Real results.<br>No fluff.</h2>
+                </div>
+                
+                <div class="test-grid">
+                    <div class="test-card reveal-up delay-1">
+                        <p class="test-quote">"I used to spend 2 hours a day just managing bookings and chasing invoices. Now I check Skitza once a week."</p>
+                        <p class="test-author">&mdash; Jordan M., Mixing Engineer</p>
+                    </div>
+                    <div class="test-card reveal-up delay-2">
+                        <p class="test-quote">"My clients think I have a whole team behind me. It's just me and Skitza."</p>
+                        <p class="test-author">&mdash; Davi R., Music Producer</p>
+                    </div>
+                    <div class="test-card reveal-up delay-3">
+                        <p class="test-quote">"First month in, I recovered 3 unpaid invoices I'd completely forgotten about."</p>
+                        <p class="test-author">&mdash; Kai T., Beatmaker</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 7: PRICING -->
+        <section class="section" id="pricing">
+            <div class="blob-copper ambient-blob" style="top: 0; left: -200px;"></div>
+            <div class="container">
+                <div class="section-header reveal-up" style="margin: 0 auto 40px; text-align: center;">
+                    <span class="watermark" style="left: 50%; transform: translateX(-50%);">06</span>
+                    <span class="label">Pricing</span>
+                    <h2 class="syne">One plan.<br>No surprises.</h2>
+                </div>
+                
+                <div class="pricing-wrap reveal-up delay-1">
+                    <div class="pricing-card" id="pricing-card-3d">
+                        <span class="price-plan">Early Access</span>
+                        <div class="price-amount">$29</div>
+                        <span class="price-period">/month</span>
+                        <span class="price-strike">$79 after launch</span>
+                        <span class="price-sub">Lock in this price forever</span>
+                        
+                        <ul class="pricing-features">
+                            <li>Unlimited sessions &amp; bookings</li>
+                            <li>Automated invoicing &amp; payments</li>
+                            <li>Branded file delivery</li>
+                            <li>Full client CRM</li>
+                            <li>WhatsApp &amp; email automation</li>
+                            <li>Lead management &amp; follow-ups</li>
+                            <li>Priority support</li>
+                        </ul>
+                        
+                        <button class="btn-primary full">Claim Early Access Pricing &rarr;</button>
+                        <span class="price-footer">14-day free trial · Cancel anytime · No credit card required</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 8: FINAL CTA -->
+        <section class="final-cta">
+            <div class="final-glow"></div>
+            <div class="container">
+                <span class="label" style="position: relative; z-index: 1;">Ready?</span>
+                <h2 class="syne">The studio that<br>runs itself is here.</h2>
+                <p class="body-text" style="position: relative; z-index: 1;">Stop spending hours on admin.<br>Make the music you actually want to make.</p>
+                <div class="final-ctas">
+                    <button class="btn-primary">Join The Waiting List</button>
+                    
+                </div>
+            </div>
+        </section>
+
+        <!-- FOOTER -->
+        <footer>
+            <div class="container">
+                <div class="footer-grid">
+                    <div>
+                        <a href="#" class="footer-logo">Skitza</a>
+                        <p class="footer-tag">Your studio runs itself.</p>
+                    </div>
+                    <div class="footer-col">
+                        <h4>Product</h4>
+                        <ul>
+                            <li><a href="#features">Features</a></li>
+                            <li><a href="#pricing">Pricing</a></li>
+                            <li><a href="#">Blog</a></li>
+                            <li><a href="#">Contact</a></li>
+                        </ul>
+                    </div>
+                    <div class="footer-col">
+                        <h4>Socials</h4>
+                        <ul>
+                            <li><a href="#">Instagram</a></li>
+                            <li><a href="#">Twitter/X</a></li>
+                            <li><a href="#">YouTube</a></li>
+                        </ul>
+                    </div>
+                    <div class="footer-col">
+                        <h4>Legal</h4>
+                        <ul>
+                            <li><a href="#">Privacy Policy</a></li>
+                            <li><a href="#">Terms of Service</a></li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="footer-bottom">
+                    &copy; 2026 Skitza. Built for producers, by producers.
+                </div>
+            </div>
+        </footer>
+
+    </main>
+
+    <!-- SIGNUP MODAL -->
+    <div class="modal-overlay" id="signupModal">
+        <div class="modal-box">
+            <button class="modal-close" id="modalClose">&times;</button>
+            <div id="modalForm">
+                <span class="modal-eyebrow">Early Access</span>
+                <h2 class="modal-title">Join 1,200+ producers</h2>
+                <p class="modal-sub">Get early access pricing and be first in when we launch.</p>
+                <div class="modal-field">
+                    <label for="signupName">Your name</label>
+                    <input type="text" id="signupName" placeholder="e.g. Jordan M." autocomplete="name" />
+                </div>
+                <div class="modal-field">
+                    <label for="signupEmail">Email address</label>
+                    <input type="email" id="signupEmail" placeholder="you@studio.com" autocomplete="email" />
+                </div>
+                <div class="modal-question">
+                    <label>What's your biggest time sink right now?</label>
+                    <div class="modal-options">
+                        <button class="modal-option" data-val="booking">📅 Booking sessions</button>
+                        <button class="modal-option" data-val="invoicing">💸 Chasing invoices</button>
+                        <button class="modal-option" data-val="delivery">📁 Delivering files</button>
+                        <button class="modal-option" data-val="followups">💬 Client follow-ups</button>
+                    </div>
+                </div>
+                <button class="btn-primary full" id="modalSubmit">Get Early Access</button>
+                <p class="modal-footer-note">No credit card &middot; Cancel anytime &middot; Launching soon</p>
+            </div>
+            <div class="modal-success" id="modalSuccess">
+                <span class="success-icon">🎛️</span>
+                <h3>You're in.</h3>
+                <p>We'll reach out when early access opens.<br>Until then — keep making music.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- MOBILE STICKY -->
+    <div class="mobile-sticky">
+        <button class="btn-primary full">Join The Waiting List</button>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // 1. Hero Load Animation & 3D Title Stagger
+            const titleText = ["Your studio.", "<br>Fully automated."];
+            const titleEl = document.getElementById('hero-title');
+            
+            let html = '';
+            titleText.forEach((phrase, index) => {
+                if(phrase.startsWith('<br>')) {
+                    html += `<br><span class="hero-word" style="transition-delay: ${index * 0.15}s">${phrase.substring(4)}</span>`;
+                } else {
+                    html += `<span class="hero-word" style="transition-delay: ${index * 0.15}s">${phrase}</span>`;
+                }
+            });
+            titleEl.innerHTML = html;
+
+            setTimeout(() => { document.body.classList.add('page-loaded'); }, 100);
+
+            // 2. Navbar Scroll Effect
+            const navbar = document.getElementById('navbar');
+            window.addEventListener('scroll', () => {
+                if (window.scrollY > 50) { navbar.classList.add('scrolled'); } 
+                else { navbar.classList.remove('scrolled'); }
+            });
+
+            // 3. Premium Scroll Reveal via IntersectionObserver
+            const observerOptions = { root: null, rootMargin: '0px', threshold: 0.15 };
+            const observer = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('is-revealed');
+                        if(entry.target.id === 'flow-diagram') { animateFlowDiagram(); }
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, observerOptions);
+
+            document.querySelectorAll('.reveal-up').forEach(el => { observer.observe(el); });
+
+            // 4. Feature Tabs Logic (Updated to 7 tabs: 0-6)
+            const tabs = document.querySelectorAll('.feature-tab');
+            const contents = document.querySelectorAll('.feature-content');
+            const indicator = document.getElementById('feature-indicator');
+
+            // Move indicator to exactly match the active tab's position & height
+            function updateIndicator(activeTab) {
+                if (window.innerWidth <= 992) return;
+                const listEl = document.querySelector('.features-list');
+                const listRect = listEl.getBoundingClientRect();
+                const tabRect  = activeTab.getBoundingClientRect();
+                const offsetTop = tabRect.top - listRect.top;
+                indicator.style.transform = `translateY(${offsetTop}px)`;
+                indicator.style.height    = `${tabRect.height}px`;
+            }
+
+            tabs.forEach((tab, index) => {
+                tab.addEventListener('click', () => {
+                    tabs.forEach(t => t.classList.remove('active'));
+                    contents.forEach(c => c.classList.remove('active'));
+                    tab.classList.add('active');
+                    document.getElementById(`feat-${index}`).classList.add('active');
+                    updateIndicator(tab);
+                });
+            });
+
+            // Set indicator on load to match first active tab
+            setTimeout(() => {
+                const firstActive = document.querySelector('.feature-tab.active');
+                if (firstActive) updateIndicator(firstActive);
+            }, 200); // slight delay to let fonts render
+
+            // 5. Flow Diagram Sequential Animation
+            function animateFlowDiagram() {
+                const line = document.getElementById('flow-line-active');
+                const nodes = document.querySelectorAll('.flow-node');
+                line.style.width = '100%';
+                nodes.forEach((node, index) => {
+                    setTimeout(() => { node.classList.add('active'); }, (index * 300) + 300);
+                });
+            }
+
+            // 6. WOW EFFECT: Spotlight on Pain Cards (Mouse tracking)
+            document.querySelectorAll('.pain-card').forEach(card => {
+                card.addEventListener('mousemove', e => {
+                    const rect = card.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    card.style.setProperty('--mouse-x', `${x}px`);
+                    card.style.setProperty('--mouse-y', `${y}px`);
+                });
+            });
+
+            // 7. WOW EFFECT: 3D Tilt on Pricing Card
+            const pricingCard = document.getElementById('pricing-card-3d');
+            if(pricingCard && window.innerWidth > 768) {
+                pricingCard.addEventListener('mousemove', e => {
+                    const rect = pricingCard.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const centerX = rect.width / 2;
+                    const centerY = rect.height / 2;
+                    
+                    const rotateX = ((y - centerY) / centerY) * -6; 
+                    const rotateY = ((x - centerX) / centerX) * 6;
+                    
+                    pricingCard.style.transition = 'transform 0.1s ease-out';
+                    pricingCard.style.transform = `perspective(1200px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
+                });
+                
+                pricingCard.addEventListener('mouseleave', () => {
+                    pricingCard.style.transition = 'transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)';
+                    pricingCard.style.transform = `perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)`;
+                });
+            }
+        });
+
+            // ── 8. SIGNUP MODAL ──────────────────────────────────────────────
+            const modal = document.getElementById('signupModal');
+
+            function openModal() { modal.classList.add('active'); }
+            function closeModal() { modal.classList.remove('active'); }
+
+            document.getElementById('modalClose').addEventListener('click', closeModal);
+            modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+            document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+            // Wire every .btn-primary to open the modal (except the submit button inside it)
+            document.querySelectorAll('.btn-primary').forEach(btn => {
+                if (btn.id !== 'modalSubmit') {
+                    btn.addEventListener('click', openModal);
+                }
+            });
+
+            // Option selection (single-select)
+            document.querySelectorAll('.modal-option').forEach(opt => {
+                opt.addEventListener('click', () => {
+                    document.querySelectorAll('.modal-option').forEach(o => o.classList.remove('selected'));
+                    opt.classList.add('selected');
+                });
+            });
+
+            // Submit
+            document.getElementById('modalSubmit').addEventListener('click', () => {
+                const name  = document.getElementById('signupName').value.trim();
+                const email = document.getElementById('signupEmail').value.trim();
+                const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+                if (!name)        { document.getElementById('signupName').focus();  return; }
+                if (!emailValid)  { document.getElementById('signupEmail').focus(); return; }
+
+                // Show success state
+                document.getElementById('modalForm').style.display = 'none';
+                document.getElementById('modalSuccess').style.display = 'block';
+                setTimeout(closeModal, 3200);
+            });
+    </script>
+</body>
+</html>
