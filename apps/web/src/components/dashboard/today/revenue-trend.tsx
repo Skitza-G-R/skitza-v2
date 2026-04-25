@@ -185,6 +185,25 @@ export function RevenueTrend({ points, currency }: Props) {
             setHoverIdx(null);
           }}
         >
+          {/* Y-axis grid guides — three faint horizontal rules at
+              25%/50%/75% of the plot height. SVG paint order = source
+              order, so these sit BENEATH the area fill + line stroke
+              (no z-index in SVG). Subtle enough to disappear into the
+              surface when there's data, prominent enough to read as
+              "this is graph paper" on the all-zeros empty state. */}
+          {[0.25, 0.5, 0.75].map((frac) => (
+            <line
+              key={`grid-${String(frac)}`}
+              x1={PAD_X}
+              x2={W - PAD_X}
+              y1={PAD_TOP + plotH * frac}
+              y2={PAD_TOP + plotH * frac}
+              stroke="rgb(var(--border-subtle))"
+              strokeOpacity={0.4}
+              strokeWidth={1}
+            />
+          ))}
+
           {/* Dashed baseline (zero axis). */}
           <line
             x1={PAD_X}

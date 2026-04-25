@@ -8,7 +8,7 @@ import { UserButton } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 
 import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
-import { KeyboardHint } from "~/components/ui/keyboard-hint";
+import { tokenizeShortcut } from "~/components/ui/keyboard-hint";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
 import { LanguageSwitcher } from "./language-switcher";
@@ -240,8 +240,19 @@ function SidebarItem({
   // Cap large counts visually so a thousand-comment neglected account
   // doesn't break the rail layout. Matches the Superhuman/Gmail pattern.
   const badgeLabel = badgeCount > 99 ? "99+" : badgeCount.toString();
+  // Inline G-leader shortcut shows on hover/focus when:
+  //   - sidebar is expanded (collapsed icon-only rail has no room)
+  //   - row is NOT active (active brand-bar carries the orientation;
+  //     redundant kbd would crowd the row)
+  //   - row has NO unread badge (badge wins; the producer needs to
+  //     see "3 unread" before "G T")
+  // Replaces the prior portal-tooltip approach (KeyboardHint), which
+  // computed an absolute-positioned floater off the row's bounding
+  // rect — under the narrow sidebar gutter, the tooltip collided with
+  // the adjacent row's text. Inline kbd lives inside the row's flow,
+  // so collisions are impossible by construction.
+  const showShortcut = !collapsed && !isActive && badgeCount === 0;
   return (
-    <KeyboardHint shortcut={item.shortcut} side="bottom">
     <Link
       href={item.href}
       data-tour-id={`nav-${item.id}`}
@@ -258,7 +269,8 @@ function SidebarItem({
       // active, giving a subtle slide-in effect without the DOM cost
       // of a shared element (one bar per item, only one visible at a
       // time). `sk-trans` governs the hover colour + bar transition.
-      className={`sk-trans relative flex min-h-[44px] items-center gap-3 rounded-md px-2 py-2 text-sm md:min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] ${
+      // `group` lets descendant kbd toggle visibility on group-hover.
+      className={`sk-trans group relative flex min-h-[44px] items-center gap-3 rounded-md px-2 py-2 text-sm md:min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] ${
         isActive
           ? "bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-primary))]"
           : "text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
@@ -299,10 +311,28 @@ function SidebarItem({
               {badgeLabel}
             </span>
           ) : null}
+          {showShortcut ? (
+            <span
+              aria-hidden
+              // ms-auto lands the chip at the trailing edge in both
+              // directions; opacity-0 → group-hover/focus-within reveals
+              // it. Uses sk-trans for a soft fade so the row doesn't
+              // jolt when the cursor enters/leaves.
+              className="sk-trans ms-auto flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            >
+              {tokenizeShortcut(item.shortcut).map((tok, i) => (
+                <kbd
+                  key={i}
+                  className="rounded border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-1 py-0.5 font-mono text-[0.6rem] leading-none text-[rgb(var(--fg-muted))]"
+                >
+                  {tok}
+                </kbd>
+              ))}
+            </span>
+          ) : null}
         </>
       )}
     </Link>
-    </KeyboardHint>
   );
 }
 

@@ -123,11 +123,17 @@ export function ShareLinkCard({
             {t("description")}
           </p>
           <div
-            className="mt-5 inline-flex max-w-full items-center gap-2 overflow-x-auto rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 font-mono text-sm text-[rgb(var(--fg-primary))] shadow-[var(--shadow-sm)] sm:text-base"
+            // The chip reads as one cohesive URL (no internal whitespace
+            // gap). Two spans only — muted prefix concatenates
+            // "skitza.app/join/" with no separator characters between the
+            // segments, and the slug stays in a bolded primary-color sibling.
+            // aria-label mirrors the full URL so screen readers don't read
+            // the visual chunking as two disjoint phrases.
+            className="mt-5 inline-flex max-w-full items-center overflow-x-auto rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 font-mono text-sm text-[rgb(var(--fg-primary))] shadow-[var(--shadow-sm)] sm:text-base"
             title={fullUrl}
+            aria-label={displayUrl}
           >
-            <span className="text-[rgb(var(--fg-muted))]">skitza.app</span>
-            <span className="text-[rgb(var(--fg-muted))]">/join/</span>
+            <span className="text-[rgb(var(--fg-muted))]">skitza.app/join/</span>
             <span className="font-semibold">{slug}</span>
           </div>
         </div>

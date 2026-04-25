@@ -28,8 +28,6 @@
     },
     "quickActions": {
       "ariaLabel": "Quick actions",
-      "copyShareLink": "Copy share link",
-      "copyShareLinkHint": "Paste anywhere",
       "uploadTrack": "Upload track",
       "uploadTrackHint": "To recent project",
       "uploadTrackHintEmpty": "Create a project first",
@@ -38,10 +36,13 @@
       "sendInvoice": "Send invoice",
       "sendInvoiceHint": "On recent project",
       "sendInvoiceHintEmpty": "No projects yet",
+      "shareViaWhatsApp": "Share via WhatsApp",
+      "shareViaWhatsAppHint": "Send your link to a contact",
+      "shareViaWhatsAppHintEmpty": "Set your slug first",
       "search": "Search",
       "addOfflineClient": "Add offline client",
       "quickNote": "Quick note",
-      "previewPublic": "Preview public page",
+      "editJoinPage": "Edit /join page",
       "quickNoteModal": {
         "title": "Quick note",
         "subtitle": "A scratchpad for the thought you don't want to lose.",
@@ -55,7 +56,8 @@
     "toasts": {
       "copied": "Copied",
       "couldNotCopy": "Couldn't copy",
-      "setSlugFirst": "Set your slug first"
+      "setSlugFirst": "Set your slug first",
+      "whatsappIntro": "Check out my studio:"
     }
   },
   "projects": {

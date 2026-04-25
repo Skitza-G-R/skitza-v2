@@ -8,30 +8,31 @@ import { useToast } from "~/components/ui/toast";
 
 // Today Cockpit — QuickActions.
 //
-// 8 time-saving actions above the KPI strip. Two rows:
-//   Primary (4 large buttons) — the high-frequency moves:
-//     1. Copy share link      — same navigator.clipboard as ShareLinkCard.
-//     2. Upload track         — deep-link into the most-recent project's
-//                               music tab in "upload mode" (?action=upload).
-//                               No recent project → nudge to create one.
-//     3. New booking          — jump to /dashboard/booking?tab=upcoming
-//                               where pending requests surface for producer
-//                               approval. (Artist-side booking now lives
-//                               behind Clerk signup on /join/<slug> →
-//                               artist app Book tab; the public /p/<slug>
-//                               self-booking flow is gone per PRD §6.6.)
-//     4. Send invoice         — deep-link into the money tab of the most-
-//                               recent project. No projects → tooltip only.
+// 8 time-saving actions below the share-link hero. Two rows, two tiers
+// (the split is locked in PRD §4.1: primary = creation/share, pills =
+// utilities — don't flatten in future passes):
 //
-//   Secondary (4 compact chips):
-//     5. Search (⌘K)          — dispatches `skitza:open-palette` so the
-//                               existing CommandPaletteTrigger opens.
-//     6. Add offline client   — /dashboard/projects/new (the demoted
-//                               manual-add flow).
-//     7. Quick note           — v1 stub: localStorage scratchpad + toast.
-//                               TODO(today-cockpit): wire to notes service.
-//     8. Preview public page  — opens /join/<slug> in a new tab. No slug →
-//                               button is disabled with a tooltip.
+//   Primary cards (creation/share):
+//     1. Upload track          — deep-link into the most-recent project's
+//                                music tab in upload mode (?action=upload).
+//                                No recent project → nudge to create one.
+//     2. New booking           — jump to /dashboard/booking?tab=upcoming.
+//     3. Send invoice          — deep-link into the money tab of the
+//                                most-recent project.
+//     4. Share via WhatsApp    — opens wa.me with the share URL pre-filled.
+//                                Replaces the prior "Copy share link" card,
+//                                which duplicated the share-link header
+//                                action. Disabled when slug is missing.
+//
+//   Secondary pills (utilities):
+//     5. Search (⌘K)           — dispatches `skitza:open-palette`.
+//     6. Add offline client    — /dashboard/projects/new.
+//     7. Quick note            — opens the persistent scratchpad modal.
+//     8. Edit /join page       — deep-link into Setup → Profile so the
+//                                producer can polish what visitors see.
+//                                Replaces the prior "Preview public page"
+//                                pill (Preview lives in the share-link
+//                                header).
 //
 // Mobile: primary collapses to 2x2 grid; secondary row uses sk-scroll-x.
 // Desktop: both rows are 4-across. CSS vars only.
@@ -52,30 +53,24 @@ export function QuickActions({
   const tToasts = useTranslations("today.toasts");
   const [quickNoteOpen, setQuickNoteOpen] = useState(false);
 
-  const copyShareLink = () => {
-    if (!shareUrl) {
-      toast(tToasts("setSlugFirst"), "info");
-      return;
-    }
-    void navigator.clipboard
-      .writeText(shareUrl)
-      .then(() => {
-        toast(tToasts("copied"), "success");
-      })
-      .catch(() => {
-        toast(tToasts("couldNotCopy"), "error");
-      });
-  };
-
   const openPalette = () => {
     // Same synthetic event the desktop shortcut bridge fires — the
     // CommandPaletteTrigger listens for this and mounts the palette.
     window.dispatchEvent(new Event("skitza:open-palette"));
   };
 
-  const previewPublicPage = () => {
-    if (!shareUrl) return;
-    window.open(shareUrl, "_blank", "noopener,noreferrer");
+  const shareViaWhatsApp = () => {
+    if (!shareUrl) {
+      toast(tToasts("setSlugFirst"), "info");
+      return;
+    }
+    // wa.me with no phone number lets the OS pick the share target —
+    // mobile opens the WhatsApp app's share-to picker; desktop opens
+    // WhatsApp Web with a "select chat" prompt. The text param is
+    // pre-filled with a friendly intro + the canonical share URL.
+    const text = `${tToasts("whatsappIntro")} ${shareUrl}`;
+    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   // Upload-track target. Deep-links to the most-recent project's music
@@ -102,14 +97,8 @@ export function QuickActions({
       // lands the producer on the first row, not underneath chrome.
       className="mb-6 flex scroll-mt-20 flex-col gap-3"
     >
-      {/* ── Primary row ─────────────────────────────────────────── */}
+      {/* ── Primary row (creation/share) ─────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <PrimaryButton
-          label={t("copyShareLink")}
-          description={t("copyShareLinkHint")}
-          onClick={copyShareLink}
-          disabled={!shareUrl}
-        />
         <PrimaryButton
           label={t("uploadTrack")}
           description={recentProjectId ? t("uploadTrackHint") : t("uploadTrackHintEmpty")}
@@ -126,9 +115,15 @@ export function QuickActions({
           href={sendInvoiceHref}
           disabled={!sendInvoiceHref}
         />
+        <PrimaryButton
+          label={t("shareViaWhatsApp")}
+          description={shareUrl ? t("shareViaWhatsAppHint") : t("shareViaWhatsAppHintEmpty")}
+          onClick={shareViaWhatsApp}
+          disabled={!shareUrl}
+        />
       </div>
 
-      {/* ── Secondary row ───────────────────────────────────────── */}
+      {/* ── Secondary row (utilities) ───────────────────────────── */}
       <div className="flex gap-2 overflow-x-auto sk-scroll-x pb-1 sm:grid sm:grid-cols-4 sm:gap-3 sm:overflow-visible">
         <Chip label={t("search")} shortcut="⌘K" onClick={openPalette} />
         <Chip label={t("addOfflineClient")} href="/dashboard/projects/new" />
@@ -138,11 +133,7 @@ export function QuickActions({
             setQuickNoteOpen(true);
           }}
         />
-        <Chip
-          label={t("previewPublic")}
-          onClick={previewPublicPage}
-          disabled={!shareUrl}
-        />
+        <Chip label={t("editJoinPage")} href="/dashboard/settings?section=profile" />
       </div>
 
       {quickNoteOpen ? (
@@ -211,7 +202,10 @@ function PrimaryButton({
 }
 
 // Compact secondary chip. Uses sk-tap to guarantee the 44×44 tap
-// target on mobile.
+// target on mobile + sk-lift so hover matches the primary cards' affordance
+// (subtle -1px lift + shadow lean) — the two tiers share the same
+// "this rises toward you on hover" cue, which keeps the action surface
+// reading as one composition rather than two unrelated control sets.
 function Chip({
   label,
   shortcut,
@@ -226,7 +220,7 @@ function Chip({
   disabled?: boolean;
 }) {
   const classes =
-    "sk-tap inline-flex flex-shrink-0 items-center gap-2 rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-sm font-medium text-[rgb(var(--fg-primary))] shadow-[var(--shadow-sm)] hover:bg-[rgb(var(--bg-sunken))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-60 sm:justify-center";
+    "sk-tap sk-lift inline-flex flex-shrink-0 items-center gap-2 rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-sm font-medium text-[rgb(var(--fg-primary))] shadow-[var(--shadow-sm)] transition-all hover:border-[rgb(var(--brand-primary)/0.4)] hover:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:transform-none sm:justify-center";
 
   const content = (
     <>
