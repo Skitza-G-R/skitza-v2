@@ -1,68 +1,49 @@
-// Founder — DARK world. Personal note signed by the founder. Keep it
-// short; the point is that a human built this, not a VC playbook.
-// Only the GitHub link is shown — Twitter/Instagram placeholders were
-// removed (audit-report.md Task 10) until real handles exist; a `href=
-// "#"` link is a visible credibility hit on a cold visit.
+// Founder — DARK world. Single-column editorial note signed by the
+// founder. Restyled in S3 to use landing.css `.founder-wrap`,
+// `.founder-portrait`, `.founder-body`, `.founder-signoff` (all added
+// to landing.css as part of S3). No Tailwind, no project tokens.
+//
+// Editorial weight is intentional — the section is short, narrow, and
+// reads like a personal note instead of a marketing tile. The portrait
+// is a circular gradient placeholder with the founder's initials in
+// Syne; swap for a real photo later by replacing the inner span with
+// an <Image>.
+//
+// Server component: pure JSX, no state.
 export function Founder() {
   return (
-    <section
-      data-theme="chrome-dark"
-      className="relative bg-[rgb(var(--bg-base))] py-24 text-[rgb(var(--fg-primary))] sm:py-32"
-    >
-      <div className="mx-auto max-w-3xl px-6">
-        <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-8 sm:p-12">
-          <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--brand-primary))]">
-            Built in public
-          </p>
-          <h2
-            className="mt-3 font-display text-[clamp(1.75rem,4vw,2.75rem)] leading-[1.1] tracking-tight"
-            style={{ fontWeight: 700 }}
-          >
-            I was tired of stitching
-            <span className="block italic text-[rgb(var(--brand-primary))]">
-              five apps together.
-            </span>
-          </h2>
+    <section className="section" id="founder">
+      <div className="container">
+        <div className="founder-wrap">
+          <span className="label reveal-up">From the founder</span>
 
-          <div className="mt-6 space-y-4 text-lg leading-relaxed text-[rgb(var(--fg-secondary))]">
-            <p>
-              I've been producing for a decade. Every time a client booked a session,
-              the same dance started: Calendly for the slot, DocuSign for the split
-              sheet, Samply for the reviews, Stripe for the deposit, a Notion page
-              holding it all loosely together. Five logins. Five places for something
-              to go wrong.
+          <div className="founder-portrait reveal-up delay-1" aria-hidden>
+            GA
+          </div>
+
+          <div className="founder-body">
+            <p className="reveal-up delay-2">
+              I built Skitza after losing a $4k mix. No signed contract,
+              no proof of delivery — the artist ghosted, and I had nothing
+              to point at. The tools to prevent it existed; they were just
+              scattered across six different apps.
             </p>
-            <p>
-              I built Skitza because I wanted one URL — one place — for the whole
-              loop, from cold lead to final bounce. It's the tool I wished existed
-              every Friday night when I was meant to be mixing and was instead
-              resending a WAV for the third time.
+            <p className="reveal-up delay-3">
+              Calendly for booking. Samply for files. Notion for project
+              notes. DocuSign for the contract. Stripe for the deposit.
+              WhatsApp for everything else. The friction <em>was</em> the
+              product, and every solo producer I knew lived inside it.
+            </p>
+            <p className="reveal-up delay-4">
+              Skitza is the tool I wish I'd had that night. One link.
+              Every client. Every session. Every dollar tracked. Built so
+              you can spend Friday night mixing instead of resending a
+              WAV for the third time.
             </p>
           </div>
 
-          <div className="mt-8 flex items-center gap-4 border-t border-[rgb(var(--border-subtle))] pt-6">
-            <span
-              aria-hidden
-              className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] font-display text-lg text-[#0C0A07]"
-              style={{ fontWeight: 800 }}
-            >
-              GA
-            </span>
-            <div>
-              <p className="font-display text-base tracking-tight" style={{ fontWeight: 700 }}>
-                Gili, founder of Skitza
-              </p>
-              <div className="mt-1 flex flex-wrap items-center gap-3 font-mono text-[0.72rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                <a
-                  href="https://github.com/giasraf/skitza-v2"
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="transition-colors hover:text-[rgb(var(--brand-primary))]"
-                >
-                  GitHub
-                </a>
-              </div>
-            </div>
+          <div className="founder-signoff reveal-up delay-5">
+            — Gili Asraf, founder
           </div>
         </div>
       </div>

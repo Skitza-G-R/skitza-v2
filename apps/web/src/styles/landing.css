@@ -1210,3 +1210,413 @@
     }
 }
 
+/* ==========================================================================
+   8. STORY 3 — NEW SECTION CLASSES (2026-04-26)
+   --------------------------------------------------------------------------
+   Bespoke styles needed by the 6 sections that didn't exist in the founder's
+   original source HTML: trust-bar (light strip), compare (2-column dark
+   table), security (3-card pillar grid), faq (accordion), founder
+   (editorial single-column), download (2-card platform grid).
+
+   All selectors stay scoped under .landing-root so they cannot leak into
+   the authenticated app. All animations + transitions are still subject
+   to the catch-all reduce-motion gate at the top of section 7 — every
+   `animation:` and `transition:` declaration below is neutralised when
+   `prefers-reduced-motion: reduce` is set, so no per-rule motion gate
+   is needed inside this block.
+
+   Tokens used: --amber, --copper, --dark-bg, --dark-surface, --dark-elevated,
+   --dark-text, --dark-body, --dark-border, --light-text, --light-body,
+   --light-border. No new colors introduced. No new font families.
+   ========================================================================== */
+
+/* TrustBar — light section strip between Hero and dark-world. */
+.landing-root .trust-strip {
+    border-top: 1px solid var(--light-border);
+    border-bottom: 1px solid var(--light-border);
+    padding: 40px 0;
+    background: var(--light-bg);
+    position: relative;
+    z-index: 2;
+}
+.landing-root .trust-strip-inner {
+    text-align: center;
+}
+.landing-root .trust-strip .label {
+    color: var(--copper);
+    margin-bottom: 16px;
+}
+.landing-root .trust-logos {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: clamp(13px, 1.4vw, 15px);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--light-body);
+}
+.landing-root .trust-logo {
+    opacity: 0.55;
+    transition: opacity 0.3s ease;
+}
+.landing-root .trust-logo:hover { opacity: 0.9; }
+.landing-root .trust-divider {
+    color: var(--light-border);
+    font-weight: 400;
+}
+
+@media (max-width: 768px) {
+    .landing-root .trust-strip { padding: 28px 0; }
+    .landing-root .trust-logos { gap: 18px; font-size: 12px; }
+    .landing-root .trust-divider { display: none; }
+}
+
+/* Compare — 2-column dark grid (without Skitza vs with Skitza). */
+.landing-root .compare-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    margin-top: 32px;
+    position: relative;
+    z-index: 2;
+}
+.landing-root .compare-card {
+    background: var(--dark-surface);
+    border: 1px solid var(--dark-border);
+    border-radius: 12px;
+    padding: 32px 28px;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
+}
+.landing-root .compare-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255,255,255,0.12);
+}
+.landing-root .compare-card.is-skitza {
+    background: var(--dark-elevated);
+    border-color: rgba(212,150,10,0.35);
+    box-shadow: 0 12px 40px rgba(212,150,10,0.08);
+}
+.landing-root .compare-card.is-skitza:hover {
+    border-color: rgba(212,150,10,0.55);
+    box-shadow: 0 16px 48px rgba(212,150,10,0.14);
+}
+.landing-root .compare-eyebrow {
+    font-family: var(--font-body);
+    text-transform: uppercase;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    font-size: 11px;
+    color: var(--dark-body);
+    margin-bottom: 8px;
+    display: block;
+}
+.landing-root .compare-card.is-skitza .compare-eyebrow { color: var(--amber); }
+.landing-root .compare-card h3 {
+    font-family: var(--font-head);
+    font-weight: 800;
+    font-size: clamp(20px, 2.2vw, 24px);
+    color: var(--dark-text);
+    margin-bottom: 20px;
+    letter-spacing: -0.01em;
+}
+.landing-root .compare-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.landing-root .compare-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--dark-body);
+    line-height: 1.5;
+    font-weight: 300;
+}
+.landing-root .compare-row .compare-mark {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: monospace;
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 2px;
+}
+.landing-root .compare-row .compare-mark.bad {
+    background: rgba(176,104,48,0.15);
+    color: var(--copper);
+}
+.landing-root .compare-row .compare-mark.good {
+    background: rgba(212,150,10,0.18);
+    color: var(--amber);
+}
+.landing-root .compare-cost {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--dark-border);
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--copper);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.landing-root .compare-card.is-skitza .compare-cost { color: var(--amber); }
+
+@media (max-width: 768px) {
+    .landing-root .compare-grid { grid-template-columns: 1fr; gap: 16px; }
+    .landing-root .compare-card { padding: 24px 20px; }
+}
+
+/* Security — 3-card pillar grid (Privacy / Storage / Auth). */
+.landing-root .security-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 32px;
+    position: relative;
+    z-index: 2;
+}
+.landing-root .security-card {
+    background: var(--dark-surface);
+    border: 1px solid var(--dark-border);
+    border-radius: 12px;
+    padding: 28px 24px;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
+}
+.landing-root .security-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(212,150,10,0.3);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+.landing-root .security-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: rgba(212,150,10,0.1);
+    border: 1px solid rgba(212,150,10,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    margin-bottom: 20px;
+    line-height: 1;
+}
+.landing-root .security-card h3 {
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: clamp(18px, 2vw, 20px);
+    color: var(--dark-text);
+    margin-bottom: 12px;
+    letter-spacing: -0.01em;
+}
+.landing-root .security-card p {
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--dark-body);
+    line-height: 1.6;
+    font-weight: 300;
+}
+
+@media (max-width: 992px) {
+    .landing-root .security-grid { grid-template-columns: 1fr; gap: 12px; }
+}
+
+/* FAQ — accordion of questions, single-active-item state. */
+.landing-root .faq-list {
+    margin-top: 32px;
+    position: relative;
+    z-index: 2;
+    max-width: 760px;
+    margin-left: auto;
+    margin-right: auto;
+}
+.landing-root .faq-item {
+    border-top: 1px solid var(--dark-border);
+}
+.landing-root .faq-item:last-child {
+    border-bottom: 1px solid var(--dark-border);
+}
+.landing-root .faq-question {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 0;
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: clamp(16px, 1.8vw, 19px);
+    color: var(--dark-text);
+    text-align: left;
+    letter-spacing: -0.01em;
+    transition: color 0.2s ease;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+}
+.landing-root .faq-question:hover {
+    color: var(--amber);
+}
+.landing-root .faq-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    color: var(--amber);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: monospace;
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 1;
+}
+.landing-root .faq-item.is-open .faq-icon {
+    transform: rotate(180deg);
+}
+.landing-root .faq-answer {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, padding 0.3s ease;
+    font-family: var(--font-body);
+    color: var(--dark-body);
+    font-size: clamp(14px, 1.5vw, 15px);
+    line-height: 1.65;
+    font-weight: 300;
+    padding-right: 36px;
+}
+.landing-root .faq-item.is-open .faq-answer {
+    max-height: 400px;
+    opacity: 1;
+    padding-bottom: 22px;
+}
+
+/* Founder — editorial single-column layout, narrow column. */
+.landing-root .founder-wrap {
+    max-width: 680px;
+    margin: 0 auto;
+    text-align: center;
+    position: relative;
+    z-index: 2;
+}
+.landing-root .founder-portrait {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(212,150,10,0.18), rgba(176,104,48,0.18));
+    border: 1px solid rgba(212,150,10,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-head);
+    font-weight: 800;
+    font-size: 38px;
+    color: var(--amber);
+    margin: 24px auto 32px;
+    box-shadow: 0 0 0 8px rgba(212,150,10,0.04), 0 12px 40px rgba(0,0,0,0.25);
+    letter-spacing: -0.02em;
+}
+.landing-root .founder-body {
+    text-align: left;
+    margin-top: 24px;
+}
+.landing-root .founder-body p {
+    font-family: var(--font-body);
+    font-size: clamp(15px, 1.5vw, 17px);
+    color: var(--dark-body);
+    line-height: 1.7;
+    font-weight: 300;
+    margin-bottom: 20px;
+}
+.landing-root .founder-body p:last-child {
+    margin-bottom: 0;
+}
+.landing-root .founder-signoff {
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid var(--dark-border);
+    font-family: var(--font-head);
+    font-weight: 700;
+    color: var(--amber);
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    text-align: left;
+}
+
+@media (max-width: 768px) {
+    .landing-root .founder-portrait { width: 96px; height: 96px; font-size: 30px; }
+}
+
+/* Download — 2-card grid (Desktop / Mobile), both disabled "Coming soon". */
+.landing-root .download-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 32px;
+    position: relative;
+    z-index: 2;
+}
+.landing-root .download-card {
+    background: var(--dark-surface);
+    border: 1px solid var(--dark-border);
+    border-radius: 12px;
+    padding: 32px 28px;
+    text-align: left;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
+}
+.landing-root .download-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(212,150,10,0.25);
+}
+.landing-root .download-icon {
+    font-size: 32px;
+    margin-bottom: 16px;
+    line-height: 1;
+}
+.landing-root .download-card h3 {
+    font-family: var(--font-head);
+    font-weight: 800;
+    font-size: clamp(20px, 2.2vw, 24px);
+    color: var(--dark-text);
+    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+}
+.landing-root .download-sub {
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--dark-body);
+    line-height: 1.5;
+    font-weight: 300;
+    margin-bottom: 24px;
+}
+.landing-root .download-disabled {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--dark-border);
+    background: rgba(255,255,255,0.02);
+    color: var(--dark-body);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+@media (max-width: 768px) {
+    .landing-root .download-grid { grid-template-columns: 1fr; gap: 12px; }
+    .landing-root .download-card { padding: 24px 20px; }
+}
+
