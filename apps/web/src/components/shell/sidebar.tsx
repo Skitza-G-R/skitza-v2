@@ -13,6 +13,7 @@ import type { ShellNotificationItem } from "~/server/shell-data";
 
 import { LanguageSwitcher } from "./language-switcher";
 import { NotificationBell } from "./notification-bell";
+import { SidebarShareChip } from "./sidebar-share-chip";
 import { ThemeToggle } from "./theme-toggle";
 
 // Left-rail sidebar, Linear/Splice-flavoured. Persists collapsed state
@@ -65,10 +66,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
 export function Sidebar({
   producerSlug,
+  publicBaseUrl,
   unreadCount = 0,
   unreadItems = [],
 }: {
   producerSlug: string | null;
+  /** Canonical site origin used by the SidebarShareChip to build the
+   *  /join/<slug> URL. Threaded from app-shell — falls back to the
+   *  same chain (`NEXT_PUBLIC_SITE_URL` → `SITE_URL` → "https://skitza.app")
+   *  used by the prior Today hero ShareLinkCard. */
+  publicBaseUrl: string;
   unreadCount?: number;
   unreadItems?: readonly ShellNotificationItem[];
 }) {
@@ -132,6 +139,7 @@ export function Sidebar({
         active={active}
         collapsed={effectiveCollapsed}
         producerSlug={producerSlug}
+        publicBaseUrl={publicBaseUrl}
         unreadCount={unreadCount}
         unreadItems={unreadItems}
         onToggle={toggle}
@@ -144,6 +152,7 @@ function SidebarBody({
   active,
   collapsed,
   producerSlug,
+  publicBaseUrl,
   unreadCount,
   unreadItems,
   onToggle,
@@ -151,6 +160,7 @@ function SidebarBody({
   active: ActiveKey;
   collapsed: boolean;
   producerSlug: string | null;
+  publicBaseUrl: string;
   unreadCount: number;
   unreadItems: readonly ShellNotificationItem[];
   onToggle?: () => void;
@@ -197,16 +207,16 @@ function SidebarBody({
         ))}
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-[rgb(var(--border-subtle))] p-2">
-        {producerSlug && !collapsed ? (
-          <Link
-            href={`/join/${producerSlug}`}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-md px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--brand-primary))]"
-          >
-            {t("publicProfile")} →
-          </Link>
-        ) : null}
+        {/* Story 05 — share-link chip lives in the sidebar footer so
+            it's reachable from every authenticated page (not just
+            Today). Replaces the prior "Public profile →" Link. The
+            chip handles its own missing-slug + collapsed-state
+            variants — no conditional rendering needed here. */}
+        <SidebarShareChip
+          producerSlug={producerSlug}
+          collapsed={collapsed}
+          publicBaseUrl={publicBaseUrl}
+        />
         <div className={`flex items-center ${collapsed ? "flex-col gap-2" : "justify-between"} px-1`}>
           <div className={`flex items-center ${collapsed ? "flex-col" : ""} gap-1`}>
             <ThemeToggle />
