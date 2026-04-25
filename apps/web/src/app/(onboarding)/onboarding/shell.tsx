@@ -29,8 +29,14 @@ export interface OnboardingShellProps {
   children: ReactNode;
   /** Step 1 omits onBack; Steps 2-4 supply it. */
   onBack?: () => void;
-  /** Required — every step has a forward action. */
-  onContinue: () => void;
+  /**
+   * Story 02 made this required; Story 04 relaxed it because Step 2
+   * hosts NewPackageForm in the content slot and that form has its
+   * own submit button. Hiding the shell's Continue avoids two
+   * submit-shaped CTAs competing for attention. Steps that omit
+   * onContinue render only Back + Skip in the action bar.
+   */
+  onContinue?: () => void;
   /** Step 1 omits onSkip (display name is required). Steps 2-4 supply it. */
   onSkip?: () => void;
   /** Defaults to "Continue →". */
@@ -100,9 +106,11 @@ export function OnboardingShell({
         {/* Sticky action bar — Back / Skip / Continue. Only forward
             optional handlers / props when the caller actually supplied
             them; tsconfig has exactOptionalPropertyTypes on, so passing
-            `undefined` is rejected. */}
+            `undefined` is rejected. Story 04 relaxed onContinue to
+            also be optional (Step 2 hides Continue), so it follows the
+            same conditional-spread pattern as onBack / onSkip. */}
         <ActionBar
-          onContinue={onContinue}
+          {...(onContinue ? { onContinue } : {})}
           {...(onBack ? { onBack } : {})}
           {...(onSkip ? { onSkip } : {})}
           {...(continueLabel !== undefined ? { continueLabel } : {})}

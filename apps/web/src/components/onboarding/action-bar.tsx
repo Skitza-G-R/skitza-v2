@@ -46,6 +46,21 @@ export function shouldRenderSkip(onSkip: (() => void) | undefined): boolean {
 }
 
 /**
+ * Continue button mirrors the same rule — present iff a handler is
+ * supplied. Story 02 originally required onContinue on every step,
+ * but Story 04 (Step 2 reuses NewPackageForm, which has its own
+ * primary submit) needs the shell's Continue hidden so there aren't
+ * two submit-shaped buttons fighting for the producer's attention.
+ * Step 2's caller omits onContinue and only Back + Skip render in
+ * the action bar.
+ */
+export function shouldRenderContinue(
+  onContinue: (() => void) | undefined,
+): boolean {
+  return typeof onContinue === "function";
+}
+
+/**
  * Pin the Continue label + disabled state.
  */
 export function continueButtonState(
@@ -57,7 +72,13 @@ export function continueButtonState(
 
 export interface ActionBarProps {
   onBack?: () => void;
-  onContinue: () => void;
+  /**
+   * Story 02 made onContinue required; Story 04 relaxed it to optional
+   * so Step 2 can host NewPackageForm's own submit button in the
+   * content slot and hide the shell's Continue. When undefined, the
+   * Continue button is omitted from the action bar entirely.
+   */
+  onContinue?: () => void;
   onSkip?: () => void;
   /** Defaults to "Continue →". Customise per step (e.g. "Enter your studio →"). */
   continueLabel?: string;
@@ -80,6 +101,7 @@ export function ActionBar({
 }: ActionBarProps) {
   const showBack = shouldRenderBack(onBack);
   const showSkip = shouldRenderSkip(onSkip);
+  const showContinue = shouldRenderContinue(onContinue);
   const cont = continueButtonState(continueDisabled || pending, continueLabel);
 
   return (
@@ -114,15 +136,17 @@ export function ActionBar({
           </button>
         ) : null}
 
-        <Button
-          type="button"
-          onClick={onContinue}
-          disabled={cont.disabled}
-          size="lg"
-          className={cn("min-h-11")}
-        >
-          {pending ? pendingLabel : cont.label}
-        </Button>
+        {showContinue ? (
+          <Button
+            type="button"
+            onClick={onContinue}
+            disabled={cont.disabled}
+            size="lg"
+            className={cn("min-h-11")}
+          >
+            {pending ? pendingLabel : cont.label}
+          </Button>
+        ) : null}
       </div>
     </div>
   );
