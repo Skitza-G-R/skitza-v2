@@ -81,7 +81,17 @@ export function ServiceStepClient() {
       // step (the helper at action-bar.tsx::shouldRenderContinue
       // omits the button when the handler is undefined).
     >
-      <NewPackageForm onClose={advanceToAvailability} />
+      <NewPackageForm
+        onClose={advanceToAvailability}
+        // The Payment plans selector below the price (Pay in full /
+        // 50-50 / monthly installments) is the structured way producers
+        // pick their upfront-vs-deferred schedule. The legacy "Deposit
+        // percent" numeric input duplicates that choice in a confusing
+        // way — hiding it keeps Step 2 focused on the producer's mental
+        // model. Setup → Services still shows the field for power users
+        // who want to fine-tune the flat-deposit path independently.
+        hideDepositField
+      />
     </OnboardingShell>
   );
 }

@@ -74,6 +74,7 @@ export function NewPackageForm({
   initialPlans = [{ kind: "full" }],
   initialValues,
   fromTemplate = false,
+  hideDepositField = false,
 }: {
   onClose: () => void;
   initialPlans?: PaymentPlan[];
@@ -82,6 +83,14 @@ export function NewPackageForm({
   // and the initialPlans default is overridden by whatever plans the
   // product was saved with.
   initialValues?: InitialPackageValues;
+  // When true, the "Deposit percent" numeric input is hidden. The
+  // Payment plans selector lower in the form (Pay in full / 50-50 /
+  // monthly installments) already encodes the upfront-vs-deferred
+  // schedule as a structured choice, so showing both was redundant +
+  // confusing in the onboarding wizard. depositPct still flows on save
+  // (initial value 25 from useState default) — the booking flow uses
+  // the chosen payment plan as the source of truth, not depositPct.
+  hideDepositField?: boolean;
   // When true, initialValues are a template pre-fill (no real row
   // exists in the DB yet). Submit routes through createPackage()
   // instead of updatePackage(); the synthetic id on initialValues is
@@ -384,25 +393,27 @@ export function NewPackageForm({
           </Select>
         </div>
 
-        <div>
-          <Label htmlFor="deposit">Deposit percent</Label>
-          <Input
-            id="deposit"
-            type="number"
-            min={0}
-            max={100}
-            step={5}
-            value={depositPct}
-            onChange={(e) => {
-              setDepositPct(Number(e.target.value));
-            }}
-            required
-            className="text-base"
-          />
-          <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
-            Collected at booking. 0% = pay in full later.
-          </p>
-        </div>
+        {hideDepositField ? null : (
+          <div>
+            <Label htmlFor="deposit">Deposit percent</Label>
+            <Input
+              id="deposit"
+              type="number"
+              min={0}
+              max={100}
+              step={5}
+              value={depositPct}
+              onChange={(e) => {
+                setDepositPct(Number(e.target.value));
+              }}
+              required
+              className="text-base"
+            />
+            <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
+              Collected at booking. 0% = pay in full later.
+            </p>
+          </div>
+        )}
 
         <div>
           <Label htmlFor="buffer">Buffer between sessions (min)</Label>
