@@ -100,6 +100,13 @@ export function AvailabilityStepClient({
         blocks={blocks}
         blackouts={blackouts}
         settings={settings}
+        // The producer just set their per-service session length in Step 2
+        // (Add your first service → Session length). Asking for a global
+        // default again here would feel like a duplicate question. Setup →
+        // Availability still shows the picker so the default can be tuned
+        // later for cases where the producer doesn't pick a service before
+        // booking (rare today, but the system supports it).
+        hideDurationPicker
       />
     </OnboardingShell>
   );
