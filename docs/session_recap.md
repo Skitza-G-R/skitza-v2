@@ -6,18 +6,23 @@
 
 ## 🕐 Last checkpoint
 
-**2026-04-25 — Producer onboarding wizard rebuild: BMAD PM + Architect + SM phases complete on `feat/onboarding-rebuild`. About to dispatch fresh `skitza-tdd-implementer` for Story 01 (pure helpers, TDD-first). 9 stories queued behind it.**
+**2026-04-26 — Landing page restoration shipped (PR #50, squash `eeced00`).** Founder restored the original warm-aesthetic landing design (Outfit + Syne, amber/copper palette, tactile noise, CSS-only animations) over the prior decomposed-component landing. Branch deleted, docs archived, mistake-log updated.
 
 ---
 
-## ✅ What this session shipped (so far — all on `feat/onboarding-rebuild`)
+## ✅ What this session shipped (PR #50 → main)
 
-| Commit | Phase | Content |
+| Phase | Commit (squashed into `eeced00`) | Content |
 |---|---|---|
-| `889b6a7` (rebased) | **PM** | `docs(prd): §4.5 onboarding wizard rebuild — 4-step stepper` — replaces prior 5-step wizard with 4-step full-screen stepper that reuses NewPackageForm + AvailabilitySection + AudioUploader |
-| `eaf7238` (rebased) | **Architect + SM** | `docs(onboarding): architecture + 10 self-contained story files` — full technical plan + 10 dispatchable stories |
-
-Branch is rebased on top of latest origin/main (`e2e5efd feat(setup): flatten tabs (#45)`).
+| **PM** | `0244454` | `docs(prd): §3.5 landing page restoration` — locked aesthetic, 17-section composition, CTAs, no modal, no fabricated social proof |
+| **Architect** | `ca2b1b9` | `docs(plans): architecture + source HTML reference` — full technical plan with file structure, CSS strategy, story breakdown |
+| **Dev S1** | `4ce5644` | `feat(landing): S1 — CSS foundation, fonts, noise overlay` (later partly fixed by `c1f454f`) |
+| **Dev S2** | `e6d209e` | `feat(landing): S2 — port 11 original sections from founder design` |
+| **Dev S3** | `3d7138d` | `feat(landing): S3 — TrustBar, Compare, Security, FAQ, Founder, Download` |
+| **Dev S4** | `52f8f41` | `feat(landing): S4 — page test + CTA verification + full gate` |
+| **Hotfix P0** | `222dcfe` | `fix(landing): wire IntersectionObserver for .reveal-up — UX critic P0` |
+| **Refactor** | `879d578` | `refactor(landing): pivot to verbatim single-file port per founder feedback` |
+| **Hotfix P0** | `c1f454f` | `fix(landing): correct .page-loaded scoping — descendant combinator → chained class` |
 
 ---
 
@@ -25,45 +30,48 @@ Branch is rebased on top of latest origin/main (`e2e5efd feat(setup): flatten ta
 
 | Thing | State |
 |---|---|
-| **Active branch** | `feat/onboarding-rebuild` (2 commits ahead of main, rebased clean) |
-| **Working tree** | clean |
-| **PR opened?** | not yet — will open after Story 10 (QA polish) per the architecture plan |
-| **Tests** | unchanged baseline — docs-only commits this session |
-| **Pre-existing WIP** | stashed: `WIP setup-flatten-tabs polish + 2026-04-25 audit docs (pre-onboarding-rebuild)` — recover with `git stash pop` after this branch ships |
+| **`main` HEAD** | `eeced00` (PR #50 squash merge) |
+| **Working tree** | clean at `/Users/giliasraf/Skitza 16.4` |
+| **Branches in flight** | `feat/today-redesign` (Today screen redesign — UI work in progress), `feat/onboarding-rebuild` (10-story producer onboarding wizard rebuild — see prior recap commit) |
+| **Worktrees** | `/Users/giliasraf/skitza-landing-restore` should be removed (`git worktree remove`) — landing-restore branch is deleted from origin |
+| **Tests on main** | locally green (typecheck + lint + 720 tests + build) |
+| **CI on main** | the GitHub Actions `test` job has been failing on every push since `222dcfe` — likely environmental (billing block per 2026-04-23 mistake-log pattern), not a real code issue. Vercel deploys independently and is green. Worth confirming next session whether the GH Actions billing/secrets need attention. |
 
 ---
 
-## 🎯 What's next (in BMAD order)
+## 🛠 Deferred polish (UX critic flagged, not blocking)
 
-1. **Dispatch Story 01** (skitza-tdd-implementer) — pure helpers `slugFromDisplayName` + `currencyFromCountry` in `apps/web/src/lib/onboarding/derive.ts`. ~30 min, no UI.
-2. **Story 02** — shell + progress bar + action bar primitives. ~1h.
-3. **Story 03** — Step 1 page + `completeStudio` server action with slug-retry + invisible currency from `x-vercel-ip-country`. ~1.5h.
-4. **Stories 04-08** — service / availability / portfolio steps, mostly reuse existing components.
-5. **Story 09** — step-aware decide-redirect + drop-off matrix tests.
-6. **Story 10** — `skitza-ux-critic` + mobile 360px audit + smoke + open PR.
+1. **Replace emoji icons with SVG/CSS shapes** in the dark-world sections — `🔒 ☁️ 🛡️ 💻 📱` render inconsistently across platforms (color on macOS, monochrome on Windows). Affects Security, Download, Consolidation tool-chips, SolutionFlow bullets. The source's `pain-grid` does this right with hand-drawn CSS faces — apply the same discipline.
+2. **Real founder photo** at `apps/web/public/founder/gili.jpg` (240×240+) to replace the GA-initials placeholder in the Founder section. Wire-up is one `<Image>` swap.
 
-Total estimate: ~10h dev + 1h QA polish over 3-5 calendar days at solo-founder cadence.
+Both deferrable to a future PR — landing aesthetic is at 8.5/10 today; these take it to 9/10.
 
 ---
 
-## 🗂 Where everything lives for this rebuild
+## 🎯 What's next (founder's choice)
 
-- **PRD §4.5** (canonical product spec): [`docs/product/PRD.md`](product/PRD.md) — committed as `docs(prd):` BEFORE any code per BMAD discipline.
-- **Architecture doc**: [`docs/plans/active/2026-04-25-onboarding-rebuild-architecture.md`](plans/active/2026-04-25-onboarding-rebuild-architecture.md) — schema impact (none), server contracts, component tree, motion specs, test strategy, edge cases.
-- **Story files**: [`docs/plans/stories/onboarding-rebuild-NN-*.md`](plans/stories/) — 10 self-contained subagent dispatches.
-- **Existing components reused (no edits)**: `package-form.tsx`, `availability-section.tsx` (+ 5 children), `audio-uploader.tsx`, `gcal-sync-badge.tsx`.
-- **New code lives at**: `apps/web/src/app/(onboarding)/onboarding/{studio,service,availability,portfolio}/`, `apps/web/src/components/onboarding/`, `apps/web/src/lib/onboarding/`.
+1. **Resume `feat/today-redesign`** — there was uncommitted WIP (`app-shell.tsx`, `sidebar.tsx`, new `sidebar-share-chip.tsx`) at session start. Verify whether that's still in-progress or already landed.
+2. **Resume `feat/onboarding-rebuild`** — per prior recap, 10 stories queued, Story 01 was about to be dispatched. Re-read [`docs/plans/active/2026-04-25-onboarding-rebuild-architecture.md`](plans/active/2026-04-25-onboarding-rebuild-architecture.md) to resume.
+3. **Polish the landing** (P1+P2 above) — small follow-up PR to take the aesthetic to 9/10.
+4. **Investigate the GH Actions test job** — RED across all branches recently. If it's billing, the user needs to top up the GH org credit (Claude can't do that).
+
+---
+
+## 🗂 Where the landing-restore docs live now
+
+- **Brief**: `docs/plans/archive/2026-04-26-landing-restore-brief.md`
+- **Architecture**: `docs/plans/archive/2026-04-26-landing-restore-architecture.md`
+- **Source HTML reference**: `docs/plans/archive/2026-04-26-landing-restore-source.html` (the founder's original static HTML, 2,051 lines — kept for future reference)
+- **PRD section**: §3.5 in [`docs/product/PRD.md`](product/PRD.md)
 
 ---
 
 ## 🔑 How to resume from cold
 
 1. Read this file.
-2. Read [CLAUDE.md](../CLAUDE.md) — auto-loaded.
-3. `git checkout feat/onboarding-rebuild` (if not there).
-4. Open the architecture doc + Story 01.
-5. Dispatch a fresh `skitza-tdd-implementer` for the next un-shipped story (CLAUDE.md anti-pattern: one agent doing all stories → context rot).
-6. After each story: `/skitza-verify` → next story.
+2. Read [CLAUDE.md](../CLAUDE.md) — auto-loaded; check the running mistake log (especially the new 2026-04-26 CSS-scoping entry).
+3. `git status` to see whether you're on `main` or one of the in-flight branches.
+4. Ask the founder: "what's the priority — resume Today / resume Onboarding / polish landing / investigate CI?"
 
 ---
 
@@ -71,7 +79,7 @@ Total estimate: ~10h dev + 1h QA polish over 3-5 calendar days at solo-founder c
 
 Diagnosable now with Sentry + PostHog live. No touching these files until ~1 week of real-user data:
 
-1. `/sign-in` line 8: `forceRedirectUrl="/dashboard"` — ignores `redirect_url` query param
+1. `/sign-in` line 8: `forceRedirectUrl="/dashboard"` — ignores `redirect_url` query param **(this affects the new landing's Sign Up flow — every "Sign up now" CTA passes `redirect_url=%2Fonboarding`, so check that Clerk honors it post-sign-up; if not, this bug just got more visible)**
 2. `/artist-welcome` (no slug): no role guard for authed users with real studios
 3. Webhook race on `/artist-welcome/<slug>` — fast-clickers land on `/artist` before `client_contacts` row exists
 
