@@ -55,8 +55,6 @@ const BUCKETS = flag("bucket")
 // apps/web/src/server/storage/r2-cors.ts and apply-r2-cors.mjs.
 const REQUIRED_ORIGINS = ["https://skitza.app"];
 
-const REQUIRED_EXPOSED_HEADERS = ["etag"]; // case-insensitive compare
-
 let failures = 0;
 
 async function checkBucket(bucket) {
@@ -80,13 +78,17 @@ async function checkBucket(bucket) {
       return;
     }
 
-    if (resp.status !== 200) {
+    if (resp.status !== 200 && resp.status !== 204) {
       console.log(`❌ HTTP ${resp.status} for Origin ${origin}`);
       const body = await resp.text().catch(() => "");
       if (body) console.log(`   body: ${body.slice(0, 200)}`);
       failures++;
       return;
     }
+    // Both 200 (AWS S3 style, with body) and 204 (Cloudflare R2 style,
+    // No Content) are valid CORS preflight success responses per the
+    // CORS spec. Don't reject 204 — that's a false negative that ate
+    // a debug session on 2026-04-26.
 
     const acao = resp.headers.get("access-control-allow-origin");
     if (acao !== origin && acao !== "*") {
@@ -95,18 +97,14 @@ async function checkBucket(bucket) {
       return;
     }
 
-    const exposed = (resp.headers.get("access-control-expose-headers") ?? "")
-      .toLowerCase()
-      .split(",")
-      .map((s) => s.trim());
-
-    for (const required of REQUIRED_EXPOSED_HEADERS) {
-      if (!exposed.includes(required.toLowerCase())) {
-        console.log(`❌ Access-Control-Expose-Headers missing "${required}" — got: ${exposed.join(", ") || "(empty)"}`);
-        failures++;
-        return;
-      }
-    }
+    // NOTE: we deliberately do not assert Access-Control-Expose-Headers
+    // here. Per the CORS spec, ExposeHeaders is only sent on responses to
+    // *actual* requests (PUT, GET, HEAD), not on OPTIONS preflights. So
+    // we can't verify ETag exposure from a preflight. The configuration
+    // is set in apps/web/src/server/storage/r2-cors.ts (and applied via
+    // apply-r2-cors.mjs); we trust that. If multipart uploads ever fail
+    // to retrieve ETags from the browser, that's the place to revisit
+    // — not this preflight check.
   }
 
   console.log("✅");
