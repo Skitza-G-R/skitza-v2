@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { createDb, eq, producers } from "@skitza/db";
 import { redirect } from "next/navigation";
 
 import { fetchUserRole } from "~/server/auth/role";
@@ -6,6 +7,38 @@ import { fetchUserRole } from "~/server/auth/role";
 import { decideOnboardingRedirect } from "../decide-redirect";
 import { ServiceStepClient } from "./service-step-client";
 import { ONBOARDING_STEP_NAME } from "./constants";
+
+// The producer's default currency was set in Step 1 (completeStudio
+// inferred it from x-vercel-ip-country / accept-language). NewPackageForm
+// would otherwise default to USD even for an Israeli producer whose
+// producers.default_currency is ILS — fetch it here so the form's
+// currency dropdown opens with the right value pre-selected.
+type SupportedCurrency = "USD" | "EUR" | "GBP" | "ILS";
+const SUPPORTED_CURRENCIES: ReadonlySet<string> = new Set([
+  "USD",
+  "EUR",
+  "GBP",
+  "ILS",
+]);
+
+async function fetchProducerDefaultCurrency(
+  dbUrl: string,
+  producerId: string,
+): Promise<SupportedCurrency | undefined> {
+  const db = createDb(dbUrl);
+  const [row] = await db
+    .select({ defaultCurrency: producers.defaultCurrency })
+    .from(producers)
+    .where(eq(producers.id, producerId))
+    .limit(1);
+  if (!row) return undefined;
+  // schema.ts stores default_currency as plain text (no enum) so we
+  // narrow defensively. Anything outside the supported 4 falls through
+  // and the form picks its own USD fallback.
+  return SUPPORTED_CURRENCIES.has(row.defaultCurrency)
+    ? (row.defaultCurrency as SupportedCurrency)
+    : undefined;
+}
 
 // Story 04 — Step 2: first service via NewPackageForm reuse.
 //
@@ -37,5 +70,21 @@ export default async function ServiceStepPage() {
   const redirectTo = decideOnboardingRedirect(role, ONBOARDING_STEP_NAME);
   if (redirectTo) redirect(redirectTo);
 
-  return <ServiceStepClient />;
+  // Only producer-{complete,incomplete} reach this point (the role
+  // matrix in decide-redirect proves it; the layout's gate redirects
+  // the rest). Both shapes carry a populated `producer` field.
+  const producerId =
+    role.kind === "producer-complete" || role.kind === "producer-incomplete"
+      ? role.producer.id
+      : null;
+  const defaultCurrency = producerId
+    ? await fetchProducerDefaultCurrency(dbUrl, producerId)
+    : undefined;
+
+  // Spread to satisfy exactOptionalPropertyTypes — passing undefined to
+  // an `?:` field is rejected by tsc; conditional spread mirrors the
+  // pattern shell.tsx uses for its optional handlers.
+  return (
+    <ServiceStepClient {...(defaultCurrency ? { initialCurrency: defaultCurrency } : {})} />
+  );
 }
