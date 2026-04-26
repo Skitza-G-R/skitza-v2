@@ -279,8 +279,20 @@ export const projectRouter = router({
       };
     }),
 
-  // Returns the project + its full tracks/versions/comments tree.
-  // Producer-side read; artist-side uses publicByToken below.
+  /**
+   * @deprecated Project Room redesign 2026-04-26 (Story 02). Use the
+   * per-tab procedures on `appRouter.projectRoom.*` instead:
+   *
+   *   - `projectRoom.shell({ projectId })`     — page-shell chrome
+   *   - `projectRoom.dashboard({ projectId })` — §11.5 Dashboard tab
+   *   - `projectRoom.music({ projectId })`     — §11.6 Music tab
+   *   - `projectRoom.sessions({ projectId })`  — bookings
+   *   - `projectRoom.money({ projectId })`     — invoices + contract summary
+   *
+   * The fat aggregation here is kept for one release until the page
+   * (S03 of the redesign epic) migrates off it; once it does, this
+   * procedure is removed in a follow-up PR. Body unchanged.
+   */
   detail: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {

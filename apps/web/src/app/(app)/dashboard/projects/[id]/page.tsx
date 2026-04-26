@@ -47,6 +47,13 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
   const caller = appRouter.createCaller({ userId });
   let data;
   try {
+    // Project Room redesign 2026-04-26 (S02 → S03): the page is in
+    // the process of migrating off the fat aggregation procedure.
+    // S02 ships the per-tab projectRoom.* procedures; S03 wires the
+    // page to use them. Until S03 lands, the page still consumes
+    // project.detail — explicitly silenced so CI doesn't flag the
+    // self-imposed deprecation during the transition window.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     data = await caller.project.detail({ id });
   } catch {
     notFound();
