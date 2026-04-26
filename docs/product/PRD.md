@@ -65,6 +65,93 @@ Spotify credits, word of mouth.
 
 ---
 
+## 3.5 Landing page (`/`) — pre-auth marketing surface
+
+The marketing landing at `/` is the front door for cold visitors. **Restored 2026-04-26**
+from the founder's original static-HTML design ([brief](../plans/active/2026-04-26-landing-restore-brief.md)) —
+replaces the prior decomposed component-landing that had drifted toward generic-SaaS aesthetics.
+
+**Signed-in producers redirect to `/dashboard`.** This route is for first-time visitors only.
+
+### Aesthetic baseline (locked)
+
+- Typography: **Outfit** (body) + **Syne** (headings) via Google Fonts
+- Palette: warm off-white `#F2EDE6` (light sections) ↔ deep brown-black `#111009`
+  (dark sections) with amber `#D4960A` + copper `#B06830` accents
+- Tactile SVG noise overlay at 0.02 opacity (full-viewport fixed layer)
+- Custom CSS-only animations: scroll-reveal via IntersectionObserver, word-by-word
+  hero fade, hover lifts. **No framer-motion, no animation libraries.**
+- The landing has its OWN scoped CSS tokens (`--light-bg`, `--dark-bg`, `--amber`,
+  `--copper`, `--font-head`, `--font-body`) — does NOT use the authenticated app's
+  `--bg-base`/`--brand-primary` system. The two surfaces have intentionally different
+  visual identities and that separation is locked.
+
+### Section order (17 sections, top → bottom)
+
+1. **LandingNav** — Features / How It Works / Pricing + **Sign In** (text link) + **Sign Up** (amber button)
+2. **Hero** — "Stop chasing payments. Just make music." + dual CTA + word-by-word fade-in
+3. **TrustBar** — social-proof logos / press strip
+4. **PainGrid** — what's broken today (Calendly + Samply + Notion + DocuSign + Stripe + WhatsApp)
+5. **SolutionFlow** — how Skitza unifies it
+6. **FeaturesTabs** — 7 tabs: Storefront & Booking / Payments / Files & Feedback / Client History / Follow-up / Lead Management / Contracts & Protection
+7. **Compare** — head-to-head against the unbundled stack
+8. **HowItWorks** — 3-step user journey
+9. **Consolidation** — "everything in one place"
+10. **Security** — privacy, storage (R2), auth (Clerk), audit logging
+11. **Testimonials**
+12. **Pricing** — 2 tiers (per §7), 14-day free trial, no credit card required
+13. **FAQ** — accordion of common questions
+14. **Founder** — personal pitch
+15. **Download** — Tauri desktop + PWA mobile install prompts
+16. **FinalCTA** — last conversion surface before the footer
+17. **SiteFooter**
+
+### CTA decisions
+
+- **Primary CTA copy: "Sign up now"** (replaces the prior "Join The Waiting List" framing —
+  Skitza is no longer pre-launch)
+- **Primary destination:** `/sign-up` (Clerk) → on success, auto-redirects to `/onboarding`
+  (the existing 5-step producer wizard)
+- **Secondary CTA:** "Sign in" → `/sign-in` (text link in nav only)
+- **No lead-capture modal.** The original design's "Join 1,200+ producers" multi-select
+  pain survey is dropped — friction kills conversion for an unknown brand. Pain-point
+  collection moves inside `/onboarding` where the user is already committed.
+- **No email gate, no early-access form, no waitlist.**
+
+### Social proof
+
+- The original "Joined by 1,200+ producers on the waitlist" line is **replaced** with an
+  aspirational, non-fabricated tagline (working draft: *"★★★★★ Built for solo producers."*).
+  Real numbers replace it once they exist (e.g., *"Trusted by 50+ studios"*).
+  **No fabricated counts.**
+
+### Pricing copy
+
+- "14-day free trial · Cancel anytime · No credit card required" stays verbatim.
+- Amber CTA inside the pricing card routes to `/sign-up`, same destination as every
+  other primary CTA.
+
+### Tech approach
+
+- Single Next.js App Router page (`apps/web/src/app/page.tsx`, server component)
+- Auth redirect: `if (userId) redirect("/dashboard")` preserved
+- Client islands only where interactive (feature tabs, FAQ accordion, scroll-reveal
+  observers, mobile menu, hero word fade)
+- English-only, LTR-only (per §3.7)
+- Components under `apps/web/src/components/landing/` — restored to match the original
+  CSS literally; existing `--bg-base`/`--brand-primary` token references are removed
+  from the landing surface only
+
+### Non-goals for v1
+
+- A/B testing scaffolding
+- Lead-capture form / email gate / early-access wall
+- Video embeds (Hero "mockup" is CSS-only, matching the original)
+- Internationalization (locked by §3.7)
+- Theme switcher on the landing (single warm-light → dark-section flow is the design)
+
+---
+
 ## 4. The 4 Producer screens
 
 ### 4.1 Today (the cockpit)

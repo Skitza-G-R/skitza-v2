@@ -1,24 +1,10 @@
+import "~/styles/landing.css";
+
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
-import { LandingNav } from "~/components/landing/landing-nav";
-import { Hero } from "~/components/landing/hero";
-import { TrustBar } from "~/components/landing/trust-bar";
-import { PainGrid } from "~/components/landing/pain-grid";
-import { SolutionFlow } from "~/components/landing/solution-flow";
-import { FeaturesTabs } from "~/components/landing/features-tabs";
-import { Compare } from "~/components/landing/compare";
-import { HowItWorks } from "~/components/landing/how-it-works";
-import { Consolidation } from "~/components/landing/consolidation";
-import { Security } from "~/components/landing/security";
-import { Testimonials } from "~/components/landing/testimonials";
-import { Pricing } from "~/components/landing/pricing";
-import { FAQ } from "~/components/landing/faq";
-import { Founder } from "~/components/landing/founder";
-import { Download } from "~/components/landing/download";
-import { FinalCTA } from "~/components/landing/final-cta";
-import { SiteFooter } from "~/components/landing/site-footer";
+import { LandingPage } from "~/components/landing/landing-page";
 
 // Explicit landing metadata — overrides the root layout's template for the
 // homepage and pins robots.index+follow so Next can't accidentally inherit
@@ -51,32 +37,16 @@ export const metadata: Metadata = {
 };
 
 // Marketing landing. Signed-in producers skip this and go straight to
-// /dashboard — this route is for cold visitors. Composition: warm light
-// hero → trust bar → dark pain/solution/features/compare/how/
-// consolidation/security/testimonials/pricing/faq/founder/download → back
-// to light final CTA + footer. Each section is self-contained.
+// /dashboard — this route is for cold visitors.
+//
+// After PR #50, the previous 17-component decomposition broke the hero
+// word-fade animation (the `.page-loaded` class went on `<html>` instead
+// of inside `.landing-root`, so the descendant selector never matched).
+// Pivoted to a single-file verbatim port — see `LandingPage` for the
+// full structure. This server component now does the bare minimum:
+// auth-redirect, metadata, CSS import, and render the client tree.
 export default async function HomePage() {
   const { userId } = await auth();
   if (userId) redirect("/dashboard");
-  return (
-    <div className="bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
-      <LandingNav />
-      <Hero />
-      <TrustBar />
-      <PainGrid />
-      <SolutionFlow />
-      <FeaturesTabs />
-      <Compare />
-      <HowItWorks />
-      <Consolidation />
-      <Security />
-      <Testimonials />
-      <Pricing />
-      <FAQ />
-      <Founder />
-      <Download />
-      <FinalCTA />
-      <SiteFooter />
-    </div>
-  );
+  return <LandingPage />;
 }

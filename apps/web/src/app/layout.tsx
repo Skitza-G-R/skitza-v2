@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
-import { Fraunces, Outfit, JetBrains_Mono } from "next/font/google";
+import { Fraunces, Outfit, Syne, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
 import { PostHogProvider } from "~/components/observability/posthog-provider";
@@ -19,6 +19,14 @@ import "./globals.css";
 // aliases the semantic names (`--font-display` etc.) to these, so every
 // existing `var(--font-display)` / `var(--font-body)` consumer keeps
 // working without renames.
+//
+// Landing-restore (S1, 2026-04-26) adds two more font variables:
+// - `--font-body` → Outfit (weights 300/400/500/600) for landing body
+//   text. Lives alongside `--font-outfit` (which the authed app uses)
+//   so neither surface has to migrate.
+// - `--font-head` → Syne (weights 700/800) for landing editorial
+//   headings — the founder's signature display face. Used ONLY under
+//   `.landing-root` (apps/web/src/styles/landing.css).
 const fraunces = Fraunces({
   subsets: ["latin"],
   variable: "--font-fraunces",
@@ -28,6 +36,18 @@ const fraunces = Fraunces({
 const outfit = Outfit({
   subsets: ["latin"],
   variable: "--font-outfit",
+  display: "swap",
+});
+const outfitBody = Outfit({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600"],
+  variable: "--font-body",
+  display: "swap",
+});
+const syne = Syne({
+  subsets: ["latin"],
+  weight: ["700", "800"],
+  variable: "--font-head",
   display: "swap",
 });
 const jetbrainsMono = JetBrains_Mono({
@@ -150,7 +170,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <html
         lang="en"
         dir="ltr"
-        className={`${fraunces.variable} ${outfit.variable} ${jetbrainsMono.variable}`}
+        className={`${fraunces.variable} ${outfit.variable} ${outfitBody.variable} ${syne.variable} ${jetbrainsMono.variable}`}
         suppressHydrationWarning
       >
         <body>
