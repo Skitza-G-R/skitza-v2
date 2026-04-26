@@ -436,9 +436,19 @@ export const trackVersions = pgTable("track_versions", {
   // producer sets this we also emit a `track_approved` notification
   // ("don't forget to send Maya the stems").
   approvedAt: timestamp("approved_at", { withTimezone: true }),
+  // Project Room redesign 2026-04-26 — bilateral 3-value status driving
+  // the per-version status pill. Producer view reads Draft/Revisit/Final;
+  // artist view reads In progress/Needs work/Approved. Same column, copy
+  // diverges at render. SQL CHECK constraint enforces the 3-value enum.
+  // Forward-compatible vs pgEnum (see architecture §10.3 for rationale).
+  // approvedAt above stays for backward-compat — the setVersionStatus
+  // mutation in S02 mirrors approvedAt = NOW() when status is set to
+  // 'final', so existing approvedAt-driven code paths keep working.
+  status: text("status").notNull().default("draft"),
 });
 export type TrackVersion = typeof trackVersions.$inferSelect;
 export type NewTrackVersion = typeof trackVersions.$inferInsert;
+export type VersionStatus = "draft" | "revisit" | "final";
 
 // Timestamped comments on a version. `timestampMs` is the ms offset
 // into the track where the pin sits. Author is free-text (no Artist
@@ -451,6 +461,11 @@ export const trackComments = pgTable("track_comments", {
   authorEmail: text("author_email").notNull(),
   body: text("body").notNull(),
   timestampMs: integer("timestamp_ms").notNull(),
+  // Project Room redesign 2026-04-26 — when non-NULL, the comment is a
+  // range comment spanning [timestamp_ms, end_timestamp_ms] on the
+  // waveform (Pibox-style drag-on-waveform feedback). NULL = point
+  // comment (existing semantics).
+  endTimestampMs: integer("end_timestamp_ms"),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   // Tracks which side posted — producer (internal) vs. artist
   // (from the share page). Lets the UI style them differently.

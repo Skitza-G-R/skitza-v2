@@ -502,6 +502,23 @@
   }
 
   /*
+   * .sk-range-band — Story 06 Music tab range-comment overlay.
+   *                  Translucent band rendered on the waveform during a
+   *                  drag and while the composer is open. Fades + scales
+   *                  in over 120ms so the affordance feels reactive.
+   *                  Reduced-motion branch (below) kills the animation
+   *                  entirely; the band is still visible, just static.
+   */
+  @keyframes skitza-range-band-in {
+    from { opacity: 0; transform: scaleY(0.85); }
+    to   { opacity: 1; transform: scaleY(1); }
+  }
+  .sk-range-band {
+    animation: skitza-range-band-in 120ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    transform-origin: center;
+  }
+
+  /*
    * Batch C — Premium motion polish.
    *
    * .sk-page-enter — route-transition entrance for the page-level root
@@ -569,6 +586,10 @@
     .sk-pop-center {
       animation: none !important;
     }
+    .sk-range-band {
+      animation: none !important;
+      transform: none !important;
+    }
     .sk-cta-shine:hover::after {
       animation: none !important;
     }
@@ -586,6 +607,25 @@
       animation: none !important;
       stroke-dashoffset: 0 !important;
     }
+  }
+
+  /*
+   * Project Room sub-tab perf rule (Story 03 of project-room-redesign).
+   * All four sub-tab panels are mounted at all times; inactive ones
+   * collapse via this single CSS rule. Reading the data attribute (vs.
+   * unmounting the panel) is what makes the tab switch instant — the
+   * React subtree keeps its identity, audio playback / scroll position
+   * / in-progress uploads survive a tab change, and the reveal-up
+   * entrance animation only runs on the panel's first paint.
+   *
+   * display:none (NOT visibility:hidden) — visibility:hidden keeps the
+   * layout space and we never want that here. If a future Web Audio
+   * API quirk pauses elements on display:none, fall back to
+   * `visibility:hidden + position:absolute + height:0` per architecture
+   * §10.4 — uglier but reliably keeps audio alive.
+   */
+  [role="tabpanel"][data-active="false"] {
+    display: none;
   }
 }
 

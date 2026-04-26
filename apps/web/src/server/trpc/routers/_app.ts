@@ -14,6 +14,7 @@ import { producerRouter } from "./producer";
 import { producerExternalLinksRouter } from "./producer-external-links";
 import { producerNotesRouter } from "./producer-notes";
 import { projectRouter } from "./project";
+import { projectRoomRouter } from "./project-room";
 import { publicProfileRouter } from "./public-profile";
 import { stripeRouter } from "./stripe";
 
@@ -33,6 +34,7 @@ export const appRouter = router({
   producerExternalLinks: producerExternalLinksRouter,
   producerNotes: producerNotesRouter,
   project: projectRouter,
+  projectRoom: projectRoomRouter,
   publicProfile: publicProfileRouter,
   stripe: stripeRouter,
 });

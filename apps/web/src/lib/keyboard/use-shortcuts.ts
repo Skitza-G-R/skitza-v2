@@ -40,6 +40,12 @@ export const G_LEADER_ROUTES = {
 
 export type GLeaderKey = keyof typeof G_LEADER_ROUTES;
 
+// Story 06 — Shift+R is the keyboard alternative to drag-on-waveform
+// for posting a range comment. Focus a comment pin or the waveform
+// itself, hit Shift+R, and the range-comment composer opens with two
+// numeric inputs (start / end ms) — same submit path as the drag UX.
+// Documented in the cheatsheet (`?`) under "Context shortcuts".
+//
 // Surface-scoped shortcut: bind a single lower-case key on any page
 // that wants a quick action (upload, new, toggle done, copy link).
 // Same typing-target + modifier guard as the global layer so "typing

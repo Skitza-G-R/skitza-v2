@@ -194,12 +194,14 @@ replaces the prior decomposed component-landing that had drifted toward generic-
 
 **List view**: chip filter bar **All / Live / Done / Archived** derived from the 9-value stage enum via `stageToState()`. Rows show title / artist / stage badge / relative time.
 
-**Project Room**: header with avatar + client name + stage badge + PaymentStatusStrip + 3-dot actions + tag pills (`#warm-vocals`). 5-step timeline: Trial → Contract → In Progress → Final → Paid. 4 sub-tabs:
+**Project Room**: header with avatar + client name + stage badge + PaymentStatusStrip + 3-dot actions + tag pills (`#warm-vocals`). 5-step timeline: Trial → Contract → In Progress → Final → Paid. 4 sub-tabs (default = Dashboard):
 
-- **Music** — tracks / versions / comments / upload
+- **Dashboard** — at-a-glance project status: header strip + latest version playback + what's next + recent activity + open comments. Replaces the prior Notes tab. See §11.5.
+- **Music** — tracks / versions / comments / upload. Drop-first upload flow, Frame.io-style per-version status, range comments, cross-version unresolved persistence. See §11.6.
 - **Sessions** — all linked bookings (one project can have many bookings — see §11)
 - **Money** — Paid/Outstanding/Next + "Open in Stripe" + Contract (read-only signed summary)
-- **Notes** — Overview stats + Activity timeline
+
+Sub-tab switching is client-side, no remount, no full refetch. See §11.7.
 
 ### 4.3 Music
 
@@ -467,6 +469,93 @@ Only the authenticated artist + producer can post comments on tracks. No public/
 ### 11.4 Stems
 
 Stems are uploaded as a **zip file** and presented as a single download on the finished version. Cleaner than per-version-label conventions.
+
+### 11.5 Project Dashboard tab
+
+Default sub-tab on opening any project. Read-mostly status surface — replaces the prior Notes tab. The underlying scratchpad column on `projects` is preserved in the database (no destructive migration); no UI currently surfaces it. Restoring the tab later is a UI-only change.
+
+**Layout pattern.** Focal column + meta sidebar (stickied right on desktop ≥1024px, collapses to a single chip strip under the header on mobile). Inspired by Linear's issue page and Frame.io's project landing — tight focal column + always-visible meta.
+
+**Focal column modules (top → bottom).**
+
+1. **Header strip** — artist name + project title + stage chip (Trial / Contract / In Progress / Final / Paid) + ONE primary CTA that morphs by stage:
+   - `lead` → "Approve & invoice deposit"
+   - `trial` → "Send V1 for review"
+   - `in_progress` → "Send next version"
+   - `final` → "Mark final & invoice"
+   - `paid` → "Archive"
+
+2. **Latest version playback** — embedded waveform of the most recent track version on the project (reuses existing `PersistentPlayer` infra), play button, label `<Track title> · <version label> · sent <relative time>`, status pill on the right. Click the title → deep-link to Music tab at that version. *This is the single biggest payoff of opening the project — they hear the work without clicking into Music.*
+
+3. **What's next** — one-line next-action signal derived from project state. Order of precedence (first true wins):
+   1. Contract not yet signed → "Send contract for signature"
+   2. Unpaid invoice past due → "Invoice #N · X days overdue"
+   3. Session within next 48h → "Session <day> <time> · confirmed/pending"
+   4. Unread artist comment → "<N> new comment(s) from <artist>"
+   5. Latest version awaiting review → "Awaiting artist feedback on V<N> (sent <relative>)"
+   6. Otherwise → hidden
+
+4. **Recent activity feed** — last 5 events across this project, Linear-style collapsed-history with "Show earlier" toggle. Event types: track version uploaded, comment posted, comment resolved, session booked/confirmed/cancelled, invoice sent/paid/refunded, contract signed, stage forward.
+
+5. **Open comments** — top 2–3 unresolved comment threads from Music tab, surfaced inline. Each shows: track title · timestamp anchor · comment preview · reply count. Click → Music tab at that comment.
+
+**Meta sidebar (right; chip strip on mobile).**
+- Stage chip + state-machine forward CTA (mirrors header CTA)
+- Money: agreed / paid / outstanding (link to Money tab)
+- Next session: date + time + studio (or "—")
+- Files: total count + total size
+- Artist: avatar + name + message/email buttons
+
+**Data fetching.** Dashboard tab data is a single tRPC query `project.dashboard({ projectId })`, separate from `project.music`, `project.sessions`, `project.money`. Lazy-loaded on first tab open and cached for the session.
+
+### 11.6 Music tab redesign
+
+Replaces the existing Music tab end-to-end. The track-add form (title-first) is removed. The dominant niche pattern (Frame.io / Dropbox Replay / Pibox / Filestage / BandLab) is **drop-first** — Skitza adopts this.
+
+**Track-add UX.**
+- **Empty state** — a large drop-zone occupies the full tab body: "Drop audio files or click to choose." No metadata form.
+- **Drop on empty space** — file uploads immediately. Title auto-fills from filename, stripped of common suffixes (`.wav`, `.mp3`, `.aif`, `.flac`, `_v3`, `_master`, `_mix`, `_final`) and trimmed of leading/trailing underscores/whitespace. User can click the title to rename inline; no commit step needed.
+- **Non-empty state** — a smaller drop-zone strip pinned at the top of the track list + a `+ Add track` button. Both flows are identical: file picker → upload starts on selection, title auto-fills.
+- **No more title-first form.**
+
+**Drop-on-row gesture (Frame.io Version Stacking pattern).**
+- Drop a file *onto an existing track row* → it becomes a new version of that track.
+- Drop into empty space below the list → new track.
+- Hover state on a track row reveals two halves: top half = "Replace as V<N+1>" (default), bottom half = "Add as separate track."
+
+**Multi-file drop.**
+- Each file becomes its own track row by default. (Stems are out-of-band per §11.4 — uploaded as a single zip on the finished version, not via multi-file drop.)
+
+**Track row anatomy.**
+- Hero waveform: 320px desktop / 200px mobile, rendered for the active version.
+- Version chips below the waveform: V1 · V2 · V3 (active highlighted). Click → swap the waveform to that version.
+- **Per-version status pill** in the row top-right: bilateral copy on the same DB enum.
+  - Producer view reads: `Draft` / `Revisit` / `Final`
+  - Artist view reads: `In progress` / `Needs work` / `Approved`
+  - Both sides can flip the pill. Approval (artist `Approved` or producer `Final`) is the trigger that the auto-release-on-paid behavior in §11.3 keys off, in conjunction with paid status.
+- Inline comment count + unresolved badge.
+
+**Comments — per-version, timestamped, range-capable.**
+- Tap a free spot under the waveform → **point comment** at that timestamp.
+- Drag across the waveform → **range comment** spanning `start_time → end_time`. New nullable column `end_time` on the comments table.
+- Player auto-pauses while typing.
+- Voice memo comments are **deferred to v2** — not in this redesign.
+
+**Cross-version unresolved persistence (Dropbox Replay pattern).**
+- Comments are owned by the **track**, anchored to the **version** they were posted on.
+- When a new version is uploaded, **unresolved** comments from prior versions remain visible on the new version (rendered with a `(from V<N>)` subscript) until explicitly resolved by either party.
+- Resolved comments stay archived with the version they were resolved on; they don't pollute new versions.
+- Forces the producer to confront open feedback while the new version plays.
+
+### 11.7 Performance contract
+
+Project Room sub-tab switching is **client-side, instant, no remount, no full refetch**.
+
+- Each tab's data is a separate tRPC query (`project.dashboard`, `project.music`, `project.sessions`, `project.money`). Lazy-loaded on first open of that tab; cached for the session.
+- Tab change updates URL via **shallow routing** (no Next.js server round-trip).
+- The active panel does **not** remount on tab switch. Tab content is hidden via CSS (`display: none` on inactive panels), preserving audio playback state, scroll position, and any in-progress upload.
+- On first page mount, all four queries are queued in parallel; the active tab's query is prioritized so it lands first.
+- **Perceived switch latency target: < 150ms.** Verified by a client-side perf probe in dev.
 
 ---
 

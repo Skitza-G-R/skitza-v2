@@ -50,6 +50,10 @@ export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: 
         { k: "t", desc: "Toggle done (Project Room)" },
         { k: "e", desc: "Edit (context-aware)" },
         { k: "c", desc: "Copy share link (Today)" },
+        // Story 06 — keyboard alternative to drag-on-waveform for the
+        // range-comment composer. Focus a comment-pin and hit Shift+R
+        // to open a numeric range-input variant of the composer.
+        { k: "Shift R", desc: "Range comment (Music tab)" },
       ],
     },
   ];
