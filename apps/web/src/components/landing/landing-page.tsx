@@ -72,23 +72,14 @@ export function LandingPage() {
       });
     }
 
-    // Source script adds `.page-loaded` to the document body. PR #50's
-    // decomposed port added it to `<html>` and the
-    // `.landing-root .page-loaded .hero-word` selector never matched.
-    //
-    // We add the class to `.landing-root` per directive AND propagate
-    // it to every direct child of `.landing-root` so the descendant
-    // combinator in landing.css resolves: the hero `<header>` carries
-    // `.page-loaded`, so `.landing-root .page-loaded .hero-word`
-    // matches and the word fade fires.
+    // Source script adds `.page-loaded` to the document body. Our
+    // landing.css uses the chained-class pattern `.landing-root.page-loaded`
+    // (S1 originally ported this with a stray space — descendant
+    // combinator — which left every fade-in element invisible; fixed
+    // by re-running the CSS port with chained class). Just add the
+    // class to `.landing-root` itself; no children-propagation hack.
     const pageLoadedTimer = setTimeout(() => {
-      const root = document.querySelector(".landing-root");
-      if (root) {
-        root.classList.add("page-loaded");
-        Array.from(root.children).forEach((child) => {
-          child.classList.add("page-loaded");
-        });
-      }
+      document.querySelector(".landing-root")?.classList.add("page-loaded");
     }, 100);
 
     // 2. Navbar scroll-shadow (source 1913-1918).

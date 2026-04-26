@@ -405,7 +405,7 @@
 .landing-root .sk-steam.st1 { left: 8px; transform: rotate(-8deg); animation-delay: 0.1s; }
 .landing-root .sk-steam.st2 { right: 8px; transform: rotate(8deg); animation-delay: 0.2s; }
 
-.landing-root .page-loaded .sk-steam {
+.landing-root.page-loaded .sk-steam {
     animation: fadeInSteam 0.8s ease-out forwards;
 }
 @keyframes fadeInSteam {
@@ -442,7 +442,7 @@
     left: 0; right: 0;
     clip-path: inset(0 100% 0 0);
 }
-.landing-root .page-loaded .sk-underline {
+.landing-root.page-loaded .sk-underline {
     clip-path: inset(0 0% 0 0);
     transition: clip-path 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.5s;
 }
@@ -514,7 +514,7 @@
     transform-origin: bottom center;
     transition: all 1s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.landing-root .page-loaded .hero-word { opacity: 1; transform: translateY(0) scale(1) rotateX(0); }
+.landing-root.page-loaded .hero-word { opacity: 1; transform: translateY(0) scale(1) rotateX(0); }
 
 .landing-root .hero p.sub-copy {
     color: var(--light-body);
@@ -522,7 +522,7 @@
     transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.6s;
     margin-bottom: 28px; /* STRICT */
 }
-.landing-root .page-loaded .hero p.sub-copy { opacity: 1; transform: translateY(0); }
+.landing-root.page-loaded .hero p.sub-copy { opacity: 1; transform: translateY(0); }
 
 .landing-root .hero-ctas {
     display: flex; gap: 16px; justify-content: center;
@@ -530,14 +530,14 @@
     transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.8s;
     margin-bottom: 32px; /* Tighter to UI mockups */
 }
-.landing-root .page-loaded .hero-ctas { opacity: 1; transform: translateY(0) scale(1); }
+.landing-root.page-loaded .hero-ctas { opacity: 1; transform: translateY(0) scale(1); }
 
 .landing-root .trust-bar {
     font-weight: 300; color: #A09890; font-size: 13px;
     opacity: 0; transform: translateY(10px);
     transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1s;
 }
-.landing-root .page-loaded .trust-bar { opacity: 1; transform: translateY(0); }
+.landing-root.page-loaded .trust-bar { opacity: 1; transform: translateY(0); }
 
 /* Hero Mockup UI - Floating effect */
 @keyframes float-mockup { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
@@ -559,7 +559,7 @@
 .landing-root .mockup-wrapper:nth-child(3) { top: 60px; right: -10px; width: 90%; transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.35s; }
 .landing-root .mockup-wrapper:nth-child(4) { top: 120px; left: 15px; width: 80%; transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.5s; }
 
-.landing-root .page-loaded .mockup-wrapper { opacity: 1; transform: translateY(0) scale(1); }
+.landing-root.page-loaded .mockup-wrapper { opacity: 1; transform: translateY(0) scale(1); }
 
 .landing-root .mockup-card {
     background: var(--dark-elevated); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
