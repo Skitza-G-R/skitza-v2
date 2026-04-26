@@ -7,15 +7,16 @@ import { ProjectHeader } from "~/components/dashboard/project/project-header";
 // shared module; the UI-only `ProjectSubTabs` component stays in
 // the `"use client"` file. Importing the guard from the client
 // module crashes RSC — that was the 2026-04-23 "Something buzzed"
-// bug on every project page.
+// bug on every project page. Story 03 of the project-room redesign
+// added `resolveSubTab` to the shared module so the page consumes
+// it directly instead of duplicating the fallback ladder.
 import {
-  isProjectSubTabId,
-  type ProjectSubTabId,
+  resolveSubTab,
 } from "~/components/dashboard/project/project-sub-tab-shared";
 import { ProjectSubTabs } from "~/components/dashboard/project/project-sub-tabs";
+import { DashboardSubTab } from "~/components/dashboard/project/sub-tabs/dashboard-sub-tab";
 import { MoneySubTab } from "~/components/dashboard/project/sub-tabs/money-sub-tab";
 import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
-import { NotesSubTab } from "~/components/dashboard/project/sub-tabs/notes-sub-tab";
 import {
   SessionsSubTab,
   type SessionBooking,
@@ -29,14 +30,6 @@ type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-// Narrow a raw `?tab=` value (single string / array / undefined) into a
-// valid ProjectSubTabId. Anything unrecognised falls back to "music",
-// the default sub-tab for the Project Room.
-function resolveSubTab(raw: string | string[] | undefined): ProjectSubTabId {
-  if (Array.isArray(raw)) raw = raw[0];
-  return isProjectSubTabId(raw) ? raw : "music";
-}
-
 export default async function ProjectDetail({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
@@ -47,12 +40,19 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
   const caller = appRouter.createCaller({ userId });
   let data;
   try {
-    // Project Room redesign 2026-04-26 (S02 → S03): the page is in
-    // the process of migrating off the fat aggregation procedure.
-    // S02 ships the per-tab projectRoom.* procedures; S03 wires the
-    // page to use them. Until S03 lands, the page still consumes
-    // project.detail — explicitly silenced so CI doesn't flag the
-    // self-imposed deprecation during the transition window.
+    // Project Room redesign 2026-04-26 — Story 03.
+    //
+    // The page still consumes the fat `project.detail` aggregation
+    // because the ProjectHeader + the legacy MusicSubTab both read
+    // dozens of fields from it (clientName, paymentPlanKind,
+    // installments, chargesCompleted, tracks/versions/comments, etc.)
+    // that the new `projectRoom.shell` payload doesn't carry yet. S04
+    // (Dashboard tab) will reskin the header off `projectRoom.shell`
+    // + `projectRoom.dashboard`; S05 (Music redesign) flips the Music
+    // tab to the new `projectRoom.music` query. Until those land, S03
+    // ships the perf win (no remount + shallow tab routing) without
+    // the larger UI rewrites — keeping `project.detail` in place
+    // means S03 is a clean, independently-mergeable refactor.
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     data = await caller.project.detail({ id });
   } catch {
@@ -278,75 +278,57 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
           tagVocabulary={tagVocabulary}
         />
         <div className="mt-6">
-          <ProjectSubTabs activeTab={activeTab}>
-            {activeTab === "music" ? (
-              <MusicSubTab
-                project={{ id: data.project.id }}
-                tracks={data.tracks.map((t) => ({
-                  id: t.id,
-                  title: t.title,
-                  artist: t.artist,
-                  position: t.position,
-                }))}
-                versions={data.versions.map((v) => ({
-                  id: v.id,
-                  trackId: v.trackId,
-                  label: v.label,
-                  audioUrl: v.audioUrl,
-                  uploadedAt: v.uploadedAt,
-                  approvedAt: v.approvedAt,
-                }))}
-                comments={data.comments.map((c) => ({
-                  id: c.id,
-                  versionId: c.versionId,
-                  authorName: c.authorName,
-                  body: c.body,
-                  timestampMs: c.timestampMs,
-                  resolvedAt: c.resolvedAt,
-                  fromProducer: c.fromProducer,
-                  createdAt: c.createdAt,
-                }))}
-              />
-            ) : null}
-            {activeTab === "sessions" ? (
-              <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
-            ) : null}
-            {activeTab === "money" ? (
-              <MoneySubTab
-                projectId={data.project.id}
-                money={moneyForProject}
-                contracts={contractsForProject}
-              />
-            ) : null}
-            {activeTab === "notes" ? (
-              <NotesSubTab
-                project={{
-                  clientName: data.project.clientName,
-                  clientEmail: data.project.clientEmail,
-                  artistName: data.project.artistName,
-                  artistEmail: data.project.artistEmail,
-                  createdAt: data.project.createdAt,
-                  updatedAt: data.project.updatedAt,
-                }}
-                trackCount={data.tracks.length}
-                versionCount={data.versions.length}
-                contractCount={contractsForProject.length}
-                tracks={data.tracks.map((t) => ({ id: t.id, title: t.title }))}
-                versions={data.versions.map((v) => ({
-                  trackId: v.trackId,
-                  label: v.label,
-                  uploadedAt: v.uploadedAt,
-                }))}
-                comments={data.comments.map((c) => ({
-                  authorName: c.authorName,
-                  body: c.body,
-                  timestampMs: c.timestampMs,
-                  fromProducer: c.fromProducer,
-                  createdAt: c.createdAt,
-                }))}
-              />
-            ) : null}
-          </ProjectSubTabs>
+          {/* Story 03 — panels prop replaces the legacy children +
+              activeTab-conditional render. All 4 panels render
+              concurrently (mounted at all times); ProjectSubTabs
+              hides inactive ones via CSS. The Notes tab was retired
+              in this story (PRD §4.2 — Dashboard takes its slot AND
+              becomes the default). */}
+          <ProjectSubTabs
+            activeTab={activeTab}
+            panels={{
+              dashboard: <DashboardSubTab projectId={data.project.id} />,
+              music: (
+                <MusicSubTab
+                  project={{ id: data.project.id }}
+                  tracks={data.tracks.map((t) => ({
+                    id: t.id,
+                    title: t.title,
+                    artist: t.artist,
+                    position: t.position,
+                  }))}
+                  versions={data.versions.map((v) => ({
+                    id: v.id,
+                    trackId: v.trackId,
+                    label: v.label,
+                    audioUrl: v.audioUrl,
+                    uploadedAt: v.uploadedAt,
+                    approvedAt: v.approvedAt,
+                  }))}
+                  comments={data.comments.map((c) => ({
+                    id: c.id,
+                    versionId: c.versionId,
+                    authorName: c.authorName,
+                    body: c.body,
+                    timestampMs: c.timestampMs,
+                    resolvedAt: c.resolvedAt,
+                    fromProducer: c.fromProducer,
+                    createdAt: c.createdAt,
+                  }))}
+                />
+              ),
+              sessions: (
+                <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
+              ),
+              money: (
+                <MoneySubTab
+                  projectId={data.project.id}
+                  money={moneyForProject}
+                  contracts={contractsForProject}
+                />
+              ),
+            }}
+          />
         </div>
       </div>
     </>

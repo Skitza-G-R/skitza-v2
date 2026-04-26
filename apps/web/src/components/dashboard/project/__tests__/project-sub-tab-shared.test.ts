@@ -32,6 +32,10 @@ describe("project-sub-tab-shared — type-guard behavior", () => {
     expect(isProjectSubTabId("")).toBe(false);
     expect(isProjectSubTabId("Music")).toBe(false); // case-sensitive
     expect(isProjectSubTabId("payments")).toBe(false);
+    // Notes was retired in Story 03 (PRD §4.2 — replaced by Dashboard
+    // as the default tab). Must reject so a stale ?tab=notes URL falls
+    // back to the default tab via resolveSubTab.
+    expect(isProjectSubTabId("notes")).toBe(false);
   });
 
   it("rejects null + undefined safely", () => {
@@ -39,15 +43,19 @@ describe("project-sub-tab-shared — type-guard behavior", () => {
     expect(isProjectSubTabId(undefined)).toBe(false);
   });
 
-  it("exposes PROJECT_SUB_TAB_IDS as the 4 canonical ids", () => {
+  it("exposes PROJECT_SUB_TAB_IDS as the 4 canonical ids (Story 03 — Notes retired, Dashboard added)", () => {
     // Pin the literal tuple so a reorder / rename (e.g. if someone
     // adds a "contracts" tab later) trips this test first and forces
-    // them to update the enum/URL handling together.
+    // them to update the enum/URL handling together. Story 03 of the
+    // Project Room redesign flipped the union from
+    // 'music' | 'sessions' | 'money' | 'notes' to
+    // 'dashboard' | 'music' | 'sessions' | 'money'. Dashboard is the
+    // new default sub-tab (PRD §4.2 + §11.5).
     expect([...PROJECT_SUB_TAB_IDS]).toEqual([
+      "dashboard",
       "music",
       "sessions",
       "money",
-      "notes",
     ]);
   });
 });
@@ -71,9 +79,11 @@ describe("project-sub-tab-shared — module is server-safe", () => {
 
 // Compile-time sanity: the type is usable as a narrow type-guard
 // target. No assertion needed — the TypeScript compiler will fail
-// typecheck if the guard doesn't narrow correctly.
+// typecheck if the guard doesn't narrow correctly. Default falls back
+// to "dashboard" as of Story 03 (PRD §4.2 — Dashboard is the new
+// default sub-tab).
 const _ensureNarrowing = (v: string | null | undefined): ProjectSubTabId => {
   if (isProjectSubTabId(v)) return v;
-  return "music";
+  return "dashboard";
 };
 void _ensureNarrowing;

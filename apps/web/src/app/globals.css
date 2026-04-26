@@ -587,6 +587,25 @@
       stroke-dashoffset: 0 !important;
     }
   }
+
+  /*
+   * Project Room sub-tab perf rule (Story 03 of project-room-redesign).
+   * All four sub-tab panels are mounted at all times; inactive ones
+   * collapse via this single CSS rule. Reading the data attribute (vs.
+   * unmounting the panel) is what makes the tab switch instant — the
+   * React subtree keeps its identity, audio playback / scroll position
+   * / in-progress uploads survive a tab change, and the reveal-up
+   * entrance animation only runs on the panel's first paint.
+   *
+   * display:none (NOT visibility:hidden) — visibility:hidden keeps the
+   * layout space and we never want that here. If a future Web Audio
+   * API quirk pauses elements on display:none, fall back to
+   * `visibility:hidden + position:absolute + height:0` per architecture
+   * §10.4 — uglier but reliably keeps audio alive.
+   */
+  [role="tabpanel"][data-active="false"] {
+    display: none;
+  }
 }
 
 @utility font-display {
