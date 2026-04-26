@@ -89,9 +89,11 @@ export function HeaderStrip({
             // TODO: wire to the stage-forward action mutation in a
             // later story (the action is intentionally stubbed for
             // S04 — story-spec scope is the morphing copy contract).
-            onClick={() => {
-              // Intentionally noop for now.
-            }}
+            // No onClick yet — adding one here would force this file
+            // to be a Client Component, which is wasteful for a stub.
+            // The wire-up story will add `"use client"` + onClick
+            // together (or, better, hand the action off to a small
+            // <StageForwardButton client component) at that time.
             aria-label={cta.label}
             className={[
               "inline-flex min-h-[44px] items-center justify-center whitespace-nowrap rounded-[var(--radius-md)] px-4 text-sm font-semibold transition-all",
