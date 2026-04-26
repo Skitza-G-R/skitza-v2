@@ -47,15 +47,26 @@ export function AvailabilitySection({
   blocks,
   blackouts,
   settings,
+  hideDurationPicker = false,
 }: {
   blocks: AvailabilityBlock[];
   blackouts: Blackout[];
   settings: AvailabilitySettings;
+  /**
+   * Hides the producer-level default-session-length picker. Used by the
+   * onboarding wizard's Step 3, where the producer just set their per-
+   * service duration in Step 2 and asking again here would feel like a
+   * duplicate question. Setup → Availability still shows the picker so
+   * the global default can be tuned later.
+   */
+  hideDurationPicker?: boolean;
 }) {
   return (
     <div className="space-y-3">
       <GCalSyncBadge status="not_connected" />
-      <DurationPicker initialDefaultMin={settings.defaultSessionMin} />
+      {hideDurationPicker ? null : (
+        <DurationPicker initialDefaultMin={settings.defaultSessionMin} />
+      )}
       <PoliciesEditor
         initialAutoConfirm={settings.autoConfirmBookings}
         initialCancellationHours={settings.cancellationPolicyHours}

@@ -96,6 +96,20 @@ export default clerkMiddleware(async (auth, req) => {
   // app. IP-based auto-switching was the wrong UX — users in IL don't
   // necessarily want Hebrew, and the landing page has no "switch to
   // English" surface (by product decision, landing is English-only).
+  //
+  // Forward x-pathname for /onboarding/* so the (onboarding) layout's
+  // role gate can be step-aware (Story 04). Server components have no
+  // built-in way to read the current path; the canonical Next.js
+  // workaround is "middleware sets the header, layout reads via
+  // next/headers". Limit the header injection to /onboarding/* so the
+  // rest of the app keeps the bare `NextResponse.next()` shape and we
+  // don't pay the Headers-clone cost on every request.
+  if (req.nextUrl.pathname.startsWith("/onboarding")) {
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set("x-pathname", req.nextUrl.pathname);
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   return NextResponse.next();
 });
 

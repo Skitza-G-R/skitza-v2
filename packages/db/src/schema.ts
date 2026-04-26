@@ -797,6 +797,15 @@ export const producerExternalLinks = pgTable(
       t.producerId,
       t.position,
     ),
+    // Story 06 of onboarding rebuild — one URL per platform per
+    // producer. The onboarding wizard's portfolio editor exposes 3
+    // platform inputs (Spotify / YouTube / Instagram); each producer
+    // gets exactly one row per platform, and saving a new URL upserts
+    // (ON CONFLICT (producer_id, platform) DO UPDATE) — which requires
+    // this constraint to target. Migration 0034 backfills + adds it.
+    uniqPerPlatform: unique(
+      "producer_external_links_producer_platform_unique",
+    ).on(t.producerId, t.platform),
   }),
 );
 
