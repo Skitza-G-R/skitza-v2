@@ -5,10 +5,13 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import { WaveformPlayer } from "~/components/audio/waveform-player";
 import { Badge } from "~/components/ui/badge";
 
+import { CommentsPanel } from "./comments-panel";
+import type { CommentThreadProps } from "./comment-thread";
 import {
   type VersionStatus,
   type ViewerRole,
 } from "./music-helpers";
+import { RangeCommentOverlay } from "./range-comment-overlay";
 import { VersionStatusPill } from "./version-status-pill";
 
 // Story 05 — TrackRow renders a single track with:
@@ -40,11 +43,31 @@ export interface TrackRowComment {
   resolvedAt: Date | null;
 }
 
+// Story 06 — full unresolved-comments payload from projectRoom.music.
+// We accept the cross-version-aware shape so the CommentsPanel can
+// render `(from V<N>)` subscripts. The S05 TrackRowComment type stays
+// (it's the lighter shape used for the unresolved-badge count).
+export type TrackRowUnresolvedComment = CommentThreadProps["comment"];
+
 interface TrackRowProps {
   trackId: string;
+  projectId: string;
   title: string;
   versions: TrackRowVersion[];
   comments: TrackRowComment[];
+  /**
+   * Story 06 — full cross-version unresolved payload for the active
+   * version's comments panel. The TrackRow renders the panel below
+   * the waveform; its own resolve toggles are wired through the
+   * server-action wrappers. Pre-sorted by created_at DESC.
+   */
+  unresolvedComments: TrackRowUnresolvedComment[];
+  /**
+   * Active-version duration in ms. Required for the range-comment
+   * overlay's px ↔ ms math. Falls back to 0 (overlay no-ops) when the
+   * waveform hasn't decoded yet.
+   */
+  durationMs?: number;
   viewerRole: ViewerRole;
   onAddVersion: (trackId: string, files: File[]) => void;
   onAddTracks: (files: File[]) => void;
@@ -59,9 +82,12 @@ const HIT_TEST_TOP_FRACTION = 0.6;
 
 export function TrackRow({
   trackId,
+  projectId,
   title,
   versions,
   comments,
+  unresolvedComments,
+  durationMs,
   viewerRole,
   onAddVersion,
   onAddTracks,
@@ -75,6 +101,15 @@ export function TrackRow({
   const [dragDepth, setDragDepth] = useState(0);
   const [dropZone, setDropZone] = useState<"top" | "bottom" | null>(null);
   const isDropActive = dragDepth > 0;
+  // Story 06 — local copy of the active version's duration. The
+  // WaveformPlayer fires onReady(durationSec) once decoded; we convert
+  // to ms and feed it into the RangeCommentOverlay so its px ↔ ms math
+  // works. Falls back to the prop (if the parent already knew the
+  // duration) until onReady fires.
+  const [decodedDurationMs, setDecodedDurationMs] = useState<number | null>(
+    null,
+  );
+  const overlayDurationMs = decodedDurationMs ?? durationMs ?? 0;
 
   // Inline rename state — controlled input, save on blur OR Enter.
   const [editingTitle, setEditingTitle] = useState(false);
@@ -97,9 +132,16 @@ export function TrackRow({
   const active =
     versions.find((v) => v.id === activeVersionId) ?? versions[0] ?? null;
 
-  // Comment counts.
+  // Comment counts. The unresolved badge count is sourced from the
+  // cross-version unresolved payload (Story 06) — it's the track-level
+  // count across ALL versions, not just the active one. We fall back
+  // to the lighter `comments` prop for backward-compat with callers
+  // that don't pass unresolvedComments yet.
   const totalComments = comments.length;
-  const unresolvedComments = comments.filter((c) => c.resolvedAt === null).length;
+  const unresolvedCount =
+    unresolvedComments.length > 0
+      ? unresolvedComments.length
+      : comments.filter((c) => c.resolvedAt === null).length;
 
   // ─── Drag handlers ──────────────────────────────────────────────
   function handleDragEnter(e: DragEvent<HTMLElement>) {
@@ -263,16 +305,39 @@ export function TrackRow({
       {/* Hero waveform — 320px desktop, 200px mobile (responsive
           height handled internally by the parent's media query state).
           When the active version is still uploading we render an
-          "uploading" placeholder. */}
+          "uploading" placeholder.
+
+          Story 06: the waveform container is now position:relative so
+          the RangeCommentOverlay can absolute-position its drag band
+          + composer on top of it. The overlay's mousedown fires on
+          drags across the waveform; clicks on the WaveformPlayer's
+          own play / scrub controls bubble through (the overlay sits
+          above, but the WaveformPlayer's interactive surface is the
+          canvas which the overlay covers — so range-drag wins for
+          drags, and the composer's own buttons handle clicks). */}
       {active ? (
-        <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-4 sm:p-6">
+        <div className="relative mb-4 overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-4 sm:p-6">
           {active.audioReady && active.audioUrl ? (
-            <WaveformPlayer
-              src={active.audioUrl}
-              label={title}
-              height={320}
-              className="hero-waveform"
-            />
+            <>
+              <WaveformPlayer
+                src={active.audioUrl}
+                label={title}
+                height={320}
+                className="hero-waveform"
+                onReady={(durationSec) => {
+                  setDecodedDurationMs(Math.round(durationSec * 1000));
+                }}
+              />
+              {/* Range-comment overlay — only enabled once we know the
+                  duration (px ↔ ms math depends on it). */}
+              {overlayDurationMs > 0 ? (
+                <RangeCommentOverlay
+                  versionId={active.id}
+                  projectId={projectId}
+                  durationMs={overlayDurationMs}
+                />
+              ) : null}
+            </>
           ) : (
             <UploadingPlaceholder
               progress={active.uploadingProgress ?? 0}
@@ -318,19 +383,32 @@ export function TrackRow({
         </div>
       ) : null}
 
-      {/* Comment counts. */}
-      <div className="flex items-center gap-3 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+      {/* Comment counts. The unresolved badge count uses the cross-
+          version-aware payload from S02 — it's the track-level count
+          across ALL versions, not just the active one. */}
+      <div className="mb-3 flex items-center gap-3 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
         <span>
           {totalComments === 0
             ? "No comments"
             : `${String(totalComments)} comment${totalComments === 1 ? "" : "s"}`}
         </span>
-        {unresolvedComments > 0 ? (
+        {unresolvedCount > 0 ? (
           <Badge variant="accent" dot>
-            {String(unresolvedComments)} unresolved
+            {String(unresolvedCount)} unresolved
           </Badge>
         ) : null}
       </div>
+
+      {/* Story 06 — comments panel below the waveform. Renders the
+          active version's comments first, then any unresolved comments
+          carried forward from earlier versions (with subscripts). */}
+      {active ? (
+        <CommentsPanel
+          comments={unresolvedComments}
+          activeVersionId={active.id}
+          projectId={projectId}
+        />
+      ) : null}
     </article>
   );
 }

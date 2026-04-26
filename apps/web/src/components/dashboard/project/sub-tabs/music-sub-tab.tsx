@@ -386,13 +386,34 @@ export function MusicSubTab({
                 resolvedAt: null,
               }),
             );
+            // Story 06 — pass the FULL cross-version unresolved payload
+            // so the TrackRow's CommentsPanel can render `(from V<N>)`
+            // subscripts on comments that originated on earlier
+            // versions. The procedure (S02) already filters by
+            // resolvedAt IS NULL, so resolvedAt is non-null on these
+            // rows only during the brief window between an optimistic
+            // resolve and router.refresh() reconciling.
+            const unresolvedComments = t.unresolvedComments.map((c) => ({
+              id: c.id,
+              versionId: c.versionId,
+              versionLabel: c.versionLabel,
+              authorName: c.authorName,
+              body: c.body,
+              timestampMs: c.timestampMs,
+              endTimestampMs: c.endTimestampMs,
+              fromProducer: c.fromProducer,
+              createdAt: c.createdAt,
+              resolvedAt: null as Date | null,
+            }));
             return (
               <TrackRow
                 key={t.id}
                 trackId={t.id}
+                projectId={project.id}
                 title={t.title}
                 versions={versions}
                 comments={comments}
+                unresolvedComments={unresolvedComments}
                 viewerRole={VIEWER_ROLE}
                 onAddVersion={(id, files) => {
                   void addVersionToTrack(id, files);

@@ -82,3 +82,146 @@ export function categorizeFiles(files: File[]): CategorizedFiles {
   }
   return { audio, rejected };
 }
+
+// ─── Story 06 helpers — range comments + cross-version partition ────
+// These are the pure-math + pure-logic pieces of the comment overlay.
+// They live in the shared helpers file so the React components stay
+// thin and the unit tests cover branch logic without needing jsdom.
+
+// Format the time anchor on a comment thread. Point comments show a
+// single timestamp; range comments show start–end with an en-dash. The
+// en-dash (U+2013) — not a hyphen — is the typographically correct
+// glyph for ranges.
+//
+//   formatRangeAnchor(30000, null)  → "0:30"
+//   formatRangeAnchor(30000, 75000) → "0:30 – 1:15"
+//
+// Negative input is clamped to 0 to avoid the "-0:01" rendering bug
+// when a malformed clientX produces a slightly-negative timestamp.
+export function formatRangeAnchor(
+  timestampMs: number,
+  endTimestampMs: number | null,
+): string {
+  const start = formatMmSs(timestampMs);
+  if (endTimestampMs === null) return start;
+  return `${start} – ${formatMmSs(endTimestampMs)}`;
+}
+
+function formatMmSs(ms: number): string {
+  const safe = Math.max(0, Math.floor(ms));
+  const totalSec = Math.floor(safe / 1000);
+  const minutes = Math.floor(totalSec / 60);
+  const seconds = totalSec - minutes * 60;
+  return `${String(minutes)}:${String(seconds).padStart(2, "0")}`;
+}
+
+// Drag math — convert pixel offset on a waveform container to ms (and
+// back). The container can grow / shrink with the viewport; both
+// directions read the live width from getBoundingClientRect.
+//
+// Clamps to [0, durationMs] so a stray dragend past the right edge
+// doesn't produce a comment past the audio's end. Divide-by-zero is
+// guarded explicitly — if the container hasn't measured yet, return 0
+// rather than NaN (pure helper, no side effects).
+export function pixelsToMs(
+  px: number,
+  containerWidth: number,
+  durationMs: number,
+): number {
+  if (containerWidth <= 0) return 0;
+  const fraction = px / containerWidth;
+  const ms = Math.round(fraction * durationMs);
+  if (ms < 0) return 0;
+  if (ms > durationMs) return durationMs;
+  return ms;
+}
+
+export function msToPixels(
+  ms: number,
+  containerWidth: number,
+  durationMs: number,
+): number {
+  if (containerWidth <= 0 || durationMs <= 0) return 0;
+  const fraction = ms / durationMs;
+  return Math.round(fraction * containerWidth);
+}
+
+// Drag classification — point vs range. Below the threshold (default
+// 200ms) the drag is treated as a point comment anchored at startMs;
+// at-or-above threshold, the drag is a range with min/max normalised
+// (left-to-right and right-to-left drags both produce the same row,
+// which keeps the SQL CHECK end > start happy).
+//
+// 200ms default avoids accidental ranges from imprecise clicks — most
+// "intended click" mouseups land within ~50–100ms of the mousedown.
+export type DragClassification =
+  | { kind: "point"; timestampMs: number }
+  | { kind: "range"; timestampMs: number; endTimestampMs: number };
+
+export function classifyDrag(
+  startMs: number,
+  endMs: number,
+  thresholdMs = 200,
+): DragClassification {
+  const span = Math.abs(endMs - startMs);
+  if (span < thresholdMs) {
+    return { kind: "point", timestampMs: startMs };
+  }
+  return {
+    kind: "range",
+    timestampMs: Math.min(startMs, endMs),
+    endTimestampMs: Math.max(startMs, endMs),
+  };
+}
+
+// Cross-version partition. The Music tab's `unresolvedComments` payload
+// joins comments across ALL versions of a track; the Comments panel
+// renders them in three buckets:
+//   1. onActive          — comments authored on the active version
+//   2. fromOtherVersions — unresolved comments from earlier versions
+//                          (rendered with `(from V<N>)` subscript)
+//   3. resolved          — never shown in the panel (returned for
+//                          symmetry / future audit views)
+//
+// A comment is "resolved" when its `resolvedAt` is non-null. The
+// projectRoom.music procedure (S02) already filters by resolvedAt IS
+// NULL, so in production this bucket is always empty — but we accept
+// it gracefully so the helper composes with future stores that include
+// resolved rows (artist-side history view, etc.).
+export interface CommentForPartition {
+  id: string;
+  versionId: string;
+  versionLabel: string;
+  authorName: string;
+  body: string;
+  timestampMs: number;
+  endTimestampMs: number | null;
+  fromProducer: boolean;
+  createdAt: Date;
+  resolvedAt: Date | null;
+}
+
+export interface PartitionedComments {
+  onActive: CommentForPartition[];
+  fromOtherVersions: CommentForPartition[];
+  resolved: CommentForPartition[];
+}
+
+export function partitionComments(
+  comments: CommentForPartition[],
+  activeVersionId: string,
+): PartitionedComments {
+  const onActive: CommentForPartition[] = [];
+  const fromOtherVersions: CommentForPartition[] = [];
+  const resolved: CommentForPartition[] = [];
+  for (const c of comments) {
+    if (c.resolvedAt !== null) {
+      resolved.push(c);
+    } else if (c.versionId === activeVersionId) {
+      onActive.push(c);
+    } else {
+      fromOtherVersions.push(c);
+    }
+  }
+  return { onActive, fromOtherVersions, resolved };
+}

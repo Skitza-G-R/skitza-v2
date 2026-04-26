@@ -371,6 +371,113 @@ export async function setVersionStatusAction(input: {
   }
 }
 
+// Story 06 — range-comment + resolve toggles.
+//
+// addRangeCommentAction wraps projectRoom.addRangeComment (S02). The
+// underlying procedure already enforces endTimestampMs > timestampMs at
+// the Zod boundary; we additionally guard the client-side surface so a
+// malformed call (e.g. an event with a stale dragStart) returns a
+// readable error rather than a 400.
+//
+// addPointCommentAction wraps the legacy project.addProducerComment
+// procedure for the < 200ms drag fallback. Same point-comment surface
+// the existing flows used; we keep the wrapper here so the new overlay
+// can call a stable surface even if the legacy procedure later moves.
+//
+// resolveCommentAction / unresolveCommentAction wrap projectRoom's
+// resolve / unresolve mutations (S02). Both return ActionResult so the
+// optimistic-UI pattern can revert on failure.
+export async function addRangeCommentAction(input: {
+  projectId: string;
+  versionId: string;
+  body: string;
+  timestampMs: number;
+  endTimestampMs: number;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  // Belt-and-braces validation. Zod refines on the server too, but
+  // returning a friendly error from the action keeps the component
+  // free of try/catch around an unexpected ZodError shape.
+  if (input.timestampMs < 0 || input.endTimestampMs < 0) {
+    return { ok: false, error: "Timestamps must be non-negative." };
+  }
+  if (input.endTimestampMs <= input.timestampMs) {
+    return {
+      ok: false,
+      error: "Range end must be after the start timestamp.",
+    };
+  }
+  try {
+    await c.caller.projectRoom.addRangeComment({
+      versionId: input.versionId,
+      body: input.body,
+      timestampMs: input.timestampMs,
+      endTimestampMs: input.endTimestampMs,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function addPointCommentAction(input: {
+  projectId: string;
+  versionId: string;
+  body: string;
+  timestampMs: number;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  if (input.timestampMs < 0) {
+    return { ok: false, error: "Timestamp must be non-negative." };
+  }
+  try {
+    await c.caller.project.addProducerComment({
+      versionId: input.versionId,
+      body: input.body,
+      timestampMs: input.timestampMs,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function resolveCommentAction(input: {
+  projectId: string;
+  commentId: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.projectRoom.resolveComment({ commentId: input.commentId });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function unresolveCommentAction(input: {
+  projectId: string;
+  commentId: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.projectRoom.unresolveComment({
+      commentId: input.commentId,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Batch D — set the tag set on a single client contact. Thin wrapper
 // around clientContacts.setTags. Revalidates /dashboard/projects (so
 // the Project Room header picks up the new pills), /dashboard/clients
