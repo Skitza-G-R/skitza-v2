@@ -14,7 +14,10 @@ import {
   resolveSubTab,
 } from "~/components/dashboard/project/project-sub-tab-shared";
 import { ProjectSubTabs } from "~/components/dashboard/project/project-sub-tabs";
-import { DashboardSubTab } from "~/components/dashboard/project/sub-tabs/dashboard-sub-tab";
+import {
+  DashboardSubTab,
+  type DashboardData,
+} from "~/components/dashboard/project/sub-tabs/dashboard-sub-tab";
 import { MoneySubTab } from "~/components/dashboard/project/sub-tabs/money-sub-tab";
 import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
 import {
@@ -57,6 +60,55 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     data = await caller.project.detail({ id });
   } catch {
     notFound();
+  }
+
+  // Story 04 — Dashboard tab fetches its payload from the new
+  // `projectRoom.dashboard` aggregation. Falls back to a minimal
+  // empty payload if the procedure errors so the rest of the page
+  // (header + other tabs) still renders. The Dashboard tab itself
+  // surfaces the right empty states from the empty payload.
+  const dashboardEmpty: DashboardData = {
+    projectId: data.project.id,
+    projectTitle: data.project.title,
+    artistName: data.project.artistName,
+    artistAvatarUrl: null,
+    stage: data.project.stage,
+    latestVersion: null,
+    whatsNext: null,
+    recentActivity: [],
+    openComments: [],
+    sidebar: {
+      stage: data.project.stage,
+      agreedAmount: null,
+      paidAmount: null,
+      outstandingAmount: null,
+      nextSession: null,
+      fileCount: 0,
+      fileTotalBytes: 0,
+      artist: {
+        name: data.project.artistName,
+        avatarUrl: null,
+        email: data.project.artistEmail,
+      },
+    },
+  };
+  let dashboardData: DashboardData = dashboardEmpty;
+  try {
+    const payload = await caller.projectRoom.dashboard({ projectId: id });
+    dashboardData = {
+      projectId: data.project.id,
+      projectTitle: data.project.title,
+      artistName: data.project.artistName,
+      artistAvatarUrl: payload.sidebar.artist.avatarUrl,
+      stage: payload.sidebar.stage,
+      latestVersion: payload.latestVersion,
+      whatsNext: payload.whatsNext,
+      recentActivity: payload.recentActivity,
+      openComments: payload.openComments,
+      sidebar: payload.sidebar,
+    };
+  } catch (err) {
+    console.warn("[projects] projectRoom.dashboard failed", err);
   }
 
   // Batch G Task 4 — money summary for the Money sub-tab's 3-metric
@@ -287,7 +339,12 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
           <ProjectSubTabs
             activeTab={activeTab}
             panels={{
-              dashboard: <DashboardSubTab projectId={data.project.id} />,
+              dashboard: (
+                <DashboardSubTab
+                  projectId={data.project.id}
+                  dashboard={dashboardData}
+                />
+              ),
               music: (
                 <MusicSubTab
                   project={{ id: data.project.id }}
