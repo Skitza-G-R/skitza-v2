@@ -13,6 +13,20 @@ import {
   routeOnSkipFromService,
 } from "./constants";
 
+type SupportedCurrency = "USD" | "EUR" | "GBP" | "ILS";
+
+export interface ServiceStepClientProps {
+  /**
+   * Producer's default_currency from Step 1 (set by completeStudio
+   * via x-vercel-ip-country / accept-language inference). When passed,
+   * NewPackageForm pre-selects this in the currency dropdown so the
+   * producer doesn't have to manually change USD → ILS / EUR / GBP.
+   * Optional — falls back to NewPackageForm's own USD default when
+   * undefined (e.g. orphan producer-incomplete row, edge cases).
+   */
+  initialCurrency?: SupportedCurrency;
+}
+
 // Story 04 — Step 2 client wrapper.
 //
 // Server-side guard runs in page.tsx (the default export of this
@@ -47,7 +61,7 @@ import {
 // shows Back (← Step 1) and Skip for now (forward to Step 3 without
 // saving), which is the affordance set Step 2 needs.
 
-export function ServiceStepClient() {
+export function ServiceStepClient({ initialCurrency }: ServiceStepClientProps = {}) {
   const router = useRouter();
 
   // Both Skip and form-success forward to the same path. The
@@ -65,21 +79,27 @@ export function ServiceStepClient() {
     router.push(routeOnSkipFromService());
   };
 
-  const goBackToStudio = () => {
-    router.push("/onboarding/studio");
-  };
+  // No Back button on Step 2 — Step 1 (studio) is one-shot. Once the
+  // producer's slug + display name are committed, the role-resolution
+  // rule classifies them as `producer-complete`, so a Back navigation
+  // to /onboarding/studio would hit the layout's gate and bounce them
+  // straight to /dashboard. Clicking "← Back" and landing on /dashboard
+  // is the kind of misleading affordance that erodes trust on the very
+  // first run. Hiding it keeps the flow strictly forward (Continue or
+  // Skip) and matches the cinematic, no-rewind feel of the wizard.
 
   return (
     <OnboardingShell
       currentStep={SERVICE_STEP_INDEX}
       title={SERVICE_STEP_TITLE}
       subtitle={SERVICE_STEP_SUBTITLE}
-      onBack={goBackToStudio}
+      // No onBack — see comment above. Action bar renders only Skip on
+      // this step (NewPackageForm has its own submit in the slot).
       onSkip={skipToAvailability}
       // No onContinue — NewPackageForm hosts its own submit in the
-      // content slot. The action bar renders only Back + Skip for this
-      // step (the helper at action-bar.tsx::shouldRenderContinue
-      // omits the button when the handler is undefined).
+      // content slot. The action bar renders only Skip for this step
+      // (the helper at action-bar.tsx::shouldRenderContinue omits the
+      // button when the handler is undefined).
     >
       <NewPackageForm
         onClose={advanceToAvailability}
@@ -91,6 +111,11 @@ export function ServiceStepClient() {
         // model. Setup → Services still shows the field for power users
         // who want to fine-tune the flat-deposit path independently.
         hideDepositField
+        // Pre-select the producer's default currency (inferred in Step 1)
+        // so an Israeli producer doesn't see USD pre-filled. Spread to
+        // satisfy exactOptionalPropertyTypes — passing undefined would be
+        // rejected by tsc.
+        {...(initialCurrency ? { initialCurrency } : {})}
       />
     </OnboardingShell>
   );

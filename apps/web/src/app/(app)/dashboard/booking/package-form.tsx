@@ -75,6 +75,7 @@ export function NewPackageForm({
   initialValues,
   fromTemplate = false,
   hideDepositField = false,
+  initialCurrency,
 }: {
   onClose: () => void;
   initialPlans?: PaymentPlan[];
@@ -91,6 +92,13 @@ export function NewPackageForm({
   // (initial value 25 from useState default) — the booking flow uses
   // the chosen payment plan as the source of truth, not depositPct.
   hideDepositField?: boolean;
+  // Default currency to seed the dropdown when CREATE mode (no
+  // initialValues). Onboarding's Step 2 reads producers.default_currency
+  // (which Step 1's completeStudio set from x-vercel-ip-country /
+  // accept-language) and passes it here so an Israeli producer doesn't
+  // see USD pre-selected when ILS would be the obvious default.
+  // Ignored in EDIT mode — the existing row's currency wins.
+  initialCurrency?: Currency;
   // When true, initialValues are a template pre-fill (no real row
   // exists in the DB yet). Submit routes through createPackage()
   // instead of updatePackage(); the synthetic id on initialValues is
@@ -123,8 +131,15 @@ export function NewPackageForm({
   const [priceDollars, setPriceDollars] = useState(
     initialValues ? initialValues.priceCents / 100 : 150,
   );
+  // Currency precedence:
+  //   1. initialValues.currency (EDIT mode — the saved row wins)
+  //   2. initialCurrency prop (CREATE mode — onboarding seeds the
+  //      producer's default currency here so the form matches the
+  //      producer's locale without manual override)
+  //   3. "USD" final fallback (Setup → Services standalone with no
+  //      caller-supplied default)
   const [currency, setCurrency] = useState<Currency>(
-    initialValues?.currency ?? "USD",
+    initialValues?.currency ?? initialCurrency ?? "USD",
   );
   const [depositPct, setDepositPct] = useState(
     initialValues?.depositPct ?? 25,
