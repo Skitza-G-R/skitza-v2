@@ -62,6 +62,20 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     notFound();
   }
 
+  // Story 05 — Music tab consumes the new `projectRoom.music` payload
+  // (tracks → versions → unresolvedComments). The legacy MusicSubTab
+  // signature is gone; this component takes the procedure shape
+  // directly. Failure path: empty tracks list + the empty-state
+  // DropZone renders, which is the right UX for "we couldn't load
+  // music data" anyway.
+  let musicPayload: { tracks: import("~/components/dashboard/project/sub-tabs/music-sub-tab").TrackPayload[] } = { tracks: [] };
+  try {
+    const payload = await caller.projectRoom.music({ projectId: id });
+    musicPayload = payload;
+  } catch (err) {
+    console.warn("[projects] projectRoom.music failed", err);
+  }
+
   // Story 04 — Dashboard tab fetches its payload from the new
   // `projectRoom.dashboard` aggregation. Falls back to a minimal
   // empty payload if the procedure errors so the rest of the page
@@ -348,30 +362,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
               music: (
                 <MusicSubTab
                   project={{ id: data.project.id }}
-                  tracks={data.tracks.map((t) => ({
-                    id: t.id,
-                    title: t.title,
-                    artist: t.artist,
-                    position: t.position,
-                  }))}
-                  versions={data.versions.map((v) => ({
-                    id: v.id,
-                    trackId: v.trackId,
-                    label: v.label,
-                    audioUrl: v.audioUrl,
-                    uploadedAt: v.uploadedAt,
-                    approvedAt: v.approvedAt,
-                  }))}
-                  comments={data.comments.map((c) => ({
-                    id: c.id,
-                    versionId: c.versionId,
-                    authorName: c.authorName,
-                    body: c.body,
-                    timestampMs: c.timestampMs,
-                    resolvedAt: c.resolvedAt,
-                    fromProducer: c.fromProducer,
-                    createdAt: c.createdAt,
-                  }))}
+                  tracks={musicPayload.tracks}
                 />
               ),
               sessions: (

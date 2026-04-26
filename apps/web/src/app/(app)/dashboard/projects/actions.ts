@@ -285,6 +285,92 @@ export async function bulkSetProjectStage(input: {
   }
 }
 
+// Story 05 — Music tab drop-first uploads.
+//
+// Three Server Actions that wrap the projectRoom.* mutations from S02.
+// These are the integration point between the new drop-first UI and
+// the existing audio multipart pipeline:
+//
+//   createTrackFromUploadAction  — drop on empty space / pinned strip
+//   addVersionFromUploadAction   — drop on existing track row's top
+//   setVersionStatusAction       — bilateral status pill flip
+//
+// Each follows the existing actions.ts pattern (callerOrError → caller
+// →  revalidatePath on success). The shape of the return mirrors the
+// procedure return so the client can chain straight into the existing
+// useMultipartUpload({ trackVersionId, file }) hook.
+//
+// Why server actions and not direct tRPC client calls: this codebase
+// doesn't ship @trpc/react-query / @trpc/client — see CLAUDE.md +
+// dashboard-sub-tab pattern. Server Actions are the established
+// mutation surface; they call appRouter.createCaller server-side.
+export async function createTrackFromUploadAction(input: {
+  projectId: string;
+  filename: string;
+  fileSize: number;
+}): Promise<
+  ActionDataResult<{
+    trackId: string;
+    versionId: string;
+    presignedMultipartInit: { uploadId: string; key: string };
+  }>
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const res = await c.caller.projectRoom.createTrackFromUpload(input);
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true, data: res };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function addVersionFromUploadAction(input: {
+  projectId: string;
+  trackId: string;
+  filename: string;
+  fileSize: number;
+}): Promise<
+  ActionDataResult<{
+    versionId: string;
+    presignedMultipartInit: { uploadId: string; key: string };
+  }>
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const res = await c.caller.projectRoom.addVersionFromUpload({
+      trackId: input.trackId,
+      filename: input.filename,
+      fileSize: input.fileSize,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true, data: res };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function setVersionStatusAction(input: {
+  projectId: string;
+  versionId: string;
+  status: "draft" | "revisit" | "final";
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.projectRoom.setVersionStatus({
+      versionId: input.versionId,
+      status: input.status,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Batch D — set the tag set on a single client contact. Thin wrapper
 // around clientContacts.setTags. Revalidates /dashboard/projects (so
 // the Project Room header picks up the new pills), /dashboard/clients
