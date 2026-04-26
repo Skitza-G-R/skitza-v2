@@ -1,22 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-// Page-level test for the landing route (S4 — landing-restore).
+// Page-level test for the landing route after the PR #50 pivot
+// (single-file verbatim port — see
+// `apps/web/src/components/landing/landing-page.tsx`).
 //
-// Pins three things at the composition layer that no individual
-// component test can:
-//   1. The auth redirect — signed-in producers MUST land on /dashboard
+// Pins the same composition contract that the previous 17-component
+// build pinned, against the new single-component output:
+//   1. Auth redirect — signed-in producers MUST land on /dashboard
 //      and the landing markup MUST NOT render at all.
-//   2. The 17-section composition for signed-out visitors — every
-//      section's distinguishing landmark is present in the rendered
-//      markup, in order.
-//   3. The CTA wiring + absence of fabricated social proof.
+//   2. Section composition for signed-out visitors — every section's
+//      distinguishing landmark is present in the rendered markup, in
+//      order. The 11 source sections + 6 injected sections are now
+//      sibling JSX in landing-page.tsx; the test asserts each id /
+//      class fingerprint is present.
+//   3. CTA wiring + absence of fabricated social proof.
 //
-// In-repo testing convention: `react-dom/server` `renderToStaticMarkup`,
-// NOT `@testing-library/react` (which is not installed). Assertions
-// are structural string matches against the rendered HTML — same
-// pattern as the per-component tests under
-// `apps/web/src/components/landing/__tests__/`.
+// In-repo testing convention: `react-dom/server` `renderToStaticMarkup`
+// (no `@testing-library/react`). Assertions are structural string
+// matches against the rendered HTML.
 
 type AuthResult = { userId: string | null };
 const authMock = vi.fn<() => Promise<AuthResult>>();
@@ -41,7 +43,7 @@ beforeEach(() => {
   redirectMock.mockClear();
 });
 
-describe("HomePage (landing) — composition (S4)", () => {
+describe("HomePage (landing) — composition (post-pivot)", () => {
   it("redirects signed-in producers to /dashboard and does NOT render landing content", async () => {
     authMock.mockResolvedValue({ userId: "user_123" });
     const { default: HomePage } = await import("../page");
@@ -61,36 +63,34 @@ describe("HomePage (landing) — composition (S4)", () => {
     const html = renderToStaticMarkup(ui);
 
     // Each landmark is a unique-in-the-page string that proves the
-    // corresponding component rendered. Order in this list mirrors the
-    // composition order in page.tsx.
+    // corresponding section rendered. Order in this list mirrors the
+    // composition order in landing-page.tsx.
 
-    // 1. LandingNav — id="navbar"
+    // 1. Nav — id="navbar"
     expect(html).toContain('id="navbar"');
     // 2. Hero — primary headline word sequence
-    expect(html).toContain("Stop");
-    expect(html).toContain("chasing");
-    expect(html).toContain("payments.");
+    expect(html).toContain("Stop chasing payments.");
     // 3. TrustBar — "As featured in" eyebrow
     expect(html).toContain("As featured in");
-    // 4. PainGrid — section id="pain"
+    // 4. Pain — section id="pain"
     expect(html).toContain('id="pain"');
-    // 5. SolutionFlow — section id="solution"
+    // 5. Solution — section id="solution"
     expect(html).toContain('id="solution"');
-    // 6. FeaturesTabs — section id="features"
-    expect(html).toContain('id="features"');
-    // 7. Compare — section id="compare"
+    // 6. Compare — section id="compare"
     expect(html).toContain('id="compare"');
-    // 8. HowItWorks — section id="how-it-works"
-    expect(html).toContain('id="how-it-works"');
-    // 9. Consolidation — section id="consolidation"
+    // 7. Features — section id="features"
+    expect(html).toContain('id="features"');
+    // 8. Consolidation — section id="consolidation"
     expect(html).toContain('id="consolidation"');
+    // 9. HowItWorks — section id="how-it-works"
+    expect(html).toContain('id="how-it-works"');
     // 10. Security — section id="security"
     expect(html).toContain('id="security"');
     // 11. Testimonials — section id="testimonials"
     expect(html).toContain('id="testimonials"');
     // 12. Pricing — section id="pricing"
     expect(html).toContain('id="pricing"');
-    // 13. FAQ — section id="faq" (faq.tsx renders id="faq")
+    // 13. FAQ — section id="faq"
     expect(html).toContain('id="faq"');
     // 14. Founder — section id="founder"
     expect(html).toContain('id="founder"');
@@ -98,21 +98,21 @@ describe("HomePage (landing) — composition (S4)", () => {
     expect(html).toContain('id="download"');
     // 16. FinalCTA — class "final-cta"
     expect(html).toContain('class="final-cta"');
-    // 17. SiteFooter — <footer> element
+    // 17. Footer — <footer> element
     expect(html).toContain("<footer>");
 
     // Composition wrapper — outermost div is .landing-root
     expect(html).toMatch(/^<div class="landing-root">/);
   });
 
-  it("renders FeaturesTabs with all 7 tab labels", async () => {
+  it("renders all 7 feature tab labels", async () => {
     authMock.mockResolvedValue({ userId: null });
     const { default: HomePage } = await import("../page");
     const ui = await HomePage();
     const html = renderToStaticMarkup(ui);
 
-    // The 7 carousel labels from FEATURE_TABS in features-tabs.tsx.
-    // If a tab is renamed/removed at the composition layer, this catches it.
+    // The 7 carousel labels in the features section. If a tab is
+    // renamed/removed, this catches it.
     expect(html).toContain("Storefront &amp; Booking");
     expect(html).toContain("Payments on autopilot");
     expect(html).toContain("Files &amp; Feedback");
@@ -133,9 +133,6 @@ describe("HomePage (landing) — composition (S4)", () => {
     //   - Hero (primary CTA)
     //   - Pricing (Sign up now → CTA)
     //   - FinalCTA (closing CTA)
-    // The mobile-menu CTA in landing-nav only renders when the menu is
-    // toggled open (useState=false on first render), so we don't count
-    // it here.
     const signUpHref = 'href="/sign-up?redirect_url=%2Fonboarding"';
     const matches = html.match(new RegExp(escapeRegExp(signUpHref), "g")) ?? [];
     expect(matches.length).toBeGreaterThanOrEqual(4);
@@ -147,9 +144,9 @@ describe("HomePage (landing) — composition (S4)", () => {
     const ui = await HomePage();
     const html = renderToStaticMarkup(ui);
 
-    // /sign-in appears once on the page — only in the nav. The mobile
-    // menu's /sign-in link is not rendered by default (menuOpen=false),
-    // so a single occurrence pins the desktop nav surface.
+    // /sign-in appears once on the page — only in the nav. Pinning a
+    // single occurrence ensures we don't add stray sign-in CTAs in
+    // other surfaces (the rest should drive sign-up).
     const signInMatches = html.match(/href="\/sign-in"/g) ?? [];
     expect(signInMatches.length).toBe(1);
     // And the link text is literally "Sign in".
@@ -174,6 +171,8 @@ describe("HomePage (landing) — composition (S4)", () => {
     expect(html).not.toMatch(/waitlist/i);
     expect(html).not.toMatch(/Get Early Access/i);
     expect(html).not.toMatch(/Claim Early Access/i);
+    // The replacement social-proof line MUST be present.
+    expect(html).toContain("Built for solo producers.");
   });
 
   it("wraps dark-themed sections in <main className=\"dark-world\">", async () => {
@@ -183,11 +182,8 @@ describe("HomePage (landing) — composition (S4)", () => {
     const html = renderToStaticMarkup(ui);
 
     // React serializes className as `class` in the HTML output. The
-    // dark-world wrapper bundles pain → download (12 dark sections);
-    // the light-themed sections (hero, trust-bar, final-cta, footer)
-    // sit outside it. If this wrapper is removed or renamed, the dark
-    // palette stops applying via .landing-root .dark-world in
-    // landing.css.
+    // dark-world wrapper bundles pain → footer; the light-themed
+    // sections (hero, trust-bar, theme-transition) sit outside it.
     expect(html).toContain('<main class="dark-world">');
   });
 
@@ -202,6 +198,21 @@ describe("HomePage (landing) — composition (S4)", () => {
     // section. Pinning the literal opening sequence catches accidental
     // reordering.
     expect(html).toMatch(/^<div class="landing-root"><div class="noise-overlay"/);
+  });
+
+  it("does NOT render the lead-capture modal (PRD §3.5)", async () => {
+    authMock.mockResolvedValue({ userId: null });
+    const { default: HomePage } = await import("../page");
+    const ui = await HomePage();
+    const html = renderToStaticMarkup(ui);
+
+    // The source HTML shipped a `<div class="modal-overlay">` lead
+    // capture form. PRD §3.5 dropped it — every CTA goes to
+    // /sign-up?redirect_url=/onboarding instead.
+    expect(html).not.toContain("modal-overlay");
+    expect(html).not.toContain("signupModal");
+    expect(html).not.toContain("modal-box");
+    expect(html).not.toContain("Get Early Access");
   });
 });
 
