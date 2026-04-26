@@ -76,3 +76,76 @@ export function currencyFromCountry(
   if (EU_MEMBER_STATES.has(code)) return "EUR";
   return "USD";
 }
+
+/**
+ * Language-prefix → currency mapping for the Accept-Language fallback.
+ * Only includes prefixes that disambiguate a single supported currency:
+ *   - "he" anywhere implies ILS (Hebrew is overwhelmingly Israel)
+ *   - EU member-state primary languages imply EUR
+ *   - "en-GB" / "en-UK" specifically implies GBP (en alone is ambiguous)
+ * "en-US" / "ja" / "zh" / "ar" return null so the caller falls through
+ * to a more specific signal (or USD).
+ */
+const EU_LANG_PREFIXES: ReadonlySet<string> = new Set([
+  "de", "fr", "es", "it", "nl", "pt", "sv", "fi", "da", "el",
+  "pl", "ro", "cs", "hu", "sk", "sl", "et", "lv", "lt", "bg",
+  "hr", "mt", "ga",
+]);
+
+/**
+ * Best-effort currency inference from the Accept-Language header. Returns
+ * null when the language tag carries no clear signal (so the caller can
+ * fall through to USD without overcommitting to a guess).
+ *
+ * Used as a fallback when `x-vercel-ip-country` is missing — see
+ * inferCurrency below. Israeli producers browsing the wizard from a
+ * Hebrew browser hit this path most often (Vercel preview environments
+ * occasionally drop the geo header; the Hebrew Accept-Language is the
+ * next-best signal).
+ *
+ * @example currencyFromAcceptLanguage("he-IL,he;q=0.9,en-US;q=0.8") → "ILS"
+ * @example currencyFromAcceptLanguage("de-DE") → "EUR"
+ * @example currencyFromAcceptLanguage("en-US") → null  (ambiguous)
+ */
+export function currencyFromAcceptLanguage(
+  acceptLanguage: string | null | undefined,
+): SupportedCurrency | null {
+  if (!acceptLanguage) return null;
+
+  // Take the primary tag (everything before the first comma + q-weight),
+  // trim whitespace, lowercase. Accept-Language grammar: "he-IL,he;q=0.9".
+  const primaryRaw = acceptLanguage.split(",")[0]?.trim() ?? "";
+  const primary = primaryRaw.split(";")[0]?.trim().toLowerCase() ?? "";
+
+  if (primary.startsWith("he")) return "ILS";
+  if (primary === "en-gb" || primary === "en-uk") return "GBP";
+
+  // Match by language prefix (everything before the optional "-region").
+  const prefix = primary.split("-")[0] ?? "";
+  if (EU_LANG_PREFIXES.has(prefix)) return "EUR";
+
+  return null;
+}
+
+/**
+ * Combined currency inference: country header is canonical (most
+ * specific geo signal), Accept-Language is fallback (next-best signal),
+ * USD is the final fallback when neither is informative.
+ *
+ * This is the single helper the `completeStudio` server action calls.
+ * The `currencyFromCountry` and `currencyFromAcceptLanguage` exports
+ * remain for direct use + dedicated test coverage.
+ */
+export function inferCurrency(
+  country: string | null | undefined,
+  acceptLanguage: string | null | undefined,
+): SupportedCurrency {
+  // Country present → trust currencyFromCountry's mapping (which already
+  // returns USD for unsupported codes; that's the right answer when the
+  // producer's geo IS US/CA/AU/NZ/JP/CN/etc.).
+  if (country && country.trim().length > 0) {
+    return currencyFromCountry(country);
+  }
+  // No country signal — try language. Returns null on ambiguous tags.
+  return currencyFromAcceptLanguage(acceptLanguage) ?? "USD";
+}

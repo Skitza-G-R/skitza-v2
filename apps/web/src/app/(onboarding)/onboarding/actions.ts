@@ -8,7 +8,7 @@ import { headers } from "next/headers";
 import { z } from "zod";
 
 import {
-  currencyFromCountry,
+  inferCurrency,
   slugFromDisplayName,
 } from "~/lib/onboarding/derive";
 import { fetchUserRole } from "~/server/auth/role";
@@ -67,11 +67,16 @@ export async function completeStudio(input: {
 
   const parsed = Input.parse(input);
 
-  // Server-derive currency from the Vercel-injected country header.
-  // null/undefined means local dev (or non-Vercel environment) →
-  // currencyFromCountry returns USD.
-  const country = (await headers()).get("x-vercel-ip-country");
-  const currency = currencyFromCountry(country);
+  // Server-derive currency. Country header is the most specific signal
+  // (Vercel injects x-vercel-ip-country in production); Accept-Language
+  // is the next-best fallback — an Israeli producer browsing with a
+  // Hebrew browser still gets ILS even when the geo header is missing
+  // (which happens in some preview / proxy paths). USD is the final
+  // fallback when neither signal is informative. See inferCurrency.
+  const reqHeaders = await headers();
+  const country = reqHeaders.get("x-vercel-ip-country");
+  const acceptLanguage = reqHeaders.get("accept-language");
+  const currency = inferCurrency(country, acceptLanguage);
 
   // Upsert by clerkUserId so onboarding works whether the Clerk webhook
   // fired first or not — same idempotent shape as completeOnboarding.
