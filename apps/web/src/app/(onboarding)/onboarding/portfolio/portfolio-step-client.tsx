@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 
 import { OnboardingShell } from "~/app/(onboarding)/onboarding/shell";
 import {
@@ -51,23 +51,36 @@ export function PortfolioStepClient() {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [links, setLinks] = useState<ExternalLinksFormState>(emptyExternalLinksState);
+  const [error, setError] = useState<string | null>(null);
 
   const updateLink = (key: PortfolioPlatformKey, url: string) => {
     setLinks((prev) => ({ ...prev, [key]: url }));
+    if (error) setError(null);
   };
 
-  // Continue: save any typed links, then route to /dashboard. We always
-  // call saveExternalLinks (even when every URL is empty) — the action
-  // itself short-circuits on empty input via parsed.links.length === 0,
-  // so an empty submit is a cheap no-op. Keeping the call site
-  // unconditional means the navigation timing is consistent regardless
-  // of input state.
+  // Continue: save any typed links, THEN navigate on success only. The
+  // earlier shape used try/finally which navigated to /dashboard even
+  // when saveExternalLinks threw — that silently lost the producer's
+  // typed links and gave them a "wait, where did my Spotify URL go?"
+  // surprise on Setup. Now: success → push, error → surface inline so
+  // they can fix the input (e.g. a malformed URL the server rejected)
+  // and retry, or hit Skip if they want to bail without saving.
+  //
+  // We always call saveExternalLinks (even when every URL is empty) —
+  // the action short-circuits on empty input (parsed.links.length === 0),
+  // so an empty submit is a cheap no-op and keeps the timing consistent.
   const handleContinue = () => {
+    setError(null);
     startTransition(async () => {
       try {
         await saveExternalLinks(toLinksPayload(links));
-      } finally {
         router.push(routeOnContinueFromPortfolio());
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Couldn't save your links — try again or hit Skip for now.",
+        );
       }
     });
   };
@@ -100,6 +113,14 @@ export function PortfolioStepClient() {
           {PORTFOLIO_HELPER_COPY}
         </p>
         <ExternalLinksEditor value={links} onChange={updateLink} disabled={pending} />
+        {error ? (
+          <p
+            role="alert"
+            className="rounded-[var(--radius-sm)] border border-[rgb(var(--fg-danger)/0.4)] bg-[rgb(var(--fg-danger)/0.08)] px-3 py-2 text-sm text-[rgb(var(--fg-danger))]"
+          >
+            {error}
+          </p>
+        ) : null}
       </div>
     </OnboardingShell>
   );
