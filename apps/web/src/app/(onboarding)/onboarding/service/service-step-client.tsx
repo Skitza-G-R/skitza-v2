@@ -11,7 +11,7 @@ import {
   SERVICE_STEP_TITLE,
   nextRouteAfterService,
   routeOnSkipFromService,
-} from "./page";
+} from "./constants";
 
 // Story 04 — Step 2 client wrapper.
 //

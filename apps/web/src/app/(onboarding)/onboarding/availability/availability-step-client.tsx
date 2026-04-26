@@ -18,7 +18,7 @@ import {
   nextRouteAfterAvailability,
   routeOnBackFromAvailability,
   routeOnSkipFromAvailability,
-} from "./page";
+} from "./constants";
 
 // Story 05 — Step 3 client wrapper.
 //

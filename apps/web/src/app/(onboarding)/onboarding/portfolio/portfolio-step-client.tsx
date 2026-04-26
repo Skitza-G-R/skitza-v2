@@ -21,7 +21,7 @@ import {
   routeOnBackFromPortfolio,
   routeOnContinueFromPortfolio,
   routeOnSkipFromPortfolio,
-} from "./page";
+} from "./constants";
 
 // Story 08 (α-trimmed) — Step 4 client wrapper.
 //

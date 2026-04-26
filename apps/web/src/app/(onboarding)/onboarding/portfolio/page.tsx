@@ -3,8 +3,9 @@ import { redirect } from "next/navigation";
 
 import { fetchUserRole } from "~/server/auth/role";
 
-import { decideOnboardingRedirect, type OnboardingStep } from "../decide-redirect";
+import { decideOnboardingRedirect } from "../decide-redirect";
 import { PortfolioStepClient } from "./portfolio-step-client";
+import { ONBOARDING_STEP_NAME } from "./constants";
 
 // Story 08 (α-trimmed) — Step 4: portfolio links page.
 //
@@ -36,68 +37,11 @@ import { PortfolioStepClient } from "./portfolio-step-client";
 // `node` env (no jsdom) so tests assert the constants + route helpers
 // directly — no JSX render.
 
-/** 1-indexed step number passed to <OnboardingShell currentStep={…} />. */
-export const PORTFOLIO_STEP_INDEX: 1 | 2 | 3 | 4 = 4;
-
-/** H1 displayed by the shell. Pinned by tests + architecture §6. */
-export const PORTFOLIO_STEP_TITLE = "Show your work.";
-
-/**
- * Subtitle copy. Reassures the producer they don't need to fill every
- * platform — and surfaces the deferred upload flow so Step 4 doesn't
- * feel incomplete. Pin a substring (later/setup/skip/portfolio) so a
- * future copy edit that drops the upload-from-Setup mention forces a
- * deliberate update.
- */
-export const PORTFOLIO_STEP_SUBTITLE =
-  "Add your streaming links — you can upload tracks later from Setup → Portfolio.";
-
-/**
- * One-line helper copy rendered above the link inputs. Shorter than
- * the subtitle; reinforces the "this is optional" framing. Tests pin
- * a substring to catch copy regressions.
- */
-export const PORTFOLIO_HELPER_COPY =
-  "All three are optional — fill what you have, skip what you don't.";
-
-/**
- * OnboardingStep tag for this page. Passed to decideOnboardingRedirect
- * so the wire-format "portfolio" string lives in exactly one place. A
- * typo here would silently fall back to the default-arg "studio" branch
- * in the redirect helper, which is the kind of failure that's easy to
- * miss in manual QA — pinning it via a test catches it.
- */
-export const ONBOARDING_STEP_NAME: OnboardingStep = "portfolio";
-
-/**
- * Continue route after the (optional) save. Pinned to /dashboard — Step
- * 4 is the last step, so Continue ends the wizard. Telemetry will fire
- * step_completed before the navigate; routing stays the same regardless.
- */
-export function routeOnContinueFromPortfolio(): "/dashboard" {
-  return "/dashboard";
-}
-
-/**
- * Skip ghost link target. Identical to the Continue destination — Skip
- * just elides the saveExternalLinks call. The distinction is telemetry-
- * only (step_skipped vs step_completed), not navigation.
- *
- * Kept as its own helper (rather than re-exporting routeOnContinueFromPortfolio)
- * so a future divergence (e.g. Skip jumps to /dashboard?postOnboarding=skipped)
- * is a single-line change and the test asserts the current invariant.
- */
-export function routeOnSkipFromPortfolio(): "/dashboard" {
-  return "/dashboard";
-}
-
-/**
- * Step 4 → Step 3 route for the Back button. The wizard is a strict
- * 4-step linear flow; Back from Step 4 lands on Step 3 (availability).
- */
-export function routeOnBackFromPortfolio(): "/onboarding/availability" {
-  return "/onboarding/availability";
-}
+// Re-export every constants.ts entry so existing test imports
+// (`from "../page"`) keep working without modification. The client
+// component imports directly from ./constants to skip this re-export
+// and avoid the server bundle.
+export * from "./constants";
 
 export default async function PortfolioStepPage() {
   // Page-level role guard. The layout already enforces the role wall

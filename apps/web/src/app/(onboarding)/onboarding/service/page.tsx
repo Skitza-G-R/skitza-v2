@@ -3,92 +3,24 @@ import { redirect } from "next/navigation";
 
 import { fetchUserRole } from "~/server/auth/role";
 
-import { decideOnboardingRedirect, type OnboardingStep } from "../decide-redirect";
+import { decideOnboardingRedirect } from "../decide-redirect";
 import { ServiceStepClient } from "./service-step-client";
+import { ONBOARDING_STEP_NAME } from "./constants";
 
 // Story 04 — Step 2: first service via NewPackageForm reuse.
 //
-// The Step 2 page renders the existing <NewPackageForm> from
-// (app)/dashboard/booking/package-form.tsx in pure CREATE mode (no
-// initialValues, no fromTemplate). The same form a producer would
-// use later in Setup → Services lives here too so the data shape they
-// enter at onboarding is identical to every subsequent service.
-//
-// Why server + client split (vs. Story 03's single-file client page):
-// the layout's role gate uses `decideOnboardingRedirect(role)` with
-// the default arg "studio", which sends every producer-complete user
-// to /dashboard. That's correct for /onboarding/studio (re-doing
-// Step 1 is a UX dead-end) but WRONG for Steps 2-4 — a producer who
-// just finished Step 1 in the same tab is now "complete" and would
-// be bounced out of the wizard before they could finish.
-//
-// To unblock Step 2 for the just-completed-Step-1 producer, the
-// page-level layer here re-runs the role lookup with the step-aware
-// arg `decideOnboardingRedirect(role, "service")`. For
-// producer-complete + currentStep="service" the helper returns null
-// (render), so the page proceeds and the Step 2 form is shown.
-//
-// Other roles still get redirected the same way the layout would
-// have redirected them (defense in depth — if the layout ever drops
-// its role check, the wizard pages still self-protect). The auth() +
-// fetchUserRole calls are cheap (one indexed Drizzle query worst
-// case) and run once per request.
-//
-// The pure constants + helpers consumed by the test suite are
-// exported below, mirroring Story 03's studio/page.tsx pattern. The
-// repo runs vitest in `node` env (no jsdom) so there's no RTL render
-// — the test asserts the constants + the route helpers directly.
+// The pure constants + route helpers live in ./constants — both this
+// Server Component and ./service-step-client (a "use client" module)
+// import from there. Without that split, the client bundle would
+// transitively pull in this file's server-only deps (auth, fetchUserRole,
+// next/headers via the appRouter chain) and Vercel's build would fail
+// with an RSC boundary violation. See CLAUDE.md mistake log 2026-04-23.
 
-/** 1-indexed step number passed to <OnboardingShell currentStep={…} />. */
-export const SERVICE_STEP_INDEX: 1 | 2 | 3 | 4 = 2;
-
-/** H1 displayed by the shell. Pinned by tests + architecture §6. */
-export const SERVICE_STEP_TITLE = "Add your first service.";
-
-/**
- * Subtitle copy. Reassures the producer that this isn't a final
- * decision — they can fill out a service now or skip and return to
- * Setup → Services later. Pin a substring (later/skip/change/edit)
- * by the test so a future copy edit that goes formal/legalese forces
- * a deliberate update.
- */
-export const SERVICE_STEP_SUBTITLE =
-  "Sketch out one of your services so clients can book. You can edit it later or add more from Setup.";
-
-/**
- * OnboardingStep tag for this page. Passed to decideOnboardingRedirect
- * + (in future stories) the telemetry helpers, so the wire-format
- * "service" string lives in exactly one place. A typo here (e.g.
- * "services") would silently fall back to the default-arg "studio"
- * branch in the redirect helper, which is the kind of failure that's
- * easy to miss in manual QA — pinning it via a test catches it.
- */
-export const ONBOARDING_STEP_NAME: OnboardingStep = "service";
-
-/**
- * Step 2 → Step 3 route after a successful createPackage. The
- * NewPackageForm calls onClose() on success; the Step 2 page hijacks
- * that callback to push to nextRouteAfterService(). Same destination
- * as Skip — the only difference is whether createPackage ran (and the
- * matching telemetry event).
- */
-export function nextRouteAfterService(): "/onboarding/availability" {
-  return "/onboarding/availability";
-}
-
-/**
- * Step 2 Skip-ghost-link target. Identical to nextRouteAfterService
- * — Skip and Continue both forward to Step 3. Telemetry distinguishes
- * the two (step_completed vs step_skipped), but routing does not.
- *
- * Kept as its own helper (rather than re-exporting nextRouteAfterService)
- * so a future divergence (e.g. Skip jumps straight to /dashboard if
- * we add a "minimal viable producer" path) is a single-line change
- * and the test asserts the current invariant (they're aligned today).
- */
-export function routeOnSkipFromService(): "/onboarding/availability" {
-  return "/onboarding/availability";
-}
+// Re-export every constants.ts entry from the page so existing test
+// imports (`from "../page"`) keep working without modification. The
+// client component imports directly from ./constants to skip this
+// re-export and avoid the server bundle.
+export * from "./constants";
 
 export default async function ServiceStepPage() {
   // Page-level role guard. The layout already enforces the artist +

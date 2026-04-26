@@ -9,8 +9,9 @@ import type {
   Blackout,
 } from "~/components/dashboard/setup/availability-section";
 
-import { decideOnboardingRedirect, type OnboardingStep } from "../decide-redirect";
+import { decideOnboardingRedirect } from "../decide-redirect";
 import { AvailabilityStepClient } from "./availability-step-client";
+import { ONBOARDING_STEP_NAME } from "./constants";
 
 // Story 05 — Step 3: availability via AvailabilitySection reuse.
 //
@@ -42,78 +43,19 @@ import { AvailabilityStepClient } from "./availability-step-client";
 // vitest in `node` env (no jsdom) so there's no RTL render — the test
 // asserts the constants + the route helpers directly.
 
-/** 1-indexed step number passed to <OnboardingShell currentStep={…} />. */
-export const AVAILABILITY_STEP_INDEX: 1 | 2 | 3 | 4 = 3;
-
-/** H1 displayed by the shell. Pinned by tests + architecture §6. */
-export const AVAILABILITY_STEP_TITLE = "When are you open?";
-
-/**
- * Subtitle copy. Reassures the producer they don't need to be perfect
- * here — every field has a sensible default, the children auto-save on
- * change, and a producer can return to Setup → Availability any time.
- * Pin a substring (later/skip/change/edit/adjust) so a future copy
- * edit that goes formal/legalese forces a deliberate update.
- */
-export const AVAILABILITY_STEP_SUBTITLE =
-  "Set your weekly hours, default session length, and cancellation policy. You can adjust any of this later from Setup.";
-
-/**
- * OnboardingStep tag for this page. Passed to decideOnboardingRedirect
- * + (in future stories) the telemetry helpers, so the wire-format
- * "availability" string lives in exactly one place. A typo here (e.g.
- * "available") would silently fall back to the default-arg "studio"
- * branch in the redirect helper, which is the kind of failure that's
- * easy to miss in manual QA — pinning it via a test catches it.
- */
-export const ONBOARDING_STEP_NAME: OnboardingStep = "availability";
-
-/**
- * Continue button is always enabled on Step 3.
- *
- * The 5 child editors auto-save on change via their own producer-
- * procedure mutations — there is no Step-3-level form to submit, just
- * the action bar's Continue button which navigates to Step 4.
- * Acceptance criteria #7: "Continue is always enabled — the producer
- * can advance with whatever they've configured."
- *
- * Pinning the invariant as a boolean (rather than letting Continue's
- * disabled state drift implicitly to "false") catches a regression
- * where someone gates Continue on e.g. "blocks.length > 0" without
- * realising the editor children handle their own persistence.
- */
-export const AVAILABILITY_CONTINUE_ALWAYS_ENABLED = true;
-
-/**
- * Step 3 → Step 4 route after Continue. Pinned by tests so a typo in
- * the redirect path (e.g. "/onboarding/portolio") is caught at test
- * time rather than at user time.
- */
-export function nextRouteAfterAvailability(): "/onboarding/portfolio" {
-  return "/onboarding/portfolio";
-}
-
-/**
- * Step 3 Skip-ghost-link target. Identical to nextRouteAfterAvailability
- * — Skip and Continue both forward to Step 4. Telemetry distinguishes
- * the two (step_completed vs step_skipped), but routing does not.
- *
- * Kept as its own helper (rather than re-exporting nextRouteAfterAvailability)
- * so a future divergence (e.g. Skip jumps straight to /dashboard) is a
- * single-line change and the test asserts the current invariant (they're
- * aligned today).
- */
-export function routeOnSkipFromAvailability(): "/onboarding/portfolio" {
-  return "/onboarding/portfolio";
-}
-
-/**
- * Step 3 → Step 2 route for the Back button. The wizard is a strict
- * 4-step linear flow; Back from Step 3 lands on Step 2 (service).
- */
-export function routeOnBackFromAvailability(): "/onboarding/service" {
-  return "/onboarding/service";
-}
+// Pure constants + route helpers live in ./constants — both this
+// Server Component and ./availability-step-client (a "use client"
+// module) import from there. Without that split, the client bundle
+// would transitively pull in this file's server-only deps (auth,
+// fetchUserRole, appRouter → next/headers via public-profile.ts) and
+// Vercel's build would fail with an RSC boundary violation. See
+// CLAUDE.md mistake log 2026-04-23.
+//
+// Re-export every constants.ts entry so existing test imports
+// (`from "../page"`) keep working without modification. The client
+// component imports directly from ./constants to skip this re-export
+// and avoid the server bundle.
+export * from "./constants";
 
 /**
  * Server-side fetch payload — exactly the prop shape AvailabilitySection
