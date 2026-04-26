@@ -33,6 +33,14 @@ import { Sidebar } from "./sidebar";
 
 export async function AppShell({ children }: { children: ReactNode }) {
   const { slug, unreadCount, unreadItems } = await getShellState();
+  // Public origin used by the SidebarShareChip to render the
+  // /join/<slug> URL. Same fallback chain as the Today page hero
+  // ShareLinkCard before Story 05 relocated the surface — keep it
+  // here in the shell so every authenticated page renders the chip.
+  const publicBaseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    process.env.SITE_URL ??
+    "https://skitza.app";
   return (
     <div className="flex min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
       {/* Skip-to-content link — only visible on keyboard focus (sr-only
@@ -48,6 +56,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
       </a>
       <Sidebar
         producerSlug={slug}
+        publicBaseUrl={publicBaseUrl}
         unreadCount={unreadCount}
         unreadItems={unreadItems}
       />

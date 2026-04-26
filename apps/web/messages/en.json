@@ -9,49 +9,14 @@
     "collapse": "Collapse sidebar"
   },
   "today": {
-    "shareLink": {
-      "eyebrow": "Your share link",
-      "headline": "Drop this anywhere.",
-      "description": "Instagram bio, DMs, email signatures — fans tap once and they're booking you.",
-      "copyButton": "Copy link",
-      "copied": "Copied!",
-      "preview": "Preview",
-      "missingTitle": "Set your share link",
-      "missingDescription": "Pick a memorable slug so fans can find you from Instagram.",
-      "missingCta": "Set your slug"
-    },
-    "kpi": {
-      "activeProjects": "Active projects",
-      "revenueMonth": "Revenue · month",
-      "sessions7d": "Sessions · 7d",
-      "unresolved": "Unresolved"
-    },
-    "quickActions": {
-      "ariaLabel": "Quick actions",
-      "uploadTrack": "Upload track",
-      "uploadTrackHint": "To recent project",
-      "uploadTrackHintEmpty": "Create a project first",
-      "newBooking": "New booking",
-      "newBookingHint": "Add by hand",
-      "sendInvoice": "Send invoice",
-      "sendInvoiceHint": "On recent project",
-      "sendInvoiceHintEmpty": "No projects yet",
-      "shareViaWhatsApp": "Share via WhatsApp",
-      "shareViaWhatsAppHint": "Send your link to a contact",
-      "shareViaWhatsAppHintEmpty": "Set your slug first",
-      "search": "Search",
-      "addOfflineClient": "Add offline client",
-      "quickNote": "Quick note",
-      "editJoinPage": "Edit /join page",
-      "quickNoteModal": {
-        "title": "Quick note",
-        "subtitle": "A scratchpad for the thought you don't want to lose.",
-        "placeholder": "e.g. Ping Alice about Friday's mix feedback",
-        "cancel": "Cancel",
-        "save": "Save",
-        "emptyToast": "Note is empty",
-        "savedToast": "Quick note saved"
-      }
+    "quickNoteModal": {
+      "title": "Quick note",
+      "subtitle": "A scratchpad for the thought you don't want to lose.",
+      "placeholder": "e.g. Ping Alice about Friday's mix feedback",
+      "cancel": "Cancel",
+      "save": "Save",
+      "emptyToast": "Note is empty",
+      "savedToast": "Quick note saved"
     },
     "toasts": {
       "copied": "Copied",

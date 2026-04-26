@@ -8,6 +8,7 @@ import {
   gte,
   inArray,
   invoices,
+  isNotNull,
   isNull,
   leads,
   lte,
@@ -17,10 +18,13 @@ import {
   producers,
   projectTracks,
   projects,
+  sql,
   trackComments,
   trackVersions,
 } from "@skitza/db";
 import { z } from "zod";
+
+import type { Stage } from "../../../lib/projects/stages";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
@@ -125,6 +129,57 @@ export interface TodayItem {
 // Items list is capped at 50 in total. Big enough to avoid pagination
 // for an active producer, small enough that the DOM stays honest.
 const TODAY_ITEMS_MAX = 50;
+
+// Recent-uploads shelf cap. 5 cards visible + 2 buffer for scroll.
+// Capped server-side so a producer with hundreds of versions doesn't
+// pay the JSON-serialization cost of rows that won't render.
+const RECENT_UPLOADS_MAX = 7;
+
+// Pulse sparkline length — fixed at 30 daily buckets, oldest at index
+// 0 and today at index 29. Always exactly 30 entries: missing days are
+// zero-filled rather than skipped, so the chart geometry is stable.
+const PULSE_SPARKLINE_DAYS = 30;
+
+// One row of the recent-uploads shelf. Renders as a card in the Today
+// dashboard's STUDIO · RECENT UPLOADS rail (Story 3 of the redesign).
+// `audioUrl` is non-null because the SQL filter excludes in-flight
+// uploads via `isNotNull(trackVersions.audioUrl)`. `unreadComments` is
+// the per-row count of artist-side, unresolved comments posted after
+// `uploadedAt` — fetched as a follow-up sub-query.
+export type RecentUpload = {
+  versionId: string;
+  trackId: string;
+  title: string;
+  versionLabel: string;
+  uploadedAt: Date;
+  audioUrl: string;
+  durationMs: number | null;
+  projectId: string;
+  projectClientName: string;
+  projectStage: Stage;
+  unreadComments: number;
+};
+
+// Single-card payload powering the Pulse summary on the redesigned
+// Today dashboard (Story 2). Footer counts re-project the existing
+// `kpis` fields so the renderer doesn't drift from the strip — they're
+// derived from the same fan-out legs, no extra round-trips.
+//
+// `deltaPct === null` is the "no comparison possible" signal — used
+// when last month had no paid invoices, to avoid `+∞%` rendering.
+// `sparkline` is always exactly PULSE_SPARKLINE_DAYS long (zero-filled
+// missing days), so the SVG geometry is stable for the consuming
+// component regardless of producer activity.
+export type PulseStats = {
+  thisMonthCents: number;
+  lastMonthCents: number;
+  currency: string;
+  deltaPct: number | null;
+  sparkline: number[];
+  activeProjects: number;
+  upcomingSessions7d: number;
+  unresolvedItems: number;
+};
 
 // Music library cap — Samply-style cross-project list of every track
 // version the producer has uploaded, newest first. 100 rows is enough
@@ -234,6 +289,21 @@ export const producerRouter = router({
     const nextMonthStart = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
     );
+    // Last calendar-month boundary — for the Pulse "vs last month"
+    // delta. paidAt in [lastMonthStart, monthStart) is the prior
+    // month's revenue.
+    const lastMonthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
+    );
+    // 30-day window for the Pulse sparkline. Anchored to the start of
+    // today (UTC) so the rightmost bucket consistently includes today's
+    // partial-day revenue without rolling over at noon.
+    const sparklineStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    sparklineStart.setUTCDate(
+      sparklineStart.getUTCDate() - (PULSE_SPARKLINE_DAYS - 1),
+    );
 
     // Active stages for the KPI counter — excludes terminal states so
     // "archived" and "cancelled" projects don't inflate the count.
@@ -266,6 +336,9 @@ export const producerRouter = router({
       openCommentRows,
       leadRows,
       profileRows,
+      recentUploadRows,
+      lastMonthRows,
+      sparklineRows,
     ] = await Promise.all([
       // (1) Active projects KPI — count by filtering stage in the
       // active set. We fetch ids only; the count is rows.length.
@@ -417,6 +490,77 @@ export const producerRouter = router({
         .from(producers)
         .where(eq(producers.id, ctx.producerId))
         .limit(1),
+
+      // (10) Recent uploads shelf (Today redesign Story 3). Up to 7
+      // most-recent track versions across the producer's *active*
+      // projects, with audioUrl present (in-flight uploads excluded).
+      // Joins through projectTracks → projects so the producer-scope
+      // predicate sits on `projects.producerId` — same pattern as
+      // legs 5 + 7.
+      ctx.db
+        .select({
+          versionId: trackVersions.id,
+          trackId: projectTracks.id,
+          title: projectTracks.title,
+          versionLabel: trackVersions.label,
+          uploadedAt: trackVersions.uploadedAt,
+          audioUrl: trackVersions.audioUrl,
+          durationMs: trackVersions.durationMs,
+          projectId: projects.id,
+          projectClientName: projects.clientName,
+          projectStage: projects.stage,
+        })
+        .from(trackVersions)
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(
+          and(
+            eq(projects.producerId, ctx.producerId),
+            inArray(projects.stage, [...ACTIVE_STAGES]),
+            isNotNull(trackVersions.audioUrl),
+          ),
+        )
+        .orderBy(desc(trackVersions.uploadedAt))
+        .limit(RECENT_UPLOADS_MAX),
+
+      // (11) Last-month paid revenue (Pulse delta-vs-last-month).
+      // Same shape as leg 2, just shifted one calendar month back.
+      // We sum in JS so currency-mismatched legacy rows can be
+      // dropped (defaultCurrency is the anchor).
+      ctx.db
+        .select({
+          amountCents: invoices.amountCents,
+          currency: invoices.currency,
+        })
+        .from(invoices)
+        .where(
+          and(
+            eq(invoices.producerId, ctx.producerId),
+            eq(invoices.status, "paid"),
+            gte(invoices.paidAt, lastMonthStart),
+            lte(invoices.paidAt, monthStart),
+          ),
+        ),
+
+      // (12) 30-day daily sparkline (Pulse ambient chart). Aggregates
+      // paid-invoice revenue into one row per UTC day. Days with no
+      // revenue are absent from this result and zero-filled JS-side
+      // before serializing — the consumer always gets a fixed-length
+      // array so the SVG geometry is stable.
+      ctx.db
+        .select({
+          day: sql<string>`date_trunc('day', ${invoices.paidAt})::date`,
+          cents: sql<number>`COALESCE(SUM(${invoices.amountCents}), 0)::integer`,
+        })
+        .from(invoices)
+        .where(
+          and(
+            eq(invoices.producerId, ctx.producerId),
+            eq(invoices.status, "paid"),
+            gte(invoices.paidAt, sparklineStart),
+          ),
+        )
+        .groupBy(sql`date_trunc('day', ${invoices.paidAt})`),
     ]);
 
     // Resolve default currency for KPI display. Fallback to USD keeps
@@ -505,7 +649,125 @@ export const producerRouter = router({
     // doesn't have to special-case the missing field once views land.
     const savedViews: Array<{ id: string; label: string; filter: Record<string, string> }> = [];
 
-    return { kpis, items, savedViews };
+    // ── Recent uploads shelf — unread-comments follow-up ────────────
+    // Belt-and-braces cap: the SQL .limit(RECENT_UPLOADS_MAX) above
+    // already constrains the result, but slicing here guarantees the
+    // response shape holds even if a future query path drops the
+    // DB-side limit (mirrors the same pattern used in producer.music.list).
+    const recentUploadRowsCapped = recentUploadRows.slice(
+      0,
+      RECENT_UPLOADS_MAX,
+    );
+
+    // For each version returned by leg 10, count artist-side unresolved
+    // comments posted after the version uploaded. We do this as N
+    // sub-queries in parallel rather than a single GROUP BY: bound is
+    // RECENT_UPLOADS_MAX (=7) so worst-case ~7 round-trips, well within
+    // Today's p95 budget. If this ever climbs, batch as a single SELECT
+    // with GROUP BY versionId.
+    const unreadCommentCounts = await Promise.all(
+      recentUploadRowsCapped.map((row) =>
+        ctx.db
+          .select({ id: trackComments.id })
+          .from(trackComments)
+          .where(
+            and(
+              eq(trackComments.versionId, row.versionId),
+              eq(trackComments.fromProducer, false),
+              isNull(trackComments.resolvedAt),
+              gte(trackComments.createdAt, row.uploadedAt),
+            ),
+          ),
+      ),
+    );
+
+    // Build the RecentUpload[] payload. audioUrl is non-null after the
+    // isNotNull WHERE filter, but TypeScript doesn't know that — coerce
+    // with `?? ""` and trust the DB-side filter. (We verified the SQL
+    // predicate in tests.)
+    const recentUploads: RecentUpload[] = recentUploadRowsCapped.map((row, i) => ({
+      versionId: row.versionId,
+      trackId: row.trackId,
+      title: row.title,
+      versionLabel: row.versionLabel,
+      uploadedAt: row.uploadedAt,
+      audioUrl: row.audioUrl ?? "",
+      durationMs: row.durationMs,
+      projectId: row.projectId,
+      projectClientName: row.projectClientName ?? "",
+      projectStage: row.projectStage,
+      unreadComments: unreadCommentCounts[i]?.length ?? 0,
+    }));
+
+    // ── Pulse stats — assemble the single-card payload ──────────────
+    // Last-month revenue: same currency-matched sum as leg 2's
+    // revenueMonthCents. Mixed-currency rows are dropped (anchor =
+    // producer's default currency).
+    const lastMonthCents = lastMonthRows.reduce((acc, r) => {
+      return r.currency === revenueCurrency ? acc + r.amountCents : acc;
+    }, 0);
+
+    // deltaPct: integer % change. null when last month was 0 — a
+    // producer with no prior-month revenue has no comparison anchor,
+    // and we'd render a meaningless +∞% otherwise.
+    const deltaPct =
+      lastMonthCents === 0
+        ? null
+        : Math.round(
+            ((revenueMonthCents - lastMonthCents) / lastMonthCents) * 100,
+          );
+
+    // Sparkline: project DB rows into the fixed 30-bucket array.
+    // Index 0 = (PULSE_SPARKLINE_DAYS - 1) days ago; index 29 = today.
+    // The DB returns one row per day with revenue; days with no rows
+    // get zero-filled.
+    const sparkline: number[] = Array.from(
+      { length: PULSE_SPARKLINE_DAYS },
+      () => 0,
+    );
+    // Today (UTC midnight) — used as the zero-point for index math.
+    const todayUtcMidnight = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    for (const row of sparklineRows) {
+      // The driver may return `day` as a Date or as an ISO date string
+      // (`YYYY-MM-DD`) depending on the postgres connector. Handle both.
+      const dayValue: unknown = row.day;
+      let dayDate: Date | null = null;
+      if (dayValue instanceof Date) {
+        dayDate = dayValue;
+      } else if (typeof dayValue === "string") {
+        const parsed = new Date(`${dayValue.slice(0, 10)}T00:00:00Z`);
+        if (!Number.isNaN(parsed.getTime())) dayDate = parsed;
+      }
+      if (!dayDate) continue;
+      // Days-from-today (negative = past). dayDate is at UTC midnight
+      // already (date_trunc + ::date), so the diff is exact.
+      const diffDays = Math.round(
+        (dayDate.getTime() - todayUtcMidnight.getTime()) /
+          (24 * 60 * 60 * 1000),
+      );
+      const idx = PULSE_SPARKLINE_DAYS - 1 + diffDays;
+      if (idx >= 0 && idx < PULSE_SPARKLINE_DAYS) {
+        sparkline[idx] = row.cents;
+      }
+    }
+
+    const pulseStats: PulseStats = {
+      thisMonthCents: revenueMonthCents,
+      lastMonthCents,
+      currency: revenueCurrency,
+      deltaPct,
+      sparkline,
+      // Footer counts re-project the existing kpis — same source rows,
+      // no extra round-trip. Keeping them in sync with `kpis` is the
+      // contract the redesign component (PulseCard) relies on.
+      activeProjects: kpis.activeProjects,
+      upcomingSessions7d: kpis.upcomingSessions7d,
+      unresolvedItems: kpis.unresolvedItems,
+    };
+
+    return { kpis, items, savedViews, recentUploads, pulseStats };
   }),
 
   // Six-month paid-revenue trend. Feeds the compact SVG line chart on

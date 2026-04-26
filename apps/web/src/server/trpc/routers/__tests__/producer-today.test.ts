@@ -249,9 +249,24 @@ const {
           const n = callCounts.track_comments;
           // 1st: open-comments count (KPI piece)
           // 2nd: open-comments rows (items list)
+          // 3rd+: per-row unread-comments follow-up sub-queries
+          //       added in the Today redesign (recentUploads leg).
+          //       These tests don't seed recentUploadsMock, so the
+          //       follow-up loop is empty and these branches are not
+          //       reached. Routing 3+ → openCommentsRowsMock keeps
+          //       the dispatch total — falling through to a default
+          //       resolves to [] either way.
           return chain(
             () => (n === 1 ? openCommentsMock() : openCommentsRowsMock()),
             n === 1 ? openCommentsWhereSpy : openCommentsRowsWhereSpy,
+          );
+        }
+        if (table === trackVersionsMarker) {
+          // Added 2026-04-25 (today-redesign Story 1): the new
+          // recentUploads leg SELECTs from track_versions. These
+          // legacy tests don't care about its rows — return [].
+          return chain(() =>
+            Promise.resolve<Record<string, unknown>[]>([]),
           );
         }
         if (table === leadsMarker) {
