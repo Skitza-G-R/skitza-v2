@@ -114,17 +114,6 @@ export const portfolioTracks = pgTable("portfolio_tracks", {
 export type PortfolioTrack = typeof portfolioTracks.$inferSelect;
 export type NewPortfolioTrack = typeof portfolioTracks.$inferInsert;
 
-export const waitlist = pgTable("waitlist", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  email: text("email").notNull().unique(),
-  source: text("source"),          // e.g. "landing-hero", "landing-final-cta"
-  userAgent: text("user_agent"),
-  ipHash: text("ip_hash"),         // sha256(ip); raw IPs never stored
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-export type WaitlistEntry = typeof waitlist.$inferSelect;
-export type NewWaitlistEntry = typeof waitlist.$inferInsert;
-
 // ─── Products (formerly packages — Phase H.3 rebuild) ──────────────
 // A producer's offerings — anything they sell, not just time-bound
 // sessions. Producers don't sell hours; they sell deliverables: a mix,
