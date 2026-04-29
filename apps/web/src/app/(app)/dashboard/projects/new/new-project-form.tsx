@@ -86,9 +86,11 @@ function IssuedBanner({
 
 export function NewProjectForm({
   siteUrl,
+  producerSlug,
   contacts = [],
 }: {
   siteUrl: string;
+  producerSlug: string | null;
   contacts?: Contact[];
 }) {
   const router = useRouter();
@@ -147,7 +149,9 @@ export function NewProjectForm({
       });
       if (res.ok) {
         toast(`"${title.trim()}" created. Send the share link next.`, "success");
-        const url = `${siteUrl.replace(/\/$/, "")}/share/${res.data.shareToken}`;
+        const url = producerSlug
+          ? `${siteUrl.replace(/\/$/, "")}/join/${producerSlug}`
+          : "";
         setIssued({ url, id: res.data.id });
         setTitle("");
         setArtistName("");

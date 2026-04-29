@@ -3,12 +3,15 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import { getShellState } from "~/server/shell-data";
 import { NewProjectForm } from "./new-project-form";
 
 export default async function NewProjectPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const siteUrl = process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
+
+  const { slug: producerSlug } = await getShellState();
 
   // Pre-fetch the producer's known client contacts so the form can
   // offer returning-artist autocomplete without a client-side RPC
@@ -46,7 +49,7 @@ export default async function NewProjectPage() {
         </header>
 
         <section className="mt-8">
-          <NewProjectForm siteUrl={siteUrl} contacts={contacts} />
+          <NewProjectForm siteUrl={siteUrl} producerSlug={producerSlug} contacts={contacts} />
         </section>
       </div>
     </>
