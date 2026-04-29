@@ -22,7 +22,6 @@ export function getResend(): Resend {
 export const FROM_ADDRESS =
   process.env.RESEND_FROM ?? "Skitza <hello@skitza.app>";
 
-// Hint for templates that want to drop in a bare host. Pulled from the
-// existing SITE_URL env to stay consistent with the magic-link surface.
+// Hint for templates that want to drop in a bare host.
 export const SITE_URL =
   process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";

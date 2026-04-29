@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Test doubles ────────────────────────────────────────────────────
-// We mirror the magic-link / portfolio router test pattern: table
+// We mirror the portfolio router test pattern: table
 // marker objects let the dbMock route select() chains to the right
 // per-table mock. The project.chargeFinal mutation reads three tables
 // (producers for ownership, projects for plan state, invoices for the

@@ -83,7 +83,7 @@ export default async function SharePage({ params }: PageProps) {
       } catch (err) {
         // Intentionally swallow — the soft-signin banner is a nice-to-have.
         // If the studio-match lookup fails (DB blip, etc.) we must not break
-        // the magic-link flow, which is the primary access path to this
+        // the share-link flow, which is the primary access path to this
         // project. Fall through with softBanner = null.
         console.warn("[share/token] clientContacts lookup failed, hiding banner", err);
       }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 
-// Rendered on magic-link surfaces. Two modes:
+// Rendered on /share/<token> project-room surfaces. Two modes:
 //   1. "Drive-by" — visitor is NOT signed in. Banner says "Sign in to
 //      see all your studios" with a Continue with Google CTA.
 //   2. "In-app" — visitor IS signed in AND their clerkUserId maps to

@@ -157,9 +157,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // (artist-welcome), (onboarding)) — each of those layouts mounts its
   // own <NextIntlClientProvider> and wraps its content in a <div
   // dir={...}> so RTL only fires where it's wanted. The landing,
-  // public storefront, sign-in/up, and the magic-link handler stay
-  // English/LTR regardless of the NEXT_LOCALE cookie, matching the
-  // "English is the universal default" product decision.
+  // public storefront, and sign-in/up stay English/LTR regardless of
+  // the NEXT_LOCALE cookie, matching the "English is the universal
+  // default" product decision.
   return (
     <ClerkProvider appearance={clerkAppearance}>
       {/* `suppressHydrationWarning` stays on <html>: next-themes sets

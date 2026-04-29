@@ -6,7 +6,7 @@
 // the result is assignable to drizzle's strict insert/update shape.
 //
 // Lives in its own module so every router that builds drizzle
-// payloads from zod-parsed input can share it (portfolio, magicLink, …).
+// payloads from zod-parsed input can share it.
 export type Defined<T> = { [K in keyof T]: Exclude<T[K], undefined> };
 
 export const stripUndefined = <T extends Record<string, unknown>>(obj: T): Defined<T> => {

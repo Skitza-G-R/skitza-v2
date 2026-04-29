@@ -114,31 +114,6 @@ export const portfolioTracks = pgTable("portfolio_tracks", {
 export type PortfolioTrack = typeof portfolioTracks.$inferSelect;
 export type NewPortfolioTrack = typeof portfolioTracks.$inferInsert;
 
-export const magicLinks = pgTable("magic_links", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
-  target: text("target").notNull(),     // "portfolio" | "booking" | "project:<uuid>" — string-typed for forward compat
-  tokenHash: text("token_hash").notNull().unique(), // SHA-256 of the issued token; never store the token itself
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-export type MagicLink = typeof magicLinks.$inferSelect;
-export type NewMagicLink = typeof magicLinks.$inferInsert;
-
-export const magicLinkViews = pgTable("magic_link_views", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  magicLinkId: uuid("magic_link_id").notNull().references(() => magicLinks.id, { onDelete: "cascade" }),
-  ip: text("ip"),               // captured from x-forwarded-for; nullable for tests
-  userAgent: text("user_agent"),
-  referer: text("referer"),
-  dwellMs: integer("dwell_ms"), // populated by client-side beacon on unload; nullable
-  viewedAt: timestamp("viewed_at", { withTimezone: true }).notNull().defaultNow(),
-});
-export type MagicLinkView = typeof magicLinkViews.$inferSelect;
-export type NewMagicLinkView = typeof magicLinkViews.$inferInsert;
-
 export const waitlist = pgTable("waitlist", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),
@@ -489,9 +464,9 @@ export const clientContacts = pgTable("client_contacts", {
   notes: text("notes"),
   referralSource: text("referral_source"),
   // Stamped by the Clerk user.created webhook on first artist sign-in.
-  // Null = client has never signed in (still uses magic links). Once
-  // stamped, the artist app can resolve all studios for this person via
-  // a single index lookup on (clerkUserId).
+  // Null = client has never signed in. Once stamped, the artist app can
+  // resolve all studios for this person via a single index lookup on
+  // (clerkUserId).
   clerkUserId: text("clerk_user_id"),
 }, (t) => ({
   uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),

@@ -357,8 +357,7 @@ export const stripeRouter = router({
         .where(eq(projects.id, input.projectId))
         .limit(1);
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      // Constant-time hash comparison via crypto.timingSafeEqual to
-      // match the magic-link verifier's discipline (lib/magic-links/token.ts).
+      // Constant-time hash comparison via crypto.timingSafeEqual.
       // Plain `!==` on the hex string leaks timing proportional to common
       // prefix length — under a network noise floor that's hard to exploit
       // remotely, but the cost of doing it right is one Buffer.from + a

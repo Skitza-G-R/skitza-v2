@@ -6,7 +6,6 @@ import { clientContactsRouter } from "./client-contacts";
 import { healthRouter } from "./health";
 import { inboxRouter } from "./inbox";
 import { libraryRouter } from "./library";
-import { magicLinkRouter } from "./magic-link";
 import { paletteRouter } from "./palette";
 import { portfolioRouter } from "./portfolio";
 import { producerRouter } from "./producer";
@@ -24,7 +23,6 @@ export const appRouter = router({
   health: healthRouter,
   inbox: inboxRouter,
   library: libraryRouter,
-  magicLink: magicLinkRouter,
   palette: paletteRouter,
   portfolio: portfolioRouter,
   producer: producerRouter,

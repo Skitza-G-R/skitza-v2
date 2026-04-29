@@ -12,8 +12,6 @@ import {
   isNull,
   leads,
   lte,
-  magicLinks,
-  magicLinkViews,
   portfolioTracks,
   producers,
   projectTracks,
@@ -905,29 +903,13 @@ export const producerRouter = router({
       .limit(1);
     if (!profile) throw new TRPCError({ code: "NOT_FOUND" });
 
-    const [tracks, leadRows, links, views] = await Promise.all([
+    const [tracks, leadRows] = await Promise.all([
       ctx.db
         .select()
         .from(portfolioTracks)
         .where(eq(portfolioTracks.producerId, ctx.producerId))
         .orderBy(portfolioTracks.position),
       ctx.db.select().from(leads).where(eq(leads.producerId, ctx.producerId)),
-      ctx.db.select().from(magicLinks).where(eq(magicLinks.producerId, ctx.producerId)),
-      // Views are joined through the links to keep the export
-      // producer-scoped; we're not SELECTing every view row in the db.
-      ctx.db
-        .select({
-          id: magicLinkViews.id,
-          magicLinkId: magicLinkViews.magicLinkId,
-          ip: magicLinkViews.ip,
-          userAgent: magicLinkViews.userAgent,
-          referer: magicLinkViews.referer,
-          dwellMs: magicLinkViews.dwellMs,
-          viewedAt: magicLinkViews.viewedAt,
-        })
-        .from(magicLinkViews)
-        .innerJoin(magicLinks, eq(magicLinks.id, magicLinkViews.magicLinkId))
-        .where(eq(magicLinks.producerId, ctx.producerId)),
     ]);
 
     return {
@@ -946,18 +928,6 @@ export const producerRouter = router({
       },
       portfolioTracks: tracks,
       leads: leadRows,
-      magicLinks: links.map((l) => ({
-        id: l.id,
-        leadId: l.leadId,
-        target: l.target,
-        expiresAt: l.expiresAt,
-        revokedAt: l.revokedAt,
-        createdAt: l.createdAt,
-        // tokenHash deliberately omitted — it's one-way, no value to
-        // the producer, and surfacing it would invite "decode this for
-        // me" questions that would never succeed.
-      })),
-      magicLinkViews: views,
     };
   }),
 

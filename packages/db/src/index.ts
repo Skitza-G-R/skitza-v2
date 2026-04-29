@@ -6,10 +6,8 @@ export * from "./client";
 // - `eq`: equality predicate (used everywhere)
 // - `and`: combine predicates, e.g. tenant-scoped row-level filters
 //   in portfolio.reorder
-// - `desc`: ORDER BY direction for magicLink.list (newest first)
-// - `sql`: tagged-template escape hatch for aggregates
-//   (max(viewedAt)) in magicLink.list — drizzle has no first-class
-//   helper for arbitrary SQL fragments yet
+// - `desc`: ORDER BY direction (newest first)
+// - `sql`: tagged-template escape hatch for arbitrary SQL fragments
 // - `asc`: ORDER BY direction for packages.list (by position ASC)
 // - `gt/gte/lt/lte`: range filters — booking.startsAt in slot
 //   computation + autopilot cron's 7d/30d cutoff comparisons (audit

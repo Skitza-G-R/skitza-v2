@@ -141,8 +141,6 @@ vi.mock("@skitza/db", () => ({
   trackComments: { __table: "track_comments" },
   leads: { __table: "leads" },
   portfolioTracks: { __table: "portfolio_tracks" },
-  magicLinks: { __table: "magic_links" },
-  magicLinkViews: { __table: "magic_link_views" },
   clientContacts: { __table: "client_contacts" },
   notifications: { __table: "notifications" },
   stripeCustomers: { __table: "stripe_customers" },

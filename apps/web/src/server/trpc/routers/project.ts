@@ -41,7 +41,7 @@ async function publicCtx(): Promise<{ db: Db; ipHash: string }> {
 
 // Generate a fresh share token for project rooms. 32 bytes → 43
 // base64url chars. Raw token shown to producer ONCE when created;
-// only sha256(token) persisted. Mirrors magicLinks token discipline.
+// only sha256(token) persisted.
 function mintShareToken(): { raw: string; hash: string } {
   const raw = randomBytes(32).toString("base64url");
   const hash = createHash("sha256").update(raw).digest("hex");
