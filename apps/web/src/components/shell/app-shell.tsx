@@ -5,7 +5,6 @@ import { getShellState } from "~/server/shell-data";
 
 import { CoachmarkTour } from "./coachmark-tour";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
-import { DesktopMenuBridge } from "./desktop-menu-bridge";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { ShortcutsBridge } from "./shortcuts-bridge";
 import { Sidebar } from "./sidebar";
@@ -69,7 +68,6 @@ export async function AppShell({ children }: { children: ReactNode }) {
       <MobileBottomNav />
       <CommandPaletteTrigger />
       <ShortcutsBridge />
-      <DesktopMenuBridge />
       <PersistentPlayer />
       {/* First-run guided coachmark tour. Self-gates on a localStorage
           flag (`skitza:producer-tour-seen:v1`), so returning producers
