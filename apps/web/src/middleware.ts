@@ -21,6 +21,7 @@ const STATIC_REDIRECTS: Record<string, string> = {
   "/dashboard/clients":   "/dashboard",
   "/dashboard/leads":     "/dashboard",
   "/dashboard/bookings":  "/dashboard",  // plural — never existed but listed for safety
+  "/dashboard/booking":   "/dashboard/settings",  // route shell deleted in D9; temporary until Calendar page (Phase 3)
   "/dashboard/contracts": "/dashboard",
   "/dashboard/invoices":  "/dashboard",
   "/dashboard/inbox":     "/dashboard",
