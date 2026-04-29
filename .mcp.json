@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.claudia.anthropic.com/schemas/claude-code/mcp.schema.json",
+  "mcpServers": {
+    "neon": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.neon.tech/mcp"]
+    },
+    "cloudflare": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.cloudflare.com/mcp"]
+    },
+    "cloudflare-bindings": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://bindings.mcp.cloudflare.com/mcp"]
+    },
+    "cloudflare-observability": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://observability.mcp.cloudflare.com/mcp"]
+    },
+    "cloudflare-docs": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://docs.mcp.cloudflare.com/mcp"]
+    },
+    "sentry": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.sentry.dev/mcp"]
+    }
+  }
+}
