@@ -460,115 +460,6 @@ export const trackComments = pgTable("track_comments", {
 export type TrackComment = typeof trackComments.$inferSelect;
 export type NewTrackComment = typeof trackComments.$inferInsert;
 
-// ─── Contracts (PandaDoc-equivalent) ────────────────────────────────
-// A two-table model:
-// 1. contract_templates — reusable producer templates (markdown body
-//    with {{placeholder}} tokens).
-// 2. contracts — each "sent for signing" instance. Template snapshot
-//    on send so edits to the template don't mutate sent contracts.
-// 3. contract_events — audit trail (sent, viewed, signed) with IP hash.
-//
-// Contract state: draft → sent → viewed → signed → expired|cancelled.
-// Stored as text instead of enum for looser forward-compat.
-export const contractStatus = pgEnum("contract_status", [
-  "draft",
-  "sent",
-  "viewed",
-  "signed",
-  "completed",
-  "cancelled",
-  "expired",
-]);
-
-export const contractFieldType = pgEnum("contract_field_type", [
-  "signature",
-  "initial",
-  "date",
-  "text",
-  "checkbox",
-  "dropdown",
-  "number",
-]);
-
-export const contractEventKind = pgEnum("contract_event_kind", [
-  "created",
-  "sent",
-  "viewed",
-  "field_filled",
-  "signed",
-  "completed",
-  "cancelled",
-  "downloaded",
-]);
-
-export const contracts = pgTable("contracts", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
-  title: text("title").notNull(),
-  pdfR2Key: text("pdf_r2_key").notNull(),
-  finalPdfR2Key: text("final_pdf_r2_key"),
-  status: contractStatus("status").notNull().default("draft"),
-  shareTokenHash: text("share_token_hash").unique(),
-  sentAt: timestamp("sent_at", { withTimezone: true }),
-  viewedAt: timestamp("viewed_at", { withTimezone: true }),
-  signedAt: timestamp("signed_at", { withTimezone: true }),
-  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const contractRecipients = pgTable("contract_recipients", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  contractId: uuid("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
-  email: text("email").notNull(),
-  name: text("name").notNull(),
-  role: text("role").notNull().default("signer"),
-  routingOrder: integer("routing_order").notNull().default(1),
-  signingTokenHash: text("signing_token_hash").unique().notNull(),
-  viewedAt: timestamp("viewed_at", { withTimezone: true }),
-  signedAt: timestamp("signed_at", { withTimezone: true }),
-  ipHash: text("ip_hash"),
-  userAgent: text("user_agent"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const contractFields = pgTable("contract_fields", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  contractId: uuid("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
-  recipientId: uuid("recipient_id").references(() => contractRecipients.id, { onDelete: "set null" }),
-  page: integer("page").notNull(),
-  x: numeric("x", { precision: 5, scale: 2 }).notNull(),
-  y: numeric("y", { precision: 5, scale: 2 }).notNull(),
-  w: numeric("w", { precision: 5, scale: 2 }).notNull(),
-  h: numeric("h", { precision: 5, scale: 2 }).notNull(),
-  type: contractFieldType("type").notNull(),
-  required: boolean("required").notNull().default(true),
-  prefilledValue: text("prefilled_value"),
-  signedValue: text("signed_value"),
-  signedAt: timestamp("signed_at", { withTimezone: true }),
-  options: jsonb("options"),
-});
-
-export const contractEvents = pgTable("contract_events", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  contractId: uuid("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
-  recipientId: uuid("recipient_id").references(() => contractRecipients.id, { onDelete: "set null" }),
-  event: contractEventKind("event").notNull(),
-  ipHash: text("ip_hash"),
-  userAgent: text("user_agent"),
-  metadata: jsonb("metadata"),
-  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export type Contract = typeof contracts.$inferSelect;
-export type NewContract = typeof contracts.$inferInsert;
-export type ContractRecipient = typeof contractRecipients.$inferSelect;
-export type NewContractRecipient = typeof contractRecipients.$inferInsert;
-export type ContractField = typeof contractFields.$inferSelect;
-export type NewContractField = typeof contractFields.$inferInsert;
-export type ContractEvent = typeof contractEvents.$inferSelect;
-export type NewContractEvent = typeof contractEvents.$inferInsert;
 // ─── Client contacts cache ──────────────────────────────────────────
 // When an artist signs a contract, submits a booking request, or the
 // producer creates a project, we upsert an entry here so send-forms can
@@ -622,9 +513,7 @@ export type NewClientContact = typeof clientContacts.$inferInsert;
 // forget so a notify failure can never block the primary flow.
 export const notificationKind = pgEnum("notification_kind", [
   "comment_created",     // visitor commented on a track version
-  "contract_signed",     // all-signers-complete OR an individual signer
   "booking_requested",   // visitor submitted a booking
-  "contract_viewed",     // signer opened the contract link (optional; could be noisy)
   "track_approved",      // (future) artist marked a version approved
 ]);
 
@@ -640,7 +529,6 @@ export const notifications = pgTable("notifications", {
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
   trackVersionId: uuid("track_version_id").references(() => trackVersions.id, { onDelete: "cascade" }),
   commentId: uuid("comment_id").references(() => trackComments.id, { onDelete: "cascade" }),
-  contractId: uuid("contract_id").references(() => contracts.id, { onDelete: "cascade" }),
   bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "cascade" }),
   readAt: timestamp("read_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),

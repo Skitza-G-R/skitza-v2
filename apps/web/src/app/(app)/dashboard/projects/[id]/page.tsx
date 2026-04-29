@@ -73,38 +73,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     console.warn("[projects] project.money failed", err);
   }
 
-  // Contracts: list all producer contracts and client-filter by
-  // contract.projectId. Degrade gracefully if the router errors
-  // (cross-branch schema skew).
-  let contractsForProject: {
-    id: string;
-    title: string;
-    status: string;
-    createdAt: Date;
-    signedAt: Date | null;
-  }[] = [];
-  try {
-    const all = await caller.contract.list();
-    contractsForProject = all
-      .filter((c) => c.projectId === id)
-      .map((c) => ({
-        id: c.id,
-        title: c.title,
-        status: c.status,
-        createdAt: c.createdAt,
-        signedAt: c.signedAt,
-      }));
-  } catch {
-    contractsForProject = [];
-  }
-
-  // Task 5 — timeline's Contract step needs to know whether at least
-  // one contract for this project has been signed. `signedAt` on any
-  // recipient (status === "signed") is the authoritative signal.
-  const contractSigned = contractsForProject.some(
-    (c) => c.status === "signed" || c.signedAt !== null,
-  );
-
   // Task 7 — Sessions sub-tab needs the single booking linked to this
   // project (projects.bookingId is a 1:1 FK). Reuse the producer-scoped
   // booking.list and filter in JS: producers typically have a small
@@ -243,7 +211,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     totalAmountCents: data.project.totalAmountCents,
     cardLast4,
     currency: projectCurrency,
-    contractSigned,
     finalDelivered: data.project.finalPaid,
   };
 
@@ -305,11 +272,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
               <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
             ) : null}
             {activeTab === "money" ? (
-              <MoneySubTab
-                projectId={data.project.id}
-                money={moneyForProject}
-                contracts={contractsForProject}
-              />
+              <MoneySubTab money={moneyForProject} />
             ) : null}
             {activeTab === "notes" ? (
               <NotesSubTab
@@ -323,7 +286,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
                 }}
                 trackCount={data.tracks.length}
                 versionCount={data.versions.length}
-                contractCount={contractsForProject.length}
                 tracks={data.tracks.map((t) => ({ id: t.id, title: t.title }))}
                 versions={data.versions.map((v) => ({
                   trackId: v.trackId,

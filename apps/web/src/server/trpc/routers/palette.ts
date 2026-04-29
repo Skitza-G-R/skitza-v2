@@ -1,7 +1,6 @@
 import {
   and,
   clientContacts,
-  contracts,
   projectTracks,
   projects,
   desc,
@@ -15,11 +14,11 @@ import { z } from "zod";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 
-// ⌘K command palette search. Unions three producer-scoped streams
-// (projects, client contacts, contracts) behind one procedure so the
-// client can render grouped results without fanning out to three
-// queries. Kept flat + deliberately simple — no full-text index yet,
-// just ilike on 1–5 columns per table with a per-type cap of 10.
+// ⌘K command palette search. Unions producer-scoped streams (projects,
+// client contacts, tracks) behind one procedure so the client can
+// render grouped results without fanning out to multiple queries. Kept
+// flat + deliberately simple — no full-text index yet, just ilike on
+// 1–5 columns per table with a per-type cap of 10.
 //
 // Empty query is a "recents" surface (last 5 per type by updatedAt /
 // lastSeenAt) so ⌘K is useful the moment it opens.
@@ -30,7 +29,7 @@ export const paletteRouter = router({
       const raw = input.q.trim();
 
       if (raw.length === 0) {
-        const [recentProjects, recentContacts, recentContracts, recentTracks] =
+        const [recentProjects, recentContacts, recentTracks] =
           await Promise.all([
             ctx.db
               .select()
@@ -43,12 +42,6 @@ export const paletteRouter = router({
               .from(clientContacts)
               .where(eq(clientContacts.producerId, ctx.producerId))
               .orderBy(desc(clientContacts.lastSeenAt))
-              .limit(5),
-            ctx.db
-              .select()
-              .from(contracts)
-              .where(eq(contracts.producerId, ctx.producerId))
-              .orderBy(desc(contracts.createdAt))
               .limit(5),
             ctx.db
               .select({
@@ -67,15 +60,6 @@ export const paletteRouter = router({
         return {
           projects: recentProjects.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
           contacts: recentContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
-          contracts: recentContracts.map((c) => ({
-            id: c.id,
-            title: c.title,
-            status: c.status,
-            // `projectId` is nullable — old contracts may not be linked
-            // to a project yet. Palette deep-links when set, falls back
-            // to the projects list when null.
-            projectId: c.projectId,
-          })),
           tracks: recentTracks.map((t) => ({
             id: t.versionId,
             title: t.trackTitle,
@@ -90,7 +74,7 @@ export const paletteRouter = router({
       // columns since they coexist on the row. Cap at 10 per type so
       // the palette list stays navigable from the keyboard.
       const pattern = `%${raw}%`;
-      const [matchProjects, matchContacts, matchContracts, matchTracks] = await Promise.all([
+      const [matchProjects, matchContacts, matchTracks] = await Promise.all([
         ctx.db
           .select()
           .from(projects)
@@ -123,17 +107,6 @@ export const paletteRouter = router({
           .orderBy(desc(clientContacts.lastSeenAt))
           .limit(10),
         ctx.db
-          .select()
-          .from(contracts)
-          .where(
-            and(
-              eq(contracts.producerId, ctx.producerId),
-              ilike(contracts.title, pattern),
-            ),
-          )
-          .orderBy(desc(contracts.createdAt))
-          .limit(10),
-        ctx.db
           .select({
             versionId: trackVersions.id,
             versionLabel: trackVersions.label,
@@ -158,12 +131,6 @@ export const paletteRouter = router({
       return {
         projects: matchProjects.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
         contacts: matchContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
-        contracts: matchContracts.map((c) => ({
-          id: c.id,
-          title: c.title,
-          status: c.status,
-          projectId: c.projectId,
-        })),
         tracks: matchTracks.map((t) => ({
           id: t.versionId,
           title: t.trackTitle,

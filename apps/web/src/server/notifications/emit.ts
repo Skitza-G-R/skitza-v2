@@ -32,23 +32,6 @@ export async function emitCommentCreated(db: Db, input: {
   });
 }
 
-export async function emitContractSigned(db: Db, input: {
-  producerId: string;
-  contractId: string;
-  projectId: string | null;
-  signerName: string;
-  allSigned: boolean;
-}): Promise<void> {
-  await db.insert(notifications).values({
-    producerId: input.producerId,
-    kind: "contract_signed",
-    title: input.allSigned ? "Contract fully signed" : `${input.signerName} signed`,
-    body: input.allSigned ? "All parties have signed." : "Awaiting remaining signers.",
-    contractId: input.contractId,
-    projectId: input.projectId,
-  });
-}
-
 export async function emitBookingRequested(db: Db, input: {
   producerId: string;
   bookingId: string;

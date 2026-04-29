@@ -4,8 +4,6 @@ import {
   and,
   bookings,
   clientContacts,
-  contractRecipients,
-  contracts,
   products,
   projectTracks,
   projects,
@@ -736,25 +734,6 @@ export const clientContactsRouter = router({
         trackCount = row?.n ?? 0;
       }
 
-      const contractRows = await ctx.db
-        .select({
-          id: contracts.id,
-          title: contracts.title,
-          status: contracts.status,
-          createdAt: contracts.createdAt,
-          sentAt: contracts.sentAt,
-          signedAt: contracts.signedAt,
-        })
-        .from(contracts)
-        .innerJoin(contractRecipients, eq(contractRecipients.contractId, contracts.id))
-        .where(
-          and(
-            eq(contracts.producerId, ctx.producerId),
-            sql`lower(${contractRecipients.email}) = ${lower}`,
-          ),
-        )
-        .orderBy(desc(contracts.createdAt));
-
       const commentRows =
         projectIds.length > 0
           ? await ctx.db
@@ -829,7 +808,6 @@ export const clientContactsRouter = router({
           lifetimeCents,
         },
         projects: enrichedProjects,
-        contracts: contractRows,
         comments: commentRows,
       };
     }),

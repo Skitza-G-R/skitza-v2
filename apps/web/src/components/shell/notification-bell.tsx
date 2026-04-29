@@ -35,15 +35,10 @@ import {
 // Derive a deep-link href from the notification's related refs.
 // Exported for unit testing — the ordering mirrors the schema FK
 // priority: a comment/track belongs to a project; a booking has its
-// own detail surface; a contract without a project falls back to the
-// projects list. Kept pure so tests can exhaust every kind branch.
+// own detail surface. Kept pure so tests can exhaust every kind branch.
 export function notificationHref(n: ShellNotificationItem): string {
   if (n.projectId) return `/dashboard/projects/${n.projectId}`;
   if (n.bookingId) return `/dashboard/booking?id=${n.bookingId}`;
-  // A contract without a project is historical — before we started
-  // linking them. Land on the projects list so the producer can
-  // triage from there.
-  if (n.contractId) return "/dashboard/projects";
   return "/dashboard/projects";
 }
 

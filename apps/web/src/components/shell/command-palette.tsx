@@ -301,37 +301,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               </Command.Group>
             ) : null}
 
-            {result?.contracts.length ? (
-              <Command.Group heading={`Contracts (${String(result.contracts.length)})`}>
-                {result.contracts.map((c) => (
-                  <Command.Item
-                    key={c.id}
-                    value={`contract ${c.title}`}
-                    onSelect={() => {
-                      // Contracts no longer have a list page — each one
-                      // lives inside its Project Room. Route there when
-                      // we know the projectId; otherwise fall back to
-                      // the projects list so the producer can find it.
-                      onClose();
-                      if (c.projectId) {
-                        router.push(`/dashboard/projects/${c.projectId}`);
-                      } else {
-                        router.push("/dashboard/projects");
-                      }
-                    }}
-                    className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="text-[rgb(var(--fg-muted))]">$</span>
-                      {c.title}
-                    </span>
-                    <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-                      {c.status}
-                    </span>
-                  </Command.Item>
-                ))}
-              </Command.Group>
-            ) : null}
           </Command.List>
           <div className="flex items-center justify-between border-t border-[rgb(var(--border-subtle))] px-4 py-2 font-mono text-[10px] text-[rgb(var(--fg-muted))]">
             <span>Esc to close · ↵ to select · ↑↓ navigate</span>

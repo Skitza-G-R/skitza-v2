@@ -14,14 +14,6 @@ import {
   type BookingRequestReceivedProps,
 } from "./templates/booking-request-received";
 import {
-  ContractReady,
-  type ContractReadyProps,
-} from "./templates/contract-ready";
-import {
-  ContractSigned,
-  type ContractSignedProps,
-} from "./templates/contract-signed";
-import {
   FinalPaymentDue,
   type FinalPaymentDueProps,
 } from "./templates/final-payment-due";
@@ -125,19 +117,6 @@ export async function sendSessionReminder1h(
 // src/server/email/SITE_URL — used as the base for deep-link URLs
 // when the caller doesn't pass its own.
 
-export async function sendContractReadyEmail(
-  to: string,
-  props: ContractReadyProps,
-): Promise<void> {
-  const html = await render(<ContractReady {...props} />);
-  await getResend().emails.send({
-    from: FROM_ADDRESS,
-    to,
-    subject: `Contract ready to sign · ${props.contractTitle}`,
-    html,
-  });
-}
-
 export async function sendFinalPaymentDueEmail(
   to: string,
   props: FinalPaymentDueProps,
@@ -199,19 +178,6 @@ export async function sendNewCommentFromArtistEmail(
     from: FROM_ADDRESS,
     to,
     subject: `New comment from ${props.artistName} · ${props.trackTitle}`,
-    html,
-  });
-}
-
-export async function sendContractSignedEmail(
-  to: string,
-  props: ContractSignedProps,
-): Promise<void> {
-  const html = await render(<ContractSigned {...props} />);
-  await getResend().emails.send({
-    from: FROM_ADDRESS,
-    to,
-    subject: `Contract signed · ${props.contractTitle}`,
     html,
   });
 }

@@ -63,10 +63,6 @@ export interface ProjectHeaderProject {
   totalAmountCents: number | null;
   cardLast4: string | null;
   currency: string;
-  // Task 5 timeline signals. contractSigned is true when the producer
-  // has a contract on this project with status === "signed". Surfaced
-  // by the page loader.
-  contractSigned: boolean;
   // finalDelivered mirrors the legacy finalPaid flag for now — until a
   // dedicated "final delivered" column lands, delivery and final
   // payment collapse to the same thing.
@@ -369,7 +365,6 @@ export function ProjectHeader({
       {/* 5-step progress rail. */}
       <ProjectTimeline
         stage={stage}
-        contractSigned={project.contractSigned}
         chargesCompleted={project.chargesCompleted}
         chargesTotal={project.chargesTotal}
         finalDelivered={project.finalDelivered}

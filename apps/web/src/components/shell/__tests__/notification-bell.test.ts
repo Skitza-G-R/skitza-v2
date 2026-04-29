@@ -19,7 +19,6 @@ function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotifica
     projectId: null,
     trackVersionId: null,
     commentId: null,
-    contractId: null,
     bookingId: null,
     ...overrides,
   };
@@ -60,17 +59,6 @@ describe("notificationHref", () => {
         }),
       ),
     ).toBe("/dashboard/projects/proj-2");
-  });
-
-  it("routes contract-only notifications to the projects list", () => {
-    expect(
-      notificationHref(
-        makeItem({
-          kind: "contract_signed",
-          contractId: "ct-1",
-        }),
-      ),
-    ).toBe("/dashboard/projects");
   });
 
   it("falls back to the projects list when no ref is populated", () => {

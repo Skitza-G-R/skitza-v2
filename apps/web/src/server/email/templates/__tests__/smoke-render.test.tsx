@@ -2,8 +2,6 @@ import { describe, it, expect } from "vitest";
 import { render } from "@react-email/components";
 
 import { BookingCancelledOrRescheduled } from "../booking-cancelled-or-rescheduled";
-import { ContractReady } from "../contract-ready";
-import { ContractSigned } from "../contract-signed";
 import { FinalPaymentDue } from "../final-payment-due";
 import { NewCommentFromArtist } from "../new-comment-from-artist";
 import { PaymentReceived } from "../payment-received";
@@ -22,22 +20,6 @@ import { TrackVersionUploaded } from "../track-version-uploaded";
 // React tree compiles + the props flow through to the rendered HTML.
 
 describe("email templates smoke render (audit Task 13)", () => {
-  it("ContractReady renders with the artist + contract title + CTA link", async () => {
-    const html = await render(
-      <ContractReady
-        artistName="Ada"
-        producerName="Gili Asraf"
-        contractTitle="Album production — 12 tracks"
-        reviewUrl="https://skitza.app/sign/abc123"
-      />,
-    );
-    expect(html).toContain("Ada");
-    expect(html).toContain("Gili Asraf");
-    expect(html).toContain("Album production — 12 tracks");
-    expect(html).toContain("https://skitza.app/sign/abc123");
-    expect(html).toContain("Review");
-  });
-
   it("FinalPaymentDue renders with amount + due label + pay URL", async () => {
     const html = await render(
       <FinalPaymentDue
@@ -126,22 +108,6 @@ describe("email templates smoke render (audit Task 13)", () => {
     expect(html).toContain("Summer EP — Track 03");
     expect(html).toContain("Loving where this is going");
     expect(html).toContain("https://skitza.app/dashboard/projects/p1#c42");
-  });
-
-  it("ContractSigned renders signer + contract title + view link", async () => {
-    const html = await render(
-      <ContractSigned
-        producerName="Gili Asraf"
-        artistName="Ada"
-        contractTitle="Album production — 12 tracks"
-        viewUrl="https://skitza.app/dashboard/projects/p1"
-      />,
-    );
-    expect(html).toContain("Gili Asraf");
-    expect(html).toContain("Ada");
-    expect(html).toContain("Album production — 12 tracks");
-    expect(html).toContain("signed");
-    expect(html).toContain("https://skitza.app/dashboard/projects/p1");
   });
 
   it("BookingCancelledOrRescheduled (cancelled variant) shows original time + no new slot", async () => {
