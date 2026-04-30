@@ -8,6 +8,7 @@ const TABS = [
   { href: "/artist/music", label: "Music", icon: "🎵" },
   { href: "/artist/book", label: "Book", icon: "🗓️" },
   { href: "/artist/store", label: "Store", icon: "🛍️" },
+  { href: "/artist/settings", label: "Settings", icon: "⚙️" },
 ] as const;
 
 export function BottomNav() {
@@ -27,7 +28,7 @@ export function BottomNav() {
       // from clipping the first/last tab label.
       className="sk-safe-bottom sk-safe-x fixed inset-x-0 bottom-0 z-30 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]/95 backdrop-blur"
     >
-      <ul className="mx-auto grid max-w-2xl grid-cols-4">
+      <ul className="mx-auto grid max-w-2xl grid-cols-5">
         {TABS.map((tab) => {
           const active = isActive(tab.href);
           return (
