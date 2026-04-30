@@ -18,13 +18,13 @@ import type { PaymentPlan } from "@skitza/db";
 import { Badge } from "~/components/ui/badge";
 import { EmptyState } from "~/components/ui/empty-state";
 
-import { DeactivatePackageButton } from "~/app/(app)/dashboard/booking/package-form";
-import { EditPackageButton } from "~/app/(app)/dashboard/booking/edit-product-client";
-import { PackageToolbar } from "~/app/(app)/dashboard/booking/package-toolbar";
+import { DeactivatePackageButton } from "~/app/(producer)/dashboard/booking/package-form";
+import { EditPackageButton } from "~/app/(producer)/dashboard/booking/edit-product-client";
+import { PackageToolbar } from "~/app/(producer)/dashboard/booking/package-toolbar";
 import {
   CURRENCY_SYMBOL,
   type InitialPackageValues,
-} from "~/app/(app)/dashboard/booking/package-form";
+} from "~/app/(producer)/dashboard/booking/package-form";
 
 export type ServicePackageRow = {
   id: string;

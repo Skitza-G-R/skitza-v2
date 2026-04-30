@@ -20,7 +20,7 @@ import type { PaymentPlan } from "@skitza/db";
 import type {
   PackageKind,
   PackageLocationType,
-} from "~/app/(app)/dashboard/booking/actions";
+} from "~/app/(producer)/dashboard/booking/actions";
 
 export type TemplateCurrency = "USD" | "EUR" | "GBP" | "ILS";
 

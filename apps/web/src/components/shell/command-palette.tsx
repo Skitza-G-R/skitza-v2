@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   paletteSearch,
   type PaletteResult,
-} from "~/app/(app)/dashboard/palette-actions";
+} from "~/app/(producer)/dashboard/palette-actions";
 
 // ⌘K / Ctrl+K command palette. Lazy-loaded by CommandPaletteTrigger
 // so cmdk is only pulled into the client bundle when the producer

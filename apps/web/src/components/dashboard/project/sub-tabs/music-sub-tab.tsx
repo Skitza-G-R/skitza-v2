@@ -20,7 +20,7 @@ import {
   addTrackVersion,
   approveVersionAction,
   resolveVersionComment,
-} from "~/app/(app)/dashboard/projects/actions";
+} from "~/app/(producer)/dashboard/projects/actions";
 
 // MusicSubTab only needs the project ID to scope its queries and
 // action calls — version/track/comment data comes in via the `tracks`

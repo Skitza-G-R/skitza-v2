@@ -41,7 +41,7 @@ import {
   chargeFinalAction,
   setProjectPaid,
   setStageAction,
-} from "~/app/(app)/dashboard/projects/actions";
+} from "~/app/(producer)/dashboard/projects/actions";
 
 import { ProjectTimeline } from "./project-timeline";
 import { TagEditor } from "./tag-editor";

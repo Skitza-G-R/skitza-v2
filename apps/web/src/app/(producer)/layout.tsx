@@ -4,7 +4,7 @@ import { createDb, producers, clientContacts, eq } from "@skitza/db";
 import { AppI18nProvider } from "~/i18n/app-i18n-provider";
 import { decideAppLayoutRedirect } from "./decide-redirect";
 
-// Gate: any authed (app) route requires either a "complete" Producer
+// Gate: any authed (producer) route requires either a "complete" Producer
 // profile (→ render dashboard) or an artist identity (→ /artist).
 // The routing policy itself lives in ./decide-redirect.ts as a pure
 // function so it can be unit-tested without Clerk/Drizzle/next mocks.

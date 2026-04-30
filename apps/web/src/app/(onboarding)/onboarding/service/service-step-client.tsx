@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 
-import { NewPackageForm } from "~/app/(app)/dashboard/booking/package-form";
+import { NewPackageForm } from "~/app/(producer)/dashboard/booking/package-form";
 import { OnboardingShell } from "~/app/(onboarding)/onboarding/shell";
 
 import {

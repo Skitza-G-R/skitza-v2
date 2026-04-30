@@ -25,7 +25,7 @@ import {
   stageToState,
   type ProjectState,
 } from "~/lib/projects/states";
-import { bulkSetProjectStage } from "~/app/(app)/dashboard/projects/actions";
+import { bulkSetProjectStage } from "~/app/(producer)/dashboard/projects/actions";
 
 // Batch G — the projects list now surfaces THREE display states
 // instead of eight-plus stage chips. The underlying stage enum is

@@ -11,7 +11,7 @@ import {
 } from "react";
 
 import { useToast } from "~/components/ui/toast";
-import { setClientTagsAction } from "~/app/(app)/dashboard/projects/actions";
+import { setClientTagsAction } from "~/app/(producer)/dashboard/projects/actions";
 
 // Inline tag editor that lives on the Project Room header. Tags are
 // rendered as amber pills with an `x` to remove; clicking the "+ Add

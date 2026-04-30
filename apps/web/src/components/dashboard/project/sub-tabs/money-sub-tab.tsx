@@ -4,7 +4,7 @@ import { useTransition } from "react";
 
 import { Button } from "~/components/ui/button";
 import { useToast } from "~/components/ui/toast";
-import { openStripeDashboard } from "~/app/(app)/dashboard/settings/stripe-actions";
+import { openStripeDashboard } from "~/app/(producer)/dashboard/settings/stripe-actions";
 
 // Batch G, Task 4 — Money sub-tab collapsed to a 3-metric strip.
 //

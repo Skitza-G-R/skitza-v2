@@ -18,7 +18,7 @@ import { useState, useTransition } from "react";
 
 import { SaveIndicator, useSaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
-import { togglePublicSample } from "~/app/(app)/dashboard/settings/actions";
+import { togglePublicSample } from "~/app/(producer)/dashboard/settings/actions";
 
 export type PortfolioTrackRow = {
   id: string;
