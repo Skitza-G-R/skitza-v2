@@ -7,26 +7,21 @@ import {
   type ProjectRow,
   type Stage,
 } from "~/components/dashboard/projects/projects-list";
-import { isProjectState } from "~/lib/projects/states";
+import { isProjectState, type ProjectState } from "~/lib/projects/states";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-// Task 4: lightweight browse view for all of a producer's projects,
-// filterable by the three display states (Live / Done / Archived).
-// Batch G collapsed the former 8-chip stage filter to a 3-chip
-// state filter — the ProjectsList client does the grouping; this
-// page just parses `?state=` and hands it down. The URL param was
-// renamed from `stage` to `state` to match the user-visible surface;
-// legacy `stage` query params fall through to "All" silently (not a
-// real regression: bookmarks to specific stages were never a
-// prominent flow).
-//
-// Note: we deliberately do NOT run the first-run onboarding redirect
-// here. /dashboard (the Today screen) owns that; users only reach
-// /dashboard/projects once they've already started something, so the
-// empty state below hints at sharing a magic link instead.
+import { ClientsPageTabs } from "./clients-page-tabs";
+import { type ClientsTabKey, isClientsTab } from "./clients-tab-key";
+import { ClientsPanel, type ClientRow } from "./clients-panel";
+
+// Task 4 + Task 3 (tabs): the page now has two tabs — Clients and
+// Projects. The Projects tab preserves the existing browse view; the
+// Clients tab is a CRM list (one row per contact, expand for projects).
+// `?tab` is parsed first; default is "projects" for backward compat
+// (existing bookmarks / sidebar links land on the projects view).
 
 type PageProps = {
-  searchParams: Promise<{ state?: string }>;
+  searchParams: Promise<{ tab?: string; state?: string }>;
 };
 
 export default async function ProjectsPage({ searchParams }: PageProps) {
@@ -34,14 +29,10 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const grouped = await caller.project.listByStage();
   const sp = await searchParams;
-  const activeState = isProjectState(sp.state) ? sp.state : null;
+  const active: ClientsTabKey = isClientsTab(sp.tab) ? sp.tab : "projects";
 
-  // Project down to the minimal row shape the client component needs.
-  // Dates cross the RSC → client boundary as ISO strings; we drop
-  // sensitive + unused columns (stripe ids, etc.) so they never ship
-  // to the browser.
+  let clientRows: ClientRow[] = [];
   const clientGrouped: GroupedProjects = {
     lead: [],
     booked: [],
@@ -50,21 +41,43 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     paid: [],
     archived: [],
   };
-  for (const stage of Object.keys(clientGrouped) as Stage[]) {
-    clientGrouped[stage] = grouped[stage].map<ProjectRow>((p) => ({
-      id: p.id,
-      title: p.title,
-      artistName: p.artistName,
-      stage: p.stage,
-      updatedAtIso: p.updatedAt.toISOString(),
-    }));
+  let activeState: ProjectState | null = null;
+
+  if (active === "clients") {
+    const res = await caller.clientContacts.listWithProjects({
+      view: "by-client",
+    });
+    if (res.view === "by-client") {
+      clientRows = res.clients.map((c) => ({
+        id: c.id,
+        email: c.email,
+        name: c.name,
+        totalProjectCount: c.totalProjectCount,
+        activeProjectCount: c.activeProjectCount,
+        needsAttention: c.needsAttention,
+        isStale: c.isStale,
+        lastActivityIso:
+          c.lastActivity instanceof Date
+            ? c.lastActivity.toISOString()
+            : new Date(c.lastActivity).toISOString(),
+      }));
+    }
+  } else {
+    const grouped = await caller.project.listByStage();
+    activeState = isProjectState(sp.state) ? sp.state : null;
+    for (const stage of Object.keys(clientGrouped) as Stage[]) {
+      clientGrouped[stage] = grouped[stage].map<ProjectRow>((p) => ({
+        id: p.id,
+        title: p.title,
+        artistName: p.artistName,
+        stage: p.stage,
+        updatedAtIso: p.updatedAt.toISOString(),
+      }));
+    }
   }
 
   return (
     <>
-      {/* Batch C — Projects page picks up the same editorial canvas
-          treatment as Today: full-bleed, gradient band at the top,
-          display-font page title at 4xl→5xl, mono eyebrow above it. */}
       <div className="relative isolate">
         <div
           aria-hidden
@@ -76,13 +89,30 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
               Pipeline
             </p>
             <h1 className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
-              Projects
+              Clients & Projects
             </h1>
             <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
-              Browse and open the project room for any active engagement.
+              Browse your clients or open the project room for any active engagement.
             </p>
           </header>
-          <ProjectsList grouped={clientGrouped} activeState={activeState} />
+
+          <div className="mt-6">
+            <ClientsPageTabs active={active} />
+          </div>
+
+          <div
+            key={active}
+            id={`clients-panel-${active}`}
+            role="tabpanel"
+            aria-labelledby={`clients-tab-${active}`}
+            className="pt-6"
+          >
+            {active === "clients" ? (
+              <ClientsPanel rows={clientRows} />
+            ) : (
+              <ProjectsList grouped={clientGrouped} activeState={activeState} />
+            )}
+          </div>
         </div>
       </div>
     </>
