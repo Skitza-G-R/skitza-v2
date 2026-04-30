@@ -78,19 +78,6 @@ export const producers = pgTable("producers", {
 export type Producer = typeof producers.$inferSelect;
 export type NewProducer = typeof producers.$inferInsert;
 
-export const leads = pgTable("leads", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  name: text("name"),
-  email: text("email"),
-  phone: text("phone"),
-  source: text("source"), // free-text for v1: "instagram dm", "referral from X", etc.
-  notes: text("notes"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-export type Lead = typeof leads.$inferSelect;
-export type NewLead = typeof leads.$inferInsert;
-
 export const portfolioTracks = pgTable("portfolio_tracks", {
   id: uuid("id").defaultRandom().primaryKey(),
   producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
@@ -295,13 +282,10 @@ export type NewBooking = typeof bookings.$inferInsert;
 export const projectStage = pgEnum("project_stage", [
   "lead",          // potential, not yet booked
   "booked",        // booking created
-  "contract_sent", // contract sent to artist
   "in_production", // actively working
   "final_review",  // final mix sent, awaiting approval
   "paid",          // final invoice paid
   "archived",      // closed
-  "payment_paused", // monthly retries exhausted — locks self-booking until PM updated
-  "cancelled",     // producer cancelled mid-plan
 ]);
 
 export const projects = pgTable("projects", {
@@ -315,7 +299,6 @@ export const projects = pgTable("projects", {
   // still renders a sensible row after a booking row is purged.
   clientName: text("client_name"),
   clientEmail: text("client_email"),
-  shareTokenHash: text("share_token_hash").notNull().unique(),
   // Legacy artistName/artistEmail kept for now — the share-page render
   // path still reads them and we avoid churning that here.
   artistName: text("artist_name").notNull(),

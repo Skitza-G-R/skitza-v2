@@ -139,7 +139,6 @@ vi.mock("@skitza/db", () => ({
   invoices: { __table: "invoices" },
   bookings: { __table: "bookings" },
   trackComments: { __table: "track_comments" },
-  leads: { __table: "leads" },
   portfolioTracks: { __table: "portfolio_tracks" },
   clientContacts: { __table: "client_contacts" },
   notifications: { __table: "notifications" },

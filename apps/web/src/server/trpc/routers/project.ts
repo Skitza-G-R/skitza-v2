@@ -34,44 +34,22 @@ function mintShareToken(): { raw: string; hash: string } {
   return { raw, hash };
 }
 
-// Shape we expose publicly. Strips shareTokenHash from the wire — the
-// artist already holds the raw token in their URL; exposing the hash
-// gives no benefit and lets an attacker correlate DB leaks.
-type ProjectPublic = Omit<typeof projects.$inferSelect, "shareTokenHash">;
+type ProjectPublic = typeof projects.$inferSelect;
 function stripHash(row: typeof projects.$inferSelect): ProjectPublic {
-  // Destructure to drop shareTokenHash; spreading the rest keeps us in
-  // sync as new columns land on the projects table without having to
-  // re-list every field here.
-  const { shareTokenHash: _hash, ...rest } = row;
-  void _hash;
-  return rest;
+  return row;
 }
 
 // Project stages mirror the project_stage pg enum. Kept here as a
 // const so the Zod input and listByStage grouped init stay in sync.
-// Note: `payment_paused` and `cancelled` are valid DB stages but are
-// NOT included in the Kanban view — they're terminal/paused states
-// handled separately in the CRM. `ALL_STAGES` enumerates every enum
-// value so Zod accepts them on setStage; `STAGES` is the Kanban-only
-// subset used by listByStage grouping.
 const ALL_STAGES = [
   "lead",
   "booked",
-  "contract_sent",
   "in_production",
   "final_review",
   "paid",
   "archived",
-  "payment_paused",
-  "cancelled",
 ] as const;
-// Kanban-visible subset of ALL_STAGES. Kept as a type-only alias
-// since the runtime guard in listByStage excludes the two terminal
-// stages directly rather than iterating this list.
-type Stage = Exclude<
-  (typeof ALL_STAGES)[number],
-  "payment_paused" | "cancelled"
->;
+type Stage = (typeof ALL_STAGES)[number];
 
 // ─── Inputs ──────────────────────────────────────────────────────────
 const CreateProjectInput = z.object({
@@ -153,30 +131,12 @@ export const projectRouter = router({
     const grouped: Record<Stage, KanbanRow[]> = {
       lead: [],
       booked: [],
-      contract_sent: [],
       in_production: [],
       final_review: [],
       paid: [],
       archived: [],
     };
     for (const r of rows) {
-      // Batch G — the UI now groups by a 3-state display layer (Live
-      // / Done / Archived) ON TOP of the stage enum. `payment_paused`
-      // folds into Live (it's recoverable, not terminal); `cancelled`
-      // folds into Archived. The server return shape stays on the
-      // Kanban-visible 7-stage dictionary, so the client can still
-      // pick from it by state; the two formerly-excluded stages ride
-      // along inside `archived` (cancelled) and `lead` (paused — the
-      // projects list treats paused as pre-booked state so the
-      // producer can resume).
-      if (r.stage === "payment_paused") {
-        grouped.lead.push({ ...r, stage: "lead" });
-        continue;
-      }
-      if (r.stage === "cancelled") {
-        grouped.archived.push({ ...r, stage: "archived" });
-        continue;
-      }
       const stage: Stage = r.stage;
       grouped[stage].push({ ...r, stage });
     }
@@ -306,7 +266,6 @@ export const projectRouter = router({
         title: input.title,
         artistName: input.artistName,
         artistEmail: input.artistEmail.toLowerCase(),
-        shareTokenHash: token.hash,
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -340,15 +299,6 @@ export const projectRouter = router({
   // stages — just not via this dropdown), so the dropdown UI also drops
   // them as selectable options.
   setStage: producerProcedure.input(SetStageInput).mutation(async ({ ctx, input }) => {
-    if (input.stage === "cancelled" || input.stage === "payment_paused") {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message:
-          input.stage === "cancelled"
-            ? "Use the Cancel project button — it stops Stripe charges before transitioning."
-            : "payment_paused is set automatically by webhook handlers when payments fail.",
-      });
-    }
     const [row] = await ctx.db
       .select({ producerId: projects.producerId })
       .from(projects)
@@ -365,13 +315,10 @@ export const projectRouter = router({
   }),
 
   // Bulk variant of setStage for the Projects-list multi-select.
-  // Same guardrails as the single-id version:
-  //   - cancelled / payment_paused refused (they're owned by other
-  //     code paths that coordinate Stripe + DB transitions)
-  //   - UPDATE scoped to producer_id so a tampered id array can't
-  //     mutate another producer's projects
-  // The producer-id WHERE clause on the UPDATE itself is the auth
-  // boundary — cheaper than N round-trips to verify each id first.
+  // UPDATE is scoped to producer_id so a tampered id array can't mutate
+  // another producer's projects — the WHERE clause on the UPDATE itself
+  // is the auth boundary, cheaper than N round-trips to verify each id
+  // first.
   setStageBulk: producerProcedure
     .input(
       z.object({
@@ -380,15 +327,6 @@ export const projectRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      if (input.stage === "cancelled" || input.stage === "payment_paused") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            input.stage === "cancelled"
-              ? "Use the Cancel project button — it stops Stripe charges before transitioning."
-              : "payment_paused is set automatically by webhook handlers when payments fail.",
-        });
-      }
       const now = new Date();
       await ctx.db
         .update(projects)
@@ -681,12 +619,7 @@ export const projectRouter = router({
         });
       }
 
-      // 3. Already-cancelled is idempotent success — webhook + this
-      //    mutation can race, and a re-click after success is a no-op.
-      if (project.stage === "cancelled") {
-        return { ok: true as const };
-      }
-      // 4. Already-finalized projects can't be cancelled; the engagement
+      // 3. Already-finalized projects can't be cancelled; the engagement
       //    is over. Refund flows through Stripe Dashboard.
       if (project.stage === "paid" || project.stage === "archived") {
         throw new TRPCError({
@@ -695,7 +628,7 @@ export const projectRouter = router({
         });
       }
 
-      // 5. If a monthly schedule is in flight, stop it. Schedule lives
+      // 4. If a monthly schedule is in flight, stop it. Schedule lives
       //    on the platform account (we use destination charges for the
       //    Connect split), so the call is a plain platform API call —
       //    no `{ stripeAccount }` header.
@@ -722,13 +655,11 @@ export const projectRouter = router({
         }
       }
 
-      // 6. Set stage immediately so the producer sees the result without
-      //    waiting for the webhook roundtrip. The webhook handler is
-      //    idempotent — it re-applies stage='cancelled' which is a no-op
-      //    if we've already written it.
+      // 5. Set stage to archived so the producer sees the result without
+      //    waiting for the webhook roundtrip.
       await ctx.db
         .update(projects)
-        .set({ stage: "cancelled", updatedAt: new Date() })
+        .set({ stage: "archived", updatedAt: new Date() })
         .where(eq(projects.id, project.id));
 
       return { ok: true as const };
@@ -920,7 +851,6 @@ export const projectRouter = router({
           title,
           artistName: booking.artistName,
           artistEmail: booking.artistEmail,
-          shareTokenHash: token.hash,
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });

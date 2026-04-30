@@ -218,7 +218,7 @@ export function ProjectHeader({
     const res = await cancelProjectAction({ projectId: project.id, confirmTitle });
     if (!res.ok) throw new Error(res.error);
     setCancelOpen(false);
-    setStage("cancelled");
+    setStage("archived");
     toast("Project cancelled. Future charges stopped automatically.", "success");
     router.refresh();
   }

@@ -56,13 +56,10 @@ function toMessage(err: unknown): string {
 type Stage =
   | "lead"
   | "booked"
-  | "contract_sent"
   | "in_production"
   | "final_review"
   | "paid"
-  | "archived"
-  | "payment_paused"
-  | "cancelled";
+  | "archived";
 
 export async function createProject(input: {
   title: string;

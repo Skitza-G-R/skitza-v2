@@ -4,14 +4,13 @@ import { eq, inArray } from "drizzle-orm";
 import {
   createDb,
   producers,
-  leads,
   portfolioTracks,
 } from "../index";
 
 const url = process.env.DATABASE_URL_TEST;
 const describeIfDb = url ? describe : describe.skip;
 
-describeIfDb("Extended tables (leads, portfolio_tracks)", () => {
+describeIfDb("Extended tables (portfolio_tracks)", () => {
   const db = url ? createDb(url) : null;
   // Track every producer this suite creates so afterAll can cascade-clean them
   // even if an `it` block aborts mid-flight.
@@ -32,13 +31,8 @@ describeIfDb("Extended tables (leads, portfolio_tracks)", () => {
     await db.delete(producers).where(inArray(producers.id, createdProducerIds));
   });
 
-  it("cascades deletion from producer through leads, portfolio_tracks", async () => {
+  it("cascades deletion from producer through portfolio_tracks", async () => {
     const producerId = await makeProducer();
-
-    const [lead] = await db!
-      .insert(leads)
-      .values({ producerId, name: "Test Lead", email: "lead@example.com" })
-      .returning();
 
     const [track] = await db!
       .insert(portfolioTracks)
@@ -50,19 +44,16 @@ describeIfDb("Extended tables (leads, portfolio_tracks)", () => {
       .returning();
 
     // Sanity: all rows exist before delete
-    expect(lead!.id).toBeDefined();
     expect(track!.id).toBeDefined();
 
     // Cascade delete via producer
     await db!.delete(producers).where(eq(producers.id, producerId));
 
-    const remainingLeads = await db!.select().from(leads).where(eq(leads.id, lead!.id));
     const remainingTracks = await db!
       .select()
       .from(portfolioTracks)
       .where(eq(portfolioTracks.id, track!.id));
 
-    expect(remainingLeads).toHaveLength(0);
     expect(remainingTracks).toHaveLength(0);
 
     // Already deleted; remove from the cleanup list so afterAll doesn't no-op error.

@@ -31,7 +31,6 @@ const {
   trackCommentsMarker,
   trackVersionsMarker,
   projectTracksMarker,
-  leadsMarker,
   thisMonthMock,
   unpaidCountMock,
   unpaidRowsMock,
@@ -120,15 +119,6 @@ const {
     projectId: { __column: "project_tracks.project_id" },
     title: { __column: "project_tracks.title" },
   };
-  const leadsMarker = {
-    __table: "leads",
-    id: { __column: "leads.id" },
-    producerId: { __column: "leads.producer_id" },
-    name: { __column: "leads.name" },
-    email: { __column: "leads.email" },
-    source: { __column: "leads.source" },
-    createdAt: { __column: "leads.created_at" },
-  };
 
   const callCounts = {
     projects: 0,
@@ -136,7 +126,6 @@ const {
     bookings: 0,
     track_comments: 0,
     track_versions: 0,
-    leads: 0,
     producers: 0,
   };
   const resetCallCounts = () => {
@@ -145,7 +134,6 @@ const {
     callCounts.bookings = 0;
     callCounts.track_comments = 0;
     callCounts.track_versions = 0;
-    callCounts.leads = 0;
     callCounts.producers = 0;
   };
 
@@ -239,10 +227,6 @@ const {
           // recentUploads leg (no rows seeded — pulse tests don't care).
           return chain(empty);
         }
-        if (table === leadsMarker) {
-          callCounts.leads += 1;
-          return chain(empty);
-        }
         throw new Error(`unexpected from(${String(table)})`);
       },
     }),
@@ -256,7 +240,6 @@ const {
     trackCommentsMarker,
     trackVersionsMarker,
     projectTracksMarker,
-    leadsMarker,
     thisMonthMock,
     unpaidCountMock,
     unpaidRowsMock,
@@ -284,7 +267,6 @@ vi.mock("@skitza/db", () => ({
   trackComments: trackCommentsMarker,
   trackVersions: trackVersionsMarker,
   projectTracks: projectTracksMarker,
-  leads: leadsMarker,
   portfolioTracks: { __table: "portfolio_tracks" },
   clientContacts: { __table: "client_contacts" },
   notifications: { __table: "notifications" },

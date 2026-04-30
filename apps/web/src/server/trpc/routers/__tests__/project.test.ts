@@ -467,19 +467,6 @@ describe("project.cancel", () => {
     });
   });
 
-  it("returns idempotent success when already cancelled", async () => {
-    seedCancel({ stage: "cancelled" });
-    const caller = await buildCaller();
-    const res = await caller.project.cancel({
-      projectId: PROJECT_ID,
-      confirmTitle: PROJECT_TITLE,
-    });
-    expect(res).toEqual({ ok: true });
-    // Idempotency: no Stripe call, no DB write — already in target state.
-    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
-    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
-  });
-
   it("rejects BAD_REQUEST when project is already paid", async () => {
     seedCancel({ stage: "paid" });
     const caller = await buildCaller();
@@ -526,12 +513,12 @@ describe("project.cancel", () => {
     expect(res).toEqual({ ok: true });
     expect(subscriptionSchedulesCancelMock).toHaveBeenCalledTimes(1);
     expect(subscriptionSchedulesCancelMock).toHaveBeenCalledWith(SCHEDULE_ID);
-    // DB write: stage flipped to 'cancelled'. We capture the .set()
+    // DB write: stage flipped to 'archived'. We capture the .set()
     // payload via the spy so we can assert the exact field is touched.
     const setCalls = projectUpdateSetSpy.mock.calls;
     expect(setCalls.length).toBeGreaterThan(0);
     const lastSet = setCalls[setCalls.length - 1]?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("full plan: skips Stripe call (no schedule), still sets stage", async () => {
@@ -550,7 +537,7 @@ describe("project.cancel", () => {
     expect(res).toEqual({ ok: true });
     expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("split_50_50: skips Stripe call (no schedule), still sets stage", async () => {
@@ -570,7 +557,7 @@ describe("project.cancel", () => {
     // a Stripe schedule — there's nothing on Stripe's side to cancel.
     expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("treats 'schedule already cancelled' as idempotent success", async () => {
@@ -591,7 +578,7 @@ describe("project.cancel", () => {
     // The DB write still happens — our local state needs to converge
     // even if Stripe was already in the terminal state.
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("treats 'schedule already released' as idempotent success", async () => {
@@ -607,7 +594,7 @@ describe("project.cancel", () => {
       }),
     ).resolves.toEqual({ ok: true });
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("surfaces unexpected Stripe errors as INTERNAL_SERVER_ERROR", async () => {
@@ -685,29 +672,6 @@ describe("project.setStage", () => {
       { id: PROJECT_ID, producerId: PRODUCER_ID, stage },
     ]);
   }
-
-  it("rejects 'cancelled' — producer must use the Cancel button (which calls Stripe)", async () => {
-    seedSetStage();
-    const caller = await buildCaller();
-    await expect(
-      caller.project.setStage({ id: PROJECT_ID, stage: "cancelled" }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
-    // No DB write — the rejection must happen before any state mutation.
-    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
-  });
-
-  it("rejects 'payment_paused' — webhook-only state", async () => {
-    seedSetStage();
-    const caller = await buildCaller();
-    await expect(
-      caller.project.setStage({ id: PROJECT_ID, stage: "payment_paused" }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
-    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
-  });
 
   it("accepts 'in_production' (a normal Kanban stage)", async () => {
     seedSetStage();

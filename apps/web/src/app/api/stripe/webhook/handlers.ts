@@ -56,9 +56,9 @@ export function planStageToProjectStage(
     case "paid":
       return "paid";
     case "payment_paused":
-      return "payment_paused";
+      return "in_production";
     case "cancelled":
-      return "cancelled";
+      return "archived";
     case "lead":
       return "lead";
   }
@@ -141,11 +141,7 @@ async function advanceAndPersist(
       ? "active"
       : project.stage === "paid"
         ? "paid"
-        : project.stage === "payment_paused"
-          ? "payment_paused"
-          : project.stage === "cancelled"
-            ? "cancelled"
-            : "lead";
+        : "lead";
   const next = advancePlanState(
     {
       chargesCompleted: project.chargesCompleted,

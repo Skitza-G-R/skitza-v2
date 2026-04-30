@@ -40,12 +40,11 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
 
   // Project down to the minimal row shape the client component needs.
   // Dates cross the RSC → client boundary as ISO strings; we drop
-  // sensitive + unused columns (shareTokenHash, stripe ids, etc.) so
-  // they never ship to the browser.
+  // sensitive + unused columns (stripe ids, etc.) so they never ship
+  // to the browser.
   const clientGrouped: GroupedProjects = {
     lead: [],
     booked: [],
-    contract_sent: [],
     in_production: [],
     final_review: [],
     paid: [],

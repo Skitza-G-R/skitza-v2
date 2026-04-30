@@ -73,36 +73,12 @@ describe("computeTimeline", () => {
     expect(r[3]).toEqual({ label: "Paid", state: "pending" });
   });
 
-  it("cancelled: no step is 'current'", () => {
-    const r = computeTimeline({
-      stage: "cancelled",
-      chargesCompleted: 1,
-      chargesTotal: 2,
-      finalDelivered: false,
-    });
-    for (const step of r) {
-      expect(step.state).not.toBe("current");
-    }
-  });
-
   it("archived: no step is current (absorbing state after paid)", () => {
     const r = computeTimeline({
       stage: "archived",
       chargesCompleted: 3,
       chargesTotal: 3,
       finalDelivered: true,
-    });
-    for (const step of r) {
-      expect(step.state).not.toBe("current");
-    }
-  });
-
-  it("payment_paused: no step is 'current'", () => {
-    const r = computeTimeline({
-      stage: "payment_paused",
-      chargesCompleted: 1,
-      chargesTotal: 3,
-      finalDelivered: false,
     });
     for (const step of r) {
       expect(step.state).not.toBe("current");

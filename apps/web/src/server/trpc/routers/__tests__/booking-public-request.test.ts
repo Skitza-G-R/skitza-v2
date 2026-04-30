@@ -186,73 +186,6 @@ function seedProducerAndProduct() {
   ]);
 }
 
-describe("booking.publicRequest paused-project guard", () => {
-  it("rejects PRECONDITION_FAILED when client has a paused project with this producer", async () => {
-    seedProducerAndProduct();
-    // Same email + producer + payment_paused stage → guard fires.
-    projectSelectQueue.push([{ id: "paused-project-1" }]);
-
-    const caller = await buildCaller();
-    await expect(
-      caller.booking.publicRequest({
-        slug: PRODUCER_SLUG,
-        productId: PRODUCT_ID,
-        artistName: "Existing Client",
-        artistEmail: ARTIST_EMAIL,
-      }),
-    ).rejects.toMatchObject({
-      code: "PRECONDITION_FAILED",
-      message:
-        "Your payment method needs to be updated before you can book a new session.",
-    });
-
-    // No booking row created — the guard short-circuits before insert.
-    expect(insertValuesSpy).not.toHaveBeenCalled();
-  });
-
-  it("allows the booking when no paused project matches the email/producer pair", async () => {
-    seedProducerAndProduct();
-    // Empty result → no paused project → guard passes.
-    projectSelectQueue.push([]);
-    // Empty bookings query for the slot conflict check (skipped for
-    // pure-delivery products anyway, but the procedure still calls into
-    // it on the legacy path — push a defensive empty seed).
-    bookingSelectQueue.push([]);
-
-    const caller = await buildCaller();
-    const res = await caller.booking.publicRequest({
-      slug: PRODUCER_SLUG,
-      productId: PRODUCT_ID,
-      artistName: "Greenfield Client",
-      artistEmail: "fresh@example.com",
-    });
-
-    // Booking row was inserted — guard let the request through.
-    expect(insertValuesSpy).toHaveBeenCalled();
-    expect(res.id).toBe("booking-row-1");
-  });
-
-  it("normalizes the artist email to lowercase before checking for paused projects", async () => {
-    seedProducerAndProduct();
-    // The DB has the email stored lowercased. Send mixed-case input;
-    // if the procedure forgot to lowercase, no row would match and the
-    // guard would silently let the booking through (false negative).
-    // Our test expects the row to match → guard should fire.
-    projectSelectQueue.push([{ id: "paused-project-mixed-case" }]);
-
-    const caller = await buildCaller();
-    await expect(
-      caller.booking.publicRequest({
-        slug: PRODUCER_SLUG,
-        productId: PRODUCT_ID,
-        artistName: "Mixed Case",
-        artistEmail: "Client@Example.COM",
-      }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(insertValuesSpy).not.toHaveBeenCalled();
-  });
-});
-
 // ─── Batch B: producer auto-confirm toggle ──────────────────────────
 //
 // When `producers.auto_confirm_bookings = true` the booking insert
@@ -283,8 +216,6 @@ describe("booking.publicRequest auto-confirm", () => {
         paymentPlans: [{ kind: "full" }],
       },
     ]);
-    // No paused project.
-    projectSelectQueue.push([]);
     // No slot-conflict candidates.
     bookingSelectQueue.push([]);
   }
@@ -391,8 +322,6 @@ describe("booking.publicRequest invoice ledger writes (Critical 3 regression)", 
 
   it("monthly plan: NO booking-time invoice row inserted (webhook is sole writer)", async () => {
     seedMonthlyProduct();
-    // No paused-project guard hit
-    projectSelectQueue.push([]);
     // Empty bookings query for slot-conflict check
     bookingSelectQueue.push([]);
 
@@ -495,7 +424,6 @@ describe("booking.publicRequest invoice ledger writes (Critical 3 regression)", 
 
   it("split_50_50 plan: still inserts booking-time deposit invoice (control)", async () => {
     seedMonthlyProduct();
-    projectSelectQueue.push([]);
     bookingSelectQueue.push([]);
 
     const planMod = await import("~/server/payments/plan");

@@ -527,7 +527,7 @@ const bookSubrouter = router({
               eq(projects.artistEmail, contact.email),
               eq(projects.depositPaid, true),
               eq(projects.finalPaid, false),
-              notInArray(projects.stage, ["paid", "archived", "cancelled"]),
+              notInArray(projects.stage, ["paid", "archived"]),
             ),
           )
           .limit(1),
