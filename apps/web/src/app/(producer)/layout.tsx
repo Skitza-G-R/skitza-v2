@@ -14,9 +14,8 @@ import { decideAppLayoutRedirect } from "./decide-redirect";
 // displayName at Clerk sign-up; /onboarding is the form that fills
 // both in.
 //
-// /onboarding lives in its own (onboarding) route group so this layout
-// doesn't apply to it (which would otherwise loop incomplete users
-// indefinitely).
+// (onboarding) is intentionally its own route group — nesting it here would loop producer-incomplete users.
+// It will be merged into (producer)/dashboard/onboarding when the wizard is rebuilt in Phase 3.
 //
 // 2026-04-22 — BUG FIX (docs/audit-report.md Task 15). Before this,
 // any authed user without a producers row was unconditionally sent to

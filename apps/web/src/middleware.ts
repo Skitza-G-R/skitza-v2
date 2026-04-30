@@ -105,6 +105,11 @@ export default clerkMiddleware(async (auth, req) => {
   // next/headers". Limit the header injection to /onboarding/* so the
   // rest of the app keeps the bare `NextResponse.next()` shape and we
   // don't pay the Headers-clone cost on every request.
+  //
+  // (onboarding) is intentionally its own route group — nesting it inside
+  // (producer) would loop producer-incomplete users. It will be merged
+  // into (producer)/dashboard/onboarding when the wizard is rebuilt in
+  // Phase 3.
   if (req.nextUrl.pathname.startsWith("/onboarding")) {
     const requestHeaders = new Headers(req.headers);
     requestHeaders.set("x-pathname", req.nextUrl.pathname);
