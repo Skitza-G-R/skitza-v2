@@ -41,7 +41,22 @@ import { ONBOARDING_STEP_NAME } from "./constants";
 // (`from "../page"`) keep working without modification. The client
 // component imports directly from ./constants to skip this re-export
 // and avoid the server bundle.
-export * from "./constants";
+//
+// Named (not `export *`) so Next.js's static page-module analysis
+// has a finite export list — `export *` makes Next probe for the
+// special metadata exports (generateMetadata/generateViewport/
+// generateImageMetadata) and the build emits import-error warnings
+// when they're absent.
+export {
+  PORTFOLIO_STEP_INDEX,
+  PORTFOLIO_STEP_TITLE,
+  PORTFOLIO_STEP_SUBTITLE,
+  PORTFOLIO_HELPER_COPY,
+  ONBOARDING_STEP_NAME,
+  routeOnContinueFromPortfolio,
+  routeOnSkipFromPortfolio,
+  routeOnBackFromPortfolio,
+} from "./constants";
 
 export default async function PortfolioStepPage() {
   // Page-level role guard. The layout already enforces the role wall

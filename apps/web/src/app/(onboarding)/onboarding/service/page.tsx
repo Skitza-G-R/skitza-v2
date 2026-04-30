@@ -53,7 +53,20 @@ async function fetchProducerDefaultCurrency(
 // imports (`from "../page"`) keep working without modification. The
 // client component imports directly from ./constants to skip this
 // re-export and avoid the server bundle.
-export * from "./constants";
+//
+// Named (not `export *`) so Next.js's static page-module analysis
+// has a finite export list — `export *` makes Next probe for the
+// special metadata exports (generateMetadata/generateViewport/
+// generateImageMetadata) and the build emits import-error warnings
+// when they're absent.
+export {
+  SERVICE_STEP_INDEX,
+  SERVICE_STEP_TITLE,
+  SERVICE_STEP_SUBTITLE,
+  ONBOARDING_STEP_NAME,
+  nextRouteAfterService,
+  routeOnSkipFromService,
+} from "./constants";
 
 export default async function ServiceStepPage() {
   // Page-level role guard. The layout already enforces the artist +

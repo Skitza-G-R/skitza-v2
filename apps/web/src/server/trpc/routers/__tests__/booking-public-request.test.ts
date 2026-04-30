@@ -12,7 +12,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const PRODUCER_ID = "producer-uuid-paused";
 const PRODUCER_SLUG = "studio-pause";
 const PRODUCT_ID = "00000000-0000-0000-0000-000000000b01";
-const ARTIST_EMAIL = "client@example.com";
 
 const producersMarker = { __table: "producers" };
 const productsMarker = { __table: "products" };
@@ -163,28 +162,6 @@ const buildCaller = async () => {
   const { appRouter } = await import("../_app");
   return appRouter.createCaller({ userId: null });
 };
-
-// Pure-deliverable product: no slot grid, no minLeadHours friction —
-// keeps the test focused on the paused-project guard rather than the
-// availability machinery.
-function seedProducerAndProduct() {
-  producerSelectQueue.push([{ id: PRODUCER_ID }]);
-  productSelectQueue.push([
-    {
-      id: PRODUCT_ID,
-      producerId: PRODUCER_ID,
-      name: "Mix",
-      durationMin: 0,
-      minLeadHours: 0,
-      bufferMinutes: 0,
-      depositModel: "flat",
-      depositPct: 0,
-      currency: "USD",
-      priceCents: 10000,
-      paymentPlans: [{ kind: "full" }],
-    },
-  ]);
-}
 
 // ─── Batch B: producer auto-confirm toggle ──────────────────────────
 //
