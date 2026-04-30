@@ -56,7 +56,7 @@ export function shelfRenderModel(uploads: RecentUpload[]): ShelfRenderModel {
 // keeps the project room on its Music sub-tab; `?versionId=` lets
 // the music tab pre-select that version on mount.
 export function cardHref(u: RecentUpload): string {
-  return `/dashboard/projects/${u.projectId}?tab=music&versionId=${u.versionId}`;
+  return `/dashboard/clients-projects/${u.projectId}?tab=music&versionId=${u.versionId}`;
 }
 
 // CustomEvent payload dispatched on play-button click. Shape matches

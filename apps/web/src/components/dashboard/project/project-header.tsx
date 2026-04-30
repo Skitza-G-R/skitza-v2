@@ -41,7 +41,7 @@ import {
   chargeFinalAction,
   setProjectPaid,
   setStageAction,
-} from "~/app/(producer)/dashboard/projects/actions";
+} from "~/app/(producer)/dashboard/clients-projects/actions";
 
 import { ProjectTimeline } from "./project-timeline";
 import { TagEditor } from "./tag-editor";
@@ -189,7 +189,7 @@ export function ProjectHeader({
     setMenuOpen(false);
     // Deep-link to the music sub-tab with an action hint. The music
     // sub-tab handles the ?action=upload param (landing Task 6).
-    router.push(`/dashboard/projects/${project.id}?tab=music&action=upload`);
+    router.push(`/dashboard/clients-projects/${project.id}?tab=music&action=upload`);
   }
 
   // Batch D — Project Room keyboard shortcuts. Scoped to the header's

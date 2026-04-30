@@ -12,7 +12,13 @@
 // <AppShell> — a per-page literal that was easy to forget on a new
 // route. Now the active state is a derivation of the URL.
 
-export type ActiveKey = "today" | "music" | "projects" | "setup";
+export type ActiveKey =
+  | "today"
+  | "music"
+  | "clients-projects"
+  | "calendar"
+  | "profile"
+  | "setup";
 
 // Order of checks matters. The longest-match-first principle keeps
 // this readable without a router library: more specific prefixes
@@ -21,8 +27,9 @@ export type ActiveKey = "today" | "music" | "projects" | "setup";
 export function getActiveKey(pathname: string): ActiveKey {
   if (pathname === "/dashboard") return "today";
   if (pathname.startsWith("/dashboard/music")) return "music";
-  if (pathname.startsWith("/dashboard/projects")) return "projects";
-  if (pathname.startsWith("/dashboard/booking")) return "projects";
+  if (pathname.startsWith("/dashboard/clients-projects")) return "clients-projects";
+  if (pathname.startsWith("/dashboard/calendar")) return "calendar";
+  if (pathname.startsWith("/dashboard/profile")) return "profile";
   if (pathname.startsWith("/dashboard/settings")) return "setup";
   if (pathname.startsWith("/dashboard/onboarding")) return "setup";
   return "today";

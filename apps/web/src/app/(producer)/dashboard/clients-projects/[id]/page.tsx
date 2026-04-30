@@ -228,7 +228,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
         <Breadcrumbs
           className="mb-3"
           items={[
-            { label: "Projects", href: "/dashboard/projects" },
+            { label: "Clients & Projects", href: "/dashboard/clients-projects" },
             { label: data.project.title },
           ]}
         />

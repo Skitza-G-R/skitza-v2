@@ -22,15 +22,17 @@ describe("getActiveKey", () => {
     ["/dashboard/music", "music"],
     ["/dashboard/music/upload", "music"],
 
-    // Projects sub-tree — list, new, and per-project room all roll
-    // up under the Projects nav. Booking does too: there's no top-
-    // level Booking nav (PRD §4 — booking is a Projects affordance).
-    ["/dashboard/projects", "projects"],
-    ["/dashboard/projects/new", "projects"],
-    ["/dashboard/projects/abc123", "projects"],
-    ["/dashboard/projects/abc123/music", "projects"],
-    ["/dashboard/booking", "projects"],
-    ["/dashboard/booking/123", "projects"],
+    // Clients & Projects sub-tree — list, new, and per-project room
+    // all roll up under the Clients & Projects nav (renamed from
+    // Projects in P2-A-7 to match the PRD's 6-page producer surface).
+    ["/dashboard/clients-projects", "clients-projects"],
+    ["/dashboard/clients-projects/new", "clients-projects"],
+    ["/dashboard/clients-projects/abc123", "clients-projects"],
+    ["/dashboard/clients-projects/abc123/music", "clients-projects"],
+
+    // Calendar + Profile are top-level pages added in P2-A-7 (PRD §4).
+    ["/dashboard/calendar", "calendar"],
+    ["/dashboard/profile", "profile"],
 
     // Setup covers settings + onboarding (which lives under
     // dashboard/onboarding for already-signed-in producers who

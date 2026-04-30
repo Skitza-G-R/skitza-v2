@@ -22,14 +22,16 @@ describe("isTypingTarget", () => {
 });
 
 describe("G_LEADER_ROUTES", () => {
-  it("maps exactly the 4 shell screens", () => {
-    expect(Object.keys(G_LEADER_ROUTES).sort()).toEqual(["m", "p", "s", "t"]);
+  it("maps exactly the 6 producer pages", () => {
+    expect(Object.keys(G_LEADER_ROUTES).sort()).toEqual(["c", "f", "m", "p", "s", "t"]);
   });
 
-  it("points each letter at the canonical 4-screen route", () => {
+  it("points each letter at the canonical producer route", () => {
     expect(G_LEADER_ROUTES.t).toBe("/dashboard");
     expect(G_LEADER_ROUTES.m).toBe("/dashboard/music");
-    expect(G_LEADER_ROUTES.p).toBe("/dashboard/projects");
+    expect(G_LEADER_ROUTES.p).toBe("/dashboard/clients-projects");
+    expect(G_LEADER_ROUTES.c).toBe("/dashboard/calendar");
+    expect(G_LEADER_ROUTES.f).toBe("/dashboard/profile");
     expect(G_LEADER_ROUTES.s).toBe("/dashboard/settings");
   });
 });

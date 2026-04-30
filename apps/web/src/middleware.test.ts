@@ -22,7 +22,7 @@ describe("resolveLegacyRedirect", () => {
 
   it("returns null for unknown paths", () => {
     expect(resolveLegacyRedirect("/dashboard")).toBe(null);
-    expect(resolveLegacyRedirect("/dashboard/projects/abc")).toBe(null);
+    expect(resolveLegacyRedirect("/dashboard/clients-projects/abc")).toBe(null);
     expect(resolveLegacyRedirect("/random")).toBe(null);
   });
 

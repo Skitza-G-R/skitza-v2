@@ -34,11 +34,14 @@ export function MobileBottomNav() {
   const pathname = usePathname();
   const active = getActiveKey(pathname);
 
-  // Ordered slots around the centre FAB. Today + Projects flank the
-  // left; Music + Setup flank the right. Matches the visual weight
-  // on iOS tab bars (primary on the outer edges, frequent-creation
-  // action in the middle).
-  const leftTabs: ActiveKey[] = ["today", "projects"];
+  // Ordered slots around the centre FAB. Today + Clients & Projects
+  // flank the left; Music + Setup flank the right. Matches the visual
+  // weight on iOS tab bars (primary on the outer edges, frequent-
+  // creation action in the middle). The mobile rail keeps 4 tabs even
+  // though the desktop sidebar grew to 6 in P2-A-7 — Profile + Calendar
+  // are reachable on mobile via deep-link only (PRD: producer dashboard
+  // is desktop-first, mobile is "review on the go").
+  const leftTabs: ActiveKey[] = ["today", "clients-projects"];
   const rightTabs: ActiveKey[] = ["music", "setup"];
 
   return (

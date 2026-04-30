@@ -29,12 +29,16 @@ export type ShortcutHandlers = {
 };
 
 // G-leader navigation map. Exported so the test suite can assert the
-// routes stay in sync with the 4-screen shell (Today / Music /
-// Projects / Setup) without needing jsdom.
+// routes stay in sync with the 6-page producer surface (Today /
+// Clients & Projects / Music / Calendar / Profile / Setup) without
+// needing jsdom. `c` (calendar) and `f` (profile) joined the map in
+// P2-A-7 alongside the projects → clients-projects rename.
 export const G_LEADER_ROUTES = {
   t: "/dashboard",
   m: "/dashboard/music",
-  p: "/dashboard/projects",
+  p: "/dashboard/clients-projects",
+  c: "/dashboard/calendar",
+  f: "/dashboard/profile",
   s: "/dashboard/settings",
 } as const;
 

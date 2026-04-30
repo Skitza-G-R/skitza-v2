@@ -581,7 +581,7 @@ export const producerRouter = router({
       title: c.authorName,
       subtitle: truncate(c.body, 120),
       occurredAt: c.createdAt,
-      href: `/dashboard/projects/${c.projectId}`,
+      href: `/dashboard/clients-projects/${c.projectId}`,
       unread: true,
     }));
 
@@ -596,8 +596,8 @@ export const producerRouter = router({
       ),
       occurredAt: inv.createdAt,
       href: inv.projectId
-        ? `/dashboard/projects/${inv.projectId}`
-        : "/dashboard/projects",
+        ? `/dashboard/clients-projects/${inv.projectId}`
+        : "/dashboard/clients-projects",
       unread: false,
     }));
 

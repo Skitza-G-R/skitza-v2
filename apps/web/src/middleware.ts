@@ -21,7 +21,13 @@ const STATIC_REDIRECTS: Record<string, string> = {
   "/dashboard/clients":   "/dashboard",
   "/dashboard/leads":     "/dashboard",
   "/dashboard/bookings":  "/dashboard",  // plural — never existed but listed for safety
-  "/dashboard/booking":   "/dashboard/settings",  // route shell deleted in D9; temporary until Calendar page (Phase 3)
+  // P2-A-7: /booking → /calendar (booking shell still exists for now,
+  // but the canonical home for session/availability work is the new
+  // Calendar page); /revenue collapsed back into Today; /projects
+  // renamed to /clients-projects to match the PRD §4 producer surface.
+  "/dashboard/booking":   "/dashboard/calendar",
+  "/dashboard/revenue":   "/dashboard",
+  "/dashboard/projects":  "/dashboard/clients-projects",
   "/dashboard/contracts": "/dashboard",
   "/dashboard/invoices":  "/dashboard",
   "/dashboard/inbox":     "/dashboard",

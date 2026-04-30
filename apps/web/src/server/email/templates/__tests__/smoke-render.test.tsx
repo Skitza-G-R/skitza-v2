@@ -83,7 +83,7 @@ describe("email templates smoke render (audit Task 13)", () => {
         amountCents={100000} // $1000
         platformFeeCents={5000} // $50 (5% Pro)
         currency="USD"
-        viewUrl="https://skitza.app/dashboard/projects/p1"
+        viewUrl="https://skitza.app/dashboard/clients-projects/p1"
       />,
     );
     expect(html).toContain("Gili Asraf");
@@ -91,7 +91,7 @@ describe("email templates smoke render (audit Task 13)", () => {
     expect(html).toMatch(/\$1,?000/); // locale formatting
     expect(html).toMatch(/\$50/);
     expect(html).toMatch(/\$950/); // net
-    expect(html).toContain("https://skitza.app/dashboard/projects/p1");
+    expect(html).toContain("https://skitza.app/dashboard/clients-projects/p1");
   });
 
   it("NewCommentFromArtist renders the comment body + track title", async () => {
@@ -101,13 +101,13 @@ describe("email templates smoke render (audit Task 13)", () => {
         artistName="Ada"
         trackTitle="Summer EP — Track 03"
         commentBody="Loving where this is going — the bridge hits."
-        threadUrl="https://skitza.app/dashboard/projects/p1#c42"
+        threadUrl="https://skitza.app/dashboard/clients-projects/p1#c42"
       />,
     );
     expect(html).toContain("Ada");
     expect(html).toContain("Summer EP — Track 03");
     expect(html).toContain("Loving where this is going");
-    expect(html).toContain("https://skitza.app/dashboard/projects/p1#c42");
+    expect(html).toContain("https://skitza.app/dashboard/clients-projects/p1#c42");
   });
 
   it("BookingCancelledOrRescheduled (cancelled variant) shows original time + no new slot", async () => {

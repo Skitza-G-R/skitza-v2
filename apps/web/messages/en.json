@@ -2,7 +2,9 @@
   "sidebar": {
     "today": "Today",
     "music": "Music",
-    "projects": "Projects",
+    "clients-projects": "Clients & Projects",
+    "calendar": "Calendar",
+    "profile": "Profile",
     "setup": "Setup",
     "publicProfile": "Public profile",
     "expand": "Expand sidebar",

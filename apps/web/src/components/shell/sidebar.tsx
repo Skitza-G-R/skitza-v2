@@ -51,16 +51,18 @@ type NavItem = {
 
 const STORAGE_KEY = "skitza-sidebar-collapsed";
 
-// Four-screen producer dashboard: Today (the daily dashboard),
-// Music (library/catalog of audio), Projects (where work lives —
-// contracts, booking, files all roll up per-project), Setup
-// (portfolio + settings + account). "Project Room" is *not* a
-// top-level item — it's always reached by tapping a project in
-// the Projects list, so it's per-project not a global nav.
+// Six-page producer dashboard (PRD §4): Today, Clients & Projects,
+// Music, Calendar, Profile, Setup. Profile + Calendar landed in
+// P2-A-7 as Phase-3 stubs — the routes exist so the rail surfaces
+// the full producer surface without 404s. "Project Room" is *not*
+// a top-level item — it's always reached by tapping a project in
+// the Clients & Projects list.
 export const NAV_ITEMS: readonly NavItem[] = [
   { id: "today", label: "Today", labelKey: "today", href: "/dashboard", icon: <HomeIcon />, shortcut: "G T" },
+  { id: "clients-projects", label: "Clients & Projects", labelKey: "clients-projects", href: "/dashboard/clients-projects", icon: <PortfolioIcon />, shortcut: "G P" },
   { id: "music", label: "Music", labelKey: "music", href: "/dashboard/music", icon: <LibraryIcon />, shortcut: "G M" },
-  { id: "projects", label: "Projects", labelKey: "projects", href: "/dashboard/projects", icon: <PortfolioIcon />, shortcut: "G P" },
+  { id: "calendar", label: "Calendar", labelKey: "calendar", href: "/dashboard/calendar", icon: <CalendarIcon />, shortcut: "G C" },
+  { id: "profile", label: "Profile", labelKey: "profile", href: "/dashboard/profile", icon: <ProfileIcon />, shortcut: "G F" },
   { id: "setup", label: "Setup", labelKey: "setup", href: "/dashboard/settings", icon: <SettingsIcon />, shortcut: "G S" },
 ] as const;
 
@@ -399,6 +401,30 @@ function PortfolioIcon() {
       <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
       <path d="M5 3V1.75h6V3" />
       <path d="M1.5 8h13" />
+    </svg>
+  );
+}
+
+// Calendar — a simple grid silhouette: header bar (binding rings) +
+// month box. Same 16x16 stroke pattern as the rest of the rail.
+function CalendarIcon() {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3.5" width="12" height="11" rx="1.5" />
+      <path d="M2 7h12" />
+      <path d="M5.5 2v3" />
+      <path d="M10.5 2v3" />
+    </svg>
+  );
+}
+
+// Profile — a head + shoulders silhouette. Used for the producer
+// storefront / public-profile page (the conversion funnel surface).
+function ProfileIcon() {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="6" r="2.5" />
+      <path d="M3 13.5c0-2.2 2.2-4 5-4s5 1.8 5 4" />
     </svg>
   );
 }

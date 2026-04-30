@@ -172,7 +172,7 @@ export function NewProjectForm({
             setIssued(null);
           }}
           onOpenProject={() => {
-            router.push(`/dashboard/projects/${issued.id}`);
+            router.push(`/dashboard/clients-projects/${issued.id}`);
           }}
         />
       ) : null}

@@ -35,7 +35,7 @@ describe("notificationHref", () => {
           trackVersionId: "tv-1",
         }),
       ),
-    ).toBe("/dashboard/projects/proj-1");
+    ).toBe("/dashboard/clients-projects/proj-1");
   });
 
   it("routes booking notifications to the booking detail", () => {
@@ -58,10 +58,10 @@ describe("notificationHref", () => {
           bookingId: "b-2",
         }),
       ),
-    ).toBe("/dashboard/projects/proj-2");
+    ).toBe("/dashboard/clients-projects/proj-2");
   });
 
   it("falls back to the projects list when no ref is populated", () => {
-    expect(notificationHref(makeItem())).toBe("/dashboard/projects");
+    expect(notificationHref(makeItem())).toBe("/dashboard/clients-projects");
   });
 });

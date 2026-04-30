@@ -13,7 +13,7 @@ import type { ReactNode } from "react";
 // Usage:
 //   <Breadcrumbs
 //     items={[
-//       { label: "Projects", href: "/dashboard/projects" },
+//       { label: "Clients & Projects", href: "/dashboard/clients-projects" },
 //       { label: project.title },  // current page — no href
 //     ]}
 //   />

@@ -37,9 +37,9 @@ import {
 // priority: a comment/track belongs to a project; a booking has its
 // own detail surface. Kept pure so tests can exhaust every kind branch.
 export function notificationHref(n: ShellNotificationItem): string {
-  if (n.projectId) return `/dashboard/projects/${n.projectId}`;
+  if (n.projectId) return `/dashboard/clients-projects/${n.projectId}`;
   if (n.bookingId) return `/dashboard/booking?id=${n.bookingId}`;
-  return "/dashboard/projects";
+  return "/dashboard/clients-projects";
 }
 
 export function NotificationBell({

@@ -87,7 +87,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         shortcut: "N",
         run: () => {
           onClose();
-          router.push("/dashboard/projects/new");
+          router.push("/dashboard/clients-projects/new");
         },
       },
       {
@@ -114,7 +114,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         shortcut: "G P",
         run: () => {
           onClose();
-          router.push("/dashboard/projects");
+          router.push("/dashboard/clients-projects");
         },
       },
       {
@@ -143,7 +143,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const gotoProject = useCallback(
     (id: string) => {
       onClose();
-      router.push(`/dashboard/projects/${id}`);
+      router.push(`/dashboard/clients-projects/${id}`);
     },
     [router, onClose],
   );
@@ -259,7 +259,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                       // work with this client, the "New project"
                       // action handles that separately.
                       onClose();
-                      router.push("/dashboard/projects");
+                      router.push("/dashboard/clients-projects");
                     }}
                     className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
                   >

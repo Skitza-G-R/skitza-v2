@@ -10,12 +10,12 @@ import { appRouter } from "~/server/trpc/routers/_app";
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
-// Kanban lives at /dashboard — the /dashboard/projects list page is
-// gone, so revalidating there would be a no-op. We point the list-path
-// revalidations at the Kanban root instead.
+// Kanban lives at /dashboard — the /dashboard/clients-projects list
+// page is gone, so revalidating there would be a no-op. We point the
+// list-path revalidations at the Kanban root instead.
 const PATH_LIST = "/dashboard";
 function pathDetail(id: string): string {
-  return `/dashboard/projects/${id}`;
+  return `/dashboard/clients-projects/${id}`;
 }
 
 async function callerOrError(): Promise<
@@ -274,7 +274,7 @@ export async function bulkSetProjectStage(input: {
   if (!c.ok) return c;
   try {
     await c.caller.project.setStageBulk(input);
-    revalidatePath("/dashboard/projects");
+    revalidatePath("/dashboard/clients-projects");
     revalidatePath(PATH_LIST);
     return { ok: true };
   } catch (err) {
@@ -295,7 +295,7 @@ export async function setClientTagsAction(input: {
   if (!c.ok) return c;
   try {
     await c.caller.clientContacts.setTags(input);
-    revalidatePath("/dashboard/projects", "layout");
+    revalidatePath("/dashboard/clients-projects", "layout");
     revalidatePath("/dashboard/clients");
     return { ok: true };
   } catch (err) {

@@ -29,7 +29,7 @@ export function ShortcutsBridge() {
     // about the right target. Previously this branched on pathname
     // (clients / contracts / portfolio) but none of those pages
     // exist anymore.
-    router.push("/dashboard/projects/new");
+    router.push("/dashboard/clients-projects/new");
   }, [router]);
 
   const handlers = useMemo(
