@@ -6,36 +6,104 @@
 // style, every DOM nesting level matches the mockup exactly. The only
 // translation: `window.lucide` → `lucide-react`.
 
-import { type CSSProperties, type ReactNode } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import * as Lucide from "lucide-react";
 
 // Name → lucide-react component map. Mirrors the mockup's `<Icon name="…" />`
 // API so the rest of the file (and any future ported tab) can stay
-// verbatim. Adding new icons is one line.
+// verbatim. Adding new icons is one line. Built from a full grep of
+// every icon name used across the mockup (overview, clients-projects,
+// music, calendar, storefront, insights, settings, project room, song
+// page, command palette, mobile chrome).
 const IconMap: Record<string, Lucide.LucideIcon> = {
-  // Sidebar
-  search: Lucide.Search,
-  home: Lucide.Home,
-  users: Lucide.Users,
-  music: Lucide.Music,
-  calendar: Lucide.Calendar,
-  store: Lucide.Store,
-  "trending-up": Lucide.TrendingUp,
-  settings: Lucide.Settings,
-  "chevron-up": Lucide.ChevronUp,
-  // Overview tab
-  "link-2": Lucide.Link2,
-  copy: Lucide.Copy,
-  check: Lucide.Check,
-  "alert-circle": Lucide.AlertCircle,
-  "chevron-right": Lucide.ChevronRight,
   activity: Lucide.Activity,
-  "dollar-sign": Lucide.DollarSign,
+  "alert-circle": Lucide.AlertCircle,
+  archive: Lucide.Archive,
+  "arrow-left": Lucide.ArrowLeft,
+  "arrow-up-right": Lucide.ArrowUpRight,
+  "at-sign": Lucide.AtSign,
+  "audio-waveform": Lucide.AudioWaveform,
+  bell: Lucide.Bell,
+  calendar: Lucide.Calendar,
+  check: Lucide.Check,
+  "check-circle": Lucide.CheckCircle,
+  "chevron-down": Lucide.ChevronDown,
+  "chevron-left": Lucide.ChevronLeft,
+  "chevron-right": Lucide.ChevronRight,
+  "chevron-up": Lucide.ChevronUp,
   clock: Lucide.Clock,
-  // ProjectBadge / misc
+  code: Lucide.Code,
+  copy: Lucide.Copy,
+  "corner-down-left": Lucide.CornerDownLeft,
+  "credit-card": Lucide.CreditCard,
+  "disc-3": Lucide.Disc3,
+  "dollar-sign": Lucide.DollarSign,
+  download: Lucide.Download,
+  "external-link": Lucide.ExternalLink,
+  eye: Lucide.Eye,
+  "eye-off": Lucide.EyeOff,
+  feather: Lucide.Feather,
+  "file-audio": Lucide.FileAudio,
+  "file-text": Lucide.FileText,
+  flag: Lucide.Flag,
+  "flask-conical": Lucide.FlaskConical,
   folder: Lucide.Folder,
-  play: Lucide.Play,
+  "folder-kanban": Lucide.FolderKanban,
+  globe: Lucide.Globe,
+  guitar: Lucide.Guitar,
+  "help-circle": Lucide.HelpCircle,
+  home: Lucide.Home,
+  image: Lucide.Image,
+  info: Lucide.Info,
+  // Instagram-specific glyph isn't exported in lucide-react v1.8 —
+  // Globe is the closest neutral substitute for the storefront's
+  // social-link list.
+  instagram: Lucide.Globe,
+  "layout-grid": Lucide.LayoutGrid,
+  link: Lucide.Link,
+  "link-2": Lucide.Link2,
+  "list-plus": Lucide.ListPlus,
+  mail: Lucide.Mail,
+  "message-circle": Lucide.MessageCircle,
+  "message-square": Lucide.MessageSquare,
+  mic: Lucide.Mic,
+  "more-horizontal": Lucide.MoreHorizontal,
+  music: Lucide.Music,
+  package: Lucide.Package,
   pause: Lucide.Pause,
+  pencil: Lucide.Pencil,
+  pin: Lucide.Pin,
+  play: Lucide.Play,
+  plug: Lucide.Plug,
+  plus: Lucide.Plus,
+  "qr-code": Lucide.QrCode,
+  quote: Lucide.Quote,
+  repeat: Lucide.Repeat,
+  search: Lucide.Search,
+  send: Lucide.Send,
+  settings: Lucide.Settings,
+  "shopping-bag": Lucide.ShoppingBag,
+  "skip-back": Lucide.SkipBack,
+  "skip-forward": Lucide.SkipForward,
+  "sliders-horizontal": Lucide.SlidersHorizontal,
+  sparkles: Lucide.Sparkles,
+  star: Lucide.Star,
+  store: Lucide.Store,
+  "trash-2": Lucide.Trash2,
+  "trending-up": Lucide.TrendingUp,
+  upload: Lucide.Upload,
+  user: Lucide.User,
+  "user-plus": Lucide.UserPlus,
+  users: Lucide.Users,
+  wallet: Lucide.Wallet,
+  x: Lucide.X,
+  zap: Lucide.Zap,
 };
 
 type IconProps = {
@@ -295,6 +363,316 @@ export function ProjectBadge({
         className=""
         style={{ color: "rgba(255,255,255,0.85)" }}
       />
+    </div>
+  );
+}
+
+// ─── KebabMenu ──────────────────────────────────────────────────────
+// 3-dots dropdown used on project rows + client cards. Click-outside
+// closes. Items can carry an `icon` (string), `label`, `onClick`, an
+// optional `shortcut` (rendered right-aligned in JetBrains Mono), and
+// `danger: true` to render in the danger color.
+export type KebabItem = {
+  label: string;
+  icon: string;
+  onClick?: () => void;
+  shortcut?: string;
+  danger?: boolean;
+};
+
+export function KebabMenu({ items }: { items: KebabItem[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <span
+      ref={ref}
+      style={{ position: "relative", display: "inline-flex" }}
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+      }}
+    >
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((o) => !o)}
+        className="sk-pop"
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: 6,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          color: "rgb(var(--fg-muted))",
+        }}
+        aria-label="More actions"
+      >
+        <Icon name="more-horizontal" size={15} />
+      </span>
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: "absolute",
+            top: 32,
+            right: 0,
+            zIndex: 50,
+            minWidth: 200,
+            padding: 4,
+            borderRadius: 10,
+            background: "rgb(var(--bg-elevated))",
+            border: "1px solid rgb(var(--border-strong))",
+            boxShadow: "0 12px 30px rgba(17,16,9,0.18)",
+          }}
+        >
+          {items.map((it, i) => (
+            <button
+              key={i}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                it.onClick?.();
+              }}
+              className="sk-row"
+              style={{
+                all: "unset",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                padding: "8px 10px",
+                borderRadius: 7,
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: it.danger
+                  ? "rgb(var(--fg-danger))"
+                  : "rgb(var(--fg-default))",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            >
+              <Icon
+                name={it.icon}
+                size={13}
+                style={{
+                  color: it.danger
+                    ? "rgb(var(--fg-danger))"
+                    : "rgb(var(--fg-muted))",
+                }}
+              />
+              {it.label}
+              {it.shortcut && (
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 10,
+                    fontFamily: "JetBrains Mono",
+                    color: "rgb(var(--fg-faint))",
+                  }}
+                >
+                  {it.shortcut}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ─── PinStar ────────────────────────────────────────────────────────
+// Pin/unpin star in front of project rows. The mockup uses
+// `--brand-primary-dark` here but that variable isn't defined; we map
+// it to `--brand-primary` so the visual result still reads as "amber
+// when pinned". Cosmetic shortcut, not a logic divergence.
+export function PinStar({
+  on,
+  onToggle,
+  label = "Pin",
+}: {
+  on: boolean;
+  onToggle?: () => void;
+  label?: string;
+}) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onToggle?.();
+      }}
+      className="sk-pop"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        color: on ? "rgb(var(--brand-primary))" : "rgb(var(--fg-faint))",
+        width: 24,
+        height: 24,
+      }}
+      title={on ? "Pinned" : label}
+    >
+      <Icon name="pin" size={13} strokeWidth={2.2} />
+    </span>
+  );
+}
+
+// ─── FavStar ────────────────────────────────────────────────────────
+// Star in the music library's track rows.
+export function FavStar({
+  on,
+  onToggle,
+  size = 14,
+}: {
+  on: boolean;
+  onToggle?: () => void;
+  size?: number;
+}) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle?.();
+      }}
+      className="sk-pop"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        color: on ? "rgb(var(--brand-primary))" : "rgb(var(--fg-faint))",
+        width: 24,
+        height: 24,
+      }}
+      aria-label={on ? "Unfavorite" : "Favorite"}
+      title={on ? "In Favorites" : "Add to Favorites"}
+    >
+      <Icon name="star" size={size} strokeWidth={2.4} />
+    </span>
+  );
+}
+
+// ─── EqBars ─────────────────────────────────────────────────────────
+// Mini animated equalizer for the now-playing indicator.
+export function EqBars({
+  playing,
+  color = "currentColor",
+  count = 3,
+}: {
+  playing: boolean;
+  color?: string;
+  count?: number;
+}) {
+  return (
+    <span
+      className={playing ? "" : "eq-paused"}
+      style={{
+        display: "inline-flex",
+        alignItems: "flex-end",
+        gap: 2,
+        height: 14,
+      }}
+    >
+      {Array.from({ length: count }).map((_, i) => (
+        <span
+          key={i}
+          className="eq-bar"
+          style={{
+            width: 2,
+            background: color,
+            borderRadius: 1,
+            height: "60%",
+            animationDelay: `${String(i * 0.18)}s`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+// ─── NowPlayingDot ──────────────────────────────────────────────────
+// EqBars wrapper used in track rows. Returns null when not playing so
+// the row's right column collapses cleanly.
+export function NowPlayingDot({ playing }: { playing: boolean }) {
+  if (!playing) return null;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        color: "rgb(var(--brand-primary))",
+        fontSize: 9.5,
+        fontFamily: "JetBrains Mono",
+        fontWeight: 700,
+      }}
+    >
+      <EqBars playing />
+    </span>
+  );
+}
+
+// ─── StatTile ───────────────────────────────────────────────────────
+// Small KPI tile used in Project Room Overview sub-tab.
+export function StatTile({
+  label,
+  value,
+  mono = false,
+  accent = false,
+  trend,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  accent?: boolean;
+  trend?: ReactNode;
+}) {
+  return (
+    <div
+      className="surface-card"
+      style={{
+        padding: "12px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        minHeight: 72,
+      }}
+    >
+      <span className="label-tiny">{label}</span>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span
+          className={mono ? "tabular" : ""}
+          style={{
+            fontSize: 22,
+            fontWeight: 800,
+            letterSpacing: "-0.02em",
+            color: accent
+              ? "rgb(var(--brand-primary))"
+              : "rgb(var(--fg-default))",
+            fontFamily: mono ? "JetBrains Mono" : undefined,
+          }}
+        >
+          {value}
+        </span>
+        {trend}
+      </div>
     </div>
   );
 }

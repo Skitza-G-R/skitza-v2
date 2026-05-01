@@ -1,91 +1,114 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import {
-  ProjectsList,
-  type GroupedProjects,
-  type ProjectRow,
-  type Stage,
-} from "~/components/dashboard/projects/projects-list";
-import { isProjectState } from "~/lib/projects/states";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-// Task 4: lightweight browse view for all of a producer's projects,
-// filterable by the three display states (Live / Done / Archived).
-// Batch G collapsed the former 8-chip stage filter to a 3-chip
-// state filter — the ProjectsList client does the grouping; this
-// page just parses `?state=` and hands it down. The URL param was
-// renamed from `stage` to `state` to match the user-visible surface;
-// legacy `stage` query params fall through to "All" silently (not a
-// real regression: bookmarks to specific stages were never a
-// prominent flow).
-//
-// Note: we deliberately do NOT run the first-run onboarding redirect
-// here. /dashboard (the Today screen) owns that; users only reach
-// /dashboard/projects once they've already started something, so the
-// empty state below hints at sharing a magic link instead.
+import {
+  ClientsProjectsTab,
+  type ClientRow,
+  type ProjectRow,
+} from "../_design-test/clients-projects-tab";
+import {
+  gradFor,
+  humanStage,
+  initialsOf,
+  progressForStage,
+  tagForStage,
+} from "../_design-test/data-mapping";
+import { DesignShell } from "../_design-test/design-shell";
+import type { Producer } from "../_design-test/shell";
 
-type PageProps = {
-  searchParams: Promise<{ state?: string }>;
-};
+// gili/design-test branch — Clients & Projects tab. Wires the mockup's
+// list view + clients grid against real Skitza data via
+// `clientContacts.listWithProjects()` (returns enriched per-project +
+// per-client aggregates with outstandingCents/lifetimeCents already
+// computed server-side).
 
-export default async function ProjectsPage({ searchParams }: PageProps) {
+export default async function ProjectsPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const grouped = await caller.project.listByStage();
-  const sp = await searchParams;
-  const activeState = isProjectState(sp.state) ? sp.state : null;
+  const [me, projectsAll, byClient] = await Promise.all([
+    caller.producer.me(),
+    caller.clientContacts.listWithProjects({ view: "all-projects" }),
+    caller.clientContacts.listWithProjects(),
+  ]);
 
-  // Project down to the minimal row shape the client component needs.
-  // Dates cross the RSC → client boundary as ISO strings; we drop
-  // sensitive + unused columns (shareTokenHash, stripe ids, etc.) so
-  // they never ship to the browser.
-  const clientGrouped: GroupedProjects = {
-    lead: [],
-    booked: [],
-    contract_sent: [],
-    in_production: [],
-    final_review: [],
-    paid: [],
-    archived: [],
+  const producer: Producer = {
+    name: me.displayName ?? "Your Studio",
+    initials: initialsOf(me.displayName),
+    plan: "Pro",
+    avatarGrad: "grad-amber",
   };
-  for (const stage of Object.keys(clientGrouped) as Stage[]) {
-    clientGrouped[stage] = grouped[stage].map<ProjectRow>((p) => ({
-      id: p.id,
-      title: p.title,
-      artistName: p.artistName,
-      stage: p.stage,
-      updatedAtIso: p.updatedAt.toISOString(),
-    }));
-  }
+
+  // Map projects to mockup row shape. `outstandingCents/lifetimeCents`
+  // come from the server-side aggregate; we don't have a real
+  // `deadline` column on the projects table yet, so we surface
+  // `nextSessionAt` (when set) as the deadline display, falling back
+  // to a long-future "—" so the row still renders cleanly.
+  const projectRows: ProjectRow[] =
+    projectsAll.view === "all-projects"
+      ? projectsAll.projects.map((p, i) => {
+          const stageTag = tagForStage(p.stage);
+          const total = Math.round(p.priceCents / 100);
+          const paid = Math.round(
+            (p.priceCents - p.outstandingCents) / 100,
+          );
+          const songCount = 0; // not in this query — we'd need a per-project songs count
+          // Deadline display from nextSessionAt when available. Negative
+          // deadlineDays = overdue (the "X d late" display). If there's
+          // no next session, set deadlineDays to a high number so the
+          // sort-by-deadline lands these at the bottom.
+          let deadline = "—";
+          let deadlineDays = 9999;
+          if (p.nextSessionAt) {
+            const ms = p.nextSessionAt.getTime() - Date.now();
+            deadlineDays = Math.round(ms / (24 * 60 * 60 * 1000));
+            const dt = p.nextSessionAt;
+            deadline = dt.toLocaleDateString("en-US", {
+              month: "short",
+              day: "2-digit",
+            });
+          }
+          return {
+            id: p.id,
+            name: p.title,
+            client:
+              p.client.name ?? p.clientName ?? p.artistName ?? "Client",
+            stage: p.stage.replace(/_/g, " "),
+            status: humanStage(p.stage),
+            tag: stageTag.label,
+            tagType: stageTag.type,
+            grad: gradFor(i),
+            progress: progressForStage(p.stage),
+            paid,
+            total,
+            songs: songCount,
+            sessions: p.nextSessionAt ? 1 : 0,
+            deadline,
+            deadlineDays,
+          };
+        })
+      : [];
+
+  const clientRows: ClientRow[] =
+    byClient.view === "by-client"
+      ? byClient.clients.map((c) => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          initials: initialsOf(c.name),
+          projects: c.totalProjectCount,
+          balance: Math.round(c.outstandingCents / 100),
+          totalLifetime: Math.round(c.lifetimeCents / 100),
+        }))
+      : [];
 
   return (
-    <>
-      {/* Batch C — Projects page picks up the same editorial canvas
-          treatment as Today: full-bleed, gradient band at the top,
-          display-font page title at 4xl→5xl, mono eyebrow above it. */}
-      <div className="relative isolate">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
-        />
-        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-8 pb-12 sm:px-8 lg:px-12 lg:pt-12">
-          <header>
-            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
-              Pipeline
-            </p>
-            <h1 className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
-              Projects
-            </h1>
-            <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
-              Browse and open the project room for any active engagement.
-            </p>
-          </header>
-          <ProjectsList grouped={clientGrouped} activeState={activeState} />
-        </div>
-      </div>
-    </>
+    <DesignShell producer={producer}>
+      <ClientsProjectsTab data={{ projects: projectRows, clients: clientRows }} />
+    </DesignShell>
   );
 }
