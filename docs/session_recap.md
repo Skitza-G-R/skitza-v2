@@ -6,7 +6,11 @@
 
 ## 🕐 Last checkpoint
 
-**2026-05-01 evening — All five "next-round" suggestions from the prior recap shipped on `gili/design-test`:** Audio Player + global FloatingPlayer, Song Page route, Cmd-K palette, real DB-backed comment posting (Server Action), full 8-page browser walkthrough. **83 design-test tests green, Vercel preview Ready, live DB write verified.**
+**2026-05-01 late evening — Two more real Save mutations shipped on `gili/design-test`:**
+1. **Settings** — `displayName` + `slug` + `tagline` persist via `producer.update` (tagline merged into `producers.brand` JSONB)
+2. **Calendar Availability** — week schedule + `defaultSessionMin` persist via `booking.availability.setWeek` + `booking.availability.updateSettings`
+
+Both browser-verified end-to-end against real DB writes. **98 design-test tests green.**
 
 ---
 
@@ -14,117 +18,129 @@
 
 ```bash
 cd "/Users/giliasraf/Skitza 16.4"
-git checkout gili/design-test       # if not already
-git status                          # working tree may have leftover cross-branch WIP — leave it
-pnpm -F web test -- _design-test    # 83 tests pass
+git checkout gili/design-test
+pnpm -F web test -- _design-test    # 98 tests pass (was 90, +8 from availability-shape)
 ```
 
-**Live preview** (branch alias, updates per push):
+**Live preview** (branch alias):
 https://skitza-v2-web-git-gili-design-test-gili-asrafs-projects.vercel.app/dashboard
 
 ---
 
-## ⚠️ Critical context
+## ⚠️ Critical context (still applies)
 
-1. **`gili/design-test` NEVER merges to main.** Sandbox-only. Don't worry about cross-branch impact.
-2. **Branch-switching disruption** — during this session some external process checked out `audit-fixes-2026-05-01` three times mid-edit, reverting in-flight uncommitted work. Defense: **commit + push after every meaningful chunk**, not at end of phase.
-3. **Vercel `next build` runs ESLint** — local lint errors **will fail the deploy**. Pre-existing `<a>`→`<Link>` errors in `today/contextual-actions.tsx` and `today/recent-uploads-shelf.tsx` were blocking; both fixed this run.
-4. **Working tree may have leftover `M` files** from cross-branch WIP (welcome-modal, plan.test, vercel.json, etc.) — those are NOT mine. Stash or leave alone.
+1. **`gili/design-test` NEVER merges to main.** Sandbox-only.
+2. **Vercel branch-alias swap is not instant.** When verifying right after a push, the alias may serve the previous deploy for ~10–60s after the new build is `READY`. Don't trust your first save click — reload + retry once `mcp__list_deployments` shows the alias bound to the new SHA.
+3. **Vercel `next build` runs ESLint** — local lint must be clean before push.
+4. Working tree may have leftover `M` files from cross-branch WIP — leave alone.
 
 ---
 
-## ✅ Shipped this session (commits since `5ebe675`)
+## ✅ Shipped this session (commits since `c3ae43c`)
 
 | Commit | Surface |
 |---|---|
-| `ff9ba9a` | Pure helpers — player-reducer (13 tests) + song-time (15 tests) |
-| `e014a61` | PlayerProvider in layout + FloatingPlayer in DesignShell |
-| `d0fa138` | PlayCircle wired across Music Library + Project Room + Overview |
-| `0d85f71` | Song-comments helpers (10 tests) |
-| `2be7810` | Waveform extension — comment-marker overlay |
-| `f5155ea` | SongPage component (visual port of mockup line 2653-2840) |
-| `ceceb1f` | Song Page route at `/dashboard/music/[trackId]` |
-| `c17e80f` | palette-ranking helper (9 tests) |
-| `e3d9bbc` | CommandPalette component |
-| `dd62cd2`, `1546f66`, `258b763` | Palette mount + ⌘K binding + wired into all 8 pages |
-| `9025b33` | Real save mutation — `library.addComment` + Server Action + UI |
-| `15eb4a9`, `50e8245` | Build-blocker fixes (`<a>`→`<Link>`, exactOptional, palette switch/case) |
-| `845cabf` | This recap |
+| `e8664dd` | Settings save mutation — displayName + slug + tagline; tagline added to producer.update's BrandInput |
+| `769978b` | Pure availability-shape helpers (TDD, 8 tests) — hoursByDay ↔ block[] conversion |
+| `b295a3d` | Calendar Availability wiring — pre-fetch from setWeek/getSettings; Server Action; useTransition + dirty guard |
 
 ---
 
-## 🗺️ 8 routes mounted, all browser-verified
+## 🗺️ Save-mutation pattern (now proven 3x)
 
-`/dashboard` (Overview), `/dashboard/projects` (Clients & Projects), `/dashboard/projects/[id]` (Project Room), `/dashboard/music`, `/dashboard/music/[trackId]` ⬅ NEW, `/dashboard/booking` (Calendar), `/dashboard/store` (Storefront), `/dashboard/insights`, `/dashboard/settings`.
+`song-actions.ts` → `settings-actions.ts` → `calendar-actions.ts` all follow the same shape:
 
-Each page server-fetches `buildPaletteData(caller)` and threads it to `<DesignShell>` so ⌘K works everywhere.
+```ts
+"use server";
+export async function updateX(input): Promise<Result> {
+  const { userId } = await auth();
+  if (!userId) return { ok: false, error: "Please sign in to continue." };
+  try {
+    const caller = appRouter.createCaller({ userId });
+    await caller.someRouter.someProcedure(input);
+    revalidatePath("/dashboard/<page>");
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof TRPCError) return { ok: false, error: err.message };
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save." };
+  }
+}
+```
 
----
-
-## 🧠 Architecture decisions (don't re-derive these)
-
-- **PlayerProvider in `dashboard/layout.tsx`** — Next.js App Router preserves layout instances across sibling-route nav; that's why FloatingPlayer survives page changes.
-- **Reducer is a discriminated union** — when `current: null`, no `playing`/`progress` fields exist. Makes "scrub a non-existent track" un-typeable.
-- **Same-track click resumes; different-track click resets** — encoded in reducer, not at dispatch sites.
-- **Server Action over tRPC client** — `addSongComment` follows `quick-note-actions.ts` pattern. `useTransition` + `revalidatePath` gives RSC-driven refresh without setting up a tRPC react-query client.
-- **`from_producer=true` writes** need producer's `displayName` + `email` since `track_comments.authorName/authorEmail` are NOT NULL.
-
----
-
-## 🔮 Deferred (next session, priority order)
-
-1. **More save mutations** — Settings (displayName + tagline via `producer.update`), Calendar availability persistence, Storefront product CRUD. Pattern: `_design-test/<feature>-actions.ts` + `useTransition`.
-2. **PRD v3 route alignment** — `/projects` → `/clients-projects`, `/booking` → `/calendar`, `/store` → `/profile`. Either rename directories or add `next.config` rewrites.
-3. **ESLint cleanup** — replace `() => foo()` shorthand with `() => { foo(); }` and remove `/* eslint-disable @typescript-eslint/no-confusing-void-expression */` headers in `_design-test/*.tsx`.
-4. **PRD-required Calendar Availability fields** missing from visual port: Reminders, Auto-Approval toggle, Cancellation Policy.
-5. **Trim Storefront** from 3 tabs → 2 (Store + Portfolio per PRD §4.5; Profile tab folds into Portfolio).
-6. **Insights** isn't in PRD v3's six-page producer platform — consider removing from sidebar or marking as a sandbox extra.
+Client side: `useTransition` + `router.refresh()` + status pill that auto-fades after 1.8s + dirty-state-disabled buttons.
 
 ---
 
 ## 🧪 Tests
 
-83 / 83 design-test tests green:
+98 / 98 design-test tests green:
 
 ```
 __tests__/data-mapping.test.ts        36
 __tests__/shell.test.ts                7
-__tests__/player-reducer.test.ts      13   ← new
-__tests__/song-time.test.ts           15   ← new
-__tests__/song-comments.test.ts       10   ← new
-__tests__/palette-ranking.test.ts      9   ← new
+__tests__/player-reducer.test.ts      13
+__tests__/song-time.test.ts           15
+__tests__/song-comments.test.ts       10
+__tests__/palette-ranking.test.ts      9
+__tests__/availability-shape.test.ts   8   ← new
 ```
 
-Pre-existing `layout-architecture.test.ts` + `page-rebuild.test.ts` still fail — expected, those tests assume the original main-branch dashboard which this branch intentionally replaces.
+Pre-existing `layout-architecture.test.ts` + `page-rebuild.test.ts` still fail — expected, those tests assume original main-branch dashboard which this branch replaces.
+
+44/44 producer router tests still green after adding `tagline` to `BrandInput`.
 
 ---
 
-## 📸 Browser-verified flows (with screenshots)
+## 📸 Browser-verified flows
 
-1. Overview → click Recent Upload PlayCircle → FloatingPlayer mounts ✓
-2. Toggle pause/play, time advances ticker ✓
-3. Navigate Overview → Music Library → FloatingPlayer **persists** ✓
-4. Click play on **different** track → progress resets to 0 ✓
-5. Close X dismisses FloatingPlayer ✓
-6. Project Room "Latest songs" → play with parent project name ✓
-7. Music Library card → navigates to `/dashboard/music/[id]` (Song Page) ✓
-8. Song Page renders hero + waveform + comment marker + thread ✓
-9. Sidebar Search bar → CommandPalette opens with 7-tab "Jump to" ✓
-10. Type "lena" → 1 song result; Enter navigates to that track's page ✓
-11. **Live DB write**: type comment + Enter → "Posting…" → "Just now" comment + waveform marker ✓
-12. Calendar (Schedule + Availability), Storefront (3 tabs), Insights (4 KPIs + chart), Settings — all render against real data ✓
+**Settings save (`/dashboard/settings`):**
+1. Disabled Save/Cancel on load (dirty=false) ✓
+2. Type tagline → Save activates ✓
+3. Click Save → "Saving…" state ✓
+4. Server Action runs → tagline persisted to `producers.brand.tagline` ✓
+5. Page reloads → tagline survives ✓
+6. Storefront `/dashboard/store` reads same `brand.tagline` without crash ✓
+
+**Calendar save (`/dashboard/booking` → Availability):**
+1. Pre-populated from real `availabilityBlocks` rows ✓
+2. Toggle Saturday ON → Save activates ✓
+3. Click Save → "Saving…" → "Saved" pill (auto-fades 1.8s) ✓
+4. Page reloads → Saturday persists ✓
+5. Total hours / bookable count recalculate dynamically ✓
+
+---
+
+## 🔮 Deferred (next session, priority order)
+
+1. **Storefront product CRUD** — last of the "more save mutations" trio. Pattern is now templated; edit/add/delete via `booking.products.*`.
+2. **Calendar — auto-confirm + cancellation policy** — not exposed in current editor, but `booking.availability.updateSettings` already accepts them.
+3. **Calendar — buffer minutes** — currently local-only; would need a new schema column (`bufferMin` on `producers`).
+4. **PRD v3 route alignment** — `/projects` → `/clients-projects`, `/booking` → `/calendar`, `/store` → `/profile`.
+5. **ESLint cleanup** — remove `/* eslint-disable @typescript-eslint/no-confusing-void-expression */` headers in `_design-test/*.tsx` by switching `() => foo()` to `() => { foo(); }`.
+6. **PRD-required Calendar Availability fields** — Reminders, Auto-Approval toggle, Cancellation Policy.
+7. **Trim Storefront** from 3 tabs → 2 (Store + Portfolio per PRD §4.5; Profile folds into Portfolio).
+
+---
+
+## 🧠 Architecture decisions (don't re-derive)
+
+- **Server Actions over tRPC HTTP client** — `appRouter.createCaller({ userId })` runs the procedure server-side; `revalidatePath` triggers RSC refetch. No client React Query bridge needed for write paths.
+- **Dirty-state guard via `JSON.stringify` diff** for nested form state (calendar's `hoursByDay`); simple equality for flat fields (settings's `name/slug/tagline`).
+- **`tagline` lives in `producers.brand` JSONB**, not its own column — read paths already pulled `brand.tagline`; extending `BrandInput` completed the round-trip without a migration.
+- **Sequential `setWeek` then `updateSettings`** in calendar-actions.ts — `setWeek`'s Zod has the stricter validation (overlap + start<end), so failing first leaves session-length untouched (retry-friendly).
+- **Per-day envelope on multi-block load** — `blocksToHoursByDay` collapses split shifts into `[min(start), max(end)]`; saving overwrites with a single block. Trade-off matches the mockup's one-range-per-day editor UI.
 
 ---
 
 ## 📦 Repo state
 
 - Branch: `gili/design-test`
-- Latest commit: `845cabf docs(recap): …`
-- 23 commits ahead of `main`
-- Vercel: Ready
+- Latest commit: `b295a3d feat(design-test): wire real Save mutation for Calendar Availability`
+- 26 commits ahead of `main`
+- Vercel: Ready (alias bound to `b295a3d`)
 - Local build: green
-- Tests: 83 / 83 design-test green
+- Tests: 98 / 98 design-test green
 
 ---
 
-*Last updated: 2026-05-01 evening — Audio Player + Song Page + Cmd-K + Real Save shipped, 8/8 pages verified.*
+*Last updated: 2026-05-01 late evening — Settings + Calendar Availability saves shipped + browser-verified.*
