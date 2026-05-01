@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
+import { blocksToHoursByDay } from "../_design-test/availability-shape";
 import {
   CalendarTab,
   type CalendarSession,
@@ -45,12 +46,15 @@ export default async function CalendarPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [me, upcoming, pending, paletteData] = await Promise.all([
-    caller.producer.me(),
-    caller.booking.upcoming({ days: 14 }),
-    caller.booking.list({ status: "pending" }),
-    buildPaletteData(caller),
-  ]);
+  const [me, upcoming, pending, paletteData, availabilityBlocks, availabilitySettings] =
+    await Promise.all([
+      caller.producer.me(),
+      caller.booking.upcoming({ days: 14 }),
+      caller.booking.list({ status: "pending" }),
+      buildPaletteData(caller),
+      caller.booking.availability.list(),
+      caller.booking.availability.getSettings(),
+    ]);
 
   const producer: Producer = {
     name: me.displayName ?? "Your Studio",
@@ -116,10 +120,19 @@ export default async function CalendarPage() {
     year: "numeric",
   })}`;
 
+  const initialHoursByDay = blocksToHoursByDay(availabilityBlocks);
+
   return (
     <DesignShell producer={producer} paletteData={paletteData}>
       <CalendarTab
-        data={{ sessions, introRequests, weekLabel, todayIdx }}
+        data={{
+          sessions,
+          introRequests,
+          weekLabel,
+          todayIdx,
+          initialHoursByDay,
+          initialDefaultSessionMin: availabilitySettings.defaultSessionMin,
+        }}
       />
     </DesignShell>
   );

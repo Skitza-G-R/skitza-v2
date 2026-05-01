@@ -11,14 +11,18 @@
 //   confirmed bookings in the next 7 days, mapped to (dayIndex, hour)
 //   coordinates relative to "this week starting Sun"
 // - Intro requests sidebar comes from booking.list({status:"pending"})
-// - Availability editor: local state for now (mockup behavior; full
-//   working-hours persistence wires in a later round)
-// - Session defaults: local state placeholders
+// - Availability editor: pre-populated from booking.availability.list()
+//   + booking.availability.getSettings(); Save persists via the
+//   updateAvailability Server Action.
+// - Buffer minutes are still local-only (no DB column for that yet).
 
-import { Fragment, type CSSProperties, useState } from "react";
+import { Fragment, type CSSProperties, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 import { Avatar, Card, Icon } from "./primitives";
 import { initialsOf } from "./data-mapping";
+import { hoursByDayToBlocks, type HoursByDay } from "./availability-shape";
+import { updateAvailability } from "./calendar-actions";
 
 export type CalendarSession = {
   id: string;
@@ -45,9 +49,18 @@ export type CalendarData = {
   introRequests: IntroRequest[];
   weekLabel: string; // e.g. "Week of May 3, 2026"
   todayIdx: number; // 0..6
+  initialHoursByDay: HoursByDay;
+  initialDefaultSessionMin: number;
 };
 
+type SaveStatus =
+  | { kind: "idle" }
+  | { kind: "saving" }
+  | { kind: "saved" }
+  | { kind: "error"; message: string };
+
 export function CalendarTab({ data }: { data: CalendarData }) {
+  const router = useRouter();
   const [view, setView] = useState<"week" | "availability">("week");
   const days: ReadonlyArray<"Sun" | "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat"> = [
     "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat",
@@ -70,19 +83,40 @@ export function CalendarTab({ data }: { data: CalendarData }) {
     return out;
   })();
 
-  // Availability-editor state. Local only this round.
-  const [hoursByDay, setHoursByDay] = useState({
-    Sun: { on: false, start: "10:00", end: "18:00" },
-    Mon: { on: true, start: "10:00", end: "20:00" },
-    Tue: { on: true, start: "10:00", end: "20:00" },
-    Wed: { on: true, start: "10:00", end: "20:00" },
-    Thu: { on: true, start: "10:00", end: "20:00" },
-    Fri: { on: true, start: "10:00", end: "15:00" },
-    Sat: { on: false, start: "12:00", end: "18:00" },
-  });
-  const [sessionLen, setSessionLen] = useState(120);
-  const [buffer, setBuffer] = useState(15);
+  // Availability-editor state. Pre-populated from server data;
+  // edits roundtrip via the updateAvailability Server Action.
+  const [hoursByDay, setHoursByDay] = useState<HoursByDay>(data.initialHoursByDay);
+  const [sessionLen, setSessionLen] = useState(data.initialDefaultSessionMin);
+  const [buffer, setBuffer] = useState(15); // local-only — no DB column
+  const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
+  const [pending, startTransition] = useTransition();
   const tz = "Asia/Jerusalem · GMT+3";
+
+  const dirty =
+    JSON.stringify(hoursByDay) !== JSON.stringify(data.initialHoursByDay) ||
+    sessionLen !== data.initialDefaultSessionMin;
+
+  const onSaveAvailability = () => {
+    setStatus({ kind: "saving" });
+    startTransition(() => {
+      void (async () => {
+        const blocks = hoursByDayToBlocks(hoursByDay);
+        const result = await updateAvailability({
+          blocks,
+          defaultSessionMin: sessionLen,
+        });
+        if (result.ok) {
+          setStatus({ kind: "saved" });
+          router.refresh();
+          window.setTimeout(() => {
+            setStatus((cur) => (cur.kind === "saved" ? { kind: "idle" } : cur));
+          }, 1800);
+        } else {
+          setStatus({ kind: "error", message: result.error });
+        }
+      })();
+    });
+  };
 
   const TIME_OPTS: string[] = [];
   for (let h = 6; h <= 23; h++)
@@ -796,11 +830,50 @@ export function CalendarTab({ data }: { data: CalendarData }) {
                     sessions
                   </div>
                 </div>
+                {status.kind === "error" && (
+                  <p
+                    role="alert"
+                    style={{
+                      fontSize: 11,
+                      color: "rgb(var(--fg-danger))",
+                      margin: 0,
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {status.message}
+                  </p>
+                )}
+                {status.kind === "saved" && (
+                  <p
+                    role="status"
+                    style={{
+                      fontSize: 11,
+                      color: "rgb(var(--fg-success))",
+                      margin: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: "50%",
+                        background: "rgb(var(--fg-success))",
+                      }}
+                    />
+                    Saved
+                  </p>
+                )}
                 <button
+                  type="button"
+                  onClick={onSaveAvailability}
+                  disabled={pending || !dirty}
                   className="sk-pop"
                   style={{
                     all: "unset",
-                    cursor: "pointer",
+                    cursor: pending || !dirty ? "not-allowed" : "pointer",
                     marginTop: 4,
                     textAlign: "center",
                     padding: "9px 14px",
@@ -809,9 +882,10 @@ export function CalendarTab({ data }: { data: CalendarData }) {
                     color: "rgb(var(--bg-background))",
                     fontSize: 11.5,
                     fontWeight: 700,
+                    opacity: pending || !dirty ? 0.6 : 1,
                   }}
                 >
-                  Save changes
+                  {pending ? "Saving…" : "Save changes"}
                 </button>
               </div>
             </Card>
