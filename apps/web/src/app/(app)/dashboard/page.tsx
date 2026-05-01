@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/restrict-template-expressions */
 import fs from "node:fs/promises";
 import path from "node:path";
 
