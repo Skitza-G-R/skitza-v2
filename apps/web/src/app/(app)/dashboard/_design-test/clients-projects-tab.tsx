@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-confusing-void-expression */
+/* eslint-disable @typescript-eslint/no-confusing-void-expression */
 "use client";
 
 // Skitza Design Test — Clients & Projects tab. 1:1 port of the

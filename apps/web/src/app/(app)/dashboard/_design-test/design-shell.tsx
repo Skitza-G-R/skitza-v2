@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-confusing-void-expression */
 "use client";
 
 // Skitza Design Test — shared shell. Wraps any tab body in the .dt-root
