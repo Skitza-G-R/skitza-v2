@@ -15,6 +15,7 @@ import {
   tagForStage,
 } from "./_design-test/data-mapping";
 import { OverviewShell } from "./_design-test/overview-shell";
+import { buildPaletteData } from "./_design-test/palette-data";
 import type {
   OverviewData,
   OverviewProject,
@@ -41,10 +42,11 @@ export default async function DashboardPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [today, me, projectsList] = await Promise.all([
+  const [today, me, projectsList, paletteData] = await Promise.all([
     caller.producer.today(),
     caller.producer.me(),
     caller.project.list(),
+    buildPaletteData(caller),
   ]);
 
   // ── Producer derivation ─────────────────────────────────────────
@@ -118,5 +120,11 @@ export default async function DashboardPage() {
     overdueClient: null,
   };
 
-  return <OverviewShell producer={producer} data={data} />;
+  return (
+    <OverviewShell
+      producer={producer}
+      data={data}
+      paletteData={paletteData}
+    />
+  );
 }
