@@ -272,7 +272,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
               <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
             ) : null}
             {activeTab === "money" ? (
-              <MoneySubTab money={moneyForProject} />
+              <MoneySubTab projectId={data.project.id} money={moneyForProject} />
             ) : null}
             {activeTab === "notes" ? (
               <NotesSubTab

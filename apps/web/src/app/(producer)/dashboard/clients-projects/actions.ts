@@ -66,13 +66,48 @@ export async function createProject(input: {
   artistName: string;
   artistEmail: string;
   bookingId?: string;
-}): Promise<ActionDataResult<{ id: string; shareToken: string }>> {
+}): Promise<ActionDataResult<{ id: string; inviteToken: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
     const res = await c.caller.project.create(input);
     revalidatePath(PATH_LIST);
-    return { ok: true, data: { id: res.project.id, shareToken: res.shareToken } };
+    return { ok: true, data: { id: res.project.id, inviteToken: res.inviteToken } };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function updateProjectAction(input: {
+  id: string;
+  title?: string;
+  artistName?: string;
+  artistEmail?: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.update(input);
+    revalidatePath(pathDetail(input.id));
+    revalidatePath(PATH_LIST);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function addProjectInvoice(input: {
+  projectId: string;
+  amountCents: number;
+  currency: string;
+  description: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.addInvoice(input);
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }

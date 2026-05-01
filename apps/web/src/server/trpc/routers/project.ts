@@ -59,6 +59,26 @@ const CreateProjectInput = z.object({
   bookingId: z.string().uuid().optional(),
 });
 
+// Edit-project modal payload. All fields optional so the modal can
+// PATCH only what the producer changed; at least one must be present
+// for the procedure to do anything (no-op return otherwise).
+const UpdateProjectInput = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1).max(120).optional(),
+  artistName: z.string().min(1).max(80).optional(),
+  artistEmail: z.string().email().optional(),
+});
+
+// Manual line-item charge inserted from the Money sub-tab. Skips
+// Stripe entirely — the row exists for record-keeping; producer
+// reconciles payment outside the app and flips status later.
+const AddInvoiceInput = z.object({
+  projectId: z.string().uuid(),
+  amountCents: z.number().int().positive().max(100_000_000),
+  currency: z.string().length(3),
+  description: z.string().min(1).max(280),
+});
+
 const AddTrackInput = z.object({
   projectId: z.string().uuid(),
   title: z.string().min(1).max(120),
@@ -266,6 +286,10 @@ export const projectRouter = router({
         title: input.title,
         artistName: input.artistName,
         artistEmail: input.artistEmail.toLowerCase(),
+        // Persist the raw token so the project-room landing page can
+        // verify the URL the artist clicked. Unique constraint at the
+        // schema level guards against guess collisions.
+        inviteToken: token.raw,
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -280,7 +304,65 @@ export const projectRouter = router({
       console.warn("[contacts] recordContact failed in project.create", err);
     }
 
-    return { project: stripHash(row), shareToken: token.raw };
+    return { project: stripHash(row), inviteToken: token.raw };
+  }),
+
+  // Edit-project modal handler. Ownership-checked; only the fields
+  // present in the input are written, so the modal can PATCH a single
+  // field without nulling the others. No-op when nothing changed.
+  update: producerProcedure.input(UpdateProjectInput).mutation(async ({ ctx, input }) => {
+    const [row] = await ctx.db
+      .select({ producerId: projects.producerId })
+      .from(projects)
+      .where(eq(projects.id, input.id))
+      .limit(1);
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+    if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
+
+    const updates: Partial<typeof projects.$inferInsert> = {};
+    if (input.title !== undefined) updates.title = input.title;
+    if (input.artistName !== undefined) updates.artistName = input.artistName;
+    if (input.artistEmail !== undefined) {
+      updates.artistEmail = input.artistEmail.toLowerCase();
+    }
+    if (Object.keys(updates).length === 0) {
+      return { ok: true as const };
+    }
+    updates.updatedAt = new Date();
+    await ctx.db.update(projects).set(updates).where(eq(projects.id, input.id));
+    return { ok: true as const };
+  }),
+
+  // Manual charge inserted from the Money sub-tab. Status defaults to
+  // 'sent' so the row counts toward Outstanding in the money strip
+  // until the producer marks it paid out-of-band.
+  addInvoice: producerProcedure.input(AddInvoiceInput).mutation(async ({ ctx, input }) => {
+    const [row] = await ctx.db
+      .select({ producerId: projects.producerId })
+      .from(projects)
+      .where(eq(projects.id, input.projectId))
+      .limit(1);
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+    if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
+
+    const [inserted] = await ctx.db
+      .insert(invoices)
+      .values({
+        producerId: ctx.producerId,
+        projectId: input.projectId,
+        amountCents: input.amountCents,
+        currency: input.currency.toUpperCase(),
+        description: input.description,
+        // Free-text role: 'manual' for entries the producer punches in
+        // by hand from the Money sub-tab. Distinct from 'deposit' /
+        // 'final' / 'milestone' which are wired to Stripe lifecycle
+        // events.
+        kind: "manual",
+        status: "sent",
+      })
+      .returning();
+    if (!inserted) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    return { ok: true as const, id: inserted.id };
   }),
 
   // Moves a project between kanban columns. Ownership-checked; bumps

@@ -303,6 +303,11 @@ export const projects = pgTable("projects", {
   // path still reads them and we avoid churning that here.
   artistName: text("artist_name").notNull(),
   artistEmail: text("artist_email").notNull(),
+  // Project-room invite token. Minted at create time; embedded in the
+  // share URL the producer copies (`/join/[slug]?invite=<token>`).
+  // Unique so a guess collision can't land an artist in someone
+  // else's room. Nullable so legacy rows pre-migration stay valid.
+  inviteToken: text("invite_token").unique(),
   depositPaid: boolean("deposit_paid").notNull().default(false),
   finalPaid: boolean("final_paid").notNull().default(false),
   // ─── Auto-installments (Stripe) execution state ───────────────────

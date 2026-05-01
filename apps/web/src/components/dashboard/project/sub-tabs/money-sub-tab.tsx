@@ -1,7 +1,8 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 
+import { AddChargeModal } from "~/components/dashboard/project/add-charge-modal";
 import { Button } from "~/components/ui/button";
 import { useToast } from "~/components/ui/toast";
 import { openStripeDashboard } from "~/app/(producer)/dashboard/settings/stripe-actions";
@@ -25,8 +26,10 @@ export interface MoneySummary {
 }
 
 export function MoneySubTab({
+  projectId,
   money,
 }: {
+  projectId: string;
   money: MoneySummary;
 }) {
   return (
@@ -36,7 +39,7 @@ export function MoneySubTab({
       aria-labelledby="tab-money"
       className="space-y-8"
     >
-      <MoneyStrip money={money} />
+      <MoneyStrip projectId={projectId} money={money} />
     </section>
   );
 }
@@ -47,9 +50,16 @@ export function MoneySubTab({
 // single-use and time-limited — minting it client-side would leak a
 // secret; minting it via the Server Action keeps the secret on the
 // server and the producer's tab gets a fresh URL each click.
-function MoneyStrip({ money }: { money: MoneySummary }) {
+function MoneyStrip({
+  projectId,
+  money,
+}: {
+  projectId: string;
+  money: MoneySummary;
+}) {
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
+  const [addOpen, setAddOpen] = useState(false);
 
   function onOpenStripe() {
     startTransition(async () => {
@@ -107,7 +117,17 @@ function MoneyStrip({ money }: { money: MoneySummary }) {
         />
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            setAddOpen(true);
+          }}
+        >
+          + Add charge
+        </Button>
         <Button
           type="button"
           variant="secondary"
@@ -118,6 +138,15 @@ function MoneyStrip({ money }: { money: MoneySummary }) {
           {pending ? "Opening Stripe…" : "Open in Stripe →"}
         </Button>
       </div>
+
+      <AddChargeModal
+        open={addOpen}
+        projectId={projectId}
+        defaultCurrency={money.currency}
+        onClose={() => {
+          setAddOpen(false);
+        }}
+      />
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { Button } from "~/components/ui/button";
 import {
   ProjectsList,
   type GroupedProjects,
@@ -88,9 +90,14 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
             <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
               Pipeline
             </p>
-            <h1 className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
-              Clients & Projects
-            </h1>
+            <div className="mt-2 flex items-start justify-between gap-4">
+              <h1 className="font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
+                Clients & Projects
+              </h1>
+              <Button asChild className="shrink-0">
+                <Link href="/dashboard/clients-projects/new">+ New project</Link>
+              </Button>
+            </div>
             <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
               Browse your clients or open the project room for any active engagement.
             </p>

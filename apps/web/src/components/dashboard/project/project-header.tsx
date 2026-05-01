@@ -24,6 +24,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { CancelConfirmModal } from "~/components/project/cancel-confirm-modal";
 import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
 import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
+import { EditProjectModal } from "./edit-project-modal";
 import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/input";
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
@@ -92,6 +93,7 @@ export function ProjectHeader({
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [chargeOpen, setChargeOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -212,6 +214,11 @@ export function ProjectHeader({
   function onCancelClick() {
     setMenuOpen(false);
     setCancelOpen(true);
+  }
+
+  function onEditClick() {
+    setMenuOpen(false);
+    setEditOpen(true);
   }
 
   async function onConfirmCancel(confirmTitle: string) {
@@ -339,6 +346,7 @@ export function ProjectHeader({
             pending={pending}
             onMarkFinal={onMarkFinalClick}
             onUploadTrack={onUploadTrackClick}
+            onEditProject={onEditClick}
             onCancelProject={onCancelClick}
           />
         </div>
@@ -397,6 +405,17 @@ export function ProjectHeader({
           }}
         />
       ) : null}
+
+      <EditProjectModal
+        open={editOpen}
+        projectId={project.id}
+        initialTitle={project.title}
+        initialArtistName={project.artistName}
+        initialArtistEmail={project.artistEmail}
+        onClose={() => {
+          setEditOpen(false);
+        }}
+      />
     </header>
   );
 }
@@ -425,6 +444,7 @@ interface ActionsMenuProps {
   pending: boolean;
   onMarkFinal: () => void;
   onUploadTrack: () => void;
+  onEditProject: () => void;
   onCancelProject: () => void;
 }
 
@@ -437,6 +457,7 @@ function ActionsMenu({
   pending,
   onMarkFinal,
   onUploadTrack,
+  onEditProject,
   onCancelProject,
 }: ActionsMenuProps) {
   return (
@@ -479,6 +500,11 @@ function ActionsMenu({
             disabled={pending}
             label="Upload a new track"
             shortcut="U"
+          />
+          <MenuItem
+            onClick={onEditProject}
+            disabled={pending}
+            label="Edit project"
           />
           {!isTerminal ? (
             <MenuItem
