@@ -75,17 +75,14 @@ const NAV: ReadonlyArray<{
     label: "Storefront",
     short: "Store",
     icon: "store",
-    // Storefront page doesn't exist yet on Skitza — points at /dashboard
-    // until we ship the matching tab.
-    href: "/dashboard",
+    href: "/dashboard/store",
   },
   {
     key: "insights",
     label: "Insights",
     short: "Insights",
     icon: "trending-up",
-    // Insights page doesn't exist yet either — same fallback.
-    href: "/dashboard",
+    href: "/dashboard/insights",
   },
   {
     key: "settings",
