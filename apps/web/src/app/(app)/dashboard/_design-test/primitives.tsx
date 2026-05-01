@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-confusing-void-expression */
+/* eslint-disable @typescript-eslint/no-confusing-void-expression */
 "use client";
 
 // Skitza Design Test — primitives. 1:1 port of the mockup's primitives.jsx
@@ -79,6 +79,8 @@ const IconMap: Record<string, Lucide.LucideIcon> = {
   pause: Lucide.Pause,
   pencil: Lucide.Pencil,
   pin: Lucide.Pin,
+  "edit-3": Lucide.Edit3,
+  "share-2": Lucide.Share2,
   play: Lucide.Play,
   plug: Lucide.Plug,
   plus: Lucide.Plus,
