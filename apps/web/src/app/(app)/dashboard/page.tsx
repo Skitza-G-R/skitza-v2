@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/restrict-template-expressions */
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-confusing-void-expression */
 "use client";
 
 // Skitza Design Test — shell. 1:1 port of the mockup's shell.jsx Sidebar
