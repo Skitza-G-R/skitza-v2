@@ -1,13 +1,16 @@
 "use client";
 
 // Skitza Design Test — shared shell. Wraps any tab body in the .dt-root
-// scope, mounts the Sidebar, and provides the matching layout chrome.
+// scope, mounts the Sidebar + the global FloatingPlayer so they're
+// available on every dashboard route.
+//
 // Ported from the mockup's ProducerApp (chrome="sidebar" branch only).
 
 import { type ReactNode } from "react";
 
 import "./design-test.css";
 
+import { FloatingPlayer } from "./floating-player";
 import { Sidebar, type Producer } from "./shell";
 
 type DesignShellProps = {
@@ -44,6 +47,8 @@ export function DesignShell({ producer, children }: DesignShellProps) {
       >
         {children}
       </main>
+
+      <FloatingPlayer />
     </div>
   );
 }
