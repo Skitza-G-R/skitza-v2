@@ -40,9 +40,10 @@ export function playerReducer(
     case "play": {
       // Same track: resume from existing progress.
       // Different track (or none): start fresh at progress 0.
-      const sameTrack =
-        state.current !== null && state.current.id === action.track.id;
-      if (sameTrack && state.current !== null) {
+      if (
+        state.current !== null &&
+        state.current.id === action.track.id
+      ) {
         return {
           current: action.track,
           playing: true,

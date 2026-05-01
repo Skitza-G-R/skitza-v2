@@ -88,12 +88,14 @@ export default async function DashboardPage() {
   });
 
   // ── Recent uploads → mockup OverviewTrack shape ─────────────────
-  const tracks: OverviewTrack[] = today.recentUploads.map((u) => ({
+  const tracks: OverviewTrack[] = today.recentUploads.map((u, i) => ({
     id: u.versionId,
     title: u.title,
     project: u.projectClientName || "Project",
     uploaded: relTime(u.uploadedAt),
     duration: fmtDuration(u.durationMs),
+    durationSec: Math.round((u.durationMs ?? 0) / 1000) || 240,
+    grad: gradFor(i),
   }));
 
   // Outstanding $ isn't computed by today() — would need a dedicated

@@ -8,20 +8,17 @@
 //
 // Wired logic:
 // - Tracks come from real library.list() rows mapped to mockup shape
-// - Click track → router.push(`/dashboard/music/${trackId}`) — Song
-//   page is wired in a follow-up commit (this round just opens the
-//   library)
-// - Play button is a no-op (audio context lands later)
+// - Click track row → router.push(`/dashboard/music/${trackId}`) (song page)
+// - Play button → dispatches `play` action via PlayerContext, mounts the
+//   global FloatingPlayer at the bottom; persists across route changes
 // - Fav star toggles in local state (no real favorites table yet)
 // - Add Song button opens a stub modal — wire to real upload flow
 //   on a later round
-//
-// Out of scope this round: AddSongModal (stub in mockup, no real
-// upload flow yet); custom playlists (no playlists table in DB).
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useIsTrackPlaying, usePlayer } from "./player-context";
 import {
   Card,
   EqBars,
@@ -556,6 +553,7 @@ function GridView({
   toggleFav: (id: string) => void;
   onOpenSong: (id: string) => void;
 }) {
+  const { play } = usePlayer();
   return (
     <div
       className="reveal-up stagger-3"
@@ -641,7 +639,31 @@ function GridView({
               <span
                 role="button"
                 tabIndex={0}
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  play({
+                    id: t.id,
+                    title: t.title,
+                    project: t.project,
+                    duration: t.duration,
+                    durationSec: t.durationSec,
+                    grad: t.grad,
+                  });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    play({
+                      id: t.id,
+                      title: t.title,
+                      project: t.project,
+                      duration: t.duration,
+                      durationSec: t.durationSec,
+                      grad: t.grad,
+                    });
+                  }
+                }}
                 className="sk-pop"
                 style={{
                   alignSelf: "flex-start",
@@ -752,6 +774,7 @@ function TableView({
   setSort: (s: "recent" | "title" | "listens" | "length" | "comments") => void;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const { play } = usePlayer();
   return (
     <Card padded={false} className="reveal-up stagger-4">
       <div
@@ -834,7 +857,31 @@ function TableView({
                 <span
                   role="button"
                   tabIndex={0}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    play({
+                      id: t.id,
+                      title: t.title,
+                      project: t.project,
+                      duration: t.duration,
+                      durationSec: t.durationSec,
+                      grad: t.grad,
+                    });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      play({
+                        id: t.id,
+                        title: t.title,
+                        project: t.project,
+                        duration: t.duration,
+                        durationSec: t.durationSec,
+                        grad: t.grad,
+                      });
+                    }
+                  }}
                   className="sk-pop"
                   style={{
                     width: 28,
@@ -962,6 +1009,107 @@ function TableView({
   );
 }
 
+function HybridRow({
+  t,
+  isFav,
+  toggleFav,
+  onOpenSong,
+  isLast,
+}: {
+  t: LibraryTrack;
+  isFav: (t: LibraryTrack) => boolean;
+  toggleFav: (id: string) => void;
+  onOpenSong: (id: string) => void;
+  isLast: boolean;
+}) {
+  const { play } = usePlayer();
+  const playing = useIsTrackPlaying(t.id);
+  return (
+    <div
+      className="sk-row"
+      onClick={() => onOpenSong(t.id)}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "36px 200px minmax(0,1fr) 60px 60px 28px 28px",
+        alignItems: "center",
+        gap: 12,
+        padding: "12px 16px",
+        borderBottom: isLast
+          ? "none"
+          : "1px solid rgb(var(--border-subtle) / 0.6)",
+        cursor: "pointer",
+      }}
+    >
+      <PlayCircle
+        size={32}
+        playing={playing}
+        onClick={() => {
+          play({
+            id: t.id,
+            title: t.title,
+            project: t.project,
+            duration: t.duration,
+            durationSec: t.durationSec,
+            grad: t.grad,
+          });
+        }}
+      />
+      <div style={{ minWidth: 0 }}>
+        <div
+          className="truncate"
+          style={{ fontSize: 13, fontWeight: 700, color: "rgb(var(--fg-default))" }}
+        >
+          {t.title}
+        </div>
+        <div style={{ fontSize: 11, color: "rgb(var(--fg-muted))" }}>
+          {t.version}
+          {t.bpm ? ` · ${String(t.bpm)} BPM` : ""}
+          {t.mkey ? ` · ${t.mkey}` : ""}
+        </div>
+      </div>
+      <div style={{ minWidth: 0, opacity: 0.6 }}>
+        <Waveform bars={48} progress={0} height={24} seed={t.id.charCodeAt(0) || 3} />
+      </div>
+      <span
+        className="tabular"
+        style={{
+          fontSize: 11,
+          fontFamily: "JetBrains Mono",
+          color: "rgb(var(--fg-muted))",
+          textAlign: "right",
+        }}
+      >
+        {t.plays} pl
+      </span>
+      <span
+        className="tabular"
+        style={{
+          fontSize: 12,
+          fontFamily: "JetBrains Mono",
+          color: "rgb(var(--fg-muted))",
+          textAlign: "right",
+        }}
+      >
+        {t.duration}
+      </span>
+      <span onClick={(e) => e.stopPropagation()}>
+        <FavStar on={isFav(t)} onToggle={() => toggleFav(t.id)} />
+      </span>
+      <span onClick={(e) => e.stopPropagation()}>
+        <KebabMenu
+          items={[
+            { label: "Open song", icon: "external-link", onClick: () => onOpenSong(t.id) },
+            { label: "Download", icon: "download" },
+            { label: "Copy share link", icon: "link" },
+            { label: "Upload new version", icon: "upload" },
+            { label: "Delete", icon: "trash-2", danger: true },
+          ]}
+        />
+      </span>
+    </div>
+  );
+}
+
 function HybridView({
   groups,
   isFav,
@@ -1010,82 +1158,14 @@ function HybridView({
           </div>
           <Card padded={false}>
             {list.map((t, i) => (
-              <div
+              <HybridRow
                 key={t.id}
-                className="sk-row"
-                onClick={() => onOpenSong(t.id)}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "36px 200px minmax(0,1fr) 60px 60px 28px 28px",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "12px 16px",
-                  borderBottom:
-                    i === list.length - 1
-                      ? "none"
-                      : "1px solid rgb(var(--border-subtle) / 0.6)",
-                  cursor: "pointer",
-                }}
-              >
-                <PlayCircle size={32} />
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    className="truncate"
-                    style={{ fontSize: 13, fontWeight: 700, color: "rgb(var(--fg-default))" }}
-                  >
-                    {t.title}
-                  </div>
-                  <div style={{ fontSize: 11, color: "rgb(var(--fg-muted))" }}>
-                    {t.version}
-                    {t.bpm ? ` · ${String(t.bpm)} BPM` : ""}
-                    {t.mkey ? ` · ${t.mkey}` : ""}
-                  </div>
-                </div>
-                <div style={{ minWidth: 0, opacity: 0.6 }}>
-                  <Waveform
-                    bars={48}
-                    progress={0}
-                    height={24}
-                    seed={t.id.charCodeAt(0) || 3}
-                  />
-                </div>
-                <span
-                  className="tabular"
-                  style={{
-                    fontSize: 11,
-                    fontFamily: "JetBrains Mono",
-                    color: "rgb(var(--fg-muted))",
-                    textAlign: "right",
-                  }}
-                >
-                  {t.plays} pl
-                </span>
-                <span
-                  className="tabular"
-                  style={{
-                    fontSize: 12,
-                    fontFamily: "JetBrains Mono",
-                    color: "rgb(var(--fg-muted))",
-                    textAlign: "right",
-                  }}
-                >
-                  {t.duration}
-                </span>
-                <span onClick={(e) => e.stopPropagation()}>
-                  <FavStar on={isFav(t)} onToggle={() => toggleFav(t.id)} />
-                </span>
-                <span onClick={(e) => e.stopPropagation()}>
-                  <KebabMenu
-                    items={[
-                      { label: "Open song", icon: "external-link", onClick: () => onOpenSong(t.id) },
-                      { label: "Download", icon: "download" },
-                      { label: "Copy share link", icon: "link" },
-                      { label: "Upload new version", icon: "upload" },
-                      { label: "Delete", icon: "trash-2", danger: true },
-                    ]}
-                  />
-                </span>
-              </div>
+                t={t}
+                isFav={isFav}
+                toggleFav={toggleFav}
+                onOpenSong={onOpenSong}
+                isLast={i === list.length - 1}
+              />
             ))}
           </Card>
         </div>

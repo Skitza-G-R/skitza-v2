@@ -117,6 +117,7 @@ export default async function ProjectRoomPage({ params }: PageProps) {
     title: row.trackTitle ?? row.versionLabel ?? "Untitled",
     version: row.versionLabel ?? "v1",
     duration: fmtDuration(row.durationMs),
+    durationSec: Math.round((row.durationMs ?? 0) / 1000) || 240,
     bpm: null,
     mkey: null,
     uploaded: relTime(row.uploadedAt),

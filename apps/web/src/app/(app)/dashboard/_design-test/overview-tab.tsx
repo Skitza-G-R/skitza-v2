@@ -23,6 +23,7 @@
 import { type ReactNode, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useIsTrackPlaying, usePlayer } from "./player-context";
 import {
   Card,
   Icon,
@@ -49,6 +50,8 @@ export type OverviewTrack = {
   project: string;
   uploaded: string;
   duration: string;
+  durationSec: number;
+  grad: string;
 };
 
 export type OverviewClient = {
@@ -343,75 +346,7 @@ export function OverviewTab({ data }: OverviewTabProps) {
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         {recent.map((t) => (
-          <div
-            key={t.id}
-            className="sk-row"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "10px 14px",
-              borderRadius: 12,
-              gap: 12,
-            }}
-          >
-            <PlayCircle size={32} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                className="truncate"
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                {t.title}
-              </div>
-              <div
-                className="truncate"
-                style={{
-                  fontSize: 11.5,
-                  color: "rgb(var(--fg-muted))",
-                  marginTop: 2,
-                }}
-              >
-                {t.project}
-              </div>
-            </div>
-            <div
-              style={{
-                textAlign: "right",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "flex-end",
-                gap: 2,
-              }}
-            >
-              <span className="label-tiny">Uploaded</span>
-              <span style={{ fontSize: 12, fontWeight: 700 }}>{t.uploaded}</span>
-            </div>
-            <div
-              style={{
-                textAlign: "right",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "flex-end",
-                gap: 2,
-                marginLeft: 16,
-              }}
-            >
-              <span className="label-tiny">Duration</span>
-              <span
-                className="tabular"
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  fontFamily: "JetBrains Mono",
-                }}
-              >
-                {t.duration}
-              </span>
-            </div>
-          </div>
+          <RecentUploadRow key={t.id} track={t} />
         ))}
         {recent.length === 0 && (
           <div
@@ -691,6 +626,93 @@ export function OverviewTab({ data }: OverviewTabProps) {
         {RecentCard}
       </div>
       <div className="reveal-up stagger-4">{FinanceCard}</div>
+    </div>
+  );
+}
+
+// Recent-uploads row — extracted so it can call `useIsTrackPlaying`.
+// Clicking the play circle dispatches into the global PlayerContext
+// which mounts the FloatingPlayer at the bottom.
+function RecentUploadRow({ track }: { track: OverviewTrack }) {
+  const { play } = usePlayer();
+  const isPlaying = useIsTrackPlaying(track.id);
+  return (
+    <div
+      className="sk-row"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: "10px 14px",
+        borderRadius: 12,
+        gap: 12,
+      }}
+    >
+      <PlayCircle
+        size={32}
+        playing={isPlaying}
+        onClick={() => {
+          play({
+            id: track.id,
+            title: track.title,
+            project: track.project,
+            duration: track.duration,
+            durationSec: track.durationSec,
+            grad: track.grad,
+          });
+        }}
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          className="truncate"
+          style={{ fontSize: 13, fontWeight: 700, letterSpacing: "-0.01em" }}
+        >
+          {track.title}
+        </div>
+        <div
+          className="truncate"
+          style={{
+            fontSize: 11.5,
+            color: "rgb(var(--fg-muted))",
+            marginTop: 2,
+          }}
+        >
+          {track.project}
+        </div>
+      </div>
+      <div
+        style={{
+          textAlign: "right",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: 2,
+        }}
+      >
+        <span className="label-tiny">Uploaded</span>
+        <span style={{ fontSize: 12, fontWeight: 700 }}>{track.uploaded}</span>
+      </div>
+      <div
+        style={{
+          textAlign: "right",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: 2,
+          marginLeft: 16,
+        }}
+      >
+        <span className="label-tiny">Duration</span>
+        <span
+          className="tabular"
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            fontFamily: "JetBrains Mono",
+          }}
+        >
+          {track.duration}
+        </span>
+      </div>
     </div>
   );
 }

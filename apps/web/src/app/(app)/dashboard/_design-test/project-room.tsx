@@ -21,6 +21,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { BackButton, Breadcrumbs } from "./nav-chrome";
+import { useIsTrackPlaying, usePlayer } from "./player-context";
 import {
   Avatar,
   Card,
@@ -55,6 +56,7 @@ export type ProjectRoomTrack = {
   title: string;
   version: string;
   duration: string;
+  durationSec: number;
   bpm: number | null;
   mkey: string | null;
   uploaded: string;
@@ -373,6 +375,7 @@ export function ProjectRoom({ data }: { data: ProjectRoomData }) {
           )}
           {tab === "songs" && (
             <RoomSongsTab
+              project={p}
               tracks={tracks}
               hoverTrack={hoverTrack}
               setHoverTrack={setHoverTrack}
@@ -452,6 +455,73 @@ function RoomStatTile({
   );
 }
 
+// Returns a handler that dispatches a `play` action with the parent
+// project's name + grad merged onto the track's metadata, so the
+// FloatingPlayer renders the project label and gradient correctly.
+function useRoomPlayHandler(project: ProjectRoomProject) {
+  const { play } = usePlayer();
+  return (t: ProjectRoomTrack) => {
+    play({
+      id: t.id,
+      title: t.title,
+      project: project.name,
+      duration: t.duration,
+      durationSec: t.durationSec,
+      grad: project.grad,
+    });
+  };
+}
+
+// Single track row in the "Latest songs" card on Project Room Overview.
+// Extracted so it can call `useIsTrackPlaying` to flip the icon when this
+// track is currently playing via the global FloatingPlayer.
+function RoomLatestSongRow({
+  track,
+  onPlay,
+}: {
+  track: ProjectRoomTrack;
+  onPlay: (t: ProjectRoomTrack) => void;
+}) {
+  const isPlaying = useIsTrackPlaying(track.id);
+  return (
+    <div
+      className="sk-row"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "8px 10px",
+        borderRadius: 8,
+        cursor: "pointer",
+      }}
+    >
+      <PlayCircle
+        size={30}
+        playing={isPlaying}
+        onClick={() => onPlay(track)}
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="truncate" style={{ fontSize: 12.5, fontWeight: 700 }}>
+          {track.title}
+        </div>
+        <div style={{ fontSize: 10.5, color: "rgb(var(--fg-muted))" }}>
+          {track.version} · {track.uploaded}
+        </div>
+      </div>
+      <span
+        className="tabular"
+        style={{
+          fontSize: 10.5,
+          fontFamily: "JetBrains Mono",
+          color: "rgb(var(--fg-muted))",
+        }}
+      >
+        {track.duration}
+      </span>
+    </div>
+  );
+}
+
 function RoomOverviewTab({
   project,
   tracks,
@@ -461,6 +531,7 @@ function RoomOverviewTab({
   tracks: ProjectRoomTrack[];
   setTab: (k: "overview" | "songs" | "files" | "payments" | "activity") => void;
 }) {
+  const playRoomTrack = useRoomPlayHandler(project);
   const stages = [
     "Brief & Intake",
     "Production",
@@ -595,38 +666,7 @@ function RoomOverviewTab({
       >
         <div style={{ padding: 4 }}>
           {tracks.slice(0, 3).map((t) => (
-            <div
-              key={t.id}
-              className="sk-row"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "8px 10px",
-                borderRadius: 8,
-                cursor: "pointer",
-              }}
-            >
-              <PlayCircle size={30} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="truncate" style={{ fontSize: 12.5, fontWeight: 700 }}>
-                  {t.title}
-                </div>
-                <div style={{ fontSize: 10.5, color: "rgb(var(--fg-muted))" }}>
-                  {t.version} · {t.uploaded}
-                </div>
-              </div>
-              <span
-                className="tabular"
-                style={{
-                  fontSize: 10.5,
-                  fontFamily: "JetBrains Mono",
-                  color: "rgb(var(--fg-muted))",
-                }}
-              >
-                {t.duration}
-              </span>
-            </div>
+            <RoomLatestSongRow key={t.id} track={t} onPlay={playRoomTrack} />
           ))}
           {tracks.length === 0 && (
             <div
@@ -701,14 +741,17 @@ function RoomOverviewTab({
 }
 
 function RoomSongsTab({
+  project,
   tracks,
   hoverTrack,
   setHoverTrack,
 }: {
+  project: ProjectRoomProject;
   tracks: ProjectRoomTrack[];
   hoverTrack: string | null;
   setHoverTrack: (id: string | null) => void;
 }) {
+  const playRoomTrack = useRoomPlayHandler(project);
   if (tracks.length === 0) {
     return (
       <Card padded={false}>
@@ -810,6 +853,17 @@ function RoomSongsTab({
                 <span
                   role="button"
                   tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playRoomTrack(t);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      playRoomTrack(t);
+                    }
+                  }}
                   className="sk-pop"
                   style={{
                     width: 28,
@@ -822,6 +876,7 @@ function RoomSongsTab({
                     justifyContent: "center",
                     cursor: "pointer",
                   }}
+                  aria-label="Play"
                 >
                   <Icon name="play" size={11} strokeWidth={2.6} />
                 </span>
