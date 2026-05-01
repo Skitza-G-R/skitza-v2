@@ -591,6 +591,14 @@ function fakeWave(n: number, seed: number): number[] {
   return out;
 }
 
+export type WaveformCommentMarker = {
+  id: string;
+  /** Seconds into the track. */
+  at: number;
+  /** Optional click handler — used by SongPage to scrub-to-comment. */
+  onClick?: () => void;
+};
+
 export function Waveform({
   bars = 64,
   progress = 0.3,
@@ -599,6 +607,8 @@ export function Waveform({
   seed = 1,
   compact = false,
   dark = false,
+  comments,
+  durationSec,
 }: {
   bars?: number;
   progress?: number;
@@ -607,6 +617,8 @@ export function Waveform({
   seed?: number;
   compact?: boolean;
   dark?: boolean;
+  comments?: WaveformCommentMarker[];
+  durationSec?: number;
 }) {
   const data = fakeWave(bars, seed);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -616,6 +628,8 @@ export function Waveform({
     const x = (e.clientX - r.left) / r.width;
     onScrub(Math.max(0, Math.min(1, x)));
   };
+  const showMarkers =
+    comments !== undefined && durationSec !== undefined && durationSec > 0;
   return (
     <div
       ref={ref}
@@ -649,6 +663,40 @@ export function Waveform({
           />
         );
       })}
+      {showMarkers &&
+        comments.map((c) => {
+          const left = Math.max(
+            0,
+            Math.min(100, (c.at / durationSec) * 100),
+          );
+          return (
+            <button
+              key={c.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                c.onClick?.();
+              }}
+              aria-label={`Comment at ${String(Math.round(c.at))} seconds`}
+              style={{
+                all: "unset",
+                cursor: c.onClick ? "pointer" : "default",
+                position: "absolute",
+                left: `${String(left)}%`,
+                top: -4,
+                transform: "translateX(-50%)",
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: "rgb(var(--brand-primary))",
+                border: dark
+                  ? "2px solid rgba(255,255,255,0.6)"
+                  : "2px solid rgb(var(--bg-default))",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.32)",
+                zIndex: 2,
+              }}
+            />
+          );
+        })}
       <div
         style={{
           position: "absolute",
