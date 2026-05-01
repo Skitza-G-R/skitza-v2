@@ -11,6 +11,7 @@ import {
   relTime,
 } from "../../_design-test/data-mapping";
 import { DesignShell } from "../../_design-test/design-shell";
+import { buildPaletteData } from "../../_design-test/palette-data";
 import {
   rawCommentToVisible,
   type RawComment,
@@ -32,7 +33,10 @@ export default async function SongPageRoute({ params }: PageProps) {
   const { trackId } = await params;
 
   const caller = appRouter.createCaller({ userId });
-  const me = await caller.producer.me();
+  const [me, paletteData] = await Promise.all([
+    caller.producer.me(),
+    buildPaletteData(caller),
+  ]);
 
   let detail;
   try {
@@ -112,7 +116,7 @@ export default async function SongPageRoute({ params }: PageProps) {
   };
 
   return (
-    <DesignShell producer={producer}>
+    <DesignShell producer={producer} paletteData={paletteData}>
       <SongPage data={data} />
     </DesignShell>
   );

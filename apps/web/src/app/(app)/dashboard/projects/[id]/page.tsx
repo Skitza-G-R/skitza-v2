@@ -13,6 +13,7 @@ import {
   tagForStage,
 } from "../../_design-test/data-mapping";
 import { DesignShell } from "../../_design-test/design-shell";
+import { buildPaletteData } from "../../_design-test/palette-data";
 import {
   ProjectRoom,
   type ActivityEvent,
@@ -30,7 +31,10 @@ export default async function ProjectRoomPage({ params }: PageProps) {
   const { id } = await params;
 
   const caller = appRouter.createCaller({ userId });
-  const me = await caller.producer.me();
+  const [me, paletteData] = await Promise.all([
+    caller.producer.me(),
+    buildPaletteData(caller),
+  ]);
 
   // Fetch project detail + money + tracks in parallel. project.detail
   // throws NOT_FOUND if the project doesn't exist or belongs to a
@@ -152,7 +156,7 @@ export default async function ProjectRoomPage({ params }: PageProps) {
   );
 
   return (
-    <DesignShell producer={producer}>
+    <DesignShell producer={producer} paletteData={paletteData}>
       <ProjectRoom data={{ project, tracks, activity }} />
     </DesignShell>
   );

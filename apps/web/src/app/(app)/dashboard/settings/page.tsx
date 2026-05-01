@@ -5,6 +5,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 import { initialsOf } from "../_design-test/data-mapping";
 import { DesignShell } from "../_design-test/design-shell";
+import { buildPaletteData } from "../_design-test/palette-data";
 import { SettingsTab } from "../_design-test/settings-tab";
 import type { Producer } from "../_design-test/shell";
 
@@ -20,7 +21,10 @@ export default async function SettingsPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const me = await caller.producer.me();
+  const [me, paletteData] = await Promise.all([
+    caller.producer.me(),
+    buildPaletteData(caller),
+  ]);
 
   const producer: Producer = {
     name: me.displayName ?? "Your Studio",
@@ -34,7 +38,7 @@ export default async function SettingsPage() {
   const tagline = typeof brand.tagline === "string" ? brand.tagline : "";
 
   return (
-    <DesignShell producer={producer}>
+    <DesignShell producer={producer} paletteData={paletteData}>
       <SettingsTab
         data={{
           name: me.displayName ?? "",

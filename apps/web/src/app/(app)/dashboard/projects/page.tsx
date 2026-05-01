@@ -17,6 +17,7 @@ import {
   tagForStage,
 } from "../_design-test/data-mapping";
 import { DesignShell } from "../_design-test/design-shell";
+import { buildPaletteData } from "../_design-test/palette-data";
 import type { Producer } from "../_design-test/shell";
 
 // gili/design-test branch — Clients & Projects tab. Wires the mockup's
@@ -30,10 +31,11 @@ export default async function ProjectsPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [me, projectsAll, byClient] = await Promise.all([
+  const [me, projectsAll, byClient, paletteData] = await Promise.all([
     caller.producer.me(),
     caller.clientContacts.listWithProjects({ view: "all-projects" }),
     caller.clientContacts.listWithProjects(),
+    buildPaletteData(caller),
   ]);
 
   const producer: Producer = {
@@ -107,7 +109,7 @@ export default async function ProjectsPage() {
       : [];
 
   return (
-    <DesignShell producer={producer}>
+    <DesignShell producer={producer} paletteData={paletteData}>
       <ClientsProjectsTab data={{ projects: projectRows, clients: clientRows }} />
     </DesignShell>
   );

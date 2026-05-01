@@ -11,6 +11,7 @@ import {
   type InsightsProduct,
   type InsightsStats,
 } from "../_design-test/insights-tab";
+import { buildPaletteData } from "../_design-test/palette-data";
 import type { Producer } from "../_design-test/shell";
 
 // gili/design-test branch — Insights tab. Wires the mockup's KPI
@@ -23,12 +24,15 @@ export default async function InsightsPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [me, today, allBookings, packageList] = await Promise.all([
-    caller.producer.me(),
-    caller.producer.today(),
-    caller.booking.list(),
-    caller.booking.products.list(),
-  ]);
+  const [me, today, allBookings, packageList, paletteData] = await Promise.all(
+    [
+      caller.producer.me(),
+      caller.producer.today(),
+      caller.booking.list(),
+      caller.booking.products.list(),
+      buildPaletteData(caller),
+    ],
+  );
 
   const producer: Producer = {
     name: me.displayName ?? "Your Studio",
@@ -86,7 +90,7 @@ export default async function InsightsPage() {
   };
 
   return (
-    <DesignShell producer={producer}>
+    <DesignShell producer={producer} paletteData={paletteData}>
       <InsightsTab data={{ stats, bookings, products }} />
     </DesignShell>
   );

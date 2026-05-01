@@ -5,6 +5,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 import { initialsOf, splitPublicLink } from "../_design-test/data-mapping";
 import { DesignShell } from "../_design-test/design-shell";
+import { buildPaletteData } from "../_design-test/palette-data";
 import {
   StorefrontTab,
   type StoreProduct,
@@ -20,9 +21,10 @@ export default async function StorePage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [me, packageList] = await Promise.all([
+  const [me, packageList, paletteData] = await Promise.all([
     caller.producer.me(),
     caller.booking.products.list(),
+    buildPaletteData(caller),
   ]);
 
   const producer: Producer = {
@@ -55,7 +57,7 @@ export default async function StorePage() {
   const tagline = typeof brand.tagline === "string" ? brand.tagline : "";
 
   return (
-    <DesignShell producer={producer}>
+    <DesignShell producer={producer} paletteData={paletteData}>
       <StorefrontTab
         data={{
           producer: {

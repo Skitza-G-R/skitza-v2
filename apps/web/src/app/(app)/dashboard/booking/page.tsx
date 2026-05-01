@@ -10,6 +10,7 @@ import {
 } from "../_design-test/calendar-tab";
 import { initialsOf } from "../_design-test/data-mapping";
 import { DesignShell } from "../_design-test/design-shell";
+import { buildPaletteData } from "../_design-test/palette-data";
 import type { Producer } from "../_design-test/shell";
 
 // gili/design-test branch — Calendar tab. Wires the mockup's
@@ -44,10 +45,11 @@ export default async function CalendarPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [me, upcoming, pending] = await Promise.all([
+  const [me, upcoming, pending, paletteData] = await Promise.all([
     caller.producer.me(),
     caller.booking.upcoming({ days: 14 }),
     caller.booking.list({ status: "pending" }),
+    buildPaletteData(caller),
   ]);
 
   const producer: Producer = {
@@ -115,7 +117,7 @@ export default async function CalendarPage() {
   })}`;
 
   return (
-    <DesignShell producer={producer}>
+    <DesignShell producer={producer} paletteData={paletteData}>
       <CalendarTab
         data={{ sessions, introRequests, weekLabel, todayIdx }}
       />
