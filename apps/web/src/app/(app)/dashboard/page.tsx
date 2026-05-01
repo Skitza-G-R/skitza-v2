@@ -1,11 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/restrict-template-expressions */
-import fs from "node:fs/promises";
-import path from "node:path";
-
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import { MOCKUP_HTML } from "./_design-test/mockup";
 
 // gili/design-test branch — full Claude Design mockup served inside an
 // iframe at /dashboard, with real producer data injected server-side.
@@ -260,14 +258,11 @@ export default async function DashboardPage() {
     tracks: realTracks,
   };
 
-  // Read mockup HTML (~358 KB). The file was committed to public/ in an
-  // earlier step; reading from process.cwd() works in Vercel's Node.js
-  // runtime. Edge runtime won't have fs, so this page must stay on Node.
-  const mockupPath = path.join(
-    process.cwd(),
-    "apps/web/public/design-test/index.html",
-  );
-  let html = await fs.readFile(mockupPath, "utf-8");
+  // The mockup HTML (~358 KB) is bundled as a TS module — Vercel's Node.js
+  // runtime doesn't include public/ files in the function package, so a
+  // previous fs.readFile attempt threw at runtime. Importing as a module
+  // gives webpack a chance to bundle it deterministically.
+  let html: string = MOCKUP_HTML;
 
   // ─── Patch hardcoded user values that aren't in SAMPLE_DATA ─────────
   // Mockup line 1455: `<h1 ...>Good morning, Gili.</h1>` — hardcoded.
