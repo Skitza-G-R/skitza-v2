@@ -12,13 +12,15 @@
 // - Other integrations (gcal, spotify, dropbox): local state stubs
 //   until those are real
 //
-// The Save / Cancel buttons are visual stubs — no real persistence
-// in this round. Account edits roundtrip the displayName/slug to
-// the server with `producer.update`/equivalent in a follow-up.
+// Save flow: displayName + slug + tagline persist via the
+// `updateProducerSettings` Server Action (producer.update under the
+// hood). Email is Clerk-managed and intentionally read-only here.
 
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 import { Avatar, Card, Icon } from "./primitives";
+import { updateProducerSettings } from "./settings-actions";
 
 export type SettingsData = {
   name: string;
@@ -28,12 +30,59 @@ export type SettingsData = {
   stripeConnected: boolean;
 };
 
+type SaveStatus =
+  | { kind: "idle" }
+  | { kind: "saving" }
+  | { kind: "saved" }
+  | { kind: "error"; message: string; field?: "displayName" | "slug" | "tagline" };
+
 export function SettingsTab({ data }: { data: SettingsData }) {
+  const router = useRouter();
   const [name, setName] = useState(data.name);
   const [email, setEmail] = useState(data.email);
   const [tagline, setTagline] = useState(data.tagline);
   const [pubSlug, setPubSlug] = useState(data.publicLinkSlug);
   const [lang, setLang] = useState<"en" | "he">("en");
+  const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
+  const [pending, startTransition] = useTransition();
+
+  const dirty =
+    name !== data.name || pubSlug !== data.publicLinkSlug || tagline !== data.tagline;
+
+  const onSave = () => {
+    setStatus({ kind: "saving" });
+    startTransition(() => {
+      void (async () => {
+        const result = await updateProducerSettings({
+          displayName: name,
+          slug: pubSlug,
+          tagline,
+        });
+        if (result.ok) {
+          setStatus({ kind: "saved" });
+          router.refresh();
+          // Keep the "Saved" pill visible briefly, then fade back to idle.
+          window.setTimeout(() => {
+            setStatus((cur) => (cur.kind === "saved" ? { kind: "idle" } : cur));
+          }, 1800);
+        } else {
+          setStatus({
+            kind: "error",
+            message: result.error,
+            ...(result.field ? { field: result.field } : {}),
+          });
+        }
+      })();
+    });
+  };
+
+  const onCancel = () => {
+    setName(data.name);
+    setEmail(data.email);
+    setTagline(data.tagline);
+    setPubSlug(data.publicLinkSlug);
+    setStatus({ kind: "idle" });
+  };
   const [integrations, setIntegrations] = useState<{
     stripe: boolean;
     gcal: boolean;
@@ -417,15 +466,54 @@ export function SettingsTab({ data }: { data: SettingsData }) {
           style={{
             display: "flex",
             justifyContent: "flex-end",
-            gap: 8,
+            alignItems: "center",
+            gap: 12,
             paddingTop: 4,
           }}
         >
+          {status.kind === "error" && (
+            <span
+              role="alert"
+              style={{
+                fontSize: 12,
+                color: "rgb(var(--fg-danger))",
+                marginRight: "auto",
+              }}
+            >
+              {status.message}
+            </span>
+          )}
+          {status.kind === "saved" && (
+            <span
+              role="status"
+              style={{
+                fontSize: 12,
+                color: "rgb(var(--fg-success))",
+                marginRight: "auto",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: "rgb(var(--fg-success))",
+                }}
+              />
+              Saved
+            </span>
+          )}
           <button
+            type="button"
+            onClick={onCancel}
+            disabled={pending || !dirty}
             className="sk-pop"
             style={{
               all: "unset",
-              cursor: "pointer",
+              cursor: pending || !dirty ? "not-allowed" : "pointer",
               padding: "10px 16px",
               borderRadius: 9,
               fontSize: 12.5,
@@ -433,24 +521,29 @@ export function SettingsTab({ data }: { data: SettingsData }) {
               background: "transparent",
               color: "rgb(var(--fg-muted))",
               border: "1px solid rgb(var(--border-subtle))",
+              opacity: pending || !dirty ? 0.5 : 1,
             }}
           >
             Cancel
           </button>
           <button
+            type="button"
+            onClick={onSave}
+            disabled={pending || !dirty}
             className="sk-pop"
             style={{
               all: "unset",
-              cursor: "pointer",
+              cursor: pending || !dirty ? "not-allowed" : "pointer",
               padding: "10px 18px",
               borderRadius: 9,
               fontSize: 12.5,
               fontWeight: 700,
               background: "rgb(var(--fg-default))",
               color: "rgb(var(--bg-background))",
+              opacity: pending || !dirty ? 0.6 : 1,
             }}
           >
-            Save changes
+            {pending ? "Saving…" : "Save changes"}
           </button>
         </div>
       </div>

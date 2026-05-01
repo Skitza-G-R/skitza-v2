@@ -52,6 +52,9 @@ const BrandInput = z.object({
   // Font is a forward-looking slot; currently read by theme-resolver but
   // not yet exposed to the UI. Keep the input shape stable.
   font: z.string().max(64).optional(),
+  // Producer one-liner shown on storefront + settings header. Read paths
+  // already pull `brand.tagline`; this completes the round-trip.
+  tagline: z.string().max(200).optional(),
 });
 
 const UpdateInput = z.object({
