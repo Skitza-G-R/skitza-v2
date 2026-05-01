@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import type { RecentUpload } from "~/server/trpc/routers/producer";
 
 // Story 04 — ContextualActions.
@@ -225,9 +227,9 @@ function ActionCardView({ action }: { action: ActionCard }) {
 
   if (action.href) {
     return (
-      <a href={action.href} className={classes}>
+      <Link href={action.href} className={classes}>
         {content}
-      </a>
+      </Link>
     );
   }
 
