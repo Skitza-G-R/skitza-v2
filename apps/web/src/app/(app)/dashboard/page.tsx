@@ -292,6 +292,18 @@ export default async function DashboardPage() {
     `producer.slug || '${escapeJsSingleQuoted(slug)}'`,
   );
 
+  // ─── Swap the root render: DesignCanvas → live ProducerApp ─────────
+  // The mockup's <Root /> wraps everything in a DesignCanvas (Figma-
+  // style multi-artboard view). For an actual interactive app we want
+  // the ProducerApp directly. Mockup line 5594:
+  //   `ReactDOM.createRoot(...).render(<Root />)`
+  // becomes:
+  //   `ReactDOM.createRoot(...).render(<App chrome="sidebar" initialTab="overview" />)`
+  html = html.replace(
+    "ReactDOM.createRoot(document.getElementById('root')).render(<Root />);",
+    "ReactDOM.createRoot(document.getElementById('root')).render(<App chrome=\"sidebar\" initialTab=\"overview\" />);",
+  );
+
   // ─── Inject SAMPLE_DATA setter ──────────────────────────────────────
   // The setter intercepts the mockup's `window.SAMPLE_DATA = SAMPLE_DATA`
   // assignment, deep-merges our overrides, and reinstalls as a regular
