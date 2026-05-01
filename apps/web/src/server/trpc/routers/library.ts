@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  producers,
   projectTracks,
   projects,
   desc,
@@ -203,5 +204,69 @@ export const libraryRouter = router({
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(10);
       return rows;
+    }),
+
+  // Producer-side comment add. Mirrors artist.music.addComment but
+  // sets fromProducer=true and walks ownership through the project's
+  // producerId rather than the artist contact link.
+  addComment: producerProcedure
+    .input(
+      z.object({
+        trackVersionId: z.string().uuid(),
+        timeMs: z.number().int().min(0),
+        body: z.string().trim().min(1).max(2000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [v] = await ctx.db
+        .select({ id: trackVersions.id, trackId: trackVersions.trackId })
+        .from(trackVersions)
+        .where(eq(trackVersions.id, input.trackVersionId))
+        .limit(1);
+      if (!v) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const [t] = await ctx.db
+        .select({ id: projectTracks.id, projectId: projectTracks.projectId })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, v.trackId))
+        .limit(1);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const [p] = await ctx.db
+        .select({ producerId: projects.producerId })
+        .from(projects)
+        .where(eq(projects.id, t.projectId))
+        .limit(1);
+      if (!p) throw new TRPCError({ code: "NOT_FOUND" });
+      if (p.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      // Both authorName and authorEmail are NOT NULL on the schema,
+      // so fetch the producer's display name + email to use as
+      // author. Falls back to "Producer" if the row's missing
+      // (shouldn't happen — producerProcedure already verified).
+      const [me] = await ctx.db
+        .select({
+          displayName: producers.displayName,
+          email: producers.email,
+        })
+        .from(producers)
+        .where(eq(producers.id, ctx.producerId))
+        .limit(1);
+
+      const [row] = await ctx.db
+        .insert(trackComments)
+        .values({
+          versionId: input.trackVersionId,
+          authorName: me?.displayName ?? "Producer",
+          authorEmail: me?.email ?? "producer@skitza.app",
+          body: input.body,
+          timestampMs: input.timeMs,
+          fromProducer: true,
+        })
+        .returning();
+      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      return { id: row.id };
     }),
 });

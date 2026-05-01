@@ -4,7 +4,7 @@
 // Skitza Design Test — Song Page (desktop variant). 1:1 port of the
 // mockup's SongPage (sample-app/index.html lines 2653-2840).
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { BackButton, Breadcrumbs } from "./nav-chrome";
@@ -16,6 +16,7 @@ import {
   Waveform,
   type WaveformCommentMarker,
 } from "./primitives";
+import { addSongComment } from "./song-actions";
 import { fmtTime, secFromProgress } from "./song-time";
 import type { VisibleComment } from "./song-comments";
 
@@ -50,6 +51,8 @@ export function SongPage({ data }: { data: SongPageData }) {
   const [resolved, setResolved] = useState<Record<string, boolean>>({});
   const [showResolved, setShowResolved] = useState(false);
   const [fav, setFav] = useState(false);
+  const [posting, startPostTransition] = useTransition();
+  const [postError, setPostError] = useState<string | null>(null);
 
   const allComments = data.comments;
   const visibleComments = showResolved
@@ -108,6 +111,30 @@ export function SongPage({ data }: { data: SongPageData }) {
         grad: t.grad,
       });
     }
+  };
+
+  const submitComment = () => {
+    const body = draft.trim();
+    if (!body) return;
+    const timeMs = Math.round(sec * 1000);
+    setPostError(null);
+    startPostTransition(() => {
+      void (async () => {
+        const result = await addSongComment({
+          trackVersionId: t.id,
+          timeMs,
+          body,
+        });
+        if (result.ok) {
+          setDraft("");
+          // revalidatePath in the action triggers an RSC refresh that
+          // re-renders the comments list with the new row.
+          router.refresh();
+        } else {
+          setPostError(result.error);
+        }
+      })();
+    });
   };
 
   const waveformMarkers: WaveformCommentMarker[] = visibleComments.map((c) => ({
@@ -694,8 +721,12 @@ export function SongPage({ data }: { data: SongPageData }) {
                 </span>
                 <input
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    if (postError) setPostError(null);
+                  }}
                   placeholder="Add a note at this timestamp…"
+                  disabled={posting}
                   style={{
                     all: "unset",
                     flex: 1,
@@ -704,33 +735,50 @@ export function SongPage({ data }: { data: SongPageData }) {
                     color: "rgb(var(--fg-default))",
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && draft) {
-                      setDraft("");
+                    if (e.key === "Enter" && draft && !posting) {
+                      e.preventDefault();
+                      submitComment();
                     }
                   }}
                 />
                 <button
-                  onClick={() => setDraft("")}
+                  onClick={submitComment}
                   className="sk-pop"
-                  disabled={!draft}
+                  disabled={!draft || posting}
                   style={{
                     all: "unset",
-                    cursor: draft ? "pointer" : "not-allowed",
+                    cursor: draft && !posting ? "pointer" : "not-allowed",
                     padding: "7px 14px",
                     borderRadius: 8,
-                    background: draft
-                      ? "rgb(var(--fg-default))"
-                      : "rgb(var(--border-subtle))",
-                    color: draft
-                      ? "rgb(var(--bg-default))"
-                      : "rgb(var(--fg-faint))",
+                    background:
+                      draft && !posting
+                        ? "rgb(var(--fg-default))"
+                        : "rgb(var(--border-subtle))",
+                    color:
+                      draft && !posting
+                        ? "rgb(var(--bg-default))"
+                        : "rgb(var(--fg-faint))",
                     fontSize: 11.5,
                     fontWeight: 700,
                   }}
                 >
-                  Post
+                  {posting ? "Posting…" : "Post"}
                 </button>
               </div>
+              {postError && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    fontSize: 11.5,
+                    color: "rgb(var(--fg-danger))",
+                    background: "rgb(var(--fg-danger) / 0.08)",
+                  }}
+                >
+                  {postError}
+                </div>
+              )}
             </div>
           </Card>
         </div>
