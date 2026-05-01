@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { RecentUploadCard } from "./recent-upload-card";
 import type { PlayerTrack } from "../../audio/persistent-player";
 import type { RecentUpload } from "../../../server/trpc/routers/producer";
@@ -127,21 +129,17 @@ export function RecentUploadsShelf({ uploads }: RecentUploadsShelfProps) {
 // all uploads with filters + a richer waveform list.
 function ViewAllCard() {
   return (
-    <a
+    <Link
       href="/dashboard/music"
       className="group flex w-36 shrink-0 flex-col gap-2"
     >
       <div
-        // Solid border (was dashed). Dashed reads as "drop zone" or
-        // "empty state" — per UX-critic on PR #48, "View all" is the
-        // opposite signal: more content available. Solid + bg-elevated
-        // matches the rail's neighbouring cover-art cards visually.
         className="flex h-36 w-36 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors group-hover:border-[rgb(var(--brand-primary))] group-hover:text-[rgb(var(--brand-primary))]"
         aria-hidden
       >
         <span className="px-3 text-center leading-tight">View all in Music →</span>
       </div>
       <span className="sr-only">View all uploads in Music</span>
-    </a>
+    </Link>
   );
 }

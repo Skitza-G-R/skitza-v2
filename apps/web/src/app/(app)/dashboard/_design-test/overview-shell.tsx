@@ -21,7 +21,10 @@ export function OverviewShell({
   paletteData,
 }: OverviewShellProps) {
   return (
-    <DesignShell producer={producer} paletteData={paletteData}>
+    <DesignShell
+      producer={producer}
+      {...(paletteData ? { paletteData } : {})}
+    >
       <OverviewTab data={data} />
     </DesignShell>
   );

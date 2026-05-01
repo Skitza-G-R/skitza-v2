@@ -183,14 +183,21 @@ export function CommandPalette({
     if (!item) return;
     pushRecent({ kind: item.kind, id: item.id });
     setRecents(readRecents());
-    if (item.kind === "tab") {
-      router.push(item.id);
-    } else if (item.kind === "project") {
-      router.push(`/dashboard/projects/${item.id}`);
-    } else if (item.kind === "track") {
-      router.push(`/dashboard/music/${item.id}`);
-    } else if (item.kind === "client") {
-      router.push(`/dashboard/projects?client=${encodeURIComponent(item.id)}`);
+    switch (item.kind) {
+      case "tab":
+        router.push(item.id);
+        break;
+      case "project":
+        router.push(`/dashboard/projects/${item.id}`);
+        break;
+      case "track":
+        router.push(`/dashboard/music/${item.id}`);
+        break;
+      case "client":
+        router.push(
+          `/dashboard/projects?client=${encodeURIComponent(item.id)}`,
+        );
+        break;
     }
     onClose();
   };

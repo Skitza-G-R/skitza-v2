@@ -16,6 +16,7 @@ import {
   type LibraryProject,
   type LibraryTrack,
 } from "../_design-test/music-library-tab";
+import { buildPaletteData } from "../_design-test/palette-data";
 import type { Producer } from "../_design-test/shell";
 
 // gili/design-test branch — Music Library tab. Maps
@@ -39,10 +40,11 @@ export default async function MusicPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [me, libRows, projectsList] = await Promise.all([
+  const [me, libRows, projectsList, paletteData] = await Promise.all([
     caller.producer.me(),
     caller.library.list(),
     caller.project.list(),
+    buildPaletteData(caller),
   ]);
 
   const producer: Producer = {
@@ -77,7 +79,7 @@ export default async function MusicPage() {
   }));
 
   return (
-    <DesignShell producer={producer}>
+    <DesignShell producer={producer} paletteData={paletteData}>
       <MusicLibraryTab data={{ tracks, projects }} />
     </DesignShell>
   );

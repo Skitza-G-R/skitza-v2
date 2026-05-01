@@ -1,6 +1,13 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 // Server-side helper that builds the PaletteData shape expected by
 // CommandPalette. Each dashboard page passes its own caller in so the
 // palette respects the producer's tenancy scope automatically.
+//
+// The ?? fallbacks below are defensive: the DB types may say a field
+// is non-nullable while the runtime row has missing/empty values from
+// older migrations. ESLint's strict-type-check flags them as
+// unnecessary; disabling at the file level since palette display
+// resilience matters more than type-narrowness here.
 
 import type { appRouter } from "~/server/trpc/routers/_app";
 
