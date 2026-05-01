@@ -571,6 +571,98 @@ export function FavStar({
   );
 }
 
+// ─── Waveform ───────────────────────────────────────────────────────
+// Mockup line 591-663. Deterministic-ish bar shape so renders are
+// stable on rerender. Optional `onScrub` makes it click-seekable. We
+// use the same FAKE_WAVE seed function as the mockup so visuals match.
+function fakeWave(n: number, seed: number): number[] {
+  const out: number[] = [];
+  let s = seed;
+  for (let i = 0; i < n; i++) {
+    s = (s * 9301 + 49297) % 233280;
+    const r = s / 233280;
+    const env = Math.sin((i / n) * Math.PI) * 0.7 + 0.3;
+    out.push(0.18 + r * 0.6 * env);
+  }
+  return out;
+}
+
+export function Waveform({
+  bars = 64,
+  progress = 0.3,
+  height = 56,
+  onScrub,
+  seed = 1,
+  compact = false,
+  dark = false,
+}: {
+  bars?: number;
+  progress?: number;
+  height?: number;
+  onScrub?: (p: number) => void;
+  seed?: number;
+  compact?: boolean;
+  dark?: boolean;
+}) {
+  const data = fakeWave(bars, seed);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const handle = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!onScrub || !ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    onScrub(Math.max(0, Math.min(1, x)));
+  };
+  return (
+    <div
+      ref={ref}
+      onClick={handle}
+      style={{
+        position: "relative",
+        height,
+        display: "flex",
+        alignItems: "center",
+        gap: compact ? 1 : 2,
+        cursor: onScrub ? "pointer" : "default",
+        width: "100%",
+      }}
+    >
+      {data.map((v, i) => {
+        const played = i / bars < progress;
+        return (
+          <div
+            key={i}
+            style={{
+              flex: 1,
+              height: `${String(v * 100)}%`,
+              borderRadius: 1,
+              background: played
+                ? "rgb(var(--brand-primary))"
+                : dark
+                  ? "rgba(255,255,255,0.18)"
+                  : "rgb(var(--border-strong) / 0.55)",
+              transition: "background 0.1s",
+            }}
+          />
+        );
+      })}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: `${String(progress * 100)}%`,
+          width: 2,
+          background: dark ? "white" : "rgb(var(--fg-default))",
+          pointerEvents: "none",
+          boxShadow:
+            "0 0 0 2px " +
+            (dark ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.6)"),
+        }}
+      />
+    </div>
+  );
+}
+
 // ─── EqBars ─────────────────────────────────────────────────────────
 // Mini animated equalizer for the now-playing indicator.
 export function EqBars({

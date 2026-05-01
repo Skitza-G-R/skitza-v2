@@ -1,60 +1,84 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import {
-  MusicLibrary,
-  type MusicRow,
-} from "~/components/dashboard/music/music-library";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-// Task 10: Music top-level — Samply-style cross-project library. One
-// row per track version across every project the producer owns, sorted
-// newest-first. Tapping a row deep-links into the Project Room's Music
-// sub-tab with the version preselected. Replaces the Task 1 stub.
+import {
+  fmtDuration,
+  gradFor,
+  initialsOf,
+  relTime,
+} from "../_design-test/data-mapping";
+import { DesignShell } from "../_design-test/design-shell";
+import {
+  MusicLibraryTab,
+  type LibraryProject,
+  type LibraryTrack,
+} from "../_design-test/music-library-tab";
+import type { Producer } from "../_design-test/shell";
+
+// gili/design-test branch — Music Library tab. Maps
+// `library.list()` rows into the mockup's track shape. Custom
+// playlists rail uses the mockup's hardcoded list (no playlists table
+// yet); favorites is local component state until a favorites column
+// lands. The mockup's BPM/MKey columns surface as null because we
+// don't tag tracks with that metadata yet — the table renders cleanly
+// with those fields blank.
+
+function uploadedRel(date: Date): "today" | "yesterday" | "this week" | "older" {
+  const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return "this week";
+  return "older";
+}
+
 export default async function MusicPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const data = await caller.producer.music.list();
+  const [me, libRows, projectsList] = await Promise.all([
+    caller.producer.me(),
+    caller.library.list(),
+    caller.project.list(),
+  ]);
 
-  // Dates cross the RSC → client boundary as ISO strings. Project
-  // down to the minimal row shape — we don't need to ship audio R2
-  // keys or peaks URLs to the list view.
-  const rows: MusicRow[] = data.tracks.map((t) => ({
-    id: t.id,
-    trackTitle: t.trackTitle,
-    label: t.label,
-    projectId: t.projectId,
-    projectTitle: t.projectTitle,
-    clientName: t.clientName,
-    uploadedAtIso: t.uploadedAt.toISOString(),
-    audioUrl: t.audioUrl,
+  const producer: Producer = {
+    name: me.displayName ?? "Your Studio",
+    initials: initialsOf(me.displayName),
+    plan: "Pro",
+    avatarGrad: "grad-amber",
+  };
+
+  const tracks: LibraryTrack[] = libRows.map((r, i) => ({
+    id: r.versionId,
+    title: r.trackTitle ?? r.versionLabel ?? "Untitled",
+    project: r.projectTitle,
+    projectId: r.projectId,
+    client: r.projectClientName ?? r.projectArtistName ?? "Client",
+    version: r.versionLabel ?? "v1",
+    comments: 0,
+    plays: 0,
+    duration: fmtDuration(r.durationMs),
+    durationSec: r.durationMs ? Math.round(r.durationMs / 1000) : 240,
+    bpm: null,
+    mkey: null,
+    grad: gradFor(i),
+    uploaded: relTime(r.uploadedAt),
+    uploadedRel: uploadedRel(r.uploadedAt),
+    favorite: false,
+  }));
+
+  const projects: LibraryProject[] = projectsList.map((p) => ({
+    id: p.id,
+    name: p.title,
   }));
 
   return (
-    <>
-      {/* Batch C — Music library matches the Today full-bleed canvas. */}
-      <div className="relative isolate">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
-        />
-        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-8 pb-12 sm:px-8 lg:px-12 lg:pt-12">
-          <header className="mb-4">
-            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
-              Library
-            </p>
-            <h1 className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
-              Music
-            </h1>
-            <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
-              Every track you&apos;ve uploaded, newest first. Tap a cover to open its Project Room.
-            </p>
-          </header>
-          <MusicLibrary tracks={rows} />
-        </div>
-      </div>
-    </>
+    <DesignShell producer={producer}>
+      <MusicLibraryTab data={{ tracks, projects }} />
+    </DesignShell>
   );
 }
