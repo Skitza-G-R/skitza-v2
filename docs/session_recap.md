@@ -1,182 +1,130 @@
 # Session Recap — Live Handoff State
 
-> **READ THIS FIRST at the start of every session.** This file is a rolling snapshot of the current project state. It's overwritten at every checkpoint so it always reflects "right now." If you need history, `git log` this file.
+> **Read this first.** Rolling snapshot — overwritten at every checkpoint. For history, `git log` this file.
 
 ---
 
 ## 🕐 Last checkpoint
 
-**2026-05-01 evening — Five Cmd-K-and-audio-player upgrades shipped on top of the seven-page dashboard port.** The "next-round" suggestions from the prior recap are now done: global FloatingPlayer, Song Page route, Cmd-K palette, and real DB-backed comment posting. Eight pages wired, 83 design-test unit tests green, Vercel preview green, all flows browser-verified end-to-end including a real DB write through a Server Action.
+**2026-05-01 evening — All five "next-round" suggestions from the prior recap shipped on `gili/design-test`:** Audio Player + global FloatingPlayer, Song Page route, Cmd-K palette, real DB-backed comment posting (Server Action), full 8-page browser walkthrough. **83 design-test tests green, Vercel preview Ready, live DB write verified.**
 
 ---
 
-## ⚠️ Critical context for next session
+## 🚀 How to resume
 
-**This is a SANDBOX BRANCH.** `gili/design-test` will **NEVER merge to main**. Treat it as an isolated experiment.
+```bash
+cd "/Users/giliasraf/Skitza 16.4"
+git checkout gili/design-test       # if not already
+git status                          # working tree may have leftover cross-branch WIP — leave it
+pnpm -F web test -- _design-test    # 83 tests pass
+```
 
-**Live preview URL** (branch alias updates with every push):
-**https://skitza-v2-web-git-gili-design-test-gili-asrafs-projects.vercel.app/dashboard**
-
-**During this run, branch switches happened mid-session three times** (some external process / parallel agent kept checking out `audit-fixes-2026-05-01`). Defense: commit + push aggressively after every meaningful chunk. Do NOT batch many edits before the first commit.
+**Live preview** (branch alias, updates per push):
+https://skitza-v2-web-git-gili-design-test-gili-asrafs-projects.vercel.app/dashboard
 
 ---
 
-## ✅ What's shipped this session (commits on `gili/design-test` since `5ebe675`)
+## ⚠️ Critical context
+
+1. **`gili/design-test` NEVER merges to main.** Sandbox-only. Don't worry about cross-branch impact.
+2. **Branch-switching disruption** — during this session some external process checked out `audit-fixes-2026-05-01` three times mid-edit, reverting in-flight uncommitted work. Defense: **commit + push after every meaningful chunk**, not at end of phase.
+3. **Vercel `next build` runs ESLint** — local lint errors **will fail the deploy**. Pre-existing `<a>`→`<Link>` errors in `today/contextual-actions.tsx` and `today/recent-uploads-shelf.tsx` were blocking; both fixed this run.
+4. **Working tree may have leftover `M` files** from cross-branch WIP (welcome-modal, plan.test, vercel.json, etc.) — those are NOT mine. Stash or leave alone.
+
+---
+
+## ✅ Shipped this session (commits since `5ebe675`)
 
 | Commit | Surface |
 |---|---|
-| `ff9ba9a` | **Pure helpers** — `player-reducer.ts` (state machine, 13 tests) + `song-time.ts` (fmtTime/progress, 15 tests) |
-| `e014a61` | **Player infrastructure** — `PlayerProvider` in dashboard layout + `FloatingPlayer` in DesignShell |
-| `d0fa138` | **PlayCircle wiring** — Music Library (Grid/Table/Hybrid views), Project Room (Overview + Songs), Overview (Recent Uploads) |
-| `0d85f71` | **Song-comments helpers** — `buildCommentMarkers` + `rawCommentToVisible` (10 tests) |
-| `2be7810` | **Waveform extension** — accepts optional `comments` + `durationSec` props for marker overlay |
-| `f5155ea` | **SongPage component** — full visual port of mockup line 2653-2840 |
-| `ceceb1f` | **Song Page route** — `/dashboard/music/[trackId]` server-side data fetch |
-| `c17e80f` | **Palette ranking** — `rankPaletteItems` pure helper (9 tests) |
-| `e3d9bbc` | **CommandPalette component** — port of mockup line 1114-1255 |
-| `dd62cd2` | **Palette mount** — `paletteData` prop, ⌘K + `/` global keybinds in DesignShell |
-| `1546f66`, `258b763` | **Palette wiring** — `buildPaletteData(caller)` server helper + threaded into all 8 dashboard pages |
-| `9025b33` | **Real save mutation** — `library.addComment` producer mutation + Server Action + UI wiring on song page |
-| `50e8245`, `15eb4a9`, `b51557b` | Build-blocker fixes — `<a>`→`<Link>` in 2 today-redesign components, exactOptional spread pattern, palette switch/case, ESLint `^_` argsIgnorePattern |
+| `ff9ba9a` | Pure helpers — player-reducer (13 tests) + song-time (15 tests) |
+| `e014a61` | PlayerProvider in layout + FloatingPlayer in DesignShell |
+| `d0fa138` | PlayCircle wired across Music Library + Project Room + Overview |
+| `0d85f71` | Song-comments helpers (10 tests) |
+| `2be7810` | Waveform extension — comment-marker overlay |
+| `f5155ea` | SongPage component (visual port of mockup line 2653-2840) |
+| `ceceb1f` | Song Page route at `/dashboard/music/[trackId]` |
+| `c17e80f` | palette-ranking helper (9 tests) |
+| `e3d9bbc` | CommandPalette component |
+| `dd62cd2`, `1546f66`, `258b763` | Palette mount + ⌘K binding + wired into all 8 pages |
+| `9025b33` | Real save mutation — `library.addComment` + Server Action + UI |
+| `15eb4a9`, `50e8245` | Build-blocker fixes (`<a>`→`<Link>`, exactOptional, palette switch/case) |
+| `845cabf` | This recap |
 
 ---
 
-## 🗺️ Routes mounted (8 dashboard surfaces)
+## 🗺️ 8 routes mounted, all browser-verified
 
-| Page | Route | tRPC sources | Verified ✓ |
-|---|---|---|---|
-| Overview | `/dashboard` | `producer.today`, `producer.me`, `project.list`, `buildPaletteData` | ✓ |
-| Clients & Projects | `/dashboard/projects` | `clientContacts.listWithProjects` ×2, `buildPaletteData` | ✓ |
-| Project Room | `/dashboard/projects/[id]` | `project.detail`, `project.money`, `library.list({projectId})`, `buildPaletteData` | ✓ |
-| Music Library | `/dashboard/music` | `library.list`, `project.list`, `buildPaletteData` | ✓ |
-| **Song Page (NEW)** | `/dashboard/music/[trackId]` | `library.detail({versionId})`, `project.detail`, `buildPaletteData` | ✓ |
-| Calendar | `/dashboard/booking` | `booking.upcoming`, `booking.list`, `buildPaletteData` | ✓ |
-| Storefront | `/dashboard/store` | `booking.products.list`, `buildPaletteData` | ✓ |
-| Insights | `/dashboard/insights` | `producer.today`, `booking.list`, `booking.products.list`, `buildPaletteData` | ✓ |
-| Settings | `/dashboard/settings` | `producer.me`, `buildPaletteData` | ✓ |
+`/dashboard` (Overview), `/dashboard/projects` (Clients & Projects), `/dashboard/projects/[id]` (Project Room), `/dashboard/music`, `/dashboard/music/[trackId]` ⬅ NEW, `/dashboard/booking` (Calendar), `/dashboard/store` (Storefront), `/dashboard/insights`, `/dashboard/settings`.
+
+Each page server-fetches `buildPaletteData(caller)` and threads it to `<DesignShell>` so ⌘K works everywhere.
 
 ---
 
-## 🧠 Architecture decisions baked into this round
+## 🧠 Architecture decisions (don't re-derive these)
 
-1. **PlayerProvider lives in `(app)/dashboard/layout.tsx`** — Next.js App Router preserves layout instances across sibling-route navigation, so the FloatingPlayer state survives even though each page mounts/unmounts its own DesignShell.
-2. **Player reducer is a discriminated union** — when `current` is null, `playing`/`progress` don't exist on the state at all. Makes "scrub a non-existent track" impossible to express.
-3. **Same-track click resumes from progress; different-track click resets to 0** — encoded in the reducer, not at every dispatch site.
-4. **Soft progress ticker every 250ms** — sandbox doesn't have actual audio playback, so we advance progress visually proportional to `durationSec`. Auto-pauses at progress=1.
-5. **CommandPalette lives in `DesignShell` so ⌘K works from every page.** Each page server-fetches `buildPaletteData(caller)` in parallel with its existing reads and threads it through.
-6. **Recents persist in localStorage** under `skitza:dt:palette:recents` (max 8). Hydrated against current candidate list each render so deleted projects fall off cleanly.
-7. **Server Action pattern for the comment mutation** — `addSongComment` in `_design-test/song-actions.ts` follows the same shape as `quick-note-actions.ts`. `useTransition` on the client + `revalidatePath` on the server gives RSC-driven refresh of the comments list.
-8. **Producer-side comment uses `from_producer=true`** with the producer's display name + email pulled at mutation time (the schema's `authorName`/`authorEmail` are NOT NULL).
+- **PlayerProvider in `dashboard/layout.tsx`** — Next.js App Router preserves layout instances across sibling-route nav; that's why FloatingPlayer survives page changes.
+- **Reducer is a discriminated union** — when `current: null`, no `playing`/`progress` fields exist. Makes "scrub a non-existent track" un-typeable.
+- **Same-track click resumes; different-track click resets** — encoded in reducer, not at dispatch sites.
+- **Server Action over tRPC client** — `addSongComment` follows `quick-note-actions.ts` pattern. `useTransition` + `revalidatePath` gives RSC-driven refresh without setting up a tRPC react-query client.
+- **`from_producer=true` writes** need producer's `displayName` + `email` since `track_comments.authorName/authorEmail` are NOT NULL.
 
 ---
 
-## 🛠️ Files added / changed since last recap
+## 🔮 Deferred (next session, priority order)
+
+1. **More save mutations** — Settings (displayName + tagline via `producer.update`), Calendar availability persistence, Storefront product CRUD. Pattern: `_design-test/<feature>-actions.ts` + `useTransition`.
+2. **PRD v3 route alignment** — `/projects` → `/clients-projects`, `/booking` → `/calendar`, `/store` → `/profile`. Either rename directories or add `next.config` rewrites.
+3. **ESLint cleanup** — replace `() => foo()` shorthand with `() => { foo(); }` and remove `/* eslint-disable @typescript-eslint/no-confusing-void-expression */` headers in `_design-test/*.tsx`.
+4. **PRD-required Calendar Availability fields** missing from visual port: Reminders, Auto-Approval toggle, Cancellation Policy.
+5. **Trim Storefront** from 3 tabs → 2 (Store + Portfolio per PRD §4.5; Profile tab folds into Portfolio).
+6. **Insights** isn't in PRD v3's six-page producer platform — consider removing from sidebar or marking as a sandbox extra.
+
+---
+
+## 🧪 Tests
+
+83 / 83 design-test tests green:
 
 ```
-apps/web/eslint.config.mjs                                     # argsIgnorePattern: "^_"
-apps/web/src/app/(app)/dashboard/layout.tsx                    # PlayerProvider wrapper
-apps/web/src/app/(app)/dashboard/page.tsx                      # paletteData
-apps/web/src/app/(app)/dashboard/projects/page.tsx             # paletteData
-apps/web/src/app/(app)/dashboard/projects/[id]/page.tsx        # paletteData + ProjectRoomTrack durationSec
-apps/web/src/app/(app)/dashboard/music/page.tsx                # paletteData
-apps/web/src/app/(app)/dashboard/music/[trackId]/page.tsx      # NEW — song page route
-apps/web/src/app/(app)/dashboard/booking/page.tsx              # paletteData
-apps/web/src/app/(app)/dashboard/store/page.tsx                # paletteData
-apps/web/src/app/(app)/dashboard/insights/page.tsx             # paletteData
-apps/web/src/app/(app)/dashboard/settings/page.tsx             # paletteData
-
-apps/web/src/app/(app)/dashboard/_design-test/
-  player-reducer.ts                                            # NEW — pure state machine
-  player-context.tsx                                           # NEW — Provider + ticker
-  floating-player.tsx                                          # NEW — visual port
-  song-time.ts                                                 # NEW — fmtTime/progress helpers
-  song-comments.ts                                             # NEW — comment shape helpers
-  song-page.tsx                                                # NEW — full visual port + Server-Action wiring
-  song-actions.ts                                              # NEW — addSongComment Server Action
-  palette-ranking.ts                                           # NEW — pure ranking
-  command-palette.tsx                                          # NEW — visual port + recents
-  palette-data.ts                                              # NEW — buildPaletteData server helper
-  design-shell.tsx                                             # +FloatingPlayer +CommandPalette +⌘K
-  primitives.tsx                                               # Waveform: optional comments + durationSec
-  music-library-tab.tsx                                        # PlayCircle wiring
-  overview-tab.tsx                                             # PlayCircle wiring + RecentUploadRow
-  project-room.tsx                                             # PlayCircle wiring + useRoomPlayHandler
-
-apps/web/src/server/trpc/routers/library.ts                    # NEW addComment mutation
-
-apps/web/src/components/dashboard/today/contextual-actions.tsx # <a>→<Link>
-apps/web/src/components/dashboard/today/recent-uploads-shelf.tsx # <a>→<Link>
+__tests__/data-mapping.test.ts        36
+__tests__/shell.test.ts                7
+__tests__/player-reducer.test.ts      13   ← new
+__tests__/song-time.test.ts           15   ← new
+__tests__/song-comments.test.ts       10   ← new
+__tests__/palette-ranking.test.ts      9   ← new
 ```
 
----
-
-## 🧪 Test coverage in this round
-
-83 design-test tests green:
-
-- `player-reducer.test.ts` — 13 (initial / play same-track resume / play different-track reset / toggle / scrub clamp / close / tick / auto-pause-on-end)
-- `song-time.test.ts` — 15 (fmtTime padding, negative clamp, progress↔sec round-trip, divide-by-zero)
-- `song-comments.test.ts` — 10 (buildCommentMarkers clamp + grouping; rawCommentToVisible mine-flag, email local-part, "Just now" / "Xm ago")
-- `palette-ranking.test.ts` — 9 (empty query / recents-first / case-insensitive substring / label-prefix priority / kind grouping / 24-cap)
-- `data-mapping.test.ts` — 36 (existing)
-- `shell.test.ts` — 7 (existing)
+Pre-existing `layout-architecture.test.ts` + `page-rebuild.test.ts` still fail — expected, those tests assume the original main-branch dashboard which this branch intentionally replaces.
 
 ---
 
-## 📸 What was browser-verified end-to-end this session
+## 📸 Browser-verified flows (with screenshots)
 
-1. **Overview** → click Recent Uploads PlayCircle → FloatingPlayer mounts at bottom with track name + project + eq bars
-2. **Pause toggle** flips icon, time advances ticker
-3. **Navigate to Music Library** → FloatingPlayer **persists** across the route change
-4. **Click play on a different track** → progress resets to 0, track metadata switches
-5. **Close (X) on FloatingPlayer** → it disappears
-6. **Project Room "Latest songs"** → click play → FloatingPlayer shows track with parent project name
-7. **Music Library** → click track card → navigates to `/dashboard/music/[versionId]`
-8. **Song Page** renders with hero (gradient + project name + title), version switcher, big waveform with comment marker, comment thread, comment input pre-tagged with current scrub timestamp
-9. **Sidebar Search bar** click → CommandPalette opens with all 7 tabs in "Jump to"
-10. **Type "lena"** → palette filters to 1 song result "lenasot" (matched on `t.title`)
-11. **Press Enter** → navigates to that track's song page
-12. **Type comment text + Enter** → "Posting…" state → DB write → RSC refresh → new comment appears in thread + new marker on waveform + input clears
-13. **Calendar** → Schedule tab (week grid) + Availability tab (working hours toggles, session defaults, save button)
-14. **Storefront** → Products / Portfolio / Profile tabs, Mixing session card + "Add new product"
-15. **Insights** → 4 KPI tiles + 14-day chart + funnel + traffic sources + booking pipeline
-16. **Settings** → Account (name/email/tagline/public link) + Plan (Pro $12) + Integrations (Stripe/GCal/Spotify/Dropbox)
+1. Overview → click Recent Upload PlayCircle → FloatingPlayer mounts ✓
+2. Toggle pause/play, time advances ticker ✓
+3. Navigate Overview → Music Library → FloatingPlayer **persists** ✓
+4. Click play on **different** track → progress resets to 0 ✓
+5. Close X dismisses FloatingPlayer ✓
+6. Project Room "Latest songs" → play with parent project name ✓
+7. Music Library card → navigates to `/dashboard/music/[id]` (Song Page) ✓
+8. Song Page renders hero + waveform + comment marker + thread ✓
+9. Sidebar Search bar → CommandPalette opens with 7-tab "Jump to" ✓
+10. Type "lena" → 1 song result; Enter navigates to that track's page ✓
+11. **Live DB write**: type comment + Enter → "Posting…" → "Just now" comment + waveform marker ✓
+12. Calendar (Schedule + Availability), Storefront (3 tabs), Insights (4 KPIs + chart), Settings — all render against real data ✓
 
 ---
 
-## 🔮 Deferred work (next session candidates)
+## 📦 Repo state
 
-In rough priority:
-
-1. **More save mutations** — Settings displayName + tagline (use `producer.update`), Calendar availability persistence, Storefront product CRUD. Same Server Action pattern as `addSongComment`.
-2. **PRD v3 route alignment** — `/dashboard/projects` → `/dashboard/clients-projects`, `/dashboard/booking` → `/dashboard/calendar`, `/dashboard/store` → `/dashboard/profile`. Per PRD §4 the canonical URLs should match the page titles. Current routes work but are legacy. Either rename directories or use `next.config` rewrites.
-3. **ESLint cleanup** — Several files start with `/* eslint-disable @typescript-eslint/no-confusing-void-expression */`. Replace `() => foo()` shorthand with `() => { foo(); }` patterns and remove the headers.
-4. **PRD-required Calendar Availability fields** that aren't in the visual port: Reminders, Auto-Approval toggle, Cancellation Policy.
-5. **PRD-required Storefront** trim — PRD specifies 2 branches (Store + Portfolio); current visual has 3 (Products/Portfolio/Profile). Profile tab can fold into Portfolio.
-6. **Insights page** isn't in PRD v3's 6-page producer platform. Consider removing from Sidebar (or leaving as a sandbox extra).
+- Branch: `gili/design-test`
+- Latest commit: `845cabf docs(recap): …`
+- 23 commits ahead of `main`
+- Vercel: Ready
+- Local build: green
+- Tests: 83 / 83 design-test green
 
 ---
 
-## 📝 Mistake log additions for this round (for CLAUDE.md)
-
-- **Vercel build runs `next build` which runs ESLint** — local `pnpm lint` errors WILL fail the deploy. Pre-existing `<a>`→`<Link>` errors in `recent-uploads-shelf.tsx` + `contextual-actions.tsx` blocked deploys. Fix at the source (replace with `<Link from "next/link">`) rather than disabling lint.
-- **`exactOptionalPropertyTypes: true` rejects `paletteData: paletteData` when paletteData might be undefined.** Use spread pattern: `{...(paletteData ? { paletteData } : {})}`.
-- **`if/else if` chain with discriminated union final branch is flagged as "always-true comparison"** by `@typescript-eslint/no-unnecessary-condition`. Use `switch (item.kind) { case "tab": ... }` instead.
-- **`schema.trackComments.authorName` is NOT NULL** — producer-side `library.addComment` must fetch the producer's display name + email before insert.
-- **Branch switching mid-session can revert in-progress work** — commit and push after every meaningful chunk (helpers / wiring / verify), not at end of phase.
-
----
-
-## 📦 Repo / branch state right now
-
-- **Branch**: `gili/design-test`
-- **Latest commit**: `9025b33 feat(design-test): wire real Save mutation for song-page comments`
-- **Ahead of `main`**: 23 commits
-- **Working tree**: probably some leftover unstaged WIP from cross-branch context (welcome-modal escape, plan.test, etc.) — those are NOT mine and should be left alone or stashed
-- **Vercel deploy**: Ready
-- **All design-test tests**: 83 / 83 green
-- **Build (local)**: green when on `gili/design-test`
-
----
-
-*Last updated: 2026-05-01 — Audio Player + Song Page + Cmd-K + Real Save mutation shipped, 8/8 pages browser-verified.*
+*Last updated: 2026-05-01 evening — Audio Player + Song Page + Cmd-K + Real Save shipped, 8/8 pages verified.*
