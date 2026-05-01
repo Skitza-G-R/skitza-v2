@@ -8,6 +8,13 @@
       "when": 1777562277853,
       "tag": "0000_v3_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777633810733,
+      "tag": "0001_lyrical_doctor_strange",
+      "breakpoints": true
     }
   ]
 }
