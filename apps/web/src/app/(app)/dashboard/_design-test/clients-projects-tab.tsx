@@ -436,7 +436,14 @@ export function ClientsProjectsTab({ data }: { data: ClientsProjectsData }) {
           togglePin={togglePin}
         />
       ) : (
-        <ClientsGrid clients={d.clients} q={q} />
+        <ClientsGrid
+          clients={d.clients}
+          q={q}
+          onSelectClient={(name) => {
+            setClientFilter(name);
+            setView("projects");
+          }}
+        />
       )}
     </div>
   );
@@ -691,7 +698,15 @@ function ProjectsTable({
   );
 }
 
-function ClientsGrid({ clients, q }: { clients: ClientRow[]; q: string }) {
+function ClientsGrid({
+  clients,
+  q,
+  onSelectClient,
+}: {
+  clients: ClientRow[];
+  q: string;
+  onSelectClient: (name: string) => void;
+}) {
   const [sort, setSort] = useState<
     "recent" | "lifetime" | "balance" | "projects" | "name"
   >("recent");
@@ -833,7 +848,7 @@ function ClientsGrid({ clients, q }: { clients: ClientRow[]; q: string }) {
           }}
         >
           {list.map((c) => (
-            <ClientCard key={c.id} c={c} />
+            <ClientCard key={c.id} c={c} onClick={() => onSelectClient(c.name)} />
           ))}
         </div>
       )}
@@ -841,9 +856,18 @@ function ClientsGrid({ clients, q }: { clients: ClientRow[]; q: string }) {
   );
 }
 
-function ClientCard({ c }: { c: ClientRow }) {
+function ClientCard({ c, onClick }: { c: ClientRow; onClick: () => void }) {
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       className="surface-card sk-row"
       style={{
         padding: 16,
@@ -869,15 +893,17 @@ function ClientCard({ c }: { c: ClientRow }) {
             >
               {c.name}
             </div>
-            <KebabMenu
-              items={[
-                { label: "View profile", icon: "user" },
-                { label: "Send message", icon: "message-circle" },
-                { label: "Send invoice", icon: "file-text" },
-                { label: "New project", icon: "plus" },
-                { label: "Archive", icon: "archive", danger: true },
-              ]}
-            />
+            <span onClick={(e) => e.stopPropagation()}>
+              <KebabMenu
+                items={[
+                  { label: "View profile", icon: "user" },
+                  { label: "Send message", icon: "message-circle" },
+                  { label: "Send invoice", icon: "file-text" },
+                  { label: "New project", icon: "plus" },
+                  { label: "Archive", icon: "archive", danger: true },
+                ]}
+              />
+            </span>
           </div>
           <div
             className="truncate"
