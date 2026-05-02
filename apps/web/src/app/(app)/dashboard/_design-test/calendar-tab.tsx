@@ -50,7 +50,6 @@ export type CalendarData = {
   weekLabel: string; // e.g. "Week of May 3, 2026"
   todayIdx: number; // 0..6
   initialHoursByDay: HoursByDay;
-  initialDefaultSessionMin: number;
 };
 
 type SaveStatus =
@@ -85,26 +84,24 @@ export function CalendarTab({ data }: { data: CalendarData }) {
 
   // Availability-editor state. Pre-populated from server data;
   // edits roundtrip via the updateAvailability Server Action.
+  // Session length lives on each product (different per package), so
+  // there's no producer-wide default to manage here. Buffer minutes
+  // stay local — no DB column for that yet.
   const [hoursByDay, setHoursByDay] = useState<HoursByDay>(data.initialHoursByDay);
-  const [sessionLen, setSessionLen] = useState(data.initialDefaultSessionMin);
-  const [buffer, setBuffer] = useState(15); // local-only — no DB column
+  const [buffer, setBuffer] = useState(15);
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
   const [pending, startTransition] = useTransition();
   const tz = "Asia/Jerusalem · GMT+3";
 
   const dirty =
-    JSON.stringify(hoursByDay) !== JSON.stringify(data.initialHoursByDay) ||
-    sessionLen !== data.initialDefaultSessionMin;
+    JSON.stringify(hoursByDay) !== JSON.stringify(data.initialHoursByDay);
 
   const onSaveAvailability = () => {
     setStatus({ kind: "saving" });
     startTransition(() => {
       void (async () => {
         const blocks = hoursByDayToBlocks(hoursByDay);
-        const result = await updateAvailability({
-          blocks,
-          defaultSessionMin: sessionLen,
-        });
+        const result = await updateAvailability({ blocks });
         if (result.ok) {
           setStatus({ kind: "saved" });
           router.refresh();
@@ -152,8 +149,6 @@ export function CalendarTab({ data }: { data: CalendarData }) {
     },
     0,
   );
-  const slotsPerWeek = Math.floor((totalHours * 60) / (sessionLen + buffer));
-
   const fullDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
   const fullDayLabels: Record<(typeof fullDays)[number], string> = {
     Sun: "Sunday",
@@ -697,40 +692,6 @@ export function CalendarTab({ data }: { data: CalendarData }) {
               >
                 <div>
                   <div className="label-tiny" style={{ marginBottom: 8 }}>
-                    Default session length
-                  </div>
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {[60, 90, 120, 180, 240].map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => setSessionLen(m)}
-                        className="sk-pop"
-                        style={{
-                          all: "unset",
-                          cursor: "pointer",
-                          padding: "7px 11px",
-                          borderRadius: 7,
-                          fontSize: 11.5,
-                          fontWeight: 700,
-                          fontFamily: "JetBrains Mono",
-                          background:
-                            sessionLen === m
-                              ? "rgb(var(--fg-default))"
-                              : "rgb(var(--bg-elevated))",
-                          color:
-                            sessionLen === m
-                              ? "rgb(var(--bg-background))"
-                              : "rgb(var(--fg-default))",
-                          border: "1px solid rgb(var(--border-subtle))",
-                        }}
-                      >
-                        {m < 60 ? `${String(m)}m` : `${String(m / 60)}h`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <div className="label-tiny" style={{ marginBottom: 8 }}>
                     Buffer between sessions
                   </div>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -811,23 +772,8 @@ export function CalendarTab({ data }: { data: CalendarData }) {
                   <div style={{ fontSize: 11, color: "rgb(var(--fg-muted))" }}>
                     open per week
                   </div>
-                </div>
-                <div style={{ height: 1, background: "rgb(var(--border-subtle))" }} />
-                <div>
-                  <div
-                    className="tabular"
-                    style={{
-                      fontFamily: "JetBrains Mono",
-                      fontSize: 28,
-                      fontWeight: 800,
-                      letterSpacing: "-0.02em",
-                    }}
-                  >
-                    {slotsPerWeek}
-                  </div>
-                  <div style={{ fontSize: 11, color: "rgb(var(--fg-muted))" }}>
-                    bookable {sessionLen < 60 ? `${String(sessionLen)}m` : `${String(sessionLen / 60)}h`}{" "}
-                    sessions
+                  <div style={{ fontSize: 11, color: "rgb(var(--fg-muted))", marginTop: 4 }}>
+                    Each product sets its own session length when you create it.
                   </div>
                 </div>
                 {status.kind === "error" && (

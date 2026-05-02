@@ -10,18 +10,15 @@ import type { AvailabilityBlock } from "./availability-shape";
 
 // Server actions for the design-test Calendar tab's Availability
 // view. Wires the "Save changes" button to the booking router's
-// availability.setWeek (atomic week replace) + availability.updateSettings
-// (defaultSessionMin only — the editor doesn't expose autoConfirm
-// or cancellation policy in this round).
+// availability.setWeek (atomic week replace).
 //
-// The two writes happen sequentially. setWeek goes first because
-// its Zod validation (block overlap, start<end) is the more likely
-// failure path. If it fails the session length is left untouched —
-// retry-friendly.
+// Session length is set per-product (different per package), so it
+// no longer roundtrips through this action — the producer-level
+// defaultSessionMin is unused by the booking flow itself and just
+// served as a starting value for new-product creation.
 
 export type UpdateAvailabilityInput = {
   blocks: AvailabilityBlock[];
-  defaultSessionMin: number;
 };
 
 export type UpdateAvailabilityResult =
@@ -34,13 +31,9 @@ export async function updateAvailability(
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
 
-  const blocks = input.blocks;
-  const defaultSessionMin = Math.max(15, Math.min(8 * 60, Math.floor(input.defaultSessionMin)));
-
   try {
     const caller = appRouter.createCaller({ userId });
-    await caller.booking.availability.setWeek({ blocks });
-    await caller.booking.availability.updateSettings({ defaultSessionMin });
+    await caller.booking.availability.setWeek({ blocks: input.blocks });
     revalidatePath("/dashboard/booking");
     return { ok: true };
   } catch (err) {

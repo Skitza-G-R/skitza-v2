@@ -46,15 +46,13 @@ export default async function CalendarPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [me, upcoming, pending, paletteData, availabilityBlocks, availabilitySettings] =
-    await Promise.all([
-      caller.producer.me(),
-      caller.booking.upcoming({ days: 14 }),
-      caller.booking.list({ status: "pending" }),
-      buildPaletteData(caller),
-      caller.booking.availability.list(),
-      caller.booking.availability.getSettings(),
-    ]);
+  const [me, upcoming, pending, paletteData, availabilityBlocks] = await Promise.all([
+    caller.producer.me(),
+    caller.booking.upcoming({ days: 14 }),
+    caller.booking.list({ status: "pending" }),
+    buildPaletteData(caller),
+    caller.booking.availability.list(),
+  ]);
 
   const producer: Producer = {
     name: me.displayName ?? "Your Studio",
@@ -131,7 +129,6 @@ export default async function CalendarPage() {
           weekLabel,
           todayIdx,
           initialHoursByDay,
-          initialDefaultSessionMin: availabilitySettings.defaultSessionMin,
         }}
       />
     </DesignShell>
