@@ -18,7 +18,7 @@
 // - Pin state is local-component state — survives interaction inside
 //   the tab but resets on route change (matches mockup behavior)
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { NewProjectModal } from "./new-project-modal";
@@ -83,6 +83,14 @@ export function ClientsProjectsTab({ data }: { data: ClientsProjectsData }) {
   const [pinned, setPinned] = useState<Record<string, boolean>>({});
   const togglePin = (id: string) =>
     setPinned((p) => ({ ...p, [id]: !p[id] }));
+
+  // Pre-warm "New Project" since the header CTA is the most-clicked
+  // destination on this tab. Per-row prefetch happens on hover further
+  // down — we don't blast prefetch for all rows at mount because the
+  // payload-per-row would be wasteful for long project lists.
+  useEffect(() => {
+    router.prefetch("/dashboard/projects/new");
+  }, [router]);
 
   const projects = useMemo(() => {
     let out = d.projects.slice();
@@ -433,6 +441,7 @@ export function ClientsProjectsTab({ data }: { data: ClientsProjectsData }) {
         <ProjectsTable
           rows={projects}
           onOpen={(id) => router.push(`/dashboard/projects/${id}`)}
+          onHover={(id) => router.prefetch(`/dashboard/projects/${id}`)}
           pinned={pinned}
           togglePin={togglePin}
         />
@@ -454,11 +463,13 @@ export function ClientsProjectsTab({ data }: { data: ClientsProjectsData }) {
 function ProjectsTable({
   rows,
   onOpen,
+  onHover,
   pinned,
   togglePin,
 }: {
   rows: ProjectRow[];
   onOpen: (id: string) => void;
+  onHover: (id: string) => void;
   pinned: Record<string, boolean>;
   togglePin: (id: string) => void;
 }) {
@@ -524,6 +535,8 @@ function ProjectsTable({
             role="button"
             tabIndex={0}
             onClick={() => onOpen(p.id)}
+            onMouseEnter={() => onHover(p.id)}
+            onFocus={() => onHover(p.id)}
             onKeyDown={(e) => {
               if (e.key === "Enter") onOpen(p.id);
             }}

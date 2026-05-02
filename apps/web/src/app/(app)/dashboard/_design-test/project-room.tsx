@@ -17,7 +17,7 @@
 //   navigation hints to the existing Skitza routes when relevant; the
 //   rest are visible but inert.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { BackButton, Breadcrumbs } from "./nav-chrome";
@@ -96,6 +96,15 @@ export function ProjectRoom({ data }: { data: ProjectRoomData }) {
   ];
 
   const goBack = () => router.push("/dashboard/projects");
+
+  // Pre-warm the back-target the moment Project Room mounts. The user
+  // arrived here from /dashboard/projects, so the route's RSC payload is
+  // *probably* still in the router cache — but the cache has a 30s TTL
+  // for dynamic routes and we may have missed it. Refreshing here makes
+  // the back-button click an instant client-side restore.
+  useEffect(() => {
+    router.prefetch("/dashboard/projects");
+  }, [router]);
 
   return (
     <div

@@ -788,6 +788,7 @@ function TableView({
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const { play } = usePlayer();
+  const router = useRouter();
   return (
     <Card padded={false} className="reveal-up stagger-4">
       <div
@@ -840,7 +841,14 @@ function TableView({
           <div
             key={t.id}
             className="sk-row"
-            onMouseEnter={() => setHoveredId(t.id)}
+            onMouseEnter={() => {
+              setHoveredId(t.id);
+              // Pre-warm the song page's RSC payload while the mouse is
+              // still over the row. Typical hover-to-click latency is
+              // 200–500ms; the prefetch usually completes inside that
+              // window so the click renders the song page from cache.
+              router.prefetch(`/dashboard/music/${t.id}`);
+            }}
             onMouseLeave={() => setHoveredId(null)}
             onClick={() => onOpenSong(t.id)}
             style={{

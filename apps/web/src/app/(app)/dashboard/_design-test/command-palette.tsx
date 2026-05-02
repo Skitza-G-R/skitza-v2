@@ -179,26 +179,44 @@ export function CommandPalette({
     setSel(0);
   }, [q]);
 
+  // Prefetch the currently-highlighted palette result. Fires on every
+  // selection change (hover, arrow keys, query reset) so the moment the
+  // user hits Enter the destination is already cached client-side.
+  // We re-derive the prefetch destination from `items[sel]` inside the
+  // effect (rather than depending on a memoized callback) so the dep
+  // array stays clean — only `items`, `sel`, and `router` matter.
+  useEffect(() => {
+    const item = items[sel];
+    if (!item) return;
+    router.prefetch(urlForItem(item));
+  }, [sel, items, router]);
+
+  // Single source of truth for "where does this palette item navigate?"
+  // Used by both `fire` (on click/Enter) and `prefetchItem` (on hover/
+  // arrow-key selection) so prefetched URLs always match what gets pushed.
+  const urlForItem = (item: PaletteItem): string => {
+    switch (item.kind) {
+      case "tab":
+        return item.id;
+      case "project":
+        return `/dashboard/projects/${item.id}`;
+      case "track":
+        return `/dashboard/music/${item.id}`;
+      case "client":
+        return `/dashboard/projects?client=${encodeURIComponent(item.id)}`;
+    }
+  };
+
+  const prefetchItem = (item: PaletteItem | undefined) => {
+    if (!item) return;
+    router.prefetch(urlForItem(item));
+  };
+
   const fire = (item: PaletteItem | undefined) => {
     if (!item) return;
     pushRecent({ kind: item.kind, id: item.id });
     setRecents(readRecents());
-    switch (item.kind) {
-      case "tab":
-        router.push(item.id);
-        break;
-      case "project":
-        router.push(`/dashboard/projects/${item.id}`);
-        break;
-      case "track":
-        router.push(`/dashboard/music/${item.id}`);
-        break;
-      case "client":
-        router.push(
-          `/dashboard/projects?client=${encodeURIComponent(item.id)}`,
-        );
-        break;
-    }
+    router.push(urlForItem(item));
     onClose();
   };
 
@@ -323,7 +341,13 @@ export function CommandPalette({
                 </div>
               )}
               <button
-                onMouseEnter={() => setSel(i)}
+                onMouseEnter={() => {
+                  setSel(i);
+                  // Belt + suspenders: useEffect on `sel` already prefetches,
+                  // but firing here too means the prefetch starts immediately
+                  // even before React commits the state update.
+                  prefetchItem(it);
+                }}
                 onClick={() => fire(it)}
                 className="sk-row"
                 style={{
