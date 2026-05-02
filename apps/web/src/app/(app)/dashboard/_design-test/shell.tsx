@@ -12,8 +12,10 @@
 // usePathname so the highlight follows real URL navigation across page
 // mounts.
 
+import { useClerk } from "@clerk/nextjs";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import { Avatar, Icon } from "./primitives";
 
@@ -364,60 +366,172 @@ export function Sidebar({ producer, todayPreview, onOpenPalette }: SidebarProps)
           active={activeKey === "settings"}
         />
 
-        <Link
-          href="/dashboard/settings"
-          prefetch
-          className="sk-row"
-          style={{
-            all: "unset",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "10px 10px",
-            borderRadius: 10,
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            marginTop: 8,
-            width: "calc(100% - 4px)",
-          }}
-        >
-          <Avatar initials={producer.initials} grad={producer.avatarGrad} size={32} />
-          <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
-            <div
-              className="truncate"
-              style={{ fontSize: 12.5, fontWeight: 700, color: "#fff" }}
-            >
-              {producer.name}
-            </div>
-            <div
-              style={{
-                fontSize: 10.5,
-                color: "rgba(255,255,255,0.4)",
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                marginTop: 2,
-              }}
-            >
-              <span
-                style={{
-                  width: 5,
-                  height: 5,
-                  borderRadius: "50%",
-                  background: "rgb(var(--brand-primary))",
-                }}
-              />
-              {producer.plan} Plan
-            </div>
-          </div>
-          <Icon
-            name="chevron-up"
-            size={14}
-            style={{ color: "rgba(255,255,255,0.3)" }}
-          />
-        </Link>
+        <ProfileMenu producer={producer} />
       </div>
     </aside>
+  );
+}
+
+function ProfileMenu({ producer }: { producer: Producer }) {
+  const { signOut } = useClerk();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", marginTop: 8 }}>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((v) => !v);
+        }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="sk-row"
+        style={{
+          all: "unset",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 10px",
+          borderRadius: 10,
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          width: "calc(100% - 4px)",
+          boxSizing: "border-box",
+        }}
+      >
+        <Avatar initials={producer.initials} grad={producer.avatarGrad} size={32} />
+        <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+          <div
+            className="truncate"
+            style={{ fontSize: 12.5, fontWeight: 700, color: "#fff" }}
+          >
+            {producer.name}
+          </div>
+          <div
+            style={{
+              fontSize: 10.5,
+              color: "rgba(255,255,255,0.4)",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              marginTop: 2,
+            }}
+          >
+            <span
+              style={{
+                width: 5,
+                height: 5,
+                borderRadius: "50%",
+                background: "rgb(var(--brand-primary))",
+              }}
+            />
+            {producer.plan} Plan
+          </div>
+        </div>
+        <Icon
+          name={open ? "chevron-down" : "chevron-up"}
+          size={14}
+          style={{ color: "rgba(255,255,255,0.3)" }}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="sk-pop"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: "calc(100% + 6px)",
+            background: "rgb(var(--bg-sidebar))",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 10,
+            padding: 6,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.45)",
+            zIndex: 30,
+          }}
+        >
+          <Link
+            href="/dashboard/settings"
+            prefetch
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+            }}
+            style={{
+              all: "unset",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "9px 10px",
+              borderRadius: 8,
+              fontSize: 12.5,
+              color: "rgba(255,255,255,0.85)",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background =
+                "rgba(255,255,255,0.06)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "transparent";
+            }}
+          >
+            <Icon name="settings" size={14} strokeWidth={2.2} />
+            <span>Settings</span>
+          </Link>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              void signOut({ redirectUrl: "/sign-in" });
+            }}
+            style={{
+              all: "unset",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "9px 10px",
+              borderRadius: 8,
+              fontSize: 12.5,
+              color: "rgba(255,255,255,0.85)",
+              width: "calc(100% - 20px)",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background =
+                "rgba(255,255,255,0.06)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "transparent";
+            }}
+          >
+            <Icon name="log-out" size={14} strokeWidth={2.2} />
+            <span>Sign out</span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

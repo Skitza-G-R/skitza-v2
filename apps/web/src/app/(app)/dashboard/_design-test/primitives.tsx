@@ -69,6 +69,7 @@ const IconMap: Record<string, Lucide.LucideIcon> = {
   link: Lucide.Link,
   "link-2": Lucide.Link2,
   "list-plus": Lucide.ListPlus,
+  "log-out": Lucide.LogOut,
   mail: Lucide.Mail,
   "message-circle": Lucide.MessageCircle,
   "message-square": Lucide.MessageSquare,
