@@ -44,6 +44,9 @@ export function NewProjectModal({
   const [pending, startTransition] = useTransition();
   const titleRef = useRef<HTMLInputElement | null>(null);
 
+  // Reset + autofocus only on the false → true transition. Including
+  // `pending` or `onClose` in deps would refire mid-submit, wiping
+  // the error message and resetting fields the user just typed.
   useEffect(() => {
     if (!open) return;
     setTitle("");
@@ -51,14 +54,18 @@ export function NewProjectModal({
     setArtistEmail("");
     setError(null);
     const t = window.setTimeout(() => titleRef.current?.focus(), 60);
+    return () => window.clearTimeout(t);
+  }, [open]);
+
+  // Esc-to-close handler — separate effect so it can safely depend
+  // on `pending` + `onClose` without triggering a reset.
+  useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !pending) onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      window.clearTimeout(t);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [open, pending, onClose]);
 
   if (!open) return null;

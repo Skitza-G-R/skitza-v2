@@ -13,10 +13,12 @@ import { validateNewProductInput, type NewProductInput } from "./create-validato
 // title (→ name), session length (→ durationMin), and price.
 //
 // Defaults align with the router's ProductInput Zod schema:
-//   - kind: "custom"        — generic session-style product
-//   - pricingModel: "flat"  — single price (which is what we ask for)
+//   - kind: "custom"               — generic session-style product
+//   - pricingModel: "flat"         — single price (which is what we ask for)
 //   - currency: "USD"
-//   - depositModel: "flat"
+//   - depositModel: "paid_in_full" — buyer pays the full price upfront;
+//     "flat" (the schema default) would require a depositPct that we
+//     don't ask for in this minimal modal
 //   - bufferMinutes: 0, minLeadHours: 12
 //
 // All defaults can be edited later via the existing product editor on
@@ -41,6 +43,7 @@ export async function createProduct(
       name: input.title.trim(),
       durationMin: Math.floor(input.durationMin),
       priceCents: Math.floor(input.priceCents),
+      depositModel: "paid_in_full",
     });
     revalidatePath("/dashboard/store");
     return { ok: true, id: row.id };
