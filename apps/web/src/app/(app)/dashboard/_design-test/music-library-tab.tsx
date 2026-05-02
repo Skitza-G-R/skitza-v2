@@ -18,6 +18,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { NewSongModal, type ProjectChoice } from "./new-song-modal";
 import { useIsTrackPlaying, usePlayer } from "./player-context";
 import {
   Card,
@@ -63,6 +64,11 @@ const SAMPLE_PLAYLISTS = [
 ] as const;
 
 export function MusicLibraryTab({ data }: { data: LibraryData }) {
+  const [newSongOpen, setNewSongOpen] = useState(false);
+  const projectChoices: ProjectChoice[] = useMemo(
+    () => data.projects.map((p) => ({ id: p.id, title: p.name, client: "" })),
+    [data.projects],
+  );
   const router = useRouter();
   const d = data;
   const [view, setView] = useState<"grid" | "hybrid" | "table">("grid");
@@ -182,6 +188,8 @@ export function MusicLibraryTab({ data }: { data: LibraryData }) {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button
+            type="button"
+            onClick={() => setNewSongOpen(true)}
             className="sk-pop"
             style={{
               all: "unset",
@@ -538,6 +546,11 @@ export function MusicLibraryTab({ data }: { data: LibraryData }) {
           onOpenSong={onOpenSong}
         />
       )}
+      <NewSongModal
+        open={newSongOpen}
+        onClose={() => setNewSongOpen(false)}
+        projects={projectChoices}
+      />
     </div>
   );
 }

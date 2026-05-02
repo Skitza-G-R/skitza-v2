@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   validateNewProductInput,
   validateNewProjectInput,
+  validateNewSongInput,
 } from "../create-validators";
 
 describe("validateNewProjectInput", () => {
@@ -85,5 +86,33 @@ describe("validateNewProductInput", () => {
     // This test pins that the validator doesn't reject 90.5 outright,
     // so a slider that emits floats won't be marked invalid.
     expect(validateNewProductInput({ ...ok, durationMin: 90.5 })).toBeNull();
+  });
+});
+
+describe("validateNewSongInput", () => {
+  const ok = {
+    projectId: "11111111-1111-1111-1111-111111111111",
+    title: "Sunset Drive",
+  };
+
+  it("returns null for valid input", () => {
+    expect(validateNewSongInput(ok)).toBeNull();
+  });
+
+  it("requires a project to be selected", () => {
+    expect(validateNewSongInput({ ...ok, projectId: "" })).toMatch(/project/i);
+  });
+
+  it("requires title", () => {
+    expect(validateNewSongInput({ ...ok, title: "" })).toMatch(/title|name/i);
+  });
+
+  it("trims whitespace", () => {
+    expect(validateNewSongInput({ ...ok, title: "   " })).toMatch(/title|name/i);
+  });
+
+  it("caps title at 120 chars (matches addTrack input on server)", () => {
+    expect(validateNewSongInput({ ...ok, title: "x".repeat(120) })).toBeNull();
+    expect(validateNewSongInput({ ...ok, title: "x".repeat(121) })).toMatch(/title|name/i);
   });
 });

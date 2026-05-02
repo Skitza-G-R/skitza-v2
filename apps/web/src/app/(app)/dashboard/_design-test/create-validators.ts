@@ -50,3 +50,16 @@ export function validateNewProductInput(input: NewProductInput): string | null {
   }
   return null;
 }
+
+export type NewSongInput = {
+  projectId: string;
+  title: string;
+};
+
+export function validateNewSongInput(input: NewSongInput): string | null {
+  if (!input.projectId.trim()) return "Pick a project for this song.";
+  const title = input.title.trim();
+  if (!title) return "Song title is required.";
+  if (title.length > 120) return "Song title is too long (max 120 characters).";
+  return null;
+}
