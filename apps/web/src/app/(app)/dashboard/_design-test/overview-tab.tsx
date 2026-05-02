@@ -20,7 +20,7 @@
 // mockup's tone — "if you stumble into unfinished work in the design,
 // complete it in the same standards."
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useIsTrackPlaying, usePlayer } from "./player-context";
@@ -90,6 +90,15 @@ export function OverviewTab({ data }: OverviewTabProps) {
     .slice(0, 3);
   const recent = d.tracks.slice(0, 3);
   const overdue = d.overdueClient;
+
+  // Pre-warm the most likely next-tab routes the moment Overview mounts.
+  // Every CTA on this page hops to /dashboard/projects or /dashboard/music,
+  // so prefetching their RSC payloads makes those clicks render instantly
+  // from the router cache instead of round-tripping the server first.
+  useEffect(() => {
+    router.prefetch("/dashboard/projects");
+    router.prefetch("/dashboard/music");
+  }, [router]);
 
   const copy = () => {
     void navigator.clipboard?.writeText(d.producer.publicLink);

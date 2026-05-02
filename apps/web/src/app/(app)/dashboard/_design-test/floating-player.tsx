@@ -7,6 +7,7 @@
 // renders nothing when no track is loaded. Persists across page
 // navigation because PlayerProvider lives in dashboard/layout.tsx.
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { fmtTime } from "./song-time";
@@ -16,6 +17,16 @@ import { usePlayer } from "./player-context";
 export function FloatingPlayer() {
   const router = useRouter();
   const { state, toggle, scrub, close } = usePlayer();
+
+  // Prefetch the song page for the currently-loaded track. Both expand
+  // buttons (cover-art click + maximize icon) target this route, so by
+  // pre-warming the moment a track loads, opening the song page from the
+  // player feels like an instant overlay rather than a navigation.
+  // Hook order matters — must run before the early return below.
+  const currentId = state.current?.id ?? null;
+  useEffect(() => {
+    if (currentId !== null) router.prefetch(`/dashboard/music/${currentId}`);
+  }, [currentId, router]);
 
   if (state.current === null) return null;
   const track = state.current;

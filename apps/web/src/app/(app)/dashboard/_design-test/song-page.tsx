@@ -61,6 +61,13 @@ export function SongPage({ data }: { data: SongPageData }) {
 
   const sec = secFromProgress(progress, t.durationSec);
 
+  // Pre-warm the back-target — both BackButton + Breadcrumbs hop to
+  // /dashboard/music. Prefetching at mount means the back click feels
+  // like a state restore, not a navigation.
+  useEffect(() => {
+    router.prefetch("/dashboard/music");
+  }, [router]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tgt = e.target;

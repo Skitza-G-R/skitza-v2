@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-confusing-void-expression */
 "use client";
 
 // Skitza Design Test — shell. 1:1 port of the mockup's shell.jsx Sidebar
@@ -6,13 +5,15 @@
 // round; `rail`, `top`, and mobile chromes are out of scope per the
 // desktop-first brief.
 //
-// Wired-logic tweak (per Option A — keep existing routes): `onNav`
-// fires Next.js client-side navigation to the matching /dashboard
-// child route instead of swapping internal tab state. The active
-// pill is derived from `usePathname` so the highlight follows real
-// URL navigation across page mounts.
+// Wired-logic tweak: nav items render <Link> (not <button onClick=push>)
+// so Next.js's automatic prefetch engine kicks in. Each visible Link
+// prefetches its RSC payload on mount + again on hover, making cross-tab
+// nav effectively instant. The active pill is still derived from
+// usePathname so the highlight follows real URL navigation across page
+// mounts.
 
-import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 import { Avatar, Icon } from "./primitives";
 
@@ -116,17 +117,18 @@ export function deriveActiveKey(
   return "overview";
 }
 
-type NavItemProps = {
+type NavLinkProps = {
+  href: string;
   icon: string;
   label: string;
   active: boolean;
-  onClick: () => void;
 };
 
-function NavItem({ icon, label, active, onClick }: NavItemProps) {
+function NavLink({ href, icon, label, active }: NavLinkProps) {
   return (
-    <button
-      onClick={onClick}
+    <Link
+      href={href}
+      prefetch
       className="sk-row"
       style={{
         all: "unset",
@@ -160,7 +162,7 @@ function NavItem({ icon, label, active, onClick }: NavItemProps) {
       )}
       <Icon name={icon} size={16} strokeWidth={2.3} />
       <span>{label}</span>
-    </button>
+    </Link>
   );
 }
 
@@ -193,14 +195,8 @@ type SidebarProps = {
 };
 
 export function Sidebar({ producer, todayPreview, onOpenPalette }: SidebarProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const activeKey = deriveActiveKey(pathname);
-
-  const goHome = () => router.push("/dashboard");
-  // Settings and the per-row nav routes are pinned to the existing
-  // Skitza routes so URL state stays authentic on click.
-  const navTo = (href: string) => () => router.push(href);
 
   return (
     <aside
@@ -217,8 +213,9 @@ export function Sidebar({ producer, todayPreview, onOpenPalette }: SidebarProps)
         zIndex: 20,
       }}
     >
-      <button
-        onClick={goHome}
+      <Link
+        href="/dashboard"
+        prefetch
         title="Go home (Overview)"
         aria-label="Skitza Hall — Home"
         className="sk-pop"
@@ -232,7 +229,7 @@ export function Sidebar({ producer, todayPreview, onOpenPalette }: SidebarProps)
         }}
       >
         <Wordmark />
-      </button>
+      </Link>
 
       {onOpenPalette && (
         <div style={{ padding: "0 12px 8px" }}>
@@ -284,12 +281,12 @@ export function Sidebar({ producer, todayPreview, onOpenPalette }: SidebarProps)
         }}
       >
         {NAV.filter((n) => n.key !== "settings").map((n) => (
-          <NavItem
+          <NavLink
             key={n.key}
+            href={n.href}
             icon={n.icon}
             label={n.label}
             active={activeKey === n.key}
-            onClick={navTo(n.href)}
           />
         ))}
 
@@ -360,14 +357,16 @@ export function Sidebar({ producer, todayPreview, onOpenPalette }: SidebarProps)
           borderTop: "1px solid rgba(255,255,255,0.06)",
         }}
       >
-        <NavItem
+        <NavLink
+          href="/dashboard/settings"
           icon="settings"
           label="Settings"
           active={activeKey === "settings"}
-          onClick={navTo("/dashboard/settings")}
         />
 
-        <button
+        <Link
+          href="/dashboard/settings"
+          prefetch
           className="sk-row"
           style={{
             all: "unset",
@@ -382,7 +381,6 @@ export function Sidebar({ producer, todayPreview, onOpenPalette }: SidebarProps)
             marginTop: 8,
             width: "calc(100% - 4px)",
           }}
-          onClick={navTo("/dashboard/settings")}
         >
           <Avatar initials={producer.initials} grad={producer.avatarGrad} size={32} />
           <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
@@ -418,7 +416,7 @@ export function Sidebar({ producer, todayPreview, onOpenPalette }: SidebarProps)
             size={14}
             style={{ color: "rgba(255,255,255,0.3)" }}
           />
-        </button>
+        </Link>
       </div>
     </aside>
   );
