@@ -9,15 +9,19 @@
 // Wired-logic tweaks:
 // - data.projects[].id click → router.push(`/dashboard/projects/${id}`)
 //   instead of the mockup's internal openProject state
-// - "New Project / New Client" button → router.push(`/dashboard/projects/new`)
-//   for the projects view (existing route); placeholder for clients
-//   since there's no /dashboard/clients/new yet
+// - "New Project" button → opens NewProjectModal (real create flow,
+//   stays inside the design-test surface instead of jumping to the
+//   old Tailwind /projects/new form)
+// - "New Client" button → also opens NewProjectModal (creating a
+//   project auto-records the client contact); a true "client only"
+//   modal can land later if needed
 // - Pin state is local-component state — survives interaction inside
 //   the tab but resets on route change (matches mockup behavior)
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { NewProjectModal } from "./new-project-modal";
 import {
   Avatar,
   Card,
@@ -64,6 +68,7 @@ type ClientsProjectsData = {
 };
 
 export function ClientsProjectsTab({ data }: { data: ClientsProjectsData }) {
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
   const router = useRouter();
   const d = data;
   const [view, setView] = useState<"projects" | "clients">("projects");
@@ -179,11 +184,7 @@ export function ClientsProjectsTab({ data }: { data: ClientsProjectsData }) {
           </p>
         </div>
         <button
-          onClick={() =>
-            view === "clients"
-              ? router.push("/dashboard/projects")
-              : router.push("/dashboard/projects/new")
-          }
+          onClick={() => setNewProjectOpen(true)}
           className="sk-pop"
           style={{
             all: "unset",
@@ -445,6 +446,7 @@ export function ClientsProjectsTab({ data }: { data: ClientsProjectsData }) {
           }}
         />
       )}
+      <NewProjectModal open={newProjectOpen} onClose={() => setNewProjectOpen(false)} />
     </div>
   );
 }
