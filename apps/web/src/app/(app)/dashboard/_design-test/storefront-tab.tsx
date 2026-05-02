@@ -21,6 +21,7 @@
 
 import { type ReactNode, useState } from "react";
 
+import { NewProductModal } from "./new-product-modal";
 import { Avatar, Icon } from "./primitives";
 
 export type StoreProduct = {
@@ -62,6 +63,7 @@ export function StorefrontTab({ data }: { data: StorefrontData }) {
   const [productOverrides, setProductOverrides] = useState<
     Record<string, { visible?: boolean; featured?: boolean }>
   >({});
+  const [newProductOpen, setNewProductOpen] = useState(false);
   const isVisible = (p: StoreProduct): boolean =>
     productOverrides[p.id]?.visible ?? p.visible;
   const isFeatured = (p: StoreProduct): boolean =>
@@ -193,6 +195,7 @@ export function StorefrontTab({ data }: { data: StorefrontData }) {
             products={data.products}
             isVisible={isVisible}
             isFeatured={isFeatured}
+            onAddNew={() => setNewProductOpen(true)}
             toggleVisible={(id) =>
               setProductOverrides((p) => ({
                 ...p,
@@ -207,6 +210,7 @@ export function StorefrontTab({ data }: { data: StorefrontData }) {
         {tab === "portfolio" && <PortfolioGrid />}
         {tab === "profile" && <ProfileGrid producer={data.producer} />}
       </div>
+      <NewProductModal open={newProductOpen} onClose={() => setNewProductOpen(false)} />
     </div>
   );
 }
@@ -333,10 +337,12 @@ function ProductsGrid({
   isVisible,
   isFeatured,
   toggleVisible,
+  onAddNew,
 }: {
   products: StoreProduct[];
   isVisible: (p: StoreProduct) => boolean;
   isFeatured: (p: StoreProduct) => boolean;
+  onAddNew: () => void;
   toggleVisible: (id: string) => void;
 }) {
   return (
@@ -451,6 +457,8 @@ function ProductsGrid({
         );
       })}
       <button
+        type="button"
+        onClick={onAddNew}
         className="sk-pop sk-row"
         style={{
           all: "unset",
@@ -469,7 +477,7 @@ function ProductsGrid({
       >
         <Icon name="plus" size={20} style={{ marginBottom: 6 }} />
         <span style={{ fontSize: 12.5, fontWeight: 700 }}>Add new product</span>
-        <span style={{ fontSize: 10.5, marginTop: 2 }}>Choose from a template</span>
+        <span style={{ fontSize: 10.5, marginTop: 2 }}>Title, length, price</span>
       </button>
     </div>
   );
