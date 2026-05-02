@@ -7,20 +7,20 @@ import { appRouter } from "~/server/trpc/routers/_app";
 import {
   fmtDuration,
   gradFor,
-  initialsOf,
   progressForStage,
   relTime,
   tagForStage,
-} from "../../_design-test/data-mapping";
-import { DesignShell } from "../../_design-test/design-shell";
-import { buildPaletteData } from "../../_design-test/palette-data";
+} from "../../../_design-test/data-mapping";
 import {
   ProjectRoom,
   type ActivityEvent,
   type ProjectRoomProject,
   type ProjectRoomTrack,
-} from "../../_design-test/project-room";
-import type { Producer } from "../../_design-test/shell";
+} from "../../../_design-test/project-room";
+
+// Project Room (drill-down). Shell lives in (sandbox)/layout.tsx;
+// this page fetches the per-project detail + money + tracks and
+// returns the inner room component.
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -29,16 +29,8 @@ export default async function ProjectRoomPage({ params }: PageProps) {
   if (!userId) redirect("/sign-in");
 
   const { id } = await params;
-
   const caller = appRouter.createCaller({ userId });
-  const [me, paletteData] = await Promise.all([
-    caller.producer.me(),
-    buildPaletteData(caller),
-  ]);
 
-  // Fetch project detail + money + tracks in parallel. project.detail
-  // throws NOT_FOUND if the project doesn't exist or belongs to a
-  // different producer — surface as Next.js 404.
   let detail;
   let money;
   let tracksList;
@@ -52,24 +44,11 @@ export default async function ProjectRoomPage({ params }: PageProps) {
     notFound();
   }
 
-  const producer: Producer = {
-    name: me.displayName ?? "Your Studio",
-    initials: initialsOf(me.displayName),
-    plan: "Pro",
-    avatarGrad: "grad-amber",
-  };
-
   const stageTag = tagForStage(detail.project.stage);
-  // money returns paidCents + outstandingCents (no totalCents — total is
-  // their sum). The shape lives at apps/web/src/server/trpc/routers/
-  // project.ts:money.
   const paid = Math.round(money.paidCents / 100);
   const total = paid + Math.round(money.outstandingCents / 100);
   const songCount = detail.tracks.length;
 
-  // Deadline display + days. nextChargeAt is the closest signal we have
-  // for a real-world due date. When absent, surface "—" + a high
-  // deadlineDays so the StatTile renders neutral (not warning/danger).
   let deadline = "—";
   let deadlineDays = 9999;
   if (detail.project.nextChargeAt) {
@@ -100,8 +79,6 @@ export default async function ProjectRoomPage({ params }: PageProps) {
     deadlineDays,
   };
 
-  // Tracks → mockup ProjectRoomTrack shape. Comments count comes from
-  // the detail payload (per-track via versionIds → comment array).
   const versionsByTrack = new Map<string, typeof detail.versions>();
   for (const v of detail.versions) {
     const arr = versionsByTrack.get(v.trackId) ?? [];
@@ -128,9 +105,6 @@ export default async function ProjectRoomPage({ params }: PageProps) {
     comments: commentsByVersion.get(row.versionId) ?? 0,
   }));
 
-  // Synthesize an activity feed from real signals: most recent track
-  // uploads + most recent comments. Empty state renders cleanly when
-  // there's nothing to show. Replaces the mockup's hardcoded events.
   const uploadEvents: ActivityEvent[] = tracksList.slice(0, 3).map((row) => ({
     icon: "upload",
     text: `New version "${row.versionLabel ?? "v1"}" uploaded for ${row.trackTitle ?? "track"}`,
@@ -155,9 +129,5 @@ export default async function ProjectRoomPage({ params }: PageProps) {
     8,
   );
 
-  return (
-    <DesignShell producer={producer} paletteData={paletteData}>
-      <ProjectRoom data={{ project, tracks, activity }} />
-    </DesignShell>
-  );
+  return <ProjectRoom data={{ project, tracks, activity }} />;
 }

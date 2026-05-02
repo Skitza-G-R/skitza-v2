@@ -4,28 +4,15 @@ import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import {
-  fmtDuration,
-  gradFor,
-  initialsOf,
-  relTime,
-} from "../_design-test/data-mapping";
-import { DesignShell } from "../_design-test/design-shell";
+import { fmtDuration, gradFor, relTime } from "../../_design-test/data-mapping";
 import {
   MusicLibraryTab,
   type LibraryProject,
   type LibraryTrack,
-} from "../_design-test/music-library-tab";
-import { buildPaletteData } from "../_design-test/palette-data";
-import type { Producer } from "../_design-test/shell";
+} from "../../_design-test/music-library-tab";
 
-// gili/design-test branch — Music Library tab. Maps
-// `library.list()` rows into the mockup's track shape. Custom
-// playlists rail uses the mockup's hardcoded list (no playlists table
-// yet); favorites is local component state until a favorites column
-// lands. The mockup's BPM/MKey columns surface as null because we
-// don't tag tracks with that metadata yet — the table renders cleanly
-// with those fields blank.
+// Music Library tab. Shell lives in (sandbox)/layout.tsx; this page
+// fetches its own track + project list and returns the inner tab.
 
 function uploadedRel(date: Date): "today" | "yesterday" | "this week" | "older" {
   const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
@@ -40,19 +27,10 @@ export default async function MusicPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [me, libRows, projectsList, paletteData] = await Promise.all([
-    caller.producer.me(),
+  const [libRows, projectsList] = await Promise.all([
     caller.library.list(),
     caller.project.list(),
-    buildPaletteData(caller),
   ]);
-
-  const producer: Producer = {
-    name: me.displayName ?? "Your Studio",
-    initials: initialsOf(me.displayName),
-    plan: "Pro",
-    avatarGrad: "grad-amber",
-  };
 
   const tracks: LibraryTrack[] = libRows.map((r, i) => ({
     id: r.versionId,
@@ -78,9 +56,5 @@ export default async function MusicPage() {
     name: p.title,
   }));
 
-  return (
-    <DesignShell producer={producer} paletteData={paletteData}>
-      <MusicLibraryTab data={{ tracks, projects }} />
-    </DesignShell>
-  );
+  return <MusicLibraryTab data={{ tracks, projects }} />;
 }

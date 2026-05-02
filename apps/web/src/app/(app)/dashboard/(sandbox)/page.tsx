@@ -9,27 +9,20 @@ import {
   fmtDuration,
   gradFor,
   humanStage,
-  initialsOf,
   relTime,
   splitPublicLink,
   tagForStage,
-} from "./_design-test/data-mapping";
-import { OverviewShell } from "./_design-test/overview-shell";
-import { buildPaletteData } from "./_design-test/palette-data";
-import type {
-  OverviewData,
-  OverviewProject,
-  OverviewTrack,
-} from "./_design-test/overview-tab";
-import type { Producer } from "./_design-test/shell";
+} from "../_design-test/data-mapping";
+import {
+  OverviewTab,
+  type OverviewData,
+  type OverviewProject,
+  type OverviewTrack,
+} from "../_design-test/overview-tab";
 
-// gili/design-test branch — Overview page wired against real Skitza
-// data using the mockup's exact DOM/CSS structure. Pure data-mapping
-// helpers live in ./_design-test/data-mapping.ts (unit-tested).
-// Components live in ./_design-test/{primitives,shell,overview-tab,
-// overview-shell}.tsx (1:1 ports of the mockup with className/DOM
-// preserved verbatim). CSS is scoped under .dt-root so it can't leak
-// to other Skitza routes.
+// Overview page — root of the sandbox. Shell + Sidebar live in
+// (sandbox)/layout.tsx, so this page only fetches the Overview-
+// specific data and returns the tab body directly.
 
 const TODAY_DATE_FMT = new Intl.DateTimeFormat("en-US", {
   month: "long",
@@ -42,17 +35,13 @@ export default async function DashboardPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [today, me, projectsList, paletteData] = await Promise.all([
+  const [today, me, projectsList] = await Promise.all([
     caller.producer.today(),
     caller.producer.me(),
     caller.project.list(),
-    buildPaletteData(caller),
   ]);
 
-  // ── Producer derivation ─────────────────────────────────────────
-  const realName = me.displayName ?? "Your Studio";
   const greetingName = firstNameOf(me.displayName);
-  const initials = initialsOf(me.displayName);
   const slug = me.slug ?? "your-slug";
   const publicBaseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ??
@@ -64,18 +53,6 @@ export default async function DashboardPage() {
   const earnedMonth = Math.round(today.pulseStats.thisMonthCents / 100);
   const earnedDelta = today.pulseStats.deltaPct ?? 0;
 
-  const producer: Producer = {
-    name: realName,
-    initials,
-    plan: "Pro",
-    avatarGrad: "grad-amber",
-  };
-
-  // ── Projects → mockup OverviewProject shape ─────────────────────
-  // Producer.today returns counts; for the list itself we read
-  // project.list() and map to the mockup's data contract via the
-  // tested data-mapping helpers. Filter happens inside OverviewTab
-  // (urgent = tagType ∈ {danger, warning}).
   const projects: OverviewProject[] = projectsList.map((p, i) => {
     const stageTag = tagForStage(p.stage);
     return {
@@ -89,7 +66,6 @@ export default async function DashboardPage() {
     };
   });
 
-  // ── Recent uploads → mockup OverviewTrack shape ─────────────────
   const tracks: OverviewTrack[] = today.recentUploads.map((u, i) => ({
     id: u.versionId,
     title: u.title,
@@ -100,9 +76,6 @@ export default async function DashboardPage() {
     grad: gradFor(i),
   }));
 
-  // Outstanding $ isn't computed by today() — would need a dedicated
-  // invoice rollup. Out of scope for the medium-data brief. Surface
-  // a placeholder + "Across 0 clients" so the design renders cleanly.
   const data: OverviewData = {
     producer: {
       publicLink: fullPublicLink.replace(/^https?:\/\//, ""),
@@ -120,11 +93,5 @@ export default async function DashboardPage() {
     overdueClient: null,
   };
 
-  return (
-    <OverviewShell
-      producer={producer}
-      data={data}
-      paletteData={paletteData}
-    />
-  );
+  return <OverviewTab data={data} />;
 }

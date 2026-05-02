@@ -3,25 +3,16 @@ import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { blocksToHoursByDay } from "../_design-test/availability-shape";
+import { blocksToHoursByDay } from "../../_design-test/availability-shape";
 import {
   CalendarTab,
   type CalendarSession,
   type IntroRequest,
-} from "../_design-test/calendar-tab";
-import { initialsOf } from "../_design-test/data-mapping";
-import { DesignShell } from "../_design-test/design-shell";
-import { buildPaletteData } from "../_design-test/palette-data";
-import type { Producer } from "../_design-test/shell";
+} from "../../_design-test/calendar-tab";
 
-// gili/design-test branch — Calendar tab. Wires the mockup's
-// week-view session grid + intro requests sidebar against real
-// `booking.upcoming()` + `booking.list({status:"pending"})` data.
-//
-// On main this route is the booking-config page (availability,
-// packages, blackouts, gcal sync). On the design-test branch we
-// replace it with the new design's Calendar tab — the original UI
-// is still on main if needed.
+// Calendar tab. Shell lives in (sandbox)/layout.tsx; this page
+// fetches its own week-view + intro-requests + availability data
+// and returns the inner tab body.
 
 const GRAD_PALETTE = [
   "grad-rose",
@@ -46,22 +37,12 @@ export default async function CalendarPage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [me, upcoming, pending, paletteData, availabilityBlocks] = await Promise.all([
-    caller.producer.me(),
+  const [upcoming, pending, availabilityBlocks] = await Promise.all([
     caller.booking.upcoming({ days: 14 }),
     caller.booking.list({ status: "pending" }),
-    buildPaletteData(caller),
     caller.booking.availability.list(),
   ]);
 
-  const producer: Producer = {
-    name: me.displayName ?? "Your Studio",
-    initials: initialsOf(me.displayName),
-    plan: "Pro",
-    avatarGrad: "grad-amber",
-  };
-
-  // Week boundaries — Sunday at 00:00 local through following Saturday.
   const today = new Date();
   const weekStart = new Date(today);
   weekStart.setHours(0, 0, 0, 0);
@@ -121,16 +102,14 @@ export default async function CalendarPage() {
   const initialHoursByDay = blocksToHoursByDay(availabilityBlocks);
 
   return (
-    <DesignShell producer={producer} paletteData={paletteData}>
-      <CalendarTab
-        data={{
-          sessions,
-          introRequests,
-          weekLabel,
-          todayIdx,
-          initialHoursByDay,
-        }}
-      />
-    </DesignShell>
+    <CalendarTab
+      data={{
+        sessions,
+        introRequests,
+        weekLabel,
+        todayIdx,
+        initialHoursByDay,
+      }}
+    />
   );
 }

@@ -7,22 +7,18 @@ import { appRouter } from "~/server/trpc/routers/_app";
 import {
   fmtDuration,
   gradFor,
-  initialsOf,
   relTime,
-} from "../../_design-test/data-mapping";
-import { DesignShell } from "../../_design-test/design-shell";
-import { buildPaletteData } from "../../_design-test/palette-data";
+} from "../../../_design-test/data-mapping";
 import {
   rawCommentToVisible,
   type RawComment,
   type VisibleComment,
-} from "../../_design-test/song-comments";
-import { SongPage, type SongPageData } from "../../_design-test/song-page";
-import type { Producer } from "../../_design-test/shell";
+} from "../../../_design-test/song-comments";
+import { SongPage, type SongPageData } from "../../../_design-test/song-page";
 
-// /dashboard/music/[trackId] — Song Page route. Wires real Skitza data
-// into the SongPage component. The URL param is the versionId in the
-// DB (matching library.detail's contract — version → track → project).
+// /dashboard/music/[trackId] — Song Page route. Shell lives in
+// (sandbox)/layout.tsx; this page fetches the version + project +
+// comments detail and returns the inner SongPage component.
 
 type PageProps = { params: Promise<{ trackId: string }> };
 
@@ -31,12 +27,7 @@ export default async function SongPageRoute({ params }: PageProps) {
   if (!userId) redirect("/sign-in");
 
   const { trackId } = await params;
-
   const caller = appRouter.createCaller({ userId });
-  const [me, paletteData] = await Promise.all([
-    caller.producer.me(),
-    buildPaletteData(caller),
-  ]);
 
   let detail;
   try {
@@ -63,13 +54,6 @@ export default async function SongPageRoute({ params }: PageProps) {
     ];
   }
 
-  const producer: Producer = {
-    name: me.displayName ?? "Your Studio",
-    initials: initialsOf(me.displayName),
-    plan: "Pro",
-    avatarGrad: "grad-amber",
-  };
-
   const versionLabels = allVersions
     .map((v) => v.label ?? "v1")
     .reduce<string[]>((acc, label) => {
@@ -78,7 +62,11 @@ export default async function SongPageRoute({ params }: PageProps) {
     }, []);
   const activeVersion = detail.version.label ?? "v1";
 
+  // Producer name needed for comment author derivation. Avoid a full
+  // producer.me() refetch by using the email-stripped fallback "Producer".
+  const me = await caller.producer.me();
   const producerName = me.displayName ?? "Producer";
+
   const visibleComments: VisibleComment[] = detail.comments.map((c) => {
     const raw: RawComment = {
       id: c.id,
@@ -115,9 +103,5 @@ export default async function SongPageRoute({ params }: PageProps) {
     comments: visibleComments,
   };
 
-  return (
-    <DesignShell producer={producer} paletteData={paletteData}>
-      <SongPage data={data} />
-    </DesignShell>
-  );
+  return <SongPage data={data} />;
 }

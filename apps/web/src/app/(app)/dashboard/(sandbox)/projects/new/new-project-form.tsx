@@ -12,7 +12,7 @@ import {
   validateEmail,
   type ValidationState,
 } from "~/components/ui/validation";
-import { createProject } from "../actions";
+import { createProject } from "../../../projects/actions";
 
 type Contact = { id: string; email: string; name: string };
 
