@@ -232,6 +232,36 @@ describe("saveExternalLinks — non-empty URL inserts (or updates on conflict)",
     expect(valuesArg?.url).toBe("https://open.spotify.com/artist/abc");
   });
 
+  it("persists title on INSERT when provided (T8 — Link name input)", async () => {
+    const { saveExternalLinks } = await import("../links-actions");
+    await saveExternalLinks({
+      links: [
+        {
+          platform: "spotify",
+          url: "https://open.spotify.com/artist/abc",
+          title: "Latest single",
+        },
+      ],
+    });
+    const valuesArg = insertValuesSpy.mock.calls[0]?.[0] as
+      | { title?: string | null }
+      | undefined;
+    expect(valuesArg?.title).toBe("Latest single");
+  });
+
+  it("persists empty title as SQL NULL (cleaner than empty string)", async () => {
+    const { saveExternalLinks } = await import("../links-actions");
+    await saveExternalLinks({
+      links: [
+        { platform: "spotify", url: "https://open.spotify.com/artist/abc" },
+      ],
+    });
+    const valuesArg = insertValuesSpy.mock.calls[0]?.[0] as
+      | { title?: string | null }
+      | undefined;
+    expect(valuesArg?.title).toBeNull();
+  });
+
   it("uses ON CONFLICT (producer_id, platform) DO UPDATE SET url=EXCLUDED.url so re-saves replace existing", async () => {
     const { saveExternalLinks } = await import("../links-actions");
     await saveExternalLinks({

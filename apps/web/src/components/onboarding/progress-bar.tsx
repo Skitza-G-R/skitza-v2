@@ -2,16 +2,19 @@ import { cn } from "~/lib/cn";
 
 // Story 02 — Onboarding wizard progress bar.
 //
-// Pure presentational. Four equal-width segments separated by 2px
-// gaps. The active segment glows brand-primary, completed segments
-// fade to 60% alpha, pending segments use the neutral border token.
+// Pure presentational. Equal-width segments separated by 2px gaps.
+// The active segment glows brand-primary, completed segments fade to
+// 60% alpha, pending segments use the neutral border token.
+//
+// T8 — total bumped from 4 to 6 (wizard reordered to 6 data-capture
+// steps + a non-shell completion screen).
 //
 // The class-derivation + ARIA attributes are exported as pure
 // helpers so the unit tests in __tests__/progress-bar.test.tsx can
 // pin them without rendering React (the repo runs vitest in `node`
 // env — see the autopilot SWITCHES + Sidebar NAV_ITEMS pattern).
 
-export const PROGRESS_TOTAL = 4 as const;
+export const PROGRESS_TOTAL = 6 as const;
 
 export type SegmentState = "completed" | "active" | "pending";
 

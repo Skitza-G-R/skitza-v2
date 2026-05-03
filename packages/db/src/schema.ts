@@ -71,6 +71,7 @@ export const producers = pgTable("producers", {
   autopilotRequestTestimonial: boolean("autopilot_request_testimonial").notNull().default(false),
   autopilotCommentNotify: boolean("autopilot_comment_notify").notNull().default(true),
   autopilotAutoArchive: boolean("autopilot_auto_archive").notNull().default(false),
+  serviceRoles: text("service_roles").array().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

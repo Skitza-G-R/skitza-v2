@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { createDb, producers } from "@skitza/db";
+import { createDb, eq, producers } from "@skitza/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 
@@ -140,4 +140,40 @@ export async function completeStudio(input: {
       "could not allocate slug — please try a slightly different studio name",
     );
   }
+}
+
+// ─── saveServiceRoles (Step 2 — services) ───────────────────────────
+// T8 — onboarding wizard rebuild. Step 2 is a multi-select of "what do
+// you offer?" chips. Persisted on producers.service_roles (text[]),
+// added in migration 0002. Empty array on Skip is a valid no-op write
+// — keeps the UPDATE path uniform regardless of whether the producer
+// continued or skipped, so re-entering the wizard never silently keeps
+// stale roles.
+const ServiceRolesInput = z.object({
+  roles: z.array(z.string().min(1).max(64)).max(20),
+});
+
+export async function saveServiceRoles(input: { roles: string[] }): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("unauthorized");
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) throw new Error("missing DATABASE_URL");
+
+  // Defense-in-depth role gate — same shape as completeStudio + the
+  // links action: layout already redirects artists, but a raw HTTP POST
+  // bypasses the layout. Reject artist + orphan + unauthenticated.
+  const role = await fetchUserRole({ dbUrl, userId });
+  if (role.kind === "artist") {
+    throw new Error("forbidden: artists cannot edit producer roles");
+  }
+  if (role.kind === "orphan" || role.kind === "unauthenticated") {
+    throw new Error("forbidden: producer row not provisioned");
+  }
+
+  const parsed = ServiceRolesInput.parse(input);
+  const db = createDb(dbUrl);
+  await db
+    .update(producers)
+    .set({ serviceRoles: parsed.roles, updatedAt: new Date() })
+    .where(eq(producers.id, role.producer.id));
 }

@@ -54,9 +54,15 @@ const platformSchema = z.enum(SUPPORTED_PLATFORMS);
 // the 500-char DB cap. Lenient http(s) check happens client-side via
 // linkRowError; here we only enforce length so a malicious caller
 // can't smuggle a huge string through.
+//
+// T8 — title is optional (default ""). Capped at 120 chars; written
+// to producer_external_links.title (nullable). Empty title persists as
+// SQL NULL so the column reads consistently with rows that never had a
+// label set.
 const linkSchema = z.object({
   platform: platformSchema,
   url: z.string().max(500),
+  title: z.string().max(120).optional().default(""),
 });
 
 const Input = z.object({
@@ -69,6 +75,7 @@ export async function saveExternalLinks(input: {
   links: Array<{
     platform: "spotify" | "youtube" | "instagram_reels";
     url: string;
+    title?: string;
   }>;
 }): Promise<void> {
   // 1. Auth — Clerk session.
@@ -132,14 +139,19 @@ export async function saveExternalLinks(input: {
       }
       // UPSERT branch. ON CONFLICT targets the unique constraint
       // (producer_id, platform) added in migration 0034. The SET
-      // clause overwrites url; createdAt + position stay as-is on
-      // existing rows so the producer's reorder choices persist.
+      // clause overwrites url + title; createdAt + position stay as-is
+      // on existing rows so the producer's reorder choices persist.
+      // T8 — title persisted as null when empty (column is nullable;
+      // empty-string would make distinct queries less ergonomic).
+      const trimmedTitle = link.title.trim();
+      const titleValue = trimmedTitle === "" ? null : trimmedTitle;
       return db
         .insert(producerExternalLinks)
         .values({
           producerId,
           platform: link.platform,
           url: trimmed,
+          title: titleValue,
           // Default position 0 only matters on first insert; existing
           // rows keep their position via the ON CONFLICT DO UPDATE
           // not setting the column.
@@ -152,6 +164,7 @@ export async function saveExternalLinks(input: {
           ],
           set: {
             url: trimmed,
+            title: titleValue,
           },
         });
     }),

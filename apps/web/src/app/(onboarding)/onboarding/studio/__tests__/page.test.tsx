@@ -15,18 +15,18 @@ import {
 // pure helpers / constants and pin them here.
 //
 // What this file pins:
-//   - currentStep === 1 (the shell renders Step 1 of 4)
+//   - currentStep === 1 (the shell renders Step 1 of 6)
 //   - title === "Name your studio." (architecture §6 + acceptance criteria)
 //   - subtitle copy matches the welcoming "you can change later" tone
 //   - isContinueAllowed gates the Continue button until the trimmed
 //     displayName has at least 1 character (acceptance criteria #2)
 //   - defaultTimezone falls back to "UTC" if Intl is unavailable
-//   - nextRouteAfterStudio returns "/onboarding/service" so the page's
+//   - nextRouteAfterStudio returns "/onboarding/services" so the page's
 //     onSuccess push target is visible to tests without RTL
 
 describe("Step 1 (studio) page contract", () => {
   describe("constants", () => {
-    it("renders as Step 1 of the 4-step shell", () => {
+    it("renders as Step 1 of the 6-step shell", () => {
       expect(STUDIO_STEP_INDEX).toBe(1);
     });
 
@@ -71,11 +71,11 @@ describe("Step 1 (studio) page contract", () => {
   });
 
   describe("nextRouteAfterStudio", () => {
-    it("routes to Step 2 (/onboarding/service) on success", () => {
-      // Story 04 lives at /onboarding/service. Pin the target so a
-      // copy-paste typo in the redirect path is caught at test time
-      // rather than at user time.
-      expect(nextRouteAfterStudio()).toBe("/onboarding/service");
+    it("routes to Step 2 (/onboarding/services) on success", () => {
+      // T8 — Step 2 is now the services multi-select chip step. Pin
+      // the target so a copy-paste typo (back to "/onboarding/service")
+      // is caught at test time rather than at user time.
+      expect(nextRouteAfterStudio()).toBe("/onboarding/services");
     });
   });
 });

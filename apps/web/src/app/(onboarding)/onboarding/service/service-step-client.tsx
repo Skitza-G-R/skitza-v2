@@ -10,6 +10,7 @@ import {
   SERVICE_STEP_SUBTITLE,
   SERVICE_STEP_TITLE,
   nextRouteAfterService,
+  routeOnBackFromService,
   routeOnSkipFromService,
 } from "./constants";
 
@@ -79,22 +80,19 @@ export function ServiceStepClient({ initialCurrency }: ServiceStepClientProps = 
     router.push(routeOnSkipFromService());
   };
 
-  // No Back button on Step 2 — Step 1 (studio) is one-shot. Once the
-  // producer's slug + display name are committed, the role-resolution
-  // rule classifies them as `producer-complete`, so a Back navigation
-  // to /onboarding/studio would hit the layout's gate and bounce them
-  // straight to /dashboard. Clicking "← Back" and landing on /dashboard
-  // is the kind of misleading affordance that erodes trust on the very
-  // first run. Hiding it keeps the flow strictly forward (Continue or
-  // Skip) and matches the cinematic, no-rewind feel of the wizard.
+  // T8 — Back hops to the new /onboarding/services step (the role-
+  // wall concern that previously suppressed Back is moot now: services
+  // is a non-studio step and producer-complete on non-studio renders.)
+  const goBackToServices = () => {
+    router.push(routeOnBackFromService());
+  };
 
   return (
     <OnboardingShell
       currentStep={SERVICE_STEP_INDEX}
       title={SERVICE_STEP_TITLE}
       subtitle={SERVICE_STEP_SUBTITLE}
-      // No onBack — see comment above. Action bar renders only Skip on
-      // this step (NewPackageForm has its own submit in the slot).
+      onBack={goBackToServices}
       onSkip={skipToAvailability}
       // No onContinue — NewPackageForm hosts its own submit in the
       // content slot. The action bar renders only Skip for this step

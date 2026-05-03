@@ -16,7 +16,7 @@ import {
 // repo runs vitest in `node` env — no jsdom — so we don't render JSX).
 //
 // What this file pins:
-//   - PORTFOLIO_STEP_INDEX === 4 (shell renders Step 4 of 4)
+//   - PORTFOLIO_STEP_INDEX === 6 (shell renders Step 6 of 6 — T8)
 //   - PORTFOLIO_STEP_TITLE === "Show your work."
 //   - subtitle copy mentions Setup/Portfolio (the deferred-upload
 //     surface) so a future edit that drops it requires a deliberate
@@ -31,10 +31,10 @@ import {
 //     distinction)
 //   - routeOnBackFromPortfolio → "/onboarding/availability" (Step 3)
 
-describe("Step 4 (portfolio) page contract", () => {
+describe("Step 6 (portfolio) page contract", () => {
   describe("constants", () => {
-    it("renders as Step 4 of the 4-step shell", () => {
-      expect(PORTFOLIO_STEP_INDEX).toBe(4);
+    it("renders as Step 6 of the 6-step shell", () => {
+      expect(PORTFOLIO_STEP_INDEX).toBe(6);
     });
 
     it("uses the architecture-mandated title 'Show your work.'", () => {
@@ -68,33 +68,25 @@ describe("Step 4 (portfolio) page contract", () => {
     });
   });
 
-  describe("routeOnContinueFromPortfolio (Continue completes the wizard)", () => {
-    it("routes to /dashboard (end of onboarding)", () => {
-      // Step 4 is the last step. Continue ends the wizard.
-      expect(routeOnContinueFromPortfolio()).toBe("/dashboard");
+  describe("routeOnContinueFromPortfolio (Continue advances to completion screen)", () => {
+    it("routes to /onboarding/complete (T8 — completion screen)", () => {
+      expect(routeOnContinueFromPortfolio()).toBe("/onboarding/complete");
     });
   });
 
   describe("routeOnSkipFromPortfolio (Skip ghost link)", () => {
-    it("also routes to /dashboard (no save, but same destination)", () => {
-      expect(routeOnSkipFromPortfolio()).toBe("/dashboard");
+    it("also routes to /onboarding/complete (no save, but same destination)", () => {
+      expect(routeOnSkipFromPortfolio()).toBe("/onboarding/complete");
     });
 
     it("targets the same destination as the Continue route (telemetry-only divergence)", () => {
-      // This invariant is load-bearing: if Skip and Continue diverged
-      // the wizard would branch. Keeping them aligned means the only
-      // difference is whether saveExternalLinks runs + which telemetry
-      // event fires (step_completed vs step_skipped).
       expect(routeOnSkipFromPortfolio()).toBe(routeOnContinueFromPortfolio());
     });
   });
 
   describe("routeOnBackFromPortfolio (Back button)", () => {
-    it("returns to Step 3 (/onboarding/availability)", () => {
-      // Back hops one step. The wizard is a strict 4-step linear flow;
-      // Back from Step 4 lands on Step 3 (availability). Pin the literal
-      // so an off-by-one is caught at test time.
-      expect(routeOnBackFromPortfolio()).toBe("/onboarding/availability");
+    it("returns to Step 5 (/onboarding/payment) — T8 reordered", () => {
+      expect(routeOnBackFromPortfolio()).toBe("/onboarding/payment");
     });
   });
 });

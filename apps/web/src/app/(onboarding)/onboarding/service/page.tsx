@@ -65,6 +65,7 @@ export {
   SERVICE_STEP_SUBTITLE,
   ONBOARDING_STEP_NAME,
   nextRouteAfterService,
+  routeOnBackFromService,
   routeOnSkipFromService,
 } from "./constants";
 

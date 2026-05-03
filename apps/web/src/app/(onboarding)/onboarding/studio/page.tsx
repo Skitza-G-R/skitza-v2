@@ -23,7 +23,7 @@ import { completeStudio } from "../actions";
 // action-bar.test from Story 02).
 
 /** 1-indexed step number passed to <OnboardingShell currentStep={…} />. */
-export const STUDIO_STEP_INDEX: 1 | 2 | 3 | 4 = 1;
+export const STUDIO_STEP_INDEX: 1 | 2 | 3 | 4 | 5 | 6 = 1;
 
 /** H1 displayed by the shell. Pinned by tests + architecture §6. */
 export const STUDIO_STEP_TITLE = "Name your studio.";
@@ -60,8 +60,8 @@ export function defaultTimezone(): string {
 }
 
 /** Step 1 → Step 2 route. Pinned by tests so a typo is caught early. */
-export function nextRouteAfterStudio(): "/onboarding/service" {
-  return "/onboarding/service";
+export function nextRouteAfterStudio(): "/onboarding/services" {
+  return "/onboarding/services";
 }
 
 export default function StudioStepPage() {
