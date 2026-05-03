@@ -21,6 +21,7 @@ import {
 } from "@skitza/db";
 import type { Db, PaymentPlan } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
+import { after } from "next/server";
 import { z } from "zod";
 import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
@@ -398,15 +399,21 @@ const musicSubrouter = router({
         .where(eq(producers.id, project.producerId))
         .limit(1);
       if (producerRow?.email) {
-        void sendNewCommentFromArtistEmail(producerRow.email, {
-          producerName: producerRow.displayName ?? "there",
-          artistName: contact.name,
-          trackTitle: track.title,
-          commentBody: input.body,
-          threadUrl: `${SITE_URL}/dashboard/music`,
-        }).catch((err) =>
-          console.error("[email] new-comment-from-artist failed", err),
-        );
+        const producerEmail = producerRow.email;
+        const producerDisplayName = producerRow.displayName ?? "there";
+        after(async () => {
+          try {
+            await sendNewCommentFromArtistEmail(producerEmail, {
+              producerName: producerDisplayName,
+              artistName: contact.name,
+              trackTitle: track.title,
+              commentBody: input.body,
+              threadUrl: `${SITE_URL}/dashboard/music`,
+            });
+          } catch (err) {
+            console.error("[email] new-comment-from-artist failed", err);
+          }
+        });
       }
 
       // Reshape to match the `project` query's comment shape so the

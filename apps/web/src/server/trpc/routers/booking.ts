@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
 import {
   and,
@@ -1119,18 +1120,22 @@ export const bookingRouter = router({
         .set({ status: "rejected", statusChangedAt: new Date() })
         .where(eq(bookings.id, input.id));
 
-      void sendBookingCancelledOrRescheduledEmail(existing.artistEmail, {
-        recipientName: existing.artistName,
-        counterpartName: existing.producerDisplayName ?? "Your producer",
-        productName: existing.packageNameSnapshot ?? "Session",
-        status: "cancelled",
-        oldStartsAt: existing.startsAt,
-        newStartsAt: null,
-        producerTimezone: existing.producerTimezone,
-        reason: null,
-      }).catch((err) =>
-        console.error("[email] booking-cancelled-or-rescheduled failed", err),
-      );
+      after(async () => {
+        try {
+          await sendBookingCancelledOrRescheduledEmail(existing.artistEmail, {
+            recipientName: existing.artistName,
+            counterpartName: existing.producerDisplayName ?? "Your producer",
+            productName: existing.packageNameSnapshot ?? "Session",
+            status: "cancelled",
+            oldStartsAt: existing.startsAt,
+            newStartsAt: null,
+            producerTimezone: existing.producerTimezone,
+            reason: null,
+          });
+        } catch (err) {
+          console.error("[email] booking-cancelled-or-rescheduled failed", err);
+        }
+      });
 
       return { ok: true as const };
     }),

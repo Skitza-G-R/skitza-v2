@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
 import {
   and,
@@ -501,15 +502,19 @@ export const projectRouter = router({
       .from(producers)
       .where(eq(producers.id, ctx.producerId))
       .limit(1);
-    void sendTrackVersionUploadedEmail(project.artistEmail, {
-      artistName: project.artistName,
-      producerName: producerRow?.displayName ?? "Your producer",
-      projectName: project.title,
-      versionLabel: input.label,
-      reviewUrl: `${SITE_URL}/artist/music`,
-    }).catch((err) =>
-      console.error("[email] track-version-uploaded failed", err),
-    );
+    after(async () => {
+      try {
+        await sendTrackVersionUploadedEmail(project.artistEmail, {
+          artistName: project.artistName,
+          producerName: producerRow?.displayName ?? "Your producer",
+          projectName: project.title,
+          versionLabel: input.label,
+          reviewUrl: `${SITE_URL}/artist/music`,
+        });
+      } catch (err) {
+        console.error("[email] track-version-uploaded failed", err);
+      }
+    });
 
     return row;
   }),
@@ -548,17 +553,21 @@ export const projectRouter = router({
       const total = project.totalAmountCents ?? 0;
       const amountCents =
         input.kind === "deposit" ? Math.floor(total / 2) : total - Math.floor(total / 2);
-      void sendPaymentReceivedEmail(project.artistEmail, {
-        producerName: producerRow?.displayName ?? "Your producer",
-        artistName: project.artistName,
-        projectName: project.title,
-        amountCents,
-        platformFeeCents: 0,
-        currency: project.currency ?? "USD",
-        viewUrl: `${SITE_URL}/artist`,
-      }).catch((err) =>
-        console.error("[email] payment-received failed", err),
-      );
+      after(async () => {
+        try {
+          await sendPaymentReceivedEmail(project.artistEmail, {
+            producerName: producerRow?.displayName ?? "Your producer",
+            artistName: project.artistName,
+            projectName: project.title,
+            amountCents,
+            platformFeeCents: 0,
+            currency: project.currency ?? "USD",
+            viewUrl: `${SITE_URL}/artist`,
+          });
+        } catch (err) {
+          console.error("[email] payment-received failed", err);
+        }
+      });
     }
 
     return { ok: true as const };
@@ -953,15 +962,19 @@ export const projectRouter = router({
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      void sendProducerRepliedToCommentEmail(p.artistEmail, {
-        artistName: p.artistName,
-        producerName: producerRow?.displayName ?? "Your producer",
-        trackTitle: t.title,
-        replyBody: input.body,
-        threadUrl: `${SITE_URL}/artist/music`,
-      }).catch((err) =>
-        console.error("[email] producer-replied-to-comment failed", err),
-      );
+      after(async () => {
+        try {
+          await sendProducerRepliedToCommentEmail(p.artistEmail, {
+            artistName: p.artistName,
+            producerName: producerRow?.displayName ?? "Your producer",
+            trackTitle: t.title,
+            replyBody: input.body,
+            threadUrl: `${SITE_URL}/artist/music`,
+          });
+        } catch (err) {
+          console.error("[email] producer-replied-to-comment failed", err);
+        }
+      });
 
       return row;
     }),
