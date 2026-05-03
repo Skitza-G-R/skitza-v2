@@ -25,6 +25,10 @@ import { z } from "zod";
 import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
 import { groupStudiosForArtist } from "~/server/artist/identity";
+import {
+  SITE_URL,
+  sendNewCommentFromArtistEmail,
+} from "~/server/email/send";
 import { getSiteUrl } from "~/server/stripe/client";
 
 // ─── Ownership guard ─────────────────────────────────────────────────
@@ -357,7 +361,11 @@ const musicSubrouter = router({
       if (!version) throw new TRPCError({ code: "NOT_FOUND" });
 
       const [track] = await ctx.db
-        .select({ id: projectTracks.id, projectId: projectTracks.projectId })
+        .select({
+          id: projectTracks.id,
+          projectId: projectTracks.projectId,
+          title: projectTracks.title,
+        })
         .from(projectTracks)
         .where(eq(projectTracks.id, version.trackId))
         .limit(1);
@@ -365,7 +373,7 @@ const musicSubrouter = router({
 
       // Same guard as the read query. Throws NOT_FOUND if the artist
       // doesn't have a client_contacts row linking them to the project.
-      const { contact } = await resolveProjectOwnership(
+      const { project, contact } = await resolveProjectOwnership(
         ctx.db,
         ctx.clerkUserId,
         track.projectId,
@@ -383,6 +391,23 @@ const musicSubrouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [producerRow] = await ctx.db
+        .select({ email: producers.email, displayName: producers.displayName })
+        .from(producers)
+        .where(eq(producers.id, project.producerId))
+        .limit(1);
+      if (producerRow?.email) {
+        void sendNewCommentFromArtistEmail(producerRow.email, {
+          producerName: producerRow.displayName ?? "there",
+          artistName: contact.name,
+          trackTitle: track.title,
+          commentBody: input.body,
+          threadUrl: `${SITE_URL}/dashboard/music`,
+        }).catch((err) =>
+          console.error("[email] new-comment-from-artist failed", err),
+        );
+      }
 
       // Reshape to match the `project` query's comment shape so the
       // optimistic append on the client never diverges from the server

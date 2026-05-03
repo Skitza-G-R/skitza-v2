@@ -28,6 +28,7 @@ import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { recordContact } from "~/server/contacts/record";
 import {
+  sendBookingCancelledOrRescheduledEmail,
   sendBookingConfirmedEmail,
   sendBookingRequestEmail,
 } from "~/server/email/send";
@@ -1088,8 +1089,18 @@ export const bookingRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const [existing] = await ctx.db
-        .select({ producerId: bookings.producerId, status: bookings.status })
+        .select({
+          producerId: bookings.producerId,
+          status: bookings.status,
+          artistEmail: bookings.artistEmail,
+          artistName: bookings.artistName,
+          startsAt: bookings.startsAt,
+          packageNameSnapshot: bookings.packageNameSnapshot,
+          producerDisplayName: producers.displayName,
+          producerTimezone: producers.timezone,
+        })
         .from(bookings)
+        .innerJoin(producers, eq(producers.id, bookings.producerId))
         .where(eq(bookings.id, input.id))
         .limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1107,6 +1118,20 @@ export const bookingRouter = router({
         .update(bookings)
         .set({ status: "rejected", statusChangedAt: new Date() })
         .where(eq(bookings.id, input.id));
+
+      void sendBookingCancelledOrRescheduledEmail(existing.artistEmail, {
+        recipientName: existing.artistName,
+        counterpartName: existing.producerDisplayName ?? "Your producer",
+        productName: existing.packageNameSnapshot ?? "Session",
+        status: "cancelled",
+        oldStartsAt: existing.startsAt,
+        newStartsAt: null,
+        producerTimezone: existing.producerTimezone,
+        reason: null,
+      }).catch((err) =>
+        console.error("[email] booking-cancelled-or-rescheduled failed", err),
+      );
+
       return { ok: true as const };
     }),
 

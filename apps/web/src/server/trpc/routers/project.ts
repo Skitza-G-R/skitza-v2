@@ -20,6 +20,12 @@ import { z } from "zod";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { recordContact } from "~/server/contacts/record";
+import {
+  SITE_URL,
+  sendPaymentReceivedEmail,
+  sendProducerRepliedToCommentEmail,
+  sendTrackVersionUploadedEmail,
+} from "~/server/email/send";
 import { calculateCharges } from "~/server/payments/plan";
 import { getStripe } from "~/server/stripe/client";
 
@@ -463,7 +469,12 @@ export const projectRouter = router({
       .limit(1);
     if (!track) throw new TRPCError({ code: "NOT_FOUND" });
     const [project] = await ctx.db
-      .select({ producerId: projects.producerId })
+      .select({
+        producerId: projects.producerId,
+        title: projects.title,
+        artistName: projects.artistName,
+        artistEmail: projects.artistEmail,
+      })
       .from(projects)
       .where(eq(projects.id, track.projectId))
       .limit(1);
@@ -484,12 +495,35 @@ export const projectRouter = router({
       .update(projects)
       .set({ updatedAt: new Date() })
       .where(eq(projects.id, track.projectId));
+
+    const [producerRow] = await ctx.db
+      .select({ displayName: producers.displayName })
+      .from(producers)
+      .where(eq(producers.id, ctx.producerId))
+      .limit(1);
+    void sendTrackVersionUploadedEmail(project.artistEmail, {
+      artistName: project.artistName,
+      producerName: producerRow?.displayName ?? "Your producer",
+      projectName: project.title,
+      versionLabel: input.label,
+      reviewUrl: `${SITE_URL}/artist/music`,
+    }).catch((err) =>
+      console.error("[email] track-version-uploaded failed", err),
+    );
+
     return row;
   }),
 
   setPaid: producerProcedure.input(SetPaidInput).mutation(async ({ ctx, input }) => {
     const [project] = await ctx.db
-      .select({ producerId: projects.producerId })
+      .select({
+        producerId: projects.producerId,
+        title: projects.title,
+        artistName: projects.artistName,
+        artistEmail: projects.artistEmail,
+        totalAmountCents: projects.totalAmountCents,
+        currency: projects.currency,
+      })
       .from(projects)
       .where(eq(projects.id, input.projectId))
       .limit(1);
@@ -504,6 +538,29 @@ export const projectRouter = router({
           : { finalPaid: input.value, updatedAt: new Date() },
       )
       .where(eq(projects.id, input.projectId));
+
+    if (input.value) {
+      const [producerRow] = await ctx.db
+        .select({ displayName: producers.displayName })
+        .from(producers)
+        .where(eq(producers.id, ctx.producerId))
+        .limit(1);
+      const total = project.totalAmountCents ?? 0;
+      const amountCents =
+        input.kind === "deposit" ? Math.floor(total / 2) : total - Math.floor(total / 2);
+      void sendPaymentReceivedEmail(project.artistEmail, {
+        producerName: producerRow?.displayName ?? "Your producer",
+        artistName: project.artistName,
+        projectName: project.title,
+        amountCents,
+        platformFeeCents: 0,
+        currency: project.currency ?? "USD",
+        viewUrl: `${SITE_URL}/artist`,
+      }).catch((err) =>
+        console.error("[email] payment-received failed", err),
+      );
+    }
+
     return { ok: true as const };
   }),
 
@@ -865,7 +922,7 @@ export const projectRouter = router({
         .limit(1);
       if (!v) throw new TRPCError({ code: "NOT_FOUND" });
       const [t] = await ctx.db
-        .select({ projectId: projectTracks.projectId })
+        .select({ projectId: projectTracks.projectId, title: projectTracks.title })
         .from(projectTracks)
         .where(eq(projectTracks.id, v.trackId))
         .limit(1);
@@ -895,6 +952,17 @@ export const projectRouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      void sendProducerRepliedToCommentEmail(p.artistEmail, {
+        artistName: p.artistName,
+        producerName: producerRow?.displayName ?? "Your producer",
+        trackTitle: t.title,
+        replyBody: input.body,
+        threadUrl: `${SITE_URL}/artist/music`,
+      }).catch((err) =>
+        console.error("[email] producer-replied-to-comment failed", err),
+      );
+
       return row;
     }),
 
