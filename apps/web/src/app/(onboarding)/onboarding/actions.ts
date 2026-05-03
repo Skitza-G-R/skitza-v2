@@ -12,6 +12,7 @@ import {
   slugFromDisplayName,
 } from "~/lib/onboarding/derive";
 import { fetchUserRole } from "~/server/auth/role";
+import { appRouter } from "~/server/trpc/routers/_app";
 
 // Story 03 — completeStudio.
 //
@@ -176,4 +177,51 @@ export async function saveServiceRoles(input: { roles: string[] }): Promise<void
     .update(producers)
     .set({ serviceRoles: parsed.roles, updatedAt: new Date() })
     .where(eq(producers.id, role.producer.id));
+}
+
+// ─── createOnboardingPackage (Step 3 — service templates) ───────────
+// Wraps booking.packages.create through the tRPC caller so the step-3
+// template picker can persist a package without leaving the onboarding
+// route. Mirrors the booking/actions.ts createPackage shape but is
+// scoped to onboarding (no /dashboard/booking revalidate path — the
+// producer hasn't been there yet during onboarding).
+type OnboardingPackageKind =
+  | "session"
+  | "mixing"
+  | "mastering"
+  | "producing"
+  | "other";
+type OnboardingPackageLocation = "studio" | "remote" | "client_space";
+type OnboardingPackageCurrency = "USD" | "EUR" | "GBP" | "ILS";
+
+export async function createOnboardingPackage(input: {
+  name: string;
+  kind: string;
+  priceCents: number;
+  durationMin: number;
+  depositPct: number;
+  locationType: string;
+  currency: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { userId } = await auth();
+  if (!userId) return { ok: false, error: "Please sign in to continue." };
+
+  try {
+    const caller = appRouter.createCaller({ userId });
+    await caller.booking.packages.create({
+      name: input.name,
+      durationMin: input.durationMin,
+      priceCents: input.priceCents,
+      depositPct: input.depositPct,
+      kind: input.kind as OnboardingPackageKind,
+      locationType: input.locationType as OnboardingPackageLocation,
+      currency: input.currency as OnboardingPackageCurrency,
+    });
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't save service.",
+    };
+  }
 }

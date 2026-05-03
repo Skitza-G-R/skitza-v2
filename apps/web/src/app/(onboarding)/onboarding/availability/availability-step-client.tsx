@@ -1,17 +1,14 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import {
-  AvailabilitySection,
-  type AvailabilityBlock,
-  type AvailabilitySettings,
-  type Blackout,
-} from "~/components/dashboard/setup/availability-section";
+import { Button } from "~/components/ui/button";
+import { useToast } from "~/components/ui/toast";
+import { setAvailabilityWeek } from "~/app/(producer)/dashboard/booking/actions";
 import { OnboardingShell } from "~/app/(onboarding)/onboarding/shell";
 
 import {
-  AVAILABILITY_CONTINUE_ALWAYS_ENABLED,
   AVAILABILITY_STEP_INDEX,
   AVAILABILITY_STEP_SUBTITLE,
   AVAILABILITY_STEP_TITLE,
@@ -20,67 +17,128 @@ import {
   routeOnSkipFromAvailability,
 } from "./constants";
 
-// Story 05 — Step 3 client wrapper.
-//
-// Server-side guard runs in page.tsx (the default export of this
-// route). Once that gate clears, this component renders the wizard
-// shell with the existing AvailabilitySection composite + its 5
-// child islands.
-//
-// Why split server / client like this:
-//   • The page.tsx default export is a Server Component because the
-//     role gate uses `auth()` + Drizzle (`fetchUserRole`) and the
-//     three booking.* procedures (availability.list / blackouts.list /
-//     availability.getSettings) — all server-only.
-//   • OnboardingShell + every child editor inside AvailabilitySection
-//     all `"use client"` (state + useRouter + useTransition), so the
-//     shell-and-section pair must be hosted by a client component.
-//   • Hosting the section in a client component lets the shell wire
-//     Continue / Skip / Back navigation without the children needing
-//     to know they're inside the wizard at all — direct reuse, no
-//     adapter wrapper.
-//
-// AvailabilitySection contract reused exactly:
-//   • blocks[] / blackouts[] / settings — same shape Setup → Availability
-//     consumes today (the source page maps tRPC rows the same way at
-//     apps/web/src/app/(app)/dashboard/booking/page.tsx:173-186).
-//   • Each child editor handles its own writes via existing
-//     producer-procedure mutations + uses router.refresh() to
-//     re-render the parent after mutate. router.refresh() works on
-//     /onboarding/availability identically to /dashboard/booking —
-//     no hardcoded /dashboard/* pushes inside the children. Verified
-//     by direct read of all 5 child sources.
-//
-// Continue is always enabled (acceptance criteria #7): the children
-// auto-save on change so the producer can advance with whatever
-// they've configured (including nothing). Skip and Continue both go
-// to the same destination (/onboarding/portfolio); telemetry
-// distinguishes the two events but the routing is identical.
+type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+interface DayConfig {
+  weekday: Weekday;
+  label: string;
+  active: boolean;
+  startMin: number;
+  endMin: number;
+}
+
+interface BlockInput {
+  weekday: number;
+  startMin: number;
+  endMin: number;
+}
+
+const DEFAULT_START_MIN = 10 * 60;
+const DEFAULT_END_MIN = 18 * 60;
+
+const ROW_TEMPLATE: ReadonlyArray<{ weekday: Weekday; label: string; defaultActive: boolean }> = [
+  { weekday: 0, label: "Sun", defaultActive: false },
+  { weekday: 1, label: "Mon", defaultActive: true },
+  { weekday: 2, label: "Tue", defaultActive: true },
+  { weekday: 3, label: "Wed", defaultActive: true },
+  { weekday: 4, label: "Thu", defaultActive: true },
+  { weekday: 5, label: "Fri", defaultActive: true },
+  { weekday: 6, label: "Sat", defaultActive: false },
+];
+
+function timeToMinutes(value: string): number {
+  const [h = "0", m = "0"] = value.split(":");
+  const hours = Number.parseInt(h, 10);
+  const mins = Number.parseInt(m, 10);
+  if (Number.isNaN(hours) || Number.isNaN(mins)) return 0;
+  return hours * 60 + mins;
+}
+
+function minutesToTime(min: number): string {
+  const clamped = Math.max(0, Math.min(24 * 60, Math.floor(min)));
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function buildInitialDays(blocks: ReadonlyArray<BlockInput>): DayConfig[] {
+  const byWeekday = new Map<number, BlockInput>();
+  for (const b of blocks) byWeekday.set(b.weekday, b);
+
+  return ROW_TEMPLATE.map((row) => {
+    const stored = byWeekday.get(row.weekday);
+    if (stored) {
+      return {
+        weekday: row.weekday,
+        label: row.label,
+        active: true,
+        startMin: stored.startMin,
+        endMin: stored.endMin,
+      };
+    }
+    return {
+      weekday: row.weekday,
+      label: row.label,
+      active: row.defaultActive,
+      startMin: DEFAULT_START_MIN,
+      endMin: DEFAULT_END_MIN,
+    };
+  });
+}
+
+function makeDefaultDays(): DayConfig[] {
+  return ROW_TEMPLATE.map((row) => ({
+    weekday: row.weekday,
+    label: row.label,
+    active: row.defaultActive,
+    startMin: DEFAULT_START_MIN,
+    endMin: DEFAULT_END_MIN,
+  }));
+}
 
 export function AvailabilityStepClient({
   blocks,
-  blackouts,
-  settings,
 }: {
-  blocks: AvailabilityBlock[];
-  blackouts: Blackout[];
-  settings: AvailabilitySettings;
+  blocks: BlockInput[];
 }) {
   const router = useRouter();
+  const { toast } = useToast();
+  const [pending, startTransition] = useTransition();
+  const [days, setDays] = useState<DayConfig[]>(() => buildInitialDays(blocks));
 
-  // Continue advances to Step 4. Telemetry helper isn't wired yet
-  // (TODO referenced in Stories 03 + 04 too); the routes are correct
-  // now and step_completed events get added as a follow-up so the
-  // shell isn't blocked on an analytics PR.
-  const advanceToPortfolio = () => {
-    router.push(nextRouteAfterAvailability());
+  const updateDay = (weekday: Weekday, patch: Partial<DayConfig>) => {
+    setDays((prev) =>
+      prev.map((d) => (d.weekday === weekday ? { ...d, ...patch } : d)),
+    );
   };
 
-  const skipToPortfolio = () => {
-    router.push(routeOnSkipFromAvailability());
+  const applyPreset = () => {
+    setDays(makeDefaultDays());
   };
 
-  const goBackToService = () => {
+  const collectBlocks = (): BlockInput[] =>
+    days
+      .filter((d) => d.active && d.endMin > d.startMin)
+      .map((d) => ({ weekday: d.weekday, startMin: d.startMin, endMin: d.endMin }));
+
+  const advance = (target: string) => {
+    startTransition(async () => {
+      const res = await setAvailabilityWeek({ blocks: collectBlocks() });
+      if (!res.ok) {
+        toast(`Couldn't save availability: ${res.error}`, "error");
+        return;
+      }
+      router.push(target);
+    });
+  };
+
+  const onContinue = () => {
+    advance(nextRouteAfterAvailability());
+  };
+  const onSkip = () => {
+    advance(routeOnSkipFromAvailability());
+  };
+  const onBack = () => {
     router.push(routeOnBackFromAvailability());
   };
 
@@ -89,25 +147,76 @@ export function AvailabilityStepClient({
       currentStep={AVAILABILITY_STEP_INDEX}
       title={AVAILABILITY_STEP_TITLE}
       subtitle={AVAILABILITY_STEP_SUBTITLE}
-      onBack={goBackToService}
-      onSkip={skipToPortfolio}
-      onContinue={advanceToPortfolio}
-      // Continue is always enabled — children auto-save on change
-      // (see AVAILABILITY_CONTINUE_ALWAYS_ENABLED in page.tsx).
-      continueDisabled={!AVAILABILITY_CONTINUE_ALWAYS_ENABLED}
+      onBack={onBack}
+      onSkip={onSkip}
+      onContinue={onContinue}
+      continueDisabled={pending}
     >
-      <AvailabilitySection
-        blocks={blocks}
-        blackouts={blackouts}
-        settings={settings}
-        // The producer just set their per-service session length in Step 2
-        // (Add your first service → Session length). Asking for a global
-        // default again here would feel like a duplicate question. Setup →
-        // Availability still shows the picker so the default can be tuned
-        // later for cases where the producer doesn't pick a service before
-        // booking (rare today, but the system supports it).
-        hideDurationPicker
-      />
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={applyPreset}
+            disabled={pending}
+          >
+            Use Mon–Fri, 10am–6pm
+          </Button>
+        </div>
+
+        <ul className="divide-y divide-border rounded-md border border-border bg-card">
+          {days.map((day) => {
+            const startStr = minutesToTime(day.startMin);
+            const endStr = minutesToTime(day.endMin);
+            const checkboxId = `avail-day-${String(day.weekday)}`;
+            return (
+              <li
+                key={day.weekday}
+                className="flex items-center gap-3 px-4 py-3 text-sm"
+              >
+                <input
+                  id={checkboxId}
+                  type="checkbox"
+                  checked={day.active}
+                  onChange={(e) => {
+                    updateDay(day.weekday, { active: e.target.checked });
+                  }}
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  disabled={pending}
+                />
+                <label
+                  htmlFor={checkboxId}
+                  className="w-12 cursor-pointer font-medium text-foreground"
+                >
+                  {day.label}
+                </label>
+                <div className="ml-auto flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={startStr}
+                    disabled={!day.active || pending}
+                    onChange={(e) => {
+                      updateDay(day.weekday, { startMin: timeToMinutes(e.target.value) });
+                    }}
+                    className="rounded-md border border-input bg-background px-2 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <span className="text-muted-foreground">–</span>
+                  <input
+                    type="time"
+                    value={endStr}
+                    disabled={!day.active || pending}
+                    onChange={(e) => {
+                      updateDay(day.weekday, { endMin: timeToMinutes(e.target.value) });
+                    }}
+                    className="rounded-md border border-input bg-background px-2 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     </OnboardingShell>
   );
 }
