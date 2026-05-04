@@ -14,7 +14,7 @@
 // the full upload + reorder UI is tracked in the Setup rehost
 // follow-up noted on `settings/page.tsx`.
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 import { SaveIndicator, useSaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
@@ -36,6 +36,20 @@ export function PortfolioSection({ tracks }: { tracks: PortfolioTrackRow[] }) {
   const [lastSavedId, setLastSavedId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const { toast } = useToast();
+
+  // Sync rows when the parent re-fetches tracks (e.g. F9 "Add from
+  // music library" flow calls router.refresh after a successful pick;
+  // server re-runs the page query and a new `tracks` array arrives via
+  // props). Without this, useState's initial value would freeze the
+  // list and the new track wouldn't appear until a hard browser
+  // refresh remounts the component. Mirrors the same pattern in
+  // ExternalLinksSection below. Safe for the optimistic toggle flow:
+  // togglePublicSample doesn't call router.refresh, so the tracks
+  // prop identity is stable during a flip and this effect doesn't
+  // clobber the in-flight optimistic state.
+  useEffect(() => {
+    setRows(tracks);
+  }, [tracks]);
 
   // Count flagged tracks so the producer sees live progress against
   // the cap. The PRD says "up to 3" but enforcement happens at query
