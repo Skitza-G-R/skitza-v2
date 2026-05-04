@@ -23,6 +23,8 @@ import {
   addTrackVersion,
   approveVersionAction,
   resolveVersionComment,
+  updateTrackTitle,
+  updateVersionLabel,
 } from "~/app/(producer)/dashboard/clients-projects/actions";
 
 import { pickInitialVersions } from "./music-version-helpers";
@@ -164,6 +166,12 @@ export function MusicSubTab({
   // so the time-sorted comment list places them adjacent.
   const [replyOpenFor, setReplyOpenFor] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
+
+  // Inline-edit affordance for track titles + version labels. Single-
+  // open semantics (one editing target at a time) match the per-comment
+  // reply form pattern above and keep stale-state bugs at bay.
+  const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
 
   const initialSelected = useMemo(
     () => pickInitialVersions(tracks, versions, initialVersionId),
@@ -321,12 +329,49 @@ export function MusicSubTab({
                 <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
                   Track {String(idx + 1).padStart(2, "0")}
                 </p>
-                <h3
-                  className="mt-1 font-display text-xl tracking-tight"
-                  style={{ fontWeight: 700 }}
-                >
-                  {t.title}
-                </h3>
+                {editingTrackId === t.id ? (
+                  <input
+                    autoFocus
+                    defaultValue={t.title}
+                    maxLength={120}
+                    aria-label="Track title"
+                    className="mt-1 block rounded border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-0.5 font-display text-xl tracking-tight text-[rgb(var(--fg-primary))] focus:outline-none focus:ring-1 focus:ring-[rgb(var(--brand-primary))]"
+                    style={{ fontWeight: 700 }}
+                    onBlur={(e) => {
+                      const newTitle = e.target.value.trim();
+                      if (newTitle && newTitle !== t.title) {
+                        startTransition(async () => {
+                          const res = await updateTrackTitle({
+                            projectId: project.id,
+                            trackId: t.id,
+                            title: newTitle,
+                          });
+                          if (res.ok) {
+                            router.refresh();
+                          } else {
+                            toast(res.error, "error");
+                          }
+                        });
+                      }
+                      setEditingTrackId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      if (e.key === "Escape") setEditingTrackId(null);
+                    }}
+                  />
+                ) : (
+                  <h3
+                    className="mt-1 cursor-pointer font-display text-xl tracking-tight hover:underline"
+                    style={{ fontWeight: 700 }}
+                    title="Click to edit title"
+                    onClick={() => {
+                      setEditingTrackId(t.id);
+                    }}
+                  >
+                    {t.title}
+                  </h3>
+                )}
                 {t.artist ? (
                   <p className="mt-0.5 text-sm text-[rgb(var(--fg-secondary))]">{t.artist}</p>
                 ) : null}
@@ -349,24 +394,75 @@ export function MusicSubTab({
                 {tVersions.map((v, vi) => {
                   const isSelected = v.id === selectedId;
                   const isLatest = vi === 0;
+                  const isEditing = editingVersionId === v.id;
                   return (
                     <div key={v.id} className="inline-flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelected((s) => ({ ...s, [t.id]: v.id }));
-                        }}
-                        className={[
-                          "inline-flex min-h-[44px] items-center whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors sm:min-h-0",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
-                          isSelected
-                            ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
-                            : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
-                        ].join(" ")}
-                      >
-                        {v.label}
-                        {isLatest ? " · latest" : ""}
-                      </button>
+                      {isEditing ? (
+                        // Render as an unwrapped input while editing
+                        // — nesting an <input> inside the chip's
+                        // <button> is invalid HTML and bubbles every
+                        // keystroke into the version-select handler.
+                        <input
+                          autoFocus
+                          defaultValue={v.label}
+                          maxLength={40}
+                          aria-label="Version label"
+                          className="inline-flex min-h-[44px] w-24 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--brand-primary))] bg-[rgb(var(--bg-base))] px-2 py-1 font-mono text-xs text-[rgb(var(--fg-primary))] focus:outline-none focus:ring-1 focus:ring-[rgb(var(--brand-primary))] sm:min-h-0"
+                          onBlur={(e) => {
+                            const newLabel = e.target.value.trim();
+                            if (newLabel && newLabel !== v.label) {
+                              startTransition(async () => {
+                                const res = await updateVersionLabel({
+                                  projectId: project.id,
+                                  versionId: v.id,
+                                  label: newLabel,
+                                });
+                                if (res.ok) {
+                                  router.refresh();
+                                } else {
+                                  toast(res.error, "error");
+                                }
+                              });
+                            }
+                            setEditingVersionId(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                            if (e.key === "Escape") setEditingVersionId(null);
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelected((s) => ({ ...s, [t.id]: v.id }));
+                          }}
+                          className={[
+                            "inline-flex min-h-[44px] items-center whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors sm:min-h-0",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
+                            isSelected
+                              ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
+                              : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
+                          ].join(" ")}
+                        >
+                          {/* Click the label text to edit; click
+                              elsewhere on the chip (padding, " · latest")
+                              to select the version. stopPropagation
+                              keeps the button's onClick from firing
+                              when the producer means to edit. */}
+                          <span
+                            className="cursor-text underline-offset-2 hover:underline"
+                            title="Click to edit label"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingVersionId(v.id);
+                            }}
+                          >
+                            {v.label}
+                          </span>
+                          {isLatest ? " · latest" : ""}
+                        </button>
+                      )}
                       {v.audioUrl ? (
                         <a
                           href={v.audioUrl}

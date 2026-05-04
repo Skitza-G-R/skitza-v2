@@ -462,6 +462,89 @@ export const projectRouter = router({
     return row;
   }),
 
+  // Inline-edit a track title from the Project Room music sub-tab.
+  // Ownership-scoped via the UPDATE's WHERE clause (id + projectId +
+  // producerId chain) so a tampered trackId from another project
+  // cannot land here.
+  updateTrackTitle: producerProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        trackId: z.string().uuid(),
+        title: z.string().min(1).max(120),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [proj] = await ctx.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(
+          and(
+            eq(projects.id, input.projectId),
+            eq(projects.producerId, ctx.producerId),
+          ),
+        )
+        .limit(1);
+      if (!proj) throw new TRPCError({ code: "NOT_FOUND" });
+      await ctx.db
+        .update(projectTracks)
+        .set({ title: input.title })
+        .where(
+          and(
+            eq(projectTracks.id, input.trackId),
+            eq(projectTracks.projectId, input.projectId),
+          ),
+        );
+      await ctx.db
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(eq(projects.id, input.projectId));
+      return { ok: true as const };
+    }),
+
+  // Inline-edit a version label. Ownership chain: version → track →
+  // project → producer. We verify all three links so neither a foreign
+  // versionId nor a foreign projectId can route through this mutation.
+  updateVersionLabel: producerProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        versionId: z.string().uuid(),
+        label: z.string().min(1).max(40),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({
+          projectId: projectTracks.projectId,
+          producerId: projects.producerId,
+        })
+        .from(trackVersions)
+        .innerJoin(
+          projectTracks,
+          eq(projectTracks.id, trackVersions.trackId),
+        )
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(eq(trackVersions.id, input.versionId))
+        .limit(1);
+      if (
+        !row ||
+        row.producerId !== ctx.producerId ||
+        row.projectId !== input.projectId
+      ) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      await ctx.db
+        .update(trackVersions)
+        .set({ label: input.label })
+        .where(eq(trackVersions.id, input.versionId));
+      await ctx.db
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(eq(projects.id, input.projectId));
+      return { ok: true as const };
+    }),
+
   addVersion: producerProcedure.input(AddVersionInput).mutation(async ({ ctx, input }) => {
     const [track] = await ctx.db
       .select({ id: projectTracks.id, projectId: projectTracks.projectId })

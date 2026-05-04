@@ -129,6 +129,46 @@ export async function addProjectTrack(input: {
   }
 }
 
+export async function updateTrackTitle(input: {
+  projectId: string;
+  trackId: string;
+  title: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.updateTrackTitle({
+      projectId: input.projectId,
+      trackId: input.trackId,
+      title: input.title,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function updateVersionLabel(input: {
+  projectId: string;
+  versionId: string;
+  label: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.updateVersionLabel({
+      projectId: input.projectId,
+      versionId: input.versionId,
+      label: input.label,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 export async function addTrackVersion(input: {
   projectId: string;
   trackId: string;
