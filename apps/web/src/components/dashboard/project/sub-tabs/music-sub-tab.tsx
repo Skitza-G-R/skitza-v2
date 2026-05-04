@@ -571,21 +571,45 @@ function ProducerReplyForm({
   // Tracks whether the waveform was playing at the moment we paused it
   // on focus, so submit only resumes audio that was actually playing.
   const wasPlayingRef = useRef(false);
+  // Pins the timestamp so the live-sync interval stops overwriting it.
+  // Set when the producer focuses the body input or manually edits the
+  // timestamp; cleared after submit so the next reply tracks live again.
+  const pinnedRef = useRef(false);
 
-  function handleFocus() {
+  // Live-sync the timestamp display to the waveform's current playhead.
+  // Polls every 250ms (smooth-enough for human perception, far cheaper
+  // than per-frame rAF) and only commits when the integer-second value
+  // changes — keeps re-renders to ≤4/sec per track at most.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (pinnedRef.current) return;
+      const ws = getWaveform();
+      if (!ws) return;
+      const sec = Math.max(0, Math.floor(ws.getCurrentTime()));
+      const next = String(sec);
+      setTimestampSec((prev) => (prev === next ? prev : next));
+    }, 250);
+    return () => {
+      clearInterval(id);
+    };
+  }, [getWaveform]);
+
+  function handleBodyFocus() {
+    // Pin the live sync so the timestamp freezes at the current value
+    // while the producer is composing — they're commenting on *this*
+    // moment, not "always now".
+    pinnedRef.current = true;
     const ws = getWaveform();
-    if (!ws) return;
-    // Auto-pin the comment timestamp to the current playhead position so
-    // producers don't have to type it manually. Only pins when the user
-    // hasn't already entered something non-zero — preserves manual edits.
-    if (timestampSec === "0") {
-      const current = Math.max(0, Math.round(ws.getCurrentTime()));
-      setTimestampSec(String(current));
-    }
-    if (ws.isPlaying()) {
+    if (ws?.isPlaying()) {
       wasPlayingRef.current = true;
       ws.pause();
     }
+  }
+
+  function handleTimestampChange(e: SyntheticEvent<HTMLInputElement>) {
+    // Manual edit — stop live-syncing so we don't overwrite their typing.
+    pinnedRef.current = true;
+    setTimestampSec(e.currentTarget.value);
   }
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
@@ -604,6 +628,8 @@ function ProducerReplyForm({
         toast("Reply sent. The artist will see it on their timeline.", "success");
         setBody("");
         setTimestampSec("0");
+        // Re-arm live sync for the next reply.
+        pinnedRef.current = false;
         onDone();
         if (wasPlayingRef.current) {
           getWaveform()?.play();
@@ -625,8 +651,9 @@ function ProducerReplyForm({
         step={1}
         min={0}
         value={timestampSec}
-        onChange={(e) => {
-          setTimestampSec(e.target.value);
+        onChange={handleTimestampChange}
+        onFocus={() => {
+          pinnedRef.current = true;
         }}
         aria-label="Timestamp seconds"
         className="text-right font-mono"
@@ -637,7 +664,7 @@ function ProducerReplyForm({
         onChange={(e) => {
           setBody(e.target.value);
         }}
-        onFocus={handleFocus}
+        onFocus={handleBodyFocus}
         placeholder="Reply at that moment in the track…"
         required
         maxLength={2000}
