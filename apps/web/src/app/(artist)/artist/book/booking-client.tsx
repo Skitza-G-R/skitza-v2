@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
+import { ProducerPicker } from "~/components/artist/producer-picker";
+
 import { confirmBookingAction } from "./actions";
 
 type BlockShape = { startMin: number; endMin: number; available: boolean };
@@ -148,32 +150,11 @@ export function BookingClient({
     <div className="space-y-4">
       <h1 className="sr-only">Book</h1>
 
-      {/* Studio switcher — collapses to a single pill when the artist
-          only has one studio (so it reads as a label, not a control). */}
-      {studios.length > 1 ? (
-        <div className="sk-scroll-x flex gap-2 overflow-x-auto pb-1">
-          {studios.map((s) => (
-            <button
-              key={s.producerId}
-              type="button"
-              onClick={() => {
-                handleSwitchStudio(s.producerId);
-              }}
-              className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] ${
-                s.producerId === activeStudioId
-                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-white"
-                  : "border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--fg-muted))]"
-              }`}
-            >
-              {s.name}
-            </button>
-          ))}
-        </div>
-      ) : activeStudio ? (
-        <p className="text-xs font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-          {activeStudio.name}
-        </p>
-      ) : null}
+      <ProducerPicker
+        studios={studios}
+        activeId={activeStudioId}
+        onSelect={handleSwitchStudio}
+      />
 
       {availability.freeBookingProjectTitle ? (
         <div className="rounded-lg border border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))]/5 p-3 text-sm">
