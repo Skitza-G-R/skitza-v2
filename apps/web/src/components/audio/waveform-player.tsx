@@ -19,6 +19,8 @@ export interface WaveformPlayerHandle {
   play: () => void;
   pause: () => void;
   isPlaying: () => boolean;
+  /** Current playback position in seconds (0 if not loaded). */
+  getCurrentTime: () => number;
 }
 
 // Visual waveform player for project-room playback (dashboard + share).
@@ -78,6 +80,7 @@ export const WaveformPlayer = forwardRef<
         if (ws && ready) ws.pause();
       },
       isPlaying: () => wsRef.current?.isPlaying() ?? false,
+      getCurrentTime: () => wsRef.current?.getCurrentTime() ?? 0,
     }),
     [ready],
   );

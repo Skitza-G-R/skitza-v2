@@ -574,7 +574,15 @@ function ProducerReplyForm({
 
   function handleFocus() {
     const ws = getWaveform();
-    if (ws?.isPlaying()) {
+    if (!ws) return;
+    // Auto-pin the comment timestamp to the current playhead position so
+    // producers don't have to type it manually. Only pins when the user
+    // hasn't already entered something non-zero — preserves manual edits.
+    if (timestampSec === "0") {
+      const current = Math.max(0, Math.round(ws.getCurrentTime()));
+      setTimestampSec(String(current));
+    }
+    if (ws.isPlaying()) {
       wasPlayingRef.current = true;
       ws.pause();
     }
