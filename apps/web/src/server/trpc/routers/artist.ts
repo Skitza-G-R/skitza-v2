@@ -1164,6 +1164,7 @@ export const artistRouter = router({
     if (myContacts.length === 0) {
       return {
         nextSession: null,
+        upcomingSessions: [],
         latestMix: null,
         outstandingBalance: null,
         activity: [] as ActivityItem[],
@@ -1183,6 +1184,7 @@ export const artistRouter = router({
     // would be confusing).
     const [
       nextSessionRows,
+      upcomingSessionRows,
       latestMixRows,
       outstandingRows,
       activityTrackRows,
@@ -1213,6 +1215,30 @@ export const artistRouter = router({
         )
         .orderBy(asc(bookings.startsAt))
         .limit(1),
+
+      // (2b) All upcoming confirmed sessions (including the one above).
+      // The UI skips the first to avoid double-rendering the next
+      // session, which already has its own dedicated card.
+      ctx.db
+        .select({
+          id: bookings.id,
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+          producerName: producers.displayName,
+          packageName: bookings.packageNameSnapshot,
+        })
+        .from(bookings)
+        .innerJoin(producers, eq(producers.id, bookings.producerId))
+        .where(
+          and(
+            inArray(bookings.producerId, myProducerIds),
+            inArray(bookings.artistEmail, myEmails),
+            eq(bookings.status, "confirmed"),
+            gte(bookings.startsAt, now),
+          ),
+        )
+        .orderBy(asc(bookings.startsAt))
+        .limit(10),
 
       // (3) Latest mix — the most recent track_version uploaded for
       // any project tied to my (producer, email). Joins through the
@@ -1425,6 +1451,13 @@ export const artistRouter = router({
 
     return {
       nextSession,
+      upcomingSessions: upcomingSessionRows.map((s) => ({
+        id: s.id,
+        startsAt: s.startsAt,
+        durationMin: s.durationMin,
+        producerName: s.producerName ?? "Producer",
+        packageName: s.packageName,
+      })),
       latestMix,
       outstandingBalance,
       activity: cappedActivity,

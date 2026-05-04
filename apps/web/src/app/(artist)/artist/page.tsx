@@ -4,6 +4,7 @@ import { ActivityFeed } from "~/components/artist/home/activity-feed";
 import { BalanceCard } from "~/components/artist/home/balance-card";
 import { LatestMixCard } from "~/components/artist/home/latest-mix-card";
 import { NextSessionCard } from "~/components/artist/home/next-session-card";
+import { UpcomingSessionsCard } from "~/components/artist/home/upcoming-sessions-card";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { WelcomeModal } from "./welcome-modal";
 
@@ -28,6 +29,7 @@ export default async function ArtistHomePage() {
       <WelcomeModal />
       <h1 className="sr-only">Home</h1>
       <NextSessionCard session={data.nextSession} />
+      <UpcomingSessionsCard sessions={data.upcomingSessions} />
       <LatestMixCard mix={data.latestMix} />
       <BalanceCard balance={data.outstandingBalance} />
       <ActivityFeed events={data.activity} />
