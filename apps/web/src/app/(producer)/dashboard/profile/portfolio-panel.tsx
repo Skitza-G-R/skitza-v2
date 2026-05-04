@@ -56,10 +56,12 @@ export function PortfolioPanel({
   tracks,
   links,
   library,
+  addedAudioUrls,
 }: {
   tracks: PortfolioTrackRow[];
   links: ExternalLinkRow[];
   library: LibraryPickRow[];
+  addedAudioUrls: string[];
 }) {
   return (
     <div className="space-y-8">
@@ -77,7 +79,7 @@ export function PortfolioPanel({
               Pick tracks from your music library to feature on your public page.
             </p>
           </div>
-          <AddFromLibraryButton library={library} />
+          <AddFromLibraryButton library={library} addedAudioUrls={addedAudioUrls} />
         </header>
         <PortfolioSection tracks={tracks} />
       </section>
@@ -89,7 +91,17 @@ export function PortfolioPanel({
   );
 }
 
-function AddFromLibraryButton({ library }: { library: LibraryPickRow[] }) {
+function AddFromLibraryButton({
+  library,
+  addedAudioUrls,
+}: {
+  library: LibraryPickRow[];
+  addedAudioUrls: string[];
+}) {
+  // F9 — Set built once per render so each library row's lookup is
+  // O(1). The list is producer-scoped + capped server-side, so the
+  // construction cost is negligible.
+  const addedSet = new Set(addedAudioUrls);
   const [open, setOpen] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -109,6 +121,10 @@ function AddFromLibraryButton({ library }: { library: LibraryPickRow[] }) {
 
   function pick(row: LibraryPickRow) {
     if (!row.audioUrl) return;
+    // Defensive — the picker disables already-added rows visually, but
+    // a stale render could still fire a click. The server also rejects
+    // duplicates with a friendly BAD_REQUEST, so this is belt + braces.
+    if (addedSet.has(row.audioUrl)) return;
     setPendingId(row.versionId);
     startTransition(async () => {
       const res = await addPortfolioFromLibrary({
@@ -187,7 +203,11 @@ function AddFromLibraryButton({ library }: { library: LibraryPickRow[] }) {
               ) : (
                 <ul className="divide-y divide-[rgb(var(--border-subtle))]">
                   {library.map((row) => {
-                    const disabled = !row.audioUrl;
+                    const alreadyAdded = row.audioUrl
+                      ? addedSet.has(row.audioUrl)
+                      : false;
+                    const noAudio = !row.audioUrl;
+                    const disabled = noAudio || alreadyAdded;
                     const pending = pendingId === row.versionId;
                     const date = new Date(row.uploadedAt).toLocaleDateString(undefined, {
                       year: "numeric",
@@ -220,7 +240,11 @@ function AddFromLibraryButton({ library }: { library: LibraryPickRow[] }) {
                           <span className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
                             {row.projectTitle} · {row.artistName} · {date}
                           </span>
-                          {disabled ? (
+                          {alreadyAdded ? (
+                            <span className="mt-1 inline-flex items-center rounded-full bg-[rgb(var(--brand-primary)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
+                              Already added
+                            </span>
+                          ) : noAudio ? (
                             <span className="mt-1 inline-flex items-center rounded-full bg-[rgb(var(--fg-muted)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
                               No audio yet
                             </span>

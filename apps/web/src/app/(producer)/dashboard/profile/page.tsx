@@ -76,6 +76,11 @@ export default async function ProfilePage({
   let portfolioTracks: PortfolioTrackRow[] = [];
   let externalLinks: ExternalLinkRow[] = [];
   let libraryRows: LibraryPickRow[] = [];
+  // F9 — non-null audioUrls already in the producer's portfolio. The
+  // picker uses this set to mark library rows as "Already added" so
+  // the producer can't queue the same track twice. Paired with the
+  // server-side dedup in portfolio.create.
+  let addedAudioUrls: string[] = [];
   if (active === "portfolio") {
     const [tracks, links, library] = await Promise.all([
       caller.portfolio.list(),
@@ -88,6 +93,9 @@ export default async function ProfilePage({
       artist: t.artist,
       isPublicSample: t.isPublicSample,
     }));
+    addedAudioUrls = tracks
+      .map((t) => t.audioUrl)
+      .filter((u): u is string => Boolean(u));
     externalLinks = links.map((l) => ({
       id: l.id,
       platform: l.platform,
@@ -148,6 +156,7 @@ export default async function ProfilePage({
               tracks={portfolioTracks}
               links={externalLinks}
               library={libraryRows}
+              addedAudioUrls={addedAudioUrls}
             />
           )}
         </div>
