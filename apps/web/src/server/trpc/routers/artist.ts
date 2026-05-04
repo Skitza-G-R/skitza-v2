@@ -644,6 +644,7 @@ const bookSubrouter = router({
         startMin: z.number().int().min(0).max(1440),
         durationMin: z.number().int().min(15).max(720),
         projectId: z.string().uuid().nullable(),
+        productId: z.string().uuid().nullable(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -707,7 +708,10 @@ const bookSubrouter = router({
         });
       }
 
-      // 4. Insert.
+      // 4. Insert. Bookings created via the artist self-serve flow land
+      //    in `pending` so the producer's Calendar → Meetings → Pending
+      //    approvals queue is the gate; producer-side booking.confirm is
+      //    what flips to `confirmed` and triggers auto-project creation.
       const [row] = await ctx.db
         .insert(bookings)
         .values({
@@ -716,9 +720,10 @@ const bookSubrouter = router({
           artistName: contact.name,
           startsAt,
           durationMin: input.durationMin,
-          status: "confirmed",
+          status: "pending",
           statusChangedAt: new Date(),
           projectId: input.projectId,
+          productId: input.productId,
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });

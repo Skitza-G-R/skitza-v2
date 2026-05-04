@@ -36,14 +36,16 @@ export default async function BookPage({ searchParams }: PageProps) {
     );
   }
 
-  const availability = await caller.artist.book.availability({
-    producerId: activeStudioId,
-  });
+  const [availability, { products }] = await Promise.all([
+    caller.artist.book.availability({ producerId: activeStudioId }),
+    caller.artist.store.products({ producerId: activeStudioId }),
+  ]);
 
   return (
     <BookingClient
       activeStudioId={activeStudioId}
       availability={availability}
+      products={products}
       studios={studios}
     />
   );

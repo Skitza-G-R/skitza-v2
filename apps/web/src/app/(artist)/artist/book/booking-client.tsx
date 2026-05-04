@@ -24,9 +24,17 @@ type Studio = {
   logoUrl: string | null;
 };
 
+type Product = {
+  id: string;
+  name: string;
+  priceCents: number;
+  currency: string;
+  sessionCount: number | null;
+};
 type Props = {
   activeStudioId: string;
   availability: Availability;
+  products: Product[];
   studios: Studio[];
 };
 
@@ -57,6 +65,7 @@ function fmtDateShort(iso: string): string {
 export function BookingClient({
   activeStudioId,
   availability,
+  products,
   studios,
 }: Props) {
   const router = useRouter();
@@ -66,6 +75,7 @@ export function BookingClient({
     blockShape: BlockShape;
   } | null>(null);
   const [chosenStart, setChosenStart] = useState<number | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<{ ok: true } | { ok: false; error: string } | null>(null);
 
@@ -118,6 +128,7 @@ export function BookingClient({
         startMin: chosenStart,
         durationMin: DEFAULT_DURATION_MIN,
         projectId: availability.freeBookingProjectId,
+        productId: selectedProductId,
       });
       setResult(res);
       if (res.ok) {
@@ -129,6 +140,7 @@ export function BookingClient({
   const handleDismiss = () => {
     setSelected(null);
     setChosenStart(null);
+    setSelectedProductId(null);
     setResult(null);
   };
 
@@ -261,6 +273,44 @@ export function BookingClient({
               ))}
             </div>
 
+            {chosenStart != null && !availability.freeBookingProjectId ? (
+              <div>
+                <p className="text-xs font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))] mb-2">
+                  Select a service
+                </p>
+                {products.length === 0 ? (
+                  <p className="text-sm text-[rgb(var(--fg-secondary))]">
+                    No active services. Contact this producer directly.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {products.map((product) => (
+                      <li key={product.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedProductId(product.id);
+                          }}
+                          className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${
+                            product.id === selectedProductId
+                              ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))]/5"
+                              : "border-[rgb(var(--border-subtle))] hover:border-[rgb(var(--fg-muted))]"
+                          }`}
+                        >
+                          <span className="font-medium">{product.name}</span>
+                          {product.sessionCount && product.sessionCount > 1 ? (
+                            <span className="ml-2 text-xs text-[rgb(var(--fg-muted))]">
+                              {product.sessionCount} sessions
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : null}
+
             {chosenStart != null ? (
               <p className="text-sm text-[rgb(var(--fg-secondary))]">
                 Book {DEFAULT_DURATION_MIN / 60}h at {fmtTime(chosenStart)} on{" "}
@@ -289,7 +339,12 @@ export function BookingClient({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={isPending || chosenStart == null || result?.ok}
+              disabled={
+                isPending ||
+                chosenStart == null ||
+                result?.ok ||
+                (!availability.freeBookingProjectId && !selectedProductId)
+              }
               className="w-full rounded-lg bg-[rgb(var(--brand-primary))] px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isPending

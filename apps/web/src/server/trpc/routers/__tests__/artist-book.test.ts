@@ -513,6 +513,7 @@ describe("artist.book.confirm (mutation)", () => {
     startMin: 540, // 09:00
     durationMin: 120,
     projectId: null as string | null,
+    productId: null as string | null,
   };
 
   it("throws NOT_FOUND when producer isn't one of the artist's studios", async () => {
@@ -529,7 +530,7 @@ describe("artist.book.confirm (mutation)", () => {
     expect(contactsWhereSpy).toHaveBeenCalled();
   });
 
-  it("inserts booking with status=confirmed + artistEmail + artistName from clientContacts", async () => {
+  it("inserts booking with status=pending + artistEmail + artistName from clientContacts", async () => {
     seedValidContact();
     // No conflicting bookings.
     bookingsSelectQueue.push([]);
@@ -541,7 +542,7 @@ describe("artist.book.confirm (mutation)", () => {
         artistName: "Dan The Artist",
         startsAt: new Date("2026-04-19T09:00:00Z"),
         durationMin: 120,
-        status: "confirmed",
+        status: "pending",
       },
     ]);
 
@@ -554,7 +555,7 @@ describe("artist.book.confirm (mutation)", () => {
     expect(payload.artistEmail).toBe("dan@x.com");
     expect(payload.artistName).toBe("Dan The Artist");
     expect(payload.durationMin).toBe(120);
-    expect(payload.status).toBe("confirmed");
+    expect(payload.status).toBe("pending");
     expect(payload.startsAt).toBeInstanceOf(Date);
 
     expect(result.id).toBe("bk-new");
@@ -571,7 +572,7 @@ describe("artist.book.confirm (mutation)", () => {
         artistName: "Dan The Artist",
         startsAt: new Date("2026-04-19T09:00:00Z"),
         durationMin: 120,
-        status: "confirmed",
+        status: "pending",
         projectId: PROJECT_ID,
       },
     ]);
@@ -602,7 +603,7 @@ describe("artist.book.confirm (mutation)", () => {
         artistName: "Alice",
         startsAt: new Date("2026-04-19T09:00:00Z"),
         durationMin: 120,
-        status: "confirmed",
+        status: "pending",
       },
     ]);
 
