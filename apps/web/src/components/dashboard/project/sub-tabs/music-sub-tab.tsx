@@ -1,13 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type SyntheticEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { type SyntheticEvent, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import { useHotkey } from "~/lib/keyboard/use-shortcuts";
 
 import { AudioUploader } from "~/components/audio/audio-uploader";
-import { WaveformPlayer } from "~/components/audio/waveform-player";
+import {
+  WaveformPlayer,
+  type WaveformPlayerHandle,
+} from "~/components/audio/waveform-player";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
@@ -21,6 +24,8 @@ import {
   approveVersionAction,
   resolveVersionComment,
 } from "~/app/(producer)/dashboard/clients-projects/actions";
+
+import { pickInitialVersions } from "./music-version-helpers";
 
 // MusicSubTab only needs the project ID to scope its queries and
 // action calls — version/track/comment data comes in via the `tracks`
@@ -106,11 +111,16 @@ export function MusicSubTab({
   tracks,
   versions,
   comments,
+  initialVersionId,
 }: {
   project: ProjectRef;
   tracks: Track[];
   versions: Version[];
   comments: CommentRow[];
+  // F4 — when set (via the Project Room's ?version= search param),
+  // the matching track pre-selects this exact version instead of
+  // defaulting to "latest". Used by the Music Library deep-link.
+  initialVersionId?: string;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -124,16 +134,30 @@ export function MusicSubTab({
   const [newVersionLabel, setNewVersionLabel] = useState("");
 
   const initialSelected = useMemo(
-    () =>
-      Object.fromEntries(
-        tracks.map((t) => {
-          const latest = versions.find((v) => v.trackId === t.id);
-          return [t.id, latest?.id ?? null];
-        }),
-      ),
-    [tracks, versions],
+    () => pickInitialVersions(tracks, versions, initialVersionId),
+    [tracks, versions, initialVersionId],
   );
   const [selected, setSelected] = useState<Record<string, string | null>>(initialSelected);
+
+  // Per-track imperative refs into each WaveformPlayer. Lets the
+  // ProducerReplyForm pause its track's waveform on focus and resume
+  // on submit (mirrors F7 on the artist Song page). A Map keyed by
+  // trackId because tracks render in a loop — useRef can't be called
+  // per iteration.
+  const wavesurferRefs = useRef(new Map<string, WaveformPlayerHandle | null>());
+
+  // F4 — re-sync the deep-linked version when the URL changes after
+  // mount (e.g. producer goes back to Music Library and clicks another
+  // song in the same project). `useState`'s initial value is read once,
+  // so without this effect the second navigation would silently fall
+  // back to "latest". We only touch the affected track's selection so
+  // any manual chip-row picks on other tracks are preserved.
+  useEffect(() => {
+    if (!initialVersionId) return;
+    const pinned = versions.find((v) => v.id === initialVersionId);
+    if (!pinned) return;
+    setSelected((s) => ({ ...s, [pinned.trackId]: pinned.id }));
+  }, [initialVersionId, versions]);
 
   // Batch C — responsive hero waveform height. 320px reads as the
   // Samply "tall scrubbing surface" on desktop; 200px keeps a phone
@@ -308,6 +332,9 @@ export function MusicSubTab({
               <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-4 sm:p-6">
                 {selectedVersion.audioUrl ? (
                   <WaveformPlayer
+                    ref={(handle) => {
+                      wavesurferRefs.current.set(t.id, handle);
+                    }}
                     src={selectedVersion.audioUrl}
                     label={t.title}
                     height={heroHeight}
@@ -442,6 +469,7 @@ export function MusicSubTab({
                 <ProducerReplyForm
                   projectId={project.id}
                   versionId={selectedVersion.id}
+                  getWaveform={() => wavesurferRefs.current.get(t.id) ?? null}
                   onDone={() => {
                     router.refresh();
                   }}
@@ -528,16 +556,29 @@ export function MusicSubTab({
 function ProducerReplyForm({
   projectId,
   versionId,
+  getWaveform,
   onDone,
 }: {
   projectId: string;
   versionId: string;
+  getWaveform: () => WaveformPlayerHandle | null;
   onDone: () => void;
 }) {
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [body, setBody] = useState("");
   const [timestampSec, setTimestampSec] = useState("0");
+  // Tracks whether the waveform was playing at the moment we paused it
+  // on focus, so submit only resumes audio that was actually playing.
+  const wasPlayingRef = useRef(false);
+
+  function handleFocus() {
+    const ws = getWaveform();
+    if (ws?.isPlaying()) {
+      wasPlayingRef.current = true;
+      ws.pause();
+    }
+  }
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -556,6 +597,10 @@ function ProducerReplyForm({
         setBody("");
         setTimestampSec("0");
         onDone();
+        if (wasPlayingRef.current) {
+          getWaveform()?.play();
+          wasPlayingRef.current = false;
+        }
       } else {
         toast(res.error, "error");
       }
@@ -584,6 +629,7 @@ function ProducerReplyForm({
         onChange={(e) => {
           setBody(e.target.value);
         }}
+        onFocus={handleFocus}
         placeholder="Reply at that moment in the track…"
         required
         maxLength={2000}
