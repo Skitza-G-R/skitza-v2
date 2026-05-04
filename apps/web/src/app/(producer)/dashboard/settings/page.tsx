@@ -200,7 +200,12 @@ export default async function SetupPage({
           )}
 
           {active === "services" && (
-            <ServicesSection packages={servicesPackages} />
+            <ServicesSection
+              packages={servicesPackages}
+              defaultCurrency={
+                profile.defaultCurrency as "USD" | "EUR" | "GBP" | "ILS"
+              }
+            />
           )}
 
           {active === "portfolio" && (

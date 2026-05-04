@@ -39,25 +39,39 @@ export default async function ProfilePage({
 
   const caller = appRouter.createCaller({ userId });
 
-  const servicesPackages: ServicePackageRow[] =
-    active === "store"
-      ? (await caller.booking.packages.list()).map((p) => ({
-          id: p.id,
-          name: p.name,
-          description: p.description,
-          durationMin: p.durationMin,
-          sessionCount: p.sessionCount,
-          priceCents: p.priceCents,
-          currency: p.currency,
-          depositPct: p.depositPct,
-          active: p.active,
-          kind: p.kind,
-          locationType: p.locationType,
-          bufferMinutes: p.bufferMinutes,
-          minLeadHours: p.minLeadHours,
-          paymentPlans: p.paymentPlans,
-        }))
-      : [];
+  // Store tab needs both the package list AND the producer's profile
+  // default currency (the latter seeds the New-service form so it
+  // matches the producer's locale instead of falling back to USD).
+  // Fan out in parallel — the two calls are independent.
+  let servicesPackages: ServicePackageRow[] = [];
+  let storeDefaultCurrency: "USD" | "EUR" | "GBP" | "ILS" = "USD";
+  if (active === "store") {
+    const [packages, profile] = await Promise.all([
+      caller.booking.packages.list(),
+      caller.producer.me(),
+    ]);
+    servicesPackages = packages.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      durationMin: p.durationMin,
+      sessionCount: p.sessionCount,
+      priceCents: p.priceCents,
+      currency: p.currency,
+      depositPct: p.depositPct,
+      active: p.active,
+      kind: p.kind,
+      locationType: p.locationType,
+      bufferMinutes: p.bufferMinutes,
+      minLeadHours: p.minLeadHours,
+      paymentPlans: p.paymentPlans,
+    }));
+    storeDefaultCurrency = profile.defaultCurrency as
+      | "USD"
+      | "EUR"
+      | "GBP"
+      | "ILS";
+  }
 
   let portfolioTracks: PortfolioTrackRow[] = [];
   let externalLinks: ExternalLinkRow[] = [];
@@ -123,7 +137,12 @@ export default async function ProfilePage({
           aria-labelledby={`profile-tab-${active}`}
           className="reveal-up pt-4"
         >
-          {active === "store" && <StorePanel packages={servicesPackages} />}
+          {active === "store" && (
+            <StorePanel
+              packages={servicesPackages}
+              defaultCurrency={storeDefaultCurrency}
+            />
+          )}
           {active === "portfolio" && (
             <PortfolioPanel
               tracks={portfolioTracks}

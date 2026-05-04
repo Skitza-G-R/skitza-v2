@@ -22,7 +22,7 @@ import {
 } from "./actions";
 import { parsePaymentPlansFromFormData } from "./payment-plans-parser";
 
-type Currency = "USD" | "EUR" | "GBP" | "ILS";
+export type Currency = "USD" | "EUR" | "GBP" | "ILS";
 
 // Shape a producer-owned product takes when we pre-fill the form for
 // editing. All fields are required here because the caller has already

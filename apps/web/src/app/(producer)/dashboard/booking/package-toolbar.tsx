@@ -12,7 +12,11 @@ import {
   type TemplateIcon,
 } from "~/lib/service-templates";
 
-import { NewPackageForm, type InitialPackageValues } from "./package-form";
+import {
+  NewPackageForm,
+  type Currency,
+  type InitialPackageValues,
+} from "./package-form";
 
 // The "+ New service" toggle + the template row sit next to each other
 // on the Services tab. A producer can either:
@@ -54,7 +58,16 @@ function templateToInitial(t: ServiceTemplate): InitialPackageValues {
   };
 }
 
-export function PackageToolbar() {
+export function PackageToolbar({
+  defaultCurrency,
+}: {
+  // Producer's profile-level default currency. Seeds the new-service
+  // form's currency dropdown so an Israeli producer doesn't have to
+  // reach for the dropdown every time they add a service. Edit flow is
+  // unaffected — the saved row's currency wins via the form's
+  // initialValues precedence.
+  defaultCurrency: Currency;
+}) {
   // `open` is a single source of truth:
   //   null   → show the grid
   //   "new"  → blank create form
@@ -82,6 +95,10 @@ export function PackageToolbar() {
           onClose={() => {
             setOpen(null);
           }}
+          // Seed the currency dropdown from the producer's profile
+          // default. Ignored when initialValues is set (EDIT/template) —
+          // the form's precedence keeps the saved row's currency.
+          initialCurrency={defaultCurrency}
           // When initialValues is set, the form's EDIT mode kicks in.
           // For the template path we pass `fromTemplate={true}` so the
           // form routes submit through create, not update, despite the

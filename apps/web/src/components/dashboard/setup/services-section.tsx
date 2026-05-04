@@ -23,6 +23,7 @@ import { EditPackageButton } from "~/app/(producer)/dashboard/booking/edit-produ
 import { PackageToolbar } from "~/app/(producer)/dashboard/booking/package-toolbar";
 import {
   CURRENCY_SYMBOL,
+  type Currency,
   type InitialPackageValues,
 } from "~/app/(producer)/dashboard/booking/package-form";
 
@@ -105,11 +106,20 @@ function formatMoney(cents: number, currency: string): string {
   return `${prefix}${dollars.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
-export function ServicesSection({ packages }: { packages: ServicePackageRow[] }) {
+export function ServicesSection({
+  packages,
+  defaultCurrency,
+}: {
+  packages: ServicePackageRow[];
+  // Producer's profile-level default currency, threaded down to the
+  // toolbar's New-service form so an Israeli producer sees ILS pre-
+  // selected instead of USD.
+  defaultCurrency: Currency;
+}) {
   return (
     <div className="space-y-6">
       <div>
-        <PackageToolbar />
+        <PackageToolbar defaultCurrency={defaultCurrency} />
       </div>
       {packages.length === 0 ? (
         <EmptyState
