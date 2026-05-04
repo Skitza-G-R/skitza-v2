@@ -314,21 +314,25 @@ describe("publicProfile.forJoin — 404", () => {
   });
 });
 
-describe("publicProfile.forJoin — public-sample filter", () => {
-  it("passes isPublicSample=true into the tracks WHERE clause", async () => {
+describe("publicProfile.forJoin — portfolio scope", () => {
+  // Behavior change (post-F9 iteration): the producer surface dropped
+  // the per-track "Public sample" toggle. The public profile IS the
+  // public surface — every portfolio track shows on /join/<slug>, no
+  // opt-in step. Consequence: no isPublicSample filter in the WHERE
+  // clause, scope only by producerId.
+  it("scopes by producerId and does NOT filter by isPublicSample", async () => {
     producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
     trackSelectMock.mockResolvedValueOnce([]);
     const caller = await buildCaller();
     await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
 
-    // Import the marker tables to check predicate against them.
     const { portfolioTracks } = await import("@skitza/db");
-    expect(
-      containsEq(lastTrackWhereArgs, portfolioTracks.isPublicSample, true),
-    ).toBe(true);
     expect(
       containsEq(lastTrackWhereArgs, portfolioTracks.producerId, PRODUCER_ID),
     ).toBe(true);
+    expect(
+      containsEq(lastTrackWhereArgs, portfolioTracks.isPublicSample, true),
+    ).toBe(false);
   });
 });
 

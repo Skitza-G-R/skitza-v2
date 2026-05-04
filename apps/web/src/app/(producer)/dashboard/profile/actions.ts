@@ -66,6 +66,48 @@ export async function addPortfolioFromLibrary(input: {
   }
 }
 
+// Inline-edit the title and/or artist on a portfolio row. We omit
+// fields the producer didn't change so the partial schema on
+// portfolio.update leaves them untouched. Passing an empty-string
+// artist is intentional for "clear the credit line" — the DB column
+// is nullable but the existing zod schema only takes string|undefined,
+// so empty-string is the closest representation. The render path
+// already treats "" as falsy so a cleared artist disappears from the
+// row visually.
+export async function updatePortfolioTrack(input: {
+  id: string;
+  title?: string;
+  artist?: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.portfolio.update({
+      id: input.id,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.artist !== undefined ? { artist: input.artist } : {}),
+    });
+    revalidatePath(PROFILE_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function deletePortfolioTrack(input: {
+  id: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.portfolio.delete({ id: input.id });
+    revalidatePath(PROFILE_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 export type ExternalPlatformValue =
   | "spotify"
   | "apple_music"

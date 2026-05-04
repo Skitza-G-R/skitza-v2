@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {
-  and,
   asc,
   createDb,
   desc,
@@ -91,11 +90,14 @@ export const publicProfileRouter = router({
       // leave accent / font unused for Wave 1.
       const brand = producerRow.brand ?? {};
 
-      // Step 2: fetch the 3 most-recent public-sample tracks. The
-      // `AND producer_id = ? AND is_public_sample = true` predicate
-      // hits the partial index added in migration 0030. Order by
-      // `created_at desc` so producers see the track they most
-      // recently flagged rise to the top of the teaser.
+      // Step 2: fetch the 3 most-recent portfolio tracks. The original
+      // shape filtered by `is_public_sample = true` (per-track opt-in
+      // for unsigned-in visitors), but the producer surface no longer
+      // exposes that toggle — every track in the portfolio is the
+      // public profile, full stop. We left the column on the schema
+      // (migration cost vs. rollback safety) but stopped reading it.
+      // Order by `created_at desc` so the producer's newest portfolio
+      // additions surface at the top of the teaser.
       const sampleRows = await db
         .select({
           id: portfolioTracks.id,
@@ -106,12 +108,7 @@ export const publicProfileRouter = router({
           peaksR2Key: portfolioTracks.peaksR2Key,
         })
         .from(portfolioTracks)
-        .where(
-          and(
-            eq(portfolioTracks.producerId, producerRow.id),
-            eq(portfolioTracks.isPublicSample, true),
-          ),
-        )
+        .where(eq(portfolioTracks.producerId, producerRow.id))
         .orderBy(desc(portfolioTracks.createdAt))
         .limit(3);
 
