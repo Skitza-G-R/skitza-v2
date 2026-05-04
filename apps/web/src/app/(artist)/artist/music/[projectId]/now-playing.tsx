@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useArtistAudio } from "~/components/artist/artist-audio-context";
-import { WaveformPlayer } from "~/components/audio/waveform-player";
+import {
+  WaveformPlayer,
+  type WaveformPlayerHandle,
+} from "~/components/audio/waveform-player";
 import { submitTimestampedComment, type AddedComment } from "./actions";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -262,6 +265,9 @@ function VersionBody({
   const isCurrent = audio.state.currentTrack?.id === version.id;
   const pendingComment =
     isCurrent && audio.state.pendingComment ? audio.state.pendingComment : null;
+  // Imperative handle to the wavesurfer instance — lets the comment
+  // composer pause playback on focus and resume on submit (QA F7).
+  const wavesurferRef = useRef<WaveformPlayerHandle | null>(null);
 
   const handleRequestComment = () => {
     if (!isCurrent && version.audioUrl) {
@@ -301,6 +307,7 @@ function VersionBody({
 
       {version.audioUrl ? (
         <WaveformPlayer
+          ref={wavesurferRef}
           src={version.audioUrl}
           height={120}
           label={`${version.label} of ${track.title}`}
@@ -323,6 +330,7 @@ function VersionBody({
           timeMs={Math.round(pendingComment.time * 1000)}
           onSubmit={onOptimisticAppend}
           onDismiss={audio.dismissComment}
+          wavesurferRef={wavesurferRef}
         />
       ) : null}
 
@@ -337,15 +345,30 @@ function CommentComposer({
   timeMs,
   onSubmit,
   onDismiss,
+  wavesurferRef,
 }: {
   version: Version;
   timeMs: number;
   onSubmit: (c: Comment) => void;
   onDismiss: () => void;
+  wavesurferRef: React.RefObject<WaveformPlayerHandle | null>;
 }) {
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Tracks whether the waveform was playing at the moment we paused it
+  // on focus, so a submit only resumes audio that was actually playing
+  // (avoids jarring 0s playback if the artist hadn't started the
+  // waveform yet).
+  const wasPlayingRef = useRef(false);
+
+  const handleFocus = () => {
+    const ws = wavesurferRef.current;
+    if (ws?.isPlaying()) {
+      wasPlayingRef.current = true;
+      ws.pause();
+    }
+  };
 
   const handleSave = () => {
     setError(null);
@@ -367,7 +390,21 @@ function CommentComposer({
       onSubmit(toCommentShape(result.comment));
       setBody("");
       onDismiss();
+      if (wasPlayingRef.current) {
+        wavesurferRef.current?.play();
+        wasPlayingRef.current = false;
+      }
     });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter submits, Shift+Enter inserts a newline (chat-composer
+    // convention). Required by F7 AC: "Pressing Enter to submit the
+    // comment resumes playback."
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSave();
+    }
   };
 
   return (
@@ -389,6 +426,8 @@ function CommentComposer({
         onChange={(e) => {
           setBody(e.currentTarget.value);
         }}
+        onFocus={handleFocus}
+        onKeyDown={handleKeyDown}
         rows={3}
         maxLength={2000}
         placeholder="What did you hear?"

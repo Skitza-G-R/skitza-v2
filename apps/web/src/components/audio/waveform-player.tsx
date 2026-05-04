@@ -1,7 +1,25 @@
 "use client";
 
 import WaveSurfer from "wavesurfer.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+
+// Imperative handle exposed via ref. Lets callers (e.g. the artist Song
+// page comment composer) pause playback while typing and resume on
+// submit, without lifting wavesurfer state out of this self-contained
+// component. All methods no-op if the wavesurfer instance hasn't loaded
+// yet, so callers can fire-and-forget.
+export interface WaveformPlayerHandle {
+  play: () => void;
+  pause: () => void;
+  isPlaying: () => boolean;
+}
 
 // Visual waveform player for project-room playback (dashboard + share).
 //
@@ -32,14 +50,13 @@ interface WaveformPlayerProps {
   height?: number;
 }
 
-export function WaveformPlayer({
-  src,
-  label,
-  onReady,
-  onSeek,
-  className,
-  height = 80,
-}: WaveformPlayerProps) {
+export const WaveformPlayer = forwardRef<
+  WaveformPlayerHandle,
+  WaveformPlayerProps
+>(function WaveformPlayer(
+  { src, label, onReady, onSeek, className, height = 80 },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
 
@@ -48,6 +65,22 @@ export function WaveformPlayer({
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      play: () => {
+        const ws = wsRef.current;
+        if (ws && ready) void ws.play();
+      },
+      pause: () => {
+        const ws = wsRef.current;
+        if (ws && ready) ws.pause();
+      },
+      isPlaying: () => wsRef.current?.isPlaying() ?? false,
+    }),
+    [ready],
+  );
 
   // Stable refs for callbacks so we don't recreate the wavesurfer on
   // every parent re-render (which would be very expensive — each create
@@ -209,7 +242,7 @@ export function WaveformPlayer({
       </div>
     </div>
   );
-}
+});
 
 // Duplicated from track-player.tsx — it's 8 lines of pure logic and not
 // exported there; the alternative is a new utils file for a single helper.
