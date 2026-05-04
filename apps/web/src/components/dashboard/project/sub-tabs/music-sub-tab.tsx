@@ -14,7 +14,7 @@ import {
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
-import { Input, Label } from "~/components/ui/input";
+import { Input, Label, Textarea } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import { fmtDateTime } from "~/lib/time/relative";
 import {
@@ -156,6 +156,15 @@ export function MusicSubTab({
   const [versionFor, setVersionFor] = useState<string | null>(null);
   const [newVersionLabel, setNewVersionLabel] = useState("");
 
+  // F8 — per-comment producer reply. Single `string | null` (the open
+  // comment id), per brief: only one inline reply form open at a time
+  // keeps UX clean and avoids stale-state bugs from a Record<id, bool>.
+  // Threading is visual via timestamp proximity (track_comments has no
+  // parentCommentId column) — replies share the parent's timestampMs
+  // so the time-sorted comment list places them adjacent.
+  const [replyOpenFor, setReplyOpenFor] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+
   const initialSelected = useMemo(
     () => pickInitialVersions(tracks, versions, initialVersionId),
     [tracks, versions, initialVersionId],
@@ -252,6 +261,28 @@ export function MusicSubTab({
       const res = await resolveVersionComment({ projectId: project.id, id, resolved });
       if (res.ok) {
         toast(resolved ? "Comment marked resolved." : "Comment re-opened.", "success");
+        router.refresh();
+      } else {
+        toast(res.error, "error");
+      }
+    });
+  }
+
+  function onReplySubmit(e: SyntheticEvent<HTMLFormElement>, c: CommentRow) {
+    e.preventDefault();
+    const text = replyDraft.trim();
+    if (!text) return;
+    startTransition(async () => {
+      const res = await addProducerComment({
+        projectId: project.id,
+        versionId: c.versionId,
+        body: text,
+        timestampMs: c.timestampMs,
+      });
+      if (res.ok) {
+        toast("Reply sent. The artist will see it on their timeline.", "success");
+        setReplyOpenFor(null);
+        setReplyDraft("");
         router.refresh();
       } else {
         toast(res.error, "error");
@@ -460,33 +491,94 @@ export function MusicSubTab({
                           </Badge>
                         ) : null}
                       </div>
-                      {c.resolvedAt ? (
+                      <div className="flex items-center gap-1">
+                        {c.resolvedAt ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              onResolve(c.id, false);
+                            }}
+                            disabled={pending}
+                          >
+                            Re-open
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              onResolve(c.id, true);
+                            }}
+                            disabled={pending}
+                          >
+                            Resolve
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           size="sm"
                           variant="ghost"
                           onClick={() => {
-                            onResolve(c.id, false);
+                            // Toggle: open this row's reply form, or
+                            // close it if it's already the open one.
+                            // Reset draft on every toggle so text from
+                            // a previously-open row can't leak in.
+                            setReplyOpenFor(replyOpenFor === c.id ? null : c.id);
+                            setReplyDraft("");
                           }}
                           disabled={pending}
+                          aria-expanded={replyOpenFor === c.id}
                         >
-                          Re-open
+                          Reply
                         </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            onResolve(c.id, true);
-                          }}
-                          disabled={pending}
-                        >
-                          Resolve
-                        </Button>
-                      )}
+                      </div>
                     </div>
                     <p className="mt-2 text-sm text-[rgb(var(--fg-primary))]">{c.body}</p>
+                    {replyOpenFor === c.id ? (
+                      <form
+                        onSubmit={(e) => {
+                          onReplySubmit(e, c);
+                        }}
+                        className="mt-3 grid gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3"
+                      >
+                        <Textarea
+                          value={replyDraft}
+                          onChange={(e) => {
+                            setReplyDraft(e.target.value);
+                          }}
+                          placeholder="Write a reply…"
+                          autoFocus
+                          required
+                          maxLength={2000}
+                          rows={2}
+                          aria-label={`Reply to ${c.authorName}`}
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={pending || !replyDraft.trim()}
+                          >
+                            {pending ? "…" : "Send"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setReplyOpenFor(null);
+                              setReplyDraft("");
+                            }}
+                            disabled={pending}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </form>
+                    ) : null}
                   </div>
                 ))}
                 <ProducerReplyForm
