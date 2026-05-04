@@ -72,6 +72,29 @@ function formatMs(ms: number): string {
   return `${String(m)}:${String(ss).padStart(2, "0")}`;
 }
 
+function formatSec(sec: number): string {
+  return formatMs(Math.max(0, Math.floor(sec)) * 1000);
+}
+
+// Forgiving parser for the producer reply form's timestamp input. Accepts
+// the live-display "m:ss" format ("0:34", "1:23"), a colonless "ss"
+// shorthand ("34"), and pads against junk input by clamping to ≥0. We
+// don't reject malformed strings — the field is a soft hint, not a
+// validated submission boundary.
+function parseTimestampSec(str: string): number {
+  const trimmed = str.trim();
+  if (!trimmed) return 0;
+  if (trimmed.includes(":")) {
+    const parts = trimmed.split(":");
+    const last = parts.pop() ?? "0";
+    const ss = Number(last) || 0;
+    const mm = Number(parts.pop() ?? "0") || 0;
+    const hh = Number(parts.pop() ?? "0") || 0;
+    return Math.max(0, hh * 3600 + mm * 60 + ss);
+  }
+  return Math.max(0, Number(trimmed) || 0);
+}
+
 // Rough "x ago" string for the approved badge. We only care about this
 // at coarse resolution (the user's sense of "is this recent?"), so
 // rounding to the nearest unit is fine.
@@ -567,7 +590,9 @@ function ProducerReplyForm({
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [body, setBody] = useState("");
-  const [timestampSec, setTimestampSec] = useState("0");
+  // Stored as the m:ss display string so the input can show "0:34"
+  // directly. Parsed to seconds via parseTimestampSec at submit time.
+  const [timestampDisplay, setTimestampDisplay] = useState("0:00");
   // Tracks whether the waveform was playing at the moment we paused it
   // on focus, so submit only resumes audio that was actually playing.
   const wasPlayingRef = useRef(false);
@@ -585,9 +610,8 @@ function ProducerReplyForm({
       if (pinnedRef.current) return;
       const ws = getWaveform();
       if (!ws) return;
-      const sec = Math.max(0, Math.floor(ws.getCurrentTime()));
-      const next = String(sec);
-      setTimestampSec((prev) => (prev === next ? prev : next));
+      const next = formatSec(ws.getCurrentTime());
+      setTimestampDisplay((prev) => (prev === next ? prev : next));
     }, 250);
     return () => {
       clearInterval(id);
@@ -609,14 +633,14 @@ function ProducerReplyForm({
   function handleTimestampChange(e: SyntheticEvent<HTMLInputElement>) {
     // Manual edit — stop live-syncing so we don't overwrite their typing.
     pinnedRef.current = true;
-    setTimestampSec(e.currentTarget.value);
+    setTimestampDisplay(e.currentTarget.value);
   }
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const text = body.trim();
     if (!text) return;
-    const secs = Math.max(0, Number(timestampSec) || 0);
+    const secs = parseTimestampSec(timestampDisplay);
     startTransition(async () => {
       const res = await addProducerComment({
         projectId,
@@ -627,7 +651,7 @@ function ProducerReplyForm({
       if (res.ok) {
         toast("Reply sent. The artist will see it on their timeline.", "success");
         setBody("");
-        setTimestampSec("0");
+        setTimestampDisplay("0:00");
         // Re-arm live sync for the next reply.
         pinnedRef.current = false;
         onDone();
@@ -647,15 +671,15 @@ function ProducerReplyForm({
       className="grid gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3 sm:grid-cols-[6rem_1fr_auto]"
     >
       <Input
-        type="number"
-        step={1}
-        min={0}
-        value={timestampSec}
+        type="text"
+        inputMode="numeric"
+        value={timestampDisplay}
         onChange={handleTimestampChange}
         onFocus={() => {
           pinnedRef.current = true;
         }}
-        aria-label="Timestamp seconds"
+        aria-label="Timestamp (m:ss)"
+        placeholder="0:00"
         className="text-right font-mono"
       />
       <Input
