@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ContextualActions } from "~/components/dashboard/today/contextual-actions";
@@ -63,10 +64,18 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // revenueTrend also dropped — the deep 6-month chart moved to
   // /dashboard/revenue (Story 07) and Pulse renders its own ambient
   // sparkline from `today.pulseStats.sparkline`.
-  const [today, me] = await Promise.all([
+  const [today, me, followUpRaw] = await Promise.all([
     caller.producer.today(),
     caller.producer.me(),
+    caller.booking.needsFollowUp(),
   ]);
+
+  // Drop sessions that aren't yet linked to a project — without a
+  // projectId we have nowhere to send the producer when they click
+  // through, so the banner would be a dead-end.
+  const followUpSessions = followUpRaw.filter(
+    (s): s is typeof s & { projectId: string } => s.projectId !== null,
+  );
 
   // Public origin used by DashboardEmptyOnboarding to render the
   // /join/<slug> URL. Fallback chain matches getSiteUrl() over in
@@ -148,6 +157,46 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               Catching skippers before they bounce is the highest-
               priority CTA on the page, so it sits at the very top. */}
           {showSetupNudge ? <FinishSetupNudge /> : null}
+
+          {/* Post-session follow-up nudges. Confirmed sessions whose
+              end time has passed while the project still sits in
+              `booked` or `in_production` — the producer hasn't moved
+              the project forward, so we surface a "how did it go?"
+              prompt with one-click paths to upload files or update
+              the project. Renders above both the empty-state and the
+              populated layout so it's the first thing a producer sees
+              when there's stale work to close out. */}
+          {followUpSessions.length > 0 ? (
+            <div className="mb-6 space-y-2">
+              {followUpSessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.06)] p-4"
+                >
+                  <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
+                    Session with {session.artistName} is done — how did it go?
+                  </p>
+                  <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
+                    {session.projectTitle}
+                  </p>
+                  <div className="mt-3 flex gap-3">
+                    <Link
+                      href={`/dashboard/clients-projects/${session.projectId}?tab=music`}
+                      className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--brand-primary))] hover:underline"
+                    >
+                      Upload files →
+                    </Link>
+                    <Link
+                      href={`/dashboard/clients-projects/${session.projectId}`}
+                      className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-secondary))] hover:underline"
+                    >
+                      Update project →
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {/* Day-1 empty state — replaces the populated layout when
               the producer has no projects, no uploads, and no inbox

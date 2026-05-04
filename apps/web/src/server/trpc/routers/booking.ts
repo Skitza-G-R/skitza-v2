@@ -10,6 +10,7 @@ import {
   bookings,
   clientContacts,
   createDb,
+  desc,
   eq,
   gte,
   inArray,
@@ -19,6 +20,7 @@ import {
   products,
   producers,
   projects,
+  sql,
   type Db,
   type Product,
 } from "@skitza/db";
@@ -887,6 +889,48 @@ export const bookingRouter = router({
       }
     }
     return { mtdCents, outstandingCents, next7DaysCents, currency };
+  }),
+
+  // Producer dashboard banner — confirmed sessions whose end time has
+  // passed while the linked project is still `booked` or `in_production`.
+  // The producer hasn't moved the project forward (uploaded files, marked
+  // delivered) so we surface a nudge to follow up. Capped at 5 to keep
+  // the dashboard from turning into a stale-session graveyard.
+  needsFollowUp: producerProcedure.query(async ({ ctx }) => {
+    const now = new Date();
+    const rows = await ctx.db
+      .select({
+        id: bookings.id,
+        artistName: bookings.artistName,
+        startsAt: bookings.startsAt,
+        durationMin: bookings.durationMin,
+        projectId: bookings.projectId,
+        projectStage: projects.stage,
+        projectTitle: projects.title,
+      })
+      .from(bookings)
+      .leftJoin(projects, eq(projects.id, bookings.projectId))
+      .where(
+        and(
+          eq(bookings.producerId, ctx.producerId),
+          eq(bookings.status, "confirmed"),
+          lte(
+            sql`${bookings.startsAt} + ${bookings.durationMin} * interval '1 minute'`,
+            now,
+          ),
+          inArray(projects.stage, ["booked", "in_production"]),
+        ),
+      )
+      .orderBy(desc(bookings.startsAt))
+      .limit(5);
+    return rows.map((r) => ({
+      id: r.id,
+      artistName: r.artistName,
+      startsAt: r.startsAt,
+      durationMin: r.durationMin,
+      projectId: r.projectId,
+      projectTitle: r.projectTitle ?? r.artistName,
+    }));
   }),
 
   list: producerProcedure
