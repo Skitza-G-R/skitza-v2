@@ -144,14 +144,30 @@ export function NewPackageForm({
   const [depositPct, setDepositPct] = useState(
     initialValues?.depositPct ?? 25,
   );
-  // Tracks which payment-plan checkbox was most recently checked. Drives
-  // deposit-field visibility (monthly only) and the submitted depositPct
-  // value (full→0, split_50_50→50, monthly→user input). Multiple plan
-  // checkboxes can still be ticked — the parser preserves all of them —
-  // but the deposit semantics follow this single "active" plan.
-  const [selectedPlan, setSelectedPlan] = useState<
-    "full" | "split_50_50" | "monthly"
-  >(effectiveInitialPlans[0]?.kind ?? "full");
+  // Controlled state for each payment-plan checkbox. Pre-checked from
+  // saved plans on EDIT, defaults to plan_full for CREATE. Derived
+  // `selectedPlan` (below) reads from these — not from "last clicked" —
+  // so unchecking a box and ticking multiple plans both behave sanely.
+  const [planFullChecked, setPlanFullChecked] = useState(() =>
+    effectiveInitialPlans.some((p) => p.kind === "full"),
+  );
+  const [planSplitChecked, setPlanSplitChecked] = useState(() =>
+    effectiveInitialPlans.some((p) => p.kind === "split_50_50"),
+  );
+  const [planMonthlyChecked, setPlanMonthlyChecked] = useState(() =>
+    effectiveInitialPlans.some((p) => p.kind === "monthly"),
+  );
+  // Active plan for deposit semantics, with priority monthly > split >
+  // full. Monthly wins when checked because it's the only plan whose
+  // depositPct is producer-configurable; split_50_50 is fixed at 50 and
+  // full has no deposit. If the user offers both monthly and split, the
+  // saved depositPct is the producer's monthly figure — split's 50% is
+  // applied at checkout independently per the booking flow's logic.
+  const selectedPlan: "full" | "split_50_50" | "monthly" = planMonthlyChecked
+    ? "monthly"
+    : planSplitChecked
+      ? "split_50_50"
+      : "full";
   const [kind, setKind] = useState<PackageKind>(
     initialValues?.kind ?? "session",
   );
@@ -498,9 +514,9 @@ export function NewPackageForm({
           <input
             type="checkbox"
             name="plan_full"
-            defaultChecked={effectiveInitialPlans.some((p) => p.kind === "full")}
+            checked={planFullChecked}
             onChange={(e) => {
-              if (e.target.checked) setSelectedPlan("full");
+              setPlanFullChecked(e.target.checked);
             }}
           />
           Pay in full
@@ -509,9 +525,9 @@ export function NewPackageForm({
           <input
             type="checkbox"
             name="plan_split"
-            defaultChecked={effectiveInitialPlans.some((p) => p.kind === "split_50_50")}
+            checked={planSplitChecked}
             onChange={(e) => {
-              if (e.target.checked) setSelectedPlan("split_50_50");
+              setPlanSplitChecked(e.target.checked);
             }}
           />
           50% deposit + 50% on delivery
@@ -520,9 +536,9 @@ export function NewPackageForm({
           <input
             type="checkbox"
             name="plan_monthly"
-            defaultChecked={effectiveInitialPlans.some((p) => p.kind === "monthly")}
+            checked={planMonthlyChecked}
             onChange={(e) => {
-              if (e.target.checked) setSelectedPlan("monthly");
+              setPlanMonthlyChecked(e.target.checked);
             }}
           />
           Monthly installments —
