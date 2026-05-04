@@ -92,7 +92,7 @@ export default async function JoinPage({ params }: PageProps) {
           Join {data.producer.displayName ?? "this producer"}&apos;s studio on Skitza
         </h1>
 
-        <JoinHero producer={data.producer} />
+        <JoinHero producer={data.producer} externalLinks={data.externalLinks} />
 
         <PublicSamplesPlayer samples={data.publicSamples} />
 

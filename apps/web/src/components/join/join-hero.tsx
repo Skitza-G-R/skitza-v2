@@ -17,9 +17,16 @@ interface JoinHeroProps {
     bio: string | null;
     logoUrl: string | null;
   };
+  externalLinks?: Array<{ platform: string; url: string; title: string | null }>;
 }
 
-export function JoinHero({ producer }: JoinHeroProps) {
+const PLATFORM_LABELS: Record<string, string> = {
+  spotify: "Spotify",
+  youtube: "YouTube",
+  instagram_reels: "Instagram",
+};
+
+export function JoinHero({ producer, externalLinks }: JoinHeroProps) {
   // Fall back to the word "Producer" if displayName is null — can only
   // happen in tests or mid-onboarding before the producer sets a name.
   const name = producer.displayName ?? "Producer";
@@ -90,6 +97,24 @@ export function JoinHero({ producer }: JoinHeroProps) {
           <p className="reveal-up-delay-2 mx-auto mt-6 max-w-xl text-base leading-relaxed text-[rgb(var(--fg-secondary))] sm:text-lg">
             {producer.bio}
           </p>
+        ) : null}
+
+        {externalLinks && externalLinks.filter((l) => l.url).length > 0 ? (
+          <div className="reveal-up-delay-3 mt-6 flex justify-center gap-4">
+            {externalLinks
+              .filter((l) => l.url)
+              .map((link) => (
+                <a
+                  key={link.platform}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-xs uppercase tracking-[0.15em] text-[rgb(var(--brand-primary))] hover:underline"
+                >
+                  {PLATFORM_LABELS[link.platform] ?? link.platform}
+                </a>
+              ))}
+          </div>
         ) : null}
 
         {/* A tiny divider before the samples section below — keeps the
