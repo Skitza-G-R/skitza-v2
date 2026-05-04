@@ -26,12 +26,14 @@ const {
   trackVersionsMarker,
   trackCommentsMarker,
   producersMarker,
+  bookingsMarker,
   projectSelectQueue,
   contactsSelectQueue,
   producerSelectQueue,
   tracksSelectQueue,
   versionsSelectQueue,
   commentsSelectQueue,
+  bookingsSelectQueue,
   trackSelectQueue,
   versionSelectQueue,
   contactsWhereSpy,
@@ -46,6 +48,7 @@ const {
   const tracksSelectQueue: Queue = [];
   const versionsSelectQueue: Queue = [];
   const commentsSelectQueue: Queue = [];
+  const bookingsSelectQueue: Queue = [];
   // The addComment mutation resolves trackVersion → projectTrack →
   // project chain; those use .limit(1) and are routed off the version
   // queue (first hit on trackVersions for that call) and the track
@@ -109,6 +112,15 @@ const {
     id: { __column: "producers.id" },
     displayName: { __column: "producers.display_name" },
     slug: { __column: "producers.slug" },
+  };
+  const bookingsMarker = {
+    __table: "bookings",
+    id: { __column: "bookings.id" },
+    projectId: { __column: "bookings.project_id" },
+    status: { __column: "bookings.status" },
+    startsAt: { __column: "bookings.starts_at" },
+    durationMin: { __column: "bookings.duration_min" },
+    packageNameSnapshot: { __column: "bookings.package_name_snapshot" },
   };
 
   const shift = <T,>(q: T[][]): T[] => q.shift() ?? [];
@@ -212,6 +224,9 @@ const {
           counts.trackComments += 1;
           return chain(() => Promise.resolve(shift(commentsSelectQueue)));
         }
+        if (table === bookingsMarker) {
+          return chain(() => Promise.resolve(shift(bookingsSelectQueue)));
+        }
         throw new Error(`unexpected from(${String(table)})`);
       },
     }),
@@ -232,12 +247,14 @@ const {
     trackVersionsMarker,
     trackCommentsMarker,
     producersMarker,
+    bookingsMarker,
     projectSelectQueue,
     contactsSelectQueue,
     producerSelectQueue,
     tracksSelectQueue,
     versionsSelectQueue,
     commentsSelectQueue,
+    bookingsSelectQueue,
     trackSelectQueue,
     versionSelectQueue,
     contactsWhereSpy,
@@ -260,9 +277,9 @@ vi.mock("@skitza/db", () => ({
   trackVersions: trackVersionsMarker,
   trackComments: trackCommentsMarker,
   producers: producersMarker,
+  bookings: bookingsMarker,
   // Other tables referenced by the artist router — opaque markers so
   // the module loads under the test.
-  bookings: { __table: "bookings" },
   invoices: { __table: "invoices" },
   availabilityBlackouts: { __table: "availability_blackouts" },
   availabilityBlocks: { __table: "availability_blocks" },
@@ -295,6 +312,7 @@ beforeEach(() => {
   tracksSelectQueue.length = 0;
   versionsSelectQueue.length = 0;
   commentsSelectQueue.length = 0;
+  bookingsSelectQueue.length = 0;
   trackSelectQueue.length = 0;
   versionSelectQueue.length = 0;
   contactsWhereSpy.mockReset();

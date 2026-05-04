@@ -329,6 +329,23 @@ const musicSubrouter = router({
         };
       });
 
+      const sessionRows = await ctx.db
+        .select({
+          id: bookings.id,
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+          status: bookings.status,
+          packageName: bookings.packageNameSnapshot,
+        })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.projectId, project.id),
+            inArray(bookings.status, ["pending", "confirmed"]),
+          ),
+        )
+        .orderBy(asc(bookings.startsAt));
+
       return {
         project: {
           id: project.id,
@@ -337,6 +354,13 @@ const musicSubrouter = router({
           producerName: producerRow?.displayName ?? "Producer",
         },
         tracks,
+        sessions: sessionRows.map((s) => ({
+          id: s.id,
+          startsAt: s.startsAt,
+          durationMin: s.durationMin,
+          status: s.status,
+          packageName: s.packageName,
+        })),
       };
     }),
 

@@ -42,6 +42,14 @@ type Track = {
   comments: Comment[];
 };
 
+type Session = {
+  id: string;
+  startsAt: Date;
+  durationMin: number;
+  status: string;
+  packageName: string | null;
+};
+
 type NowPlayingData = {
   project: {
     id: string;
@@ -50,6 +58,7 @@ type NowPlayingData = {
     producerName: string;
   };
   tracks: Track[];
+  sessions: Session[];
 };
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -155,6 +164,51 @@ export function NowPlaying({ data }: { data: NowPlayingData }) {
           })}
         </ul>
       )}
+
+      {data.sessions.length > 0 ? (
+        <section className="mt-8">
+          <h2 className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] mb-3">
+            Sessions
+          </h2>
+          <ul className="space-y-2">
+            {data.sessions.map((session) => {
+              const date = new Date(session.startsAt);
+              const isPast = date < new Date();
+              const statusLabel = isPast
+                ? "Completed"
+                : session.status === "pending"
+                  ? "Pending approval"
+                  : "Upcoming";
+              return (
+                <li
+                  key={session.id}
+                  className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] p-3"
+                >
+                  <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
+                    {date.toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                    {" · "}
+                    {date.toLocaleTimeString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    })}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
+                    {session.durationMin} min
+                    {session.packageName ? ` · ${session.packageName}` : ""}
+                    {" · "}
+                    {statusLabel}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
 
       {/* Mobile-only FAB — stacks above the persistent mini-player
           (which sits at bottom-16). Only renders once a track is
