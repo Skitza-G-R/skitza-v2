@@ -144,6 +144,14 @@ export function NewPackageForm({
   const [depositPct, setDepositPct] = useState(
     initialValues?.depositPct ?? 25,
   );
+  // Tracks which payment-plan checkbox was most recently checked. Drives
+  // deposit-field visibility (monthly only) and the submitted depositPct
+  // value (full→0, split_50_50→50, monthly→user input). Multiple plan
+  // checkboxes can still be ticked — the parser preserves all of them —
+  // but the deposit semantics follow this single "active" plan.
+  const [selectedPlan, setSelectedPlan] = useState<
+    "full" | "split_50_50" | "monthly"
+  >(effectiveInitialPlans[0]?.kind ?? "full");
   const [kind, setKind] = useState<PackageKind>(
     initialValues?.kind ?? "session",
   );
@@ -191,6 +199,15 @@ export function NewPackageForm({
     const paymentPlans = parsePaymentPlansFromFormData(
       new FormData(e.currentTarget),
     );
+    // Deposit semantics are derived from the active plan, not the
+    // numeric input — full = no deposit, split_50_50 = always 50,
+    // monthly = whatever the producer typed.
+    const effectiveDepositPct =
+      selectedPlan === "full"
+        ? 0
+        : selectedPlan === "split_50_50"
+          ? 50
+          : depositPct;
     const payload = {
       name: name.trim(),
       ...(description.trim() ? { description: description.trim() } : {}),
@@ -200,7 +217,7 @@ export function NewPackageForm({
       // a migration dance.
       priceCents: Math.round(priceDollars * 100),
       currency,
-      depositPct,
+      depositPct: effectiveDepositPct,
       kind,
       locationType,
       bufferMinutes,
@@ -408,9 +425,9 @@ export function NewPackageForm({
           </Select>
         </div>
 
-        {hideDepositField ? null : (
+        {!hideDepositField && selectedPlan === "monthly" ? (
           <div>
-            <Label htmlFor="deposit">Deposit percent</Label>
+            <Label htmlFor="deposit">Deposit percent (optional)</Label>
             <Input
               id="deposit"
               type="number"
@@ -421,14 +438,13 @@ export function NewPackageForm({
               onChange={(e) => {
                 setDepositPct(Number(e.target.value));
               }}
-              required
               className="text-base"
             />
             <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
-              Collected at booking. 0% = pay in full later.
+              First payment collected at booking. 0% = first installment with the rest.
             </p>
           </div>
-        )}
+        ) : null}
 
         <div>
           <Label htmlFor="buffer">Buffer between sessions (min)</Label>
@@ -483,6 +499,9 @@ export function NewPackageForm({
             type="checkbox"
             name="plan_full"
             defaultChecked={effectiveInitialPlans.some((p) => p.kind === "full")}
+            onChange={(e) => {
+              if (e.target.checked) setSelectedPlan("full");
+            }}
           />
           Pay in full
         </label>
@@ -491,6 +510,9 @@ export function NewPackageForm({
             type="checkbox"
             name="plan_split"
             defaultChecked={effectiveInitialPlans.some((p) => p.kind === "split_50_50")}
+            onChange={(e) => {
+              if (e.target.checked) setSelectedPlan("split_50_50");
+            }}
           />
           50% deposit + 50% on delivery
         </label>
@@ -499,6 +521,9 @@ export function NewPackageForm({
             type="checkbox"
             name="plan_monthly"
             defaultChecked={effectiveInitialPlans.some((p) => p.kind === "monthly")}
+            onChange={(e) => {
+              if (e.target.checked) setSelectedPlan("monthly");
+            }}
           />
           Monthly installments —
           <input
