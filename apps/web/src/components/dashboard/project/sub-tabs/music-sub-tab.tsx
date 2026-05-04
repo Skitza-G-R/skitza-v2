@@ -350,23 +350,37 @@ export function MusicSubTab({
                   const isSelected = v.id === selectedId;
                   const isLatest = vi === 0;
                   return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => {
-                        setSelected((s) => ({ ...s, [t.id]: v.id }));
-                      }}
-                      className={[
-                        "inline-flex min-h-[44px] items-center whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors sm:min-h-0",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
-                        isSelected
-                          ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
-                          : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
-                      ].join(" ")}
-                    >
-                      {v.label}
-                      {isLatest ? " · latest" : ""}
-                    </button>
+                    <div key={v.id} className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelected((s) => ({ ...s, [t.id]: v.id }));
+                        }}
+                        className={[
+                          "inline-flex min-h-[44px] items-center whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors sm:min-h-0",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
+                          isSelected
+                            ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
+                            : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
+                        ].join(" ")}
+                      >
+                        {v.label}
+                        {isLatest ? " · latest" : ""}
+                      </button>
+                      {v.audioUrl ? (
+                        <a
+                          href={v.audioUrl}
+                          download
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
+                          className="inline-flex h-7 items-center rounded px-2 text-xs text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
+                          aria-label={`Download ${v.label}`}
+                        >
+                          ↓
+                        </a>
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>

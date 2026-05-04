@@ -352,6 +352,7 @@ const musicSubrouter = router({
           title: project.title,
           producerId: project.producerId,
           producerName: producerRow?.displayName ?? "Producer",
+          finalPaid: project.finalPaid,
         },
         tracks,
         sessions: sessionRows.map((s) => ({

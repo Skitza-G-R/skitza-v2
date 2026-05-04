@@ -56,6 +56,7 @@ type NowPlayingData = {
     title: string;
     producerId: string;
     producerName: string;
+    finalPaid: boolean;
   };
   tracks: Track[];
   sessions: Session[];
@@ -143,6 +144,7 @@ export function NowPlaying({ data }: { data: NowPlayingData }) {
                     track={track}
                     version={selectedVersion}
                     producerName={data.project.producerName}
+                    finalPaid={data.project.finalPaid}
                     comments={combined}
                     onOptimisticAppend={(c) => {
                       setOptimisticByVersion((prev) => ({
@@ -306,12 +308,14 @@ function VersionBody({
   track,
   version,
   producerName,
+  finalPaid,
   comments,
   onOptimisticAppend,
 }: {
   track: Track;
   version: Version;
   producerName: string;
+  finalPaid: boolean;
   comments: Comment[];
   onOptimisticAppend: (c: Comment) => void;
 }) {
@@ -346,17 +350,33 @@ function VersionBody({
         <span className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
           {formatDuration(version.durationMs)}
         </span>
-        {/* Inline + Comment is desktop-only. On mobile (<sm) the FAB at
-            the bottom-right of the page replaces it, so the waveform
-            gets the full row width to itself. */}
-        <button
-          type="button"
-          onClick={handleRequestComment}
-          disabled={!version.audioUrl}
-          className="hidden rounded-sm border border-[rgb(var(--border-subtle))] px-2 py-1 font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--fg-muted))] disabled:opacity-40 sm:inline-flex"
-        >
-          + Comment
-        </button>
+        <div className="flex items-center gap-2">
+          {version.audioUrl && finalPaid ? (
+            <a
+              href={version.audioUrl}
+              download
+              className="inline-flex h-7 items-center rounded px-2 text-xs text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
+              aria-label={`Download ${version.label}`}
+            >
+              Download
+            </a>
+          ) : version.audioUrl && !finalPaid ? (
+            <span className="text-xs text-[rgb(var(--fg-muted))] opacity-50">
+              Download unlocks after payment
+            </span>
+          ) : null}
+          {/* Inline + Comment is desktop-only. On mobile (<sm) the FAB at
+              the bottom-right of the page replaces it, so the waveform
+              gets the full row width to itself. */}
+          <button
+            type="button"
+            onClick={handleRequestComment}
+            disabled={!version.audioUrl}
+            className="hidden rounded-sm border border-[rgb(var(--border-subtle))] px-2 py-1 font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--fg-muted))] disabled:opacity-40 sm:inline-flex"
+          >
+            + Comment
+          </button>
+        </div>
       </div>
 
       {version.audioUrl ? (
