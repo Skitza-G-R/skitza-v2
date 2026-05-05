@@ -1,27 +1,36 @@
 # Phase 2 — Shells & Navigation Handoff
 
-**Status:** ✅ Branch ready for review (`phase-2-shells`, parented at `v3-clean`).
+**Status:** ✅ **Merged into `v3-clean` 2026-05-05 18:16 UTC**
+**PR:** [skitza-v2#56](https://github.com/Skitza-G-R/skitza-v2/pull/56) — merged via merge-commit (preserves the 2-commit feature history)
+**Merge commit:** [`21c142c`](https://github.com/Skitza-G-R/skitza-v2/commit/21c142cac1eb060673b940500a498dc7921995ff)
+**Source branch:** `phase-2-shells` — deleted from origin and locally after merge
+**Approver:** Raz (technical co-founder)
 **Author:** Gili (with Claude Code)
-**Date:** 2026-05-05
-**Scope:** Replace producer + artist layout chrome with the locked design system shells from `~/Downloads/skitza (1)/`. **No screen contents migrated** — pages will render visually mismatched against the new chrome on purpose; that work lives in Phases 3-5.
+**Scope:** Replace producer + artist layout chrome with the locked design system shells from `~/Downloads/skitza (1)/`. **No screen contents migrated** — pages render visually mismatched against the new chrome on purpose; that work lives in Phases 3-5.
 
 This document records every shell ported, every component added, every test rewired, and every deferral logged for downstream phases. Read it before starting Phase 3.
 
-## Final state on `phase-2-shells`
+## Final state on `v3-clean`
 
-- `git log v3-clean..phase-2-shells --oneline` (after the upcoming commit will show 1 chore commit; this doc is part of that commit).
-- **Verification suite (re-checked 2026-05-05 20:18 UTC):**
+- `git log v3-clean --oneline` (top of history after merge):
+  - `21c142c` Merge pull request #56 from Skitza-G-R/phase-2-shells
+  - `df1d683` chore(ui): phase 2 — sync palette + cheatsheet + shortcut handler
+  - `88fd3af` chore(ui): phase 2 — shells + nav
+  - `ee5efc2` docs(ui): phase 1 final state — merged into v3-clean
+- **Pre-merge CI on PR #56:** `test` workflow ✅ SUCCESS, `Vercel Preview Comments` ✅ SUCCESS, `mergeStateStatus: CLEAN`.
+- **Post-merge local re-verify on `v3-clean` (2026-05-05 21:17 UTC):**
   - `pnpm typecheck` ✅ both `packages/db` and `apps/web` clean
-  - `pnpm -F web test` ✅ 986 passed / 4 skipped (matches Phase 1 baseline exactly — no new tests added, no skipped tests introduced)
-  - `pnpm lint` ✅ clean
-- **Smoke test (curl, dev server, 2026-05-05 20:21 UTC):**
+  - `pnpm -F web test` ✅ 986 passed / 4 skipped (matches Phase 1 baseline exactly)
+  - `pnpm lint` ✅ apps/web ESLint clean
+- **F4 stash restoration:** `git stash pop` applied cleanly with no conflicts. The pre-Phase-2 WIP edit on `apps/web/src/app/(producer)/dashboard/clients-projects/[id]/page.tsx` (F4 deep-link version param) is back in the working tree as uncommitted changes — Gili continues that work in a separate flow. Phase 2's commit did not touch that file, and the stash drop confirmed `Dropped refs/stash@{0} (4052b181d92aaa140f190b61ab57629d8b6503e0)`.
+- **Branch hygiene:** `phase-2-shells` deleted from `origin` (`git push origin --delete phase-2-shells` ✅) and from local (`git branch -D phase-2-shells` ✅). `git branch -a` confirms no `phase-2*` references remain.
+- **Smoke test (curl, dev server, 2026-05-05 20:21 UTC, pre-merge — re-runnable):**
   - `/` → 200 ✅
   - `/sign-in` → 200 ✅
   - `/dashboard`, `/dashboard/clients-projects`, `/dashboard/music`, `/dashboard/calendar`, `/dashboard/profile`, `/dashboard/settings` — all → **307** to `/sign-in` (Clerk auth gate; layouts compile, no 500s)
   - `/artist`, `/artist/music`, `/artist/book`, `/artist/store`, `/artist/settings` — all → **307** to `/sign-in` (same)
   - `/join/test` → 404 (slug doesn't exist; expected)
-  - Dev server logs surface zero errors during the smoke pass.
-- **Visual screenshots:** Deferred to Gili's manual verification in a real browser. The Claude preview pane sits behind a chromium sandbox that resolves `localhost:3000` to `chrome-error://chromewebdata/` — a known limitation Phase 1 already documented. Curl from the host returns 200/307 cleanly, proving the dev server itself is healthy.
+- **Visual sign-in screenshots:** Manual visual QA on the Vercel preview at <https://skitza-v2-web-git-phase-2-shells-gili-asrafs-projects.vercel.app> (URL retired with the branch; same artefacts now serve from the v3-clean production deploy). Producer chrome confirmed by Gili in his real browser before merge. Artist chrome verification deferred — the producer/artist signup distinction needs an existing producer slug to attach an artist via `/join/<slug>`, and Phase 2 doesn't seed one. Phase 3 will exercise the artist surface end-to-end with real test data.
 
 ---
 
