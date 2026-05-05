@@ -1,11 +1,34 @@
 import Link from "next/link";
 
-// Server Component — one row in the artist's store catalog. Tap opens
-// the product detail page which renders the plan picker. For
-// per-song / hourly pricing models we surface "from <volumeTier0>" /
-// "from <hourlyRate>" because the actual total depends on quantity
-// the artist chooses. For flat / bundle products we show the price
-// directly.
+import { ProducerAvatar } from "../producer-avatar";
+
+// Product card — locked design system (Phase 5).
+//
+// One row per product. Layout: title + tagline (description fallback)
+// on the left, big JetBrains Mono price on the right. Producer chip
+// and pricing-model pill underneath. Tap-target = full row.
+//
+// `pricingModel` mirrors the existing artist.store.products tRPC
+// shape; `per_song` and `hourly` show as "from $X" because the row's
+// cents column doesn't carry quantity-dependent totals.
+
+const CURRENCY_SYMBOL: Record<string, string> = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  ILS: "₪",
+};
+
+const PRICING_LABEL: Record<
+  "flat" | "per_song" | "hourly" | "bundle",
+  string
+> = {
+  flat: "Pay once",
+  per_song: "Per song",
+  hourly: "Hourly",
+  bundle: "Bundle",
+};
+
 export function ProductCard({
   product,
 }: {
@@ -20,37 +43,48 @@ export function ProductCard({
   };
 }) {
   const priceLabel = formatPriceLabel(product);
+  const sub = product.description
+    ? truncate(product.description, 90)
+    : `${product.producerName} · ${PRICING_LABEL[product.pricingModel]}`;
+
   return (
     <Link
       href={`/artist/store/${product.id}`}
-      className="sk-lift flex items-center gap-3 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 hover:border-[rgb(var(--brand-primary))]/50"
+      className="sk-lift block rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 lg:p-5"
     >
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{product.name}</p>
-        <p className="truncate text-xs text-[rgb(var(--fg-muted))]">
-          {product.producerName}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-bold leading-tight text-[rgb(var(--fg-default))] lg:text-[17px]">
+            {product.name}
+          </p>
+          <p className="mt-1 text-xs leading-snug text-[rgb(var(--fg-muted))] lg:text-[13px]">
+            {sub}
+          </p>
+        </div>
+        <p className="shrink-0 font-mono text-lg font-extrabold leading-none tracking-tight text-[rgb(var(--fg-default))] lg:text-[20px]">
+          {priceLabel}
         </p>
       </div>
-      <span className="shrink-0 font-mono text-xs text-[rgb(var(--brand-primary))]">
-        {priceLabel}
-      </span>
+
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <ProducerAvatar name={product.producerName} size={20} />
+          <span className="truncate text-xs text-[rgb(var(--fg-muted))]">
+            {product.producerName}
+          </span>
+        </div>
+        <span className="pill pill-neutral shrink-0">
+          {PRICING_LABEL[product.pricingModel]}
+        </span>
+      </div>
     </Link>
   );
 }
 
-// Currency glyph map mirrors the one in artist.ts formatter — keep
-// them in sync if a new currency is added.
-const CURRENCY_SYMBOL: Record<string, string> = {
-  USD: "$",
-  EUR: "€",
-  GBP: "£",
-  ILS: "₪",
-};
-
 function formatCents(cents: number, currency: string): string {
   const prefix = CURRENCY_SYMBOL[currency] ?? `${currency} `;
   const major = (cents / 100).toLocaleString(undefined, {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0,
   });
   return `${prefix}${major}`;
 }
@@ -60,10 +94,6 @@ function formatPriceLabel(product: {
   currency: string;
   pricingModel: "flat" | "per_song" | "hourly" | "bundle";
 }): string {
-  // For per_song / hourly the priceCents stored on the row isn't the
-  // truth — the row carries tiers/rate in separate columns we don't
-  // fetch for the card. Fall back to "Variable" so the card stays
-  // honest; the detail page shows the actual pricing shape.
   if (
     product.pricingModel === "per_song" ||
     product.pricingModel === "hourly"
@@ -73,4 +103,9 @@ function formatPriceLabel(product: {
       : "Variable";
   }
   return formatCents(product.priceCents, product.currency);
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max - 1).trimEnd()}…`;
 }
