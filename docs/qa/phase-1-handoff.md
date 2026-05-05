@@ -1,11 +1,30 @@
 # Phase 1 — Design System Foundation Handoff
 
-**Branch:** `v3-ui-design` (off `v3-clean`)
-**PR:** [skitza-v2#55](https://github.com/Skitza-G-R/skitza-v2/pull/55)
+**Status:** ✅ Merged into `v3-clean` 2026-05-05 15:19 UTC
+**PR:** [skitza-v2#55](https://github.com/Skitza-G-R/skitza-v2/pull/55) — merged via merge-commit (preserves the 4-commit feature history)
+**Merge commit:** [`d81863c`](https://github.com/Skitza-G-R/skitza-v2/commit/d81863c1bde194d1c8afa929d4c23f8d70459e8c)
+**Source branch:** `v3-ui-design` — deleted from origin and locally after merge
+**Approver:** Raz (technical co-founder)
 **Date:** 2026-05-05
-**Scope:** design tokens + primitives + toast system. **No screens migrated.**
+**Scope:** design tokens + primitives (Button/Card/Input/Badge/EmptyState/Dialog) + toast system on sonner. **No screens migrated.**
 
 This document records every decision made during Phase 1 so Phase 2 can pick up cleanly. Read this before starting any screen migration.
+
+## Final state on `v3-clean`
+
+- `git log v3-clean --oneline` (top of history after merge):
+  - `d81863c` Merge pull request #55 from Skitza-G-R/v3-ui-design
+  - `a40657a` feat(ui): phase 1 — Dialog primitive
+  - `a64fbdb` docs(ui): phase 1 verification handoff + input close-up
+  - `28e0a6a` docs(ui): phase 1 before/after screenshots
+  - `2f0fa89` chore(ui): phase 1 — design tokens + primitives
+- **Pre-merge CI on PR #55:** test workflow ✅ SUCCESS, Vercel preview deployment ✅ SUCCESS.
+- **Post-merge local re-verify on `v3-clean`:**
+  - `pnpm typecheck` ✅ clean (both packages/db and apps/web)
+  - `pnpm -F web test` ✅ 986 passed / 4 skipped
+  - `pnpm lint` ✅ clean
+- **CI workflow note:** `.github/workflows/ci.yml` triggers on `pull_request` and `push: branches: [main]` only — not on direct pushes to `v3-clean`. The PR's CI run is the canonical pre-merge check; the post-merge local commands above act as the equivalent v3-clean verification.
+- **Vercel preview** of `v3-ui-design` deployed successfully at <https://skitza-v2-web-git-v3-ui-design-gili-asrafs-projects.vercel.app> (URL retired with the branch, but the same artefacts now serve from any v3-clean deployment).
 
 ---
 
