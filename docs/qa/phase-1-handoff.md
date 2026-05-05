@@ -69,13 +69,56 @@ Sonner is themed via `toastOptions.classNames` using the new tokens (`--bg-eleva
 
 **Phase 2 implication:** continue calling `useToast().toast(message, variant)`. Sonner's richer features (action buttons, async loading) are available by importing `toast` directly from `"sonner"` if needed.
 
-### 5. Dialog primitive deliberately not added
+### 5. Dialog primitive added (scope reversal, 2026-05-05)
 
-The verification asked for a Dialog screenshot. **No `dialog.tsx` exists** in `apps/web/src/components/ui/`. The codebase has 14 primitives (badge, breadcrumbs, bulk-action-bar, button, card, empty-state, input, keyboard-hint, list-search, qr-code, save-indicator, skeleton, toast, validation) — none of them a generic Dialog. Modals are inline (`add-charge-modal.tsx`, `cancel-confirm-modal.tsx`, etc.).
+After the initial verification flagged no `dialog.tsx` existed, the user reversed scope: modals appear in 6+ Skitza flows (auth, booking, settings, music upload, edit profile, delete confirms) — Dialog is foundation infrastructure, same tier as Button/Card/Input. The brief's "update existing primitives" wording was a guideline, not a hard cap.
 
-**Decision:** did NOT add a Dialog primitive. Phase 1 brief said "update existing primitives" — adding a new primitive is out of scope.
+**Decision:** built `apps/web/src/components/ui/dialog.tsx` on `@radix-ui/react-dialog@^1.1` with the standard shadcn/ui exports (`Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose`, `DialogOverlay`, `DialogPortal`).
 
-**Phase 2 implication:** if a Dialog primitive is needed, add it then with the locked tokens (`--bg-elevated` surface, `--border-subtle` hairline, `slide-up-modal` entrance on mobile, `sk-pop-center` on desktop).
+**Tokens applied:**
+- Surface: `bg-[rgb(var(--bg-elevated))]` + `border-[rgb(var(--border-subtle))]` + `shadow-[var(--shadow-lg)]`.
+- Backdrop: `bg-[rgb(var(--bg-sidebar)/0.45)]` + `backdrop-blur-sm` — uses the warm-near-black sidebar token (not generic `rgb(0,0,0)`) so the overlay reads as the same warm dark the sidebar establishes.
+- Title: `font-display` (Syne) — same family as `<CardTitle>`.
+- Description: `text-[rgb(var(--fg-muted))]`.
+- Close button: inline SVG X (avoids pulling lucide-react for a single icon — no existing imports of it in apps/web/src) + `sk-press` for the tactile feedback.
+
+**Entrance:** new `.sk-dialog-enter` utility in globals.css. Single class on `<DialogContent>`; the breakpoint logic lives in CSS:
+
+```css
+.sk-dialog-enter {
+  animation: skitza-slide-up-modal 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: bottom;
+}
+@media (min-width: 640px) {
+  .sk-dialog-enter {
+    animation: skitza-pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    transform-origin: center;
+  }
+}
+```
+
+Reduce-motion gated alongside `.slide-up-modal` and `.sk-toast-in` in the existing `@media (prefers-reduced-motion: reduce)` block.
+
+**Layout:** mobile bottom-sheet (`inset-x-0 bottom-0 max-h-[90vh] rounded-t-xl`), desktop centered modal (`sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg`).
+
+**Phase 2 implication:** all new modals MUST use `<Dialog>` from this primitive. Existing inline modals (`add-charge-modal.tsx`, `cancel-confirm-modal.tsx`, `confirm-charge-modal.tsx`, `edit-project-modal.tsx`, `tag-editor.tsx`, `signature-modal.tsx`) should be migrated to `<Dialog>` as their containing screens get touched in Phase 3-5. Don't migrate them as a standalone refactor — wait until that screen is in scope.
+
+### 5b. Deferred primitives — added when first needed, not preemptively
+
+Per "hold the line on scope" — the following primitives are **not** in `apps/web/src/components/ui/` and will be added by the phase that first needs them. Don't build them speculatively.
+
+| Primitive | First likely need | Tokens to apply when built |
+|---|---|---|
+| **Sheet** | Mobile artist platform — booking flow + store filters need a side-anchored panel, not a centered modal | `bg-elevated`, `border-subtle`, `slide-up-modal` (bottom anchor) or `slide-in-from-side` (new keyframe) |
+| **Popover** | Producer dashboard — calendar slot editor, chip-bar filter dropdown, kebab menu options | `bg-elevated`, `border-subtle`, `shadow-md`, `sk-pop` mount entrance |
+| **Tooltip** | Help icons on financial figures, status pills, autopilot rules | `bg-sidebar`, `text-fg-inverse`, `radius-sm`, fade-in 100ms |
+| **Dropdown Menu** | Producer kebab menus on track rows + project tiles | Same as Popover; add `sk-row` hover styling on items |
+| **Tabs** | Currently rolled per-screen (`clients-page-tabs.tsx`, `profile-tabs.tsx`, `calendar-tabs.tsx`, `MusicSubTab` etc.) — should consolidate when 4+ screens settle on the same shape | `border-subtle` underline + `brand-primary` active indicator + `sk-press` |
+| **Accordion** | FAQ block on `/join/[slug]` public profile (currently raw `<details>`) | `border-subtle` divider + `sk-trans` height transition |
+| **Select (Radix)** | Currently using a styled-native `<select>` wrapper inside `input.tsx`. Replace with Radix Select when filterable / large option lists appear (e.g. timezone picker) | Same surface as Popover + `sk-row` items |
+| **Command palette** | `cmdk@^1.1` is already a dep (`apps/web/package.json:30`) but unwrapped. Wrap in a primitive when the global ⌘K shortcut launches workflow actions | Use the same surface tokens; specify `sk-pop` entrance |
+
+When you build any of these, **read this section first** so the tokens stay consistent across the design system.
 
 ### 6. Border alpha — channel form, not pre-baked
 
@@ -99,19 +142,20 @@ The brief said: don't touch layouts, pages, tRPC, DB, auth.
 
 | File | Lines changed |
 |---|---|
-| `apps/web/package.json` | +1 (sonner) |
-| `apps/web/src/app/globals.css` | +369 / -328 |
+| `apps/web/package.json` | +2 (sonner, @radix-ui/react-dialog) |
+| `apps/web/src/app/globals.css` | +386 / -328 |
 | `apps/web/src/app/layout.tsx` | +33 / -59 |
 | `apps/web/src/components/ui/badge.tsx` | +14 / -8 |
 | `apps/web/src/components/ui/button.tsx` | +29 / -26 |
 | `apps/web/src/components/ui/card.tsx` | +25 / -13 |
+| `apps/web/src/components/ui/dialog.tsx` | +156 / 0 (new) |
 | `apps/web/src/components/ui/empty-state.tsx` | +2 / -2 |
 | `apps/web/src/components/ui/input.tsx` | +12 / -11 |
 | `apps/web/src/components/ui/toast.tsx` | +91 / -87 |
-| `pnpm-lock.yaml` | +14 |
-| `docs/qa/phase-1-design-system/*.png` | 5 screenshots |
+| `pnpm-lock.yaml` | +30 |
+| `docs/qa/phase-1-design-system/*.png` | 8 screenshots |
 
-Net: **15 files** / **+626 / -498**. Foundation-only.
+Foundation + Dialog primitive. Out-of-scope discipline held: zero changes to (producer)/(artist)/server/db.
 
 ---
 
@@ -130,12 +174,16 @@ Net: **15 files** / **+626 / -498**. Foundation-only.
 
 Captured locally — v3-clean (port 3001) before, v3-ui-design (port 3000) after, light mode, 1280×800.
 
-- `docs/qa/phase-1-design-system/phase-1-before-signin.png` ↔ `phase-1-after-signin.png` — `/sign-in` (Button + Card + Input)
-- `docs/qa/phase-1-design-system/phase-1-before-landing.png` ↔ `phase-1-after-landing.png` — `/` landing (Button + hero typography)
-- `docs/qa/phase-1-design-system/phase-1-after-landing-cards.png` — pain-card section (Card grid in dark sidebar surface)
-- `docs/qa/phase-1-design-system/phase-1-after-input-zoom.png` — closer view of Card + Input + Button cluster
+- `phase-1-before-signin.png` ↔ `phase-1-after-signin.png` — `/sign-in` (Button + Card + Input via Clerk surface).
+- `phase-1-before-landing.png` ↔ `phase-1-after-landing.png` — `/` landing (Button + Syne hero typography).
+- `phase-1-after-landing-cards.png` — `/` pain-card section (Card grid on dark sidebar surface).
+- `phase-1-after-input-zoom.png` — closer view of Card + Input + Button cluster.
+- `phase-1-after-onboarding-studio.png` — real producer route after sign-in (`/onboarding/studio`). Demonstrates Input primitive in production with amber focus ring + uppercase tracking-widest label + Syne hero ("Name your studio.").
+- `phase-1-after-dialog.png` — Dialog primitive rendered on the same authenticated route. Shows desktop centered modal with `bg-elevated` surface, `border-subtle` hairline, `shadow-lg` elevation, Syne `<DialogTitle>`, muted Outfit `<DialogDescription>`, two action buttons (outline + destructive), backdrop blur over `bg-sidebar/0.45` overlay.
 
-`/dashboard` requires Clerk auth, so `/sign-in` stands in as the proxy. The Vercel preview build for `v3-ui-design` will exercise the real `/dashboard` once a producer signs in.
+The Dialog screenshot was captured by mounting the React primitive's exact class string as a static DOM injection on `/onboarding/studio` — proves the design tokens render correctly via the live Tailwind CSS build. No public route currently mounts `<Dialog>` (it's brand-new); first screen migrations in Phase 2-3 will exercise it in real React.
+
+`/dashboard` redirects to `/onboarding/studio` for any producer who hasn't completed onboarding (real app behaviour, not a Phase 1 regression).
 
 ---
 

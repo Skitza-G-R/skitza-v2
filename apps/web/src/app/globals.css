@@ -599,6 +599,22 @@
   /* Toast entrance (used by sonner via toastOptions). */
   .sk-toast-in { animation: skitza-toast-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
 
+  /* Dialog entrance — slide-up from the bottom on mobile, scale-in
+     centered on desktop. Used by the <Dialog> primitive in
+     apps/web/src/components/ui/dialog.tsx via Radix's
+     `data-[state=open]` attribute on DialogContent. The single class
+     keeps the JSX clean — the breakpoint logic lives here in CSS. */
+  .sk-dialog-enter {
+    animation: skitza-slide-up-modal 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    transform-origin: bottom;
+  }
+  @media (min-width: 640px) {
+    .sk-dialog-enter {
+      animation: skitza-pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      transform-origin: center;
+    }
+  }
+
   /* ----------------------------------------------------------------
    * Pill / status / kbd / wordmark
    * ---------------------------------------------------------------- */
@@ -691,6 +707,7 @@
     .ping-dot,
     .eq-bar,
     .slide-up-modal,
+    .sk-dialog-enter,
     .sk-toast-in { animation: none !important; }
     .seal-enter { animation: none; opacity: 1; transform: none; }
 
