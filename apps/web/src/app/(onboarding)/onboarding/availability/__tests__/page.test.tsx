@@ -46,12 +46,14 @@ describe("Step 4 (availability) page contract", () => {
       expect(AVAILABILITY_STEP_TITLE).toBe("When are you open?");
     });
 
-    it("subtitle stays welcoming (mentions reversibility / freedom to skip)", () => {
-      // Pin a substring that proves the subtitle reassures rather than
-      // demands. If a future copy edit goes formal/legalese, this test
-      // fails and forces a deliberate update.
+    it("subtitle tells the producer Continue saves their hours", () => {
+      // B1 — producers were unsure whether their hours would persist
+      // after onboarding. The subtitle now explicitly says Continue
+      // saves, so the test pins that the save/continue framing stays.
+      // If a future copy edit drops the save promise, this fails and
+      // forces a deliberate update.
       expect(AVAILABILITY_STEP_SUBTITLE.toLowerCase()).toMatch(
-        /later|skip|change|edit|adjust/,
+        /save|continue/,
       );
     });
 

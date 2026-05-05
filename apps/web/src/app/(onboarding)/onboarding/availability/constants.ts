@@ -19,7 +19,7 @@ export const AVAILABILITY_STEP_TITLE = "When are you open?";
 
 /** Subtitle reassuring producers they don't need to be perfect here. */
 export const AVAILABILITY_STEP_SUBTITLE =
-  "Set your weekly hours, default session length, and cancellation policy. You can adjust any of this later from Setup.";
+  "Set your weekly hours. Tap Continue to save and move on.";
 
 /** OnboardingStep tag for this page — used by decideOnboardingRedirect. */
 export const ONBOARDING_STEP_NAME: OnboardingStep = "availability";
