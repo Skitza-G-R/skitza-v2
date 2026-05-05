@@ -79,6 +79,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     };
   }, [query, open]);
 
+  // Phase 2 — labels + shortcuts mirror the locked design's
+  // ShortcutsHelp (notes/nav.jsx) and the relabelled sidebar:
+  //   G H = Overview, G P = Projects, G M = Music,
+  //   G C = Calendar, G S = Storefront, G T = Settings.
+  // Calendar + Store entries newly added (the prior 4-route palette
+  // pre-dated the 6-page producer surface). Internal `id`s use the
+  // ActiveKey vocabulary (`today`, `profile`, `setup`) so any future
+  // analytics on action-fire stays stable across the rename.
   const actions: Action[] = useMemo(
     () => [
       {
@@ -92,11 +100,20 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       },
       {
         id: "goto-today",
-        label: "Go to Today",
-        shortcut: "G T",
+        label: "Go to Overview",
+        shortcut: "G H",
         run: () => {
           onClose();
           router.push("/dashboard");
+        },
+      },
+      {
+        id: "goto-projects",
+        label: "Go to Clients & Projects",
+        shortcut: "G P",
+        run: () => {
+          onClose();
+          router.push("/dashboard/clients-projects");
         },
       },
       {
@@ -109,18 +126,27 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         },
       },
       {
-        id: "goto-projects",
-        label: "Go to Projects",
-        shortcut: "G P",
+        id: "goto-calendar",
+        label: "Go to Calendar",
+        shortcut: "G C",
         run: () => {
           onClose();
-          router.push("/dashboard/clients-projects");
+          router.push("/dashboard/calendar");
+        },
+      },
+      {
+        id: "goto-profile",
+        label: "Go to Store",
+        shortcut: "G S",
+        run: () => {
+          onClose();
+          router.push("/dashboard/profile");
         },
       },
       {
         id: "goto-setup",
-        label: "Go to Setup",
-        shortcut: "G S",
+        label: "Go to Settings",
+        shortcut: "G T",
         run: () => {
           onClose();
           router.push("/dashboard/settings");

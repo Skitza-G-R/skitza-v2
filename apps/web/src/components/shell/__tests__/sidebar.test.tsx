@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { NAV_ITEMS } from "../sidebar";
 
+// Phase 2 — labels and G-leader shortcuts updated to the locked
+// design system. Internal `id`s are unchanged so URL → ActiveKey
+// derivation stays stable. Route mapping (Gili's brief Q3) drops the
+// non-existent /dashboard/insights and surfaces six items:
+//   Overview / Clients & Projects / Music / Calendar / Store / Settings.
+//
+// G-leader shortcuts mirror the locked design's `ShortcutsHelp`
+// (notes/nav.jsx): G H (home/overview), G P (projects), G M (music),
+// G C (calendar), G S (storefront), G T (settings).
+
 describe("Sidebar NAV_ITEMS", () => {
   it("contains exactly 6 top-level items", () => {
     expect(NAV_ITEMS).toHaveLength(6);
@@ -8,12 +18,12 @@ describe("Sidebar NAV_ITEMS", () => {
 
   it("has the 6 canonical labels in order", () => {
     expect(NAV_ITEMS.map((i) => i.label)).toEqual([
-      "Today",
+      "Overview",
       "Clients & Projects",
       "Music",
       "Calendar",
-      "Profile",
-      "Setup",
+      "Store",
+      "Settings",
     ]);
   });
 
@@ -26,12 +36,12 @@ describe("Sidebar NAV_ITEMS", () => {
     expect(NAV_ITEMS.find((i) => i.id === "setup")?.href).toBe("/dashboard/settings");
   });
 
-  it("assigns a G-leader shortcut to each item matching the global map", () => {
-    expect(NAV_ITEMS.find((i) => i.id === "today")?.shortcut).toBe("G T");
+  it("assigns a G-leader shortcut to each item matching the locked design", () => {
+    expect(NAV_ITEMS.find((i) => i.id === "today")?.shortcut).toBe("G H");
     expect(NAV_ITEMS.find((i) => i.id === "clients-projects")?.shortcut).toBe("G P");
     expect(NAV_ITEMS.find((i) => i.id === "music")?.shortcut).toBe("G M");
     expect(NAV_ITEMS.find((i) => i.id === "calendar")?.shortcut).toBe("G C");
-    expect(NAV_ITEMS.find((i) => i.id === "profile")?.shortcut).toBe("G F");
-    expect(NAV_ITEMS.find((i) => i.id === "setup")?.shortcut).toBe("G S");
+    expect(NAV_ITEMS.find((i) => i.id === "profile")?.shortcut).toBe("G S");
+    expect(NAV_ITEMS.find((i) => i.id === "setup")?.shortcut).toBe("G T");
   });
 });

@@ -23,12 +23,20 @@ export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: 
 
   const sections: Array<{ title: string; keys: Array<{ k: string; desc: string }> }> = [
     {
+      // Phase 2 — entries mirror the locked design's ShortcutsHelp
+      // (notes/nav.jsx) and the relabelled sidebar. Calendar + Store
+      // added (the prior 4-row strip pre-dated the 6-page producer
+      // surface). `g t` flipped from Today to Settings, `g s` flipped
+      // from Setup to Store, and `g h` is new for Overview — kept in
+      // sync with G_LEADER_ROUTES in lib/keyboard/use-shortcuts.ts.
       title: "Navigate",
       keys: [
-        { k: "g t", desc: "Today" },
+        { k: "g h", desc: "Overview" },
+        { k: "g p", desc: "Clients & Projects" },
         { k: "g m", desc: "Music" },
-        { k: "g p", desc: "Projects" },
-        { k: "g s", desc: "Setup" },
+        { k: "g c", desc: "Calendar" },
+        { k: "g s", desc: "Store" },
+        { k: "g t", desc: "Settings" },
       ],
     },
     {

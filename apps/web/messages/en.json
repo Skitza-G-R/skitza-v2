@@ -1,11 +1,11 @@
 {
   "sidebar": {
-    "today": "Today",
+    "today": "Overview",
     "music": "Music",
     "clients-projects": "Clients & Projects",
     "calendar": "Calendar",
-    "profile": "Profile",
-    "setup": "Setup",
+    "profile": "Store",
+    "setup": "Settings",
     "publicProfile": "Public profile",
     "expand": "Expand sidebar",
     "collapse": "Collapse sidebar"
