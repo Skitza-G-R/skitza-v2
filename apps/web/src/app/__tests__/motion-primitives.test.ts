@@ -128,22 +128,25 @@ describe("Phase 4 Sheet primitive motion", () => {
   });
 });
 
-// Landing CSS (S1) is a verbatim port of the founder's original
-// stylesheet — a marketing-only surface scoped under `.landing-root`.
-// The source design uses heavy ambient motion (drifting blobs, pulsing
-// glow on the primary CTA, mockup floats, hero word fade, scroll
-// reveal). Visitors who enable `prefers-reduced-motion: reduce` MUST
-// see those animations neutralised, same a11y contract as the
-// in-app primitives.
+// Landing CSS (Phase 3 v3) is a slim companion to globals.css —
+// the v3 landing leans almost entirely on token-bound Tailwind
+// arbitrary values + the motion primitives in globals.css. The only
+// landing-only motion is the hero word-fade (`.hero-word`), so the
+// landing.css reduce-motion block needs to neutralise that one
+// scoped selector. Every other reveal/animation primitive used by the
+// landing (`.sk-reveal*`, `.sk-soft-pulse`, `.sk-float`, `sk-pop`,
+// `animate-shine`, etc.) lives in globals.css and is covered by the
+// reduce-motion blocks asserted above.
 //
-// Strategy: rather than enumerate every `.btn-primary` / `.ambient-blob`
-// / `.hero-word` selector, we extract the landing.css's own
-// reduce-motion block and assert it contains a catch-all
-// `.landing-root *` rule that zeroes out animation + transition for
-// everything below the landing root. That covers the existing keyframes
-// + transitions AND any future ones added in S2/S3 without forcing
-// every story to remember to extend this test.
-describe("Landing CSS reduce-motion gate (S1, 2026-04-26)", () => {
+// This test pins the v3 landing.css contract:
+//   - At least one @media (prefers-reduced-motion: reduce) block.
+//   - The `.hero-word` rule is forced visible inside that block (so
+//     reduce-motion visitors see the hero copy with no fade-in).
+//
+// The previous PR #50 contract (`.landing-root *` catch-all +
+// `.reveal-up`) was retired in Phase 3 — see
+// docs/qa/phase-3-handoff.md.
+describe("Landing CSS reduce-motion gate (Phase 3 v3)", () => {
   function extractLandingReduceBlock(): string {
     const blocks = [...LANDING_CSS.matchAll(
       /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g,
@@ -155,24 +158,34 @@ describe("Landing CSS reduce-motion gate (S1, 2026-04-26)", () => {
     expect(LANDING_CSS).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
   });
 
-  it("neutralises animation + transition for every descendant of .landing-root", () => {
+  it("neutralises the hero word-fade for reduced-motion visitors", () => {
     const reduce = extractLandingReduceBlock();
-    // Catch-all selector: covers the 7 keyframes and every `transition:`
-    // declaration in the file in one rule, including the source's
-    // `animation: pulse-glow ...` on .btn-primary, the `animation:
-    // drift` on .ambient-blob, and the page-loaded fade-in on
-    // .hero-word / .mockup-wrapper.
-    expect(reduce).toMatch(/\.landing-root \*/);
-    expect(reduce).toMatch(/animation[^:]*:\s*none/);
-    expect(reduce).toMatch(/transition[^:]*:\s*none/);
+    // .hero-word starts at opacity:0 + transform:translateY(0.4em) and
+    // becomes visible when the parent gets `.is-loaded`. Under reduce,
+    // that transition is skipped — the reduce gate must force the
+    // revealed state immediately so visitors don't see a flash of
+    // hidden hero text.
+    expect(reduce).toMatch(/\.hero-word/);
+    expect(reduce).toMatch(/opacity:\s*1\s*!important/);
+    expect(reduce).toMatch(/transform:\s*none\s*!important/);
+    expect(reduce).toMatch(/transition:\s*none\s*!important/);
   });
 
-  it("also disables scroll-reveal so .reveal-up is visible without the entrance animation", () => {
-    const reduce = extractLandingReduceBlock();
-    // .reveal-up starts at opacity:0 + transform:translateY(20px) and
-    // becomes visible when JS adds .is-revealed. Under reduce, JS may
-    // never run (or the IntersectionObserver may fire late) — so the
-    // reduce gate must force the revealed state immediately.
-    expect(reduce).toMatch(/\.reveal-up/);
+  it("globals.css carries the reduce-motion gates for sk-reveal*, sk-soft-pulse, and sk-float", () => {
+    // The v3 landing reveal pattern (`.sk-reveal`, `.sk-reveal-left`,
+    // `.sk-reveal-right`, `.sk-reveal-scale`) plus the ambient
+    // `.sk-soft-pulse` / `.sk-float` / `.sk-float-slow` keyframes live
+    // in globals.css alongside the rest of the design system. Their
+    // reduce-motion neutralisation MUST live in the same file so the
+    // motion-primitives.test invariant ("each primitive has a reduce
+    // gate") holds across the whole stylesheet.
+    const reduce = extractReduceBlock();
+    expect(reduce).toContain(".sk-reveal");
+    expect(reduce).toContain(".sk-reveal-left");
+    expect(reduce).toContain(".sk-reveal-right");
+    expect(reduce).toContain(".sk-reveal-scale");
+    expect(reduce).toContain(".sk-soft-pulse");
+    expect(reduce).toContain(".sk-float");
+    expect(reduce).toContain(".sk-float-slow");
   });
 });
