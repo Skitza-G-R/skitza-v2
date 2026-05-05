@@ -29,17 +29,32 @@ export type ShortcutHandlers = {
 };
 
 // G-leader navigation map. Exported so the test suite can assert the
-// routes stay in sync with the 6-page producer surface (Today /
-// Clients & Projects / Music / Calendar / Profile / Setup) without
-// needing jsdom. `c` (calendar) and `f` (profile) joined the map in
-// P2-A-7 alongside the projects → clients-projects rename.
+// routes stay in sync with the 6-page producer surface (Overview /
+// Clients & Projects / Music / Calendar / Store / Settings) without
+// needing jsdom.
+//
+// Phase 2 (2026-05-05) remap to match the locked design's
+// `ShortcutsHelp` (notes/nav.jsx) and the relabelled sidebar:
+//   - `h` (new) — Overview            → /dashboard
+//                  Was `t` previously.
+//   - `s` shifts — Storefront          → /dashboard/profile
+//                  Was Setup → /dashboard/settings.
+//   - `t` shifts — Settings            → /dashboard/settings
+//                  Was Today → /dashboard.
+//   - `f` removed (Profile is now reached via `s`).
+//   - `p`, `m`, `c` unchanged.
+//
+// Sidebar G-shortcut hints (NAV_ITEMS in
+// `~/components/nav/producer-sidebar.tsx`) and the visible surfaces
+// (CommandPalette + ShortcutCheatsheet) read from the same mapping
+// conceptually — keep these aligned when extending.
 export const G_LEADER_ROUTES = {
-  t: "/dashboard",
+  h: "/dashboard",
   m: "/dashboard/music",
   p: "/dashboard/clients-projects",
   c: "/dashboard/calendar",
-  f: "/dashboard/profile",
-  s: "/dashboard/settings",
+  s: "/dashboard/profile",
+  t: "/dashboard/settings",
 } as const;
 
 export type GLeaderKey = keyof typeof G_LEADER_ROUTES;

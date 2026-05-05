@@ -94,6 +94,30 @@ The `app-shell.tsx` host kept its export name + import path so the architecture 
 
 (IDs and routes — frozen. Only the labels + shortcuts surface the new design, matching the locked `notes/nav.jsx` `ShortcutsHelp` cheat sheet.)
 
+#### 3a. Follow-up commit (2026-05-05) — keypress handler + palette + cheatsheet caught up
+
+The sidebar `NAV_ITEMS` shipped in the main commit pinned new labels + shortcut hints (`G H` / `G S` / `G T` etc.), but three downstream surfaces were still on the pre-Phase-2 mapping when Gili eyeballed the running app:
+
+| Surface | File | What was stale |
+|---|---|---|
+| **Keypress handler** | [`apps/web/src/lib/keyboard/use-shortcuts.ts`](../../apps/web/src/lib/keyboard/use-shortcuts.ts) | `G_LEADER_ROUTES` still mapped `t` → /dashboard, `s` → /dashboard/settings, with `f` for /dashboard/profile. So pressing G T actually went to Today (Overview) — but the sidebar advertises G T = Settings. |
+| **Command palette** | [`apps/web/src/components/shell/command-palette.tsx`](../../apps/web/src/components/shell/command-palette.tsx) | "Go to Today" + "Go to Setup" labels with old G T / G S shortcuts; Calendar + Store entries missing entirely (palette was last touched when the producer surface had 4 routes). |
+| **Cheatsheet** | [`apps/web/src/components/shell/shortcut-cheatsheet.tsx`](../../apps/web/src/components/shell/shortcut-cheatsheet.tsx) | Same 4-row strip with old labels + shortcuts. |
+
+Follow-up remap (one consistent mapping across every surface — keypress handler, sidebar hint, palette, cheatsheet):
+
+| Letter | Internal `id` | Visible label | Route |
+|---|---|---|---|
+| `h` *(new)* | `today` | Overview | /dashboard |
+| `p` | `clients-projects` | Clients & Projects | /dashboard/clients-projects |
+| `m` | `music` | Music | /dashboard/music |
+| `c` | `calendar` | Calendar | /dashboard/calendar |
+| `s` *(reflowed)* | `profile` | Store | /dashboard/profile |
+| `t` *(reflowed)* | `setup` | Settings | /dashboard/settings |
+| ~~`f`~~ | ~~Profile~~ | (removed; route reached via `s`) | — |
+
+Pinned by [`apps/web/src/lib/keyboard/use-shortcuts.test.ts`](../../apps/web/src/lib/keyboard/use-shortcuts.test.ts) — keys are `["c", "h", "m", "p", "s", "t"]` and each route is asserted explicitly. If a future remap drifts again, the test fails before any visual QA.
+
 i18n updated:
 - [`apps/web/messages/en.json`](../../apps/web/messages/en.json) → new English labels.
 - [`apps/web/messages/he.json`](../../apps/web/messages/he.json) → new Hebrew labels (סקירה, חנות, הגדרות).
