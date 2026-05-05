@@ -354,6 +354,13 @@
     from { transform: translateY(100%); opacity: 0; }
     to   { transform: translateY(0);    opacity: 1; }
   }
+  /* Side-anchored sheet (right drawer) — paired with the
+     bottom-sheet keyframe above; selected per data-side on the
+     <SheetContent> element. */
+  @keyframes skitza-slide-in-right {
+    from { transform: translateX(100%); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
   /* New — equalizer bars on the playing track. */
   @keyframes skitza-eq {
     0%   { height: 20%; }
@@ -622,6 +629,22 @@
     }
   }
 
+  /* Sheet entrance — used by the <Sheet> primitive in
+     apps/web/src/components/ui/sheet.tsx. The component sets
+     `data-side` on SheetContent and CSS picks the matching keyframe
+     per side. Bottom is the design-locked default (mobile bottom
+     sheet); right is the desktop drawer variant. Add `data-side`
+     selectors here when extending to left/top. Reduce-motion gated
+     in the block below. */
+  .sk-sheet-enter[data-side="bottom"] {
+    animation: skitza-slide-up-modal 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    transform-origin: bottom;
+  }
+  .sk-sheet-enter[data-side="right"] {
+    animation: skitza-slide-in-right 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    transform-origin: right;
+  }
+
   /* ----------------------------------------------------------------
    * Pill / status / kbd / wordmark
    * ---------------------------------------------------------------- */
@@ -715,6 +738,7 @@
     .eq-bar,
     .slide-up-modal,
     .sk-dialog-enter,
+    .sk-sheet-enter,
     .sk-toast-in { animation: none !important; }
     .seal-enter { animation: none; opacity: 1; transform: none; }
 
