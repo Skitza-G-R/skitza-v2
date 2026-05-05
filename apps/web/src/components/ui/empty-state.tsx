@@ -31,9 +31,9 @@ export function EmptyState({
           {icon}
         </div>
       ) : null}
-      <h3 className="font-display text-xl text-[rgb(var(--fg-primary))]">{title}</h3>
+      <h3 className="font-display text-xl font-bold tracking-tight text-[rgb(var(--fg-default))]">{title}</h3>
       {description ? (
-        <p className="mt-2 max-w-sm text-sm text-[rgb(var(--fg-secondary))]">{description}</p>
+        <p className="mt-2 max-w-sm text-sm text-[rgb(var(--fg-muted))]">{description}</p>
       ) : null}
       {action ? <div className="mt-6">{action}</div> : null}
     </div>
