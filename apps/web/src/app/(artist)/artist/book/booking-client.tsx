@@ -3,9 +3,34 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
+import { ProducerAvatar } from "~/components/artist/producer-avatar";
 import { ProducerPicker } from "~/components/artist/producer-picker";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "~/components/ui/dialog";
 
 import { confirmBookingAction } from "./actions";
+
+// Booking flow — locked design system (Phase 5).
+//
+// State-machine PRESERVED from prior implementation. No URL changes
+// per step; all state lives client-side. Only the chrome is redesigned.
+//
+// Modal architecture: we use the responsive Dialog primitive (bottom
+// sheet <640px, centered modal ≥640px). The brief mentioned a Sheet
+// (mobile) + Dialog (desktop) pair, but Sheet's drag-handle pattern
+// implies a persistent surface, while booking is an action-and-dismiss
+// flow — Dialog's responsive behavior is the natural fit and avoids
+// dual-mount focus-trap conflicts. Documented in phase-5-handoff.md.
+//
+// Mobile layout: hero + producer picker + free-booking banner
+// (when applicable) + 14-day horizontal strip of morning/evening
+// blocks. Tap any block to open the Dialog with start-time chips,
+// product picker (if not a free session), and a confirm CTA.
+
+// ─── Types ───────────────────────────────────────────────────────────
 
 type BlockShape = { startMin: number; endMin: number; available: boolean };
 type Day = {
@@ -25,7 +50,6 @@ type Studio = {
   slug: string;
   logoUrl: string | null;
 };
-
 type Product = {
   id: string;
   name: string;
@@ -41,28 +65,10 @@ type Props = {
 };
 
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-const SLOT_INCREMENT_MIN = 60; // 1h cadence for start-time chips
+const SLOT_INCREMENT_MIN = 60;
+const DEFAULT_DURATION_MIN = 120;
 
-// Format a minute-of-day offset as "HH:MM" 24-hour.
-function fmtTime(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-// Short month+day label for a "YYYY-MM-DD" date, e.g. "Apr 19".
-function fmtDateShort(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return iso;
-  // new Date(Date.UTC()) so the weekday/day here lines up with the
-  // router's UTC-midnight day math — no off-by-one at TZ boundaries.
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return dt.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
+// ─── Component ───────────────────────────────────────────────────────
 
 export function BookingClient({
   activeStudioId,
@@ -77,20 +83,16 @@ export function BookingClient({
     blockShape: BlockShape;
   } | null>(null);
   const [chosenStart, setChosenStart] = useState<number | null>(null);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(
+    null,
+  );
   const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<{ ok: true } | { ok: false; error: string } | null>(null);
+  const [result, setResult] = useState<
+    { ok: true } | { ok: false; error: string } | null
+  >(null);
 
   const activeStudio = studios.find((s) => s.producerId === activeStudioId);
 
-  // Default session length — matches the producer's most-common slot
-  // (2h). When the producer-config plumbing lands we'll derive this
-  // per-product; for MVP 2h is the safe default.
-  const DEFAULT_DURATION_MIN = 120;
-
-  // Derive the list of start-time options once per selected block. The
-  // UI renders chips at hourly cadence from block.startMin up to the
-  // latest start that still fits the duration inside the block.
   const startOptions = useMemo(() => {
     if (!selected) return [];
     const out: number[] = [];
@@ -108,6 +110,7 @@ export function BookingClient({
   const handleSwitchStudio = (id: string) => {
     setSelected(null);
     setChosenStart(null);
+    setSelectedProductId(null);
     setResult(null);
     router.push(`/artist/book?studio=${id}`);
   };
@@ -117,6 +120,7 @@ export function BookingClient({
     if (!shape || !shape.available) return;
     setSelected({ date: day.date, block, blockShape: shape });
     setChosenStart(shape.startMin);
+    setSelectedProductId(null);
     setResult(null);
   };
 
@@ -146,9 +150,40 @@ export function BookingClient({
     setResult(null);
   };
 
+  const isFreeBooking = !!availability.freeBookingProjectId;
+  const hasAnyAvailability = availability.days.some(
+    (d) => d.morning?.available || d.evening?.available,
+  );
+
+  const stepCount = isFreeBooking ? 2 : 3;
+  const currentStep = !chosenStart
+    ? 1
+    : !isFreeBooking && !selectedProductId
+      ? 2
+      : stepCount;
+
   return (
-    <div className="space-y-4">
-      <h1 className="sr-only">Book</h1>
+    <div className="space-y-6 lg:space-y-8">
+      <header className="reveal-up">
+        <h1 className="font-display text-[30px] font-extrabold tracking-tight lg:text-[44px] lg:leading-none">
+          Book<span className="text-[rgb(var(--brand-primary))]">.</span>
+        </h1>
+        <p className="mt-1.5 flex items-center gap-2 text-sm text-[rgb(var(--fg-muted))] lg:mt-2">
+          {activeStudio ? (
+            <>
+              <ProducerAvatar name={activeStudio.name} size={18} />
+              <span>
+                Pick a window with{" "}
+                <span className="font-bold text-[rgb(var(--fg-default))]">
+                  {activeStudio.name}
+                </span>
+              </span>
+            </>
+          ) : (
+            <span>Pick a producer to see their availability.</span>
+          )}
+        </p>
+      </header>
 
       <ProducerPicker
         studios={studios}
@@ -157,194 +192,124 @@ export function BookingClient({
       />
 
       {availability.freeBookingProjectTitle ? (
-        <div className="rounded-lg border border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))]/5 p-3 text-sm">
-          <strong className="text-[rgb(var(--brand-primary))]">
-            On the house —{" "}
-          </strong>
-          included in your {availability.freeBookingProjectTitle}
+        <div className="rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.08)] px-4 py-3.5">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--brand-primary))]">
+            On the house
+          </p>
+          <p className="mt-1 text-sm text-[rgb(var(--fg-default))]">
+            This session is included in your{" "}
+            <span className="font-bold">
+              {availability.freeBookingProjectTitle}
+            </span>
+            .
+          </p>
         </div>
       ) : null}
 
-      {/* 14-day horizontal strip. Each day shows up to two cards
-          (morning + evening). Greyed-out cards are unavailable. Tap a
-          card to open the bottom sheet with start-time chips.
-          `sk-scroll-x` gives iOS momentum so the 14-day swipe feels
-          native. */}
-      <div className="sk-scroll-x -mx-4 overflow-x-auto px-4 pb-1">
-        <ul className="flex gap-3">
-          {availability.days.map((day) => (
-            <li key={day.date} className="shrink-0 w-28 space-y-2">
-              <div className="text-center">
-                <div className="text-[0.7rem] font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-                  {WEEKDAY_SHORT[day.weekday]}
-                </div>
-                <div className="text-sm font-medium text-[rgb(var(--fg-primary))]">
-                  {fmtDateShort(day.date)}
-                </div>
-              </div>
+      {!hasAnyAvailability ? (
+        <NoAvailabilityCard producerName={activeStudio?.name ?? "this producer"} />
+      ) : (
+        <SlotStrip
+          days={availability.days}
+          onSelectBlock={handleSelectBlock}
+        />
+      )}
 
+      <Dialog
+        open={selected !== null}
+        onOpenChange={(open) => {
+          if (!open) handleDismiss();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle className="sr-only">Confirm booking</DialogTitle>
+          {selected ? (
+            <BookingPanel
+              activeStudio={activeStudio ?? null}
+              selected={selected}
+              startOptions={startOptions}
+              chosenStart={chosenStart}
+              onChooseStart={setChosenStart}
+              isFreeBooking={isFreeBooking}
+              freeBookingProjectTitle={availability.freeBookingProjectTitle}
+              products={products}
+              selectedProductId={selectedProductId}
+              onSelectProduct={setSelectedProductId}
+              onConfirm={handleConfirm}
+              isPending={isPending}
+              result={result}
+              currentStep={currentStep}
+              stepCount={stepCount}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── 14-day horizontal slot strip ────────────────────────────────────
+
+function SlotStrip({
+  days,
+  onSelectBlock,
+}: {
+  days: Day[];
+  onSelectBlock: (day: Day, block: "morning" | "evening") => void;
+}) {
+  return (
+    <section aria-label="Available slots">
+      <p className="mb-2.5 font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+        Next 14 days
+      </p>
+      <div className="sk-scroll-x -mx-4 overflow-x-auto px-4 pb-1 lg:-mx-0 lg:px-0">
+        <ul className="flex gap-3">
+          {days.map((day) => (
+            <li
+              key={day.date}
+              className="flex w-28 shrink-0 flex-col gap-2 lg:w-32"
+            >
+              <DayHeader day={day} />
               <BlockCard
                 label="Morning"
                 block={day.morning}
                 onClick={() => {
-                  handleSelectBlock(day, "morning");
+                  onSelectBlock(day, "morning");
                 }}
               />
               <BlockCard
                 label="Evening"
                 block={day.evening}
                 onClick={() => {
-                  handleSelectBlock(day, "evening");
+                  onSelectBlock(day, "evening");
                 }}
               />
             </li>
           ))}
         </ul>
       </div>
+    </section>
+  );
+}
 
-      {/* Bottom sheet — picks start-time, then confirms. Using a plain
-          absolute-positioned section instead of a portalled modal so
-          the whole page stays SSR-friendly and doesn't need a global
-          shell dependency. */}
-      {selected ? (
-        <section
-          role="dialog"
-          aria-label="Confirm booking"
-          className="fixed inset-x-0 bottom-0 z-40 rounded-t-2xl border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-4 shadow-2xl"
-        >
-          <div className="mx-auto max-w-2xl space-y-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-base font-semibold">
-                  {fmtDateShort(selected.date)} ·{" "}
-                  {selected.block === "morning" ? "Morning" : "Evening"}
-                </h2>
-                <p className="text-xs text-[rgb(var(--fg-muted))]">
-                  {fmtTime(selected.blockShape.startMin)}–
-                  {fmtTime(selected.blockShape.endMin)} window ·{" "}
-                  {activeStudio?.name}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleDismiss}
-                className="text-xl leading-none text-[rgb(var(--fg-muted))]"
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {startOptions.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => {
-                    setChosenStart(t);
-                  }}
-                  className={`rounded-full border px-3 py-1 text-sm transition-colors ${
-                    t === chosenStart
-                      ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-white"
-                      : "border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-secondary))]"
-                  }`}
-                >
-                  {fmtTime(t)}
-                </button>
-              ))}
-            </div>
-
-            {chosenStart != null && !availability.freeBookingProjectId ? (
-              <div>
-                <p className="text-xs font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))] mb-2">
-                  Select a service
-                </p>
-                {products.length === 0 ? (
-                  <p className="text-sm text-[rgb(var(--fg-secondary))]">
-                    No active services. Contact this producer directly.
-                  </p>
-                ) : (
-                  <ul className="space-y-2">
-                    {products.map((product) => (
-                      <li key={product.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedProductId(product.id);
-                          }}
-                          className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${
-                            product.id === selectedProductId
-                              ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))]/5"
-                              : "border-[rgb(var(--border-subtle))] hover:border-[rgb(var(--fg-muted))]"
-                          }`}
-                        >
-                          <span className="font-medium">{product.name}</span>
-                          {product.sessionCount && product.sessionCount > 1 ? (
-                            <span className="ml-2 text-xs text-[rgb(var(--fg-muted))]">
-                              {product.sessionCount} sessions
-                            </span>
-                          ) : null}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : null}
-
-            {chosenStart != null ? (
-              <p className="text-sm text-[rgb(var(--fg-secondary))]">
-                Book {DEFAULT_DURATION_MIN / 60}h at {fmtTime(chosenStart)} on{" "}
-                {fmtDateShort(selected.date)}
-                {activeStudio ? ` with ${activeStudio.name}` : ""}
-              </p>
-            ) : null}
-
-            {result && !result.ok ? (
-              <p
-                role="alert"
-                className="text-sm text-[rgb(var(--danger))]"
-              >
-                {result.error}
-              </p>
-            ) : null}
-            {result?.ok ? (
-              <p
-                role="status"
-                className="text-sm text-[rgb(var(--success))]"
-              >
-                Booked.
-              </p>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={
-                isPending ||
-                chosenStart == null ||
-                result?.ok ||
-                (!availability.freeBookingProjectId && !selectedProductId)
-              }
-              className="w-full rounded-lg bg-[rgb(var(--brand-primary))] px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isPending
-                ? "Booking…"
-                : result?.ok
-                  ? "Booked"
-                  : availability.freeBookingProjectId
-                    ? "Confirm (free session)"
-                    : "Confirm booking"}
-            </button>
-          </div>
-        </section>
-      ) : null}
+function DayHeader({ day }: { day: Day }) {
+  const [y, m, d] = day.date.split("-").map(Number);
+  const isValid = !!(y && m && d);
+  const dt = isValid ? new Date(Date.UTC(y, m - 1, d)) : null;
+  return (
+    <div className="flex items-center justify-between rounded-[var(--radius-sm)] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-center">
+      <div className="flex w-full flex-col">
+        <span className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+          {WEEKDAY_SHORT[day.weekday]}
+        </span>
+        <span className="font-display text-[18px] font-extrabold leading-none tracking-tight">
+          {dt ? dt.getUTCDate() : "—"}
+        </span>
+      </div>
     </div>
   );
 }
 
-// Single morning/evening card. Greyed when null or unavailable. Uses
-// a button element so screen readers / keyboard users can interact.
 function BlockCard({
   label,
   block,
@@ -356,11 +321,11 @@ function BlockCard({
 }) {
   if (!block) {
     return (
-      <div className="rounded-lg border border-dashed border-[rgb(var(--border-subtle))] p-2 text-center">
-        <div className="text-[0.7rem] font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+      <div className="rounded-[var(--radius-sm)] border border-dashed border-[rgb(var(--border-subtle))] px-2 py-2.5 text-center">
+        <p className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
           {label}
-        </div>
-        <div className="text-xs text-[rgb(var(--fg-muted))]">—</div>
+        </p>
+        <p className="text-xs text-[rgb(var(--fg-muted))]">—</p>
       </div>
     );
   }
@@ -370,18 +335,286 @@ function BlockCard({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`w-full rounded-lg border p-2 text-center transition-colors ${
+      className={
         disabled
-          ? "border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-muted))] opacity-50"
-          : "border-[rgb(var(--border-subtle))] hover:border-[rgb(var(--brand-primary))]"
-      }`}
+          ? "rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2 py-2.5 text-center opacity-50"
+          : "sk-press rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 py-2.5 text-center hover:border-[rgb(var(--brand-primary))]"
+      }
     >
-      <div className="text-[0.7rem] font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+      <p className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
         {label}
-      </div>
-      <div className="text-xs text-[rgb(var(--fg-secondary))]">
+      </p>
+      <p className="font-mono text-[11px] font-bold text-[rgb(var(--fg-default))]">
         {fmtTime(block.startMin)}–{fmtTime(block.endMin)}
-      </div>
+      </p>
     </button>
   );
+}
+
+function NoAvailabilityCard({ producerName }: { producerName: string }) {
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-5 py-12 text-center">
+      <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+        Fully booked
+      </p>
+      <p className="mx-auto mt-2 max-w-sm text-sm text-[rgb(var(--fg-muted))]">
+        {producerName} doesn&rsquo;t have any open windows in the next 14
+        days. Try again later or message them directly.
+      </p>
+    </div>
+  );
+}
+
+// ─── Booking panel (rendered inside Dialog) ──────────────────────────
+
+function BookingPanel({
+  activeStudio,
+  selected,
+  startOptions,
+  chosenStart,
+  onChooseStart,
+  isFreeBooking,
+  freeBookingProjectTitle,
+  products,
+  selectedProductId,
+  onSelectProduct,
+  onConfirm,
+  isPending,
+  result,
+  currentStep,
+  stepCount,
+}: {
+  activeStudio: Studio | null;
+  selected: {
+    date: string;
+    block: "morning" | "evening";
+    blockShape: BlockShape;
+  };
+  startOptions: number[];
+  chosenStart: number | null;
+  onChooseStart: (t: number) => void;
+  isFreeBooking: boolean;
+  freeBookingProjectTitle: string | null;
+  products: Product[];
+  selectedProductId: string | null;
+  onSelectProduct: (id: string) => void;
+  onConfirm: () => void;
+  isPending: boolean;
+  result: { ok: true } | { ok: false; error: string } | null;
+  currentStep: number;
+  stepCount: number;
+}) {
+  const dateLabel = fmtDateLong(selected.date);
+  const blockLabel = selected.block === "morning" ? "Morning" : "Evening";
+  const canConfirm =
+    chosenStart != null && (isFreeBooking || selectedProductId != null);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Progress bar */}
+      <div className="flex items-center gap-1.5">
+        {Array.from({ length: stepCount }, (_, i) => i + 1).map((step) => (
+          <span
+            key={step}
+            className={
+              step <= currentStep
+                ? "h-1 flex-1 rounded-full bg-[rgb(var(--brand-primary))]"
+                : "h-1 flex-1 rounded-full bg-[rgb(var(--border-subtle))]"
+            }
+          />
+        ))}
+      </div>
+
+      {/* Header — producer + selected window */}
+      <div className="flex items-start gap-3">
+        {activeStudio ? (
+          <ProducerAvatar name={activeStudio.name} size={40} />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+            Step {String(currentStep)} of {String(stepCount)}
+          </p>
+          <p className="mt-0.5 font-display text-[18px] font-extrabold tracking-tight">
+            {dateLabel} · {blockLabel}
+          </p>
+          <p className="mt-0.5 font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+            Window {fmtTime(selected.blockShape.startMin)}–
+            {fmtTime(selected.blockShape.endMin)} ·{" "}
+            {String(DEFAULT_DURATION_MIN / 60)}h session
+          </p>
+        </div>
+      </div>
+
+      {/* Start-time chips */}
+      <section>
+        <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+          Start time
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {startOptions.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => {
+                onChooseStart(t);
+              }}
+              className={
+                t === chosenStart
+                  ? "sk-press rounded-full bg-[rgb(var(--bg-sidebar))] px-3.5 py-1.5 font-mono text-[12px] font-bold text-[rgb(var(--fg-inverse))]"
+                  : "sk-press rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-1.5 font-mono text-[12px] font-bold text-[rgb(var(--fg-default))]"
+              }
+            >
+              {fmtTime(t)}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Product picker — skipped when this is a free session */}
+      {!isFreeBooking && chosenStart != null ? (
+        <section>
+          <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+            Service
+          </p>
+          {products.length === 0 ? (
+            <p className="text-sm text-[rgb(var(--fg-muted))]">
+              No active services. Contact this producer directly.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {products.map((product) => {
+                const active = product.id === selectedProductId;
+                const sessionsLabel =
+                  product.sessionCount && product.sessionCount > 1
+                    ? `${String(product.sessionCount)} sessions`
+                    : "1 session";
+                return (
+                  <li key={product.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectProduct(product.id);
+                      }}
+                      className={
+                        active
+                          ? "sk-press flex w-full items-start justify-between gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.06)] px-3.5 py-3 text-left"
+                          : "sk-press flex w-full items-start justify-between gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3 text-left hover:border-[rgb(var(--border-strong))]"
+                      }
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[14px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+                          {product.name}
+                        </p>
+                        <p className="mt-0.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                          {sessionsLabel}
+                        </p>
+                      </div>
+                      <p className="shrink-0 font-mono text-[14px] font-extrabold tracking-tight">
+                        {fmtMoney(product.priceCents, product.currency)}
+                      </p>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      {isFreeBooking && freeBookingProjectTitle ? (
+        <p className="rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.08)] px-3.5 py-2.5 text-[13px] text-[rgb(var(--fg-default))]">
+          <span className="font-bold text-[rgb(var(--brand-primary))]">
+            On the house —{" "}
+          </span>
+          included in your {freeBookingProjectTitle}.
+        </p>
+      ) : null}
+
+      {result && !result.ok ? (
+        <p
+          role="alert"
+          className="rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.3)] bg-[rgb(var(--fg-danger)/0.08)] px-3.5 py-2.5 text-[13px] text-[rgb(var(--fg-danger))]"
+        >
+          {result.error}
+        </p>
+      ) : null}
+      {result?.ok ? (
+        <p
+          role="status"
+          className="rounded-[var(--radius-md)] border border-[rgb(var(--fg-success)/0.3)] bg-[rgb(var(--fg-success)/0.08)] px-3.5 py-2.5 text-[13px] text-[rgb(var(--fg-success))]"
+        >
+          Booked. Your producer will see the request and confirm shortly.
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onConfirm}
+        disabled={isPending || !canConfirm || result?.ok}
+        className="sk-press flex h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] text-[14px] font-bold text-[rgb(var(--bg-sidebar))] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {isPending
+          ? "Booking…"
+          : result?.ok
+            ? "Booked"
+            : isFreeBooking
+              ? "Confirm free session"
+              : "Send booking request"}
+        {!isPending && !result?.ok ? <ArrowRightIcon size={14} /> : null}
+      </button>
+    </div>
+  );
+}
+
+function ArrowRightIcon({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5 12h14M13 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+function fmtTime(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function fmtDateLong(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+const CURRENCY_SYMBOL: Record<string, string> = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  ILS: "₪",
+};
+
+function fmtMoney(cents: number, currency: string): string {
+  const prefix = CURRENCY_SYMBOL[currency] ?? `${currency} `;
+  const major = (cents / 100).toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+  });
+  return `${prefix}${major}`;
 }
