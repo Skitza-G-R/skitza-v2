@@ -2,10 +2,12 @@ import Link from "next/link";
 
 import type { ActivityItem } from "~/server/trpc/routers/artist";
 
-// Server component — flat list of pre-formatted activity events.
-// The router did all the per-row message-building work, so this just
-// renders. When deepLink is null (e.g. session_confirmed has nowhere
-// useful to go), the row renders as a non-interactive `<div>`.
+// Activity feed — locked design system (Phase 5).
+//
+// Mobile: minimal list, no card chrome — section eyebrow above a
+// hairline-divided stack of avatar + text + relative-time rows.
+// Desktop: same layout but inside a card so the right column reads
+// as a discrete unit (variant="card").
 
 const KIND_ICON: Record<ActivityItem["kind"], string> = {
   track_uploaded: "🎵",
@@ -13,44 +15,77 @@ const KIND_ICON: Record<ActivityItem["kind"], string> = {
   invoice_paid: "💸",
 };
 
-export function ActivityFeed({ events }: { events: ActivityItem[] }) {
+export function ActivityFeed({
+  events,
+  limit = 4,
+  variant = "raw",
+}: {
+  events: ActivityItem[];
+  limit?: number;
+  variant?: "raw" | "card";
+}) {
   if (events.length === 0) {
+    if (variant === "card") return null;
     return (
-      <section
-        aria-labelledby="activity-heading"
-        className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-5"
-      >
-        <h2
+      <section aria-labelledby="activity-heading">
+        <p
           id="activity-heading"
-          className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
+          className="mb-3 font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]"
         >
           Activity
-        </h2>
-        <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
+        </p>
+        <p className="text-sm text-[rgb(var(--fg-muted))]">
           Quiet for now. New mixes, sessions, and payments will land here.
         </p>
       </section>
     );
   }
 
+  const items = events.slice(0, limit);
+
+  const list = (
+    <ul className="flex flex-col">
+      {items.map((event, idx) => (
+        <li
+          key={`${event.kind}-${String(idx)}-${String(event.occurredAt.getTime())}`}
+          className={
+            idx === items.length - 1
+              ? ""
+              : "border-b border-[rgb(var(--border-subtle))]"
+          }
+        >
+          <ActivityRow event={event} />
+        </li>
+      ))}
+    </ul>
+  );
+
+  if (variant === "card") {
+    return (
+      <section
+        aria-labelledby="activity-heading"
+        className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
+      >
+        <p
+          id="activity-heading"
+          className="px-4 pb-2 pt-4 font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]"
+        >
+          Activity
+        </p>
+        {list}
+      </section>
+    );
+  }
+
   return (
-    <section
-      aria-labelledby="activity-heading"
-      className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
-    >
-      <h2
+    <section aria-labelledby="activity-heading">
+      <p
         id="activity-heading"
-        className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
+        className="mb-2 px-1 font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]"
       >
         Activity
-      </h2>
-      <ul className="mt-3 divide-y divide-[rgb(var(--border-subtle))]">
-        {events.map((event, idx) => (
-          <li key={`${event.kind}-${String(idx)}-${String(event.occurredAt.getTime())}`}>
-            <ActivityRow event={event} />
-          </li>
-        ))}
-      </ul>
+      </p>
+      {list}
     </section>
   );
 }
@@ -58,12 +93,14 @@ export function ActivityFeed({ events }: { events: ActivityItem[] }) {
 function ActivityRow({ event }: { event: ActivityItem }) {
   const inner = (
     <>
-      <span aria-hidden className="text-base">
+      <span aria-hidden className="shrink-0 text-base">
         {KIND_ICON[event.kind]}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-[rgb(var(--fg-primary))]">{event.message}</p>
-        <p className="text-xs text-[rgb(var(--fg-muted))]">
+        <p className="text-[13px] leading-snug text-[rgb(var(--fg-default))]">
+          {event.message}
+        </p>
+        <p className="mt-0.5 font-mono text-[11px] text-[rgb(var(--fg-muted))]">
           {formatRelative(event.occurredAt)}
         </p>
       </div>
@@ -74,13 +111,13 @@ function ActivityRow({ event }: { event: ActivityItem }) {
     return (
       <Link
         href={event.deepLink}
-        className="flex items-center gap-3 py-3 transition-opacity hover:opacity-80"
+        className="sk-row flex items-start gap-3 px-3 py-2.5"
       >
         {inner}
       </Link>
     );
   }
-  return <div className="flex items-center gap-3 py-3">{inner}</div>;
+  return <div className="flex items-start gap-3 px-3 py-2.5">{inner}</div>;
 }
 
 function formatRelative(d: Date): string {
