@@ -114,6 +114,13 @@
     --brand-accent-soft: var(--brand-copper);
     --border-default: var(--border-strong);
     --accent: var(--brand-primary);
+    /* Phase 2 shell-port — semantic alias for "foreground on dark
+       sidebar surfaces". Maps to --fg-inverse so consumers can write
+       `rgb(var(--fg-onsidebar) / 0.55)` for muted-on-dark text without
+       hard-coding white. The alias keeps the chrome JSX semantically
+       readable: `--fg-default` = "default text on warm canvas",
+       `--fg-onsidebar` = "default text on dark sidebar". */
+    --fg-onsidebar: var(--fg-inverse);
 
     /* Radius scale (mirrors @theme) */
     --radius-sm: 8px;

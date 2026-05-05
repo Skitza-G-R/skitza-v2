@@ -29,7 +29,13 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const COMPONENT_PATH = join(here, "..", "sidebar-share-chip.tsx");
-const SIDEBAR_PATH = join(here, "..", "sidebar.tsx");
+// Phase 2 — the producer sidebar visual implementation moved to
+// `~/components/nav/producer-sidebar.tsx`. The legacy
+// `~/components/shell/sidebar.tsx` is now a thin re-export shim, so
+// the integration grep needs to read the new location to see the
+// chip mount, the publicBaseUrl threading, and the absence of the
+// legacy `t("publicProfile")` link.
+const SIDEBAR_PATH = join(here, "..", "..", "nav", "producer-sidebar.tsx");
 const componentSource = readFileSync(COMPONENT_PATH, "utf8");
 const sidebarSource = readFileSync(SIDEBAR_PATH, "utf8");
 
@@ -200,10 +206,14 @@ describe("SidebarShareChip — design tokens only (no hex)", () => {
 });
 
 describe("Sidebar integration — wires in the new chip", () => {
-  it("imports SidebarShareChip in sidebar.tsx", () => {
+  it("imports SidebarShareChip in the producer sidebar", () => {
     expect(sidebarSource).toContain("SidebarShareChip");
+    // Phase 2 — the chip is imported via the path alias in the new
+    // `~/components/nav/producer-sidebar.tsx` (the legacy relative
+    // `./sidebar-share-chip` import only ever existed inside the
+    // co-located shell/sidebar.tsx, which is now a re-export shim).
     expect(sidebarSource).toMatch(
-      /import\s*\{\s*SidebarShareChip\s*\}\s*from\s*["']\.\/sidebar-share-chip["']/,
+      /import\s*\{\s*SidebarShareChip\s*\}\s*from\s*["']~\/components\/shell\/sidebar-share-chip["']/,
     );
   });
 
