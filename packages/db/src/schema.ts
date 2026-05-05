@@ -178,6 +178,10 @@ export const products = pgTable("products", {
     .$type<PaymentPlan[]>()
     .notNull()
     .default([{ kind: "full" }]),
+  // Optional URL to a contract PDF the producer hosts elsewhere
+  // (Dropbox, Drive, their own site). Mirrors the brand.logoUrl
+  // pattern — producers paste a link, no file upload.
+  contractUrl: text("contract_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Product = typeof products.$inferSelect;

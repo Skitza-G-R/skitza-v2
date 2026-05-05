@@ -127,6 +127,10 @@ const ProductInputShape = {
   bufferMinutes: z.number().int().min(0).max(240).default(0),
   minLeadHours: z.number().int().min(0).max(30 * 24).default(12),
   paymentPlans: PaymentPlanInput.optional(),
+  // B7 — optional URL to a contract PDF the producer hosts elsewhere
+  // (Dropbox, Drive, their own site). Same paste-a-link pattern as
+  // brand.logoUrl. Nullable so producers can clear an existing link.
+  contractUrl: z.string().url().max(2048).nullable().optional(),
 };
 
 const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
@@ -213,6 +217,8 @@ const ProductUpdateInput = z
     bufferMinutes: z.number().int().min(0).max(240).optional(),
     minLeadHours: z.number().int().min(0).max(30 * 24).optional(),
     paymentPlans: PaymentPlanInput.optional(),
+    // B7 — see ProductInputShape comment.
+    contractUrl: z.string().url().max(2048).nullable().optional(),
   });
 
 // Weekly availability replaces the entire week atomically — easier UX

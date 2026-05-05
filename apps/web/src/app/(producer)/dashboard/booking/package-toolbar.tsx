@@ -55,6 +55,9 @@ function templateToInitial(t: ServiceTemplate): InitialPackageValues {
     bufferMinutes: t.defaults.bufferMinutes,
     minLeadHours: t.defaults.minLeadHours,
     paymentPlans: [...t.defaults.paymentPlans],
+    // B7 — templates don't carry a contract URL; producers paste one in
+    // the form after picking a template if they want one.
+    contractUrl: null,
   };
 }
 

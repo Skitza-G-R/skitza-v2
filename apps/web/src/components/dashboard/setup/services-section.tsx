@@ -42,6 +42,7 @@ export type ServicePackageRow = {
   bufferMinutes: number;
   minLeadHours: number;
   paymentPlans: PaymentPlan[];
+  contractUrl: string | null;
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -95,6 +96,7 @@ function toInitialValues(p: ServicePackageRow): InitialPackageValues {
     bufferMinutes: p.bufferMinutes,
     minLeadHours: p.minLeadHours,
     paymentPlans: p.paymentPlans,
+    contractUrl: p.contractUrl,
   };
 }
 

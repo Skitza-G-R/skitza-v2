@@ -65,6 +65,7 @@ export default async function ProfilePage({
       bufferMinutes: p.bufferMinutes,
       minLeadHours: p.minLeadHours,
       paymentPlans: p.paymentPlans,
+      contractUrl: p.contractUrl,
     }));
     storeDefaultCurrency = profile.defaultCurrency as
       | "USD"

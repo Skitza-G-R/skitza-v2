@@ -99,6 +99,7 @@ export default async function SetupPage({
           bufferMinutes: p.bufferMinutes,
           minLeadHours: p.minLeadHours,
           paymentPlans: p.paymentPlans,
+          contractUrl: p.contractUrl,
         }))
       : [];
 

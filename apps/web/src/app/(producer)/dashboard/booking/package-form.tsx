@@ -41,6 +41,10 @@ export type InitialPackageValues = {
   bufferMinutes: number;
   minLeadHours: number;
   paymentPlans?: PaymentPlan[];
+  // B7 — optional contract PDF URL the producer hosts elsewhere
+  // (Dropbox, Drive, their own site). Same paste-a-link pattern as
+  // brand.logoUrl.
+  contractUrl: string | null;
 };
 
 const CURRENCY_SYMBOL: Record<Currency, string> = {
@@ -121,6 +125,12 @@ export function NewPackageForm({
   const [name, setName] = useState(initialValues?.name ?? "");
   const [description, setDescription] = useState(
     initialValues?.description ?? "",
+  );
+  // B7 — contract PDF link (paste-a-URL, no file upload). Empty string
+  // collapses to null on submit so producers can clear an existing link
+  // by deleting the field's value.
+  const [contractUrl, setContractUrl] = useState(
+    initialValues?.contractUrl ?? "",
   );
   const [durationMin, setDurationMin] = useState(
     initialValues?.durationMin ?? 60,
@@ -224,6 +234,15 @@ export function NewPackageForm({
         : selectedPlan === "split_50_50"
           ? 50
           : depositPct;
+    // B7 — collapse empty-string contract URL to null so producers can
+    // clear an existing link, and skip the field entirely when blank on
+    // CREATE so we don't send an empty string through z.string().url().
+    const trimmedContract = contractUrl.trim();
+    const contractField = isEdit
+      ? { contractUrl: trimmedContract.length > 0 ? trimmedContract : null }
+      : trimmedContract.length > 0
+        ? { contractUrl: trimmedContract }
+        : {};
     const payload = {
       name: name.trim(),
       ...(description.trim() ? { description: description.trim() } : {}),
@@ -239,6 +258,7 @@ export function NewPackageForm({
       bufferMinutes,
       minLeadHours,
       paymentPlans,
+      ...contractField,
     };
     startTransition(async () => {
       const res = isEdit
@@ -307,6 +327,24 @@ export function NewPackageForm({
           />
           <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
             Shown on your public booking page — keep it short (~140 chars).
+          </p>
+        </div>
+
+        <div className="sm:col-span-2">
+          <Label htmlFor="contractUrl">Contract PDF link (optional)</Label>
+          <Input
+            id="contractUrl"
+            type="url"
+            value={contractUrl}
+            onChange={(e) => {
+              setContractUrl(e.target.value);
+            }}
+            placeholder="https://drive.google.com/..."
+            maxLength={2048}
+            className="text-base"
+          />
+          <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
+            Paste a public link to your contract PDF (Drive, Dropbox, your site). Leave blank to remove.
           </p>
         </div>
 

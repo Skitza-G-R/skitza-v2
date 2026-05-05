@@ -71,6 +71,7 @@ export async function createPackage(input: {
   bufferMinutes?: number;
   minLeadHours?: number;
   paymentPlans?: PaymentPlan[];
+  contractUrl?: string | null;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -97,6 +98,7 @@ export async function updatePackage(input: {
   bufferMinutes?: number;
   minLeadHours?: number;
   paymentPlans?: PaymentPlan[];
+  contractUrl?: string | null;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
