@@ -101,6 +101,33 @@ describe("Batch C motion primitives", () => {
   );
 });
 
+// Phase 4 added the Sheet primitive (apps/web/src/components/ui/sheet.tsx)
+// for bottom-anchored modals + side-anchored desktop drawers. The motion
+// contract uses `.sk-sheet-enter` with a `data-side` attribute to pick
+// the right keyframe per side. Reduce-motion gating is non-negotiable —
+// any future side variant added here MUST also be added to the reduce
+// block in globals.css.
+describe("Phase 4 Sheet primitive motion", () => {
+  const reduceBlock = extractReduceBlock();
+
+  it("declares .sk-sheet-enter[data-side='bottom'] using the existing slide-up keyframe", () => {
+    expect(GLOBALS_CSS).toMatch(
+      /\.sk-sheet-enter\[data-side="bottom"\][\s\S]*?animation:\s*skitza-slide-up-modal/,
+    );
+  });
+
+  it("declares .sk-sheet-enter[data-side='right'] using a slide-in-right keyframe", () => {
+    expect(GLOBALS_CSS).toMatch(/@keyframes skitza-slide-in-right\b/);
+    expect(GLOBALS_CSS).toMatch(
+      /\.sk-sheet-enter\[data-side="right"\][\s\S]*?animation:\s*skitza-slide-in-right/,
+    );
+  });
+
+  it("respects prefers-reduced-motion for .sk-sheet-enter", () => {
+    expect(reduceBlock).toContain(".sk-sheet-enter");
+  });
+});
+
 // Landing CSS (S1) is a verbatim port of the founder's original
 // stylesheet — a marketing-only surface scoped under `.landing-root`.
 // The source design uses heavy ambient motion (drifting blobs, pulsing
