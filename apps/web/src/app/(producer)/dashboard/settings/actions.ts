@@ -96,6 +96,38 @@ export async function updateAutopilot(input: {
   }
 }
 
+// Marketing meta editor (Settings → Profile branch). Curated freeform
+// strings that surface on the public /join/<slug> page's 4-stat band
+// (Genres / Released / Streams / Response). Each field is independently
+// nullable so the producer can clear a single stat without affecting
+// the others. Revalidates the Settings page (so the form rehydrates)
+// AND the public /join page so the strip reflects the new copy
+// immediately.
+export async function updateMarketing(input: {
+  genres?: string[] | null;
+  releasedSummary?: string | null;
+  streamsSummary?: string | null;
+  responseHours?: 24 | 48 | 168 | null;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.producer.updateMarketing(input);
+    revalidatePath(SETTINGS_PATH);
+    // Bust the public /join page cache. We don't have the slug here
+    // without an extra round-trip, so revalidate the route group as a
+    // tag-less fallback. For now revalidate the section root; the
+    // settings page revalidation also covers the producer's own
+    // dashboard surfaces. The /join slug-specific page is statically
+    // rendered so a producer save → next visitor read sees fresh copy
+    // within the standard ISR window.
+    revalidatePath("/join", "layout");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Story 01 of /join flow — per-track public-sample flip. The tRPC
 // layer does the owner check and collapses "not yours" and "not
 // found" into the same NOT_FOUND (enumeration-proof, see

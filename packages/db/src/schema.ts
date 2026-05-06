@@ -72,6 +72,20 @@ export const producers = pgTable("producers", {
   autopilotCommentNotify: boolean("autopilot_comment_notify").notNull().default(true),
   autopilotAutoArchive: boolean("autopilot_auto_archive").notNull().default(false),
   serviceRoles: text("service_roles").array().default([]),
+  // ─── Marketing-grade meta fields ─────────────────────────────────
+  // Surfaced by the 4-stat band on /join/<slug> ("Genres / Released /
+  // Streams / Response"). Curated freeform strings — NOT computed from
+  // real bookings/streams data (Phase H owns that). Nullable so a
+  // producer who never opens Settings keeps the static React defaults
+  // in place; the meta-strip hides any block whose value is null.
+  // Migration 0006.
+  genres: text("genres").array(),
+  releasedSummary: text("released_summary"),
+  streamsSummary: text("streams_summary"),
+  // Hours of typical response time. 24/48/168 cover the dropdown
+  // options "Within 24h" / "Within 48h" / "Within 1 week"; null hides
+  // the response stat block entirely (the producer chose "Hidden").
+  responseHours: integer("response_hours"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
