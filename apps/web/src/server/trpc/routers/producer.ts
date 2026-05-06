@@ -10,10 +10,7 @@ import {
   invoices,
   isNotNull,
   isNull,
-  leads,
   lte,
-  magicLinks,
-  magicLinkViews,
   portfolioTracks,
   producers,
   projectTracks,
@@ -33,7 +30,7 @@ import { stripUndefined } from "../strip-undefined";
 // Accepts a subset of producer-editable fields. The schema's cascade is
 // designed so any of these can change without orphaning related data.
 // Slug uniqueness is enforced at the DB level; we catch + rethrow with
-// a friendlier message via the leads/onboarding upsert pattern.
+// a friendlier message in the update mutation.
 const BrandInput = z.object({
   // Hex colors stored as "#rrggbb" — the theme-resolver reads this into
   // CSS `--brand-primary` at request time (apps/web/src/lib/branding/
@@ -115,7 +112,7 @@ function formatInvoiceSubtitle(
 // Shape returned by `producer.today`. One row per actionable thing the
 // producer should look at in the current day. KPI counts ride
 // alongside so the UI renders the strip + the inbox in a single call.
-export type TodayKind = "session" | "comment" | "invoice" | "lead";
+export type TodayKind = "session" | "comment" | "invoice";
 export interface TodayItem {
   id: string;
   kind: TodayKind;
@@ -190,22 +187,20 @@ const MUSIC_LIST_MAX = 100;
 // overall TODAY_ITEMS_MAX so a single active kind (e.g. 50 upcoming
 // sessions in a busy week) can fill the entire payload. The outer
 // .slice(0, TODAY_ITEMS_MAX) still caps the total; this just prevents
-// a runaway "SELECT all leads for this producer" from returning
+// a runaway "SELECT all comments for this producer" from returning
 // thousands of rows.
 const TODAY_PER_SOURCE_CAP = 50;
 
 // Strict type ordering: sessions first (time-sensitive), then
-// unread comments (artist is waiting), then unpaid invoices (money),
-// then leads (maybe-future). Within each kind we sort by occurredAt
-// (asc for upcoming sessions — soonest first; desc for everything
-// else — most recent first). This matches the plan's documented
-// "session > unread comment > invoice > lead" rule without inventing
-// a composite score.
+// unread comments (artist is waiting), then unpaid invoices (money).
+// Within each kind we sort by occurredAt (asc for upcoming sessions
+// — soonest first; desc for everything else — most recent first).
+// This matches the plan's documented "session > unread comment >
+// invoice" rule without inventing a composite score.
 const KIND_PRIORITY: Record<TodayKind, number> = {
   session: 0,
   comment: 1,
   invoice: 2,
-  lead: 3,
 };
 
 export const producerRouter = router({
@@ -271,8 +266,8 @@ export const producerRouter = router({
 
   // Producer's "Today" dashboard — one call returns the four KPI
   // counters AND the unified inbox of actionable items (upcoming
-  // sessions, unread comments, unpaid invoices, leads). Pattern mirrors
-  // `artist.home`: one Promise.all fan-out across four sources, each
+  // sessions, unread comments, unpaid invoices). Pattern mirrors
+  // `artist.home`: one Promise.all fan-out across the sources, each
   // WHERE-scoped to ctx.producerId, then shape + sort + cap.
   //
   // `savedViews` returns [] — persisting a user's saved filter requires
@@ -306,11 +301,10 @@ export const producerRouter = router({
     );
 
     // Active stages for the KPI counter — excludes terminal states so
-    // "archived" and "cancelled" projects don't inflate the count.
+    // "archived" projects don't inflate the count.
     const ACTIVE_STAGES = [
       "lead",
       "booked",
-      "contract_sent",
       "in_production",
       "final_review",
     ] as const;
@@ -320,11 +314,11 @@ export const producerRouter = router({
     // uncollectible all represent money the producer is still owed.
     const UNPAID_STATUSES = ["draft", "sent", "uncollectible"] as const;
 
-    // Fan out across the 4 data sources in parallel. Each query is
+    // Fan out across the data sources in parallel. Each query is
     // independently producer-scoped (WHERE producer_id = ctx.producerId)
     // so a regression in any single sub-query can't leak other
     // producers' data. The producer profile lookup rides along as a
-    // 9th leg — it has no data dependency on the other queries, so
+    // separate leg — it has no data dependency on the other queries, so
     // running it sequentially would just add tail latency.
     const [
       activeProjectRows,
@@ -334,7 +328,6 @@ export const producerRouter = router({
       openCommentsCountRows,
       unpaidInvoiceRows,
       openCommentRows,
-      leadRows,
       profileRows,
       recentUploadRows,
       lastMonthRows,
@@ -468,22 +461,8 @@ export const producerRouter = router({
         .orderBy(desc(trackComments.createdAt))
         .limit(TODAY_PER_SOURCE_CAP),
 
-      // (8) Lead rows for items list.
-      ctx.db
-        .select({
-          id: leads.id,
-          name: leads.name,
-          email: leads.email,
-          source: leads.source,
-          createdAt: leads.createdAt,
-        })
-        .from(leads)
-        .where(eq(leads.producerId, ctx.producerId))
-        .orderBy(desc(leads.createdAt))
-        .limit(TODAY_PER_SOURCE_CAP),
-
-      // (9) Producer's default currency — needed for the KPI payload's
-      // revenue display. No data dependency on the other 8 legs, so we
+      // (8) Producer's default currency — needed for the KPI payload's
+      // revenue display. No data dependency on the other legs, so we
       // run it in parallel instead of after the fan-out.
       ctx.db
         .select({ defaultCurrency: producers.defaultCurrency })
@@ -491,7 +470,7 @@ export const producerRouter = router({
         .where(eq(producers.id, ctx.producerId))
         .limit(1),
 
-      // (10) Recent uploads shelf (Today redesign Story 3). Up to 7
+      // (9) Recent uploads shelf (Today redesign Story 3). Up to 7
       // most-recent track versions across the producer's *active*
       // projects, with audioUrl present (in-flight uploads excluded).
       // Joins through projectTracks → projects so the producer-scope
@@ -523,7 +502,7 @@ export const producerRouter = router({
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(RECENT_UPLOADS_MAX),
 
-      // (11) Last-month paid revenue (Pulse delta-vs-last-month).
+      // (10) Last-month paid revenue (Pulse delta-vs-last-month).
       // Same shape as leg 2, just shifted one calendar month back.
       // We sum in JS so currency-mismatched legacy rows can be
       // dropped (defaultCurrency is the anchor).
@@ -542,7 +521,7 @@ export const producerRouter = router({
           ),
         ),
 
-      // (12) 30-day daily sparkline (Pulse ambient chart). Aggregates
+      // (11) 30-day daily sparkline (Pulse ambient chart). Aggregates
       // paid-invoice revenue into one row per UTC day. Days with no
       // revenue are absent from this result and zero-filled JS-side
       // before serializing — the consumer always gets a fixed-length
@@ -602,7 +581,7 @@ export const producerRouter = router({
       title: c.authorName,
       subtitle: truncate(c.body, 120),
       occurredAt: c.createdAt,
-      href: `/dashboard/projects/${c.projectId}`,
+      href: `/dashboard/clients-projects/${c.projectId}`,
       unread: true,
     }));
 
@@ -617,24 +596,14 @@ export const producerRouter = router({
       ),
       occurredAt: inv.createdAt,
       href: inv.projectId
-        ? `/dashboard/projects/${inv.projectId}`
-        : "/dashboard/projects",
+        ? `/dashboard/clients-projects/${inv.projectId}`
+        : "/dashboard/clients-projects",
       unread: false,
     }));
 
-    const leadItems: TodayItem[] = leadRows.map((l) => ({
-      id: `lead:${l.id}`,
-      kind: "lead",
-      title: l.name ?? l.email ?? "New lead",
-      subtitle: l.source ? `Source: ${l.source}` : (l.email ?? ""),
-      occurredAt: l.createdAt,
-      href: `/dashboard/projects?leadId=${l.id}`,
-      unread: true,
-    }));
-
-    const items = [...sessionItems, ...commentItems, ...invoiceItems, ...leadItems]
+    const items = [...sessionItems, ...commentItems, ...invoiceItems]
       .sort((a, b) => {
-        // Primary: kind priority (session → comment → invoice → lead).
+        // Primary: kind priority (session → comment → invoice).
         const kp = KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind];
         if (kp !== 0) return kp;
         // Within kind: sessions sort asc (soonest first), others desc.
@@ -890,6 +859,99 @@ export const producerRouter = router({
       // holds even if a future query path skips the DB-side limit.
       return { tracks: rows.slice(0, MUSIC_LIST_MAX) };
     }),
+
+    // L3 song page detail — single track with its full version stack +
+    // timestamped comments, scoped to the producer's tenant. Resolves
+    // by VERSION id (the same identifier the L1 list rows use), so the
+    // route /dashboard/music/<versionId> deep-links cleanly. Auth gate:
+    // the version must belong to a track on a project owned by
+    // ctx.producerId — anything else returns NOT_FOUND (we don't
+    // differentiate "doesn't exist" from "not yours" to avoid leaking
+    // existence). Mirrors the data shape of artist.music.project so
+    // the L3 UI can render the same waveform + comments primitives.
+    detail: producerProcedure
+      .input(z.object({ versionId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        // 1. Resolve the version row + its parent track + project, all
+        //    in one join. Filters by projects.producerId — the auth
+        //    boundary. If the join returns 0 rows, NOT_FOUND.
+        const [head] = await ctx.db
+          .select({
+            versionId: trackVersions.id,
+            trackId: projectTracks.id,
+            trackTitle: projectTracks.title,
+            trackArtist: projectTracks.artist,
+            projectId: projects.id,
+            projectTitle: projects.title,
+            clientName: projects.clientName,
+          })
+          .from(trackVersions)
+          .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+          .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+          .where(
+            and(
+              eq(trackVersions.id, input.versionId),
+              eq(projects.producerId, ctx.producerId),
+            ),
+          )
+          .limit(1);
+        if (!head) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // 2. Full version stack for the track, desc by uploadedAt so
+        //    the latest is first (matches the design's "v3 · current"
+        //    label position). Includes approvedAt so the L3 UI can
+        //    show the green checkmark on the approved version.
+        const versions = await ctx.db
+          .select({
+            id: trackVersions.id,
+            label: trackVersions.label,
+            audioUrl: trackVersions.audioUrl,
+            durationMs: trackVersions.durationMs,
+            uploadedAt: trackVersions.uploadedAt,
+            approvedAt: trackVersions.approvedAt,
+          })
+          .from(trackVersions)
+          .where(eq(trackVersions.trackId, head.trackId))
+          .orderBy(desc(trackVersions.uploadedAt));
+
+        // 3. Comments across all versions of this track. Asc by
+        //    timestampMs so the comment thread reads in track order
+        //    (same convention as the artist Now Playing screen).
+        const versionIds = versions.map((v) => v.id);
+        const comments = versionIds.length
+          ? await ctx.db
+              .select({
+                id: trackComments.id,
+                versionId: trackComments.versionId,
+                timeMs: trackComments.timestampMs,
+                body: trackComments.body,
+                fromProducer: trackComments.fromProducer,
+                authorName: trackComments.authorName,
+                createdAt: trackComments.createdAt,
+                resolvedAt: trackComments.resolvedAt,
+              })
+              .from(trackComments)
+              .where(inArray(trackComments.versionId, versionIds))
+              .orderBy(asc(trackComments.timestampMs))
+          : [];
+
+        return {
+          track: {
+            id: head.trackId,
+            title: head.trackTitle,
+            artist: head.trackArtist,
+            projectId: head.projectId,
+            projectTitle: head.projectTitle,
+            clientName: head.clientName,
+          },
+          versions,
+          comments,
+          // Selected version id — first version that matches the input,
+          // or the latest if the input version was somehow filtered out
+          // (shouldn't happen given the head check above, but defensive).
+          selectedVersionId: input.versionId,
+        };
+      }),
   }),
 
   // Full data export — everything Skitza stores tied to this producer.
@@ -905,30 +967,11 @@ export const producerRouter = router({
       .limit(1);
     if (!profile) throw new TRPCError({ code: "NOT_FOUND" });
 
-    const [tracks, leadRows, links, views] = await Promise.all([
-      ctx.db
-        .select()
-        .from(portfolioTracks)
-        .where(eq(portfolioTracks.producerId, ctx.producerId))
-        .orderBy(portfolioTracks.position),
-      ctx.db.select().from(leads).where(eq(leads.producerId, ctx.producerId)),
-      ctx.db.select().from(magicLinks).where(eq(magicLinks.producerId, ctx.producerId)),
-      // Views are joined through the links to keep the export
-      // producer-scoped; we're not SELECTing every view row in the db.
-      ctx.db
-        .select({
-          id: magicLinkViews.id,
-          magicLinkId: magicLinkViews.magicLinkId,
-          ip: magicLinkViews.ip,
-          userAgent: magicLinkViews.userAgent,
-          referer: magicLinkViews.referer,
-          dwellMs: magicLinkViews.dwellMs,
-          viewedAt: magicLinkViews.viewedAt,
-        })
-        .from(magicLinkViews)
-        .innerJoin(magicLinks, eq(magicLinks.id, magicLinkViews.magicLinkId))
-        .where(eq(magicLinks.producerId, ctx.producerId)),
-    ]);
+    const tracks = await ctx.db
+      .select()
+      .from(portfolioTracks)
+      .where(eq(portfolioTracks.producerId, ctx.producerId))
+      .orderBy(portfolioTracks.position);
 
     return {
       exportedAt: new Date().toISOString(),
@@ -945,19 +988,6 @@ export const producerRouter = router({
         updatedAt: profile.updatedAt,
       },
       portfolioTracks: tracks,
-      leads: leadRows,
-      magicLinks: links.map((l) => ({
-        id: l.id,
-        leadId: l.leadId,
-        target: l.target,
-        expiresAt: l.expiresAt,
-        revokedAt: l.revokedAt,
-        createdAt: l.createdAt,
-        // tokenHash deliberately omitted — it's one-way, no value to
-        // the producer, and surfacing it would invite "decode this for
-        // me" questions that would never succeed.
-      })),
-      magicLinkViews: views,
     };
   }),
 

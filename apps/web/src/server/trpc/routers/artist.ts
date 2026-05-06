@@ -21,10 +21,15 @@ import {
 } from "@skitza/db";
 import type { Db, PaymentPlan } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
+import { after } from "next/server";
 import { z } from "zod";
 import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
 import { groupStudiosForArtist } from "~/server/artist/identity";
+import {
+  SITE_URL,
+  sendNewCommentFromArtistEmail,
+} from "~/server/email/send";
 import { getSiteUrl } from "~/server/stripe/client";
 
 // ─── Ownership guard ─────────────────────────────────────────────────
@@ -324,14 +329,39 @@ const musicSubrouter = router({
         };
       });
 
+      const sessionRows = await ctx.db
+        .select({
+          id: bookings.id,
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+          status: bookings.status,
+          packageName: bookings.packageNameSnapshot,
+        })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.projectId, project.id),
+            inArray(bookings.status, ["pending", "confirmed"]),
+          ),
+        )
+        .orderBy(asc(bookings.startsAt));
+
       return {
         project: {
           id: project.id,
           title: project.title,
           producerId: project.producerId,
           producerName: producerRow?.displayName ?? "Producer",
+          finalPaid: project.finalPaid,
         },
         tracks,
+        sessions: sessionRows.map((s) => ({
+          id: s.id,
+          startsAt: s.startsAt,
+          durationMin: s.durationMin,
+          status: s.status,
+          packageName: s.packageName,
+        })),
       };
     }),
 
@@ -357,7 +387,11 @@ const musicSubrouter = router({
       if (!version) throw new TRPCError({ code: "NOT_FOUND" });
 
       const [track] = await ctx.db
-        .select({ id: projectTracks.id, projectId: projectTracks.projectId })
+        .select({
+          id: projectTracks.id,
+          projectId: projectTracks.projectId,
+          title: projectTracks.title,
+        })
         .from(projectTracks)
         .where(eq(projectTracks.id, version.trackId))
         .limit(1);
@@ -365,7 +399,7 @@ const musicSubrouter = router({
 
       // Same guard as the read query. Throws NOT_FOUND if the artist
       // doesn't have a client_contacts row linking them to the project.
-      const { contact } = await resolveProjectOwnership(
+      const { project, contact } = await resolveProjectOwnership(
         ctx.db,
         ctx.clerkUserId,
         track.projectId,
@@ -383,6 +417,29 @@ const musicSubrouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [producerRow] = await ctx.db
+        .select({ email: producers.email, displayName: producers.displayName })
+        .from(producers)
+        .where(eq(producers.id, project.producerId))
+        .limit(1);
+      if (producerRow?.email) {
+        const producerEmail = producerRow.email;
+        const producerDisplayName = producerRow.displayName ?? "there";
+        after(async () => {
+          try {
+            await sendNewCommentFromArtistEmail(producerEmail, {
+              producerName: producerDisplayName,
+              artistName: contact.name,
+              trackTitle: track.title,
+              commentBody: input.body,
+              threadUrl: `${SITE_URL}/dashboard/music`,
+            });
+          } catch (err) {
+            console.error("[email] new-comment-from-artist failed", err);
+          }
+        });
+      }
 
       // Reshape to match the `project` query's comment shape so the
       // optimistic append on the client never diverges from the server
@@ -527,7 +584,7 @@ const bookSubrouter = router({
               eq(projects.artistEmail, contact.email),
               eq(projects.depositPaid, true),
               eq(projects.finalPaid, false),
-              notInArray(projects.stage, ["paid", "archived", "cancelled"]),
+              notInArray(projects.stage, ["paid", "archived"]),
             ),
           )
           .limit(1),
@@ -612,6 +669,7 @@ const bookSubrouter = router({
         startMin: z.number().int().min(0).max(1440),
         durationMin: z.number().int().min(15).max(720),
         projectId: z.string().uuid().nullable(),
+        productId: z.string().uuid().nullable(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -675,7 +733,10 @@ const bookSubrouter = router({
         });
       }
 
-      // 4. Insert.
+      // 4. Insert. Bookings created via the artist self-serve flow land
+      //    in `pending` so the producer's Calendar → Meetings → Pending
+      //    approvals queue is the gate; producer-side booking.confirm is
+      //    what flips to `confirmed` and triggers auto-project creation.
       const [row] = await ctx.db
         .insert(bookings)
         .values({
@@ -684,9 +745,10 @@ const bookSubrouter = router({
           artistName: contact.name,
           startsAt,
           durationMin: input.durationMin,
-          status: "confirmed",
+          status: "pending",
           statusChangedAt: new Date(),
           projectId: input.projectId,
+          productId: input.productId,
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -1127,6 +1189,7 @@ export const artistRouter = router({
     if (myContacts.length === 0) {
       return {
         nextSession: null,
+        upcomingSessions: [],
         latestMix: null,
         outstandingBalance: null,
         activity: [] as ActivityItem[],
@@ -1146,6 +1209,7 @@ export const artistRouter = router({
     // would be confusing).
     const [
       nextSessionRows,
+      upcomingSessionRows,
       latestMixRows,
       outstandingRows,
       activityTrackRows,
@@ -1176,6 +1240,30 @@ export const artistRouter = router({
         )
         .orderBy(asc(bookings.startsAt))
         .limit(1),
+
+      // (2b) All upcoming confirmed sessions (including the one above).
+      // The UI skips the first to avoid double-rendering the next
+      // session, which already has its own dedicated card.
+      ctx.db
+        .select({
+          id: bookings.id,
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+          producerName: producers.displayName,
+          packageName: bookings.packageNameSnapshot,
+        })
+        .from(bookings)
+        .innerJoin(producers, eq(producers.id, bookings.producerId))
+        .where(
+          and(
+            inArray(bookings.producerId, myProducerIds),
+            inArray(bookings.artistEmail, myEmails),
+            eq(bookings.status, "confirmed"),
+            gte(bookings.startsAt, now),
+          ),
+        )
+        .orderBy(asc(bookings.startsAt))
+        .limit(10),
 
       // (3) Latest mix — the most recent track_version uploaded for
       // any project tied to my (producer, email). Joins through the
@@ -1388,6 +1476,13 @@ export const artistRouter = router({
 
     return {
       nextSession,
+      upcomingSessions: upcomingSessionRows.map((s) => ({
+        id: s.id,
+        startsAt: s.startsAt,
+        durationMin: s.durationMin,
+        producerName: s.producerName ?? "Producer",
+        packageName: s.packageName,
+      })),
       latestMix,
       outstandingBalance,
       activity: cappedActivity,

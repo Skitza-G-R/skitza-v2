@@ -36,22 +36,24 @@ import {
 //   - routeOnBackFromAvailability → "/onboarding/service" (back to
 //     Step 2) so the action bar's Back button hops one step.
 
-describe("Step 3 (availability) page contract", () => {
+describe("Step 4 (availability) page contract", () => {
   describe("constants", () => {
-    it("renders as Step 3 of the 4-step shell", () => {
-      expect(AVAILABILITY_STEP_INDEX).toBe(3);
+    it("renders as Step 4 of the 6-step shell", () => {
+      expect(AVAILABILITY_STEP_INDEX).toBe(4);
     });
 
     it("uses the architecture-mandated title 'When are you open?'", () => {
       expect(AVAILABILITY_STEP_TITLE).toBe("When are you open?");
     });
 
-    it("subtitle stays welcoming (mentions reversibility / freedom to skip)", () => {
-      // Pin a substring that proves the subtitle reassures rather than
-      // demands. If a future copy edit goes formal/legalese, this test
-      // fails and forces a deliberate update.
+    it("subtitle tells the producer Continue saves their hours", () => {
+      // B1 — producers were unsure whether their hours would persist
+      // after onboarding. The subtitle now explicitly says Continue
+      // saves, so the test pins that the save/continue framing stays.
+      // If a future copy edit drops the save promise, this fails and
+      // forces a deliberate update.
       expect(AVAILABILITY_STEP_SUBTITLE.toLowerCase()).toMatch(
-        /later|skip|change|edit|adjust/,
+        /save|continue/,
       );
     });
 
@@ -75,20 +77,16 @@ describe("Step 3 (availability) page contract", () => {
   });
 
   describe("nextRouteAfterAvailability (Continue advance)", () => {
-    it("routes to Step 4 (/onboarding/portfolio)", () => {
-      // Continue forwards to /onboarding/portfolio. Pin the target so
-      // a typo (e.g. "/onboarding/portolio") is caught at test time,
-      // not at user time.
-      expect(nextRouteAfterAvailability()).toBe("/onboarding/portfolio");
+    it("routes to Step 5 (/onboarding/payment) — T8 reordered", () => {
+      // T8 — Step 5 is now the payment placeholder. Pin the target so
+      // a stale "/onboarding/portfolio" reference is caught at test time.
+      expect(nextRouteAfterAvailability()).toBe("/onboarding/payment");
     });
   });
 
   describe("routeOnSkipFromAvailability (Skip ghost link)", () => {
-    it("advances to /onboarding/portfolio without saving", () => {
-      // Skip is the Step 3 escape hatch. Acceptance criteria says it
-      // must go to /onboarding/portfolio. The producer can still
-      // complete Step 4 even without configuring availability.
-      expect(routeOnSkipFromAvailability()).toBe("/onboarding/portfolio");
+    it("advances to /onboarding/payment without saving", () => {
+      expect(routeOnSkipFromAvailability()).toBe("/onboarding/payment");
     });
 
     it("targets the same destination as the Continue route (one path forward)", () => {
@@ -101,10 +99,7 @@ describe("Step 3 (availability) page contract", () => {
   });
 
   describe("routeOnBackFromAvailability (Back button)", () => {
-    it("returns to Step 2 (/onboarding/service)", () => {
-      // Back hops one step. The wizard is a strict 4-step linear flow;
-      // Back from Step 3 lands on Step 2 (service). Pin the literal so
-      // an off-by-one (e.g. /onboarding/studio) is caught at test time.
+    it("returns to Step 3 (/onboarding/service)", () => {
       expect(routeOnBackFromAvailability()).toBe("/onboarding/service");
     });
   });

@@ -110,11 +110,11 @@ describe("planStageToProjectStage", () => {
   it("maps plan-active → in_production (Skitza funnel's 'paid, working' stage)", () => {
     expect(planStageToProjectStage("active")).toBe("in_production");
   });
-  it("maps 1:1 for paid/payment_paused/cancelled/lead", () => {
+  it("maps paid/lead 1:1 and collapses payment_paused→in_production, cancelled→archived", () => {
     expect(planStageToProjectStage("paid")).toBe("paid");
-    expect(planStageToProjectStage("payment_paused")).toBe("payment_paused");
-    expect(planStageToProjectStage("cancelled")).toBe("cancelled");
     expect(planStageToProjectStage("lead")).toBe("lead");
+    expect(planStageToProjectStage("payment_paused")).toBe("in_production");
+    expect(planStageToProjectStage("cancelled")).toBe("archived");
   });
 });
 
@@ -543,7 +543,7 @@ describe("handlePaymentIntentSucceeded", () => {
 // ─── customer.subscription.paused ────────────────────────────────────
 
 describe("handleSubscriptionPaused", () => {
-  it("retries exhausted → project stage = payment_paused", async () => {
+  it("retries exhausted → project stage stays in_production (paused folds into active)", async () => {
     const project = {
       id: "proj_1",
       stage: "in_production",
@@ -566,11 +566,11 @@ describe("handleSubscriptionPaused", () => {
       } as unknown as Stripe.CustomerSubscriptionPausedEvent,
     });
 
-    const paused = updateSet.mock.calls.find((c) => {
+    const inProduction = updateSet.mock.calls.find((c) => {
       const arg = c[0] as Record<string, unknown>;
-      return arg.stage === "payment_paused";
+      return arg.stage === "in_production";
     });
-    expect(paused).toBeTruthy();
+    expect(inProduction).toBeTruthy();
   });
 });
 
@@ -607,7 +607,7 @@ describe("handleSubscriptionDeleted", () => {
     expect(paidCall).toBeTruthy();
   });
 
-  it("cancelled mid-plan → stage=cancelled", async () => {
+  it("cancelled mid-plan → stage=archived", async () => {
     const project = {
       id: "proj_1",
       stage: "in_production",
@@ -630,11 +630,11 @@ describe("handleSubscriptionDeleted", () => {
       } as unknown as Stripe.CustomerSubscriptionDeletedEvent,
     });
 
-    const cancelledCall = updateSet.mock.calls.find((c) => {
+    const archivedCall = updateSet.mock.calls.find((c) => {
       const arg = c[0] as Record<string, unknown>;
-      return arg.stage === "cancelled";
+      return arg.stage === "archived";
     });
-    expect(cancelledCall).toBeTruthy();
+    expect(archivedCall).toBeTruthy();
   });
 });
 

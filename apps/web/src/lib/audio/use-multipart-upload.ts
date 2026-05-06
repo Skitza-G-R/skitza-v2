@@ -7,7 +7,7 @@ import {
   completeAudioUpload,
   initAudioUpload,
   signAudioPart,
-} from "~/app/(app)/dashboard/audio-upload-actions";
+} from "~/app/(producer)/dashboard/audio-upload-actions";
 
 export type UploadState =
   | { kind: "idle" }

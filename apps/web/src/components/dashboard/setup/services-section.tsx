@@ -18,13 +18,14 @@ import type { PaymentPlan } from "@skitza/db";
 import { Badge } from "~/components/ui/badge";
 import { EmptyState } from "~/components/ui/empty-state";
 
-import { DeactivatePackageButton } from "~/app/(app)/dashboard/booking/package-form";
-import { EditPackageButton } from "~/app/(app)/dashboard/booking/edit-product-client";
-import { PackageToolbar } from "~/app/(app)/dashboard/booking/package-toolbar";
+import { DeactivatePackageButton } from "~/app/(producer)/dashboard/booking/package-form";
+import { EditPackageButton } from "~/app/(producer)/dashboard/booking/edit-product-client";
+import { PackageToolbar } from "~/app/(producer)/dashboard/booking/package-toolbar";
 import {
   CURRENCY_SYMBOL,
+  type Currency,
   type InitialPackageValues,
-} from "~/app/(app)/dashboard/booking/package-form";
+} from "~/app/(producer)/dashboard/booking/package-form";
 
 export type ServicePackageRow = {
   id: string;
@@ -41,6 +42,7 @@ export type ServicePackageRow = {
   bufferMinutes: number;
   minLeadHours: number;
   paymentPlans: PaymentPlan[];
+  contractUrl: string | null;
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -94,6 +96,7 @@ function toInitialValues(p: ServicePackageRow): InitialPackageValues {
     bufferMinutes: p.bufferMinutes,
     minLeadHours: p.minLeadHours,
     paymentPlans: p.paymentPlans,
+    contractUrl: p.contractUrl,
   };
 }
 
@@ -105,11 +108,20 @@ function formatMoney(cents: number, currency: string): string {
   return `${prefix}${dollars.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
-export function ServicesSection({ packages }: { packages: ServicePackageRow[] }) {
+export function ServicesSection({
+  packages,
+  defaultCurrency,
+}: {
+  packages: ServicePackageRow[];
+  // Producer's profile-level default currency, threaded down to the
+  // toolbar's New-service form so an Israeli producer sees ILS pre-
+  // selected instead of USD.
+  defaultCurrency: Currency;
+}) {
   return (
     <div className="space-y-6">
       <div>
-        <PackageToolbar />
+        <PackageToolbar defaultCurrency={defaultCurrency} />
       </div>
       {packages.length === 0 ? (
         <EmptyState

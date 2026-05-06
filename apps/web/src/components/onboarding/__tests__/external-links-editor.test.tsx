@@ -113,17 +113,16 @@ describe("linkRowError — surfaces error string for UI", () => {
 });
 
 describe("toLinksPayload — serialise form state → server-action input", () => {
-  // The form state holds 3 string fields keyed by platform. The payload
-  // sent to saveExternalLinks(...) is { links: [{platform, url}, ...] }.
-  // Empty fields must STILL be in the payload (so the server can DELETE
-  // any existing row for that platform) — this is the most-overlooked
-  // branch per the story's QA checklist + CLAUDE.md mistake log discipline.
+  // T8 — form state is now { url, title } per platform. Payload sent
+  // to saveExternalLinks(...) is { links: [{platform, url, title}, ...] }.
+  // Empty URLs must STILL be in the payload so the server can DELETE
+  // any existing row.
 
   it("emits 3 entries (one per exposed platform) even when all fields are empty", () => {
     const state: ExternalLinksFormState = {
-      spotify: "",
-      youtube: "",
-      instagram_reels: "",
+      spotify: { url: "", title: "" },
+      youtube: { url: "", title: "" },
+      instagram_reels: { url: "", title: "" },
     };
     const payload = toLinksPayload(state);
     expect(payload.links).toHaveLength(3);
@@ -132,47 +131,55 @@ describe("toLinksPayload — serialise form state → server-action input", () =
       "spotify",
       "youtube",
     ]);
-    // Every URL is the empty string — the server action treats those
-    // as DELETE requests for that platform.
-    for (const l of payload.links) expect(l.url).toBe("");
+    for (const l of payload.links) {
+      expect(l.url).toBe("");
+      expect(l.title).toBe("");
+    }
   });
 
-  it("trims whitespace on each URL", () => {
+  it("trims whitespace on each URL and title", () => {
     const state: ExternalLinksFormState = {
-      spotify: "  https://open.spotify.com/artist/abc  ",
-      youtube: "\thttps://youtube.com/@x\n",
-      instagram_reels: "",
+      spotify: { url: "  https://open.spotify.com/artist/abc  ", title: "  Latest single  " },
+      youtube: { url: "\thttps://youtube.com/@x\n", title: "" },
+      instagram_reels: { url: "", title: "" },
     };
     const payload = toLinksPayload(state);
     const spotify = payload.links.find((l) => l.platform === "spotify");
     const youtube = payload.links.find((l) => l.platform === "youtube");
     expect(spotify?.url).toBe("https://open.spotify.com/artist/abc");
+    expect(spotify?.title).toBe("Latest single");
     expect(youtube?.url).toBe("https://youtube.com/@x");
+    expect(youtube?.title).toBe("");
   });
 
-  it("normalises whitespace-only fields to '' (so server treats as DELETE)", () => {
+  it("normalises whitespace-only URLs to '' (so server treats as DELETE)", () => {
     const state: ExternalLinksFormState = {
-      spotify: "   ",
-      youtube: "",
-      instagram_reels: "\t\n",
+      spotify: { url: "   ", title: "" },
+      youtube: { url: "", title: "" },
+      instagram_reels: { url: "\t\n", title: "" },
     };
     const payload = toLinksPayload(state);
     for (const l of payload.links) expect(l.url).toBe("");
   });
 
-  it("preserves a mix of filled + empty fields (partial-save case)", () => {
+  it("preserves a mix of filled + empty rows (partial-save case)", () => {
     const state: ExternalLinksFormState = {
-      spotify: "https://open.spotify.com/artist/abc",
-      youtube: "",
-      instagram_reels: "https://instagram.com/x",
+      spotify: { url: "https://open.spotify.com/artist/abc", title: "Studio reel" },
+      youtube: { url: "", title: "" },
+      instagram_reels: { url: "https://instagram.com/x", title: "" },
     };
     const payload = toLinksPayload(state);
-    const map: Record<PortfolioPlatformKey, string> = Object.fromEntries(
-      payload.links.map((l) => [l.platform, l.url]),
-    ) as Record<PortfolioPlatformKey, string>;
-    expect(map.spotify).toBe("https://open.spotify.com/artist/abc");
-    expect(map.youtube).toBe("");
-    expect(map.instagram_reels).toBe("https://instagram.com/x");
+    const map = new Map<PortfolioPlatformKey, { url: string; title: string }>();
+    for (const l of payload.links) map.set(l.platform, { url: l.url, title: l.title });
+    expect(map.get("spotify")).toEqual({
+      url: "https://open.spotify.com/artist/abc",
+      title: "Studio reel",
+    });
+    expect(map.get("youtube")).toEqual({ url: "", title: "" });
+    expect(map.get("instagram_reels")).toEqual({
+      url: "https://instagram.com/x",
+      title: "",
+    });
   });
 });
 

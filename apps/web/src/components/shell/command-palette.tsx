@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   paletteSearch,
   type PaletteResult,
-} from "~/app/(app)/dashboard/palette-actions";
+} from "~/app/(producer)/dashboard/palette-actions";
 
 // ⌘K / Ctrl+K command palette. Lazy-loaded by CommandPaletteTrigger
 // so cmdk is only pulled into the client bundle when the producer
@@ -79,6 +79,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     };
   }, [query, open]);
 
+  // Phase 2 — labels + shortcuts mirror the locked design's
+  // ShortcutsHelp (notes/nav.jsx) and the relabelled sidebar:
+  //   G H = Overview, G P = Projects, G M = Music,
+  //   G C = Calendar, G S = Storefront, G T = Settings.
+  // Calendar + Store entries newly added (the prior 4-route palette
+  // pre-dated the 6-page producer surface). Internal `id`s use the
+  // ActiveKey vocabulary (`today`, `profile`, `setup`) so any future
+  // analytics on action-fire stays stable across the rename.
   const actions: Action[] = useMemo(
     () => [
       {
@@ -87,16 +95,25 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         shortcut: "N",
         run: () => {
           onClose();
-          router.push("/dashboard/projects/new");
+          router.push("/dashboard/clients-projects/new");
         },
       },
       {
         id: "goto-today",
-        label: "Go to Today",
-        shortcut: "G T",
+        label: "Go to Overview",
+        shortcut: "G H",
         run: () => {
           onClose();
           router.push("/dashboard");
+        },
+      },
+      {
+        id: "goto-projects",
+        label: "Go to Clients & Projects",
+        shortcut: "G P",
+        run: () => {
+          onClose();
+          router.push("/dashboard/clients-projects");
         },
       },
       {
@@ -109,18 +126,27 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         },
       },
       {
-        id: "goto-projects",
-        label: "Go to Projects",
-        shortcut: "G P",
+        id: "goto-calendar",
+        label: "Go to Calendar",
+        shortcut: "G C",
         run: () => {
           onClose();
-          router.push("/dashboard/projects");
+          router.push("/dashboard/calendar");
+        },
+      },
+      {
+        id: "goto-profile",
+        label: "Go to Store",
+        shortcut: "G S",
+        run: () => {
+          onClose();
+          router.push("/dashboard/profile");
         },
       },
       {
         id: "goto-setup",
-        label: "Go to Setup",
-        shortcut: "G S",
+        label: "Go to Settings",
+        shortcut: "G T",
         run: () => {
           onClose();
           router.push("/dashboard/settings");
@@ -143,7 +169,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const gotoProject = useCallback(
     (id: string) => {
       onClose();
-      router.push(`/dashboard/projects/${id}`);
+      router.push(`/dashboard/clients-projects/${id}`);
     },
     [router, onClose],
   );
@@ -259,7 +285,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                       // work with this client, the "New project"
                       // action handles that separately.
                       onClose();
-                      router.push("/dashboard/projects");
+                      router.push("/dashboard/clients-projects");
                     }}
                     className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
                   >
@@ -301,37 +327,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               </Command.Group>
             ) : null}
 
-            {result?.contracts.length ? (
-              <Command.Group heading={`Contracts (${String(result.contracts.length)})`}>
-                {result.contracts.map((c) => (
-                  <Command.Item
-                    key={c.id}
-                    value={`contract ${c.title}`}
-                    onSelect={() => {
-                      // Contracts no longer have a list page — each one
-                      // lives inside its Project Room. Route there when
-                      // we know the projectId; otherwise fall back to
-                      // the projects list so the producer can find it.
-                      onClose();
-                      if (c.projectId) {
-                        router.push(`/dashboard/projects/${c.projectId}`);
-                      } else {
-                        router.push("/dashboard/projects");
-                      }
-                    }}
-                    className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="text-[rgb(var(--fg-muted))]">$</span>
-                      {c.title}
-                    </span>
-                    <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-                      {c.status}
-                    </span>
-                  </Command.Item>
-                ))}
-              </Command.Group>
-            ) : null}
           </Command.List>
           <div className="flex items-center justify-between border-t border-[rgb(var(--border-subtle))] px-4 py-2 font-mono text-[10px] text-[rgb(var(--fg-muted))]">
             <span>Esc to close · ↵ to select · ↑↓ navigate</span>

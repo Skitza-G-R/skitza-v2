@@ -21,6 +21,13 @@ const STATIC_REDIRECTS: Record<string, string> = {
   "/dashboard/clients":   "/dashboard",
   "/dashboard/leads":     "/dashboard",
   "/dashboard/bookings":  "/dashboard",  // plural — never existed but listed for safety
+  // P2-A-7: /booking → /calendar (booking shell still exists for now,
+  // but the canonical home for session/availability work is the new
+  // Calendar page); /revenue collapsed back into Today; /projects
+  // renamed to /clients-projects to match the PRD §4 producer surface.
+  "/dashboard/booking":   "/dashboard/calendar",
+  "/dashboard/revenue":   "/dashboard",
+  "/dashboard/projects":  "/dashboard/clients-projects",
   "/dashboard/contracts": "/dashboard",
   "/dashboard/invoices":  "/dashboard",
   "/dashboard/inbox":     "/dashboard",
@@ -104,6 +111,11 @@ export default clerkMiddleware(async (auth, req) => {
   // next/headers". Limit the header injection to /onboarding/* so the
   // rest of the app keeps the bare `NextResponse.next()` shape and we
   // don't pay the Headers-clone cost on every request.
+  //
+  // (onboarding) is intentionally its own route group — nesting it inside
+  // (producer) would loop producer-incomplete users. It will be merged
+  // into (producer)/dashboard/onboarding when the wizard is rebuilt in
+  // Phase 3.
   if (req.nextUrl.pathname.startsWith("/onboarding")) {
     const requestHeaders = new Headers(req.headers);
     requestHeaders.set("x-pathname", req.nextUrl.pathname);

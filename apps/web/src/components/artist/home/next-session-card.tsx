@@ -1,8 +1,9 @@
 import Link from "next/link";
 
 // Server component — pure render of the next-confirmed-session blob
-// returned by `artist.home`. No interactivity, so this stays on the
-// server and ships zero JS for the empty state.
+// returned by `artist.home`. Polished to mirror the locked design's
+// "date block + producer line + dark CTA" hierarchy. No interactivity
+// at this level so we stay on the server and ship zero JS.
 //
 // Empty state: gentle CTA pointing at /artist/book. The whole point
 // of Home is "what's next" — when there's nothing, we suggest booking.
@@ -21,11 +22,11 @@ export function NextSessionCard({ session }: { session: NextSession | null }) {
     return (
       <section
         aria-labelledby="next-session-heading"
-        className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-5"
+        className="reveal-up rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-5"
       >
         <h2
           id="next-session-heading"
-          className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
+          className="font-mono text-[0.66rem] font-semibold uppercase tracking-wider text-[rgb(var(--fg-muted))]"
         >
           Next session
         </h2>
@@ -34,58 +35,81 @@ export function NextSessionCard({ session }: { session: NextSession | null }) {
         </p>
         <Link
           href="/artist/book"
-          className="mt-4 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-base))] transition-opacity hover:opacity-90"
+          className="sk-press mt-4 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-sidebar))]"
         >
           Book a session
+          <span aria-hidden style={{ opacity: 0.6 }}>
+            →
+          </span>
         </Link>
       </section>
     );
   }
 
-  const date = formatDate(session.startsAt);
+  const monthShort = formatMonthShort(session.startsAt);
+  const day = session.startsAt.getDate();
   const time = formatTime(session.startsAt);
-  const duration = formatDuration(session.durationMin);
 
   return (
     <section
       aria-labelledby="next-session-heading"
-      className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
+      className="reveal-up rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
     >
       <h2
         id="next-session-heading"
-        className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
+        className="mb-3 font-mono text-[0.66rem] font-semibold uppercase tracking-wider text-[rgb(var(--fg-muted))]"
       >
         Next session
       </h2>
-      <div className="mt-2 flex flex-col gap-1">
-        <p className="font-display text-lg text-[rgb(var(--fg-primary))]">
-          {date} · {time}
-        </p>
-        <p className="text-sm text-[rgb(var(--fg-secondary))]">
-          with {session.producerName} · {duration}
-          {session.productName ? ` · ${session.productName}` : ""}
-        </p>
+
+      <div className="flex items-start gap-4">
+        {/* Big-date block — design system "date hero" */}
+        <div className="w-14 shrink-0">
+          <div
+            className="font-mono text-[0.65rem] font-bold uppercase tracking-wider"
+            style={{ color: "rgb(var(--brand-primary))" }}
+          >
+            {monthShort}
+          </div>
+          <div className="my-0.5 font-display text-[36px] font-extrabold leading-none tracking-[-0.04em] text-[rgb(var(--fg-default))]">
+            {day}
+          </div>
+          <div className="font-mono text-[0.65rem] text-[rgb(var(--fg-muted))]">
+            {time}
+          </div>
+        </div>
+
+        {/* Title + producer line */}
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="text-base font-bold leading-tight text-[rgb(var(--fg-default))]">
+            {session.productName ?? "Studio session"}
+          </p>
+          <p className="mt-2 text-[13px] text-[rgb(var(--fg-muted))]">
+            {session.producerName} · {formatDuration(session.durationMin)}
+          </p>
+        </div>
       </div>
-      <div className="mt-4 flex gap-3 text-sm">
-        <a
-          href={`https://waze.com/ul?q=${encodeURIComponent(session.producerName)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
-        >
-          Open in Waze →
-        </a>
-      </div>
+
+      {/* Dark CTA — matches design system AmberCTA-like dark variant */}
+      <Link
+        href="/artist/book"
+        className="sk-press mt-4 flex w-full items-center justify-center gap-2 rounded-[var(--radius-md)] py-3 text-[13.5px] font-semibold"
+        style={{
+          background: "rgb(var(--bg-sidebar))",
+          color: "rgb(var(--fg-onsidebar))",
+        }}
+      >
+        View details
+        <span aria-hidden style={{ opacity: 0.55 }}>
+          →
+        </span>
+      </Link>
     </section>
   );
 }
 
-function formatDate(d: Date): string {
-  return d.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
+function formatMonthShort(d: Date): string {
+  return d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
 }
 
 function formatTime(d: Date): string {
@@ -99,7 +123,7 @@ function formatTime(d: Date): string {
 function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  if (h === 0) return `${String(m)}min session`;
-  if (m === 0) return `${String(h)}h session`;
-  return `${String(h)}h ${String(m)}m session`;
+  if (h === 0) return `${String(m)} min`;
+  if (m === 0) return `${String(h)}h`;
+  return `${String(h)}h ${String(m)}m`;
 }

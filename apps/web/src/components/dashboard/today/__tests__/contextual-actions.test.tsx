@@ -251,7 +251,7 @@ describe("pickActions — continue-track uses top upload metadata", () => {
     const cont = findCardOrThrow(actions, "continue-track");
     expect(cont.label).toBe("Continue with Heatwave");
     expect(cont.description).toBe("In Lena's project");
-    expect(cont.href).toBe("/dashboard/projects/p_lena?tab=music");
+    expect(cont.href).toBe("/dashboard/clients-projects/p_lena?tab=music");
   });
 });
 
@@ -270,19 +270,19 @@ describe("pickActions — hrefs and onClicks", () => {
   it("send-invoice navigates to /dashboard/projects", () => {
     const actions = pickActions(getOrThrow(fixtures.finalReviewOnly, "finalReviewOnly"));
     const inv = findCardOrThrow(actions, "send-invoice");
-    expect(inv.href).toBe("/dashboard/projects");
+    expect(inv.href).toBe("/dashboard/clients-projects");
   });
 
   it("add-offline-client navigates to /dashboard/projects/new?mode=offline", () => {
     const actions = pickActions(getOrThrow(fixtures.dayOne, "dayOne"));
     const off = findCardOrThrow(actions, "add-offline-client");
-    expect(off.href).toBe("/dashboard/projects/new?mode=offline");
+    expect(off.href).toBe("/dashboard/clients-projects/new?mode=offline");
   });
 
   it("new-project navigates to /dashboard/projects/new", () => {
     const actions = pickActions(getOrThrow(fixtures.dayOne, "dayOne"));
     const np = findCardOrThrow(actions, "new-project");
-    expect(np.href).toBe("/dashboard/projects/new");
+    expect(np.href).toBe("/dashboard/clients-projects/new");
   });
 
   it("set-slug navigates to /dashboard/settings?section=profile", () => {

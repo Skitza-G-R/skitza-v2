@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-// Tests for RevealOnScroll (P0 fix — UX critic 2026-04-26).
+// Tests for RevealOnScroll (Phase 3 v3 landing — replaces the legacy
+// `.landing-root .reveal-up` / `.is-revealed` pair from PR #50).
 //
-// The CSS rule `.landing-root .reveal-up { opacity: 0; transform:
-// translateY(20px) scale(0.98); }` hides 50+ elements across every
-// landing section by default. They're only meant to fade in when JS
-// adds `.is-revealed`. Without the IntersectionObserver wired in, every
-// element stays at opacity 0 forever — visitors saw a blank brown void
-// after the hero.
+// The CSS rules `.sk-reveal { opacity: 0; transform: translateY(18px) }`
+// (and the `-left`/`-right`/`-scale` variants) hide every reveal-bound
+// element on the v3 landing by default. They're only meant to fade in
+// when JS adds `.is-in`. Without the IntersectionObserver wired in,
+// every element stays at opacity 0 forever — visitors saw a blank
+// brown void below the hero (CLAUDE.md mistake-log 2026-04-26).
 //
 // In-repo testing convention is node-env vitest with no jsdom and no
 // @testing-library/react. So instead of mounting the React component
@@ -66,6 +67,7 @@ function makeFakeElement(id: string): FakeElement {
 
 let recorders: RecorderObserver[] = [];
 let fakeMatches: FakeElement[] = [];
+let lastSelector: string | null = null;
 
 const originalDocument = (globalThis as { document?: unknown }).document;
 const originalIO = (globalThis as { IntersectionObserver?: unknown })
@@ -74,8 +76,12 @@ const originalWindow = (globalThis as { window?: unknown }).window;
 
 function installDocumentStub(matches: FakeElement[]): void {
   fakeMatches = matches;
+  lastSelector = null;
   (globalThis as { document?: unknown }).document = {
-    querySelectorAll: () => fakeMatches,
+    querySelectorAll: (selector: string) => {
+      lastSelector = selector;
+      return fakeMatches;
+    },
   };
 }
 
@@ -142,16 +148,31 @@ afterEach(() => {
   }
   recorders = [];
   fakeMatches = [];
+  lastSelector = null;
 });
 
-describe("RevealOnScroll — P0 IntersectionObserver wiring", () => {
+describe("RevealOnScroll — v3 IntersectionObserver wiring", () => {
   it("renders nothing (returns null — pure behaviour component)", async () => {
     const { RevealOnScroll } = await import("../reveal-on-scroll");
     const html = renderToStaticMarkup(<RevealOnScroll />);
     expect(html).toBe("");
   });
 
-  it("constructs an IntersectionObserver with rootMargin '0px' and threshold 0.15", async () => {
+  it("queries the v3 reveal selector union (sk-reveal + variants)", async () => {
+    installDocumentStub([makeFakeElement("a")]);
+    installObserverStub();
+
+    const { runRevealEffect } = await import("../reveal-on-scroll");
+    const cleanup = runRevealEffect();
+
+    expect(lastSelector).toBe(
+      ".sk-reveal, .sk-reveal-left, .sk-reveal-right, .sk-reveal-scale",
+    );
+
+    cleanup?.();
+  });
+
+  it("constructs an IntersectionObserver with the v3 rootMargin + threshold", async () => {
     installDocumentStub([makeFakeElement("a")]);
     installObserverStub();
 
@@ -161,16 +182,20 @@ describe("RevealOnScroll — P0 IntersectionObserver wiring", () => {
     expect(recorders).toHaveLength(1);
     const recorder = recorders[0];
     if (!recorder) throw new Error("expected one recorder");
+    // The v3 design fires the reveal slightly before the element fully
+    // enters the viewport (`-8%` rootMargin) so a section reveals as
+    // its top crosses the fold, not after — feels more responsive on
+    // long scrolls.
     expect(recorder.options).toEqual({
       root: null,
-      rootMargin: "0px",
-      threshold: 0.15,
+      rootMargin: "0px 0px -8% 0px",
+      threshold: 0.08,
     });
 
     cleanup?.();
   });
 
-  it("observes every .landing-root .reveal-up element returned by querySelectorAll", async () => {
+  it("observes every reveal element returned by querySelectorAll", async () => {
     const a = makeFakeElement("a");
     const b = makeFakeElement("b");
     installDocumentStub([a, b]);
@@ -188,7 +213,7 @@ describe("RevealOnScroll — P0 IntersectionObserver wiring", () => {
     cleanup?.();
   });
 
-  it("adds 'is-revealed' on intersection and stops observing that element", async () => {
+  it("adds 'is-in' on intersection and stops observing that element", async () => {
     const a = makeFakeElement("a");
     const b = makeFakeElement("b");
     installDocumentStub([a, b]);
@@ -209,8 +234,8 @@ describe("RevealOnScroll — P0 IntersectionObserver wiring", () => {
       recorder as unknown as IntersectionObserver,
     );
 
-    expect(a.classList.has("is-revealed")).toBe(true);
-    expect(b.classList.has("is-revealed")).toBe(false);
+    expect(a.classList.has("is-in")).toBe(true);
+    expect(b.classList.has("is-in")).toBe(false);
     expect(recorder.unobserved).toContain(a);
     expect(recorder.unobserved).not.toContain(b);
 
@@ -239,8 +264,8 @@ describe("RevealOnScroll — P0 IntersectionObserver wiring", () => {
     const { runRevealEffect } = await import("../reveal-on-scroll");
     runRevealEffect();
 
-    expect(a.classList.has("is-revealed")).toBe(true);
-    expect(b.classList.has("is-revealed")).toBe(true);
+    expect(a.classList.has("is-in")).toBe(true);
+    expect(b.classList.has("is-in")).toBe(true);
   });
 
   it("does nothing safely when document is undefined (SSR safety)", async () => {

@@ -28,6 +28,7 @@ const {
   producersMarker,
   contactsSelectMock,
   bookingsSelectMock,
+  upcomingSessionsMock,
   trackVersionsSelectMock,
   invoicesSelectMock,
   activityTracksMock,
@@ -35,6 +36,7 @@ const {
   activityInvoicesMock,
   contactsWhereSpy,
   bookingsWhereSpy,
+  upcomingSessionsWhereSpy,
   trackVersionsWhereSpy,
   invoicesWhereSpy,
   activityTracksWhereSpy,
@@ -45,6 +47,7 @@ const {
 } = vi.hoisted(() => {
   const contactsSelectMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const bookingsSelectMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
+  const upcomingSessionsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const trackVersionsSelectMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const invoicesSelectMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const activityTracksMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
@@ -53,10 +56,11 @@ const {
   const contactsWhereSpy = vi.fn<(arg: unknown) => void>();
   // One WHERE-spy per sub-query so the auth-boundary tests can assert
   // every downstream filter (not just the gating contacts SELECT).
-  // The "main" vs "activity" split matches the per-table call-counter
-  // dispatch below: first hit on each table is the main query, second
-  // is the activity-feed equivalent.
+  // bookings is hit three times: next-session, upcoming-sessions list,
+  // and the activity feed — in that order, matching the router's
+  // Promise.all sequence. Other tables stay 2-deep (main + activity).
   const bookingsWhereSpy = vi.fn<(arg: unknown) => void>();
+  const upcomingSessionsWhereSpy = vi.fn<(arg: unknown) => void>();
   const trackVersionsWhereSpy = vi.fn<(arg: unknown) => void>();
   const invoicesWhereSpy = vi.fn<(arg: unknown) => void>();
   const activityTracksWhereSpy = vi.fn<(arg: unknown) => void>();
@@ -186,11 +190,21 @@ const {
         }
         if (table === bookingsMarker) {
           callCounts.bookings += 1;
-          const isFirst = callCounts.bookings === 1;
-          return chain(
-            () => (isFirst ? bookingsSelectMock() : activityBookingsMock()),
-            isFirst ? bookingsWhereSpy : activityBookingsWhereSpy,
-          );
+          const n = callCounts.bookings;
+          // 1 → next-session, 2 → upcoming-sessions list, 3 → activity.
+          const terminal =
+            n === 1
+              ? bookingsSelectMock
+              : n === 2
+                ? upcomingSessionsMock
+                : activityBookingsMock;
+          const whereSpy =
+            n === 1
+              ? bookingsWhereSpy
+              : n === 2
+                ? upcomingSessionsWhereSpy
+                : activityBookingsWhereSpy;
+          return chain(() => terminal(), whereSpy);
         }
         if (table === trackVersionsMarker) {
           callCounts.track_versions += 1;
@@ -223,6 +237,7 @@ const {
     producersMarker,
     contactsSelectMock,
     bookingsSelectMock,
+    upcomingSessionsMock,
     trackVersionsSelectMock,
     invoicesSelectMock,
     activityTracksMock,
@@ -230,6 +245,7 @@ const {
     activityInvoicesMock,
     contactsWhereSpy,
     bookingsWhereSpy,
+    upcomingSessionsWhereSpy,
     trackVersionsWhereSpy,
     invoicesWhereSpy,
     activityTracksWhereSpy,
@@ -290,6 +306,7 @@ import {
 beforeEach(() => {
   contactsSelectMock.mockReset().mockResolvedValue([]);
   bookingsSelectMock.mockReset().mockResolvedValue([]);
+  upcomingSessionsMock.mockReset().mockResolvedValue([]);
   trackVersionsSelectMock.mockReset().mockResolvedValue([]);
   invoicesSelectMock.mockReset().mockResolvedValue([]);
   activityTracksMock.mockReset().mockResolvedValue([]);
@@ -297,6 +314,7 @@ beforeEach(() => {
   activityInvoicesMock.mockReset().mockResolvedValue([]);
   contactsWhereSpy.mockReset();
   bookingsWhereSpy.mockReset();
+  upcomingSessionsWhereSpy.mockReset();
   trackVersionsWhereSpy.mockReset();
   invoicesWhereSpy.mockReset();
   activityTracksWhereSpy.mockReset();
@@ -320,6 +338,7 @@ describe("artist.home", () => {
 
     expect(result).toEqual({
       nextSession: null,
+      upcomingSessions: [],
       latestMix: null,
       outstandingBalance: null,
       activity: [],

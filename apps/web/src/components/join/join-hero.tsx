@@ -26,6 +26,7 @@ interface JoinHeroProps {
     logoUrl: string | null;
   };
   slug: string;
+  externalLinks?: Array<{ platform: string; url: string; title: string | null }>;
 }
 
 // Inline SVG fractal-noise data URL — same recipe as landing.css's
@@ -34,7 +35,17 @@ interface JoinHeroProps {
 const GRAIN_NOISE_URL =
   "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E\")";
 
-export function JoinHero({ producer, slug }: JoinHeroProps) {
+// Display labels for the streaming chips — matches v3-clean's existing
+// pattern. Lowercase platform keys ("spotify", "youtube",
+// "instagram_reels") come straight from the `producer_external_links`
+// table.
+const PLATFORM_LABELS: Record<string, string> = {
+  spotify: "Spotify",
+  youtube: "YouTube",
+  instagram_reels: "Instagram",
+};
+
+export function JoinHero({ producer, slug, externalLinks }: JoinHeroProps) {
   // Fall back to the word "Producer" if displayName is null — can only
   // happen in tests or mid-onboarding before the producer sets a name.
   const name = producer.displayName ?? "Producer";
@@ -91,6 +102,31 @@ export function JoinHero({ producer, slug }: JoinHeroProps) {
                 A studio for artists who care about the take, not just the sound.
               </p>
             )}
+
+            {/* Streaming chips — Spotify / YouTube / Instagram. Driven
+                by `producer_external_links` (v3-clean). Renders only
+                when at least one link has a non-empty URL; otherwise
+                stays out of the layout entirely. Chip styling matches
+                the eyebrow above (mono, brand-primary, wide tracking)
+                so the row reads like a continuation of the metadata
+                rather than a standalone block. */}
+            {externalLinks && externalLinks.filter((l) => l.url).length > 0 ? (
+              <div className="reveal-up-delay-2 mt-6 flex flex-wrap gap-x-5 gap-y-2">
+                {externalLinks
+                  .filter((l) => l.url)
+                  .map((link) => (
+                    <a
+                      key={link.platform}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-xs uppercase tracking-[0.15em] text-[rgb(var(--brand-primary))] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
+                    >
+                      {PLATFORM_LABELS[link.platform] ?? link.platform}
+                    </a>
+                  ))}
+              </div>
+            ) : null}
 
             <div className="reveal-up-delay-2 mt-8 flex flex-wrap gap-3">
               <Link

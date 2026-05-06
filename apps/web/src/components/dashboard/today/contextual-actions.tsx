@@ -91,18 +91,18 @@ export function pickActions({
       id: "continue-track",
       label: `Continue with ${top.title}`,
       description: `In ${top.projectClientName}'s project`,
-      href: `/dashboard/projects/${top.projectId}?tab=music`,
+      href: `/dashboard/clients-projects/${top.projectId}?tab=music`,
     });
   }
 
-  // Priority 3: Send next invoice. v1 routes to /dashboard/projects;
+  // Priority 3: Send next invoice. v1 routes to /dashboard/clients-projects;
   // a future filter for `final_review` is post-redesign work.
   if (activeProjectsCount > 0) {
     candidates.push({
       id: "send-invoice",
       label: "Send next invoice",
       description: "Bill the work you've done",
-      href: "/dashboard/projects",
+      href: "/dashboard/clients-projects",
     });
   }
 
@@ -148,7 +148,7 @@ export function pickActions({
     id: "add-offline-client",
     label: "Add offline client",
     description: "Track work outside Skitza",
-    href: "/dashboard/projects/new?mode=offline",
+    href: "/dashboard/clients-projects/new?mode=offline",
   });
 
   // Priority 7: Start a new project. Final deterministic fallback.
@@ -156,7 +156,7 @@ export function pickActions({
     id: "new-project",
     label: "Start a new project",
     description: "Track new work",
-    href: "/dashboard/projects/new",
+    href: "/dashboard/clients-projects/new",
   });
 
   // Always exactly 3.

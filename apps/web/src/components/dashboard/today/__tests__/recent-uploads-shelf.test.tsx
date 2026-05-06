@@ -96,7 +96,7 @@ describe("RecentUploadsShelf shelfRenderModel — empty / sparse / full", () => 
 describe("RecentUploadsShelf cardHref — deep-link to project room music tab", () => {
   it("targets /dashboard/projects/<projectId>?tab=music&versionId=<versionId>", () => {
     const u = makeUpload({ projectId: "p-77", versionId: "v-99" });
-    expect(cardHref(u)).toBe("/dashboard/projects/p-77?tab=music&versionId=v-99");
+    expect(cardHref(u)).toBe("/dashboard/clients-projects/p-77?tab=music&versionId=v-99");
   });
 });
 

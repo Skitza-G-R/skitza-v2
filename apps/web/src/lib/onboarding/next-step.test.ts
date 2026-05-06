@@ -2,44 +2,52 @@ import { describe, expect, it } from "vitest";
 
 import { nextStepFor } from "./next-step";
 
-// Story 09 — pin the wizard's forward-step routing in one place.
+// T8 — pin the wizard's forward-step routing for the 6-step flow.
 //
-// Each step page already exports a `nextRouteAfter*` helper of its own;
+// Each step page also exports a `nextRouteAfter*` helper of its own;
 // this central helper aliases the same destinations so a future tooling
 // surface (Setup-nudge deep-link, "skip remaining" admin action) has a
-// single source of truth without depending on four separate page files.
-//
-// Tests deliberately cover the full 4-step sequence — if a renamer
-// changes an OnboardingStep value (e.g. "service" → "first_service")
-// the typechecker catches it but a missing arm of the switch would
-// fall through silently; this test ensures every step is mapped.
+// single source of truth without depending on per-page modules.
 
-describe("nextStepFor (forward-step routing for the 4-step wizard)", () => {
-  it("studio → /onboarding/service (Step 1 → Step 2)", () => {
-    expect(nextStepFor("studio")).toBe("/onboarding/service");
+describe("nextStepFor (forward-step routing for the 6-step wizard)", () => {
+  it("studio → /onboarding/services (Step 1 → Step 2)", () => {
+    expect(nextStepFor("studio")).toBe("/onboarding/services");
   });
 
-  it("service → /onboarding/availability (Step 2 → Step 3)", () => {
+  it("services → /onboarding/service (Step 2 → Step 3)", () => {
+    expect(nextStepFor("services")).toBe("/onboarding/service");
+  });
+
+  it("service → /onboarding/availability (Step 3 → Step 4)", () => {
     expect(nextStepFor("service")).toBe("/onboarding/availability");
   });
 
-  it("availability → /onboarding/portfolio (Step 3 → Step 4)", () => {
-    expect(nextStepFor("availability")).toBe("/onboarding/portfolio");
+  it("availability → /onboarding/payment (Step 4 → Step 5)", () => {
+    expect(nextStepFor("availability")).toBe("/onboarding/payment");
   });
 
-  it("portfolio → /dashboard (Step 4 = end of wizard)", () => {
-    // The last step's "next" is the wizard's exit. Skip from Step 4
-    // also lands here (Story 08 — telemetry-only divergence between
-    // Continue and Skip).
-    expect(nextStepFor("portfolio")).toBe("/dashboard");
+  it("payment → /onboarding/portfolio (Step 5 → Step 6)", () => {
+    expect(nextStepFor("payment")).toBe("/onboarding/portfolio");
+  });
+
+  it("portfolio → /onboarding/complete (Step 6 → completion screen)", () => {
+    expect(nextStepFor("portfolio")).toBe("/onboarding/complete");
+  });
+
+  it("complete → /dashboard (terminal exit when producer clicks the CTA)", () => {
+    expect(nextStepFor("complete")).toBe("/dashboard");
   });
 
   it("never returns undefined / null (every step has a defined next)", () => {
-    // Defensive: if a future OnboardingStep value gets added to the
-    // type but not to the switch, TypeScript catches it at compile —
-    // but we also pin it at runtime so a test failure surfaces the
-    // gap immediately.
-    const steps = ["studio", "service", "availability", "portfolio"] as const;
+    const steps = [
+      "studio",
+      "services",
+      "service",
+      "availability",
+      "payment",
+      "portfolio",
+      "complete",
+    ] as const;
     for (const s of steps) {
       expect(nextStepFor(s)).toBeTruthy();
     }

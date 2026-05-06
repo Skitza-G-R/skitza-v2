@@ -1,81 +1,95 @@
 import type { ReactNode } from "react";
 
 import { PersistentPlayer } from "~/components/audio/persistent-player";
+import { ProducerBottomNav } from "~/components/nav/producer-bottom-nav";
+import { ProducerSidebar } from "~/components/nav/producer-sidebar";
 import { getShellState } from "~/server/shell-data";
 
 import { CoachmarkTour } from "./coachmark-tour";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
-import { DesktopMenuBridge } from "./desktop-menu-bridge";
-import { MobileBottomNav } from "./mobile-bottom-nav";
 import { ShortcutsBridge } from "./shortcuts-bridge";
-import { Sidebar } from "./sidebar";
 
-// App shell used by /dashboard and its children. Hosted from the
-// shared (app)/dashboard/layout.tsx so the shell instance survives
-// sibling-route navigation — Sidebar, PersistentPlayer,
-// NotificationBell, CoachmarkTour, MobileBottomNav, and the command
-// palette no longer remount on every click between Today / Music /
-// Projects / Setup. Active nav state is derived inside Sidebar from
-// `usePathname()` rather than passed as a prop.
+// AppShell — Phase 2 (locked design system).
 //
-// Stays a server component so we can await the Clerk user + look up
-// the producer slug once per render; everything interactive (sidebar
-// state, command palette, keyboard shortcuts) lives in client
-// islands mounted inside this layout.
+// Hosts the dark sidebar (lg+) + dark mobile bottom nav (<lg) + the
+// warm canvas main content. Hosted from the shared dashboard/layout
+// (per the architecture test in
+// apps/web/src/app/(producer)/dashboard/__tests__/layout-architecture.test.ts)
+// so the shell instance survives sibling-route navigation. The
+// architecture invariants:
+//   1. dashboard/layout.tsx imports + renders <AppShell> from
+//      "~/components/shell/app-shell".
+//   2. No file under dashboard/**/page.tsx imports AppShell.
+// Both are pinned via the source-level test above.
 //
-// Slug + unread-count lookup lives in `server/shell-data` and is
-// wrapped with `React.cache()`. Now that the shell sits in a layout
-// rather than per-page, the call fires once per dashboard session
-// (until a layout re-render) instead of on every navigation.
+// Stays a server component so we can `await getShellState()` once per
+// render (slug + unread count + top-10 unread items used by the
+// notification bell). Per-request memoisation via React.cache() keeps
+// the cost flat as child server components opt into the same data.
 //
-// CommandPalette is lazy-loaded via CommandPaletteTrigger so cmdk
-// doesn't ship in the First Load JS of every dashboard route.
+// Existing infrastructure preserved (Phase 2 brief = chrome only,
+// don't touch features):
+//   - PersistentPlayer    — singleton audio player, custom-event bus.
+//   - CommandPaletteTrigger — ⌘K palette (deferred from new chrome,
+//     stays functional via the keyboard shortcut).
+//   - ShortcutsBridge     — keyboard shortcut dispatcher.
+//   - CoachmarkTour       — first-run guided tour.
+//
+// Phase 4 swaps PersistentPlayer for the new dark FloatingPlayer; for
+// now the existing player renders alongside the new chrome and looks
+// stylistically mismatched on mobile. Documented in
+// docs/qa/phase-2-handoff.md under "FloatingPlayer slot".
 
 export async function AppShell({ children }: { children: ReactNode }) {
   const { slug, unreadCount, unreadItems } = await getShellState();
   // Public origin used by the SidebarShareChip to render the
-  // /join/<slug> URL. Same fallback chain as the Today page hero
-  // ShareLinkCard before Story 05 relocated the surface — keep it
-  // here in the shell so every authenticated page renders the chip.
+  // /join/<slug> URL. Same fallback chain as before — not redefined
+  // because Phase 2 is chrome-only.
   const publicBaseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ??
     process.env.SITE_URL ??
     "https://skitza.app";
+
   return (
-    <div className="flex min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
-      {/* Skip-to-content link — only visible on keyboard focus (sr-only
-          by default, promoted to a real position + ring when focused).
-          Drops keyboard users straight past the sidebar nav into the
-          main surface. Must be the very first focusable element on the
-          page for the WCAG 2.4.1 "Bypass Blocks" success criterion. */}
-      <a
-        href="#main-content"
-        className="sr-only rounded-md bg-[rgb(var(--brand-primary))] px-3 py-2 text-sm font-medium text-[rgb(var(--fg-inverse))] focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary))] focus:ring-offset-2"
-      >
-        Skip to main content
-      </a>
-      <Sidebar
+    <div
+      className="flex min-h-dvh"
+      style={{
+        background: "rgb(var(--bg-background))",
+        color: "rgb(var(--fg-default))",
+      }}
+    >
+      <ProducerSidebar
         producerSlug={slug}
         publicBaseUrl={publicBaseUrl}
         unreadCount={unreadCount}
         unreadItems={unreadItems}
       />
-      {/* pb-16 on mobile so the fixed bottom nav never hides content;
-          md:pb-0 restores default padding on desktop where the bar
-          isn't rendered. */}
-      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 pb-16 md:pb-0">
+      {/* `pb-20` on mobile reserves space for the fixed bottom nav
+          (56px tab row + 8px safe-area buffer). `lg:pb-0` strips it
+          on desktop where the bar isn't rendered. The skip-to-content
+          target lives at the root layout (see app/layout.tsx) so we
+          don't need a second link here. */}
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="min-w-0 flex-1 pb-20 lg:pb-0"
+      >
         {children}
       </main>
-      <MobileBottomNav />
+
+      <ProducerBottomNav />
+
+      {/* Phase 2 floating-player slot — the existing PersistentPlayer
+          stays mounted so audio playback works across the dashboard.
+          Phase 4 will swap it for the new dark `FloatingPlayer` from
+          the locked design (notes/shell.jsx); the audio bus that
+          drives it is a window CustomEvent stream, so the swap is a
+          drop-in replacement at this exact mount point. */}
+      <PersistentPlayer />
+
+      {/* Existing infrastructure — not touched by Phase 2. */}
       <CommandPaletteTrigger />
       <ShortcutsBridge />
-      <DesktopMenuBridge />
-      <PersistentPlayer />
-      {/* First-run guided coachmark tour. Self-gates on a localStorage
-          flag (`skitza:producer-tour-seen:v1`), so returning producers
-          never see it. Replayable via the "Replay onboarding tour"
-          button in Setup → Account, which dispatches a
-          `skitza:replay-tour` window event. */}
       <CoachmarkTour />
     </div>
   );

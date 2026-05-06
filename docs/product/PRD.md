@@ -1,983 +1,639 @@
-# Skitza — Product Requirements Document (v2)
+# Skitza — Product Requirements Document
 
-> This is the source of truth for product decisions. When the PRD and an
-> implementation plan disagree, the PRD wins. Update this file BEFORE building
-> a feature, not after.
->
-> **v2 status**: 70+ product decisions locked in via Socratic Q&A sessions on
-> 2026-04-20. No `<!-- Q: -->` tags remain.
->
-> **Last updated:** 2026-04-20 by PRD v2 pass (dev-workflow branch).
+**Version:** 4.0  
+**Date:** April 2026  
+**Status:** Source of truth. All build decisions defer to this document.
 
 ---
 
-## 1. Vision
+## §1 — Vision
 
-**Skitza is the one app a solo music producer opens in the morning.**
+Skitza is the one app a solo music producer opens in the morning.
 
-It replaces the Calendly + Samply + Notion + DocuSign + Stripe + WhatsApp stack
-with a single product. The producer's job is to make music with artists; Skitza's
-job is to handle everything else — scheduling, contracts, deposits, file review,
-final payment, portfolio, CRM — automatically where possible, one tap where not.
+It replaces the Calendly + Samply + Notion + Stripe + WhatsApp stack with a single product. The producer's job is to make music with artists. Skitza's job is to handle everything else — scheduling, payments, file review, project tracking, portfolio, CRM — automatically where possible, one tap where not.
 
-### The core product promise
+**Core product promise:**  
+> "One permanent link in your Instagram bio. Artists click, listen, sign up, and book — with zero manual client entry on your end."
 
-> **One permanent link in your Instagram bio. Artists click, listen, sign up,
-> and book — with zero manual client entry on your end.**
-
-Everything downstream — contracts, invoices, project tracking, deliverables —
-materializes automatically from that first booking. The producer configures once
-and runs on autopilot.
+Everything downstream — project tracking, deliverables, payment — materialises automatically from that first booking. The producer configures once and runs on autopilot.
 
 ---
 
-## 2. Personas
+## §2 — Personas
 
 ### 2.1 Producer (primary)
 
-Independent solo music producer. Makes a living from 5-20 active projects at a
-time. Works across multiple artists — mixing + mastering + production. Currently
-juggles 5+ apps. Lives on Instagram/TikTok for discovery.
+Independent solo music producer. Makes a living from 5–20 active projects at a time. Works across multiple artists — mixing, mastering, production. Currently juggles 5+ apps. Lives on Instagram/TikTok for discovery.
 
 **Job-to-be-done:** "Replace my admin toolchain so I can spend all my time making music."
 
 ### 2.2 Artist (secondary — "the client")
 
-The producer's customer. Vocalist, rapper, band, label A&R, or indie artist
-looking for production services. Discovers producers via Instagram, TikTok,
-Spotify credits, word of mouth.
+The producer's customer. Vocalist, rapper, band, label A&R, or indie artist looking for production services. Discovers producers via Instagram, TikTok, Spotify credits, word of mouth.
 
 **Job-to-be-done:** "Work with this producer without needing a 12-message DM negotiation."
 
 ---
 
-## 3. Guiding principles
+## §3 — Guiding Principles
 
-1. **Share-first, not create-first.** Producers share ONE link; everything else cascades automatically.
-2. **Autopilot over configuration.** Smart defaults + named toggle switches over rule builders.
-3. **One screen per job.** 4 dashboard screens, never 10. Setup is one page with tabs.
-4. **Progressive onboarding.** Artists browse a teaser without signup; sign up to unlock full access.
-5. **Mobile = first-class.** 360px + thumbs first. Also: Tauri Mobile reuses the web codebase for real native apps.
-6. **Native-app feel.** No card-in-white-box UI. Samply × Spotify × Notion benchmark.
-7. **English default, opt-in translation.** Only the authenticated app is translated. Landing is English, always.
-8. **No AI dependency (for now).** No API keys required to run Skitza.
-9. **Skitza subdomains only.** No custom-domain feature. Ever.
+- **Share-first, not create-first.** Producers share ONE link; everything else cascades automatically.
+- **Autopilot over configuration.** Smart defaults + named toggle switches over rule builders.
+- **One screen per job.** 6 producer pages, never more. Each page owns one clear job.
+- **Progressive onboarding.** Artists browse a teaser without signup; sign up to unlock full access.
+- **English default.** Only English in v1. next-intl is wired for future Hebrew/Arabic but only `en.json` is populated.
+- **No AI dependency.** No LLM API keys required to run Skitza.
+- **Skitza subdomains only.** No custom-domain feature. `/join/[slug]` is the permanent format.
+- **Desktop-first for producers.** Producer dashboard is desktop-only in v1. Artist song page has a dedicated mobile UI.
 
 ---
 
-## 3.5 Landing page (`/`) — pre-auth marketing surface
+## §4 — Producer Platform
 
-The marketing landing at `/` is the front door for cold visitors. **Restored 2026-04-26**
-from the founder's original static-HTML design ([brief](../plans/active/2026-04-26-landing-restore-brief.md)) —
-replaces the prior decomposed component-landing that had drifted toward generic-SaaS aesthetics.
+The producer's authenticated dashboard. Six pages, each accessible from main navigation.
 
-**Signed-in producers redirect to `/dashboard`.** This route is for first-time visitors only.
+### Routes
+
+| Page | Route |
+|---|---|
+| Overview | `/dashboard` |
+| Clients & Projects | `/dashboard/clients-projects` |
+| Music Library | `/dashboard/music` |
+| Calendar | `/dashboard/calendar` |
+| Storefront (Profile) | `/dashboard/profile` |
+| Settings | `/dashboard/settings` |
+
+---
+
+### 4.1 — Overview `/dashboard`
+
+The producer's daily home screen. A glanceable dashboard that surfaces the most actionable information the moment you land. Every element is a shortcut into a deeper page — no editing or mutations happen here. The page auto-loads fresh data on every visit; no manual refresh or date filter.
+
+**Layout: 4 independent blocks of equal hierarchy.**
+
+#### Block 1 — 3 Most Urgent Projects
+
+A panel showing exactly three projects ranked by urgency, determined automatically by a combination of deadline proximity, overdue payment status, or stalled project state.
+
+What it shows per project: project name, client name, current status, urgency signal.
+
+- Clicking a project card → navigates into that project's room inside Clients/Projects.
+- Read-only at overview level — no editing here.
+
+#### Block 2 — Recent Music Uploads
+
+A feed of the most recently uploaded audio files across all projects.
+
+What it shows: track name, project it belongs to, upload timestamp, mini inline player or waveform indicator.
+
+- Clicking a track → navigates to that song's detail view inside the Music Library.
+- Clicking the project name → navigates to that project room.
+
+#### Block 3 — Money / KPI Block
+
+A financial summary widget — a status snapshot, not a full ledger.
+
+Three data points:
+- How much the producer has earned (total revenue to date or current period).
+- How much is owed to them (outstanding balances across all clients).
+- Who is not meeting their payment deadline (overdue clients flagged by name).
+
+- Clicking an overdue item or client name → navigates to Clients page filtered to that client.
+
+#### Block 4 — The Link
+
+The producer's shareable booking and onboarding URL. Displayed with a copy button directly on the dashboard.
+
+- Copy button → copies the link to clipboard.
+- Optional share action (WhatsApp, email, direct copy).
+
+> The link is the producer's primary acquisition tool. It needs to be instantly accessible from the home screen so it can be dropped into a conversation without navigating elsewhere.
+
+---
+
+### 4.2 — Clients & Projects `/dashboard/clients-projects`
+
+The producer's core relationship and project management page. One combined page with a tab navigation at the top switching between two views: Clients and Projects. Also contains the full artist onboarding flow and bulk CSV import.
+
+**Page entry point — Main table:**  
+Visible before selecting a tab. Shows clients and projects combined. Columns: contact details, number of projects, active/inactive status, balance, total money to date.
+
+#### Tab 1 — Clients
+
+Client list displayed as an accordion — client names expand to show their projects underneath.
+
+Each client row shows: contact details (name, phone, email), number of projects, active/inactive status, balance.
+
+**Drilling into a client exposes three sections:**
+
+- **Edit Contact Details** — update name, phone, email, and other contact fields.
+- **Client-Project Junction** — which projects are associated with this client; ability to link or unlink.
+- **Project Details** — full project detail from the client's perspective.
+
+#### Tab 2 — Projects
+
+Full project list. Each project drills into a project room with four branches.
+
+**Project Room — Dashboard branch:**
+- Real-time status widget showing project completion as a percentage.
+- Progress bar and current status label.
+
+**Project Room — Songs branch:**
+
+Full track management for this project. Per-track features:
+- File upload.
+- Edit/delete track details.
+- Timestamped comments — SoundCloud/Samply-style, same system as Music Library.
+- Version updates — upload a new version; system auto-increments the version number.
+- Google Drive link field for distribution channels.
+- Project folder setup.
+
+The song page within the project room uses the same desktop/mobile dual design as the Music Library song page.
+
+**Project Room — Payments & Agreements branch:**
+- Payment tracking: what has been paid, what is outstanding, payment schedule.
+- Inline agreement tied to this project (agreedAt timestamp, checkbox-style, not PDF).
+
+**Project Room — Status Widget branch:**
+- Real-time percentage progress of the project.
+- Status updates flow up to the Overview page Block 1.
+
+#### Artist Onboarding Flows
+
+Two methods for adding an artist, both accessible from this page:
+
+**Manual addition (existing artist):**
+- Producer manually creates the artist record.
+- Selects which projects or products the artist gets access to.
+- A link is generated and sent to the artist for account connection.
+
+**Via link (new artist):**
+- Producer sends the join link → artist goes through onboarding → connects to platform.
+- During onboarding, the producer's store and sessions are shown to the artist.
+
+**Bulk add:**
+- CSV import for adding many clients at once. Errors flagged before import is finalised.
+
+> Product clarifications: (1) Existing clients/projects can be imported via CSV. (2) A producer can manually add any project or client from within the relevant page. (3) When a client pays for an intro session and wants to open a new project, every project has a share link — the client signs up and pays through it. (4) An intro session is its own standalone project.
+
+---
+
+### 4.3 — Music Library `/dashboard/music`
+
+The producer's central audio management hub. Organises all uploaded tracks across all projects in one place, with tools to upload, version, play, and collect feedback. Modelled after Samply's library flow.
+
+**Three-level structure:** Library entry point → Project-Focused Library → Song Page.
+
+#### Level 1 — Library Entry Point
+
+The landing screen. Shows all projects the producer has uploaded music to.
+
+Display options: grid view (cards/tiles) or table view (rows).  
+Filter controls: upload time, artist name.
+
+- Toggling grid/table → re-renders in selected layout, no navigation.
+- Clicking a project → drills into the Project-Focused Library for that project.
+- Clicking "+ Add New Song" → opens the Add Song workflow.
+
+#### Level 2 — Project-Focused Library
+
+A drill-down view for a single project, showing all its tracks.
+
+What it shows per song: name, duration, version (v1/v2/v3), last upload date, listen count.
+
+Additional controls: download button, favorites button.
+
+- Clicking a song row → opens the Song Page for that track.
+- Download button → triggers file download.
+- Favorites button → toggles favorite state, persists on the track record.
+
+#### Level 3 — Song Page
+
+**Desktop version:**
+- Waveform display — full visual representation of the audio.
+- Prominent comment panel — SoundCloud/Samply-style timestamp commenting. Clicking a waveform point opens an inline comment input tied to that exact timestamp.
+- Floating bottom player — opens when the song plays, stays visible while navigating elsewhere.
+- Version switcher — easy toggle between v1/v2/v3 for A/B mix comparison.
+
+**Mobile version:**
+- Spotify-style player UI — album art, play/pause/next controls, progress bar.
+- Prominent comment button — tapping pauses music at current timestamp, opens comment input, resumes on submit.
+- Minimisable player — collapses to a persistent floating player at the bottom of the screen.
+
+**Song Page triggers:**
+- Playing → activates floating bottom player.
+- Clicking waveform timestamp (desktop) → opens inline comment input.
+- Tapping comment button (mobile) → pauses, opens input, resumes on submit.
+- Submitting a comment → saves timestamp comment, appears in the thread.
+- Switching version → reloads with the selected version's audio.
+- Minimising (mobile) → floating player persists.
+
+#### Feature — Add New Song
+
+- Click "+" → opens add-song flow.
+- Assign to a project → producer selects which project the track belongs to.
+- Versioning assigned automatically (v1/v2/v3) based on last modified date — system determines version number, no manual input needed.
+- Completing upload → new track appears in Project-Focused Library with auto-assigned version.
+
+#### Feature — Custom Playlists
+
+Create personal playlists from tracks across projects. Includes per-track listen tracking. Lets the producer curate listening sessions (e.g. "tracks ready for review", "mixes in progress") without affecting project structure.
+
+#### Cross-Screen Comment Behaviour
+
+> Comments made on a song surface in three places: the Song Page (primary), the Music Library screen at the project level, and the Project screen inside Clients/Projects. A comment left by an artist on mobile appears for the producer in any context they are viewing that track.
+
+---
+
+### 4.4 — Calendar `/dashboard/calendar`
+
+The producer's scheduling control centre. Two branches: Meetings (all session-facing interactions) and Availability (all configuration settings).
+
+#### Branch 1 — Meetings
+
+**Upcoming Sessions:**  
+All upcoming booked sessions sorted by date. Each entry shows session date/time, the artist or client, and which project or product it's connected to.
+- Clicking a session → opens session detail view for viewing or editing.
+
+**Intro Session Approvals:**  
+A dedicated queue for pending intro session requests. When an artist books through the producer's link, the request lands here.
+- Approve → session confirmed, automatic email invitation sent to the artist.
+- Reject → session request declined.
+
+**Edit / Modify Session Details:**  
+Edit any booked session's details — date, time, participants, linked project.
+
+> Two-way sync with the phone calendar — changes made here reflect in the producer's phone calendar and vice versa. *(GCal OAuth is a placeholder in v1 — UI shows "Coming soon". Two-way sync is fully described here as the target behaviour for when it ships.)*
+
+- Saving edits → updates the record, syncs to phone calendar (when connected).
+
+**Create Session:**  
+Manually create a new session. Three required elements:
+- Must connect to an existing project or product — sessions cannot float freely.
+- Add external people — invite participants who may not be on the platform.
+- Automatic email invitation sent — all participants receive an invite on session creation.
+- Completing → session appears in Upcoming Sessions, email invites fire, syncs to phone calendar (when connected).
+
+#### Branch 2 — Availability Settings
+
+**Active Days:**  
+Which days of the week the producer is available. Toggle per day. Saving → booking system only shows these days to artists.
+
+**Activity Time Windows:**  
+The hours within active days during which sessions can be booked.
+
+> Time windows can be capped — the producer sets a maximum number of sessions per day. Validation logic enforces this cap even if time slots technically exist.
+
+**Specific Hours for Specific Days:**  
+Per-day overrides for the general time windows. These take precedence when the booking system calculates availability.
+
+**Automatic Reminders:**  
+Automated messages sent before sessions. Includes both a reminder and an arrival confirmation — an active check asking the participant to confirm attendance, not just a passive reminder.
+
+**Automatic Approval:**  
+A toggle. When on → all new session requests skip the Approvals queue and go directly to Upcoming Sessions. When off → all requests require manual approval first.
+
+**Cancellation Policy:**  
+How far in advance a session can be cancelled, defined in hours. The system enforces this window and surfaces the policy to artists during booking.
+
+---
+
+### 4.5 — Storefront (Profile) `/dashboard/profile`
+
+The producer's public-facing commercial surface and identity hub. This is the page clients see when they receive the producer's link — they listen to the portfolio, see prices, and convert.
+
+> End-user flow: Client receives link → listens to portfolio → sees prices → selects a product → signs in → books a session → pays → lands on the artist platform → goes through short onboarding.
+
+**Two branches: Store and Portfolio.**
+
+#### Branch 1 — Store
+
+**Add Products — two creation paths:**
+
+*Path A — Manual (Custom):*  
+Producer fills in everything from scratch: product name, price, mix/master toggle, session duration, number of sessions, payment terms, contract.
+
+*Path B — Template-Based:*  
+Producer picks a template and updates: price, VAT, mix/master, session duration, number of sessions, payment terms, contract.
+
+> Everything that can be a toggle should be a toggle — the UI favours toggles over free-text fields wherever possible.
+
+Both paths end at a **Preview Screen**. Approving → product goes live. Editing → returns to creation form.
+
+**Delete / Update Products:**  
+Each product has a pencil icon for inline editing and a visibility toggle (show/hide) to remove from the public storefront without deleting from the system.
+- Saving edits → changes immediately live on public storefront.
+- Deleting → removes the product entirely.
+
+**Store Preview:**  
+A full read-only preview of the storefront exactly as a client sees it. No edits happen here — a sanity-check view before sharing the link.
+
+#### Branch 2 — Portfolio
+
+- **Social & Streaming Links:** Spotify playlists, SoundCloud, Instagram, and other platforms. Adding/editing → immediately updates the public storefront.
+- **Profile Image:** Upload, crop, replace. Uploading → replaces current image on the public storefront immediately.
+- **Songs (imported from Music Library):** Producer selects which tracks to feature publicly as a listening showcase. Removing a song from the portfolio → disappears from storefront, remains in Music Library untouched.
+
+---
+
+### 4.6 — Settings `/dashboard/settings`
+
+The producer's account management and integrations hub. Platform-level settings only — no commercial content, no portfolio, no services, no availability. Intentionally minimal.
+
+**Two branches: Profile and Integrations.**
+
+#### Branch 1 — Profile
+
+- **Name:** Display name used throughout the dashboard. Saving → updates across the platform.
+- **Email:** Login email. Changing requires verification of the new address before login credentials update.
+- **Currency:** Default currency for all monetary values. Does not retroactively reformat past records.
+- **Image:** Account avatar shown inside the platform interface. Distinct from the storefront profile image managed on the Storefront page.
+- **Delete Profile:** Permanent account deletion. Requires a confirmation step. On confirmation — all producer data, products, projects, clients, and sessions are permanently deleted and cannot be recovered.
+
+#### Branch 2 — Integrations
+
+**Google Calendar:**  
+Target: two-way sync between Skitza sessions and the producer's Google Calendar.  
+**v1 status: UI placeholder — "Connect Google Calendar (coming soon)" button. OAuth not yet implemented.**
+
+**Payment Clearing System:**  
+Target: connection to a payment processor for client payments through the platform. Includes a clearing company and Green Invoice for Israeli tax compliance.  
+**v1 status: UI placeholder — "Connect payment provider (coming soon)" button. Provider TBD — to be discussed with Grow. Exact integration flow is TBD.**
+
+**CSV Import / Bulk Client Add:**  
+Tool for importing existing clients in bulk from a spreadsheet.
+- Uploading a valid CSV → creates client records in Clients/Projects for each row.
+- Errors or malformed rows are flagged for review before import is finalised.
+
+---
+
+## §5 — Producer Onboarding
+
+An 8-step linear pipeline from account creation through to the producer platform. Each step is a distinct screen. The producer cannot access the platform until onboarding is complete, with the exception of the payment connection step which can be skipped.
+
+| Step | Screen & Content |
+|---|---|
+| 1 | **Sign Up** — Email and password. Account creation entry point. |
+| 2 | **Personal Details** — Studio name, full name, and additional personal information. |
+| 3 | **Services** — Multi-select checkbox UI. Producer taps all service types that apply (Producer, Mixing Engineer, Recording Artist, Mastering Engineer, etc.). Selections determine which templates are shown in Step 4. |
+| 4 | **Service Templates** — Based on Step 3 selections, matching pre-built templates are presented for editing. Producer adjusts price, VAT, session duration, number of sessions, payment terms. Templates adapt to the producer's service type. |
+| 5 | **Working Hours + Google Calendar** — Producer sets weekly availability (active days and hours). Includes GCal connection prompt. *(GCal is a placeholder in v1 — prompt explains it's coming soon.)* |
+| 6 | **Payment Connection (skippable)** — Producer connects their payment processing system. Can be skipped and configured later in Settings → Integrations. *(Placeholder in v1 — UI only.)* |
+| 7 | **Portfolio** — Producer sets up their public portfolio: social/streaming links, featured songs from the music library. |
+| 8 | **Onboarding Complete** — Summary/welcome confirmation. Completing → drops the producer into the Producer Platform dashboard. |
+
+### Sign In Flow — Returning Users
+
+- Step 1: Sign In — Email and password.
+- Step 2: Artist or Producer? — Role routing screen. Selecting Producer → Producer Platform. Selecting Artist → Artist Platform.
+
+---
+
+## §6 — Artist Platform
+
+The platform artists access after onboarding via a producer's link. Five sections.
+
+### 6.1 — Dashboard
+
+The artist's home screen. Three widgets:
+
+- **Upcoming Sessions:** List of next booked sessions — date, time, producer name, project. Clicking a session → opens session detail.
+- **Recently Uploaded Files:** Feed of most recently uploaded tracks across the artist's projects. Clicking a file → opens that track in the player.
+- **Balances:** Current account balance — what has been paid, what is outstanding, any credits held.
+
+### 6.2 — Store
+
+The full end-to-end purchase flow. Linear sequence from browsing to confirmation:
+
+Producer Catalog → Product Description → Agreement → Book Session → Payment → Confirmation Screen.
+
+- Payment gates download access in Music — downloads are blocked until payment is confirmed.
+- On payment success → session appears in Dashboard upcoming sessions. Artist gains access to the relevant project in Music.
+
+### 6.3 — Book Sessions
+
+Standalone session booking — used when the artist books an additional session independently of a store purchase.
+
+Flow: Which producer? → Which project? → Session Booking Screen (days then hours) → Calendar Sync.
+
+> Two-way calendar sync — only relevant, available days are shown. Days blocked on the producer's side do not appear as options.
+
+Completing booking → session appears in Dashboard upcoming sessions, syncs to artist's calendar, producer receives notification.
+
+### 6.4 — Music
+
+The artist's music access hub. Three levels of depth:
+
+- **Producer-Focused Library:** View filtered to a specific producer's uploads across all shared projects.
+- **All Music Library:** Full music library across all producers and projects the artist is part of.
+- **Project Screen:** All tracks for a specific project — song list, versions, upload dates.
+- **Player with Timestamped Comments:** Same design as the producer platform — desktop waveform with timestamp comments, mobile Spotify-style player. Comments pause music at the timestamp on mobile, resume on submit.
+
+> Download button is blocked until payment has been received. The artist can listen freely but cannot download until the producer confirms payment.
+
+### 6.5 — Settings
+
+**Profile:**  
+Name and Photo — display name and profile picture used within the platform.
+
+**Integrations:**
+- **Google Calendar:** Two-way sync so session bookings appear in the artist's personal calendar. *(Placeholder in v1.)*
+- **Payment method:** For store purchases and session bookings. *(Placeholder in v1 — provider TBD.)*
+
+---
+
+## §7 — Landing Page `/`
+
+The marketing landing at `/` is the front door for cold visitors. Signed-in producers redirect to `/dashboard`. Signed-in artists redirect to `/artist`.
 
 ### Aesthetic baseline (locked)
 
-- Typography: **Outfit** (body) + **Syne** (headings) via Google Fonts
-- Palette: warm off-white `#F2EDE6` (light sections) ↔ deep brown-black `#111009`
-  (dark sections) with amber `#D4960A` + copper `#B06830` accents
-- Tactile SVG noise overlay at 0.02 opacity (full-viewport fixed layer)
-- Custom CSS-only animations: scroll-reveal via IntersectionObserver, word-by-word
-  hero fade, hover lifts. **No framer-motion, no animation libraries.**
-- The landing has its OWN scoped CSS tokens (`--light-bg`, `--dark-bg`, `--amber`,
-  `--copper`, `--font-head`, `--font-body`) — does NOT use the authenticated app's
-  `--bg-base`/`--brand-primary` system. The two surfaces have intentionally different
-  visual identities and that separation is locked.
+- Typography: Outfit (body) + Syne (headings) via Google Fonts.
+- Palette: warm off-white `#F2EDE6` (light sections) ↔ deep brown-black `#111009` (dark sections) with amber `#D4960A` + copper `#B06830` accents.
+- Tactile SVG noise overlay at 0.02 opacity (full-viewport fixed layer).
+- Custom CSS-only animations: scroll-reveal via IntersectionObserver, word-by-word hero fade, hover lifts. No framer-motion, no animation libraries.
+- The landing has its **own scoped CSS tokens** — does NOT use the authenticated app's design system. The two surfaces have intentionally different visual identities. This separation is locked.
 
-### Section order (17 sections, top → bottom)
+### Section order (17 sections, top to bottom)
 
-1. **LandingNav** — Features / How It Works / Pricing + **Sign In** (text link) + **Sign Up** (amber button)
-2. **Hero** — "Stop chasing payments. Just make music." + dual CTA + word-by-word fade-in
-3. **TrustBar** — social-proof logos / press strip
-4. **PainGrid** — what's broken today (Calendly + Samply + Notion + DocuSign + Stripe + WhatsApp)
-5. **SolutionFlow** — how Skitza unifies it
-6. **FeaturesTabs** — 7 tabs: Storefront & Booking / Payments / Files & Feedback / Client History / Follow-up / Lead Management / Contracts & Protection
-7. **Compare** — head-to-head against the unbundled stack
-8. **HowItWorks** — 3-step user journey
-9. **Consolidation** — "everything in one place"
-10. **Security** — privacy, storage (R2), auth (Clerk), audit logging
-11. **Testimonials**
-12. **Pricing** — 2 tiers (per §7), 14-day free trial, no credit card required
-13. **FAQ** — accordion of common questions
-14. **Founder** — personal pitch
-15. **Download** — Tauri desktop + PWA mobile install prompts
-16. **FinalCTA** — last conversion surface before the footer
-17. **SiteFooter**
+| # | Section |
+|---|---|
+| 1 | LandingNav — Features / How It Works / Pricing + Sign In (text link) + Sign Up (amber button) |
+| 2 | Hero — "Stop chasing payments. Just make music." + dual CTA + word-by-word fade-in |
+| 3 | TrustBar — social-proof logos / press strip |
+| 4 | PainGrid — what's broken today (Calendly + Samply + Notion + DocuSign + Stripe + WhatsApp) |
+| 5 | SolutionFlow — how Skitza unifies it |
+| 6 | FeaturesTabs — 7 tabs: Storefront & Booking / Payments / Files & Feedback / Client History / Follow-up / Lead Management / Contracts & Protection |
+| 7 | Compare — head-to-head against the unbundled stack |
+| 8 | HowItWorks — 3-step user journey |
+| 9 | Consolidation — "everything in one place" |
+| 10 | Security — privacy, storage (R2), auth (Clerk) |
+| 11 | Testimonials |
+| 12 | Pricing — 2 tiers, 14-day free trial, no credit card required |
+| 13 | FAQ — accordion |
+| 14 | Founder — personal pitch |
+| 15 | Download — PWA mobile install prompt |
+| 16 | FinalCTA — last conversion surface before the footer |
+| 17 | SiteFooter |
 
 ### CTA decisions
 
-- **Primary CTA copy: "Sign up now"** (replaces the prior "Join The Waiting List" framing —
-  Skitza is no longer pre-launch)
-- **Primary destination:** `/sign-up` (Clerk) → on success, auto-redirects to `/onboarding`
-  (the existing 5-step producer wizard)
-- **Secondary CTA:** "Sign in" → `/sign-in` (text link in nav only)
-- **No lead-capture modal.** The original design's "Join 1,200+ producers" multi-select
-  pain survey is dropped — friction kills conversion for an unknown brand. Pain-point
-  collection moves inside `/onboarding` where the user is already committed.
-- **No email gate, no early-access form, no waitlist.**
-
-### Social proof
-
-- The original "Joined by 1,200+ producers on the waitlist" line is **replaced** with an
-  aspirational, non-fabricated tagline (working draft: *"★★★★★ Built for solo producers."*).
-  Real numbers replace it once they exist (e.g., *"Trusted by 50+ studios"*).
-  **No fabricated counts.**
-
-### Pricing copy
-
-- "14-day free trial · Cancel anytime · No credit card required" stays verbatim.
-- Amber CTA inside the pricing card routes to `/sign-up`, same destination as every
-  other primary CTA.
-
-### Tech approach
-
-- Single Next.js App Router page (`apps/web/src/app/page.tsx`, server component)
-- Auth redirect: `if (userId) redirect("/dashboard")` preserved
-- Client islands only where interactive (feature tabs, FAQ accordion, scroll-reveal
-  observers, mobile menu, hero word fade)
-- English-only, LTR-only (per §3.7)
-- Components under `apps/web/src/components/landing/` — restored to match the original
-  CSS literally; existing `--bg-base`/`--brand-primary` token references are removed
-  from the landing surface only
-
-### Non-goals for v1
-
-- A/B testing scaffolding
-- Lead-capture form / email gate / early-access wall
-- Video embeds (Hero "mockup" is CSS-only, matching the original)
-- Internationalization (locked by §3.7)
-- Theme switcher on the landing (single warm-light → dark-section flow is the design)
+- Primary CTA copy: "Sign up now"
+- Primary destination: `/sign-up` (Clerk) → on success, auto-redirects to `/dashboard/onboarding`
+- Secondary CTA: "Sign in" → `/sign-in` (text link in nav only)
+- No lead-capture modal. No email gate, no early-access form, no waitlist.
 
 ---
 
-## 4. The 4 Producer screens
+## §8 — Booking Flow
 
-### 4.1 Today (the cockpit)
+- **Timezone:** Artist picks their timezone during booking; availability displayed in both producer's and artist's timezones.
+- **Single-day only:** Individual bookings are single-day. Multi-day engagements happen as multiple bookings under one project.
+- **Reschedule:** Either party can initiate. Artist request → producer approves (or auto-approves if Automatic Approval is on). Producer can reschedule unilaterally with a notice email.
+- **Buffer:** Producer-configurable in Availability settings (default 15 min between sessions).
+- **Multi-participant:** Single booker, but can add session participants — name + email. Participants receive the calendar invite (.ics) but don't get Skitza accounts.
+- **Intro sessions:** Treated as standalone projects. When an artist books an intro session, a new project is created for it.
 
-`/dashboard` — the landing page after sign-in. **Redesigned 2026-04-25** ([brief](../plans/active/2026-04-25-today-redesign-brief.md), [architecture](../plans/active/2026-04-25-today-redesign-architecture.md)) to mirror the producer's actual 9am workflow: respond → produce → status. Replaces the prior layout (ShareLinkCard hero → 8-button QuickActions → KPI strip → 6-month chart → inbox below the fold), which was structured around what the codebase could render rather than what a producer does.
+### Artist booking experience
 
-**Three sections, in this order:**
+1. Picks service → sees availability filtered by producer's Calendar settings.
+2. Picks slot → confirms terms inline (cancellation policy surfaced here).
+3. Pays deposit *(placeholder in v1 — "Reserve session, payment coming soon" button)*.
+4. Project auto-created, artist-accessible immediately in the artist platform.
 
-1. **Inbox · What needs you** — split-inbox at the **top** of the page (was below the fold). Unified list of actionable items (sessions + comments + invoices + leads), sorted by urgency, detail pane on desktop / stack on mobile. The first thing the producer sees, because it's the first thing they're trying to find.
+### Payment placeholder (v1)
 
-2. **Studio · Recent uploads** — horizontal cover-art shelf, last 5 (visible) of up to 7 (loaded) track-version uploads across the producer's *active* projects. Each card shows deterministic gradient cover (no asset infrastructure — gradient is hash-derived from `trackId`), track title + version label, project client name, relative upload time. Unread-comment badge top-right corner when artists have replied since the version was uploaded. Click cover → deep-link to `/dashboard/projects/<id>?tab=music&versionId=<id>`. Click play overlay → existing PersistentPlayer takes over (no new audio infra). 5+ uploads → trailing "View all in Music →" link. Zero uploads → entire section hides (silence > "no tracks yet").
-
-3. **This month · Pulse + Quick** — single PulseCard (replaces the 4-KPI strip + 6-month chart, both retired from Today). One big number = revenue this month in producer's default currency, with a `+12% vs March`-style delta below (null when last month was 0 — no "+∞%"). 30-day daily-bucket sparkline sits behind the number at low alpha (ambient, not a deep chart). Footer row of three small mono stats: active projects · sessions next 7 days · unresolved items. Click the card → `/dashboard/revenue` for the deep chart. Below the Pulse: **ContextualActions** — 3 dynamic cards picked by priority algorithm (Reply to N → Continue with [recent track] → Send next invoice → Share your link → New project). Replaces the prior 8-button strip — context-aware, not menu-style.
-
-**Hero gradient stays.** The brand-primary radial wash on the top fold + the `sk-page-enter` mount animation + the `max-w-[1920px]` ultrawide breathing room are kept. Only the content within the gradient is restructured.
-
-**Empty state — day-1 producer.** When `recentUploads.length === 0 && pulseStats.activeProjects === 0 && items.length === 0`, the entire stack is replaced with a single centered `DashboardEmptyOnboarding` card: *"Your first booking is one share away."* + the share-link chip + copy button. No populated layout with zeros, no QuickActions guess-menu. Populated layout returns automatically when data exists (no flag flip required).
-
-**Setup-nudge banner** (first-run skipper): unchanged — fires when onboarding was skipped AND there are no inbox items. Pre-empts the empty-state card.
-
-**Aggregate visitor analytics** (30-day `/join/<slug>` visits, top-played tracks, conversion rate): deferred. Not part of the redesign v1; lives on the future `/dashboard/revenue` deep page or a dedicated `/dashboard/analytics` route TBD.
-
-**Share link surfacing.** No longer rendered as a Today hero. Lives in the **sidebar footer chip** (every authenticated page, every viewport) — compact inline `skitza.app/join/<slug>` with copy button. Slug-missing fallback: "Set your slug →" link to Setup → Profile. Sidebar-collapsed state collapses the chip to an icon-button. Copy hotkey `c` on Today still works (existing `useHotkey` binding). Preview action available via the sidebar chip's open-link affordance and from the ⌘K palette.
-
-**QuickActions strip retired.** The 8-button two-row strip ("Upload track / New booking / Send invoice / Share via WhatsApp + Search / Add offline client / Quick note / Edit /join page") that landed in PR #47 is removed in this redesign. Its actions are redistributed:
-  - `Search ⌘K` → already global via the command palette trigger in the sidebar; redundant on Today.
-  - `Quick note` → still available via the ⌘K palette (`> Quick note`); not on Today.
-  - `Add offline client` → folded into ContextualActions when there are no recent uploads (priority slot 5: "New project").
-  - `Upload track` / `New booking` / `Send invoice` → context-aware in ContextualActions (only surface when relevant, not always-on as buttons).
-  - `Share via WhatsApp` → fallback ContextualAction (priority slot 4, fires when nothing else needs the producer's attention).
-  - `Edit /join page` → reachable from the sidebar share-chip's gear affordance, and from Setup → Profile (the canonical home).
-
-**Sidebar shortcut affordance.** Keyboard shortcuts (`G T`, `G M`, `G P`, `G S`) for primary nav render inline on each row — right-aligned faded mono `kbd` chip that fades up on hover/focus-within, suppressed on the active row (brand bar carries orientation) and on rows with an unread badge (badge wins). Unchanged from PR #47.
-
-**Revenue deep page.** New route `/dashboard/revenue` hosts the existing `RevenueTrend` 6-month chart at a more breathable size (vertical, ~600×400, no `preserveAspectRatio="none"` stretching). For v1: just the chart, no toggles, no MoM/YoY, no export. Future passes add drill-down. The Pulse card's click target navigates here.
-
-### 4.2 Projects
-
-`/dashboard/projects` (list) + `/dashboard/projects/<id>` (Project Room).
-
-**List view**: chip filter bar **All / Live / Done / Archived** derived from the 9-value stage enum via `stageToState()`. Rows show title / artist / stage badge / relative time.
-
-**Project Room**: header with avatar + client name + stage badge + PaymentStatusStrip + 3-dot actions + tag pills (`#warm-vocals`). 5-step timeline: Trial → Contract → In Progress → Final → Paid. 4 sub-tabs:
-
-- **Music** — tracks / versions / comments / upload
-- **Sessions** — all linked bookings (one project can have many bookings — see §11)
-- **Money** — Paid/Outstanding/Next + "Open in Stripe" + Contract (read-only signed summary)
-- **Notes** — Overview stats + Activity timeline
-
-### 4.3 Music
-
-`/dashboard/music` — Spotify-style cover-art grid of every track across every project, sorted by upload recency (100-row cap). Tapping a card deep-links to its Project Room's Music sub-tab.
-
-### 4.4 Setup
-
-`/dashboard/settings` — single page with 7 tabs. **Every tab renders its full management UI inline.** No cross-link stubs, no "Manage X" buttons that bounce to a separate page.
-
-**Page header is dynamic.** The eyebrow stays `SETUP`, but the H1 and one-line description swap per active tab so producers always know what surface they're on without scanning back to the tab bar. The breadcrumb is omitted — the H1 carries the orientation. Profile (the default landing) keeps the editorial "Your studio, dialed in." copy as the entry-point hero.
-
-**Legacy URL hygiene.** `/dashboard/services` and `/dashboard/availability` redirect (301) into the tabbed Setup so any pasted link, bookmark, or email reference lands on the correct tab. Same pattern as `/dashboard/portfolio` → `?section=portfolio`.
-
-1. **Profile** — display name, slug, bio, logo, brand color
-2. **Services** — full CRUD + 5 template quickstart (see §8)
-3. **Portfolio** — track upload + reorder + delete (for public `/join/<slug>`)
-4. **Availability** — duration presets + multi-window-per-day + auto-confirm + cancellation policy + GCal sync status
-5. **Autopilot** — 5 toggle switches
-6. **Connections** — Stripe Connect onboarding + Google Calendar OAuth
-7. **Account** — email (via Clerk), language switcher, delete account (30-day grace), replay onboarding tour
-
-### 4.5 Producer first-run onboarding wizard
-
-**Rebuild — 2026-04-25.** Replaces the prior 5-step wizard (scattered fields, generic forms) with a focused **4-step full-screen stepper** that captures the minimum to make a public profile real, while reusing the production components from Setup so the data shape entered here is identical to what the producer would later edit. Prior 5-step rationale (Round 2 A1, A2) lives in `docs/decisions/360-prd-answers.md` for historical reference.
-
-When a Clerk webhook fires on signup it seeds a `producers` row with an email-derived auto-slug + null `displayName`. The wizard overrides that pre-seed and bootstraps the rest of the profile.
-
-**The 4 steps:**
-
-1. **Studio name** — single input: display name. Server auto-generates a slug from the display name + 4-char random hash (uniqueness guaranteed, slug never shown in UI). On submit, the row is marked "complete" by the existing role-resolution rule (`displayName IS NOT NULL` AND `slug !== emailToSlug(email)`), so all subsequent steps are skippable from the system's perspective.
-2. **First service** — reuses [`package-form.tsx`](../apps/web/src/app/(app)/dashboard/booking/package-form.tsx) in `create` mode (no edit / deactivate UI). All fields exposed (name, description, kind, duration, location, price, deposit, payment plans). Required: name + price; everything else falls back to safe defaults (60-min duration, kind=`session`, location=`studio`, pricingModel=`flat`, paymentPlans=`[{kind:"full"}]`). Writes to `products`.
-3. **Availability** — reuses [`availability-section.tsx`](../apps/web/src/components/dashboard/setup/availability-section.tsx) + its 5 child editors: GCal sync stub badge (per §18.1 — opens "coming soon — notify me" modal), default session duration, session policies (auto-confirm + cancellation hours), weekly windows, blackouts. Writes to `producers` columns + `availability_blocks` + `blackouts`.
-4. **Portfolio** — two new components stitched into one step:
-   - **External links editor** — three inputs (Spotify, YouTube, Instagram) writing to `producer_external_links` (platform enum: `spotify` | `youtube` | `instagram_reels`)
-   - **Track upload** — drag-or-pick widget reusing [`audio-uploader.tsx`](../apps/web/src/components/audio/audio-uploader.tsx) + the existing R2 multipart pipeline → `portfolio_tracks`
-   - At least one of the two is recommended (UI hint), neither is enforced.
-
-**Per-step skip.** Steps 2–4 each show a "Skip for now" ghost link below the primary CTA. Skipping advances to the next step (or `/dashboard` from Step 4). DB-completeness fires after Step 1 commits, so all later skips are safe — no orphaned data, no broken state.
-
-**Drop-off / resume.** Closing the tab mid-flow → next visit redirects to `/dashboard` (existing role-resolution rule applies once Step 1 is committed). Setup page exposes all four sections for later editing. **No `onboarding_step` column** — the Setup-nudge banner on Today (§4.1) handles the partial-profile case.
-
-**Layout pattern.** Full-screen stepper with persistent ambient layout: shared brand-glow gradient + display-font headers + `.reveal-up` / `.sk-pop` animations between steps + sticky bottom action bar (Back / Continue / Skip ghost). Each step is its own route (`/onboarding/studio`, `/onboarding/service`, `/onboarding/availability`, `/onboarding/portfolio`) so refresh / browser-back / iOS swipe-back all behave correctly.
-
-**Invisible localization.** No timezone or currency UI in the wizard. Server reads `Intl` browser timezone from a hidden form field; reads `x-vercel-ip-country` for currency inference (US / CA / AU / NZ → USD; UK → GBP; IL → ILS; EU member states → EUR; everything else → USD fallback). Both editable later in Setup → Profile / Setup → Services.
-
-**Calendar OAuth.** The GCal Sync badge in Step 3 reuses the existing UI-only stub at [`gcal-sync-badge.tsx`](../apps/web/src/app/(app)/dashboard/booking/gcal-sync-badge.tsx) — clicking Connect opens "coming soon — notify me". Real Google Calendar two-way sync (PRD §18.1) is deferred to a separate workstream; when it lands, the badge's `status` prop flips to `connected` with no other wizard changes.
-
-**Non-goals for this rebuild.** Avatar upload, brand color customization, bio/description, plan selection, second service, calendar OAuth wiring, language preference, Stripe Connect (deferred to Setup → Connections post-onboarding), social bio links beyond the three streaming/social platforms. All available in Setup post-onboarding.
-
-**Telemetry.** Each step commit fires `producer.onboarding.step_completed` with a `step` property (`studio` | `service` | `availability` | `portfolio`); skips fire `producer.onboarding.step_skipped` with the same step labels. Drop-off rate per step is the primary first-month metric for this surface.
+In v1, payment is not integrated. The booking flow creates a project with `invoice.status = 'pending'`. The producer manually marks invoices as paid from the Payments & Agreements branch of the project room. The payment provider will be connected in a future sprint after the provider decision is made.
 
 ---
 
-## 5. The 4 Artist app tabs
+## §9 — Project Model
 
-`/artist` (authenticated artist side — scoped to the studios the artist has joined).
+**One project, many bookings.**
 
-1. **Home** — active projects across studios + most-recent activity + cross-studio notification bell
-2. **Music** — tracks producers have shared (full catalog, not just teaser — signed-in gating is behind them)
-3. **Book** — per-studio booking surfaces
-4. **Store** — paid products + session add-ons
+- Single-session services: 1 booking → 1 project.
+- Production services (multi-session): 1 project, many bookings. Artist books once → project created. Each subsequent session is a new booking rolled under the same project.
 
-Plus: `StudioSwitcher`, `SoftSignInBanner` on public surfaces, `PersistentMiniPlayer`.
-
-**Artist profile**: edits email (via Clerk), display name, profile photo. That's it — not a full CRM/portfolio tool.
-
-**"My history"**: aggregate view of every project across every attached studio, sorted by recency. One tap from Home.
+The Songs branch in the Project Room shows all tracks associated with the project. The Payments & Agreements branch tracks all financial activity across bookings.
 
 ---
 
-## 6. Artist onboarding — the link flow
+## §10 — Services Catalog
 
-### 6.1 The URL
+Services are created and managed via the Storefront page (`/dashboard/profile` → Store branch). The onboarding wizard (§5 Steps 3–4) bootstraps the first service using the same product-creation components.
 
-**`skitza.app/join/<slug>`** — permanent, short, IG-bio-friendly. Signals "join [Producer]'s studio." Never expires. No trackable-per-recipient variant (deferred to Phase 2+; surfaced only if producers explicitly ask).
-
-### 6.2 First visit (not signed in)
-
-**Hybrid teaser page** with TWO audio sections:
-
-**Section A — Skitza-uploaded tracks (producer-curated samples):**
-- Each track in the producer's portfolio has a boolean `is_public_sample` flag (default `false`)
-- Only tracks with the flag `true` play for un-signed-in visitors
-- Cap: 3 displayed (if more are flagged, show the 3 most-recently-uploaded)
-- Remaining uploaded tracks are visible but locked behind "Sign up to play" overlay
-
-**Section B — external streaming links (always public):**
-- Producer can paste URLs from 7 supported platforms: Spotify, Apple Music, YouTube / YouTube Music, SoundCloud, Bandcamp, Tidal, Instagram Reels
-- These render as inline embeds (platform-native iframes / oEmbed) — playable without leaving the page
-- Stored in a new `producer_external_links` table: `(id, producer_id, platform, url, title, position, created_at)`
-- No gating — these tracks are already public on their origin platforms, re-gating makes no sense
-
-**Other page elements:**
-- Producer's name, logo, bio
-- Prominent "Sign up to hear the full catalog + book a session" CTA
-- Social proof: testimonials if any, stage badges
-- Footer: "Powered by Skitza" (subtle; see §7 Pricing)
-
-### 6.3 Sign-up flow
-
-Customizable splash (producer edits a single tagline + 1 CTA copy field; everything else templated):
-
-> "Join [Producer]'s studio — sign up to hear their full catalog + book your first session."
-
-Clerk handles the actual signup (email + password, or social). After signup:
-
-1. **Welcome splash** (1 screen): "You're in — here's [Producer]'s studio. Here's how it works." Brief 3-dot pointer to the bottom nav (Home / Music / Book / Store).
-2. Dropped into `/artist` Home with Producer X auto-attached to the artist's Studios.
-3. `client_contacts.clerk_user_id` stamped via existing Clerk webhook.
-4. No project exists yet — that's created on first booking (auto).
-
-### 6.4 Already-has-account flow
-
-Visitor is already signed in to Skitza with other producers → clicks `/join/<slug>`:
-
-**Confirm modal** (not auto-attach):
-
-> "Add [Producer X]'s studio to your account?"
-> [Add studio] [Cancel]
-
-Confirm → Producer X joins the artist's Studios list. No full signup needed.
-
-### 6.5 Engagement approval model
-
-When a signed-in artist clicks "Start [Service]" on `/join/<slug>` (or from their `/artist` app):
-
-1. Skitza creates a **pending engagement** (a project with `stage: 'lead'` and approval state `pending`).
-2. Producer gets a notification on Today: "[Artist Name] wants to start [Service Name] — approve?"
-3. Producer clicks **Approve** or **Decline** in-app.
-4. On approve → artist is shown the payment step (deposit via Stripe Connect, or "Mark paid offline" stub until Connect is live — see §12.3).
-5. On payment success → project transitions to `stage: 'booked'` and artist gains access to schedule sessions.
-
-**Inside an approved + paid project, all subsequent session bookings auto-confirm** without producer approval. The Model 2 schema (§9) already supports this — approval happens at the project level, sessions are just bookings rolled under the project.
-
-**No per-service or per-client approval flags for v1.** Every new engagement requires one click. Keep the model simple. If producers complain, add nuance later (per-service "auto-approve" flag, per-client trust toggle).
-
-### 6.6 Legacy `/p/<slug>` URL removal
-
-The old public portfolio route `/p/<slug>` and its public booking sub-route `/p/<slug>/book` are removed. Hitting either returns a 404.
-
-- All artist interaction funnels through `/join/<slug>` + Clerk signup.
-- Producer can still access their own public preview via "Preview public page" in QuickActions (which now links to `/join/<slug>`, not `/p/<slug>`).
-- Anyone with an old `/p/<slug>` URL (emailed, bookmarked, shared in DMs) gets a 404. Since the product is pre-launch, this is acceptable collateral; post-launch we can add a server redirect if needed.
-
----
-
-## 7. Pricing — 2 tiers (no Studio tier for launch)
-
-| Tier | Price | Limits | Platform fee | White-label |
-|---|---|---|---|---|
-| **Free** | $0 | 3 active projects, 5 portfolio tracks, no Autopilot | 30% | Subtle footer + "Powered by Skitza" badge on portfolio tracks |
-| **Pro** | $29/mo | Unlimited projects, unlimited tracks, Autopilot enabled | 5% | No Skitza branding |
-
-**No Studio tier at launch.** The original $79/mo tier depended on custom domains (killed in Q7) + team mode (non-goal). If Pro users organically ask for Studio-level features (0% platform fee, priority support, team mode), revisit.
-
-**Payment**: Stripe Connect Express handles tier upgrades via subscription. Producer charged monthly; Skitza takes the platform fee on each producer-to-artist transaction.
-
-### 7.1 Beta pricing (first 5 producers only)
-
-The first 5 beta producers get a **"pay what you want"** flow for Pro — no price lock, just a number field. Purpose: discover real willingness-to-pay before $29 is set in stone for the rest of the market.
-
-After the beta ends (milestone-based — closes when the first paid booking completes end-to-end with zero manual intervention), betas keep their Pro features **free for 6 months** (grandfather window), then transition to the $29 Pro price like everyone else.
-
-New signups after beta close: **$29 Pro** from Day 1. No exceptions without Claude proposing a price change + user ack (per Round 2 D5 autonomy rule).
-
----
-
-## 8. Services catalog
-
-### 8.1 Structure
+### Structure
 
 3 fixed categories + 1 custom type:
+- Production
+- Mixing & Mastering
+- Consulting
+- Custom / one-time session — free-form, producer-defined title, no category
 
-1. **Production**
-2. **Mixing & Mastering**
-3. **Consulting**
-4. **Custom / one-time session** — free-form, producer-defined title, no category
+### Service template quickstart (5 built-in)
 
-Services live flat within their category. Producer can have as many as they want.
+| Template | Default details |
+|---|---|
+| 3-hour mixing session | $150 · 180 min · single-session |
+| Album production package | $4,500 · multi-session · 50/50 split |
+| Weekend intensive | $600 · 480 min · flat |
+| Remote feedback round | $75 · 60 min · async |
+| Mastering pass | $200 · 90 min · single-session |
 
-### 8.2 Variants
+### Visibility
 
-Each service **starts as a single offering** (default). Producer can opt-in via a toggle to have up to 3 price tiers (Standard / Pro / Premium) for that service. Most services will stay single-tier.
-
-### 8.3 Deposit policy
-
-Producer sets a default deposit % in Availability settings (suggested 30%). Each service can override with its own deposit %.
-
-### 8.4 Visibility
-
-Each service has a **Public / Unlisted** flag. Unlisted services are only bookable via direct URL (useful for VIP quotes).
-
-### 8.5 Service templates (quickstart)
-
-5 built-in templates on the Services tab. Producer clicks → service form pre-filled, edits + saves:
-
-1. 3-hour mixing session ($150, 180 min, single-session)
-2. Album production package ($4,500, multi-session, 50/50 split — a "production" service)
-3. Weekend intensive ($600, 480 min, flat)
-4. Remote feedback round ($75, 60 min, async)
-5. Mastering pass ($200, 90 min, single-session)
+Each product has a Public / Unlisted flag. Unlisted products are only accessible via direct URL — useful for VIP quotes.
 
 ---
 
-## 9. Project model (Model 2: one project, many bookings)
+## §11 — Notifications & Email
 
-**Planned schema migration**: flip `project.bookingId` (1:1) → `bookings.projectId` (many-to-1).
+### Artist emails — default ON
 
-A project can have **one OR many bookings**:
+- Booking confirmed
+- Final payment due
+- Track version uploaded
+- Producer replied to your comment
 
-- **Single-session services** (most): 1 booking → 1 project. Artist books "3-hour mixing session" once, that creates a project.
-- **Production services** (multi-session): 1 project, many bookings. Artist books "Album production package" once → project created. Each subsequent scheduled session is a new booking rolled under that same project.
+### Producer emails — default ON
 
-The "Sessions" sub-tab in Project Room shows ALL bookings associated with that project, sorted by date.
+- New booking request
+- Payment received
+- New comment from artist
+- Booking cancelled or rescheduled
 
----
+### Email branding
 
-## 10. Booking flow
-
-### 10.1 Timezone
-
-Artist picks their timezone during booking; availability displayed in both producer's and artist's timezones. Calendly-standard.
-
-### 10.2 Single-day only
-
-Individual bookings are single-day. Multi-day engagements happen as multiple bookings under one project (Model 2).
-
-### 10.3 Reschedule
-
-Either party can initiate. Artist request → producer approves (or Autopilot auto-approves if toggle is on). Producer can reschedule unilaterally with notice email.
-
-### 10.4 Buffer
-
-Producer-configurable in Availability settings (default 15 min between sessions).
-
-### 10.5 Multi-participant sessions (band sessions)
-
-Single booker, but can add "session participants" — name + email each. Participants receive the calendar invite (.ics) but don't get Skitza accounts. Full multi-artist accounts = future feature.
-
-### 10.6 Artist booking experience
-
-- Picks service → sees availability
-- Picks slot → confirms terms inline (§12 Contracts)
-- Pays deposit via Stripe
-- Project auto-created, artist-accessible immediately in `/artist`
+"Producer X via Skitza" — producer's name/logo in the email header, subtle Skitza footer.
 
 ---
 
-## 11. Project Room deep dive
+## §12 — Audio Pipeline
 
-### 11.1 File retention
-
-- **Signed-in artists**: files retained forever (R2 storage).
-- **Guest (pre-signup) uploads + comments**: 90-day retention. Visible notice shown to guest artists: "Files expire in 90 days unless you sign up."
-- Producer can manually delete any file/comment any time.
-
-### 11.2 Comments
-
-Only the authenticated artist + producer can post comments on tracks. No public/anonymous comments.
-
-### 11.3 Downloads
-
-**Auto-release** when Money = Paid (final payment received). Producer doesn't manually "release" downloads; hitting final-paid flips the bit.
-
-### 11.4 Stems
-
-Stems are uploaded as a **zip file** and presented as a single download on the finished version. Cleaner than per-version-label conventions.
+- **Max file size:** 100 MB per file.
+- **Supported formats:** WAV, FLAC, MP3, AAC.
+- **Waveform generation:** audiowaveform + ffmpeg pipeline; peaks JSON cached on R2.
+- **Multipart uploads:** R2 presigned URLs for files > 20 MB; resumable via tus protocol shim.
+- **Stems:** Uploaded as a single zip file, presented as "Download stems" on the finished version.
+- **Track versions:** Stack under each track (Samply-style). Active version gets the hero waveform. Inactive versions show 64px inline waveforms.
+- **Auto-versioning:** Version number (v1/v2/v3) is assigned automatically based on last modified date — no manual input needed.
+- **Comments:** Timestamped per-version. Artist + producer only. Resolved-state synced across sessions via tRPC.
 
 ---
 
-## 12. Payments
+## §13 — Internationalisation
 
-### 12.1 Architecture
-
-- **Stripe Connect Express** — producer onboards once
-- **Destination charges** — platform is merchant of record
-- **Subscription Schedules** for installment plans (50-50 or N-month)
-- **Stripe Tax** per Connect account for global compliance
-- **Stripe handles 1099-K** filing for US producers (zero bookkeeping for you or them)
-
-### 12.2 Payment plans
-
-- **Flat** — pay in full on booking
-- **50/50** — 50% on booking, 50% on final delivery
-- **Monthly** — N monthly installments via Subscription Schedule
-
-Plans can be **changed mid-project** via "Propose new plan" → artist signs update → old charges preserved, new schedule takes over.
-
-### 12.3 Offline payments
-
-"Mark paid offline" action on any invoice. No Stripe fee, no platform fee, just an audit-trail entry. Covers cash / bank transfer / crypto.
-
-### 12.4 Refunds
-
-Partial refunds supported via a button on paid invoices — fires Stripe refund for any % the producer specifies. Full refunds are just partial = 100%.
-
-### 12.5 Multi-currency
-
-Producer sets a default currency in Setup → Profile. Each service or individual invoice can override. Stripe handles conversion on payout.
-
-### 12.6 Late fees
-
-**Not automated.** Autopilot's "Remind about unpaid invoices after 7 days" toggle handles reminder emails. Manual late-fee application is out of scope until legal review.
+- **v1 scope:** English only. `next-intl` is wired and `en.json` is populated. `he.json` and `ar.json` exist as stubs for future use.
+- **Default locale:** English for everyone. No IP-based auto-detection.
+- **Hebrew / Arabic:** Deferred. Will be added when beta producers in those markets explicitly request it.
+- **Landing page:** English-only, always. No translation on public-facing routes.
 
 ---
 
-## 13. Contracts & legal
+## §14 — Tech Stack
 
-### 13.1 Contract template
+Locked. No swaps without a PRD update.
 
-Skitza provides **one standard ToS + Privacy Policy** that applies to all producers. Reviewed annually by legal. Producers don't customize their own.
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 15 App Router |
+| API | tRPC v11 |
+| ORM + DB | Drizzle ORM + Neon Postgres |
+| Auth | Clerk v7 |
+| Payments | Stripe Connect Express *(wired, UI placeholder in v1)* |
+| Media storage | Cloudflare R2 |
+| Styling | Tailwind v4 + CSS vars + shadcn/ui |
+| i18n | next-intl (English only in v1) |
+| Testing | Vitest |
+| Audio | wavesurfer.js v7 |
+| Error tracking | Sentry |
+| Product analytics | PostHog |
+| Email | Resend + React Email |
 
-### 13.2 Contract UX
-
-Auto-generated at booking time. Artist signs inline via a checkbox + typed name (Documenso-backed under the hood; still produces an eIDAS-compliant signed PDF).
-
-### 13.3 E-signature jurisdiction
-
-**US + EU (Simple Electronic Signature)** via Documenso's audit trail. Legally binding for typical producer-artist engagements. Outside US/EU: "legally binding where enforceable" disclaimer — not actively marketed in other jurisdictions.
-
-### 13.4 Signed PDF
-
-Stored immutably in R2 with object-lock. Audit JSON includes IP, user agent, timestamps, document hash chain.
-
-### 13.5 Tax forms
-
-Stripe Connect Express generates 1099-K for US producers above thresholds automatically. Skitza does no tax paperwork.
-
-### 13.6 GDPR — delete my account
-
-Self-serve button in Setup → Account. Triggers:
-- 30-day soft-delete grace period (can cancel)
-- After 30 days: hard delete of producer record + all projects/tracks/bookings
-- Artist records preserved if tied to other studios
-
-### 13.7 COPPA
-
-Age-gate on signup: "Are you 13 or older?" — yes required. Under-13 users refused account. Producers working with minors handle parental consent offline.
+**Removed from stack:**
+- Tauri desktop app — deleted in v3-clean D1+D2. Desktop app is not part of the product.
+- Documenso — deleted in v3-clean D5+D6. Contracts replaced by inline checkbox agreement (agreedAt timestamp).
 
 ---
 
-## 14. Notifications & email
+## §15 — Non-Goals
 
-### 14.1 Artist emails (default ON)
-
-1. Booking confirmed
-2. Contract ready to sign
-3. Final payment due
-4. Track version uploaded
-5. Producer replied to your comment
-
-**Default OFF** (producer can enable later, or artist can opt-in):
-
-- Session reminder 24h before
-- Testimonial request when project completes (tied to Autopilot toggle)
-- Monthly recap
-
-### 14.2 Producer emails (default ON)
-
-1. New booking request
-2. Payment received
-3. New comment from artist
-4. Contract signed
-5. Booking cancelled or rescheduled
-
-**Default OFF**:
-
-- Daily digest ("3 unread items on Today")
-- Weekly revenue summary
-
-### 14.3 Email branding
-
-**"Producer X via Skitza"** — producer's name/logo in the email header, subtle Skitza footer.
-
-Full white-label (no Skitza mention) would be a Studio-tier feature but Studio tier is deferred for launch (§7).
-
----
-
-## 15. Autopilot (the automation layer)
-
-5 named toggle switches on Setup → Autopilot. No rule builder, no if/then UI.
-
-| Toggle | Default | What it does | Launch status |
-|---|---|---|---|
-| Send a welcome email when a booking lands | OFF | Confirms the booking to the artist with session details | ✅ **Working** |
-| Ping me when an artist comments | **ON** | Notification on `trackComments` insert | ✅ **Working** |
-| Remind about unpaid invoices after 7 days | OFF | Cron-driven; auto-pings the artist | ⏳ Stub (hidden at launch) |
-| Ask for a testimonial when a project completes | OFF | On stage → 'paid', sends testimonial request | ⏳ Stub (hidden at launch) |
-| Auto-archive projects 30 days after final payment | OFF | Stage → 'archived' automatically | ⏳ Stub (hidden at launch) |
-
-### 15.1 Launch scope (Round 2 decision, 2026-04-21)
-
-**Only the 2 working toggles are visible at launch.** The 3 stubs (`unpaidReminder`, `requestTestimonial`, `autoArchive`) ship hidden behind "Coming soon" badges — DB columns retained, UI rows disabled. Wiring them requires a Vercel cron job + email template + tests (~1 day each). Deferred to Phase 2 of the post-launch roadmap (see `docs/plans/active/2026-04-21-post-launch-roadmap.md`) to protect the runway.
-
-**Rationale**: a producer flipping a stub toggle ON and seeing nothing happen is worse for trust than not seeing the toggle at all.
-
-### 15.2 Full vision (once all 5 wire up)
-
-5 boolean columns on `producers`. Event-driven (booking.confirm, trackComment.insert) fire synchronously; cron-driven (unpaid, testimonial, auto-archive) need Vercel Pro cron (minimum 1×/day suffices).
-
----
-
-## 16. Internationalization
-
-- **Scope: authenticated app only.** Landing, public portfolio, sign-in/sign-up, magic-link handler are English-only, LTR-only.
-- **Default locale: English for everyone.** No IP-based auto-detection.
-- **Hebrew is opt-in** via language chip in sidebar footer. Cookie-persisted.
-- Translation files: `apps/web/messages/{en,he,ar}.json`. Arabic stubbed for future.
-- Root `<html>` always `lang="en" dir="ltr"`. RTL applies per-route-group via `<AppI18nProvider>` in authenticated layouts only.
-
----
-
-## 17. Mobile strategy
-
-### 17.1 PWA (ships with v1)
-
-- `manifest.json` + icons → installable as PWA on iOS 16.4+ / Android
-- Offline mode for artists: service worker + IndexedDB caches recently-played tracks (producers don't need offline)
-- Push notifications: email-only for v1; PWA push layered on Phase 2
-
-### 17.2 Native apps via Tauri Mobile
-
-- **Ship in parallel with v1** or shortly after (not Phase 3 — prioritized)
-- Tauri Mobile reuses the existing web codebase (~70%), avoids rewriting in Swift/Kotlin
-- Targets iOS App Store + Google Play Store
-- Fallback plan: if Tauri Mobile blocks on store review, ship PWA-only + revisit in Phase 3
-
-### 17.3 Producer mobile web
-
-- 4-tab bottom nav (Today / Projects / Music / Setup) + center "+" FAB for QuickActions
-- 44×44 tap targets everywhere
-- iOS safe-area insets respected
-- Momentum scrolling on horizontal rails
-
----
-
-## 18. Integrations
-
-### 18.1 Google Calendar — ship now
-
-Real OAuth integration. Two-way sync: Skitza bookings appear in the producer's Google Calendar; existing busy-times in Google Calendar block availability in Skitza.
-
-### 18.2 iCal / .ics
-
-Every booking confirmation email includes an `.ics` attachment for the artist to add to Apple/Google Calendar.
-
-### 18.3 Video meetings (Zoom / Meet)
-
-**Producer pastes their own link** in service config. Skitza includes it in booking confirmation emails. No OAuth to Zoom/Google Meet.
-
-### 18.4 Deferred
-
-- **Webhooks out / Zapier / n8n**: Defer. Autopilot + built-in emails cover 80% of automation; revisit after launch.
-- **Mailchimp / email capture export**: Defer.
-
-### 18.5 Never
-
-- **DAW integrations** (Ableton, Logic, Pro Tools): out of scope forever. Too fragmented; not Skitza's moat.
-- **Beat licensing platforms**: different business model.
-
----
-
-## 19. Analytics & data
-
-### 19.1 Producer sees (aggregate only)
-
-- 30-day `/join/<slug>` visit count
-- Top-played tracks on public portfolio
-- Conversion rate (visits → bookings)
-- Revenue trends (already shipped: 6-month SVG line chart on Today)
-
-**No individual visitor IPs, user agents, or session recordings.** Privacy-first.
-
-### 19.2 Artist sees
-
-**Nothing about the producer's metrics.** Artist sees only their own projects/tracks/bookings.
-
-### 19.3 Skitza's own product analytics
-
-**PostHog** (self-hosted or cloud free tier) — wires the 10-15 most important events:
-- `producer.signup.completed`
-- `producer.onboarding.step_completed` (per step)
-- `producer.share_link.copied`
-- `producer.quick_action.clicked` (per action)
-- `artist.signup.from_link`
-- `artist.first_booking.completed`
-- `project.auto_created`
-- `autopilot.toggle.enabled` (per toggle)
-- `setup.tab.viewed` (per tab)
-- `experimental.feature.used`
-
-**No PII in events.** User IDs are hashed. PostHog's "people" feature disabled in favor of event-only analysis.
-
-### 19.4 Magic-link view tracking (deferred)
-
-When the trackable `/m/<token>` variant ships (Phase 2+), per-recipient analytics (opens, dwell, track replays) come with it.
-
----
-
-## 20. Support & community
-
-### 20.1 Channel
-
-**Email (`support@skitza.app`) + in-app chat widget** (Intercom / Crisp / Plain). Chat widget converts 3× better than email-only.
-
-### 20.2 Public changelog
-
-`skitza.app/changelog` auto-updates on every deploy. Producer-facing trust signal ("we ship a lot"). Built via GitHub Actions post-merge. Also shown in-app as "What's new" dropdown.
-
-### 20.3 Feature requests
-
-**In-app "Request a feature" button** → email to product inbox → manual triage. No public board (Canny / Productlane) until volume justifies it.
-
-### 20.4 Documentation
-
-Help center at `help.skitza.app` (self-hosted or Gitbook). Search-first. Written in English only for v1.
-
-### 20.5 Discord / community
-
-Optional. Not a primary support channel. Consider opening a Discord around launch for early-adopter producers to connect.
-
----
-
-## 21. Audio pipeline
-
-### 21.1 Upload constraints
-
-- **Max file size**: 100 MB per file
-- **Supported formats**: WAV, FLAC, MP3, AAC (exactly 4)
-- **Rejected formats**: M4A, OGG, AIFF, raw stems archives outside the zip-stems flow
-- **Waveform generation**: `audiowaveform` + ffmpeg pipeline; peaks JSON cached on R2
-- **Multipart uploads**: R2 presigned URLs for files > 20 MB; resumable via tus protocol shim
-
-### 21.2 Stems
-
-Uploaded as **a single zip file** on a track version. Presented as "Download stems" on the finished version. No per-file handling inside the zip.
-
-### 21.3 Versions
-
-Track versions stack under each track (Samply-style). Active version gets the hero waveform (320px desktop / 200px mobile). Inactive versions show 64px inline waveforms.
-
-### 21.4 Comments
-
-Timestamped per-version. Artist + producer only. Resolved-state synced across sessions via tRPC.
-
----
-
-## 22. Monitoring, ops & deployment
-
-### 22.1 Error tracking
-
-**Sentry** (Next.js integration). Free tier covers early volume. PR comments on regressions are useful.
-
-### 22.2 Uptime / status page
-
-**BetterStack or Instatus** (free tier) → public `status.skitza.app`. Users bookmark it. Automatic pages to you (email or Slack) on outage.
-
-### 22.2b On-call paging rule (Round 2 E5)
-
-**Phone-page Gili only for p0**: site fully down, payments fully broken, data loss detected. Everything else lands in the Sentry dashboard and waits for Gili's next session. Rationale: Gili's sleep is the bottleneck resource in a solo-founder company. Don't burn it on 500 errors that affect one user.
-
-Sentry alert rules to configure:
-- Page on: 50%+ requests returning 5xx for >5min, OR any Stripe webhook failure, OR any database connection loss
-- Silent: single-user 4xx/5xx, slow queries under the 1% threshold, deprecation warnings
-
-### 22.3 CI branch protection
-
-**Enforced on `main`**: `test + typecheck + lint` must all be green before merge. GitHub branch protection settings locked.
-
-### 22.4 Deployment
-
-- Vercel for the web app (Fluid Compute, not Edge — better compat)
-- Neon for Postgres
-- Cloudflare R2 for media
-- Documenso on Fly.io for signatures
-- Production deploy: squash-merge to `main` triggers Vercel deploy
-- Preview deploy: every PR gets a branch-tip preview URL
-
-### 22.5 Migrations
-
-**Until `_journal.json` is fully rebuilt**: canonical workflow is `/skitza-migrate` (direct SQL via neon HTTP client, bypasses the broken drizzle-kit journal). See `CLAUDE.md` for details.
-
-### 22.6 Vercel tier
-
-Hobby tier limits:
-- 1 cron per day minimum interval (sufficient for Autopilot daily-reminder behaviors)
-- No custom concurrency scaling
-
-**Upgrade to Pro when**:
-- Sub-daily crons needed (unlikely; daily covers all Autopilot jobs)
-- Concurrent user load demands more function capacity
-
----
-
-## 23. Roadmap signals (when to revisit non-goals)
-
-The things we're NOT building — and what would change the decision.
-
-### 23.1 AI Copilot / LLM features
-
-**Trigger to reconsider**: 5+ explicit user requests + validated willingness to pay the API cost (producer survey or pricing test). Until then: no API-key dependency.
-
-### 23.2 Voice-first input / transcription
-
-Same as AI: requires API. Revisit when AI Copilot revisit trigger fires.
-
-### 23.3 Producer referral network
-
-**Trigger**: producers organically ask "can I send overflow work to other Skitza producers?" Need critical mass first (50+ producers active).
-
-### 23.4 Multi-engineer / team mode
-
-**Trigger**: first user asks for team access (ideally a paying user). Studio tier is the natural home if we ever add it back.
-
-### 23.5 Beat licensing
-
-Different business model. Revisit only if a clear user pain emerges on top of existing services catalog.
-
-### 23.6 Auto-generated social content (waveform videos, teaser clips)
-
-Tracks are producer-internal. Artists distribute via DistroKid. Revisit only if producers ask for a "social post" export feature.
-
-### 23.7 Custom domains
-
-**Never.** Skitza subdomains only. Ops complexity (ACME, DNS) not worth the niche value.
-
----
-
-## 24. Planned schema migrations
-
-Schema changes required to deliver the locked-in PRD:
-
-### 24.1 Model 2: one project, many bookings
-
-**Migration**: flip `projects.bookingId` (1:1 FK) → add `bookings.projectId` (many-to-1 FK); drop `projects.bookingId`.
-
-**Blast radius**:
-- `booking.confirm` (auto-project logic) needs to associate to existing project if artist has an in-progress project for this service
-- Sessions sub-tab renders a list, not a single booking
-- ICS generation works per-booking as before
-
-**Deferred**: can ship after v1 launch if Model 2 isn't immediately needed (single-session bookings work fine under the current 1:1 model; Model 2 only matters when a "production" service produces multiple scheduled sessions).
-
-### 24.2 Pricing tiers (collapse to 2)
-
-No schema change needed. `producers.tier` enum exists; we just use `Free` + `Pro` and retire `Studio` silently.
-
-### 24.3 Product analytics (PostHog)
-
-Schema-free — event ingestion only. Add `NEXT_PUBLIC_POSTHOG_KEY` env var + small wrapper hook.
-
-### 24.4 Tauri Mobile
-
-Entirely separate `apps/mobile/` workspace (or reuse `apps/desktop/` with mobile target flags). No web-app schema change.
-
----
-
-## 25. Non-goals (hard constraints, still in force)
+Hard constraints. These are not deferred — they are explicitly out of scope.
 
 | Feature | Why not |
 |---|---|
-| AI Copilot / LLM calls | No API-key dependency — see §23.1 |
-| Voice-first capture | Same |
-| framer-motion or JS animation libs | CSS-only — zero bundle cost |
-| Custom domains | Never — §23.7 |
-| Native iOS/Android before Tauri Mobile | Path is Tauri Mobile first — §17.2 |
-| Multi-engineer / team mode | Demand-driven — §23.4 |
-| Beat licensing | Different business — §23.5 |
-| Auto-generated social content | Tracks are internal — §23.6 |
-| DAW integrations | Too fragmented — §18.5 |
-| Webhooks out / Zapier | Deferred — §18.4 |
+| AI Copilot / LLM calls | No API-key dependency at launch |
+| Custom domains | Skitza subdomains only — `/join/[slug]` is permanent format |
+| framer-motion or JS animation libraries | CSS-only — zero bundle cost |
+| Native iOS/Android app | Not in scope — web-only for v1 |
+| Multi-engineer / team mode | Revisit when first paying user asks for team access |
+| Beat licensing | Different business model entirely |
+| DAW integrations (Ableton, Logic, Pro Tools) | Too fragmented — not Skitza's moat |
+| Webhooks out / Zapier / n8n | Deferred — email covers automation needs at launch |
+| Magic links (per-recipient trackable share links) | Deleted in v3-clean D7 — replaced by `/join/[slug]` |
+| PDF contract generation and signing | Deleted in v3-clean D5+D6 — replaced by inline checkbox agreement |
+| Lead-capture modal / email gate / waitlist | Friction kills conversion for an unknown brand |
 
 ---
 
-## 26. Open questions for future PRD revisions
-
-After v2 lock, the remaining open items (intentionally not answered in this pass):
-
-- **DMCA / copyright takedown flow**: how does a producer respond to a copyright claim on a portfolio track?
-- **Data residency (EU)**: does EU artist data need to stay in EU? (Blocker for GDPR compliance in some jurisdictions.)
-- **Accessibility certification**: WCAG 2.1 AA is the internal target, but no formal audit is planned for v1.
-- **Affiliate program for producers referring new Skitza users** (not referral between producers — that's §23.3).
-- **Branding for artists**: does the artist app expose "Powered by Skitza" to the artist, or is the artist experience fully Skitza-branded?
-- **Promotional codes / coupons on producer services**: not addressed.
-
-Tagged with `<!-- Q: -->` as they arise; revisit in future PRD pass.
-
----
-
-## 27. Appendix: tech-stack commitments
-
-See `CLAUDE.md` for exhaustive detail. Highlights:
-
-- Next.js 15 App Router
-- tRPC v11
-- Drizzle ORM 0.36 + Neon Postgres
-- Clerk v7 (auth)
-- Stripe Connect Express
-- Cloudflare R2 (media)
-- Documenso (e-signatures)
-- Tailwind v4 + CSS vars
-- next-intl (cookie-driven, authenticated app only)
-- Vitest (testing)
-- wavesurfer.js v7 (audio)
-- Tauri 2 (desktop + mobile)
-- Sentry (error tracking)
-- PostHog (product analytics)
-- BetterStack or Instatus (uptime)
-
-**No swaps without PRD update.**
-
----
-
-## 28. GTM playbook (Round 2 addition — 2026-04-21)
-
-Product strategy belongs in the PRD. This section captures the GTM/launch decisions so they're part of the normative spec, not scattered in plan docs.
-
-### 28.1 The elevator pitch
-
-> **"Everything a music producer needs to run their studio as a business, in one link."**
-
-The "one link" is `skitza.app/join/<slug>`. It's the product's core magic and should anchor every piece of marketing copy.
-
-### 28.2 Target audience — wedge-thin
-
-**For**: solo music producers, making money from music as paid work, spanning production/mixing/mastering.
-
-**NOT for**: bands, studios with multiple engineers, labels, hobbyists, non-music creators (no podcasters, no voiceover, no video editors).
-
-Keep the wedge razor-thin. Expansion is earned, not planned.
-
-### 28.3 Vision — 24 months out
-
-Profitable lifestyle business. ~200 producers × $29/mo ≈ $5.8k MRR. Gili runs it solo. The product design reinforces this (solo focus, no team mode, no custom domains). Fundable-startup pivot is optional if traction dictates; bootstrap is the default path.
-
-### 28.4 Geographic scope at launch
-
-**Global English from Day 1.** Skitza is not Israel-first. Hebrew UI is deferred to Month 2+ only if beta producers explicitly ask.
-
-### 28.5 Go-to-market channels (v1)
-
-1. **Instagram DMs** — Gili personally reaches out to ~50 producers whose work he respects. First channel, highest signal.
-2. **Content** — weekly cadence: 1 Instagram reel + 1 blog post + 1 YouTube walkthrough per month. All "how I use Skitza" / case-study framing.
-3. **Referral loop** — two-prong:
-   - Active: "Refer a producer, get 3 months free" (classic SaaS referral)
-   - Passive: "Powered by Skitza" badge on free-tier producers' `/join/<slug>` pages
-4. **Soft launch** — network first (Gili's IG), then Product Hunt one week later.
-
-**No paid ads** until unit economics validate with the first paying cohort.
-
-### 28.6 Beta cohort (launch validation)
-
-**5 beta producers**, milestone-based beta (ends at first paid booking end-to-end with zero manual intervention). Cohort diversity target: 3 similar to Gili + 2 different genres/regions.
-
-**Feedback surface**: weekly 30-min 1-on-1 calls + shared WhatsApp group + in-app support widget.
-
-**Beta pricing** (see §7.1): "pay what you want" during beta, 6 months grandfather free after close, $29 Pro price thereafter.
-
-### 28.7 Success metrics
-
-- **Breakeven**: 100 paying producers (≈ $2,900 MRR, 5% fee on their volume = pure gross).
-- **Launch-window deadline**: first revenue by July 2026 (runway-driven). If at that point MRR < $500, iterate/pivot; if MRR > $2k, continue bootstrap; if MRR > $5k, start seed-raise conversations.
-
-### 28.8 Funding stance
-
-**Bootstrap to $5k MRR.** Only then consider a small seed (~$250k) if and only if it unlocks meaningfully faster growth. Friends-and-family or grants not being pursued.
-
-### 28.9 Positioning vs competitors
-
-| Competitor | Their lane | How we're different |
-|---|---|---|
-| **Samply** | Audio review + collab | We add booking + payments + contracts; they stay audio-only |
-| **HoneyBook / Dubsado** | Generic service-business CRM | We're audio-native (waveform, timestamped comments, stems) |
-| **Studioflow / Booking-focused tools** | Studio scheduling | We combine scheduling with the artist-signup loop (`/join`) |
-| **Splice / Soundtrap** | Collaboration tooling | We're about the business, not the production itself |
-
-Skitza is the only tool that owns the entire solo producer's business surface in one place. That's the positioning.
-
----
-
-*PRD v2 locked 2026-04-20. Round 2 GTM section added 2026-04-21. Next revision when a §26 question gets answered or a §23 trigger fires.*
+*Skitza PRD v4.0 · April 2026 · Source of truth for all build decisions*

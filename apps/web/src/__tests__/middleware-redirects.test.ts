@@ -35,6 +35,6 @@ describe("resolveLegacyRedirect — Setup tab flatten", () => {
   it("returns null for live (non-legacy) paths", () => {
     expect(resolveLegacyRedirect("/dashboard")).toBeNull();
     expect(resolveLegacyRedirect("/dashboard/settings")).toBeNull();
-    expect(resolveLegacyRedirect("/dashboard/projects/abc")).toBeNull();
+    expect(resolveLegacyRedirect("/dashboard/clients-projects/abc")).toBeNull();
   });
 });

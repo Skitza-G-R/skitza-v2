@@ -165,16 +165,30 @@ describe("decideOnboardingRedirect (2-arg, step-aware)", () => {
 // OnboardingStep tag. Decoupled from the layout so the mapping is
 // testable without simulating Next.js's request context.
 describe("stepFromPath", () => {
-  it("maps each step URL to its tag", () => {
+  it("maps each step URL to its tag (T8 — 6 step + completion)", () => {
     expect(stepFromPath("/onboarding/studio")).toBe("studio");
+    expect(stepFromPath("/onboarding/services")).toBe("services");
     expect(stepFromPath("/onboarding/service")).toBe("service");
     expect(stepFromPath("/onboarding/availability")).toBe("availability");
+    expect(stepFromPath("/onboarding/payment")).toBe("payment");
     expect(stepFromPath("/onboarding/portfolio")).toBe("portfolio");
+    expect(stepFromPath("/onboarding/complete")).toBe("complete");
+  });
+
+  it("matches services BEFORE service (prefix-collision discipline)", () => {
+    // /onboarding/service does NOT start with /onboarding/services
+    // (extra 's'), so the lookup correctly resolves to "service" even
+    // though "services" comes first in STEP_NAMES. The reverse path
+    // /onboarding/services prefix-matches "services" and short-circuits
+    // before reaching "service".
+    expect(stepFromPath("/onboarding/services")).toBe("services");
+    expect(stepFromPath("/onboarding/service")).toBe("service");
   });
 
   it("matches with starts-with so trailing slashes / nested paths still work", () => {
     expect(stepFromPath("/onboarding/service/")).toBe("service");
     expect(stepFromPath("/onboarding/portfolio?welcome=1")).toBe("portfolio");
+    expect(stepFromPath("/onboarding/complete?utm=x")).toBe("complete");
   });
 
   it("falls back to 'studio' for the bare /onboarding index (which redirects to studio anyway)", () => {
@@ -187,22 +201,17 @@ describe("stepFromPath", () => {
   });
 
   it("falls back to 'studio' when the header is missing (null / undefined / empty)", () => {
-    // Local-dev edge case: middleware didn't run (e.g. an in-route
-    // fetch bypassed it) and the header is absent. Defaulting to
-    // "studio" preserves today's behaviour for callers that never
-    // injected the header.
     expect(stepFromPath(null)).toBe("studio");
     expect(stepFromPath(undefined)).toBe("studio");
     expect(stepFromPath("")).toBe("studio");
   });
 
-  it("does not match a step that's only a prefix of another path segment", () => {
+  it("prefix-matches the longer step name first (services-listing → services)", () => {
     // Defensive: a hypothetical /onboarding/services-listing route
-    // starts with "/onboarding/service" but isn't Step 2. The current
-    // implementation accepts the prefix match — this test pins that
-    // behaviour explicitly so a future refactor (e.g. exact-match
-    // dispatch) updates the test deliberately rather than silently
-    // breaking the redirect.
-    expect(stepFromPath("/onboarding/services-listing")).toBe("service");
+    // starts with "/onboarding/services" so the lookup resolves to
+    // "services". Pin it explicitly so a future refactor (e.g.
+    // exact-match dispatch) updates the test deliberately rather than
+    // silently breaking the redirect.
+    expect(stepFromPath("/onboarding/services-listing")).toBe("services");
   });
 });

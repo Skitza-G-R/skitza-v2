@@ -7,10 +7,10 @@
 //
 // Scope: i18n is mounted ONLY on the authenticated app surfaces
 // ((app), (artist), (artist-welcome), (onboarding)). The landing
-// page, (public) storefront + legal + magic-link handler, and the
-// (auth) sign-in/up widget are pinned to English/LTR regardless of
-// the NEXT_LOCALE cookie. See ~/i18n/app-i18n-provider.tsx for the
-// wrapper that turns i18n on for a route group.
+// page, (public) storefront + legal, and the (auth) sign-in/up
+// widget are pinned to English/LTR regardless of the NEXT_LOCALE
+// cookie. See ~/i18n/app-i18n-provider.tsx for the wrapper that
+// turns i18n on for a route group.
 //
 // Why cookie-only instead of /en/ /he/ prefixes:
 //  - The app has many route groups already. A `[locale]` segment

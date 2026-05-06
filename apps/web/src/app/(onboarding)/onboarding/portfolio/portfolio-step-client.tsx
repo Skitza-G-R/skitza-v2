@@ -54,7 +54,12 @@ export function PortfolioStepClient() {
   const [error, setError] = useState<string | null>(null);
 
   const updateLink = (key: PortfolioPlatformKey, url: string) => {
-    setLinks((prev) => ({ ...prev, [key]: url }));
+    setLinks((prev) => ({ ...prev, [key]: { ...prev[key], url } }));
+    if (error) setError(null);
+  };
+
+  const updateTitle = (key: PortfolioPlatformKey, title: string) => {
+    setLinks((prev) => ({ ...prev, [key]: { ...prev[key], title } }));
     if (error) setError(null);
   };
 
@@ -112,7 +117,12 @@ export function PortfolioStepClient() {
         <p className="text-sm text-[rgb(var(--fg-secondary))]">
           {PORTFOLIO_HELPER_COPY}
         </p>
-        <ExternalLinksEditor value={links} onChange={updateLink} disabled={pending} />
+        <ExternalLinksEditor
+          value={links}
+          onChange={updateLink}
+          onTitleChange={updateTitle}
+          disabled={pending}
+        />
         {error ? (
           <p
             role="alert"

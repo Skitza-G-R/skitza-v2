@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { auth } from "@clerk/nextjs/server";
 import { createDb, producers, clientContacts, eq } from "@skitza/db";
 import { isAutoSlug } from "~/lib/slug";
 
@@ -109,4 +111,82 @@ export async function fetchUserRole(params: {
     producerRow: producerRow ?? null,
     hasClientContacts,
   });
+}
+
+export type ExpectedRole = "producer" | "artist";
+
+/**
+ * Pure: given a resolved role and the role a layout/action expects,
+ * return the redirect path (or null = allow through).
+ *
+ * Replaces the earlier (producer)/decide-redirect.ts policy. Same
+ * mapping for the producer side; adds the symmetric artist policy
+ * required by CLAUDE.md ("Producer cannot reach /artist/*"):
+ *
+ *   producer:
+ *     unauthenticated      → /sign-in
+ *     artist               → /artist
+ *     producer-incomplete  → /onboarding
+ *     orphan               → /onboarding   (webhook race; wizard waits)
+ *     producer-complete    → null (render)
+ *
+ *   artist:
+ *     unauthenticated      → /sign-in?redirect_url=/artist
+ *     producer-complete    → /dashboard    (CLAUDE.md role isolation)
+ *     producer-incomplete  → /onboarding   (finish producer wizard)
+ *     orphan               → /sign-in      (no DB identity → re-resolve)
+ *     artist               → null (render)
+ */
+export function decideRoleRedirect(
+  role: UserRole,
+  expected: ExpectedRole,
+): string | null {
+  if (expected === "producer") {
+    switch (role.kind) {
+      case "unauthenticated":
+        return "/sign-in";
+      case "artist":
+        return "/artist";
+      case "producer-incomplete":
+      case "orphan":
+        return "/onboarding";
+      case "producer-complete":
+        return null;
+    }
+  }
+
+  switch (role.kind) {
+    case "unauthenticated":
+      return "/sign-in?redirect_url=/artist";
+    case "producer-complete":
+      return "/dashboard";
+    case "producer-incomplete":
+      return "/onboarding";
+    case "orphan":
+      return "/sign-in";
+    case "artist":
+      return null;
+  }
+}
+
+/**
+ * I/O: enforces the role boundary at the top of a protected layout
+ * or server action. Calls Clerk + the DB to resolve the user's role,
+ * then redirects on mismatch. Returns the resolved userId on allow so
+ * callers don't need to re-call auth() before their own data loading.
+ */
+export async function requireRole(
+  expected: ExpectedRole,
+): Promise<{ userId: string }> {
+  const { userId } = await auth();
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) throw new Error("missing DATABASE_URL");
+
+  const role = await fetchUserRole({ dbUrl, userId });
+  const redirectTo = decideRoleRedirect(role, expected);
+  if (redirectTo) redirect(redirectTo);
+
+  // Past the redirect → role is one of the allow-states, all of which
+  // require a userId to have been resolved upstream.
+  return { userId: userId as string };
 }

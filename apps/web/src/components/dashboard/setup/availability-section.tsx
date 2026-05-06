@@ -18,11 +18,11 @@
 // .tsx) owns the "When you're open" H1 + description; this component
 // renders the editors only.
 
-import { AvailabilityEditor } from "~/app/(app)/dashboard/booking/availability-editor";
-import { BlackoutsEditor } from "~/app/(app)/dashboard/booking/blackouts-editor";
-import { DurationPicker } from "~/app/(app)/dashboard/booking/duration-picker";
-import { GCalSyncBadge } from "~/app/(app)/dashboard/booking/gcal-sync-badge";
-import { PoliciesEditor } from "~/app/(app)/dashboard/booking/policies-editor";
+import { AvailabilityEditor } from "~/app/(producer)/dashboard/booking/availability-editor";
+import { BlackoutsEditor } from "~/app/(producer)/dashboard/booking/blackouts-editor";
+import { DurationPicker } from "~/app/(producer)/dashboard/booking/duration-picker";
+import { GCalSyncBadge } from "~/app/(producer)/dashboard/booking/gcal-sync-badge";
+import { PoliciesEditor } from "~/app/(producer)/dashboard/booking/policies-editor";
 
 export type AvailabilityBlock = {
   weekday: number;

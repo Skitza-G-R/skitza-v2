@@ -1,7 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useArtistAudio } from "~/components/artist/artist-audio-context";
+import {
+  WaveformPlayer,
+  type WaveformPlayerHandle,
+} from "~/components/audio/waveform-player";
 import { submitTimestampedComment, type AddedComment } from "./actions";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -38,18 +42,30 @@ type Track = {
   comments: Comment[];
 };
 
+type Session = {
+  id: string;
+  startsAt: Date;
+  durationMin: number;
+  status: string;
+  packageName: string | null;
+};
+
 type NowPlayingData = {
   project: {
     id: string;
     title: string;
     producerId: string;
     producerName: string;
+    finalPaid: boolean;
   };
   tracks: Track[];
+  sessions: Session[];
 };
 
 // ─── Component ────────────────────────────────────────────────────────
 export function NowPlaying({ data }: { data: NowPlayingData }) {
+  const audio = useArtistAudio();
+
   // Per-track selected version — defaults to the latest (first in the
   // desc-sorted `versions` array). When the artist switches versions,
   // the track list keeps the new choice sticky.
@@ -128,6 +144,7 @@ export function NowPlaying({ data }: { data: NowPlayingData }) {
                     track={track}
                     version={selectedVersion}
                     producerName={data.project.producerName}
+                    finalPaid={data.project.finalPaid}
                     comments={combined}
                     onOptimisticAppend={(c) => {
                       setOptimisticByVersion((prev) => ({
@@ -149,7 +166,87 @@ export function NowPlaying({ data }: { data: NowPlayingData }) {
           })}
         </ul>
       )}
+
+      {data.sessions.length > 0 ? (
+        <section className="mt-8">
+          <h2 className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] mb-3">
+            Sessions
+          </h2>
+          <ul className="space-y-2">
+            {data.sessions.map((session) => {
+              const date = new Date(session.startsAt);
+              const isPast = date < new Date();
+              const statusLabel = isPast
+                ? "Completed"
+                : session.status === "pending"
+                  ? "Pending approval"
+                  : "Upcoming";
+              return (
+                <li
+                  key={session.id}
+                  className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] p-3"
+                >
+                  <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
+                    {date.toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                    {" · "}
+                    {date.toLocaleTimeString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    })}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
+                    {session.durationMin} min
+                    {session.packageName ? ` · ${session.packageName}` : ""}
+                    {" · "}
+                    {statusLabel}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {/* Mobile-only FAB — stacks above the persistent mini-player
+          (which sits at bottom-16). Only renders once a track is
+          actively loaded so we don't pin a comment with no audio
+          context. Mirrors the inline desktop "+ Comment" affordance. */}
+      {audio.state.currentTrack ? (
+        <button
+          type="button"
+          onClick={() => {
+            audio.requestComment();
+          }}
+          aria-label="Add comment at current time"
+          className="fixed bottom-20 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_4px_12px_-2px_rgb(var(--brand-primary)/0.45)] transition-transform active:translate-y-px sm:hidden"
+        >
+          <CommentIcon size={20} />
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+function CommentIcon({ size }: { size: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
   );
 }
 
@@ -211,12 +308,14 @@ function VersionBody({
   track,
   version,
   producerName,
+  finalPaid,
   comments,
   onOptimisticAppend,
 }: {
   track: Track;
   version: Version;
   producerName: string;
+  finalPaid: boolean;
   comments: Comment[];
   onOptimisticAppend: (c: Comment) => void;
 }) {
@@ -224,62 +323,80 @@ function VersionBody({
   const isCurrent = audio.state.currentTrack?.id === version.id;
   const pendingComment =
     isCurrent && audio.state.pendingComment ? audio.state.pendingComment : null;
-
-  const handlePlay = () => {
-    if (!version.audioUrl) return;
-    audio.playTrack({
-      id: version.id,
-      url: version.audioUrl,
-      title: `${version.label} of ${track.title}`,
-      producerName,
-      artworkUrl: null,
-    });
-  };
+  // Imperative handle to the wavesurfer instance — lets the comment
+  // composer pause playback on focus and resume on submit (QA F7).
+  const wavesurferRef = useRef<WaveformPlayerHandle | null>(null);
 
   const handleRequestComment = () => {
-    if (!isCurrent) {
-      // If the artist clicks Comment while the track isn't playing in
-      // the mini-player, start it first so requestComment() captures a
-      // meaningful timestamp. playTrack() also resets position to 0 so
-      // the first comment pins at 0s, which is a reasonable default.
-      handlePlay();
+    if (!isCurrent && version.audioUrl) {
+      // If the artist taps Comment while this track isn't the current
+      // track in the mini-player, prime it first so requestComment()
+      // captures a meaningful timestamp. playTrack() resets position to
+      // 0, so the first comment pins at 0s — a reasonable default.
+      audio.playTrack({
+        id: version.id,
+        url: version.audioUrl,
+        title: `${version.label} of ${track.title}`,
+        producerName,
+        artworkUrl: null,
+      });
     }
     audio.requestComment();
   };
 
   return (
     <div className="mt-3 space-y-3">
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handlePlay}
-          disabled={!version.audioUrl}
-          aria-label={`Play ${version.label}`}
-          className="rounded-full bg-[rgb(var(--brand-primary))] px-3 py-1 text-xs font-medium text-[rgb(var(--bg-base))] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Play
-        </button>
-        <button
-          type="button"
-          onClick={handleRequestComment}
-          disabled={!version.audioUrl}
-          className="rounded-sm border border-[rgb(var(--border-subtle))] px-2 py-1 font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--fg-muted))] disabled:opacity-40"
-        >
-          + Comment
-        </button>
+      <div className="flex items-center justify-between gap-3">
         <span className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
           {formatDuration(version.durationMs)}
         </span>
+        <div className="flex items-center gap-2">
+          {version.audioUrl && finalPaid ? (
+            <a
+              href={version.audioUrl}
+              download
+              className="inline-flex h-7 items-center rounded px-2 text-xs text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
+              aria-label={`Download ${version.label}`}
+            >
+              Download
+            </a>
+          ) : version.audioUrl && !finalPaid ? (
+            <span className="text-xs text-[rgb(var(--fg-muted))] opacity-50">
+              Download unlocks after payment
+            </span>
+          ) : null}
+          {/* Inline + Comment is desktop-only. On mobile (<sm) the FAB at
+              the bottom-right of the page replaces it, so the waveform
+              gets the full row width to itself. */}
+          <button
+            type="button"
+            onClick={handleRequestComment}
+            disabled={!version.audioUrl}
+            className="hidden rounded-sm border border-[rgb(var(--border-subtle))] px-2 py-1 font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--fg-muted))] disabled:opacity-40 sm:inline-flex"
+          >
+            + Comment
+          </button>
+        </div>
       </div>
 
-      {/* Waveform stub — flat colored bar. Replace with wavesurfer.js
-          once the library ships (tracked as a follow-up). Keeps the
-          screen shaped correctly today so the comment-composer UI has
-          room to breathe. */}
-      <div
-        className="h-16 rounded-sm bg-[rgb(var(--bg-sunken))]"
-        aria-label="waveform placeholder"
-      />
+      {version.audioUrl ? (
+        <WaveformPlayer
+          ref={wavesurferRef}
+          src={version.audioUrl}
+          height={120}
+          label={`${version.label} of ${track.title}`}
+          onSeek={(sec) => {
+            audio.setPosition(sec);
+          }}
+        />
+      ) : (
+        <div
+          className="flex h-16 items-center justify-center rounded-sm bg-[rgb(var(--bg-sunken))] text-xs text-[rgb(var(--fg-muted))]"
+          aria-label="No audio uploaded for this version"
+        >
+          No audio yet
+        </div>
+      )}
 
       {pendingComment ? (
         <CommentComposer
@@ -287,6 +404,7 @@ function VersionBody({
           timeMs={Math.round(pendingComment.time * 1000)}
           onSubmit={onOptimisticAppend}
           onDismiss={audio.dismissComment}
+          wavesurferRef={wavesurferRef}
         />
       ) : null}
 
@@ -301,15 +419,30 @@ function CommentComposer({
   timeMs,
   onSubmit,
   onDismiss,
+  wavesurferRef,
 }: {
   version: Version;
   timeMs: number;
   onSubmit: (c: Comment) => void;
   onDismiss: () => void;
+  wavesurferRef: React.RefObject<WaveformPlayerHandle | null>;
 }) {
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Tracks whether the waveform was playing at the moment we paused it
+  // on focus, so a submit only resumes audio that was actually playing
+  // (avoids jarring 0s playback if the artist hadn't started the
+  // waveform yet).
+  const wasPlayingRef = useRef(false);
+
+  const handleFocus = () => {
+    const ws = wavesurferRef.current;
+    if (ws?.isPlaying()) {
+      wasPlayingRef.current = true;
+      ws.pause();
+    }
+  };
 
   const handleSave = () => {
     setError(null);
@@ -331,7 +464,21 @@ function CommentComposer({
       onSubmit(toCommentShape(result.comment));
       setBody("");
       onDismiss();
+      if (wasPlayingRef.current) {
+        wavesurferRef.current?.play();
+        wasPlayingRef.current = false;
+      }
     });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter submits, Shift+Enter inserts a newline (chat-composer
+    // convention). Required by F7 AC: "Pressing Enter to submit the
+    // comment resumes playback."
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSave();
+    }
   };
 
   return (
@@ -353,6 +500,8 @@ function CommentComposer({
         onChange={(e) => {
           setBody(e.currentTarget.value);
         }}
+        onFocus={handleFocus}
+        onKeyDown={handleKeyDown}
         rows={3}
         maxLength={2000}
         placeholder="What did you hear?"

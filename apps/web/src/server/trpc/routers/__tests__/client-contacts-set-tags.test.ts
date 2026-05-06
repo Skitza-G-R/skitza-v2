@@ -113,7 +113,6 @@ vi.mock("@skitza/db", () => ({
   projectTracks: { __table: "project_tracks" },
   trackComments: { __table: "track_comments" },
   trackVersions: { __table: "track_versions" },
-  magicLinks: { __table: "magic_links" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
   or: (...conds: unknown[]) => ({ or: conds }),
@@ -121,9 +120,6 @@ vi.mock("@skitza/db", () => ({
   asc: (col: unknown) => ({ asc: col }),
   inArray: (col: unknown, vals: unknown[]) => ({ inArray: [col, vals] }),
   sql: () => ({ sql: true }),
-}));
-vi.mock("~/lib/magic-links/token", () => ({
-  issueMagicToken: () => "dummy-token",
 }));
 vi.mock("~/server/artist/identity", () => ({
   emailHashFor: (email: string) => `hash:${email}`,

@@ -25,7 +25,7 @@ import {
   stageToState,
   type ProjectState,
 } from "~/lib/projects/states";
-import { bulkSetProjectStage } from "~/app/(app)/dashboard/projects/actions";
+import { bulkSetProjectStage } from "~/app/(producer)/dashboard/clients-projects/actions";
 
 // Batch G — the projects list now surfaces THREE display states
 // instead of eight-plus stage chips. The underlying stage enum is
@@ -118,7 +118,7 @@ export function ProjectsList({
   const selectState = (next: ProjectState | null) => {
     const query = next ? `?state=${next}` : "";
     startTransition(() => {
-      router.replace(`/dashboard/projects${query}`, { scroll: false });
+      router.replace(`/dashboard/clients-projects${query}`, { scroll: false });
     });
   };
 
@@ -141,7 +141,7 @@ export function ProjectsList({
           {tP("empty.description")}
         </p>
         <Link
-          href="/dashboard/projects/new"
+          href="/dashboard/clients-projects/new"
           className="mt-6 inline-flex h-10 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-medium text-[rgb(var(--fg-inverse))] hover:brightness-110"
         >
           {tP("empty.cta")}
@@ -459,7 +459,7 @@ function ProjectRowItem({
         />
       </label>
       <Link
-        href={`/dashboard/projects/${row.id}`}
+        href={`/dashboard/clients-projects/${row.id}`}
         // Batch C — rows live un-framed now, so the hover wash has to
         // be strong enough to read on its own. min-h-[64px] matches
         // Today's inbox rhythm so the three list surfaces (Today,
@@ -517,7 +517,7 @@ function StateEmpty({ emptyState, showAll }: { emptyState: string; showAll: stri
       <p className="text-sm text-[rgb(var(--fg-secondary))]">
         {emptyState}{" "}
         <Link
-          href="/dashboard/projects"
+          href="/dashboard/clients-projects"
           className="text-[rgb(var(--brand-primary))] underline decoration-dotted underline-offset-2"
           scroll={false}
         >

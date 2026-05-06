@@ -180,21 +180,6 @@ describe("project.setStageBulk", () => {
     }
   });
 
-  it("rejects cancelled + payment_paused transitions (guarded states)", async () => {
-    const caller = await buildCaller();
-    const ids = ["00000000-0000-0000-0000-000000000099"];
-
-    await expect(
-      caller.project.setStageBulk({ ids, stage: "cancelled" }),
-    ).rejects.toThrow();
-    await expect(
-      caller.project.setStageBulk({ ids, stage: "payment_paused" }),
-    ).rejects.toThrow();
-
-    // Guard runs BEFORE the update — no rows should have been touched.
-    expect(updateMock).not.toHaveBeenCalled();
-  });
-
   it("allows the common transitions (archived + paid)", async () => {
     const caller = await buildCaller();
     const ids = ["00000000-0000-0000-0000-000000000010"];

@@ -63,7 +63,6 @@ export function NotesSubTab({
   project,
   trackCount,
   versionCount,
-  contractCount,
   tracks,
   versions,
   comments,
@@ -71,7 +70,6 @@ export function NotesSubTab({
   project: NotesProject;
   trackCount: number;
   versionCount: number;
-  contractCount: number;
   tracks: NotesTrack[];
   versions: NotesVersion[];
   comments: NotesComment[];
@@ -87,7 +85,6 @@ export function NotesSubTab({
         project={project}
         trackCount={trackCount}
         versionCount={versionCount}
-        contractCount={contractCount}
       />
       <ActivitySection tracks={tracks} versions={versions} comments={comments} />
     </section>
@@ -108,19 +105,16 @@ function OverviewSection({
   project,
   trackCount,
   versionCount,
-  contractCount,
 }: {
   project: NotesProject;
   trackCount: number;
   versionCount: number;
-  contractCount: number;
 }) {
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <StatBlock label="Tracks" value={String(trackCount)} />
         <StatBlock label="Versions" value={String(versionCount)} />
-        <StatBlock label="Contracts" value={String(contractCount)} />
       </div>
 
       <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">

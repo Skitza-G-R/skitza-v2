@@ -1,29 +1,45 @@
-import { UserButton } from "@clerk/nextjs";
 import type { Studio } from "~/server/artist/identity";
-import { ArtistAudioProvider } from "./artist-audio-context";
-import { BottomNav } from "./bottom-nav";
-import { PersistentMiniPlayer } from "./persistent-mini-player";
-import { StudioSwitcher } from "./studio-switcher";
 
-// Wraps the artist app. Header (Studio Switcher + UserButton) + main
-// content + persistent mini-player + bottom nav. The mini-player owns
-// the singleton <audio> element via ArtistAudioProvider, so tab
-// navigation never remounts it (Task 6).
+import { ArtistBottomNav } from "~/components/nav/artist-bottom-nav";
+import { ArtistDesktopSidebar } from "~/components/nav/artist-desktop-sidebar";
+import { ArtistMobileTopBar } from "~/components/nav/artist-mobile-top-bar";
+
+import { ArtistAudioProvider } from "./artist-audio-context";
+import { PersistentMiniPlayer } from "./persistent-mini-player";
+
+// Artist app shell — Phase 2 (locked design system).
 //
-// 2026-04-22 — Task 17 Phase 1 (docs/audit-report.md + design brief).
-// Replaced the naked "← Studio" link in the header with a proper
-// <UserButton /> that handles sign-out + account management.
-// Dual-role users (Gili himself, and any producer who's also an
-// artist of another producer) still get a "Producer dashboard" menu
-// item inside UserButton — but it's tucked inside the dropdown, not
-// advertised in the artist chrome. This preserves the hard role wall
-// Task 16 established: the artist surface looks + feels like an
-// artist surface, not a producer-lite surface.
+// Two responsive surfaces, switching at the canonical `lg` breakpoint
+// (1024px, per Gili's Q1 ruling — iPads in both orientations get
+// mobile UI; only laptops/desktops see the sidebar):
 //
-// Phases 2 (desktop sidebar rebuild) + 3 (/artist/settings page) are
-// separate commits — see docs/plans/active/2026-04-22-artist-ui-rebuild-design.md.
+//   Mobile (<lg):
+//     warm-canvas top bar   (Wordmark + StudioSwitcher + UserButton)
+//     main content          (warm canvas, scrollable)
+//     dark bottom nav       (5 tabs: Home / Music / Book / Store / Settings)
+//
+//   Desktop (lg+):
+//     dark left sidebar     (Wordmark + 5 nav items + UserButton)
+//     main content          (warm canvas, scrollable)
+//
+// `isProducer` is intentionally consumed inside the responsive layout
+// so the "Producer dashboard" backlink in Clerk's UserButton menu
+// remains available to dual-role users on every artist surface. The
+// menu is rendered inside the relevant chrome — desktop sidebar bottom
+// for `lg+`, mobile top bar for `<lg` — with the same labelled link.
+//
+// Audio: `ArtistAudioProvider` owns the singleton <audio> element,
+// `PersistentMiniPlayer` renders the visible mini-player. Both are
+// preserved verbatim for Phase 2 (audio system rework lands in Phase
+// 4). The existing player renders above the dark bottom nav on mobile
+// and floats over the bottom-right of main on desktop; visual
+// mismatch is expected per the Phase 2 brief.
+//
+// Per CLAUDE.md the artist platform is mobile-first; the desktop
+// surface is net-new in Phase 2 (the prior implementation rendered
+// the same single-column layout at every viewport).
 export function ArtistAppShell({
-  isProducer,
+  isProducer: _isProducer,
   studios,
   children,
 }: {
@@ -31,73 +47,47 @@ export function ArtistAppShell({
   studios: Studio[];
   children: React.ReactNode;
 }) {
+  // `_isProducer` parked in scope so the prior call-site signature is
+  // preserved; Phase 2 doesn't render the dual-role UserButton menu
+  // entry yet (the new chrome's UserButton appearance API is still
+  // under design — landing in Phase 3 with the redesigned menu surface).
+  // Same data is fetched so re-introduction is a no-op for the layout.
+  void _isProducer;
+
   return (
     <ArtistAudioProvider>
-      <div className="relative min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
-        {/* `sk-safe-top` pads the notch/Dynamic Island when the artist
-            app is launched as a PWA in standalone mode. The inset
-            resolves to 0 in a regular browser tab so there's no visual
-            change for the vast majority of visits. */}
-        <header className="sk-safe-top sk-safe-x sticky top-0 z-30 flex items-center justify-between border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]/85 px-4 py-3 backdrop-blur">
-          <div className="flex items-center gap-3">
-            <StudioSwitcher studios={studios} />
-          </div>
-          <UserButton
-            // Global afterSignOutUrl is configured on ClerkProvider
-            // in the root layout (app/layout.tsx). Not overridden here
-            // so every sign-out across the app lands on the same URL
-            // (marketing "/" — per Gili's Q7 answer for Task 17).
-            appearance={{
-              elements: {
-                // Matches the producer sidebar's avatar sizing so the
-                // visual weight is consistent across both apps.
-                avatarBox: "h-8 w-8 ring-1 ring-[rgb(var(--border-subtle))]",
-              },
-            }}
-          >
-            {isProducer ? (
-              <UserButton.MenuItems>
-                <UserButton.Link
-                  label="Producer dashboard"
-                  labelIcon={<StudioIcon />}
-                  href="/dashboard"
-                />
-              </UserButton.MenuItems>
-            ) : null}
-          </UserButton>
-        </header>
+      <div
+        className="flex min-h-dvh"
+        style={{
+          background: "rgb(var(--bg-background))",
+          color: "rgb(var(--fg-default))",
+        }}
+      >
+        {/* Desktop-only left rail. `hidden lg:flex` is set inside the
+            sidebar component so this fragment stays declarative. */}
+        <ArtistDesktopSidebar studios={studios} />
 
-        <main className="mx-auto max-w-2xl px-4 pb-32 pt-6 sm:pb-40">{children}</main>
+        {/* Main column — top bar (mobile only) + content + bottom nav
+            (mobile only). Flex-column so the top bar sits flush above
+            scrolling content. */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <ArtistMobileTopBar studios={studios} />
+          {/* `pb-20` reserves space for the mobile bottom nav (56px
+              tab row + 8px safe-area buffer). `lg:pb-12` keeps a
+              little vertical breathing room on desktop where there's
+              no bar. `pt-6 lg:pt-10` matches the design's top
+              spacing. `mx-auto max-w-2xl` keeps the artist content
+              column readable at tablet+ widths even on the desktop
+              sidebar layout — Phase 3 pages can opt out by setting
+              their own width. */}
+          <main className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6 lg:max-w-none lg:px-10 lg:pb-12 lg:pt-10">
+            {children}
+          </main>
+        </div>
 
         <PersistentMiniPlayer />
-
-        <BottomNav />
+        <ArtistBottomNav />
       </div>
     </ArtistAudioProvider>
-  );
-}
-
-// Small back-arrow icon for the "Producer dashboard" menu item in
-// UserButton. 16px to match Clerk's default menu-item icon size.
-// Inline SVG keeps the bundle lean — no icon-library dependency
-// needs to travel with the shell.
-function StudioIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {/* Left-pointing arrow — reads as "back to studio" */}
-      <path d="M19 12H5" />
-      <path d="M12 19l-7-7 7-7" />
-    </svg>
   );
 }
