@@ -9,13 +9,14 @@ import { ProjectHeader } from "~/components/dashboard/project/project-header";
 // module crashes RSC — that was the 2026-04-23 "Something buzzed"
 // bug on every project page.
 import {
-  isProjectSubTabId,
-  type ProjectSubTabId,
+  resolveProjectSubTab,
+  type VisibleProjectSubTabId,
 } from "~/components/dashboard/project/project-sub-tab-shared";
 import { ProjectSubTabs } from "~/components/dashboard/project/project-sub-tabs";
-import { MoneySubTab } from "~/components/dashboard/project/sub-tabs/money-sub-tab";
+import { FilesSubTab } from "~/components/dashboard/project/sub-tabs/files-sub-tab";
 import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
 import { NotesSubTab } from "~/components/dashboard/project/sub-tabs/notes-sub-tab";
+import { OverviewSubTab } from "~/components/dashboard/project/sub-tabs/overview-sub-tab";
 import {
   SessionsSubTab,
   type SessionBooking,
@@ -29,20 +30,16 @@ type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-// Narrow a raw `?tab=` value (single string / array / undefined) into a
-// valid ProjectSubTabId. Anything unrecognised falls back to "music",
-// the default sub-tab for the Project Room.
-function resolveSubTab(raw: string | string[] | undefined): ProjectSubTabId {
-  if (Array.isArray(raw)) raw = raw[0];
-  return isProjectSubTabId(raw) ? raw : "music";
-}
-
 export default async function ProjectDetail({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const { id } = await params;
   const sp = await searchParams;
-  const activeTab = resolveSubTab(sp.tab);
+  // Resolve to one of the 5 visible PRD-spec tabs (Overview / Music /
+  // Sessions / Files / Notes). Legacy `?tab=money` deep-links from
+  // pre-PRD-v3 builds resolve to `overview` since the money strip
+  // moved there.
+  const activeTab: VisibleProjectSubTabId = resolveProjectSubTab(sp.tab);
 
   const caller = appRouter.createCaller({ userId });
   let data;
@@ -239,6 +236,46 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
         />
         <div className="mt-6">
           <ProjectSubTabs activeTab={activeTab}>
+            {activeTab === "overview" ? (
+              <OverviewSubTab
+                project={{
+                  title: data.project.title,
+                  createdAt: data.project.createdAt,
+                  updatedAt: data.project.updatedAt,
+                  finalPaid: data.project.finalPaid,
+                }}
+                money={moneyForProject}
+                session={
+                  sessionBooking
+                    ? {
+                        id: sessionBooking.id,
+                        status: sessionBooking.status,
+                        startsAt: sessionBooking.startsAt,
+                      }
+                    : null
+                }
+                tracks={data.tracks.map((t) => ({
+                  id: t.id,
+                  title: t.title,
+                  createdAt: t.createdAt,
+                }))}
+                versions={data.versions.map((v) => ({
+                  id: v.id,
+                  trackId: v.trackId,
+                  label: v.label,
+                  uploadedAt: v.uploadedAt,
+                  approvedAt: v.approvedAt,
+                }))}
+                comments={data.comments.map((c) => ({
+                  id: c.id,
+                  versionId: c.versionId,
+                  authorName: c.authorName,
+                  body: c.body,
+                  fromProducer: c.fromProducer,
+                  createdAt: c.createdAt,
+                }))}
+              />
+            ) : null}
             {activeTab === "music" ? (
               <MusicSubTab
                 project={{ id: data.project.id }}
@@ -271,8 +308,8 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
             {activeTab === "sessions" ? (
               <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
             ) : null}
-            {activeTab === "money" ? (
-              <MoneySubTab projectId={data.project.id} money={moneyForProject} />
+            {activeTab === "files" ? (
+              <FilesSubTab projectId={data.project.id} />
             ) : null}
             {activeTab === "notes" ? (
               <NotesSubTab

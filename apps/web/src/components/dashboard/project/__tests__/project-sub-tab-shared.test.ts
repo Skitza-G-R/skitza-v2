@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   isProjectSubTabId,
   PROJECT_SUB_TAB_IDS,
+  resolveProjectSubTab,
+  VISIBLE_PROJECT_SUB_TAB_IDS,
   type ProjectSubTabId,
 } from "../project-sub-tab-shared";
 
@@ -39,16 +41,63 @@ describe("project-sub-tab-shared — type-guard behavior", () => {
     expect(isProjectSubTabId(undefined)).toBe(false);
   });
 
-  it("exposes PROJECT_SUB_TAB_IDS as the 4 canonical ids", () => {
+  it("exposes PROJECT_SUB_TAB_IDS as the canonical id set (incl. money alias)", () => {
     // Pin the literal tuple so a reorder / rename (e.g. if someone
     // adds a "contracts" tab later) trips this test first and forces
-    // them to update the enum/URL handling together.
+    // them to update the enum/URL handling together. `money` is kept
+    // in the accepted-id set as a legacy alias even though it's not
+    // visible in the tab strip — the resolver maps it to "overview".
     expect([...PROJECT_SUB_TAB_IDS]).toEqual([
+      "overview",
       "music",
       "sessions",
+      "files",
+      "notes",
       "money",
+    ]);
+  });
+
+  it("exposes VISIBLE_PROJECT_SUB_TAB_IDS as the 5 PRD-spec tabs in order", () => {
+    // PRD §3.2 (May 2026): Project Room ships with 5 explicit tabs.
+    // Reordering or removing any of them needs a coordinated change
+    // across the tab strip + every deep-link in the codebase.
+    expect([...VISIBLE_PROJECT_SUB_TAB_IDS]).toEqual([
+      "overview",
+      "music",
+      "sessions",
+      "files",
       "notes",
     ]);
+  });
+});
+
+describe("project-sub-tab-shared — resolveProjectSubTab", () => {
+  it("returns 'overview' as the default when ?tab is absent or garbage", () => {
+    expect(resolveProjectSubTab(undefined)).toBe("overview");
+    expect(resolveProjectSubTab("")).toBe("overview");
+    expect(resolveProjectSubTab("nope")).toBe("overview");
+  });
+
+  it("preserves valid visible tab ids", () => {
+    expect(resolveProjectSubTab("overview")).toBe("overview");
+    expect(resolveProjectSubTab("music")).toBe("music");
+    expect(resolveProjectSubTab("sessions")).toBe("sessions");
+    expect(resolveProjectSubTab("files")).toBe("files");
+    expect(resolveProjectSubTab("notes")).toBe("notes");
+  });
+
+  it("maps the legacy 'money' alias onto 'overview'", () => {
+    // Pre-PRD-v3 the Project Room had a standalone Money tab. Deep-
+    // links from old recap docs / shared chat threads point at
+    // ?tab=money and shouldn't 404 — they should land on Overview,
+    // where the same 3 numbers (paid / outstanding / next charge)
+    // now live as a strip.
+    expect(resolveProjectSubTab("money")).toBe("overview");
+  });
+
+  it("handles array values from URLSearchParams gracefully", () => {
+    expect(resolveProjectSubTab(["music", "files"])).toBe("music");
+    expect(resolveProjectSubTab([])).toBe("overview");
   });
 });
 
