@@ -1,4 +1,5 @@
-import { BookingFlowTrigger } from "./booking-flow-trigger";
+import Link from "next/link";
+
 import { JoinSocialLinks } from "./join-social-links";
 
 // Dark CTA + contact section at the bottom of `/join/<slug>`.
@@ -10,18 +11,18 @@ import { JoinSocialLinks } from "./join-social-links";
 // a visitor who scrolls all the way down lands here and either books
 // (signs up) or follows a streaming link.
 //
-// Booking flow modal: the CTA opens the inline 3-step modal
-// (BookingFlowTrigger → BookingFlowModal). On submit the booking
-// lands as `pending` for the producer to review in their dashboard;
-// payment is requested separately by the producer (no Stripe in
-// this slice). The old /sign-up/join/<slug> redirect path is no
-// longer reachable from this component.
+// 2026-05-06 — booking-gate Layer 1: the CTA links straight to
+// /sign-up/join/<slug> rather than opening an inline 3-step modal.
+// The previous modal flow let visitors create `pending` bookings via
+// `booking.publicRequest` without ever signing up; that procedure
+// (and its three siblings) was removed in the same pass. After
+// signup the artist lands on /artist-welcome/<slug> and continues
+// into the authenticated booking flow at /artist/book.
 //
 // English-only, LTR-only per CLAUDE.md i18n scope.
 
 interface SignupCtaProps {
   slug: string;
-  producerName: string;
   socialLinks: ReadonlyArray<{
     id: string;
     platform: string;
@@ -31,7 +32,7 @@ interface SignupCtaProps {
   }>;
 }
 
-export function SignupCta({ slug, producerName, socialLinks }: SignupCtaProps) {
+export function SignupCta({ slug, socialLinks }: SignupCtaProps) {
 
   return (
     <section
@@ -62,9 +63,8 @@ export function SignupCta({ slug, producerName, socialLinks }: SignupCtaProps) {
         </p>
 
         <div className="mt-9 flex flex-col items-center gap-4 sm:gap-5">
-          <BookingFlowTrigger
-            slug={slug}
-            producerName={producerName}
+          <Link
+            href={`/sign-up/join/${encodeURIComponent(slug)}`}
             className={[
               "sk-cta-shine pulse-glow inline-flex min-h-12 w-full items-center justify-center whitespace-nowrap",
               "rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))]",
@@ -75,7 +75,7 @@ export function SignupCta({ slug, producerName, socialLinks }: SignupCtaProps) {
             ].join(" ")}
           >
             <span className="relative z-10">Book a session →</span>
-          </BookingFlowTrigger>
+          </Link>
 
           <JoinSocialLinks links={socialLinks} />
         </div>
