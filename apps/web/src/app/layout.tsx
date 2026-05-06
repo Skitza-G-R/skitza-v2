@@ -108,15 +108,19 @@ export const viewport: Viewport = {
 // ClerkProvider wrapper could swap on next-themes toggle. Out of scope.
 //
 // Phase 3 (v3) — `elements` extended for the split-screen auth shell
-// (`apps/web/src/app/(public)/(auth)/layout.tsx`). The card sits on
-// the warm cream `bg-[rgb(var(--bg-base))]` of the FormColumn, so we:
-// - keep the subtle border + shadow (an elevated card on warm cream
-//   is the locked design's default surface treatment),
-// - style the social buttons + divider + form fields explicitly so
-//   they match the design source's split-screen mock without dropping
-//   into Clerk Elements (Path A in `docs/qa/phase-3-handoff.md`),
-// - use Syne for `headerTitle` (the "Welcome back." / "Build your
-//   hall." copy is the most prominent text on the page).
+// (`apps/web/src/app/(public)/(auth)/layout.tsx`). The locked design
+// (`/tmp/skitza-design/tabs/auth.jsx`) renders the form INLINE on the
+// FormColumn — no card border, no shadow, no Clerk-supplied header.
+// The hero copy ("Welcome back.", "Build your hall.") is provided by
+// `apps/web/src/components/auth/auth-hero.tsx`, which sits ABOVE the
+// `<SignIn>` / `<SignUp>` widget on each page. Therefore:
+// - `card` strips border/shadow/padding so Clerk's form blends into
+//   the column,
+// - `header` is hidden so Clerk's default "Sign in" / "Create your
+//   account" titles don't double up with the AuthHero,
+// - everything else (social buttons, divider, form fields, primary
+//   button, OTP, alerts) inherits the locked palette so the visible
+//   internals still match the design source.
 const clerkAppearance = {
   variables: {
     colorPrimary: "#D4960A",
@@ -135,11 +139,12 @@ const clerkAppearance = {
   },
   elements: {
     rootBox: "w-full",
-    card: "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] shadow-[var(--shadow-md)] rounded-[var(--radius-lg)]",
-    headerTitle:
-      "font-syne text-[28px] font-extrabold tracking-tight text-[rgb(var(--fg-primary))]",
-    headerSubtitle:
-      "text-[13.5px] leading-[1.5] text-[rgb(var(--fg-secondary))]",
+    // Inline the form into the FormColumn — no card chrome.
+    card: "bg-transparent border-0 shadow-none rounded-none p-0",
+    // Hide Clerk's default header — AuthHero replaces it.
+    header: "hidden",
+    headerTitle: "hidden",
+    headerSubtitle: "hidden",
     socialButtonsBlockButton:
       "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-overlay))]",
     socialButtonsBlockButtonText:

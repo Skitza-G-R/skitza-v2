@@ -1,4 +1,5 @@
 import { SignUp } from "@clerk/nextjs";
+import { AuthHero } from "~/components/auth/auth-hero";
 
 // Dedicated sign-up entry for the /join/<slug> → artist flow.
 //
@@ -51,11 +52,18 @@ export default async function JoinSignUpPage({ params }: Props) {
   // `fallbackRedirectUrl` IS URL-encoded — Next's router handles the
   // final navigation and expects a valid URL.
   return (
-    <SignUp
-      path={`/sign-up/join/${slug}`}
-      signInUrl="/sign-in"
-      fallbackRedirectUrl={`/artist-welcome/${encodeURIComponent(slug)}`}
-      unsafeMetadata={{ signupOrigin: "join", producerSlug: slug }}
-    />
+    <div className="space-y-6">
+      <AuthHero
+        eyebrow="Join Skitza"
+        title="Make it official"
+        blurb="One last step — your inbox stays clean and your producer keeps your tracks tight."
+      />
+      <SignUp
+        path={`/sign-up/join/${slug}`}
+        signInUrl="/sign-in"
+        fallbackRedirectUrl={`/artist-welcome/${encodeURIComponent(slug)}`}
+        unsafeMetadata={{ signupOrigin: "join", producerSlug: slug }}
+      />
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import { SignUp } from "@clerk/nextjs";
+import { AuthHero } from "~/components/auth/auth-hero";
 
 // Default producer sign-up. The landing-page CTAs + direct /sign-up
 // visits end up here. Post-signup we want the new Producer on the
@@ -16,11 +17,21 @@ import { SignUp } from "@clerk/nextjs";
 // Defense in depth — the /join signup flow now lives on its own
 // dedicated route at /sign-up/join/<slug>, but if someone hits
 // /sign-up with a redirect_url we respect it rather than ignoring it.
+//
+// AuthHero copy mirrors `/tmp/skitza-design/tabs/auth.jsx`
+// `SignUpScreen` ("Build your hall." + the no-card-needed blurb).
 export default function Page() {
   return (
-    <SignUp
-      signInUrl="/sign-in"
-      fallbackRedirectUrl="/dashboard"
-    />
+    <div className="space-y-6">
+      <AuthHero
+        eyebrow="Join Skitza"
+        title="Build your hall"
+        blurb="Free to start. No card. Three minutes to your first booking link."
+      />
+      <SignUp
+        signInUrl="/sign-in"
+        fallbackRedirectUrl="/dashboard"
+      />
+    </div>
   );
 }
