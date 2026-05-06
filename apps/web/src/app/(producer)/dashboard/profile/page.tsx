@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import type { PaymentPlan } from "@skitza/db";
 
 import {
   StorefrontScreen,
@@ -15,6 +16,20 @@ import {
   type ExternalLinkRow,
   type LibraryPickRow,
 } from "./portfolio-panel";
+
+// Plan-label derivation kept local to the page so the StorefrontScreen
+// stays presentational. Mirrors the design intent: the chip on each
+// product card is a quick scan of how clients can pay, not a full
+// matrix.
+function derivePlanLabel(plans: PaymentPlan[]): string {
+  if (plans.length === 0) return "Pay once";
+  if (plans.length > 1) return `${String(plans.length)} plans`;
+  const only = plans[0];
+  if (!only) return "Pay once";
+  if (only.kind === "full") return "Pay once";
+  if (only.kind === "split_50_50") return "50/50";
+  return `Monthly · ${String(only.installments)}×`;
+}
 
 const META: Record<ProfileTabKey, { title: string; description: string }> = {
   store: {
@@ -46,6 +61,8 @@ export default async function ProfilePage({
   // products tab toggle.
   let storefrontProducts: StorefrontProduct[] = [];
   let storefrontPublicUrl: string | null = null;
+  let storefrontProducerName: string | null = null;
+  let storefrontProducerSlug: string | null = null;
   if (active === "store") {
     const [packages, profile] = await Promise.all([
       caller.booking.packages.list(),
@@ -60,16 +77,12 @@ export default async function ProfilePage({
       priceCents: p.priceCents,
       currency: p.currency,
       active: p.active,
-      // Plan label is derived from paymentPlans (a row of normalized
-      // plan kinds); show the first plan's label or "Pay once" for
-      // a single flat plan. Real plan-display logic lives in the
-      // settings/services CRUD path; this is a lightweight summary.
-      planLabel:
-        p.paymentPlans.length === 0
-          ? "Pay once"
-          : p.paymentPlans.length === 1
-            ? "Pay once"
-            : `${String(p.paymentPlans.length)} plan options`,
+      paymentPlans: p.paymentPlans,
+      // Plan label is derived from paymentPlans. Single full plan =>
+      // "Pay once"; single split => "50/50"; single monthly =>
+      // "Monthly · N×"; multi => "N plans". Drives the chip on each
+      // product card.
+      planLabel: derivePlanLabel(p.paymentPlans),
     }));
 
     const publicBase =
@@ -79,6 +92,8 @@ export default async function ProfilePage({
     storefrontPublicUrl = profile.slug
       ? `${publicBase.replace(/\/$/, "")}/p/${profile.slug}`
       : null;
+    storefrontProducerName = profile.displayName;
+    storefrontProducerSlug = profile.slug;
   }
 
   let portfolioTracks: PortfolioTrackRow[] = [];
@@ -151,6 +166,8 @@ export default async function ProfilePage({
             products={storefrontProducts}
             analytics={null}
             publicUrl={storefrontPublicUrl}
+            producerName={storefrontProducerName}
+            producerSlug={storefrontProducerSlug}
           />
         )}
         {active === "portfolio" && (

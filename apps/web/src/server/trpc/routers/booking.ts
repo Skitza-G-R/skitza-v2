@@ -617,6 +617,86 @@ const productsRouter = router({
       return { ok: true as const };
     }),
 
+  // Storefront visibility toggle. Flips `active` without archiving the
+  // row, so the producer can hide a product from their public page
+  // (publicPackages query filters on active=true) and still show it in
+  // the dashboard list. Distinct from `archive`, which moves the row
+  // to a soft-deleted state and removes it from the dashboard list.
+  setActive: producerProcedure
+    .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({ producerId: products.producerId })
+        .from(products)
+        .where(eq(products.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db
+        .update(products)
+        .set({ active: input.active })
+        .where(eq(products.id, input.id));
+      return { ok: true as const };
+    }),
+
+  // Duplicate — clone an existing product into a new row. The copy
+  // starts hidden (active=false) so the producer can edit before
+  // exposing it. Name gets " (copy)" appended; position is appended
+  // to the end of the producer's list.
+  duplicate: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select()
+        .from(products)
+        .where(eq(products.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      // Compute next position at the tail of this producer's list.
+      const all = await ctx.db
+        .select({ position: products.position })
+        .from(products)
+        .where(eq(products.producerId, ctx.producerId))
+        .orderBy(asc(products.position));
+      const nextPos = all.length === 0
+        ? 0
+        : (all[all.length - 1]?.position ?? 0) + 1;
+      const [row] = await ctx.db
+        .insert(products)
+        .values({
+          producerId: existing.producerId,
+          name: `${existing.name} (copy)`,
+          description: existing.description,
+          durationMin: existing.durationMin,
+          sessionCount: existing.sessionCount,
+          priceCents: existing.priceCents,
+          currency: existing.currency,
+          depositPct: existing.depositPct,
+          active: false,
+          position: nextPos,
+          kind: existing.kind,
+          locationType: existing.locationType,
+          bufferMinutes: existing.bufferMinutes,
+          minLeadHours: existing.minLeadHours,
+          pricingModel: existing.pricingModel,
+          volumeTiers: existing.volumeTiers,
+          hourlyRateCents: existing.hourlyRateCents,
+          deliverables: existing.deliverables,
+          depositModel: existing.depositModel,
+          milestones: existing.milestones,
+          paymentPlans: existing.paymentPlans,
+          contractUrl: existing.contractUrl,
+        })
+        .returning();
+      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      return row;
+    }),
+
   // Reorder — atomic position swap. Accepts an ordered id array; each
   // id gets its index as the new position.
   reorder: producerProcedure
