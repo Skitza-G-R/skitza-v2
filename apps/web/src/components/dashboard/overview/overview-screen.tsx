@@ -2,39 +2,48 @@ import Link from "next/link";
 
 import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { formatMoney } from "~/lib/format/money";
+import { formatRelativeTime } from "~/lib/time/relative";
 
-// Overview — locked design system (Phase 4, mobile-first).
+import { PublicLinkStrip } from "./public-link-strip";
+
+// Overview — locked design system (Phase 4 → Overview Polish).
 //
-// Mirrors `notes/producer-screens.jsx` ProducerHomeScreen, adapted
-// for the existing producer.today + producer.me + booking.list data
-// shapes. No new tRPC procedures (auth-fix in flight, hands off the
-// server side).
+// History:
+//   - Phase 4 first iteration: hero "Name." + amber period, approvals
+//     card, today's session, money split, activity feed.
+//   - Overview Polish (this revision): brings the layout in line with
+//     `notes/producer-screens.jsx :: OverviewTab` (default variant) —
+//       1. Greeting block: green "Accepting Sessions" pill + Syne 800
+//          "Good morning, <Name>." + date pill on the right.
+//       2. PublicLinkStrip — DARK sidebar-tinted hero with shimmer +
+//          mono URL pill + amber Copy button. THE most-important new
+//          element to add — the wedge between "I have an account" and
+//          "I can be booked".
+//       3. Pending Approvals — kept (most urgent action, when present)
+//       4. Today's Session — kept (when a session is today)
+//       5. Two-column: Urgent items + Recent Uploads
+//       6. Financial Pulse — full-width, 3 columns: Earned (with
+//          sparkline + delta), Outstanding, Needs follow-up.
+//       7. Activity feed — supporting context at the bottom.
 //
-// Section order locks the design's "most-actionable first" rule:
-//   1. Hero — uppercase date eyebrow + "Name." with amber period +
-//      one-line status summary derived from approvals/notes/today.
-//   2. Pending Approvals — amber-bordered card. Conditional: only
-//      renders when at least one booking has status="pending". Each
-//      row links to /dashboard/calendar (where the producer's
-//      ReviewModal will land in a follow-up; for now the row is a
-//      Link to the calendar tab).
-//   3. Today's Session — date column on the left, title + client on
-//      the right, dark "Open client room" CTA. Conditional: only
-//      renders when there is a session item in `today.items` whose
-//      occurredAt is today's date.
-//   4. Money split — Earned · this month + delta + Outstanding count.
-//      Outstanding shows `unresolvedItems` (count of unpaid invoices
-//      + open comments) until producer.today exposes a real
-//      `outstandingCents` aggregation (deferred — handoff doc).
-//   5. Activity — first 5 today.items with avatar/icon + text +
-//      relative time + ping dot for unread.
-//
-// Server component — no `"use client"`. All interactivity is via
-// <Link> navigation. Approval-Confirm/Reject flows live on the
-// Calendar page (Phase 4 step 4).
+// Notes:
+//   - Server component (no `"use client"`). The PublicLinkStrip is
+//     the only piece needing client interactivity (clipboard) and is
+//     scoped to its own file.
+//   - "Urgent" items use the existing `activity` (a.k.a. today.items)
+//     filtered to unpaid-invoice + unread-comment kinds. We don't add
+//     new server queries here (per the brief: don't touch
+//     producer.today server-side).
+//   - Sparkline reads `pulseStats.sparkline` (a fixed 30-bucket array
+//     the server already zero-fills). When all values are 0 we hide
+//     the SVG entirely so a flat baseline doesn't read as a chart.
 
 export interface OverviewScreenProps {
   displayName: string | null;
+  /** Producer's chosen public slug (null until they pick one). */
+  slug: string | null;
+  /** Public origin used to build the share URL. */
+  publicBaseUrl: string;
   pulseStats: {
     thisMonthCents: number;
     currency: string;
@@ -42,6 +51,8 @@ export interface OverviewScreenProps {
     activeProjects: number;
     unresolvedItems: number;
     upcomingSessions7d: number;
+    /** 30-bucket array — oldest at index 0, today at index 29. */
+    sparkline: number[];
   };
   pendingApprovals: Array<{
     id: string;
@@ -61,6 +72,16 @@ export interface OverviewScreenProps {
     occurredAt: Date;
     href: string;
   } | null;
+  recentUploads: Array<{
+    versionId: string;
+    trackId: string;
+    title: string;
+    versionLabel: string;
+    uploadedAt: Date;
+    durationMs: number | null;
+    projectId: string;
+    projectClientName: string;
+  }>;
   activity: Array<{
     id: string;
     kind: "session" | "comment" | "invoice";
@@ -76,53 +97,61 @@ export interface OverviewScreenProps {
 
 export function OverviewScreen({
   displayName,
+  slug,
+  publicBaseUrl,
   pulseStats,
   pendingApprovals,
   todaySession,
+  recentUploads,
   activity,
   now,
 }: OverviewScreenProps) {
-  const greetingName = (displayName ?? "").trim().split(/\s+/)[0] || "Hey";
-  const dateEyebrow = formatDateEyebrow(now);
-  const statusLine = buildStatusLine({
-    approvalsCount: pendingApprovals.length,
-    unresolvedItems: pulseStats.unresolvedItems,
-    todaySession,
-  });
+  const greetingName = (displayName ?? "").trim().split(/\s+/)[0] || "there";
+  const greetingSalutation = greetingFor(now);
+  // Urgent items = unpaid invoices + unread comments. We surface up to
+  // 3 in the Urgent card so the rail doesn't compete with the
+  // Activity feed below.
+  const urgentItems = activity.filter((it) => it.kind !== "session").slice(0, 3);
+  const recentTop = recentUploads.slice(0, 3);
 
   return (
-    // Mobile: single vertical stack. Desktop (lg+): 2-column grid
-    // where the left column holds the action-oriented surfaces
-    // (hero / approvals / today's session / money split) and the
-    // right column hosts the read-only Activity stream. The grid
-    // auto-balances heights, so a producer with no approvals still
-    // sees a clean side-by-side layout. The col-fractions
-    // (3fr / 2fr) come from the design's "Activity is supporting
-    // context, not the main act" hierarchy — Activity gets the
-    // narrower column.
-    <div className="sk-page-enter flex flex-col gap-5 px-4 pt-6 pb-24 sm:gap-6 sm:px-6 lg:grid lg:grid-cols-[3fr_2fr] lg:items-start lg:gap-8 lg:px-8 lg:pt-10">
-      {/* LEFT COLUMN (mobile: full width) — hero + approvals +
-          today's session + money split */}
-      <div className="flex flex-col gap-5 sm:gap-6 lg:col-start-1 lg:col-end-2">
-      {/* HERO */}
-      <header>
-        <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[rgb(var(--fg-muted))]">
-          {dateEyebrow}
-        </p>
-        <h1 className="mt-1.5 font-display text-[34px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-          {greetingName}
-          <span className="text-[rgb(var(--brand-primary))]">.</span>
-        </h1>
-        <p className="mt-2.5 text-[13.5px] leading-snug text-[rgb(var(--fg-muted))]">
-          {statusLine}
-        </p>
+    // Mobile: single vertical stack (gap-5). Desktop (lg+): same
+    // vertical rhythm but with a wider max-width and per-section
+    // grids (the urgent + recent pair becomes 2-up).
+    <div className="sk-page-enter mx-auto flex w-full max-w-[1180px] flex-col gap-5 px-4 pt-6 pb-24 sm:gap-6 sm:px-6 lg:px-8 lg:pt-10">
+      {/* GREETING */}
+      <header className="reveal-up flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <span className="pill pill-success inline-flex items-center gap-1.5">
+            <PingDot color="rgb(var(--fg-success))" />
+            Accepting Sessions
+          </span>
+          <h1 className="font-syne mt-3 text-[clamp(28px,4vw,44px)] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--fg-default))]">
+            {greetingSalutation}, {greetingName}.
+          </h1>
+          <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
+            Here is the pulse of your studio today.
+          </p>
+        </div>
+        <div className="inline-flex shrink-0 items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-muted))]">
+          <ClockIcon />
+          {formatTopDate(now)}
+        </div>
       </header>
 
-      {/* PENDING APPROVALS — most urgent */}
+      {/* PUBLIC LINK HERO — only when slug is set. The Day-1 empty
+          branch upstream owns the "set your slug" path. */}
+      {slug ? (
+        <div className="reveal-up reveal-up-delay-1">
+          <PublicLinkStrip slug={slug} publicBaseUrl={publicBaseUrl} />
+        </div>
+      ) : null}
+
+      {/* PENDING APPROVALS — most urgent, when present */}
       {pendingApprovals.length > 0 ? (
         <section
           aria-labelledby="approvals-heading"
-          className="rounded-[var(--radius-lg)] border-[1.5px] border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--bg-elevated))] p-4 shadow-[0_4px_24px_rgb(var(--brand-primary)/0.08)]"
+          className="reveal-up reveal-up-delay-1 rounded-[var(--radius-lg)] border-[1.5px] border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--bg-elevated))] p-4 shadow-[0_4px_24px_rgb(var(--brand-primary)/0.08)]"
         >
           <div className="mb-3 flex items-center justify-between">
             <h2
@@ -132,7 +161,7 @@ export function OverviewScreen({
               Needs your approval
             </h2>
             <span className="pill pill-brand">
-              <span className="ping-dot inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]" />
+              <PingDot color="rgb(var(--brand-primary))" size={6} />
               {pendingApprovals.length} new
             </span>
           </div>
@@ -222,63 +251,23 @@ export function OverviewScreen({
         </section>
       ) : null}
 
-      {/* MONEY SPLIT */}
-      <section
-        aria-labelledby="money-heading"
-        className="flex items-stretch gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3.5"
-      >
-        <h2 id="money-heading" className="sr-only">
-          Studio finances
-        </h2>
-        <div className="min-w-0 flex-1">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
-            Earned · {monthShort(now)}
-          </p>
-          <p className="mt-1 font-mono text-[20px] font-extrabold leading-tight tracking-[-0.01em] text-[rgb(var(--fg-default))] tabular-nums">
-            {formatMoney(pulseStats.thisMonthCents, pulseStats.currency)}
-          </p>
-          {pulseStats.deltaPct !== null && pulseStats.deltaPct !== 0 ? (
-            <p
-              className={[
-                "mt-0.5 font-mono text-[10.5px] font-bold tabular-nums",
-                pulseStats.deltaPct > 0
-                  ? "text-[rgb(var(--fg-success))]"
-                  : "text-[rgb(var(--fg-danger))]",
-              ].join(" ")}
-            >
-              {pulseStats.deltaPct > 0 ? "↑" : "↓"} {Math.abs(pulseStats.deltaPct).toFixed(0)}%
-            </p>
-          ) : (
-            <p className="mt-0.5 font-mono text-[10.5px] text-[rgb(var(--fg-muted))]">—</p>
-          )}
+      {/* TWO-COLUMN: Urgent + Recent uploads */}
+      {urgentItems.length > 0 || recentTop.length > 0 ? (
+        <div className="reveal-up reveal-up-delay-2 grid gap-4 sm:gap-5 lg:grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
+          {urgentItems.length > 0 ? (
+            <UrgentCard items={urgentItems} now={now} />
+          ) : null}
+          {recentTop.length > 0 ? <RecentUploadsCard uploads={recentTop} now={now} /> : null}
         </div>
-        <div aria-hidden className="w-px self-stretch bg-[rgb(var(--border-subtle))]" />
-        <div className="min-w-0 flex-1">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
-            Needs follow-up
-          </p>
-          <p
-            className={[
-              "mt-1 font-mono text-[20px] font-extrabold leading-tight tracking-[-0.01em] tabular-nums",
-              pulseStats.unresolvedItems > 0
-                ? "text-[rgb(var(--brand-copper))]"
-                : "text-[rgb(var(--fg-default))]",
-            ].join(" ")}
-          >
-            {pulseStats.unresolvedItems}
-          </p>
-          <p className="mt-0.5 text-[10.5px] text-[rgb(var(--fg-muted))]">
-            {pulseStats.unresolvedItems === 1 ? "open item" : "open items"} ·{" "}
-            <span className="tabular-nums">{pulseStats.activeProjects}</span>{" "}
-            active
-          </p>
-        </div>
-      </section>
-      </div>
+      ) : null}
 
-      {/* RIGHT COLUMN (mobile: continues vertical stack) — activity */}
-      <div className="lg:col-start-2 lg:col-end-3 lg:sticky lg:top-6">
-      {/* ACTIVITY */}
+      {/* FINANCIAL PULSE — full-width, 3 columns */}
+      <FinancialPulseCard
+        pulseStats={pulseStats}
+        now={now}
+      />
+
+      {/* ACTIVITY FEED — supporting context */}
       <section aria-labelledby="activity-heading">
         <h2
           id="activity-heading"
@@ -291,12 +280,12 @@ export function OverviewScreen({
             All quiet — nothing new since you last checked.
           </p>
         ) : (
-          <ul className="flex flex-col">
+          <ul className="flex flex-col rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
             {activity.slice(0, 5).map((item, i, arr) => (
               <li
                 key={item.id}
                 className={[
-                  "flex items-start gap-3 px-1 py-3",
+                  "flex items-start gap-3 px-3 py-3",
                   i < arr.length - 1 ? "border-b border-[rgb(var(--border-subtle))]" : "",
                 ].join(" ")}
               >
@@ -323,8 +312,297 @@ export function OverviewScreen({
           </ul>
         )}
       </section>
-      </div>
     </div>
+  );
+}
+
+// — Subcomponents —
+
+function UrgentCard({
+  items,
+  now,
+}: {
+  items: OverviewScreenProps["activity"];
+  now: Date;
+}) {
+  return (
+    <section
+      aria-labelledby="urgent-heading"
+      className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5"
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <h2
+          id="urgent-heading"
+          className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-default))]"
+        >
+          <AlertCircleIcon />
+          Urgent items
+        </h2>
+        <Link
+          href="/dashboard/clients-projects"
+          className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--brand-primary))]"
+        >
+          View all →
+        </Link>
+      </div>
+      <ul className="flex flex-col gap-1">
+        {items.map((it) => (
+          <li key={it.id}>
+            <Link
+              href={it.href}
+              className="sk-row flex items-center justify-between gap-3 rounded-[var(--radius-sm)] px-3 py-2.5"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <UrgentBadge kind={it.kind} title={it.title} />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-[13.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+                      {it.title}
+                    </span>
+                    <UrgentPill kind={it.kind} />
+                  </div>
+                  <div className="truncate text-xs text-[rgb(var(--fg-muted))]">
+                    {it.subtitle}
+                    <span className="mx-1.5 opacity-40">·</span>
+                    {formatRelativeTime(it.occurredAt, now)}
+                  </div>
+                </div>
+              </div>
+              <ChevronRightIcon />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function UrgentBadge({
+  kind,
+  title,
+}: {
+  kind: "session" | "comment" | "invoice";
+  title: string;
+}) {
+  // Same gradient hash idea as ClientAvatar — derive a stable, varied
+  // gradient from the title so two invoices for different clients
+  // visually differentiate at a glance.
+  const gradient = producerGradient(title);
+  return (
+    <div
+      aria-hidden
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-white"
+      style={{ background: gradient }}
+    >
+      {kind === "invoice" ? (
+        <ReceiptIcon />
+      ) : kind === "comment" ? (
+        <CommentIcon />
+      ) : (
+        <CalendarIcon />
+      )}
+    </div>
+  );
+}
+
+function UrgentPill({ kind }: { kind: "session" | "comment" | "invoice" }) {
+  if (kind === "invoice") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-danger))]">
+        Unpaid
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full border border-[rgb(var(--brand-primary)/0.25)] bg-[rgb(var(--brand-primary)/0.08)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--brand-primary))]">
+      New
+    </span>
+  );
+}
+
+function RecentUploadsCard({
+  uploads,
+  now,
+}: {
+  uploads: OverviewScreenProps["recentUploads"];
+  now: Date;
+}) {
+  return (
+    <section
+      aria-labelledby="recent-uploads-heading"
+      className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5"
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <h2
+          id="recent-uploads-heading"
+          className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-default))]"
+        >
+          <ActivityGlyph />
+          Recent uploads
+        </h2>
+        <Link
+          href="/dashboard/music"
+          className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--brand-primary))]"
+        >
+          Library →
+        </Link>
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {uploads.map((u) => (
+          <li key={u.versionId}>
+            <Link
+              href={`/dashboard/clients-projects/${u.projectId}?tab=music&versionId=${u.versionId}`}
+              className="sk-row flex items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2.5"
+            >
+              <PlayCircleIcon />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+                  {u.title}
+                </p>
+                <p className="mt-0.5 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                  {u.projectClientName || "—"}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-0.5">
+                <span className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+                  Uploaded
+                </span>
+                <span className="text-[12px] font-bold text-[rgb(var(--fg-default))]">
+                  {formatRelativeTime(u.uploadedAt, now)}
+                </span>
+              </div>
+              <div className="ml-3 flex shrink-0 flex-col items-end gap-0.5">
+                <span className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+                  Duration
+                </span>
+                <span className="font-mono text-[12px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
+                  {formatDuration(u.durationMs)}
+                </span>
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function FinancialPulseCard({
+  pulseStats,
+  now,
+}: {
+  pulseStats: OverviewScreenProps["pulseStats"];
+  now: Date;
+}) {
+  const sparkPath = buildSparkPath(pulseStats.sparkline);
+  return (
+    <section
+      aria-labelledby="finance-heading"
+      className="reveal-up reveal-up-delay-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+    >
+      <header className="flex items-center justify-between px-4 pt-4 pb-2 sm:px-5 sm:pt-5">
+        <h2
+          id="finance-heading"
+          className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-default))]"
+        >
+          <DollarIcon />
+          Financial pulse
+        </h2>
+        <span className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+          {monthShort(now)}
+        </span>
+      </header>
+      <div className="flex flex-wrap items-stretch">
+        {/* Earned this month */}
+        <div className="relative min-w-[200px] flex-1 border-r border-[rgb(var(--border-subtle)/0.7)] px-4 py-3 sm:px-5">
+          <div className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+            Earned this month
+          </div>
+          <div className="mt-2 flex items-baseline gap-2.5">
+            <div className="font-display text-[32px] font-extrabold tracking-[-0.02em] tabular-nums text-[rgb(var(--fg-default))]">
+              {formatMoney(pulseStats.thisMonthCents, pulseStats.currency)}
+            </div>
+            {pulseStats.deltaPct !== null && pulseStats.deltaPct !== 0 ? (
+              <span
+                className={[
+                  "inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums",
+                  pulseStats.deltaPct > 0
+                    ? "border-[rgb(var(--fg-success)/0.22)] bg-[rgb(var(--fg-success)/0.10)] text-[rgb(var(--fg-success))]"
+                    : "border-[rgb(var(--fg-danger)/0.22)] bg-[rgb(var(--fg-danger)/0.08)] text-[rgb(var(--fg-danger))]",
+                ].join(" ")}
+              >
+                {pulseStats.deltaPct > 0 ? "↑" : "↓"} {Math.abs(pulseStats.deltaPct).toFixed(0)}%
+              </span>
+            ) : null}
+          </div>
+          {sparkPath ? (
+            <svg
+              aria-hidden
+              width="100"
+              height="22"
+              viewBox="0 0 100 22"
+              className="absolute right-3 bottom-3 opacity-50"
+              preserveAspectRatio="none"
+            >
+              <path
+                d={sparkPath}
+                fill="none"
+                stroke="rgb(var(--fg-success))"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          ) : null}
+        </div>
+        {/* Outstanding */}
+        <div className="min-w-[200px] flex-1 border-r border-[rgb(var(--border-subtle)/0.7)] px-4 py-3 sm:px-5">
+          <div className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+            Outstanding
+          </div>
+          <div className="mt-2 font-display text-[32px] font-extrabold tracking-[-0.02em] tabular-nums text-[rgb(var(--fg-default))]">
+            {pulseStats.unresolvedItems}
+          </div>
+          <div className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
+            {pulseStats.unresolvedItems === 1 ? "open item" : "open items"} ·{" "}
+            <span className="tabular-nums">{pulseStats.activeProjects}</span>{" "}
+            active
+          </div>
+        </div>
+        {/* Needs follow-up */}
+        <div className="min-w-[220px] flex-1 px-4 py-3 sm:px-5">
+          <div className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+            Needs follow-up
+          </div>
+          {pulseStats.unresolvedItems > 0 ? (
+            <Link
+              href="/dashboard/clients-projects?filter=unresolved"
+              className="sk-row mt-2 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.2)] bg-[rgb(var(--fg-danger)/0.06)] px-3 py-2.5"
+            >
+              <div className="flex items-center gap-2.5">
+                <PingDot color="rgb(var(--fg-danger))" size={10} />
+                <div>
+                  <div className="text-[13px] font-bold text-[rgb(var(--fg-default))]">
+                    {pulseStats.unresolvedItems === 1
+                      ? "1 unresolved item"
+                      : `${String(pulseStats.unresolvedItems)} unresolved items`}
+                  </div>
+                  <div className="text-[11px] text-[rgb(var(--fg-danger))]">
+                    Open invoices &amp; comments
+                  </div>
+                </div>
+              </div>
+              <ArrowRightIcon />
+            </Link>
+          ) : (
+            <div className="mt-2 flex items-center gap-2 rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] px-3 py-3 text-[12px] text-[rgb(var(--fg-muted))]">
+              <CheckIcon />
+              All clear — nothing waiting.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -358,10 +636,6 @@ function ActivityIcon({
   kind: "session" | "comment" | "invoice";
   title: string;
 }) {
-  // For client-named events we'd render the gradient avatar; today's
-  // items don't carry a clientId, so we fall back to a kind-keyed
-  // glyph in a brand-tinted square. Same 24px footprint as
-  // ClientAvatar so the row rhythm stays consistent.
   return (
     <div
       aria-hidden
@@ -379,36 +653,50 @@ function ActivityIcon({
   );
 }
 
-// — Pure formatters —
-
-function formatDateEyebrow(d: Date): string {
-  // "TUESDAY · MAY 5"
-  const weekday = d.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
-  const month = d.toLocaleDateString("en-US", { month: "long" }).toUpperCase();
-  return `${weekday} · ${month} ${String(d.getDate())}`;
+function PingDot({ color, size = 8 }: { color: string; size?: number }) {
+  return (
+    <span
+      style={{ width: size, height: size, position: "relative", display: "inline-block" }}
+    >
+      <span
+        className="ping-dot"
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: "50%",
+          background: color,
+          opacity: 0.5,
+        }}
+      />
+      <span
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: "50%",
+          background: color,
+        }}
+      />
+    </span>
+  );
 }
 
-function buildStatusLine(args: {
-  approvalsCount: number;
-  unresolvedItems: number;
-  todaySession: OverviewScreenProps["todaySession"];
-}): string {
-  const bits: string[] = [];
-  if (args.approvalsCount > 0) {
-    bits.push(
-      `${String(args.approvalsCount)} request${args.approvalsCount > 1 ? "s" : ""} pending`,
-    );
-  }
-  if (args.unresolvedItems > 0) {
-    bits.push(
-      `${String(args.unresolvedItems)} open note${args.unresolvedItems > 1 ? "s" : ""}`,
-    );
-  }
-  if (args.todaySession) {
-    bits.push(`session at ${formatTimeShort(args.todaySession.occurredAt)}`);
-  }
-  if (bits.length === 0) return "All quiet today.";
-  return bits.slice(0, 2).join(" · ");
+// — Pure formatters —
+
+function greetingFor(now: Date): string {
+  const hour = now.getHours();
+  if (hour < 5) return "Working late";
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+function formatTopDate(d: Date): string {
+  // "May 1, 2026"
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 function formatDateTime(d: Date): string {
@@ -416,13 +704,11 @@ function formatDateTime(d: Date): string {
 }
 
 function formatDayLabel(d: Date): string {
-  // "MAY 5" — uppercase, no comma.
   const month = d.toLocaleDateString("en-US", { month: "short" }).toUpperCase();
   return `${month} ${String(d.getDate())}`;
 }
 
 function formatTimeShort(d: Date): string {
-  // "4:00 PM"
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
@@ -436,7 +722,7 @@ function formatMinuteSuffix(d: Date): string {
 }
 
 function monthShort(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "short" });
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
 
 function formatRelativeShort(then: Date, now: Date): string {
@@ -450,6 +736,40 @@ function formatRelativeShort(then: Date, now: Date): string {
   const d = Math.floor(hr / 24);
   if (d < 7) return `${String(d)}d ago`;
   return formatDayLabel(then);
+}
+
+/** Format duration as `m:ss` (mm:ss when ≥ 10m). Returns "—" for null. */
+function formatDuration(ms: number | null): string {
+  if (ms === null || ms <= 0) return "—";
+  const totalSec = Math.round(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${String(min)}:${String(sec).padStart(2, "0")}`;
+}
+
+/**
+ * Build a small SVG path (100×22 viewBox) from the 30-bucket sparkline.
+ * Returns "" for empty / all-zero data so the consumer can hide the
+ * SVG entirely (a flat baseline reads as a chart, which is misleading).
+ */
+export function buildSparkPath(values: number[]): string {
+  if (values.length === 0) return "";
+  const max = Math.max(...values);
+  if (max <= 0) return "";
+  const W = 100;
+  const H = 22;
+  const PAD = 2;
+  const plotW = W - PAD * 2;
+  const plotH = H - PAD * 2;
+  const step = values.length > 1 ? plotW / (values.length - 1) : 0;
+  return values
+    .map((v, i) => {
+      const x = PAD + step * i;
+      const y = PAD + plotH - (v / max) * plotH;
+      const cmd = i === 0 ? "M" : "L";
+      return `${cmd}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
 }
 
 // — Inline icons (no lucide-react dep) —
@@ -529,6 +849,137 @@ function ReceiptIcon() {
       <path d="M5.5 5.5h5" />
       <path d="M5.5 8h5" />
       <path d="M5.5 10.5h3" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="rgb(var(--fg-muted))"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m6 4 4 4-4 4" />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="rgb(var(--brand-primary))"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4.5V8l2.5 1.5" />
+    </svg>
+  );
+}
+
+function AlertCircleIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 5v3.5" />
+      <circle cx="8" cy="11" r="0.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ActivityGlyph() {
+  return (
+    <svg
+      aria-hidden
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M2 8.5h2.5L6 4.5l3 7 1.5-3H14" />
+    </svg>
+  );
+}
+
+function DollarIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 2v12" />
+      <path d="M11 5.5a2.5 2.5 0 0 0-2.5-2.5h-1A2.5 2.5 0 0 0 5 5.5c0 1.4 1.1 2 2.5 2h1c1.4 0 2.5.6 2.5 2A2.5 2.5 0 0 1 8.5 12h-1A2.5 2.5 0 0 1 5 9.5" />
+    </svg>
+  );
+}
+
+function PlayCircleIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="32"
+      height="32"
+      viewBox="0 0 32 32"
+      fill="none"
+      stroke="rgb(var(--brand-primary))"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="16" cy="16" r="13" />
+      <path d="M13 11.5v9l8-4.5z" fill="rgb(var(--brand-primary))" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="rgb(var(--fg-success))"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m3.5 8.5 3 3 6-7" />
     </svg>
   );
 }

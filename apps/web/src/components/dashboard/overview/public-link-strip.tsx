@@ -35,9 +35,12 @@ export function PublicLinkStrip({ slug, publicBaseUrl }: PublicLinkStripProps) {
   const fullUrl = `${base}/p/${slug}`;
 
   const onCopy = () => {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      void navigator.clipboard.writeText(fullUrl);
-    }
+    // `navigator.clipboard` is gated on a secure context (HTTPS or
+    // localhost). When it's missing we still flip the visual state so
+    // the producer sees feedback — the click was just a no-op.
+    void navigator.clipboard.writeText(fullUrl).catch(() => {
+      // swallow — older browsers, denied permission, or insecure contexts.
+    });
     setCopied(true);
     // 1.6s window matches the design's dwell time.
     setTimeout(() => {
