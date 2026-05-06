@@ -357,6 +357,13 @@ export const projects = pgTable("projects", {
   testimonialRequestedAt: timestamp("testimonial_requested_at", {
     withTimezone: true,
   }),
+  // Stamped by project.setStage the first time this row transitions
+  // INTO stage='paid'. Idempotent — once set, subsequent setStage
+  // calls don't overwrite it. Drives the "Paid" event in the Project
+  // Room → Overview "key activity" timeline (replaces the old
+  // surrogate-from-latest-activity hint). Stripe-webhook auto-paid
+  // flip is left to Phase H. Migration 0005.
+  paidAt: timestamp("paid_at", { withTimezone: true }),
   // Producer-only private notes for this project. Free-text, nullable
   // (a project with no notes is the default). Surface: Project Room →
   // Notes tab; producer types and we autosave debounced. Capped at 5000

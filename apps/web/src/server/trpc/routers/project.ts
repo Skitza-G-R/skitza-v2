@@ -423,16 +423,32 @@ export const projectRouter = router({
   // them as selectable options.
   setStage: producerProcedure.input(SetStageInput).mutation(async ({ ctx, input }) => {
     const [row] = await ctx.db
-      .select({ producerId: projects.producerId })
+      .select({
+        producerId: projects.producerId,
+        paidAt: projects.paidAt,
+      })
       .from(projects)
       .where(eq(projects.id, input.id))
       .limit(1);
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
     const now = new Date();
+    // Stamp paid_at on FIRST transition into stage='paid'. Idempotent:
+    // re-calling setStage with stage='paid' on a row that already has
+    // paid_at set leaves the original timestamp untouched. This keeps
+    // the "first time the producer marked this paid" signal stable for
+    // the Overview timeline. Stripe-webhook auto-flip is intentionally
+    // not wired here — that's Phase H's surface.
+    // Loose nullish check covers both `null` (canonical never-paid) and
+    // `undefined` (column missing from a partial select projection).
+    const setPaidAt = input.stage === "paid" && row.paidAt == null;
     await ctx.db
       .update(projects)
-      .set({ stage: input.stage, updatedAt: now })
+      .set({
+        stage: input.stage,
+        updatedAt: now,
+        ...(setPaidAt ? { paidAt: now } : {}),
+      })
       .where(eq(projects.id, input.id));
     return { ok: true as const };
   }),

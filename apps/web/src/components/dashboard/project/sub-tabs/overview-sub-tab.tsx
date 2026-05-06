@@ -72,6 +72,14 @@ export interface OverviewProject {
   createdAt: Date;
   updatedAt: Date;
   finalPaid: boolean;
+  /**
+   * Real timestamp of the first stage='paid' transition (column
+   * `projects.paid_at`, added in migration 0005). Null for projects
+   * that have never been paid. Drives the "Paid" event in the key-
+   * activity timeline; falls back to a latest-activity surrogate only
+   * when finalPaid is true but paidAt is unexpectedly null.
+   */
+  paidAt: Date | null;
 }
 
 export function OverviewSubTab({
@@ -173,6 +181,7 @@ export function OverviewSubTab({
           versions={versions}
           comments={comments}
           finalPaid={project.finalPaid}
+          paidAt={project.paidAt}
           createdAt={project.createdAt}
         />
       </div>
@@ -311,6 +320,7 @@ function ActivityTimeline({
   versions,
   comments,
   finalPaid,
+  paidAt,
   createdAt,
 }: {
   session: OverviewSession | null;
@@ -318,6 +328,7 @@ function ActivityTimeline({
   versions: OverviewVersion[];
   comments: OverviewComment[];
   finalPaid: boolean;
+  paidAt: Date | null;
   createdAt: Date;
 }) {
   const events: OverviewTimelineEvent[] = useMemo(
@@ -325,6 +336,7 @@ function ActivityTimeline({
       buildOverviewTimeline({
         createdAt,
         finalPaid,
+        paidAt,
         session: session ? { startsAt: session.startsAt, status: session.status } : null,
         tracks: tracks.map((t) => ({ createdAt: t.createdAt, title: t.title })),
         versions: versions.map((v) => ({
@@ -339,7 +351,7 @@ function ActivityTimeline({
           body: c.body,
         })),
       }),
-    [session, tracks, versions, comments, finalPaid, createdAt],
+    [session, tracks, versions, comments, finalPaid, paidAt, createdAt],
   );
 
   if (events.length === 0) {
