@@ -113,54 +113,46 @@ export default async function ProfilePage({
     }));
   }
 
-  const headerMeta = META[active];
+  // Header subtitle: count line on Store, descriptive blurb on Portfolio.
+  const subtitle =
+    active === "store"
+      ? `${String(servicesPackages.length)} ${servicesPackages.length === 1 ? "service" : "services"} available to book`
+      : META[active].description;
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
-      <div className="sk-card-glow rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-5 sm:px-6 sm:py-6">
-        <header className="reveal-up mb-4">
-          <p className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Profile
-          </p>
-          <h1
-            key={`title-${active}`}
-            className="reveal-up mt-1 font-display text-2xl leading-tight tracking-tight sm:text-3xl"
-            style={{ fontVariationSettings: '"opsz" 36' }}
-          >
-            {headerMeta.title}
-          </h1>
-          <p
-            key={`desc-${active}`}
-            className="reveal-up mt-1.5 max-w-xl text-xs text-[rgb(var(--fg-secondary))]"
-          >
-            {headerMeta.description}
-          </p>
-        </header>
+    <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
+      <header className="mb-5">
+        <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
+          Storefront
+          <span className="text-[rgb(var(--brand-primary))]">.</span>
+        </h1>
+        <p className="mt-1.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
+          {subtitle}
+        </p>
+      </header>
 
-        <ProfileTabs active={active} />
+      <ProfileTabs active={active} />
 
-        <div
-          key={active}
-          id={`profile-panel-${active}`}
-          role="tabpanel"
-          aria-labelledby={`profile-tab-${active}`}
-          className="reveal-up pt-4"
-        >
-          {active === "store" && (
-            <StorePanel
-              packages={servicesPackages}
-              defaultCurrency={storeDefaultCurrency}
-            />
-          )}
-          {active === "portfolio" && (
-            <PortfolioPanel
-              tracks={portfolioTracks}
-              links={externalLinks}
-              library={libraryRows}
-              addedAudioUrls={addedAudioUrls}
-            />
-          )}
-        </div>
+      <div
+        key={active}
+        id={`profile-panel-${active}`}
+        aria-labelledby={`profile-tab-${active}`}
+        className="pt-5"
+      >
+        {active === "store" && (
+          <StorePanel
+            packages={servicesPackages}
+            defaultCurrency={storeDefaultCurrency}
+          />
+        )}
+        {active === "portfolio" && (
+          <PortfolioPanel
+            tracks={portfolioTracks}
+            links={externalLinks}
+            library={libraryRows}
+            addedAudioUrls={addedAudioUrls}
+          />
+        )}
       </div>
     </div>
   );

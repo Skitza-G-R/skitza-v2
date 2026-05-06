@@ -31,39 +31,34 @@ const TABS: readonly { id: SetupSectionKey }[] = [
 
 export function SetupTabs({ active }: { active: SetupSectionKey }) {
   const t = useTranslations("setup.tabs");
+  // Phase 4 — pill-style toggle (matches ClientsPageTabs, CalendarTabs,
+  // ProfileTabs). Same URL contract; aria-current carries the toggle
+  // state. min-h-[44px] tap-target preserved for touch.
   return (
     <nav
       aria-label="Setup sections"
-      role="tablist"
       // sk-scroll-x — momentum scroll on iOS; the negative-margin
       // gutter + px-4 on the inner row bleed the tab bar to the edge
       // on mobile so swiped tabs don't clip on the page padding.
-      className="sk-scroll-x -mx-4 overflow-x-auto border-b border-[rgb(var(--border-subtle))] sm:mx-0"
+      className="sk-scroll-x -mx-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0"
     >
-      <div className="flex min-w-max gap-1 px-4 sm:px-0">
+      <div className="flex min-w-max gap-2">
         {TABS.map((tab) => {
           const isActive = active === tab.id;
           return (
             <Link
               key={tab.id}
               href={`/dashboard/settings?section=${tab.id}`}
-              role="tab"
-              aria-selected={isActive}
-              {...(isActive ? { "aria-current": "page" as const } : {})}
+              aria-current={isActive ? "page" : undefined}
               id={`setup-tab-${tab.id}`}
               aria-controls={`setup-panel-${tab.id}`}
-              // min-h-[44px] mobile / compact on desktop — matches
-              // project-sub-tabs exactly. `scroll={false}` on the
-              // Link prevents Next from jumping to top when the URL
-              // changes; we stay in place and the panel content
-              // swaps in.
               scroll={false}
               className={[
-                "-mb-px inline-flex min-h-[44px] items-center whitespace-nowrap rounded-t-sm border-b-2 px-4 py-2.5 text-sm font-medium transition-colors sm:min-h-0",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
+                "sk-press inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors sm:min-h-0",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]",
                 isActive
-                  ? "border-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))]"
-                  : "border-transparent text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
+                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.08)] text-[rgb(var(--brand-primary))]"
+                  : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
               ].join(" ")}
             >
               {t(tab.id)}

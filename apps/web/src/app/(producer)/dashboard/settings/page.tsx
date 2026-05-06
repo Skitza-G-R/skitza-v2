@@ -141,49 +141,39 @@ export default async function SetupPage({
 
   return (
     <>
-      <div className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
-        {/* Centralized container card. Single source of visual
-            identity for the whole Setup surface — the per-tab content
-            renders flat inside (no nested heavy cards). The
-            sk-card-glow primitive (in globals.css) layers a hairline
-            border, a soft brand-tinted outer glow, and a subtle
-            elevation drop-shadow restricted to the card boundary. */}
-        <div className="sk-card-glow rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-5 sm:px-6 sm:py-6">
-          <header className="reveal-up mb-4">
-            <p className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-              Setup
-            </p>
-            {/* H1 + description vary per active tab. Re-keying on the
-                tab id replays reveal-up so the swap feels like a
-                section transition, not a hard cut. */}
-            <h1
-              key={`title-${active}`}
-              className="reveal-up mt-1 font-display text-2xl leading-tight tracking-tight sm:text-3xl"
-              style={{ fontVariationSettings: '"opsz" 36' }}
-            >
-              {headerMeta.title}
-            </h1>
-            <p
-              key={`desc-${active}`}
-              className="reveal-up mt-1.5 max-w-xl text-xs text-[rgb(var(--fg-secondary))]"
-            >
-              {headerMeta.description}
-            </p>
-          </header>
-
-          <SetupTabs active={active} />
-
-          {/* Only the active section renders. Keying the wrapper on
-              `active` replays reveal-up on tab change so content slides
-              in instead of hard-cutting. role="tabpanel" + aria-
-              labelledby point back at the tab button for AT wiring. */}
-          <div
-            key={active}
-            id={`setup-panel-${active}`}
-            role="tabpanel"
-            aria-labelledby={`setup-tab-${active}`}
-            className="reveal-up pt-4"
+      <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
+        {/* Phase 4 — re-tokenize the existing Setup IA per brief:
+            replace the eyebrow + 2xl-3xl heading + sk-card-glow
+            wrapper with the design's mobile-first chrome (Settings.
+            with amber period + per-tab subtitle). The tab-specific
+            sections inside render flat. */}
+        <header className="mb-5">
+          <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
+            Settings
+            <span className="text-[rgb(var(--brand-primary))]">.</span>
+          </h1>
+          <p
+            key={`desc-${active}`}
+            className="reveal-up mt-1.5 max-w-2xl text-[12.5px] text-[rgb(var(--fg-muted))]"
           >
+            {headerMeta.title} · {headerMeta.description}
+          </p>
+        </header>
+
+        <SetupTabs active={active} />
+
+        {/* Only the active section renders. Keying the wrapper on
+            `active` replays reveal-up on tab change so content slides
+            in instead of hard-cutting. The strict role="tablist" /
+            role="tab" semantic was dropped in favour of aria-current
+            on the chips, but aria-labelledby keeps the panel ↔ tab
+            relationship for AT wiring. */}
+        <div
+          key={active}
+          id={`setup-panel-${active}`}
+          aria-labelledby={`setup-tab-${active}`}
+          className="reveal-up pt-5"
+        >
           {active === "profile" && (
             <SettingsForm
               profile={{
@@ -233,7 +223,6 @@ export default async function SetupPage({
           )}
 
           {active === "account" && <AccountSection />}
-          </div>
         </div>
       </div>
     </>
