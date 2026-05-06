@@ -191,15 +191,32 @@ describe("song-page.tsx — comments are clickable + replyable (founder feedback
   });
 });
 
-describe("song-page.tsx — Download button forces a blob download (cross-origin R2)", () => {
-  it("uses fetch + URL.createObjectURL instead of relying on the <a download> attribute", () => {
-    // Bug: the `download` attribute is ignored on cross-origin <a>
-    // links, so clicking Download would just open the audio in the
-    // browser. Fix: fetch as blob, mint an object-URL, click a
-    // synthetic anchor with `download`. That works because the blob
-    // URL is same-origin even if the audio source isn't.
-    expect(songPageSrc).toContain("createObjectURL");
-    expect(songPageSrc).toMatch(/fetch\(activeVersion\.audioUrl/);
+describe("song-page.tsx — Download button uses same-origin server route (R2 CORS dodged)", () => {
+  it("anchors the download to /api/download/<versionId> (server proxies + sets Content-Disposition)", () => {
+    // Round 4 used a client-side fetch + blob path. R2 doesn't honour
+    // CORS for the producer's preview origins, so the fetch threw
+    // and the fallback opened the audio in a new tab (founder saw a
+    // black page with the native audio player). Fix: route through a
+    // same-origin Next API route that fetches server-side and streams
+    // back with Content-Disposition: attachment.
+    expect(songPageSrc).toMatch(/\/api\/download\/\$\{?activeVersion\.id\}?/);
+  });
+
+  it("does NOT call browser fetch on the audio URL anymore (would CORS-fail)", () => {
+    expect(songPageSrc).not.toMatch(/fetch\(activeVersion\.audioUrl/);
+  });
+});
+
+describe("song-page.tsx — resolved comments sink to the bottom + grey out (founder feedback)", () => {
+  it("renders resolved comments at the END of the list when showResolved is on", () => {
+    // The founder didn't want resolve to hide the message — they
+    // wanted it greyed out + parked at the bottom + filterable. Pin
+    // via a sort comparator that puts resolved last.
+    expect(songPageSrc).toMatch(/sort\(\s*\([^)]*\)\s*=>\s*\{[\s\S]*?resolved/i);
+  });
+
+  it("defaults showResolved to true (so a Resolve action visibly sinks the comment, not deletes it)", () => {
+    expect(songPageSrc).toMatch(/useState<boolean>\(true\)|useState\(true\)/);
   });
 });
 

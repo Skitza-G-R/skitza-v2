@@ -199,6 +199,17 @@ describe("PersistentPlayer source — album art cover slot", () => {
   });
 });
 
+describe("PersistentPlayer source — dock truly centers the transport (founder asked twice)", () => {
+  it("uses a 1fr-auto-1fr grid (or equivalent fixed-edges layout) so the center column sits visually centered", () => {
+    // Round 5 of the centering issue. The founder said "still not
+    // centered enough" after we moved to a fixed-200px LEFT block.
+    // Symmetric flex columns or a 1fr_auto_1fr grid get the center
+    // exactly in the middle of the dock width regardless of left/
+    // right content imbalance.
+    expect(playerSrc).toMatch(/grid-cols-\[1fr_auto_1fr\]/);
+  });
+});
+
 describe("PersistentPlayer source — dock progress visual is a mini waveform, not a thin line", () => {
   it("renders a MiniWaveform component (bar-style) instead of a flat scrub bar", () => {
     // Founder feedback on the v3 preview: the dock's progress strip

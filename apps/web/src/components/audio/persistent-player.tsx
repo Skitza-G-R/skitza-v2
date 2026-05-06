@@ -356,18 +356,19 @@ function DesktopDock({
       className="persistent-player-dock fixed inset-x-0 z-40 hidden md:flex md:justify-center md:px-6 lg:ps-[calc(var(--sidebar-width,260px)+24px)] lg:pe-6"
     >
       <div
-        className="flex w-full max-w-[820px] items-center gap-4 rounded-[18px] border px-3 py-2.5 shadow-[0_18px_48px_rgba(0,0,0,0.42),_0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-md"
+        className="grid w-full max-w-[820px] grid-cols-[1fr_auto_1fr] items-center gap-4 rounded-[18px] border px-3 py-2.5 shadow-[0_18px_48px_rgba(0,0,0,0.42),_0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-md"
         style={{
           background: "rgb(var(--bg-sidebar))",
           borderColor: "rgba(255,255,255,0.08)",
           color: "#fff",
         }}
       >
-        {/* LEFT — track info. Fixed-ish width so the center transport
-            occupies all remaining space and centers visually within
-            the dock, instead of getting pushed to the right half by a
-            flex-1 title block. */}
-        <div className="flex w-[200px] shrink-0 items-center gap-3 lg:w-[220px]">
+        {/* LEFT — track info. Sits in the first 1fr column. The grid
+            template (1fr_auto_1fr) keeps the auto-width center column
+            exactly in the middle of the dock regardless of left/right
+            content imbalance — flexbox can't do this without per-side
+            spacers. */}
+        <div className="flex min-w-0 items-center gap-3">
           <Cover track={track} size={44} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
@@ -379,10 +380,10 @@ function DesktopDock({
           </div>
         </div>
 
-        {/* CENTER — transport. flex-1 so it absorbs all leftover space
-            and centers its children. Internal columns use mx-auto to
-            sit visually in the middle of that space. */}
-        <div className="hidden min-w-0 flex-1 flex-col items-center gap-1.5 lg:flex">
+        {/* CENTER — transport. Auto-width column, sits in the middle
+            grid track. Internal layout is column-stack: transport
+            buttons on top, time + waveform + time below. */}
+        <div className="hidden flex-col items-center gap-1.5 lg:flex">
           <div className="flex items-center justify-center gap-4">
             <button
               type="button"
@@ -421,10 +422,8 @@ function DesktopDock({
         </div>
 
         {/* Compact play (md → lg) — when the center transport is
-            hidden, the user still needs play + pause + close. Wrapped
-            in a flex-1 container so the dock stays balanced (center
-            stays empty but pushed). */}
-        <div className="flex flex-1 items-center justify-center lg:hidden">
+            hidden, this sits in the auto-width center grid track. */}
+        <div className="flex items-center justify-center lg:hidden">
           <button
             type="button"
             aria-label={playing ? "Pause" : "Play"}
@@ -435,10 +434,11 @@ function DesktopDock({
           </button>
         </div>
 
-        {/* RIGHT — expand + close. Fixed-ish width so the center
-            actually centers (this section sits opposite the LEFT
-            track-info block). */}
-        <div className="flex shrink-0 items-center gap-1 border-s border-white/10 ps-3">
+        {/* RIGHT — expand + close. Right-aligned within the third
+            1fr column (justify-self-end + justify-end). The opposite
+            1fr column on the left mirrors this so the center auto
+            column stays at true geometric center. */}
+        <div className="flex items-center justify-end gap-1 justify-self-end border-s border-white/10 ps-3">
           <Link
             href={expandHrefForTrack(track)}
             aria-label="Open song page"

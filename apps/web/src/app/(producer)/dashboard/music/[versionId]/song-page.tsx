@@ -137,7 +137,12 @@ export function SongPage({ data }: { data: SongPageData }) {
   const [resolvedOverrides, setResolvedOverrides] = useState<
     Record<string, boolean>
   >({});
-  const [showResolved, setShowResolved] = useState(false);
+  // Default to TRUE — founder feedback: "resolve now disappears
+  // messages, I want it greyed out and sent to the bottom." Showing
+  // resolved by default + sorting them last preserves the
+  // conversation history. The toggle below switches to a "hide
+  // resolved" mode for producers who want a cleaner view.
+  const [showResolved, setShowResolved] = useState<boolean>(true);
 
   // Live current-time from the waveform — used to anchor the "add note
   // at 0:34" composer chip. Updated by Waveform50's onProgress callback.
@@ -161,20 +166,28 @@ export function SongPage({ data }: { data: SongPageData }) {
   const draftRef = useRef<HTMLInputElement | null>(null);
 
   // Comments visible right now: server + optimistic for the active
-  // version, filtered by resolved-state unless toggled. Sorted by
-  // timeMs asc so the thread reads in track order.
+  // version. Resolved comments sink to the BOTTOM (visible but greyed
+  // out — see the row's `opacity-60` + line-through styles) so the
+  // active conversation stays at the top of the thread. Within each
+  // group, comments sort by timeMs asc so they read in track order.
+  // The "Hide resolved" toggle drops the resolved rows entirely for
+  // producers who want a cleaner view.
   const visibleComments = useMemo(() => {
     if (!activeVersionId) return [];
     const server = data.comments.filter((c) => c.versionId === activeVersionId);
     const optimistic = optimisticByVersion[activeVersionId] ?? [];
-    const merged = [...server, ...optimistic].sort((a, b) => a.timeMs - b.timeMs);
-    return merged.filter((c) => {
-      const isResolvedOverride = resolvedOverrides[c.id];
-      const isResolved =
-        isResolvedOverride !== undefined
-          ? isResolvedOverride
-          : c.resolvedAtIso !== null;
-      return showResolved ? true : !isResolved;
+    const merged = [...server, ...optimistic];
+    const isCommentResolved = (c: SongPageComment): boolean => {
+      const override = resolvedOverrides[c.id];
+      return override !== undefined ? override : c.resolvedAtIso !== null;
+    };
+    const filtered = merged.filter((c) => (showResolved ? true : !isCommentResolved(c)));
+    return filtered.sort((a, b) => {
+      const aRes = isCommentResolved(a);
+      const bRes = isCommentResolved(b);
+      // Resolved last — primary sort key.
+      if (aRes !== bRes) return aRes ? 1 : -1;
+      return a.timeMs - b.timeMs;
     });
   }, [activeVersionId, data.comments, optimisticByVersion, resolvedOverrides, showResolved]);
 
@@ -554,62 +567,34 @@ export function SongPage({ data }: { data: SongPageData }) {
               >
                 <ShareIcon />
               </button>
-              <button
-                type="button"
-                aria-label="Download"
-                title={
-                  activeVersion.audioUrl
-                    ? "Download"
-                    : "Download (no audio uploaded yet)"
-                }
-                disabled={!activeVersion.audioUrl}
-                onClick={() => {
-                  // Cross-origin <a download> is ignored by browsers
-                  // for security — the file would just open in a new
-                  // tab. Workaround: fetch as blob, mint an
-                  // object-URL (same-origin), then click a synthetic
-                  // anchor with the download attr. The original audio
-                  // URL must allow CORS reads — R2 is configured for
-                  // this origin (see scripts/check-r2-cors.mjs).
-                  // We wrap the async work in an IIFE so the onClick
-                  // handler stays void-returning (lint-friendly).
-                  if (!activeVersion.audioUrl) return;
-                  void (async () => {
-                    try {
-                      const response = await fetch(activeVersion.audioUrl as string);
-                      if (!response.ok) throw new Error("download failed");
-                      const blob = await response.blob();
-                      const blobUrl = URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = blobUrl;
-                      // Best-effort filename: track title + version
-                      // label. Browser will append the right extension
-                      // from the blob's MIME type when one isn't given.
-                      const fileExt =
-                        blob.type === "audio/wav"
-                          ? "wav"
-                          : blob.type === "audio/mpeg"
-                            ? "mp3"
-                            : "audio";
-                      a.download = `${data.track.title} — ${activeVersion.label}.${fileExt}`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                      URL.revokeObjectURL(blobUrl);
-                    } catch {
-                      // CORS / network failure → fall back to opening
-                      // the audio directly. Producer still gets the
-                      // file via Save-As but loses the friendly name.
-                      if (activeVersion.audioUrl) {
-                        window.open(activeVersion.audioUrl, "_blank");
-                      }
-                    }
-                  })();
-                }}
-                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white disabled:opacity-50"
-              >
-                <DownloadIcon />
-              </button>
+              {activeVersion.audioUrl ? (
+                // Anchor through our same-origin /api/download/<id>
+                // route. The route fetches R2 server-side and re-emits
+                // with Content-Disposition: attachment, dodging the
+                // R2 CORS issue that broke the previous client-side
+                // fetch path. `download` triggers the browser's
+                // native save dialog with the filename the route
+                // sets via Content-Disposition.
+                <a
+                  aria-label="Download"
+                  title="Download"
+                  href={`/api/download/${activeVersion.id}`}
+                  download
+                  className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white"
+                >
+                  <DownloadIcon />
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  aria-label="Download"
+                  title="Download (no audio uploaded yet)"
+                  disabled
+                  className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white opacity-50"
+                >
+                  <DownloadIcon />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleApproveToggle}
