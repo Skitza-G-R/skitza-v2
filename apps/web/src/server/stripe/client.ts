@@ -28,13 +28,15 @@ export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 export const STRIPE_PUBLIC_KEY = process.env.STRIPE_PUBLIC_KEY;
 
 // Public site origin used to build redirect URLs in account links and
-// Checkout Sessions. Falls back to the canonical Vercel deployment so
-// local-dev (without a configured base URL) still produces working
-// links — Stripe-side redirects fail loudly if the URL is invalid.
+// Checkout Sessions. Falls back to the canonical brand origin so a
+// misconfigured env still sends Stripe redirects to a valid host —
+// Stripe-side redirects fail loudly if the URL is invalid. Note:
+// producer-facing share links (the `/join/<slug>` URL pasted in
+// IG bios) do NOT use this fn — see `lib/share/public-url` for those.
 export function getSiteUrl(): string {
   return (
     process.env.NEXT_PUBLIC_SITE_URL ??
     process.env.SITE_URL ??
-    "https://skitza-v2-web.vercel.app"
+    "https://skitza.app"
   );
 }

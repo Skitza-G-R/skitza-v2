@@ -22,6 +22,8 @@ export function getResend(): Resend {
 export const FROM_ADDRESS =
   process.env.RESEND_FROM ?? "Skitza <hello@skitza.app>";
 
-// Hint for templates that want to drop in a bare host.
+// Hint for templates that want to drop in a bare host. Default falls
+// back to the canonical brand origin so misconfigured envs still send
+// producers + artists to the right host.
 export const SITE_URL =
-  process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
+  process.env.SITE_URL ?? "https://skitza.app";

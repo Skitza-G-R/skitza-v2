@@ -9,7 +9,7 @@ import { NewProjectForm } from "./new-project-form";
 export default async function NewProjectPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
-  const siteUrl = process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
+  const siteUrl = process.env.SITE_URL ?? "https://skitza.app";
 
   const { slug: producerSlug } = await getShellState();
 

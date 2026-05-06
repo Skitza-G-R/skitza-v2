@@ -151,15 +151,28 @@ describe("Today page — Phase 4 populated layout", () => {
     expect(pageSource).toContain("pulseStats=");
   });
 
-  it("passes slug + publicBaseUrl + recentUploads to <OverviewScreen>", () => {
-    // Overview Polish: the public-link strip needs the producer's slug
-    // and the public origin to render the share URL; the recent
-    // uploads shelf needs the recentUploads array. Pinning these here
-    // catches a future regression where someone refactors page.tsx and
-    // forgets to thread the props through.
+  it("passes slug + recentUploads to <OverviewScreen>", () => {
+    // Overview Polish: the public-link strip needs the producer's slug;
+    // the recent uploads shelf needs the recentUploads array. Pinning
+    // these catches a future regression where someone refactors page.tsx
+    // and forgets to thread the props through.
+    //
+    // 2026-05-06: `publicBaseUrl` was removed from <OverviewScreen> —
+    // PublicLinkStrip now reads the canonical origin directly from
+    // `~/lib/share/public-url` (so misconfigured env vars can't leak
+    // a Vercel preview host into producer bio links).
     expect(pageSource).toContain("slug={me.slug}");
-    expect(pageSource).toContain("publicBaseUrl={publicBaseUrl}");
     expect(pageSource).toContain("recentUploads={today.recentUploads.map(");
+  });
+
+  it("does NOT thread publicBaseUrl into <OverviewScreen>", () => {
+    // Defense against regressing PublicLinkStrip back to env-driven URL.
+    // Match the JSX call site only — leading newline filters out the
+    // <DashboardEmptyOnboarding> branch which legitimately passes
+    // publicBaseUrl as a prop.
+    expect(pageSource).not.toMatch(
+      /<OverviewScreen[\s\S]*?publicBaseUrl=\{publicBaseUrl\}/,
+    );
   });
 
   it("calls booking.list with status='pending' for the approvals card", () => {

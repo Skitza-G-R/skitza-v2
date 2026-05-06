@@ -44,7 +44,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app"),
+  metadataBase: new URL(process.env.SITE_URL ?? "https://skitza.app"),
   title: {
     default: "Skitza — Business automation for music producers",
     template: "%s — Skitza",
