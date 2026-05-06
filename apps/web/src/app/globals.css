@@ -298,6 +298,23 @@
     min-height: 44px;
   }
 
+  /* PersistentPlayer dock — stacks above the producer bottom nav on
+   * mobile (<1024px) so the audio dock + tab row never overlap.
+   * The bottom nav measures 56px tab row + 6px top padding + iOS
+   * safe-area inset; we layer 62px + the same inset under the dock.
+   * On lg+ the desktop sidebar replaces the bottom nav, so the dock
+   * sits flush at the viewport bottom (Tailwind's `lg:bottom-0`
+   * + `lg:sk-safe-bottom` take over via cascade). */
+  .persistent-player-dock {
+    bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+  }
+  @media (min-width: 1024px) {
+    .persistent-player-dock {
+      bottom: 0;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+  }
+
   /* Custom 4px scrollbars per design-system.md. */
   .custom-scrollbar { -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: rgb(var(--fg-muted) / 0.25) transparent; }
   .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }

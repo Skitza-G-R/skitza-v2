@@ -104,7 +104,10 @@ export function Chips<T extends string>({
           </>
         );
         const className = cn(
-          "sk-press inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+          // min-h-[44px] on mobile (Skitza tap-target rule); collapses
+          // to py-1.5 (~30px) on sm+ to keep the pill compact on
+          // desktop where mouse precision is higher.
+          "sk-press inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-2.5 text-xs font-semibold transition-colors sm:min-h-0 sm:py-1.5",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]",
           selected
             ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.08)] text-[rgb(var(--brand-primary))]"

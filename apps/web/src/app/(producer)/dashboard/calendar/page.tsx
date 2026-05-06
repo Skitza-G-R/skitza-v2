@@ -157,7 +157,12 @@ export default async function CalendarPage({
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:py-10">
-      <div className="sk-card-glow rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-5 sm:px-6 sm:py-6">
+      {/* Drop the inner card chrome on mobile — at 360px the
+          outer page padding (px-4) plus inner card padding (px-4)
+          left only ~296px of usable width, which squeezed the week
+          grid + meetings sidebar. From sm+ (640px) the
+          card-glow border returns to mark the surface. */}
+      <div className="sk-card-glow rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-lg)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-6 sm:py-6">
         <header className="reveal-up mb-4">
           <p className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
             Calendar

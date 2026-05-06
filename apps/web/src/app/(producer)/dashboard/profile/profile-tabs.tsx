@@ -29,7 +29,10 @@ export function ProfileTabs({ active }: { active: ProfileTabKey }) {
               aria-controls={`profile-panel-${tab.id}`}
               scroll={false}
               className={[
-                "sk-press inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
+                // min-h-[44px] on mobile (Skitza tap-target rule)
+                // collapses to py-1.5 (~30px) on sm+ to keep the
+                // pill compact on desktop.
+                "sk-press inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2.5 text-xs font-semibold transition-colors sm:min-h-0 sm:py-1.5",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]",
                 isActive
                   ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.08)] text-[rgb(var(--brand-primary))]"
