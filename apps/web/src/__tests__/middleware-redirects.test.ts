@@ -12,20 +12,24 @@ describe("resolveLegacyRedirect — Setup tab flatten", () => {
     );
   });
 
-  // New: Services + Availability got flattened into Setup sub-tabs.
-  // These two URLs were never live as standalone routes, but the
-  // PRD §4.4 delta promises bookmarks/email links to them keep
-  // working. Adding them to STATIC_REDIRECTS makes that contract
-  // testable.
-  it("redirects /dashboard/services into the Services tab", () => {
+  // 2026-05-06 — Services CRUD moved out of Settings/Integrations
+  // into the Storefront page (PRD v3 §4.5: products live with the
+  // public storefront), and Availability moved into Calendar
+  // (PRD v3 §4.4: Availability is a Calendar tab). Legacy bookmarks
+  // to /dashboard/services + /dashboard/availability now 301 to the
+  // new homes so old links never break. The prior assertions
+  // (settings?section=services / settings?section=availability) are
+  // intentionally inverted — landing back on Settings would re-create
+  // the bug this refactor fixes.
+  it("redirects /dashboard/services to the Storefront's Store tab", () => {
     expect(resolveLegacyRedirect("/dashboard/services")).toBe(
-      "/dashboard/settings?section=services",
+      "/dashboard/profile?tab=store",
     );
   });
 
-  it("redirects /dashboard/availability into the Availability tab", () => {
+  it("redirects /dashboard/availability to the Calendar's Availability tab", () => {
     expect(resolveLegacyRedirect("/dashboard/availability")).toBe(
-      "/dashboard/settings?section=availability",
+      "/dashboard/calendar?tab=availability",
     );
   });
 

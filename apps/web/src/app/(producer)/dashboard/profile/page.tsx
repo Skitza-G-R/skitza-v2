@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import type { PaymentPlan } from "@skitza/db";
 
+import type { Currency } from "~/app/(producer)/dashboard/booking/package-form";
 import {
   StorefrontScreen,
   type StorefrontProduct,
@@ -59,11 +60,13 @@ export default async function ProfilePage({
 
   // Store tab fetches the product list + producer profile. Profile
   // gives us the public storefront URL we surface above the
-  // products tab toggle.
+  // products tab toggle, plus the producer's default currency that
+  // seeds the create-form dropdown when the producer adds a service.
   let storefrontProducts: StorefrontProduct[] = [];
   let storefrontPublicUrl: string | null = null;
   let storefrontProducerName: string | null = null;
   let storefrontProducerSlug: string | null = null;
+  let storefrontDefaultCurrency: Currency = "USD";
   if (active === "store") {
     const [packages, profile] = await Promise.all([
       caller.booking.packages.list(),
@@ -84,11 +87,29 @@ export default async function ProfilePage({
       // "Monthly · N×"; multi => "N plans". Drives the chip on each
       // product card.
       planLabel: derivePlanLabel(p.paymentPlans),
+      // Edit-form fields — the kebab → Edit menuitem now opens an
+      // inline modal with NewPackageForm pre-filled, so the row needs
+      // every column the form binds to.
+      depositPct: p.depositPct,
+      kind: p.kind,
+      locationType: p.locationType,
+      bufferMinutes: p.bufferMinutes,
+      minLeadHours: p.minLeadHours,
+      contractUrl: p.contractUrl,
     }));
 
     storefrontPublicUrl = profile.slug ? buildJoinUrl(profile.slug) : null;
     storefrontProducerName = profile.displayName;
     storefrontProducerSlug = profile.slug;
+    // Narrow the producer's profile-level default currency to the
+    // form-typed Currency union. Out-of-range values fall back to USD
+    // — same defensive default as the form's own initial state.
+    const VALID_CURRENCIES = ["USD", "EUR", "GBP", "ILS"] as const;
+    storefrontDefaultCurrency = (
+      VALID_CURRENCIES as readonly string[]
+    ).includes(profile.defaultCurrency)
+      ? (profile.defaultCurrency as Currency)
+      : "USD";
   }
 
   let portfolioTracks: PortfolioTrackRow[] = [];
@@ -163,6 +184,7 @@ export default async function ProfilePage({
             publicUrl={storefrontPublicUrl}
             producerName={storefrontProducerName}
             producerSlug={storefrontProducerSlug}
+            defaultCurrency={storefrontDefaultCurrency}
           />
         )}
         {active === "portfolio" && (
