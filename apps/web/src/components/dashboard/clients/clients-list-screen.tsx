@@ -12,9 +12,16 @@ import { formatRelativeTime } from "~/lib/time/relative";
 //
 // 2026-05-06 redesign — switched from a single-column rows layout to
 // the founder's HTML-mockup card grid: each card has a gradient
-// avatar, a 3-stat strip (Projects / Lifetime / Owed), and two action
-// buttons (Message + Send-invoice/New-project). Search + filter chips
-// keep their prior behaviour.
+// avatar, a 3-stat strip (Projects / Lifetime / Owed), and one action
+// button (Send-invoice when owed > 0, else New-project). Search +
+// filter chips keep their prior behaviour.
+//
+// 2026-05-07 — the prior "Message" CTA was removed entirely (per
+// founder direction): Skitza isn't routing email through us in v1, so
+// a `mailto:` chip with a stamped icon read as a real product feature
+// when it was just a system handoff. Card now leads with a single
+// outcome-shaped action; the email address remains a click target on
+// the avatar/name link to the detail page.
 //
 // Cards-over-rows reads better at desktop widths (the prior dense row
 // list felt cramped above the fold) and gives each client enough room
@@ -157,24 +164,23 @@ function ClientCard({ row }: { row: ClientsListRow }) {
         />
       </div>
 
-      {/* Actions */}
-      <div className="flex gap-2">
-        <Link
-          href={`mailto:${row.email}`}
-          className="sk-press inline-flex flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 py-2 text-[11.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--border-strong))]"
-        >
-          <MailIcon /> Message
-        </Link>
+      {/* Action — single outcome-shaped CTA. With Message gone, the
+          remaining button spans the full card width so the affordance
+          still reads as a clear next step. Send-invoice deep-links to
+          the client detail page's Payments tab where the producer can
+          see the balance breakdown; future "send a real invoice"
+          mutation will hang off that screen. */}
+      <div className="flex">
         {owed > 0 ? (
           <Link
-            href={`/dashboard/clients-projects/clients/${row.id}`}
+            href={`/dashboard/clients-projects/clients/${row.id}?tab=payments`}
             className="sk-press inline-flex flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-3 py-2 text-[11.5px] font-semibold text-[rgb(var(--bg-base))] transition-transform hover:brightness-110"
           >
             <DocIcon /> Send invoice
           </Link>
         ) : (
           <Link
-            href="/dashboard/clients-projects/new"
+            href={`/dashboard/clients-projects/new?clientEmail=${encodeURIComponent(row.email)}&clientName=${encodeURIComponent(row.name)}`}
             className="sk-press inline-flex flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 py-2 text-[11.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--border-strong))]"
           >
             <PlusIcon /> New project
@@ -254,25 +260,6 @@ function SearchIcon() {
     >
       <circle cx="7" cy="7" r="5" />
       <path d="M11 11l3 3" />
-    </svg>
-  );
-}
-
-function MailIcon() {
-  return (
-    <svg
-      aria-hidden
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="m3 7 9 6 9-6" />
     </svg>
   );
 }
