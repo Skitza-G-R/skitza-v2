@@ -363,18 +363,26 @@ function DesktopDock({
           color: "#fff",
         }}
       >
-        <Cover track={track} size={44} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
-            {track.title}
-          </p>
-          <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
-            {track.subtitle}
-          </p>
+        {/* LEFT — track info. Fixed-ish width so the center transport
+            occupies all remaining space and centers visually within
+            the dock, instead of getting pushed to the right half by a
+            flex-1 title block. */}
+        <div className="flex w-[200px] shrink-0 items-center gap-3 lg:w-[220px]">
+          <Cover track={track} size={44} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
+              {track.title}
+            </p>
+            <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
+              {track.subtitle}
+            </p>
+          </div>
         </div>
 
-        {/* Center transport */}
-        <div className="hidden flex-1 flex-col gap-1.5 lg:flex">
+        {/* CENTER — transport. flex-1 so it absorbs all leftover space
+            and centers its children. Internal columns use mx-auto to
+            sit visually in the middle of that space. */}
+        <div className="hidden min-w-0 flex-1 flex-col items-center gap-1.5 lg:flex">
           <div className="flex items-center justify-center gap-4">
             <button
               type="button"
@@ -405,7 +413,7 @@ function DesktopDock({
               <SkipForwardIcon />
             </button>
           </div>
-          <div className="flex items-center gap-2.5 font-mono text-[10px] text-white/40">
+          <div className="flex w-full max-w-[420px] items-center gap-2.5 font-mono text-[10px] text-white/40">
             <span className="w-8 text-right tabular-nums">{fmtTime(currentMs)}</span>
             <MiniWaveform seed={track.id} progressPct={progressPct} onScrub={onScrub} />
             <span className="w-8 tabular-nums">{durationMs == null ? "—" : fmtTime(durationMs)}</span>
@@ -413,19 +421,24 @@ function DesktopDock({
         </div>
 
         {/* Compact play (md → lg) — when the center transport is
-            hidden, the user still needs play + pause + close */}
-        <button
-          type="button"
-          aria-label={playing ? "Pause" : "Play"}
-          onClick={onTogglePlay}
-          className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)] lg:hidden"
-        >
-          {playing ? <PauseIcon /> : <PlayIcon />}
-        </button>
+            hidden, the user still needs play + pause + close. Wrapped
+            in a flex-1 container so the dock stays balanced (center
+            stays empty but pushed). */}
+        <div className="flex flex-1 items-center justify-center lg:hidden">
+          <button
+            type="button"
+            aria-label={playing ? "Pause" : "Play"}
+            onClick={onTogglePlay}
+            className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)]"
+          >
+            {playing ? <PauseIcon /> : <PlayIcon />}
+          </button>
+        </div>
 
-        {/* Right cluster — expand + close. Pinned to ensure the close
-            X button is always reachable on every viewport. */}
-        <div className="flex items-center gap-1 border-s border-white/10 ps-3">
+        {/* RIGHT — expand + close. Fixed-ish width so the center
+            actually centers (this section sits opposite the LEFT
+            track-info block). */}
+        <div className="flex shrink-0 items-center gap-1 border-s border-white/10 ps-3">
           <Link
             href={expandHrefForTrack(track)}
             aria-label="Open song page"

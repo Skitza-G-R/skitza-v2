@@ -6,6 +6,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { Waveform50, type WaveformComment } from "~/components/audio/waveform-50";
 import {
   playerPlay,
+  playerSeek,
   playerToggle,
   useNowPlaying,
   type PlayerTrack,
@@ -247,6 +248,18 @@ export function SongPage({ data }: { data: SongPageData }) {
           ),
         }));
         setError(res.error);
+      } else {
+        // Clear optimistic on success too. The server action calls
+        // revalidatePath, so the next render carries the canonical
+        // row from the DB. Without this filter we'd render BOTH the
+        // optimistic copy AND the server copy → comment appears twice
+        // (the founder reported this as "post twice").
+        setOptimisticByVersion((prev) => ({
+          ...prev,
+          [activeVersion.id]: (prev[activeVersion.id] ?? []).filter(
+            (c) => c.id !== tempId,
+          ),
+        }));
       }
     });
   }
@@ -281,6 +294,45 @@ export function SongPage({ data }: { data: SongPageData }) {
       });
       if (!res.ok) setError(res.error);
     });
+  }
+
+  // Jump to a comment's timestamp. If the active version isn't the one
+  // currently playing in the dock, push it into PersistentPlayer FIRST
+  // so the seek lands on a loaded <audio> element. Then dispatch the
+  // seek and ensure the player is unpaused so the producer immediately
+  // hears the moment they clicked.
+  function handleJumpToComment(timeMs: number) {
+    if (!activeVersion) return;
+    if (!activeVersion.audioUrl) return;
+    const isThisVersionLoaded = nowPlaying.trackId === activeVersion.id;
+    if (!isThisVersionLoaded) {
+      playerPlay(activeVersionToPlayerTrack(data.track, activeVersion));
+    } else if (!nowPlaying.playing) {
+      playerToggle();
+    }
+    // playerPlay resets currentTime to 0 inside PersistentPlayer; fire
+    // the seek on the next macrotask so it doesn't get clobbered by
+    // that reset. setTimeout(0) is enough — the player's onSet handler
+    // is synchronous.
+    setTimeout(() => {
+      playerSeek(timeMs);
+    }, 0);
+    setCurrentMs(timeMs);
+  }
+
+  // Reply to a comment — pre-fills the composer with @author and
+  // focuses it so the producer can just start typing. The `@author `
+  // mention isn't parsed server-side yet, but it's a familiar
+  // interaction and survives any future mention-renderer wiring.
+  function handleReplyToComment(authorName: string) {
+    const input = draftRef.current;
+    if (!input) return;
+    const prefix = `@${authorName} `;
+    if (!input.value.startsWith(prefix)) {
+      input.value = prefix;
+    }
+    input.focus();
+    input.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
   // Play / Pause click — branches on the helper-derived action so the
@@ -502,27 +554,62 @@ export function SongPage({ data }: { data: SongPageData }) {
               >
                 <ShareIcon />
               </button>
-              {activeVersion.audioUrl ? (
-                <a
-                  aria-label="Download"
-                  title="Download"
-                  href={activeVersion.audioUrl}
-                  download
-                  className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white"
-                >
-                  <DownloadIcon />
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  aria-label="Download"
-                  title="Download (no audio uploaded yet)"
-                  disabled
-                  className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white opacity-50"
-                >
-                  <DownloadIcon />
-                </button>
-              )}
+              <button
+                type="button"
+                aria-label="Download"
+                title={
+                  activeVersion.audioUrl
+                    ? "Download"
+                    : "Download (no audio uploaded yet)"
+                }
+                disabled={!activeVersion.audioUrl}
+                onClick={() => {
+                  // Cross-origin <a download> is ignored by browsers
+                  // for security — the file would just open in a new
+                  // tab. Workaround: fetch as blob, mint an
+                  // object-URL (same-origin), then click a synthetic
+                  // anchor with the download attr. The original audio
+                  // URL must allow CORS reads — R2 is configured for
+                  // this origin (see scripts/check-r2-cors.mjs).
+                  // We wrap the async work in an IIFE so the onClick
+                  // handler stays void-returning (lint-friendly).
+                  if (!activeVersion.audioUrl) return;
+                  void (async () => {
+                    try {
+                      const response = await fetch(activeVersion.audioUrl as string);
+                      if (!response.ok) throw new Error("download failed");
+                      const blob = await response.blob();
+                      const blobUrl = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = blobUrl;
+                      // Best-effort filename: track title + version
+                      // label. Browser will append the right extension
+                      // from the blob's MIME type when one isn't given.
+                      const fileExt =
+                        blob.type === "audio/wav"
+                          ? "wav"
+                          : blob.type === "audio/mpeg"
+                            ? "mp3"
+                            : "audio";
+                      a.download = `${data.track.title} — ${activeVersion.label}.${fileExt}`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(blobUrl);
+                    } catch {
+                      // CORS / network failure → fall back to opening
+                      // the audio directly. Producer still gets the
+                      // file via Save-As but loses the friendly name.
+                      if (activeVersion.audioUrl) {
+                        window.open(activeVersion.audioUrl, "_blank");
+                      }
+                    }
+                  })();
+                }}
+                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white disabled:opacity-50"
+              >
+                <DownloadIcon />
+              </button>
               <button
                 type="button"
                 onClick={handleApproveToggle}
@@ -665,9 +752,20 @@ export function SongPage({ data }: { data: SongPageData }) {
                         <span className="text-[12.5px] font-bold text-[rgb(var(--fg-default))]">
                           {c.authorName}
                         </span>
-                        <span className="rounded-full bg-[rgb(var(--brand-primary)/0.18)] px-1.5 py-px font-mono text-[9.5px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums">
+                        {/* Timestamp chip — clicking jumps the player
+                            to that moment so the producer can hear the
+                            issue the artist flagged. */}
+                        <button
+                          type="button"
+                          data-test="comment-timestamp"
+                          onClick={() => {
+                            handleJumpToComment(c.timeMs);
+                          }}
+                          aria-label={`Jump to ${fmtMs(c.timeMs)}`}
+                          className="sk-press rounded-full bg-[rgb(var(--brand-primary)/0.18)] px-1.5 py-px font-mono text-[9.5px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums hover:bg-[rgb(var(--brand-primary)/0.28)]"
+                        >
                           @{fmtMs(c.timeMs)}
-                        </span>
+                        </button>
                         <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
                           {fmtRelativeIso(c.createdAtIso)}
                         </span>
@@ -686,6 +784,26 @@ export function SongPage({ data }: { data: SongPageData }) {
                         {c.body}
                       </p>
                       <div className="mt-1.5 flex gap-3">
+                        <button
+                          type="button"
+                          data-test="comment-jump"
+                          onClick={() => {
+                            handleJumpToComment(c.timeMs);
+                          }}
+                          className="text-[10.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                        >
+                          Jump to
+                        </button>
+                        <button
+                          type="button"
+                          data-test="comment-reply"
+                          onClick={() => {
+                            handleReplyToComment(c.authorName);
+                          }}
+                          className="text-[10.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                        >
+                          Reply
+                        </button>
                         <button
                           type="button"
                           onClick={() => {

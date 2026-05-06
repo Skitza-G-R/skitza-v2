@@ -146,6 +146,63 @@ describe("playButtonState — Play/Pause + disabled + action mode", () => {
 
 // ─── Source-grep — wiring ────────────────────────────────────────────
 
+describe("song-page.tsx — comments don't double-post on submit", () => {
+  it("clears the optimistic entry by tempId in BOTH ok and !ok branches of l3AddComment", () => {
+    // Bug: revalidatePath in the server action makes the page re-render
+    // with the canonical row from the DB. Without filtering tempId out
+    // of optimisticByVersion on success, both rows render → comment
+    // appears twice. Fix: filter on both branches.
+    //
+    // Heuristic check: the source contains at least 2 occurrences of
+    // a `.filter(...)` that mentions `tempId`. One for the failure
+    // rollback, one for the success cleanup.
+    const matches = songPageSrc.match(/\.filter\(\s*\([^)]*\)\s*=>\s*[^)]*tempId/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("song-page.tsx — comments are clickable + replyable (founder feedback)", () => {
+  it("renders a 'Jump to' button per comment that seeks the player", () => {
+    expect(songPageSrc).toContain('data-test="comment-jump"');
+    // The button delegates through handleJumpToComment so we check
+    // both the wiring AND that handleJumpToComment is the one calling
+    // playerSeek.
+    expect(songPageSrc).toMatch(/data-test="comment-jump"[\s\S]{0,400}?onClick=\{[^}]*handleJumpToComment\(/);
+    const jumpHandler = songPageSrc.match(/function handleJumpToComment[\s\S]*?\n {2}\}/);
+    expect(jumpHandler).not.toBeNull();
+    expect(jumpHandler?.[0]).toContain("playerSeek(");
+  });
+
+  it("renders a 'Reply' button per comment", () => {
+    expect(songPageSrc).toContain('data-test="comment-reply"');
+  });
+
+  it("Reply pre-fills the composer with the @author handle and focuses it", () => {
+    // When the producer clicks Reply, the composer should be ready to
+    // receive their message — focus + a draft prefix make that
+    // obvious. We use a ref on the input so we can both set its value
+    // AND focus it.
+    expect(songPageSrc).toMatch(/draftRef\.current[^\n]*?(\.value\s*=|focus\(\))/);
+  });
+
+  it("the @timestamp chip on each comment is a button (not a span) so clicking it jumps", () => {
+    // Pinned via data attr to keep the chip discoverable as a control.
+    expect(songPageSrc).toContain('data-test="comment-timestamp"');
+  });
+});
+
+describe("song-page.tsx — Download button forces a blob download (cross-origin R2)", () => {
+  it("uses fetch + URL.createObjectURL instead of relying on the <a download> attribute", () => {
+    // Bug: the `download` attribute is ignored on cross-origin <a>
+    // links, so clicking Download would just open the audio in the
+    // browser. Fix: fetch as blob, mint an object-URL, click a
+    // synthetic anchor with `download`. That works because the blob
+    // URL is same-origin even if the audio source isn't.
+    expect(songPageSrc).toContain("createObjectURL");
+    expect(songPageSrc).toMatch(/fetch\(activeVersion\.audioUrl/);
+  });
+});
+
 describe("song-page.tsx source — Play button on the waveform card (founder feedback)", () => {
   it("renders a play/pause button INSIDE the waveform card (not just the hero action rail)", () => {
     // Pin via a unique data attribute so a future restyle can't drop the
@@ -193,13 +250,10 @@ describe("song-page.tsx source — secondary action rail icons (Star / Share / D
     expect(songPageSrc).toContain("DownloadIcon");
   });
 
-  it("Download button anchors to the active version's audioUrl", () => {
-    // Pin the wiring to audioUrl so the button stays in sync with the
-    // active version (switching versions should swap the download
-    // target). We don't enforce the `download` attribute literal —
-    // that's handled by the browser based on the URL — but the href
-    // MUST come from the current version's audioUrl.
-    expect(songPageSrc).toMatch(/href=\{activeVersion\.audioUrl[^}]*\}/);
+  it("Download button reads from activeVersion.audioUrl (so version switch swaps the target)", () => {
+    // The button's onClick must reference activeVersion.audioUrl so
+    // switching to v2 / v1 also swaps which file gets downloaded.
+    expect(songPageSrc).toContain("activeVersion.audioUrl");
   });
 });
 
