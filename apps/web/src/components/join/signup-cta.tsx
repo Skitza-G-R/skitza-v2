@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { BookingFlowTrigger } from "./booking-flow-trigger";
 import { JoinSocialLinks } from "./join-social-links";
 
 // Dark CTA + contact section at the bottom of `/join/<slug>`.
@@ -11,17 +10,18 @@ import { JoinSocialLinks } from "./join-social-links";
 // a visitor who scrolls all the way down lands here and either books
 // (signs up) or follows a streaming link.
 //
-// Wave 1 booking flow: the CTA points to the dedicated /sign-up/join/<slug>
-// route, which sets `unsafeMetadata={signupOrigin:"join", producerSlug}`
-// on Clerk's <SignUp>, so the webhook branches correctly and the
-// post-signup redirect lands on the artist-welcome splash. NOT a real
-// booking modal — that's Phase H. Phase H also brings real Stripe
-// checkout in step 3.
+// Booking flow modal: the CTA opens the inline 3-step modal
+// (BookingFlowTrigger → BookingFlowModal). On submit the booking
+// lands as `pending` for the producer to review in their dashboard;
+// payment is requested separately by the producer (no Stripe in
+// this slice). The old /sign-up/join/<slug> redirect path is no
+// longer reachable from this component.
 //
 // English-only, LTR-only per CLAUDE.md i18n scope.
 
 interface SignupCtaProps {
   slug: string;
+  producerName: string;
   socialLinks: ReadonlyArray<{
     id: string;
     platform: string;
@@ -31,8 +31,7 @@ interface SignupCtaProps {
   }>;
 }
 
-export function SignupCta({ slug, socialLinks }: SignupCtaProps) {
-  const href = `/sign-up/join/${encodeURIComponent(slug)}`;
+export function SignupCta({ slug, producerName, socialLinks }: SignupCtaProps) {
 
   return (
     <section
@@ -63,19 +62,26 @@ export function SignupCta({ slug, socialLinks }: SignupCtaProps) {
         </p>
 
         <div className="mt-9 flex flex-col items-center gap-4 sm:gap-5">
-          <Link
-            href={href}
-            className={[
-              "sk-cta-shine pulse-glow inline-flex min-h-12 w-full items-center justify-center whitespace-nowrap",
-              "rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))]",
-              "px-8 py-4 text-base font-bold text-[rgb(var(--fg-primary))] sm:w-auto sm:text-lg",
-              "shadow-[0_6px_20px_-4px_rgb(var(--brand-primary)/0.4)]",
-              "transition-transform hover:-translate-y-[1px] active:translate-y-[1px]",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]",
-            ].join(" ")}
-          >
-            <span className="relative z-10">Book a session →</span>
-          </Link>
+          <BookingFlowTrigger
+            slug={slug}
+            producerName={producerName}
+            trigger={({ onClick }) => (
+              <button
+                type="button"
+                onClick={onClick}
+                className={[
+                  "sk-cta-shine pulse-glow inline-flex min-h-12 w-full items-center justify-center whitespace-nowrap",
+                  "rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))]",
+                  "px-8 py-4 text-base font-bold text-[rgb(var(--fg-primary))] sm:w-auto sm:text-lg",
+                  "shadow-[0_6px_20px_-4px_rgb(var(--brand-primary)/0.4)]",
+                  "transition-transform hover:-translate-y-[1px] active:translate-y-[1px]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]",
+                ].join(" ")}
+              >
+                <span className="relative z-10">Book a session →</span>
+              </button>
+            )}
+          />
 
           <JoinSocialLinks links={socialLinks} />
         </div>

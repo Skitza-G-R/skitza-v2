@@ -18,11 +18,14 @@
 
 import Link from "next/link";
 
+import { BookingFlowTrigger } from "./booking-flow-trigger";
+
 interface JoinNavProps {
   slug: string;
+  producerName: string;
 }
 
-export function JoinNav({ slug }: JoinNavProps) {
+export function JoinNav({ slug, producerName }: JoinNavProps) {
   return (
     <nav
       aria-label="Page navigation"
@@ -71,18 +74,25 @@ export function JoinNav({ slug }: JoinNavProps) {
           >
             Contact
           </a>
-          <Link
-            href={`/sign-up/join/${encodeURIComponent(slug)}`}
-            className={[
-              "sk-pop inline-flex min-h-9 items-center whitespace-nowrap",
-              "rounded-[var(--radius-md)] bg-[rgb(var(--fg-primary))] px-3.5 py-2",
-              "text-[0.72rem] font-bold text-[rgb(var(--bg-base))]",
-              "transition-transform hover:-translate-y-[1px]",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--bg-base))]",
-            ].join(" ")}
-          >
-            Book a session
-          </Link>
+          <BookingFlowTrigger
+            slug={slug}
+            producerName={producerName}
+            trigger={({ onClick }) => (
+              <button
+                type="button"
+                onClick={onClick}
+                className={[
+                  "sk-pop inline-flex min-h-9 items-center whitespace-nowrap",
+                  "rounded-[var(--radius-md)] bg-[rgb(var(--fg-primary))] px-3.5 py-2",
+                  "text-[0.72rem] font-bold text-[rgb(var(--bg-base))]",
+                  "transition-transform hover:-translate-y-[1px]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--bg-base))]",
+                ].join(" ")}
+              >
+                Book a session
+              </button>
+            )}
+          />
         </div>
       </div>
     </nav>
