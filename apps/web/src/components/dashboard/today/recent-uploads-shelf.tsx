@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { RecentUploadCard } from "./recent-upload-card";
 import type { PlayerTrack } from "../../audio/persistent-player";
 import type { RecentUpload } from "../../../server/trpc/routers/producer";
@@ -127,7 +129,7 @@ export function RecentUploadsShelf({ uploads }: RecentUploadsShelfProps) {
 // all uploads with filters + a richer waveform list.
 function ViewAllCard() {
   return (
-    <a
+    <Link
       href="/dashboard/music"
       className="group flex w-36 shrink-0 flex-col gap-2"
     >
@@ -142,6 +144,6 @@ function ViewAllCard() {
         <span className="px-3 text-center leading-tight">View all in Music →</span>
       </div>
       <span className="sr-only">View all uploads in Music</span>
-    </a>
+    </Link>
   );
 }
