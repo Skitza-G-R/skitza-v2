@@ -2,28 +2,35 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import {
-  ProjectsList,
-  type GroupedProjects,
-  type ProjectRow,
-  type Stage,
-} from "~/components/dashboard/projects/projects-list";
+  ClientsAndProjectsView,
+  type ProjectsViewRow,
+} from "~/components/dashboard/projects/clients-and-projects-view";
+import { type ClientRow } from "~/components/dashboard/projects/clients-grid";
 import { isProjectState } from "~/lib/projects/states";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-// Task 4: lightweight browse view for all of a producer's projects,
-// filterable by the three display states (Live / Done / Archived).
-// Batch G collapsed the former 8-chip stage filter to a 3-chip
-// state filter — the ProjectsList client does the grouping; this
-// page just parses `?state=` and hands it down. The URL param was
-// renamed from `stage` to `state` to match the user-visible surface;
-// legacy `stage` query params fall through to "All" silently (not a
-// real regression: bookmarks to specific stages were never a
-// prominent flow).
+// /dashboard/projects — the producer's "Clients & Projects" workspace.
+// Owns the route-level data fetch, then hands the rich aggregate down
+// to the client component. Two views toggle inside the client:
 //
-// Note: we deliberately do NOT run the first-run onboarding redirect
-// here. /dashboard (the Today screen) owns that; users only reach
-// /dashboard/projects once they've already started something, so the
-// empty state below hints at sharing a magic link instead.
+//   • Projects table — one row per project. Columns: badge, project,
+//     client, progress, balance, deadline. Powered by
+//     `clientContacts.listWithProjects({ view: "all-projects" })` so
+//     `outstandingCents`, `lastActivity`, and the unresolved-comment
+//     dot are all real (no client-side aggregation).
+//
+//   • Clients grid — one card per contact with rolled-up stats.
+//     Powered by `clientContacts.listWithProjects({ view: "by-client" })`.
+//
+// Two parallel calls are intentionally redundant — the by-client view
+// folds the same project rows into client aggregates, but we keep
+// both fetches since each view runs server-side filters that can't be
+// re-derived in the browser. Cheap on Neon (HTTP, single round-trip
+// each, both producer-scoped).
+//
+// The `?state=` URL param continues to drive the Projects view's
+// state filter (live / done / archived). It's read here and threaded
+// into the client component as `activeState`.
 
 type PageProps = {
   searchParams: Promise<{ state?: string }>;
@@ -34,58 +41,111 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const grouped = await caller.project.listByStage();
+
+  const [projectsResult, clientsResult] = await Promise.all([
+    caller.clientContacts.listWithProjects({ view: "all-projects" }),
+    caller.clientContacts.listWithProjects({ view: "by-client" }),
+  ]);
+
   const sp = await searchParams;
   const activeState = isProjectState(sp.state) ? sp.state : null;
 
-  // Project down to the minimal row shape the client component needs.
-  // Dates cross the RSC → client boundary as ISO strings; we drop
-  // sensitive + unused columns (shareTokenHash, stripe ids, etc.) so
-  // they never ship to the browser.
-  const clientGrouped: GroupedProjects = {
-    lead: [],
-    booked: [],
-    contract_sent: [],
-    in_production: [],
-    final_review: [],
-    paid: [],
-    archived: [],
-  };
-  for (const stage of Object.keys(clientGrouped) as Stage[]) {
-    clientGrouped[stage] = grouped[stage].map<ProjectRow>((p) => ({
-      id: p.id,
-      title: p.title,
-      artistName: p.artistName,
-      stage: p.stage,
-      updatedAtIso: p.updatedAt.toISOString(),
-    }));
-  }
+  // Project rows — strip server-only fields, marshal Dates to ISO so
+  // they cross the RSC → client boundary safely.
+  const projects: ProjectsViewRow[] =
+    projectsResult.view === "all-projects"
+      ? projectsResult.projects.map((p) => ({
+          id: p.id,
+          title: p.title,
+          stage: p.stage,
+          // The aggregator always returns a `client` object — when the
+          // CRM has no contact for the project's email it stubs in a
+          // record using the project's artistName/clientName fallback.
+          artistName: p.client.name,
+          outstandingCents: p.outstandingCents,
+          nextSessionAtIso: p.nextSessionAt?.toISOString() ?? null,
+          lastActivityIso:
+            (p.lastActivity instanceof Date
+              ? p.lastActivity
+              : new Date(p.lastActivity)
+            ).toISOString(),
+          currency: p.currency,
+          unresolvedComments: p.unresolvedComments,
+        }))
+      : [];
+
+  // Client rows — same marshaling treatment. `lastActivity` is always
+  // truthy (the aggregator falls back to lastSeenAt when the project
+  // join contributes nothing).
+  const clients: ClientRow[] =
+    clientsResult.view === "by-client"
+      ? clientsResult.clients.map((c) => {
+          const last =
+            c.lastActivity instanceof Date
+              ? c.lastActivity
+              : new Date(c.lastActivity);
+          return {
+            id: c.id,
+            email: c.email,
+            name: c.name,
+            activeProjectCount: c.activeProjectCount,
+            totalProjectCount: c.totalProjectCount,
+            outstandingCents: c.outstandingCents,
+            lifetimeCents: c.lifetimeCents,
+            unresolvedComments: c.unresolvedComments,
+            lastActivityIso: last.toISOString(),
+          };
+        })
+      : [];
+
+  const totalOutstandingCents = projects.reduce(
+    (sum, p) => sum + p.outstandingCents,
+    0,
+  );
+
+  // Currency for display labels (Balance column, Owed/Lifetime stats).
+  // Picks the most-common currency across the producer's projects to
+  // avoid a per-row currency lookup; falls back to USD when there's
+  // nothing to project from.
+  const currency = pickDominantCurrency(projects, "USD");
 
   return (
-    <>
-      {/* Batch C — Projects page picks up the same editorial canvas
-          treatment as Today: full-bleed, gradient band at the top,
-          display-font page title at 4xl→5xl, mono eyebrow above it. */}
-      <div className="relative isolate">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+    <div className="relative isolate">
+      {/* Atmospheric gradient band at the top — subtle warmth that
+          ties the workspace surface to the brand. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[300px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.08)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+      />
+      <div className="sk-page-enter mx-auto max-w-[1400px] px-4 pt-8 pb-12 sm:px-6 lg:px-8 lg:pt-12">
+        <ClientsAndProjectsView
+          projects={projects}
+          clients={clients}
+          activeState={activeState}
+          currency={currency}
+          totalOutstandingCents={totalOutstandingCents}
         />
-        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-8 pb-12 sm:px-8 lg:px-12 lg:pt-12">
-          <header>
-            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
-              Pipeline
-            </p>
-            <h1 className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
-              Projects
-            </h1>
-            <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
-              Browse and open the project room for any active engagement.
-            </p>
-          </header>
-          <ProjectsList grouped={clientGrouped} activeState={activeState} />
-        </div>
       </div>
-    </>
+    </div>
   );
+}
+
+function pickDominantCurrency(
+  projects: ProjectsViewRow[],
+  fallback: string,
+): string {
+  if (projects.length === 0) return fallback;
+  const counts = new Map<string, number>();
+  for (const p of projects) {
+    counts.set(p.currency, (counts.get(p.currency) ?? 0) + 1);
+  }
+  let best = fallback;
+  let bestN = 0;
+  for (const [c, n] of counts) {
+    if (n > bestN) {
+      best = c;
+      bestN = n;
+    }
+  }
+  return best;
 }

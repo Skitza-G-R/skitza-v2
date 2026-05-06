@@ -2,17 +2,16 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { createDb, desc, eq, invoices, producers } from "@skitza/db";
 
-import { ProjectHeader } from "~/components/dashboard/project/project-header";
-// Server-safe imports (pure types + type-guard) come from the
-// shared module; the UI-only `ProjectSubTabs` component stays in
-// the `"use client"` file. Importing the guard from the client
-// module crashes RSC — that was the 2026-04-23 "Something buzzed"
-// bug on every project page.
+import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
+import { ProjectRoomHero } from "~/components/dashboard/project/project-room-hero";
+import { ProjectStatStrip } from "~/components/dashboard/project/project-stat-strip";
+import { ProjectTimeline } from "~/components/dashboard/project/project-timeline";
 import {
   isProjectSubTabId,
   type ProjectSubTabId,
 } from "~/components/dashboard/project/project-sub-tab-shared";
 import { ProjectSubTabs } from "~/components/dashboard/project/project-sub-tabs";
+import { TagEditor } from "~/components/dashboard/project/tag-editor";
 import { MoneySubTab } from "~/components/dashboard/project/sub-tabs/money-sub-tab";
 import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
 import { NotesSubTab } from "~/components/dashboard/project/sub-tabs/notes-sub-tab";
@@ -20,7 +19,6 @@ import {
   SessionsSubTab,
   type SessionBooking,
 } from "~/components/dashboard/project/sub-tabs/sessions-sub-tab";
-import { Breadcrumbs } from "~/components/ui/breadcrumbs";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { getStripe } from "~/server/stripe/client";
 
@@ -29,9 +27,6 @@ type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-// Narrow a raw `?tab=` value (single string / array / undefined) into a
-// valid ProjectSubTabId. Anything unrecognised falls back to "music",
-// the default sub-tab for the Project Room.
 function resolveSubTab(raw: string | string[] | undefined): ProjectSubTabId {
   if (Array.isArray(raw)) raw = raw[0];
   return isProjectSubTabId(raw) ? raw : "music";
@@ -52,10 +47,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     notFound();
   }
 
-  // Batch G Task 4 — money summary for the Money sub-tab's 3-metric
-  // strip (Paid / Outstanding / Next charge). Degrade gracefully:
-  // zero everywhere if the router errors, matching the "no invoices"
-  // render path.
   let moneyForProject: {
     paidCents: number;
     outstandingCents: number;
@@ -73,9 +64,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     console.warn("[projects] project.money failed", err);
   }
 
-  // Contracts: list all producer contracts and client-filter by
-  // contract.projectId. Degrade gracefully if the router errors
-  // (cross-branch schema skew).
   let contractsForProject: {
     id: string;
     title: string;
@@ -98,19 +86,10 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     contractsForProject = [];
   }
 
-  // Task 5 — timeline's Contract step needs to know whether at least
-  // one contract for this project has been signed. `signedAt` on any
-  // recipient (status === "signed") is the authoritative signal.
   const contractSigned = contractsForProject.some(
     (c) => c.status === "signed" || c.signedAt !== null,
   );
 
-  // Task 7 — Sessions sub-tab needs the single booking linked to this
-  // project (projects.bookingId is a 1:1 FK). Reuse the producer-scoped
-  // booking.list and filter in JS: producers typically have a small
-  // number of bookings and list is already cached by this render tree.
-  // Degrade silently if the router errors — the sub-tab will render its
-  // empty state, which is the right UX for "we can't resolve a booking".
   let sessionBooking: SessionBooking | null = null;
   if (data.project.bookingId) {
     try {
@@ -132,11 +111,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     }
   }
 
-  // For split_50_50 projects with a saved PM, fetch the card's last-4
-  // from Stripe so the confirm-charge modal can show "card ending 4242"
-  // before the producer fires the off-session charge. Degrade silently
-  // on Stripe outage — the modal just omits the tail, no functional
-  // loss. Only fetched when actually relevant (plan + PM present).
   let cardLast4: string | null = null;
   if (
     data.project.paymentPlanKind === "split_50_50" &&
@@ -153,12 +127,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     }
   }
 
-  // Important 3: currency is now snapshotted on the project row at
-  // booking time, so the modal + chargeFinal both read from the same
-  // source. For legacy projects without a persisted currency, fall back
-  // to the most recent invoice; failing that, the producer's default.
-  // The fallback chain protects pre-migration-0023 rows; new rows hit
-  // the project field directly.
   let projectCurrency = data.project.currency ?? "USD";
   if (!data.project.currency) {
     const dbUrl = process.env.DATABASE_URL;
@@ -189,12 +157,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     }
   }
 
-  // Batch D — look up the client contact linked to this project so
-  // the header can render per-client tags + the inline tag editor.
-  // Matches on project.artistEmail; for legacy rows with clientEmail
-  // but no artistEmail the clientContacts.listWithProjects fallback
-  // would catch them, but this path is simpler and covers 99% of
-  // projects. Failure degrades to `null` (header omits the tag strip).
   let clientContact: {
     id: string;
     tags: string[];
@@ -209,8 +171,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
       (c) => c.email.toLowerCase() === data.project.artistEmail.toLowerCase(),
     );
     if (match) {
-      // The list query projects a slim row; fetch the full record for
-      // tags since autocomplete values aren't exposed on the list shape.
       const detail = await caller.clientContacts.detail({ id: match.id });
       clientContact = {
         id: detail.contact.id,
@@ -222,54 +182,92 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     console.warn("[projects] client contact lookup failed", err);
   }
 
-  // Shared header props — consumed by ProjectHeader's top row, payment
-  // strip, timeline, and 3-dot action handlers. finalDelivered mirrors
-  // finalPaid for now (pre-Task-6 there's no dedicated "delivered"
-  // column).
-  const headerProject = {
+  // Hero needs a slim shape — strip to what it actually consumes.
+  const heroProject = {
     id: data.project.id,
     title: data.project.title,
     stage: data.project.stage,
-    artistName: data.project.artistName,
+    artistName: data.project.clientName ?? data.project.artistName,
     artistEmail: data.project.artistEmail,
-    clientName: data.project.clientName,
-    depositPaid: data.project.depositPaid,
-    finalPaid: data.project.finalPaid,
+    trackCount: data.tracks.length,
+    sessionCount: sessionBooking ? 1 : 0,
+    totalAmountCents: data.project.totalAmountCents,
+    currency: projectCurrency,
     paymentPlanKind: data.project.paymentPlanKind,
     installments: data.project.installments,
-    nextChargeAt: data.project.nextChargeAt,
     chargesCompleted: data.project.chargesCompleted,
     chargesTotal: data.project.chargesTotal,
-    totalAmountCents: data.project.totalAmountCents,
+    finalPaid: data.project.finalPaid,
     cardLast4,
-    currency: projectCurrency,
-    contractSigned,
-    finalDelivered: data.project.finalPaid,
+    firstTrackId: data.tracks[0]?.id ?? null,
   };
+
+  const finalDelivered = data.project.finalPaid;
 
   return (
     <>
-      {/* The Project Room has the richest content surface in the
-          dashboard — ProjectHeader + 5-step timeline + payment strip
-          + sub-tabs that can render a waveform player, a comment
-          thread, and a money ledger simultaneously. 1600px (vs the
-          1400px default on Today/Projects/Music) reclaims roughly
-          one waveform-worth of horizontal breathing room on
-          ultra-wide 2560px+ displays without feeling stretched on
-          a 1280px MacBook Air. */}
-      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
-        <Breadcrumbs
-          className="mb-3"
-          items={[
-            { label: "Projects", href: "/dashboard/projects" },
-            { label: data.project.title },
-          ]}
+      {/* Full-bleed gradient hero — sits flush against the producer
+          shell, no max-width clipping. The body below recovers the
+          centered max-width treatment. */}
+      <ProjectRoomHero project={heroProject} />
+
+      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
+        {/* Stat strip — 4 tiles, the at-a-glance summary. */}
+        <ProjectStatStrip
+          stage={data.project.stage}
+          nextSessionAt={sessionBooking?.startsAt ?? null}
+          outstandingCents={moneyForProject.outstandingCents}
+          currency={projectCurrency}
         />
-        <ProjectHeader
-          project={headerProject}
-          clientContact={clientContact}
-          tagVocabulary={tagVocabulary}
-        />
+
+        {/* Optional tag strip — only shows when we resolved a CRM
+            contact for the project's email. */}
+        {clientContact ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[0.6rem] uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+              Tags
+            </span>
+            <TagEditor
+              contactId={clientContact.id}
+              initialTags={clientContact.tags}
+              vocabulary={tagVocabulary}
+            />
+          </div>
+        ) : null}
+
+        {/* 5-step funnel rail. */}
+        <div className="mt-5">
+          <ProjectTimeline
+            stage={data.project.stage}
+            contractSigned={contractSigned}
+            chargesCompleted={data.project.chargesCompleted}
+            chargesTotal={data.project.chargesTotal}
+            finalDelivered={finalDelivered}
+          />
+        </div>
+
+        {/* Payment plan strip — only when there's a plan to surface. */}
+        {data.project.paymentPlanKind ? (
+          <div className="mt-5">
+            <PaymentStatusStrip
+              paymentPlanKind={
+                data.project.paymentPlanKind === "full" ||
+                data.project.paymentPlanKind === "split_50_50" ||
+                data.project.paymentPlanKind === "monthly"
+                  ? data.project.paymentPlanKind
+                  : null
+              }
+              installments={data.project.installments}
+              chargesCompleted={data.project.chargesCompleted}
+              chargesTotal={data.project.chargesTotal}
+              totalAmountCents={data.project.totalAmountCents}
+              currency={projectCurrency}
+              nextChargeAt={data.project.nextChargeAt}
+              stage={data.project.stage}
+            />
+          </div>
+        ) : null}
+
         <div className="mt-6">
           <ProjectSubTabs activeTab={activeTab}>
             {activeTab === "music" ? (

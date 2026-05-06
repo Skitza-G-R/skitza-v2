@@ -29,11 +29,17 @@ export {
   type ProjectSubTabId,
 };
 
+// Per the 2026-05-06 design refresh: tab LABELS shifted to match the
+// HTML mockup (Songs / Sessions / Payments / Activity), but the
+// internal IDs stay (`music`, `sessions`, `money`, `notes`) so that
+// existing bookmarks, deep-links, and the 4-route URL surface keep
+// resolving. Renaming the IDs would be a breaking change with no UX
+// payoff — the URL is producer-only chrome they rarely look at.
 const TABS: { id: ProjectSubTabId; label: string }[] = [
-  { id: "music", label: "Music" },
+  { id: "music", label: "Songs" },
   { id: "sessions", label: "Sessions" },
-  { id: "money", label: "Money" },
-  { id: "notes", label: "Notes" },
+  { id: "money", label: "Payments" },
+  { id: "notes", label: "Activity" },
 ];
 
 export function ProjectSubTabs({
