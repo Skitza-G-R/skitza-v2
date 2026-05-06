@@ -106,6 +106,17 @@ export const viewport: Viewport = {
 // syntax in `variables`, so each value is duplicated in hex form here.
 // NOTE: Clerk initialises once with these values; a future client-side
 // ClerkProvider wrapper could swap on next-themes toggle. Out of scope.
+//
+// Phase 3 (v3) — `elements` extended for the split-screen auth shell
+// (`apps/web/src/app/(public)/(auth)/layout.tsx`). The card sits on
+// the warm cream `bg-[rgb(var(--bg-base))]` of the FormColumn, so we:
+// - keep the subtle border + shadow (an elevated card on warm cream
+//   is the locked design's default surface treatment),
+// - style the social buttons + divider + form fields explicitly so
+//   they match the design source's split-screen mock without dropping
+//   into Clerk Elements (Path A in `docs/qa/phase-3-handoff.md`),
+// - use Syne for `headerTitle` (the "Welcome back." / "Build your
+//   hall." copy is the most prominent text on the page).
 const clerkAppearance = {
   variables: {
     colorPrimary: "#D4960A",
@@ -118,22 +129,45 @@ const clerkAppearance = {
     colorDanger: "#DC2626",
     colorSuccess: "#22C55E",
     colorWarning: "#F59E0B",
-    borderRadius: "0.75rem",
+    borderRadius: "0.625rem",
     fontFamily: "var(--font-body)",
     fontFamilyButtons: "var(--font-body)",
   },
   elements: {
-    card: "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] shadow-[var(--shadow-md)]",
-    headerTitle: "font-display text-[rgb(var(--fg-primary))]",
-    headerSubtitle: "text-[rgb(var(--fg-secondary))]",
+    rootBox: "w-full",
+    card: "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] shadow-[var(--shadow-md)] rounded-[var(--radius-lg)]",
+    headerTitle:
+      "font-syne text-[28px] font-extrabold tracking-tight text-[rgb(var(--fg-primary))]",
+    headerSubtitle:
+      "text-[13.5px] leading-[1.5] text-[rgb(var(--fg-secondary))]",
+    socialButtonsBlockButton:
+      "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-overlay))]",
+    socialButtonsBlockButtonText:
+      "text-[13px] font-semibold text-[rgb(var(--fg-primary))]",
+    socialButtonsProviderIcon: "h-4 w-4",
+    dividerLine: "bg-[rgb(var(--border-subtle))]",
+    dividerText:
+      "text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]",
+    formFieldLabel:
+      "text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]",
+    formFieldInput:
+      "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-primary))] focus:border-[rgb(var(--brand-primary))] focus:ring-[rgb(var(--brand-primary)/0.15)]",
+    formFieldErrorText: "text-[12px] text-[rgb(var(--fg-danger))]",
+    formFieldSuccessText: "text-[12px] text-[rgb(var(--fg-success))]",
     formButtonPrimary:
-      "bg-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.9)] text-[rgb(var(--fg-inverse))] normal-case font-medium",
-    footerActionText: "text-[rgb(var(--fg-secondary))]",
+      "bg-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.92)] text-white normal-case font-bold text-[13.5px] tracking-tight",
+    footerActionText: "text-[12.5px] text-[rgb(var(--fg-secondary))]",
     footerActionLink:
-      "text-[rgb(var(--brand-primary))] hover:text-[rgb(var(--brand-primary)/0.9)]",
-    formFieldLabel: "text-[rgb(var(--fg-primary))]",
-    identityPreviewText: "text-[rgb(var(--fg-primary))]",
-    identityPreviewEditButton: "text-[rgb(var(--brand-primary))]",
+      "text-[12.5px] font-bold text-[rgb(var(--brand-primary))] hover:text-[rgb(var(--brand-primary)/0.85)]",
+    identityPreviewText: "text-[13px] text-[rgb(var(--fg-primary))]",
+    identityPreviewEditButton:
+      "text-[12px] font-semibold text-[rgb(var(--brand-primary))]",
+    formResendCodeLink:
+      "text-[12px] font-bold text-[rgb(var(--brand-primary))]",
+    otpCodeFieldInput:
+      "font-mono text-[22px] font-extrabold border border-[rgb(var(--border-subtle))] focus:border-[rgb(var(--brand-primary))]",
+    alert:
+      "bg-[rgb(var(--fg-danger)/0.08)] border border-[rgb(var(--fg-danger)/0.2)] text-[rgb(var(--fg-danger))]",
   },
 } as const;
 

@@ -721,6 +721,69 @@
   .tabular { font-variant-numeric: tabular-nums; }
 
   /* ----------------------------------------------------------------
+   * v3 landing — scroll-reveal + ambient motion primitives.
+   *
+   * Phase 3 (`docs/qa/phase-3-handoff.md`) ports the v3 marketing
+   * surface from `~/Downloads/skitza (1)/`. The landing uses a
+   * transition-based reveal (toggled by JS adding `.is-in`) rather
+   * than the auto-firing `.reveal-up` keyframe — both stay in
+   * `globals.css` as named primitives so other surfaces can opt in.
+   *
+   * `.sk-reveal*` / `.sk-d-*` are the scroll-reveal contract for
+   * `apps/web/src/components/landing/reveal-on-scroll.tsx`.
+   * `.sk-soft-pulse` is the live-status dot pulse on "public link
+   * live" / "Accepting Sessions" badges. `.sk-float*` is the slow
+   * vertical float for the floating product peek in the hero.
+   * ---------------------------------------------------------------- */
+  .sk-reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .sk-reveal.is-in { opacity: 1; transform: translateY(0); }
+  .sk-reveal-left {
+    opacity: 0;
+    transform: translateX(-22px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .sk-reveal-left.is-in { opacity: 1; transform: translateX(0); }
+  .sk-reveal-right {
+    opacity: 0;
+    transform: translateX(22px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .sk-reveal-right.is-in { opacity: 1; transform: translateX(0); }
+  .sk-reveal-scale {
+    opacity: 0;
+    transform: scale(0.94);
+    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .sk-reveal-scale.is-in { opacity: 1; transform: scale(1); }
+  .sk-d-1 { transition-delay: 0.05s; }
+  .sk-d-2 { transition-delay: 0.12s; }
+  .sk-d-3 { transition-delay: 0.20s; }
+  .sk-d-4 { transition-delay: 0.28s; }
+  .sk-d-5 { transition-delay: 0.36s; }
+  .sk-d-6 { transition-delay: 0.44s; }
+
+  @keyframes sk-soft-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--fg-success) / 0.5); }
+    50%      { box-shadow: 0 0 0 6px rgb(var(--fg-success) / 0); }
+  }
+  .sk-soft-pulse { animation: sk-soft-pulse 2s ease-in-out infinite; }
+
+  @keyframes sk-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-8px); }
+  }
+  .sk-float      { animation: sk-float 5.5s ease-in-out infinite; }
+  .sk-float-slow { animation: sk-float 8s ease-in-out infinite; }
+
+  /* ----------------------------------------------------------------
    * Reduced motion — covers every primitive that animates above.
    * The motion-primitives test extracts every reduce block and asserts
    * each primitive name appears at least once.
@@ -739,8 +802,20 @@
     .slide-up-modal,
     .sk-dialog-enter,
     .sk-sheet-enter,
-    .sk-toast-in { animation: none !important; }
+    .sk-toast-in,
+    .sk-soft-pulse,
+    .sk-float,
+    .sk-float-slow { animation: none !important; }
     .seal-enter { animation: none; opacity: 1; transform: none; }
+
+    .sk-reveal,
+    .sk-reveal-left,
+    .sk-reveal-right,
+    .sk-reveal-scale {
+      opacity: 1 !important;
+      transform: none !important;
+      transition: none !important;
+    }
 
     .sk-trans,
     .sk-trans-slow { transition-duration: 0ms !important; }
