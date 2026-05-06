@@ -314,12 +314,14 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
             {activeTab === "notes" ? (
               <NotesSubTab
                 project={{
+                  id: data.project.id,
                   clientName: data.project.clientName,
                   clientEmail: data.project.clientEmail,
                   artistName: data.project.artistName,
                   artistEmail: data.project.artistEmail,
                   createdAt: data.project.createdAt,
                   updatedAt: data.project.updatedAt,
+                  notes: data.project.notes,
                 }}
                 trackCount={data.tracks.length}
                 versionCount={data.versions.length}
