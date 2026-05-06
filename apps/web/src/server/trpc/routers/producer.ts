@@ -21,6 +21,7 @@ import {
 } from "@skitza/db";
 import { z } from "zod";
 
+import { producerGradient } from "../../../lib/_phase4-stubs/producer-color";
 import type { Stage } from "../../../lib/projects/stages";
 
 import { router } from "../init";
@@ -202,6 +203,116 @@ const KIND_PRIORITY: Record<TodayKind, number> = {
   comment: 1,
   invoice: 2,
 };
+
+// ─── Overview · Urgent helpers ────────────────────────────────────────
+// Project-level urgency classification. The Overview's Urgent card
+// surfaces three rules in priority order:
+//
+//   1. `overdue`      — a booked project whose final invoice is unpaid
+//                       AND the last session ended >7 days ago AND
+//                       there's no future session on the calendar.
+//   2. `deposit_due`  — project is in the `booked` stage but the
+//                       producer hasn't recorded a deposit yet, and the
+//                       project has been sitting for >2 days.
+//   3. `stuck`        — project is in `in_production` but no track
+//                       version has been uploaded in >14 days.
+//
+// Sort order in the response is overdue → deposit_due → stuck. The
+// surface caps at 3 by default but accepts an optional `limit` input
+// for non-default consumers (e.g. a future "all urgent" page).
+export type UrgencyKind = "overdue" | "deposit_due" | "stuck";
+
+export interface UrgentProjectItem {
+  id: string;
+  title: string;
+  clientName: string;
+  /** Linear-gradient string usable as a `style.background` value. */
+  gradient: string;
+  stage: Stage;
+  urgency: UrgencyKind;
+}
+
+const URGENT_DEFAULT_LIMIT = 3;
+
+const URGENCY_PRIORITY: Record<UrgencyKind, number> = {
+  overdue: 0,
+  deposit_due: 1,
+  stuck: 2,
+};
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const OVERDUE_DAYS = 7;
+const DEPOSIT_DUE_DAYS = 2;
+const STUCK_DAYS = 14;
+
+interface ClassifyArgs {
+  stage: Stage;
+  depositPaid: boolean;
+  finalPaid: boolean;
+  updatedAt: Date;
+  lastUploadAt: Date | null;
+  lastBookingEndAt: Date | null;
+  hasFutureSession: boolean;
+  now: Date;
+}
+
+/**
+ * Classify a single project into one of the three urgency buckets, or
+ * `null` if the project isn't currently urgent. Pure function — no DB
+ * access — so tests can drive it directly without mocking.
+ *
+ * Rules apply in priority order: the first matching rule wins.
+ */
+export function classifyUrgency(args: ClassifyArgs): UrgencyKind | null {
+  const {
+    stage,
+    depositPaid,
+    finalPaid,
+    updatedAt,
+    lastUploadAt,
+    lastBookingEndAt,
+    hasFutureSession,
+    now,
+  } = args;
+
+  // 1. OVERDUE — final isn't paid, the last booking ended more than
+  //    OVERDUE_DAYS ago, and there's nothing on the calendar to bring
+  //    the project back into motion.
+  if (
+    !finalPaid &&
+    !hasFutureSession &&
+    lastBookingEndAt !== null &&
+    now.getTime() - lastBookingEndAt.getTime() > OVERDUE_DAYS * ONE_DAY_MS
+  ) {
+    return "overdue";
+  }
+
+  // 2. DEPOSIT DUE — the project is booked but no deposit has been
+  //    recorded, and the row has been idle for at least DEPOSIT_DUE_DAYS.
+  //    The idle check uses `updatedAt` rather than `createdAt` so a
+  //    project the producer is actively poking at doesn't immediately
+  //    light up red — we give them ~2 days to log the deposit.
+  if (
+    stage === "booked" &&
+    !depositPaid &&
+    now.getTime() - updatedAt.getTime() > DEPOSIT_DUE_DAYS * ONE_DAY_MS
+  ) {
+    return "deposit_due";
+  }
+
+  // 3. STUCK — in-production project with no uploads in >STUCK_DAYS.
+  //    A project that has NEVER had an upload still counts as stuck if
+  //    it's been in production for that long; we use the project's
+  //    updatedAt as the floor so brand-new projects don't trigger.
+  if (stage === "in_production") {
+    const reference = lastUploadAt ?? updatedAt;
+    if (now.getTime() - reference.getTime() > STUCK_DAYS * ONE_DAY_MS) {
+      return "stuck";
+    }
+  }
+
+  return null;
+}
 
 export const producerRouter = router({
   // Current producer's profile — used by Settings to populate the form.
@@ -737,6 +848,211 @@ export const producerRouter = router({
     };
 
     return { kpis, items, savedViews, recentUploads, pulseStats };
+  }),
+
+  // ─── Overview sub-router ────────────────────────────────────────────
+  // Project-level cards for the Overview screen. The primary surface is
+  // `urgent` — the redesigned Urgent card that lists projects (not
+  // event-stream items) currently demanding the producer's attention.
+  //
+  // Why not derive this from `today.items`? Because `today.items` is
+  // event-stream-shaped (session / comment / invoice). The Overview's
+  // Urgent card is project-shaped — a single row PER project, with a
+  // status pill ("OVERDUE" / "DEPOSIT DUE" / "STUCK") that captures
+  // what's wrong AT THE PROJECT level. Two unpaid invoices on the same
+  // project should collapse into one row, not two; a project that's
+  // stuck in `in_production` shouldn't need a synthetic comment to
+  // surface. Different shape, different query.
+  //
+  // The router keeps the logic small + entirely in JS:
+  // we fetch the producer's live projects + supporting last-activity
+  // signals (most-recent track upload per project, most-recent booking
+  // end per project), then classify each project against the three
+  // urgency rules in priority order. No new tables, no new columns.
+  overview: router({
+    urgent: producerProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(10).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const limit = input?.limit ?? URGENT_DEFAULT_LIMIT;
+        const now = new Date();
+
+        // Live projects only — same set the Pulse + Projects list filter
+        // by. We want stages that the producer can still take action on:
+        // archived + paid are terminal, so a stuck-in-production rule
+        // would never fire on them anyway.
+        const ACTIVE_STAGES = [
+          "lead",
+          "booked",
+          "in_production",
+          "final_review",
+        ] as const;
+
+        const projectRows = await ctx.db
+          .select({
+            id: projects.id,
+            title: projects.title,
+            stage: projects.stage,
+            clientName: projects.clientName,
+            artistName: projects.artistName,
+            depositPaid: projects.depositPaid,
+            finalPaid: projects.finalPaid,
+            updatedAt: projects.updatedAt,
+          })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.producerId, ctx.producerId),
+              inArray(projects.stage, [...ACTIVE_STAGES]),
+            ),
+          );
+
+        if (projectRows.length === 0) {
+          return { items: [] as UrgentProjectItem[] };
+        }
+
+        const projectIds = projectRows.map((p) => p.id);
+
+        // Two parallel sub-queries to gather the activity signals we
+        // need for the urgency rules. Each one is producer-scoped via
+        // the inArray on projectIds (which we already filtered by
+        // producerId above).
+        const [latestUploadRows, lastBookingEndRows, futureBookingRows] =
+          await Promise.all([
+            // (a) Most-recent track upload per project. Drives the
+            // "stuck in production" rule (no upload in >14 days) and
+            // tracks general project liveness.
+            ctx.db
+              .select({
+                projectId: projectTracks.projectId,
+                uploadedAt: trackVersions.uploadedAt,
+              })
+              .from(trackVersions)
+              .innerJoin(
+                projectTracks,
+                eq(projectTracks.id, trackVersions.trackId),
+              )
+              .where(inArray(projectTracks.projectId, projectIds)),
+
+            // (b) Last booking-end timestamp per project. Drives the
+            // "overdue" rule (project's last session ended >7 days ago
+            // and final isn't paid).
+            ctx.db
+              .select({
+                projectId: bookings.projectId,
+                startsAt: bookings.startsAt,
+                durationMin: bookings.durationMin,
+                status: bookings.status,
+              })
+              .from(bookings)
+              .where(
+                and(
+                  eq(bookings.producerId, ctx.producerId),
+                  inArray(bookings.projectId, projectIds),
+                ),
+              ),
+
+            // (c) Any future-or-current confirmed sessions, used to
+            // suppress the "overdue" rule when the producer has
+            // something already on the calendar — they're not late if
+            // there's a session coming up.
+            ctx.db
+              .select({
+                projectId: bookings.projectId,
+                startsAt: bookings.startsAt,
+                status: bookings.status,
+              })
+              .from(bookings)
+              .where(
+                and(
+                  eq(bookings.producerId, ctx.producerId),
+                  inArray(bookings.projectId, projectIds),
+                  eq(bookings.status, "confirmed"),
+                  gte(bookings.startsAt, now),
+                ),
+              ),
+          ]);
+
+        // Reduce activity rows down to per-project signals.
+        const lastUploadAt = new Map<string, Date>();
+        for (const r of latestUploadRows) {
+          if (!r.projectId) continue;
+          const cur = lastUploadAt.get(r.projectId);
+          if (!cur || r.uploadedAt > cur) lastUploadAt.set(r.projectId, r.uploadedAt);
+        }
+
+        const lastBookingEndAt = new Map<string, Date>();
+        for (const b of lastBookingEndRows) {
+          if (!b.projectId) continue;
+          // booking end ≈ startsAt + durationMin. We only count
+          // bookings that have actually happened (status confirmed +
+          // end-time in the past) — pending requests don't tell us
+          // anything about whether the project is overdue.
+          const end = new Date(b.startsAt.getTime() + b.durationMin * 60_000);
+          if (b.status !== "confirmed") continue;
+          if (end > now) continue;
+          const cur = lastBookingEndAt.get(b.projectId);
+          if (!cur || end > cur) lastBookingEndAt.set(b.projectId, end);
+        }
+
+        const hasFutureSession = new Set<string>();
+        for (const f of futureBookingRows) {
+          if (f.projectId) hasFutureSession.add(f.projectId);
+        }
+
+        // Classify each project. We iterate projects in arbitrary
+        // order; sorting + slicing happens AFTER classification because
+        // we want urgency-priority order, not stage/createdAt order.
+        const classified: Array<UrgentProjectItem & { sortKey: number }> = [];
+        for (const p of projectRows) {
+          const urgency = classifyUrgency({
+            stage: p.stage,
+            depositPaid: p.depositPaid,
+            finalPaid: p.finalPaid,
+            updatedAt: p.updatedAt,
+            lastUploadAt: lastUploadAt.get(p.id) ?? null,
+            lastBookingEndAt: lastBookingEndAt.get(p.id) ?? null,
+            hasFutureSession: hasFutureSession.has(p.id),
+            now,
+          });
+          if (urgency === null) continue;
+
+          // Display name for the avatar gradient + primary line. Prefer
+          // clientName (set by the producer); fall back to legacy
+          // artistName (NOT NULL in the schema) so projects without a
+          // client snapshot still render a sensible row.
+          const displayClient = (p.clientName ?? p.artistName).trim();
+          classified.push({
+            id: p.id,
+            title: p.title,
+            clientName: displayClient,
+            gradient: producerGradient(displayClient || p.title),
+            stage: p.stage,
+            urgency,
+            sortKey: URGENCY_PRIORITY[urgency],
+          });
+        }
+
+        // Sort by urgency priority (overdue → deposit_due → stuck).
+        // Within an urgency, fall back to title for stability so the
+        // same call returns the same order between renders.
+        classified.sort((a, b) => {
+          if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey;
+          return a.title.localeCompare(b.title);
+        });
+
+        const items: UrgentProjectItem[] = classified
+          .slice(0, limit)
+          .map((c) => ({
+            id: c.id,
+            title: c.title,
+            clientName: c.clientName,
+            gradient: c.gradient,
+            stage: c.stage,
+            urgency: c.urgency,
+          }));
+
+        return { items };
+      }),
   }),
 
   // Six-month paid-revenue trend. Feeds the compact SVG line chart on

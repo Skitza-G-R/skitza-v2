@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { formatMoney } from "~/lib/format/money";
+import type { Stage } from "~/lib/projects/stages";
+import { STAGE_LABEL } from "~/lib/projects/stages";
 import { formatRelativeTime } from "~/lib/time/relative";
 
 import { PublicLinkStrip } from "./public-link-strip";
@@ -11,29 +13,25 @@ import { PublicLinkStrip } from "./public-link-strip";
 // History:
 //   - Phase 4 first iteration: hero "Name." + amber period, approvals
 //     card, today's session, money split, activity feed.
-//   - Overview Polish (this revision): brings the layout in line with
-//     `notes/producer-screens.jsx :: OverviewTab` (default variant) —
-//       1. Greeting block: green "Accepting Sessions" pill + Syne 800
-//          "Good morning, <Name>." + date pill on the right.
-//       2. PublicLinkStrip — DARK sidebar-tinted hero with shimmer +
-//          mono URL pill + amber Copy button. THE most-important new
-//          element to add — the wedge between "I have an account" and
-//          "I can be booked".
-//       3. Pending Approvals — kept (most urgent action, when present)
-//       4. Today's Session — kept (when a session is today)
-//       5. Two-column: Urgent items + Recent Uploads
-//       6. Financial Pulse — full-width, 3 columns: Earned (with
-//          sparkline + delta), Outstanding, Needs follow-up.
-//       7. Activity feed — supporting context at the bottom.
+//   - Overview Polish: brought the layout in line with the locked
+//     design (default OverviewTab variant) — greeting, PublicLinkStrip,
+//     approvals, today's session, two-column urgent + recent, full-
+//     width financial pulse, activity feed.
+//   - Project-level urgent (THIS revision): Urgent card switched from
+//     event-stream filtering (today.items.filter(kind !== 'session'))
+//     to a project-shaped feed via `producer.overview.urgent`. Each
+//     row is one project with a status pill (OVERDUE / DEPOSIT DUE /
+//     STUCK) and links to the project room — collapsing the
+//     "two-unpaid-invoices on one project = one row" duplication and
+//     making "stuck in production" surfaceable without a synthetic
+//     comment row.
 //
 // Notes:
 //   - Server component (no `"use client"`). The PublicLinkStrip is
 //     the only piece needing client interactivity (clipboard) and is
 //     scoped to its own file.
-//   - "Urgent" items use the existing `activity` (a.k.a. today.items)
-//     filtered to unpaid-invoice + unread-comment kinds. We don't add
-//     new server queries here (per the brief: don't touch
-//     producer.today server-side).
+//   - Urgent rows are pre-classified server-side; the component is
+//     dumb — it only maps the urgency token to a colored pill.
 //   - Sparkline reads `pulseStats.sparkline` (a fixed 30-bucket array
 //     the server already zero-fills). When all values are 0 we hide
 //     the SVG entirely so a flat baseline doesn't read as a chart.
@@ -72,6 +70,19 @@ export interface OverviewScreenProps {
     occurredAt: Date;
     href: string;
   } | null;
+  /**
+   * Project-level urgent rows from `producer.overview.urgent`. Each
+   * item is one project with a pre-classified urgency token; the
+   * component just maps the token to a pill color.
+   */
+  urgentProjects: Array<{
+    id: string;
+    title: string;
+    clientName: string;
+    gradient: string;
+    stage: Stage;
+    urgency: "overdue" | "deposit_due" | "stuck";
+  }>;
   recentUploads: Array<{
     versionId: string;
     trackId: string;
@@ -102,16 +113,16 @@ export function OverviewScreen({
   pulseStats,
   pendingApprovals,
   todaySession,
+  urgentProjects,
   recentUploads,
   activity,
   now,
 }: OverviewScreenProps) {
   const greetingName = (displayName ?? "").trim().split(/\s+/)[0] || "there";
   const greetingSalutation = greetingFor(now);
-  // Urgent items = unpaid invoices + unread comments. We surface up to
-  // 3 in the Urgent card so the rail doesn't compete with the
-  // Activity feed below.
-  const urgentItems = activity.filter((it) => it.kind !== "session").slice(0, 3);
+  // Urgent rows are pre-classified + capped server-side; the component
+  // just renders them. Show the empty state when the producer has live
+  // projects but none are urgent — see UrgentCard's branch below.
   const recentTop = recentUploads.slice(0, 3);
 
   return (
@@ -251,15 +262,13 @@ export function OverviewScreen({
         </section>
       ) : null}
 
-      {/* TWO-COLUMN: Urgent + Recent uploads */}
-      {urgentItems.length > 0 || recentTop.length > 0 ? (
-        <div className="reveal-up reveal-up-delay-2 grid gap-4 sm:gap-5 lg:grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
-          {urgentItems.length > 0 ? (
-            <UrgentCard items={urgentItems} now={now} />
-          ) : null}
-          {recentTop.length > 0 ? <RecentUploadsCard uploads={recentTop} now={now} /> : null}
-        </div>
-      ) : null}
+      {/* TWO-COLUMN: Urgent + Recent uploads. Urgent always renders so
+          the empty state ("Nothing urgent — you're on top of
+          everything") gets surfaced when the producer is healthy. */}
+      <div className="reveal-up reveal-up-delay-2 grid gap-4 sm:gap-5 lg:grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
+        <UrgentCard projects={urgentProjects} />
+        {recentTop.length > 0 ? <RecentUploadsCard uploads={recentTop} now={now} /> : null}
+      </div>
 
       {/* FINANCIAL PULSE — full-width, 3 columns */}
       <FinancialPulseCard
@@ -319,11 +328,9 @@ export function OverviewScreen({
 // — Subcomponents —
 
 function UrgentCard({
-  items,
-  now,
+  projects,
 }: {
-  items: OverviewScreenProps["activity"];
-  now: Date;
+  projects: OverviewScreenProps["urgentProjects"];
 }) {
   return (
     <section
@@ -336,7 +343,7 @@ function UrgentCard({
           className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-default))]"
         >
           <AlertCircleIcon />
-          Urgent items
+          Urgent projects
         </h2>
         <Link
           href="/dashboard/clients-projects"
@@ -345,77 +352,93 @@ function UrgentCard({
           View all →
         </Link>
       </div>
-      <ul className="flex flex-col gap-1">
-        {items.map((it) => (
-          <li key={it.id}>
-            <Link
-              href={it.href}
-              className="sk-row flex items-center justify-between gap-3 rounded-[var(--radius-sm)] px-3 py-2.5"
-            >
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <UrgentBadge kind={it.kind} title={it.title} />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-[13.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
-                      {it.title}
-                    </span>
-                    <UrgentPill kind={it.kind} />
-                  </div>
-                  <div className="truncate text-xs text-[rgb(var(--fg-muted))]">
-                    {it.subtitle}
-                    <span className="mx-1.5 opacity-40">·</span>
-                    {formatRelativeTime(it.occurredAt, now)}
+      {projects.length === 0 ? (
+        <UrgentEmpty />
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {projects.map((p) => (
+            <li key={p.id}>
+              <Link
+                href={`/dashboard/clients-projects/${p.id}`}
+                className="sk-row flex items-center justify-between gap-3 rounded-[var(--radius-sm)] px-3 py-2.5"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <ProjectGradientBadge gradient={p.gradient} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-[13.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+                        {p.title}
+                      </span>
+                      <UrgencyPill urgency={p.urgency} />
+                    </div>
+                    <div className="truncate text-xs text-[rgb(var(--fg-muted))]">
+                      {p.clientName || "—"}
+                      <span className="mx-1.5 opacity-40">·</span>
+                      {STAGE_LABEL[p.stage]}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <ChevronRightIcon />
-            </Link>
-          </li>
-        ))}
-      </ul>
+                <ChevronRightIcon />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
 
-function UrgentBadge({
-  kind,
-  title,
-}: {
-  kind: "session" | "comment" | "invoice";
-  title: string;
-}) {
-  // Same gradient hash idea as ClientAvatar — derive a stable, varied
-  // gradient from the title so two invoices for different clients
-  // visually differentiate at a glance.
-  const gradient = producerGradient(title);
+function ProjectGradientBadge({ gradient }: { gradient: string }) {
   return (
     <div
       aria-hidden
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-white"
+      className="h-9 w-9 shrink-0 rounded-[var(--radius-sm)]"
       style={{ background: gradient }}
-    >
-      {kind === "invoice" ? (
-        <ReceiptIcon />
-      ) : kind === "comment" ? (
-        <CommentIcon />
-      ) : (
-        <CalendarIcon />
-      )}
+    />
+  );
+}
+
+/**
+ * Empty-state row for the Urgent card. Renders inside the card, mirrors
+ * the design's "you're on top of everything" line + green check icon.
+ */
+function UrgentEmpty() {
+  return (
+    <div className="flex items-center gap-2.5 rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] px-3 py-4 text-[12.5px] text-[rgb(var(--fg-muted))]">
+      <CheckIcon />
+      Nothing urgent. You&rsquo;re on top of everything.
     </div>
   );
 }
 
-function UrgentPill({ kind }: { kind: "session" | "comment" | "invoice" }) {
-  if (kind === "invoice") {
+/**
+ * Color-coded urgency pill. Maps the three classifier outputs to the
+ * design's red ("OVERDUE") / amber ("DEPOSIT DUE") / muted ("STUCK")
+ * tones. All colors come from the design-token palette — no hex
+ * literals — so theme + RTL stay consistent.
+ */
+function UrgencyPill({
+  urgency,
+}: {
+  urgency: "overdue" | "deposit_due" | "stuck";
+}) {
+  if (urgency === "overdue") {
     return (
       <span className="inline-flex items-center rounded-full border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-danger))]">
-        Unpaid
+        Overdue
+      </span>
+    );
+  }
+  if (urgency === "deposit_due") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-[rgb(var(--fg-warning)/0.3)] bg-[rgb(var(--fg-warning)/0.10)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-warning))]">
+        Deposit due
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full border border-[rgb(var(--brand-primary)/0.25)] bg-[rgb(var(--brand-primary)/0.08)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--brand-primary))]">
-      New
+    <span className="inline-flex items-center rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-overlay))] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+      Stuck
     </span>
   );
 }
