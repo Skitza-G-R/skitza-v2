@@ -4,6 +4,12 @@ import Link from "next/link";
 import { useMemo, useRef, useState, useTransition } from "react";
 
 import { Waveform50, type WaveformComment } from "~/components/audio/waveform-50";
+import {
+  playerPlay,
+  playerToggle,
+  useNowPlaying,
+  type PlayerTrack,
+} from "~/components/audio/persistent-player";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 
 import {
@@ -47,6 +53,68 @@ export type SongPageData = {
   selectedVersionId: string;
 };
 
+// ─── Pure helpers (exported for direct unit-testing) ─────────────────
+
+// Builds the PlayerTrack payload that PersistentPlayer expects when we
+// dispatch `skitza:player:set` to start playback of the active version.
+//
+// The subtitle convention follows the rest of the dashboard
+// (recent-uploads-shelf.tsx → cardPlayDetail): "Client · vN" reads
+// better than "vN · Client" when the floating player ticker truncates.
+// Falls back through clientName → artist → projectTitle so we never
+// render "null · v3" for legacy rows that never carried a client name.
+export function activeVersionToPlayerTrack(
+  track: SongPageData["track"],
+  version: SongPageVersion,
+): PlayerTrack {
+  const label = track.clientName ?? track.artist ?? track.projectTitle;
+  return {
+    id: version.id,
+    audioUrl: version.audioUrl,
+    title: track.title,
+    subtitle: `${label} · ${version.label}`,
+    durationMs: version.durationMs,
+  };
+}
+
+// Derives the play button's UI + behaviour from the current player
+// state. Three branches matter:
+//
+//   1. audioUrl is null         → disabled (nothing to play yet,
+//                                  upload still pending)
+//   2. THIS version is loaded   → toggle pause/resume on the existing
+//      in PersistentPlayer         <audio> element rather than reload it
+//                                  (label flips Pause/Play with state)
+//   3. nothing or another track → start fresh via `playerPlay`
+//
+// Returning a tagged action lets the click handler stay dumb:
+//   `state.action === "toggle" ? playerToggle() : playerPlay(track)`
+export type PlayButtonState = {
+  label: "Play" | "Pause";
+  disabled: boolean;
+  action: "play-new" | "toggle";
+};
+
+export function playButtonState(input: {
+  activeVersionId: string;
+  audioUrl: string | null;
+  nowPlaying: { trackId: string | null; playing: boolean };
+}): PlayButtonState {
+  const isThisVersionLoaded = input.nowPlaying.trackId === input.activeVersionId;
+  if (isThisVersionLoaded) {
+    return {
+      label: input.nowPlaying.playing ? "Pause" : "Play",
+      disabled: input.audioUrl === null,
+      action: "toggle",
+    };
+  }
+  return {
+    label: "Play",
+    disabled: input.audioUrl === null,
+    action: "play-new",
+  };
+}
+
 export function SongPage({ data }: { data: SongPageData }) {
   // Active version — the one the L1 row pointed at by default. Switching
   // a version filters the comment thread to that version's notes.
@@ -73,6 +141,12 @@ export function SongPage({ data }: { data: SongPageData }) {
   // Live current-time from the waveform — used to anchor the "add note
   // at 0:34" composer chip. Updated by Waveform50's onProgress callback.
   const [currentMs, setCurrentMs] = useState(0);
+
+  // Subscribed read of "what's currently playing" — flips the action-rail
+  // play button to "Pause" when the active version is the one playing,
+  // and lets the click handler decide between starting fresh vs toggling
+  // the existing <audio> element in PersistentPlayer.
+  const nowPlaying = useNowPlaying();
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +276,24 @@ export function SongPage({ data }: { data: SongPageData }) {
     });
   }
 
+  // Play / Pause click — branches on the helper-derived action so the
+  // toggle path doesn't reload the <audio> element when the producer is
+  // already listening to this version.
+  function handlePlayToggle() {
+    if (!activeVersion) return;
+    const state = playButtonState({
+      activeVersionId: activeVersion.id,
+      audioUrl: activeVersion.audioUrl,
+      nowPlaying,
+    });
+    if (state.disabled) return;
+    if (state.action === "toggle") {
+      playerToggle();
+      return;
+    }
+    playerPlay(activeVersionToPlayerTrack(data.track, activeVersion));
+  }
+
   if (!activeVersion) {
     return (
       <main className="mx-auto max-w-[1100px] px-4 py-12 sm:px-6">
@@ -318,9 +410,42 @@ export function SongPage({ data }: { data: SongPageData }) {
               ) : null}
             </div>
 
-            {/* Action rail — approve / unapprove. Persistent player CTA
-                is the canvas inside the album-art tile (deferred). */}
+            {/* Action rail — Play/Pause + approve. The Play button is the
+                primary CTA: clicking it pushes this version into the
+                PersistentPlayer (mounted at AppShell), which exposes the
+                fixed-bottom dock and survives client-side navigation so
+                the producer can keep listening while clicking around. */}
             <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {(() => {
+                const playState = playButtonState({
+                  activeVersionId: activeVersion.id,
+                  audioUrl: activeVersion.audioUrl,
+                  nowPlaying,
+                });
+                const isPlayingThis =
+                  playState.action === "toggle" && playState.label === "Pause";
+                return (
+                  <button
+                    type="button"
+                    onClick={handlePlayToggle}
+                    disabled={playState.disabled}
+                    aria-label={playState.label}
+                    title={
+                      playState.disabled
+                        ? "Audio is still uploading"
+                        : playState.label
+                    }
+                    className={[
+                      "sk-press inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-bold transition",
+                      "bg-white text-[rgb(17_16_9)] shadow-[0_4px_14px_rgba(0,0,0,0.18)]",
+                      "disabled:cursor-not-allowed disabled:opacity-50",
+                    ].join(" ")}
+                  >
+                    {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
+                    {playState.label}
+                  </button>
+                );
+              })()}
               <button
                 type="button"
                 onClick={handleApproveToggle}
@@ -559,6 +684,23 @@ function WaveformGlyph() {
       <line x1="16" y1="4" x2="16" y2="28" />
       <line x1="21" y1="9" x2="21" y2="23" />
       <line x1="26" y1="13" x2="26" y2="19" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+      <path d="M3.5 2.5v7L9.5 6z" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+      <rect x="3" y="2.5" width="2" height="7" rx="0.5" />
+      <rect x="7" y="2.5" width="2" height="7" rx="0.5" />
     </svg>
   );
 }
