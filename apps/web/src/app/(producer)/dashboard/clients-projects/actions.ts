@@ -129,6 +129,27 @@ export async function addProjectTrack(input: {
   }
 }
 
+// Producer-only private notes for the Project Room → Notes tab. Wraps
+// the project.updateNotes tRPC procedure. Returns the new updatedAt so
+// the UI can render "Saved <relative>" without a refetch.
+export async function updateProjectNotes(input: {
+  projectId: string;
+  notes: string;
+}): Promise<ActionDataResult<{ updatedAt: Date }>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const res = await c.caller.project.updateNotes({
+      projectId: input.projectId,
+      notes: input.notes,
+    });
+    revalidatePath(pathDetail(input.projectId));
+    return { ok: true, data: { updatedAt: res.updatedAt } };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 export async function updateTrackTitle(input: {
   projectId: string;
   trackId: string;

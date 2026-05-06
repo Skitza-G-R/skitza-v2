@@ -314,6 +314,40 @@ export const projectRouter = router({
     return { project: stripHash(row), inviteToken: token.raw };
   }),
 
+  // Producer-only private notes for the Project Room → Notes tab.
+  // Free-text body, capped at 5000 chars; empty string is allowed
+  // (acts as "clear the notes"). Ownership-scoped — the project must
+  // belong to the calling producer or we return NOT_FOUND (no
+  // enumeration leak). Bumps `updatedAt` and returns it so the UI
+  // can render "Saved <relative>" without a refetch.
+  updateNotes: producerProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        // Empty string is valid (clearing notes). Cap at 5000 chars —
+        // soft warning at 4500 lives in the UI; hard reject here.
+        notes: z.string().max(5000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ producerId: projects.producerId })
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1);
+      if (!row || row.producerId !== ctx.producerId) {
+        // NOT_FOUND for both "missing" and "owned by someone else" so
+        // a tampered id can't enumerate the project space.
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      const updatedAt = new Date();
+      await ctx.db
+        .update(projects)
+        .set({ notes: input.notes, updatedAt })
+        .where(eq(projects.id, input.projectId));
+      return { updatedAt };
+    }),
+
   // Edit-project modal handler. Ownership-checked; only the fields
   // present in the input are written, so the modal can PATCH a single
   // field without nulling the others. No-op when nothing changed.
