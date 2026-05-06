@@ -20,12 +20,24 @@ const {
   projectsMarker,
   trackVersionsMarker,
   projectTracksMarker,
+  trackCommentsMarker,
   musicListMock,
   musicListWhereSpy,
+  trackVersionsQueue,
+  trackVersionsWhereSpies,
+  trackCommentsQueue,
+  trackCommentsWhereSpies,
   dbMock,
 } = vi.hoisted(() => {
   const musicListMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const musicListWhereSpy = vi.fn<(arg: unknown) => void>();
+  // Queues used by the detail test — each .from(trackVersions) call
+  // shifts one mock off the front. Simpler than threading per-test
+  // mocks through; the test sets them up via beforeEach.
+  const trackVersionsQueue: (() => Promise<Record<string, unknown>[]>)[] = [];
+  const trackVersionsWhereSpies: ((arg: unknown) => void)[] = [];
+  const trackCommentsQueue: (() => Promise<Record<string, unknown>[]>)[] = [];
+  const trackCommentsWhereSpies: ((arg: unknown) => void)[] = [];
 
   const producersMarker = {
     __table: "producers",
@@ -46,12 +58,26 @@ const {
     label: { __column: "track_versions.label" },
     audioUrl: { __column: "track_versions.audio_url" },
     uploadedAt: { __column: "track_versions.uploaded_at" },
+    durationMs: { __column: "track_versions.duration_ms" },
+    approvedAt: { __column: "track_versions.approved_at" },
   };
   const projectTracksMarker = {
     __table: "project_tracks",
     id: { __column: "project_tracks.id" },
     projectId: { __column: "project_tracks.project_id" },
     title: { __column: "project_tracks.title" },
+    artist: { __column: "project_tracks.artist" },
+  };
+  const trackCommentsMarker = {
+    __table: "track_comments",
+    id: { __column: "track_comments.id" },
+    versionId: { __column: "track_comments.version_id" },
+    timestampMs: { __column: "track_comments.timestamp_ms" },
+    body: { __column: "track_comments.body" },
+    fromProducer: { __column: "track_comments.from_producer" },
+    authorName: { __column: "track_comments.author_name" },
+    createdAt: { __column: "track_comments.created_at" },
+    resolvedAt: { __column: "track_comments.resolved_at" },
   };
 
   // Chain handler — any terminal (.where, .orderBy, .limit, .then)
@@ -103,11 +129,26 @@ const {
             }),
           };
         }
-        // producer.music.list starts its select from trackVersions and
-        // joins outward to projects. The first .from(trackVersions) in
-        // the router is the single music-list query.
+        // producer.music.list AND producer.music.detail both .from(trackVersions).
+        // The list test puts the music-list mock in the queue head; the detail
+        // test enqueues the head + version-stack mocks.
         if (table === trackVersionsMarker) {
+          // Detail tests enqueue per-call mocks. List tests rely on
+          // musicListMock as the catch-all fallback.
+          const next = trackVersionsQueue.shift();
+          if (next) {
+            const spy = trackVersionsWhereSpies.shift();
+            return chain(next, spy);
+          }
           return chain(() => musicListMock(), musicListWhereSpy);
+        }
+        if (table === trackCommentsMarker) {
+          const next = trackCommentsQueue.shift();
+          if (next) {
+            const spy = trackCommentsWhereSpies.shift();
+            return chain(next, spy);
+          }
+          return chain(() => Promise.resolve([]));
         }
         throw new Error(`unexpected from(${String(table)})`);
       },
@@ -119,8 +160,13 @@ const {
     projectsMarker,
     trackVersionsMarker,
     projectTracksMarker,
+    trackCommentsMarker,
     musicListMock,
     musicListWhereSpy,
+    trackVersionsQueue,
+    trackVersionsWhereSpies,
+    trackCommentsQueue,
+    trackCommentsWhereSpies,
     dbMock,
   };
 });
@@ -134,11 +180,11 @@ vi.mock("@skitza/db", () => ({
   projects: projectsMarker,
   trackVersions: trackVersionsMarker,
   projectTracks: projectTracksMarker,
+  trackComments: trackCommentsMarker,
   // Tables referenced elsewhere in the producer router module — opaque
   // markers so the router loads inside the test without exercising them.
   invoices: { __table: "invoices" },
   bookings: { __table: "bookings" },
-  trackComments: { __table: "track_comments" },
   portfolioTracks: { __table: "portfolio_tracks" },
   clientContacts: { __table: "client_contacts" },
   notifications: { __table: "notifications" },
@@ -165,11 +211,15 @@ vi.mock("@skitza/db", () => ({
 
 // Re-import so the auth-boundary test asserts against the same column
 // markers the router imports from.
-import { projects } from "@skitza/db";
+import { projects, trackVersions, trackComments } from "@skitza/db";
 
 beforeEach(() => {
   musicListMock.mockReset().mockResolvedValue([]);
   musicListWhereSpy.mockReset();
+  trackVersionsQueue.length = 0;
+  trackVersionsWhereSpies.length = 0;
+  trackCommentsQueue.length = 0;
+  trackCommentsWhereSpies.length = 0;
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -328,5 +378,192 @@ describe("producer.music.list", () => {
     const result = await caller.producer.music.list();
 
     expect(result.tracks.length).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("producer.music.detail", () => {
+  // The detail procedure executes 3 SELECTs in order:
+  //   1. head: trackVersions ⋈ projectTracks ⋈ projects (auth-scoped)
+  //   2. version stack: trackVersions WHERE trackId = head.trackId
+  //   3. comments: trackComments WHERE versionId IN (...)
+  // Tests enqueue mocks for each in order and assert the response shape
+  // and auth-scope predicates.
+
+  it("throws NOT_FOUND when no version matches under this producer", async () => {
+    const headWhereSpy = vi.fn<(arg: unknown) => void>();
+    trackVersionsWhereSpies.push(headWhereSpy);
+    trackVersionsQueue.push(() => Promise.resolve([]));
+
+    const caller = await buildCaller();
+    await expect(
+      caller.producer.music.detail({
+        versionId: "00000000-0000-0000-0000-000000000001",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("scopes the head query to ctx.producerId AND the input versionId (auth boundary)", async () => {
+    const headWhereSpy = vi.fn<(arg: unknown) => void>();
+    trackVersionsWhereSpies.push(headWhereSpy);
+    trackVersionsQueue.push(() => Promise.resolve([]));
+
+    const caller = await buildCaller();
+    await caller.producer.music
+      .detail({ versionId: "00000000-0000-0000-0000-000000000001" })
+      .catch(() => {});
+
+    const whereArg = headWhereSpy.mock.calls[0]?.[0];
+    // Must filter by projects.producerId — this is the auth boundary.
+    const producerPred = findPredicate(whereArg, "eq", projects.producerId);
+    expect(producerPred).not.toBeNull();
+    if (Array.isArray(producerPred)) {
+      expect(producerPred[1]).toBe(PRODUCER_ID);
+    }
+    // And by trackVersions.id — the actual lookup key.
+    const versionPred = findPredicate(whereArg, "eq", trackVersions.id);
+    expect(versionPred).not.toBeNull();
+  });
+
+  it("returns track + version stack + comments grouped per version", async () => {
+    const versionId = "11111111-1111-1111-1111-111111111111";
+    const trackId = "22222222-2222-2222-2222-222222222222";
+
+    // Head row.
+    trackVersionsWhereSpies.push(vi.fn<(arg: unknown) => void>());
+    trackVersionsQueue.push(() =>
+      Promise.resolve([
+        {
+          versionId,
+          trackId,
+          trackTitle: "Midnight Drive",
+          trackArtist: "Alice",
+          projectId: "p1",
+          projectTitle: "Alice EP",
+          clientName: "Alice Records",
+        },
+      ]),
+    );
+
+    // Version stack — desc by uploadedAt.
+    const versionStackSpy = vi.fn<(arg: unknown) => void>();
+    trackVersionsWhereSpies.push(versionStackSpy);
+    trackVersionsQueue.push(() =>
+      Promise.resolve([
+        {
+          id: versionId,
+          label: "Master",
+          audioUrl: "https://cdn/master.mp3",
+          durationMs: 240_000,
+          uploadedAt: new Date("2026-04-15T12:00:00Z"),
+          approvedAt: null,
+        },
+        {
+          id: "v-prev",
+          label: "Mix v2",
+          audioUrl: "https://cdn/mix2.mp3",
+          durationMs: 240_000,
+          uploadedAt: new Date("2026-04-14T12:00:00Z"),
+          approvedAt: null,
+        },
+      ]),
+    );
+
+    // Comments across both versions.
+    const commentsSpy = vi.fn<(arg: unknown) => void>();
+    trackCommentsWhereSpies.push(commentsSpy);
+    trackCommentsQueue.push(() =>
+      Promise.resolve([
+        {
+          id: "c1",
+          versionId,
+          timeMs: 30_000,
+          body: "Bring vox up at 0:30",
+          fromProducer: false,
+          authorName: "Alice",
+          createdAt: new Date("2026-04-15T13:00:00Z"),
+          resolvedAt: null,
+        },
+        {
+          id: "c2",
+          versionId: "v-prev",
+          timeMs: 60_000,
+          body: "Bass too loud",
+          fromProducer: false,
+          authorName: "Alice",
+          createdAt: new Date("2026-04-14T13:00:00Z"),
+          resolvedAt: null,
+        },
+      ]),
+    );
+
+    const caller = await buildCaller();
+    const result = await caller.producer.music.detail({ versionId });
+
+    expect(result.track).toEqual({
+      id: trackId,
+      title: "Midnight Drive",
+      artist: "Alice",
+      projectId: "p1",
+      projectTitle: "Alice EP",
+      clientName: "Alice Records",
+    });
+    expect(result.versions).toHaveLength(2);
+    expect(result.versions[0]?.id).toBe(versionId);
+    expect(result.versions[0]?.label).toBe("Master");
+    expect(result.comments).toHaveLength(2);
+    expect(result.selectedVersionId).toBe(versionId);
+
+    // Version stack must be filtered by trackId (the parent track),
+    // not by versionId — otherwise we'd only show one version on the L3 page.
+    const versionStackWhere = versionStackSpy.mock.calls[0]?.[0];
+    const stackPred = findPredicate(
+      versionStackWhere,
+      "eq",
+      trackVersions.trackId,
+    );
+    expect(stackPred).not.toBeNull();
+    if (Array.isArray(stackPred)) {
+      expect(stackPred[1]).toBe(trackId);
+    }
+
+    // Comments filtered by inArray(versionId, [...]).
+    const commentsWhere = commentsSpy.mock.calls[0]?.[0];
+    const cPred = findPredicate(
+      commentsWhere,
+      "inArray",
+      trackComments.versionId,
+    );
+    expect(cPred).not.toBeNull();
+  });
+
+  it("returns empty comments array when no versions exist (defensive)", async () => {
+    // Edge case: head returns a row but versions are empty. Should
+    // short-circuit the comments fetch and return [] without hitting
+    // the trackComments table at all.
+    trackVersionsWhereSpies.push(vi.fn<(arg: unknown) => void>());
+    trackVersionsQueue.push(() =>
+      Promise.resolve([
+        {
+          versionId: "v-only",
+          trackId: "t-only",
+          trackTitle: "Solo",
+          trackArtist: null,
+          projectId: "p1",
+          projectTitle: "Solo Project",
+          clientName: null,
+        },
+      ]),
+    );
+    // Empty version stack.
+    trackVersionsWhereSpies.push(vi.fn<(arg: unknown) => void>());
+    trackVersionsQueue.push(() => Promise.resolve([]));
+
+    const caller = await buildCaller();
+    const result = await caller.producer.music.detail({
+      versionId: "00000000-0000-0000-0000-000000000099",
+    });
+
+    expect(result.versions).toEqual([]);
+    expect(result.comments).toEqual([]);
   });
 });

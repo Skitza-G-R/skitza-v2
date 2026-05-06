@@ -859,6 +859,99 @@ export const producerRouter = router({
       // holds even if a future query path skips the DB-side limit.
       return { tracks: rows.slice(0, MUSIC_LIST_MAX) };
     }),
+
+    // L3 song page detail — single track with its full version stack +
+    // timestamped comments, scoped to the producer's tenant. Resolves
+    // by VERSION id (the same identifier the L1 list rows use), so the
+    // route /dashboard/music/<versionId> deep-links cleanly. Auth gate:
+    // the version must belong to a track on a project owned by
+    // ctx.producerId — anything else returns NOT_FOUND (we don't
+    // differentiate "doesn't exist" from "not yours" to avoid leaking
+    // existence). Mirrors the data shape of artist.music.project so
+    // the L3 UI can render the same waveform + comments primitives.
+    detail: producerProcedure
+      .input(z.object({ versionId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        // 1. Resolve the version row + its parent track + project, all
+        //    in one join. Filters by projects.producerId — the auth
+        //    boundary. If the join returns 0 rows, NOT_FOUND.
+        const [head] = await ctx.db
+          .select({
+            versionId: trackVersions.id,
+            trackId: projectTracks.id,
+            trackTitle: projectTracks.title,
+            trackArtist: projectTracks.artist,
+            projectId: projects.id,
+            projectTitle: projects.title,
+            clientName: projects.clientName,
+          })
+          .from(trackVersions)
+          .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+          .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+          .where(
+            and(
+              eq(trackVersions.id, input.versionId),
+              eq(projects.producerId, ctx.producerId),
+            ),
+          )
+          .limit(1);
+        if (!head) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // 2. Full version stack for the track, desc by uploadedAt so
+        //    the latest is first (matches the design's "v3 · current"
+        //    label position). Includes approvedAt so the L3 UI can
+        //    show the green checkmark on the approved version.
+        const versions = await ctx.db
+          .select({
+            id: trackVersions.id,
+            label: trackVersions.label,
+            audioUrl: trackVersions.audioUrl,
+            durationMs: trackVersions.durationMs,
+            uploadedAt: trackVersions.uploadedAt,
+            approvedAt: trackVersions.approvedAt,
+          })
+          .from(trackVersions)
+          .where(eq(trackVersions.trackId, head.trackId))
+          .orderBy(desc(trackVersions.uploadedAt));
+
+        // 3. Comments across all versions of this track. Asc by
+        //    timestampMs so the comment thread reads in track order
+        //    (same convention as the artist Now Playing screen).
+        const versionIds = versions.map((v) => v.id);
+        const comments = versionIds.length
+          ? await ctx.db
+              .select({
+                id: trackComments.id,
+                versionId: trackComments.versionId,
+                timeMs: trackComments.timestampMs,
+                body: trackComments.body,
+                fromProducer: trackComments.fromProducer,
+                authorName: trackComments.authorName,
+                createdAt: trackComments.createdAt,
+                resolvedAt: trackComments.resolvedAt,
+              })
+              .from(trackComments)
+              .where(inArray(trackComments.versionId, versionIds))
+              .orderBy(asc(trackComments.timestampMs))
+          : [];
+
+        return {
+          track: {
+            id: head.trackId,
+            title: head.trackTitle,
+            artist: head.trackArtist,
+            projectId: head.projectId,
+            projectTitle: head.projectTitle,
+            clientName: head.clientName,
+          },
+          versions,
+          comments,
+          // Selected version id — first version that matches the input,
+          // or the latest if the input version was somehow filtered out
+          // (shouldn't happen given the head check above, but defensive).
+          selectedVersionId: input.versionId,
+        };
+      }),
   }),
 
   // Full data export — everything Skitza stores tied to this producer.

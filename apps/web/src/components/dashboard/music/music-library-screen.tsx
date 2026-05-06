@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { EqBars } from "~/components/audio/eq-bars";
+import { useNowPlaying } from "~/components/audio/persistent-player";
 import { Chips } from "~/components/ui/chips";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { fmtDateTime, formatRelativeTime } from "~/lib/time/relative";
@@ -102,10 +104,26 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
 function TrackRow({ row }: { row: MusicLibraryRow }) {
   const uploadedAt = new Date(row.uploadedAtIso);
   const clientName = row.clientName ?? row.projectTitle;
+  // Highlight the row that's currently playing in the persistent player —
+  // this is what hooks the EqBars equalizer animation to "real" play state.
+  // Subscribes via the module-level pub-sub on PersistentPlayer; rerenders
+  // only when the playing-track flips.
+  const nowPlaying = useNowPlaying();
+  const isCurrent = nowPlaying.trackId === row.id;
+  const isPlayingHere = isCurrent && nowPlaying.playing;
   return (
     <Link
-      href={`/dashboard/clients-projects/${row.projectId}?tab=music&version=${row.id}`}
-      className="sk-press flex items-center gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2.5"
+      // L3 deep-link — every row opens the song page, where the producer
+      // gets the full waveform + comments thread. The project-room route
+      // is now a secondary jump from inside the L3 hero.
+      href={`/dashboard/music/${row.id}`}
+      aria-current={isCurrent ? "true" : undefined}
+      className={[
+        "sk-press flex items-center gap-3 rounded-[var(--radius-md)] border bg-[rgb(var(--bg-elevated))] px-3 py-2.5",
+        isCurrent
+          ? "border-[rgb(var(--brand-primary)/0.55)] shadow-[0_0_0_1px_rgb(var(--brand-primary)/0.2)]"
+          : "border-[rgb(var(--border-subtle))]",
+      ].join(" ")}
     >
       {/* Square gradient cover — ports the design's per-client hue
           art card to the producer side. 42px matches the visual
@@ -137,8 +155,23 @@ function TrackRow({ row }: { row: MusicLibraryRow }) {
         </svg>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[13.5px] font-bold leading-tight text-[rgb(var(--fg-default))]">
-          {row.trackTitle}
+        <p
+          className={[
+            "flex items-center gap-1.5 truncate text-[13.5px] font-bold leading-tight",
+            isCurrent
+              ? "text-[rgb(var(--brand-primary-dark))]"
+              : "text-[rgb(var(--fg-default))]",
+          ].join(" ")}
+        >
+          {isCurrent ? (
+            <span
+              aria-hidden
+              className="shrink-0 text-[rgb(var(--brand-primary-dark))]"
+            >
+              <EqBars playing={isPlayingHere} size={11} />
+            </span>
+          ) : null}
+          <span className="truncate">{row.trackTitle}</span>
         </p>
         <p className="mt-0.5 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
           {clientName}

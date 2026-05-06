@@ -2,6 +2,51 @@
 
 import { useEffect, useRef, useState } from "react";
 
+// Public read-only state for "what's currently playing" — populated by
+// PersistentPlayer on every set / toggle / ended event so callers can
+// flag the active row in any list (e.g. EqBars on the playing track).
+//
+// Implemented as a module-level variable + a small pub-sub so listeners
+// re-render when state changes without coupling them to PersistentPlayer's
+// internal React state.
+let nowPlayingState: { trackId: string | null; playing: boolean } = {
+  trackId: null,
+  playing: false,
+};
+const nowPlayingListeners = new Set<() => void>();
+function setNowPlayingState(next: { trackId: string | null; playing: boolean }) {
+  nowPlayingState = next;
+  nowPlayingListeners.forEach((fn) => {
+    fn();
+  });
+}
+
+/** Subscribe to currently-playing track changes. Returns an unsubscribe fn. */
+function subscribeNowPlaying(cb: () => void): () => void {
+  nowPlayingListeners.add(cb);
+  return () => {
+    nowPlayingListeners.delete(cb);
+  };
+}
+
+/**
+ * Read the currently-playing track ID + play state from any client
+ * component. Re-renders the consumer whenever the player state changes.
+ * SSR-safe: returns the static initial state on the server, hydrates
+ * with the live state once mounted.
+ */
+export function useNowPlaying(): { trackId: string | null; playing: boolean } {
+  const [state, setState] = useState(nowPlayingState);
+  useEffect(() => {
+    // Sync once on mount in case the player toggled before this consumer mounted.
+    setState(nowPlayingState);
+    return subscribeNowPlaying(() => {
+      setState(nowPlayingState);
+    });
+  }, []);
+  return state;
+}
+
 // Persistent Spotify-style bottom-dock audio player. Mounted once in
 // AppShell so it survives client-side navigation and keeps playing
 // while the producer clicks around the dashboard.
@@ -71,9 +116,17 @@ export function PersistentPlayer() {
       const track = (e as CustomEvent<PlayerTrack>).detail;
       setState({ track, playing: true });
       setCurrentMs(0);
+      setNowPlayingState({ trackId: track.id, playing: true });
     }
     function onToggle() {
-      setState((s) => ({ ...s, playing: !s.playing }));
+      setState((s) => {
+        const next = { ...s, playing: !s.playing };
+        setNowPlayingState({
+          trackId: next.track?.id ?? null,
+          playing: next.playing,
+        });
+        return next;
+      });
     }
     function onSeek(e: Event) {
       const ms = (e as CustomEvent<number>).detail;
@@ -117,7 +170,10 @@ export function PersistentPlayer() {
       window.dispatchEvent(new CustomEvent(EVT_TIME, { detail: ms }));
     };
     const onEnded = () => {
-      setState((s) => ({ ...s, playing: false }));
+      setState((s) => {
+        setNowPlayingState({ trackId: s.track?.id ?? null, playing: false });
+        return { ...s, playing: false };
+      });
     };
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("ended", onEnded);
