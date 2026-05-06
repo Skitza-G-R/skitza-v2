@@ -13,6 +13,7 @@ import {
   PortfolioSection,
   type PortfolioTrackRow,
 } from "~/components/dashboard/setup/portfolio-section";
+import { MarketingSection } from "~/components/dashboard/setup/marketing-section";
 import {
   ServicesSection,
   type ServicePackageRow,
@@ -206,6 +207,13 @@ export default async function SettingsPage({
                 them next to brand colors + logo. */}
             <BranchDivider title="Tracklist on your join page" />
             <PortfolioSection tracks={portfolioTracks} />
+
+            {/* Marketing meta — the 4 stats under the hero on
+                /join/<slug>. Curated freeform copy (genres tags,
+                released/streams summaries, response-time picker).
+                Each stat hides on the public page when blank. */}
+            <BranchDivider title="Public profile copy" />
+            <MarketingSection profile={profile.marketing} />
 
             {/* Account — data export, email/password hint, replay tour.
                 Last block on the Profile branch because it's the
