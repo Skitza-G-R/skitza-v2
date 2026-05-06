@@ -65,6 +65,27 @@ const UpdateInput = z.object({
   brand: BrandInput.optional(),
 });
 
+// Marketing-grade meta the producer surfaces on their public /join page.
+// Each field is independently nullable so a producer can clear one stat
+// without wiping the others. `genres` is a free-text array — capped at
+// 8 entries × 32 chars to keep the band compact and the column small.
+// `responseHours` is a constrained enum (24 | 48 | 168) so the
+// formatter has a known set of friendly strings to render; passing
+// `null` clears the response stat entirely (the dropdown's "Hidden"
+// option). Migration 0006.
+const MarketingInput = z.object({
+  genres: z
+    .array(z.string().trim().min(1).max(32))
+    .max(8)
+    .nullable()
+    .optional(),
+  releasedSummary: z.string().trim().max(80).nullable().optional(),
+  streamsSummary: z.string().trim().max(80).nullable().optional(),
+  responseHours: z
+    .union([z.literal(24), z.literal(48), z.literal(168), z.null()])
+    .optional(),
+});
+
 // ─── Autopilot toggles (Batch G) ───────────────────────────────────
 // The UI contract is deliberately tiny: one key + one boolean per
 // switch flip. No rule-builder, no conditions. The router maps the
@@ -353,8 +374,58 @@ export const producerRouter = router({
         commentNotify: row.autopilotCommentNotify,
         autoArchive: row.autopilotAutoArchive,
       },
+      // Marketing meta surfaced on the public /join page (migration
+      // 0005). Settings → Profile renders the editor against this
+      // shape and producer.updateMarketing is the write path.
+      marketing: {
+        genres: row.genres ?? null,
+        releasedSummary: row.releasedSummary,
+        streamsSummary: row.streamsSummary,
+        responseHours: row.responseHours,
+      },
     };
   }),
+
+  // ─── Marketing meta editor (Settings → Profile) ─────────────────────
+  // Single mutation that accepts a partial of the marketing fields and
+  // writes them onto the producers row. We accept `null` per-field so
+  // the producer can clear an individual stat (e.g. "Hidden" on the
+  // response-time picker). `undefined` means "don't touch this field" —
+  // letting the form ship a minimal patch the same way `update` does.
+  updateMarketing: producerProcedure
+    .input(MarketingInput)
+    .mutation(async ({ ctx, input }) => {
+      // stripUndefined drops keys whose value is undefined, but keeps
+      // explicit nulls — Drizzle's update() then writes NULL into the
+      // column for those keys. That's the contract this surface needs:
+      // null = "clear this stat", omitted = "leave it alone".
+      const patch: Record<string, unknown> = {};
+      if (input.genres !== undefined) patch.genres = input.genres;
+      if (input.releasedSummary !== undefined) {
+        const trimmed = input.releasedSummary?.trim() ?? null;
+        patch.releasedSummary = trimmed === "" ? null : trimmed;
+      }
+      if (input.streamsSummary !== undefined) {
+        const trimmed = input.streamsSummary?.trim() ?? null;
+        patch.streamsSummary = trimmed === "" ? null : trimmed;
+      }
+      if (input.responseHours !== undefined) {
+        patch.responseHours = input.responseHours;
+      }
+
+      // Empty patch is a no-op — early return avoids a needless
+      // updatedAt bump on the producer row.
+      if (Object.keys(patch).length === 0) {
+        return { ok: true as const };
+      }
+
+      patch.updatedAt = new Date();
+      await ctx.db
+        .update(producers)
+        .set(patch)
+        .where(eq(producers.id, ctx.producerId));
+      return { ok: true as const };
+    }),
 
   // Batch G — flip a single Autopilot switch. Tiny, named mutation:
   // the client sends { key, enabled }, we map key → column, stamp it.

@@ -70,12 +70,21 @@ export const publicProfileRouter = router({
       // then destructuring would work but risks a future schema addition
       // accidentally landing on the wire; projecting here keeps the
       // contract explicit.
+      //
+      // Marketing meta fields (genres / releasedSummary / streamsSummary
+      // / responseHours) are part of the public surface — the producer
+      // explicitly authors them for their /join page and they're meant
+      // to ride out to anonymous visitors. Migration 0006.
       const [producerRow] = await db
         .select({
           id: producers.id,
           slug: producers.slug,
           displayName: producers.displayName,
           brand: producers.brand,
+          genres: producers.genres,
+          releasedSummary: producers.releasedSummary,
+          streamsSummary: producers.streamsSummary,
+          responseHours: producers.responseHours,
         })
         .from(producers)
         .where(eq(producers.slug, input.slug))
@@ -168,6 +177,16 @@ export const publicProfileRouter = router({
           bio: null as string | null,
           logoUrl: brand.logoUrl ?? null,
           brandColor: brand.primary ?? null,
+        },
+        // Marketing meta — null on freshly-created producer rows; the
+        // /join meta-strip hides a stat block whose value is null. We
+        // pass these straight through so the component doesn't have
+        // to re-derive shape from a default-laden producer payload.
+        meta: {
+          genres: producerRow.genres ?? null,
+          releasedSummary: producerRow.releasedSummary,
+          streamsSummary: producerRow.streamsSummary,
+          responseHours: producerRow.responseHours,
         },
         publicSamples: sampleRows.map((row) => ({
           id: row.id,

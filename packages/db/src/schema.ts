@@ -78,7 +78,7 @@ export const producers = pgTable("producers", {
   // real bookings/streams data (Phase H owns that). Nullable so a
   // producer who never opens Settings keeps the static React defaults
   // in place; the meta-strip hides any block whose value is null.
-  // Migration 0005.
+  // Migration 0006.
   genres: text("genres").array(),
   releasedSummary: text("released_summary"),
   streamsSummary: text("streams_summary"),
