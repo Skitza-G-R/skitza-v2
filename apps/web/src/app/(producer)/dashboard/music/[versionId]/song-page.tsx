@@ -552,6 +552,42 @@ export function SongPage({ data }: { data: SongPageData }) {
             seed={activeVersion.id}
             onProgress={setCurrentMs}
           />
+          {/* Inline play/pause CTA — sits centered under the waveform.
+              Pinned with a data-test attr so source-grep tests can
+              ensure both this and the hero CTA stay wired through
+              handlePlayToggle (single toggle path → no drift between
+              them and the dock). */}
+          {(() => {
+            const wfState = playButtonState({
+              activeVersionId: activeVersion.id,
+              audioUrl: activeVersion.audioUrl,
+              nowPlaying,
+            });
+            const isPlayingThis =
+              wfState.action === "toggle" && wfState.label === "Pause";
+            return (
+              <div className="mt-4 flex items-center justify-center">
+                <button
+                  type="button"
+                  data-test="waveform-play-button"
+                  onClick={handlePlayToggle}
+                  disabled={wfState.disabled}
+                  aria-label={wfState.label}
+                  title={
+                    wfState.disabled ? "Audio is still uploading" : wfState.label
+                  }
+                  className={[
+                    "sk-press inline-flex h-12 w-12 items-center justify-center rounded-full",
+                    "bg-[rgb(var(--fg-default,17_16_9))] text-[rgb(var(--bg-elevated,255_255_255))]",
+                    "shadow-[0_4px_18px_rgba(0,0,0,0.22)]",
+                    "disabled:cursor-not-allowed disabled:opacity-40",
+                  ].join(" ")}
+                >
+                  {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
+                </button>
+              </div>
+            );
+          })()}
           <p className="mt-3 text-center font-mono text-[10px] tracking-wider text-[rgb(var(--fg-muted))]">
             Click the waveform to seek · Click a marker to jump to a note
           </p>

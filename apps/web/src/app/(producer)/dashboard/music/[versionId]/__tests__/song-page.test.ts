@@ -146,6 +146,24 @@ describe("playButtonState — Play/Pause + disabled + action mode", () => {
 
 // ─── Source-grep — wiring ────────────────────────────────────────────
 
+describe("song-page.tsx source — Play button on the waveform card (founder feedback)", () => {
+  it("renders a play/pause button INSIDE the waveform card (not just the hero action rail)", () => {
+    // Pin via a unique data attribute so a future restyle can't drop the
+    // affordance and pass the tests by accident. The big waveform
+    // becomes unusable on touch screens without an in-context play
+    // CTA — every Samply / SoundCloud-style timeline ships one.
+    expect(songPageSrc).toContain('data-test="waveform-play-button"');
+  });
+
+  it("the waveform play button reuses handlePlayToggle (same toggle path as the hero CTA)", () => {
+    // Two play buttons must dispatch through the SAME handler so that
+    // pressing either keeps the dock + the page in lock-step. If the
+    // waveform button forked into its own onClick we'd risk drift
+    // (e.g. one calls playerPlay, the other playerToggle).
+    expect(songPageSrc).toMatch(/data-test="waveform-play-button"[\s\S]{0,400}?onClick=\{handlePlayToggle\}/);
+  });
+});
+
 describe("song-page.tsx source — secondary action rail icons (Star / Share / Download)", () => {
   it("Favorite (Star) button is rendered with an aria-label", () => {
     // Allow either a static label or a conditional ternary — both

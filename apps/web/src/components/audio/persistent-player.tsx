@@ -407,7 +407,7 @@ function DesktopDock({
           </div>
           <div className="flex items-center gap-2.5 font-mono text-[10px] text-white/40">
             <span className="w-8 text-right tabular-nums">{fmtTime(currentMs)}</span>
-            <ScrubBar progressPct={progressPct} onScrub={onScrub} />
+            <MiniWaveform seed={track.id} progressPct={progressPct} onScrub={onScrub} />
             <span className="w-8 tabular-nums">{durationMs == null ? "—" : fmtTime(durationMs)}</span>
           </div>
         </div>
@@ -544,15 +544,50 @@ function Cover({ track, size }: { track: PlayerTrack; size: number }) {
   );
 }
 
-// ─── Scrub bar ───────────────────────────────────────────────────────
+// ─── Mini waveform (dock progress visual) ────────────────────────────
+// Replaces the flat ScrubBar with a row of seeded bars matching the
+// L3 hero waveform aesthetic — same "this is a music app" visual
+// language. Played bars render solid white, unplayed bars sit at
+// 12% white. Click anywhere on the strip to seek (the founder still
+// expects scrubbing to work from the dock).
 
-function ScrubBar({
+const MINI_BAR_COUNT = 32;
+
+// 32-bit FNV-1a + tiny PRNG, derived from `seededHeights` in
+// waveform-50.tsx. Same input → same bar pattern, every render.
+function seededBars(seed: string, n: number): number[] {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  let state = (h ^ 0x9e3779b9) >>> 0;
+  const out: number[] = [];
+  for (let i = 0; i < n; i += 1) {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    const r = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    // Skew toward middle so the dock waveform reads as an envelope,
+    // not jagged outliers. Floor at 0.3 so even quiet bars stay
+    // visible against the dark dock.
+    out.push(0.3 + r * 0.6 + Math.sin(i * 0.7) * 0.06);
+  }
+  return out;
+}
+
+function MiniWaveform({
+  seed,
   progressPct,
   onScrub,
 }: {
+  seed: string;
   progressPct: number;
   onScrub: (pct: number) => void;
 }) {
+  const heights = seededBars(seed, MINI_BAR_COUNT);
+  const playedBars = Math.floor((progressPct / 100) * MINI_BAR_COUNT);
   return (
     <div
       role="slider"
@@ -575,18 +610,21 @@ function ScrubBar({
         const pct = ((e.clientX - r.left) / r.width) * 100;
         onScrub(pct);
       }}
-      className="relative h-1 flex-1 cursor-pointer rounded-full bg-white/12"
+      className="relative h-6 flex-1 cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40"
     >
-      <div
-        aria-hidden
-        className="absolute inset-y-0 left-0 rounded-full bg-white"
-        style={{ width: `${String(progressPct)}%` }}
-      />
-      <span
-        aria-hidden
-        className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-white"
-        style={{ left: `calc(${String(progressPct)}% - 5px)` }}
-      />
+      <div className="absolute inset-0 flex items-center justify-between gap-[2px]">
+        {heights.map((h, i) => (
+          <span
+            key={`mb-${String(i)}`}
+            aria-hidden
+            className={[
+              "block w-[2px] rounded-full transition-colors",
+              i < playedBars ? "bg-white" : "bg-white/20",
+            ].join(" ")}
+            style={{ height: `${String(h * 100)}%` }}
+          />
+        ))}
+      </div>
     </div>
   );
 }

@@ -199,6 +199,38 @@ describe("PersistentPlayer source — album art cover slot", () => {
   });
 });
 
+describe("PersistentPlayer source — dock progress visual is a mini waveform, not a thin line", () => {
+  it("renders a MiniWaveform component (bar-style) instead of a flat scrub bar", () => {
+    // Founder feedback on the v3 preview: the dock's progress strip
+    // looked like a generic Bluetooth-speaker progress line. The
+    // mockup specifies a row of small bars (like the hero waveform,
+    // shrunken) so the dock reads as part of the music app's design
+    // language rather than a generic media-session shim.
+    expect(playerSrc).toContain("MiniWaveform");
+  });
+
+  it("the mini waveform renders multiple bar elements (the visual hint that distinguishes it from a bar line)", () => {
+    // Pin the bar-array convention. A single <div> with a width:%
+    // pattern is the OLD ScrubBar; a mapped array of bar spans is the
+    // new MiniWaveform. We check for a `.map(` call inside MiniWaveform
+    // that emits multiple bars.
+    expect(playerSrc).toMatch(/MiniWaveform[\s\S]*?\.map\(/);
+  });
+
+  it("mini waveform is seeded by the track id so each track has a stable visual fingerprint", () => {
+    // Same convention as Waveform50.seed — deterministic heights from
+    // the track id. Two different tracks → distinguishable docks.
+    expect(playerSrc).toMatch(/seededBars\(|seededHeights\(/);
+  });
+
+  it("mini waveform stays clickable for scrub (founder still needs to seek from the dock)", () => {
+    // The bar layout must keep onClick working — losing it would be a
+    // functional regression. The container needs `cursor-pointer` so
+    // the click affordance stays discoverable.
+    expect(playerSrc).toMatch(/MiniWaveform[\s\S]*?onClick/);
+  });
+});
+
 describe("PersistentPlayer source — duration fallback (the 0:00 bug)", () => {
   it("calls pickDurationMs with both the db-recorded ms and the live <audio> duration", () => {
     // The fallback is only meaningful if both sources are passed in.

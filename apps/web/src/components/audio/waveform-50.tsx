@@ -2,6 +2,34 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { PLAYER_EVENTS, playerSeek, useNowPlaying } from "./persistent-player";
+
+// ─── Pure helper (exported for unit tests) ───────────────────────────
+
+/**
+ * Pick the playhead source. When this waveform's seed is the version
+ * currently in the dock and a finite live ms tick is available, use
+ * the live time. Otherwise fall back to the locally-tracked internal
+ * ms (click/drag/keyboard).
+ *
+ * Guards against the `<audio>.duration === Infinity` window during
+ * HLS manifest load — non-finite live ms degrades cleanly.
+ */
+export function pickWaveformTime(input: {
+  isLive: boolean;
+  liveMs: number;
+  internalMs: number;
+}): number {
+  if (
+    input.isLive &&
+    Number.isFinite(input.liveMs) &&
+    input.liveMs >= 0
+  ) {
+    return input.liveMs;
+  }
+  return input.internalMs;
+}
+
 // 50-bar stylized waveform used on the L3 song page. This is NOT the
 // real wavesurfer-driven waveform (that's `WaveformPlayer` and decodes
 // the audio peaks). Instead, it's a deterministic visual pseudo-wave
@@ -99,7 +127,8 @@ export function Waveform50({
   height = 96,
   className,
 }: Waveform50Props) {
-  const [currentMs, setCurrentMs] = useState(initialMs);
+  const [internalMs, setInternalMs] = useState(initialMs);
+  const [liveMs, setLiveMs] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onProgressRef = useRef(onProgress);
   const onSeekRef = useRef(onSeek);
@@ -110,12 +139,37 @@ export function Waveform50({
     onSeekRef.current = onSeek;
   }, [onSeek]);
 
-  // Reset the playhead when the seed (active version) changes — same
+  // Live mode — when this waveform's seed (== version-id) is the track
+  // currently playing in the dock, the playhead follows the dock. Click
+  // / drag / arrow-key seeks then dispatch playerSeek so the dock's
+  // <audio> element jumps too. Producer's mental model: "the big bar
+  // and the little bar are the same playback."
+  const nowPlaying = useNowPlaying();
+  const isLive = nowPlaying.trackId === seed;
+
+  // Subscribe to the dock's time broadcast. We listen unconditionally
+  // (cheap — single window event) and short-circuit pickWaveformTime
+  // by `isLive` so non-active waveforms ignore ticks for other tracks.
+  useEffect(() => {
+    function onTime(e: Event) {
+      const ms = (e as CustomEvent<number>).detail;
+      if (Number.isFinite(ms)) setLiveMs(ms);
+    }
+    window.addEventListener(PLAYER_EVENTS.time, onTime as EventListener);
+    return () => {
+      window.removeEventListener(PLAYER_EVENTS.time, onTime as EventListener);
+    };
+  }, []);
+
+  // Reset both timers when the seed (active version) changes — same
   // pattern as wavesurfer cleaning up between sources.
   useEffect(() => {
-    setCurrentMs(0);
+    setInternalMs(0);
+    setLiveMs(0);
     onProgressRef.current?.(0);
   }, [seed]);
+
+  const currentMs = pickWaveformTime({ isLive, liveMs, internalMs });
 
   const heights = useMemo(() => seededHeights(seed, BAR_COUNT), [seed]);
   const progressPct = durationMs > 0 ? Math.min(100, Math.max(0, (currentMs / durationMs) * 100)) : 0;
@@ -129,11 +183,20 @@ export function Waveform50({
       const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
       const pct = rect.width > 0 ? x / rect.width : 0;
       const ms = Math.round(pct * durationMs);
-      setCurrentMs(ms);
+      // Live mode: seek the dock so the dock's <audio> element jumps
+      // — broadcast comes back over PLAYER_EVENTS.time and updates
+      // liveMs. Static mode: keep an internal pointer (no audio engine
+      // attached, so we drive the bar visually only).
+      if (isLive) {
+        playerSeek(ms);
+        setLiveMs(ms);
+      } else {
+        setInternalMs(ms);
+      }
       onProgressRef.current?.(ms);
       if (fireSeek) onSeekRef.current?.(ms);
     },
-    [durationMs],
+    [durationMs, isLive],
   );
 
   // Drag state — flip on pointerdown, off on pointerup. Pointer move
@@ -156,13 +219,20 @@ export function Waveform50({
     seekFromClientX(e.clientX, true);
   }
 
-  // Keyboard support — arrow keys nudge the playhead by 5%.
+  // Keyboard support — arrow keys nudge the playhead by 5%. Mirrors
+  // seekFromClientX's branch: live mode dispatches to the dock,
+  // static mode mutates the internal timer.
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
       const step = durationMs * 0.05 * (e.key === "ArrowLeft" ? -1 : 1);
       const next = Math.max(0, Math.min(durationMs, currentMs + step));
-      setCurrentMs(next);
+      if (isLive) {
+        playerSeek(next);
+        setLiveMs(next);
+      } else {
+        setInternalMs(next);
+      }
       onProgressRef.current?.(next);
       onSeekRef.current?.(next);
     }
@@ -236,7 +306,12 @@ export function Waveform50({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setCurrentMs(c.timeMs);
+                    if (isLive) {
+                      playerSeek(c.timeMs);
+                      setLiveMs(c.timeMs);
+                    } else {
+                      setInternalMs(c.timeMs);
+                    }
                     onProgressRef.current?.(c.timeMs);
                     onSeekRef.current?.(c.timeMs);
                   }}
