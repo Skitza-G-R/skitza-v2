@@ -9,25 +9,36 @@ import {
   formatGreetingSummary,
 } from "../page-helpers";
 
-// Story 06 — Today page rebuild.
+// Today / Overview page — Phase 4 rebuild (the second redesign).
 //
-// Repo convention (CLAUDE.md → testing): vitest runs in `node` env, no
-// jsdom. We pin three things:
-//   1. Pure helpers (`isDayOneEmpty`, `formatGreetingDate`,
-//      `formatGreetingSummary`) — the load-bearing logic of the rebuild.
-//   2. Source-grep on page.tsx — the render order of the new sections,
-//      that retired components are NOT imported, that the gradient hero
-//      / max-w-[1920px] container / sk-page-enter mount animation are
-//      preserved (the spec says only the content within is restructured),
-//      that FinishSetupNudge's existing trigger predicate stays intact.
-//   3. Filesystem assertions — the retired files no longer exist.
+// History:
+//   - Story 06 introduced DashboardGreeting → InboxSection →
+//     RecentUploadsShelf → PulseCard → ContextualActions.
+//   - Phase 4 (this rebuild) replaces that populated layout with a
+//     single <OverviewScreen> server component that mirrors the
+//     locked design's mobile-first hierarchy: Hero → Approvals →
+//     Today's Session → Money split → Activity feed.
+//
+// What this test pins:
+//   1. Pure helpers from page-helpers.ts. The helpers stayed because
+//      isDayOneEmpty + the greeting formatters are pre-existing
+//      contracts the auth-fix flow depends on.
+//   2. Source-grep on page.tsx — that the retired Story 06
+//      components are NO LONGER imported, that <OverviewScreen>
+//      replaces them, and that the auth + skipper + day-1 empty
+//      branches are preserved (the brief said: don't touch role/auth
+//      logic, that's PR #60's territory).
+//   3. Filesystem assertions — the original Story 06 retired files
+//      (share-link-card, quick-actions, kpi-strip) are still
+//      deleted; the new OverviewScreen file exists.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAGE_PATH = join(here, "..", "page.tsx");
 // __tests__ is under app/(app)/dashboard/. Hop ../..  → (app)/, ../../../  → app/,
-// ../../../../  → src/. Then resolve into components/dashboard/{today,revenue}.
+// ../../../../  → src/. Then resolve into components/dashboard/{today,revenue,overview}.
 const TODAY_DIR = join(here, "..", "..", "..", "..", "components", "dashboard", "today");
 const REVENUE_DIR = join(here, "..", "..", "..", "..", "components", "dashboard", "revenue");
+const OVERVIEW_DIR = join(here, "..", "..", "..", "..", "components", "dashboard", "overview");
 const pageSource = readFileSync(PAGE_PATH, "utf8");
 
 // ─── Pure helpers ──────────────────────────────────────────────────
@@ -120,62 +131,59 @@ describe("formatGreetingSummary", () => {
   });
 });
 
-// ─── Source-grep — page.tsx render order ────────────────────────────
+// ─── Source-grep — Phase 4 populated layout ────────────────────────
 
-describe("Today page — render order (new components in workflow order)", () => {
-  // The spec locks the order: greeting → inbox → recent uploads →
-  // pulse + contextual actions. Source-position match guards against
-  // a future refactor reshuffling the layout.
-  it("renders <DashboardGreeting> before <InboxSection>", () => {
-    const greeting = pageSource.indexOf("<DashboardGreeting");
-    const inbox = pageSource.indexOf("<InboxSection");
-    expect(greeting).toBeGreaterThan(-1);
-    expect(inbox).toBeGreaterThan(-1);
-    expect(greeting).toBeLessThan(inbox);
+describe("Today page — Phase 4 populated layout", () => {
+  it("imports <OverviewScreen> from components/dashboard/overview", () => {
+    expect(pageSource).toMatch(
+      /from "~\/components\/dashboard\/overview\/overview-screen"/,
+    );
   });
 
-  it("renders <InboxSection> before <RecentUploadsShelf>", () => {
-    const inbox = pageSource.indexOf("<InboxSection");
-    const shelf = pageSource.indexOf("<RecentUploadsShelf");
-    expect(inbox).toBeGreaterThan(-1);
-    expect(shelf).toBeGreaterThan(-1);
-    expect(inbox).toBeLessThan(shelf);
+  it("renders <OverviewScreen> inside the !empty branch", () => {
+    // The OverviewScreen tag must exist and pass the populated props
+    // (displayName, pulseStats, pendingApprovals, todaySession,
+    // activity, now). We assert at least the tag + the props that
+    // identify the new layout's data wiring.
+    expect(pageSource).toContain("<OverviewScreen");
+    expect(pageSource).toContain("pendingApprovals=");
+    expect(pageSource).toContain("todaySession=");
+    expect(pageSource).toContain("pulseStats=");
   });
 
-  it("renders <RecentUploadsShelf> before <PulseCard>", () => {
-    const shelf = pageSource.indexOf("<RecentUploadsShelf");
-    const pulse = pageSource.indexOf("<PulseCard");
-    expect(shelf).toBeGreaterThan(-1);
-    expect(pulse).toBeGreaterThan(-1);
-    expect(shelf).toBeLessThan(pulse);
-  });
-
-  it("renders <PulseCard> before <ContextualActions>", () => {
-    const pulse = pageSource.indexOf("<PulseCard");
-    const actions = pageSource.indexOf("<ContextualActions");
-    expect(pulse).toBeGreaterThan(-1);
-    expect(actions).toBeGreaterThan(-1);
-    expect(pulse).toBeLessThan(actions);
+  it("calls booking.list with status='pending' for the approvals card", () => {
+    expect(pageSource).toContain('caller.booking.list({ status: "pending" })');
   });
 });
 
-// ─── Source-grep — retired imports must be gone ────────────────────
+// ─── Source-grep — retired Story 06 components ─────────────────────
 
-describe("Today page — retired components are not imported", () => {
+describe("Today page — retired Story 06 components are NOT imported", () => {
   it.each([
-    "share-link-card",
-    "quick-actions",
-    "kpi-strip",
-    "today/revenue-trend",
-    "today-view",
+    "today/contextual-actions",
+    "today/dashboard-greeting",
+    "today/inbox-section",
+    "today/today-list",
+    "today/pulse-card",
+    "today/recent-uploads-shelf",
   ])("does not import from %s", (slug) => {
-    expect(pageSource).not.toContain(`from "~/components/dashboard/today/${slug}"`);
+    expect(pageSource).not.toContain(`from "~/components/dashboard/${slug}"`);
+  });
+
+  it.each([
+    "<ContextualActions",
+    "<DashboardGreeting",
+    "<InboxSection",
+    "<PulseCard",
+    "<RecentUploadsShelf",
+  ])("does not render %s", (tag) => {
+    expect(pageSource).not.toContain(tag);
   });
 });
 
 // ─── Source-grep — preserved infrastructure ────────────────────────
 
-describe("Today page — preserved page chrome", () => {
+describe("Today page — preserved page chrome (auth-fix territory)", () => {
   it("keeps the gradient hero (relative isolate wrapper)", () => {
     expect(pageSource).toContain("relative isolate");
   });
@@ -189,15 +197,14 @@ describe("Today page — preserved page chrome", () => {
   });
 
   it("keeps the FinishSetupNudge trigger (skipper + empty inbox)", () => {
-    // Predicate exists in the file: skipOnboarding && !hasPackages && items === 0.
     expect(pageSource).toContain("showSetupNudge");
     expect(pageSource).toContain("FinishSetupNudge");
   });
 });
 
-// ─── Source-grep — empty-state branch ──────────────────────────────
+// ─── Source-grep — empty-state branch (preserved) ──────────────────
 
-describe("Today page — day-1 empty state", () => {
+describe("Today page — day-1 empty state (preserved)", () => {
   it("renders <DashboardEmptyOnboarding> in the empty-state branch", () => {
     expect(pageSource).toContain("<DashboardEmptyOnboarding");
   });
@@ -207,9 +214,9 @@ describe("Today page — day-1 empty state", () => {
   });
 });
 
-// ─── Filesystem — retired files must be deleted ────────────────────
+// ─── Filesystem — original Story 06 deletions held ────────────────
 
-describe("retired components are deleted from disk", () => {
+describe("retired Story 06 files stay deleted from disk", () => {
   it.each([
     "share-link-card.tsx",
     "quick-actions.tsx",
@@ -220,12 +227,20 @@ describe("retired components are deleted from disk", () => {
   });
 });
 
-describe("revenue-trend.tsx moved to revenue/ directory", () => {
+describe("revenue-trend.tsx still in revenue/ directory", () => {
   it("no longer exists in dashboard/today/", () => {
     expect(existsSync(join(TODAY_DIR, "revenue-trend.tsx"))).toBe(false);
   });
 
-  it("now exists in dashboard/revenue/", () => {
+  it("still exists in dashboard/revenue/", () => {
     expect(existsSync(join(REVENUE_DIR, "revenue-trend.tsx"))).toBe(true);
+  });
+});
+
+// ─── Filesystem — Phase 4 new layout exists ────────────────────────
+
+describe("Phase 4 OverviewScreen exists", () => {
+  it("the new component file is present", () => {
+    expect(existsSync(join(OVERVIEW_DIR, "overview-screen.tsx"))).toBe(true);
   });
 });

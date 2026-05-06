@@ -2,9 +2,9 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import {
-  MusicLibrary,
-  type MusicRow,
-} from "~/components/dashboard/music/music-library";
+  MusicLibraryScreen,
+  type MusicLibraryRow,
+} from "~/components/dashboard/music/music-library-screen";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Task 10: Music top-level — Samply-style cross-project library. One
@@ -21,7 +21,7 @@ export default async function MusicPage() {
   // Dates cross the RSC → client boundary as ISO strings. Project
   // down to the minimal row shape — we don't need to ship audio R2
   // keys or peaks URLs to the list view.
-  const rows: MusicRow[] = data.tracks.map((t) => ({
+  const rows: MusicLibraryRow[] = data.tracks.map((t) => ({
     id: t.id,
     trackTitle: t.trackTitle,
     label: t.label,
@@ -32,29 +32,50 @@ export default async function MusicPage() {
     audioUrl: t.audioUrl,
   }));
 
+  // Header counts mirror the design's "X uploads · all caught up"
+  // subtitle. We don't have an `unreadComments` per-row aggregate at
+  // this top-level (producer.music.list returns the projection
+  // without comment counts) — so we surface upload count + relative
+  // date of the latest upload as a Phase 4 stand-in. Full
+  // unread-comments-on-Library is deferred (handoff doc).
+  const lastUploadIso = rows[0]?.uploadedAtIso ?? null;
+  const subtitleCounts =
+    rows.length === 0
+      ? "No uploads yet"
+      : lastUploadIso
+        ? `${String(rows.length)} uploads · latest ${formatRelativeDate(new Date(lastUploadIso))}`
+        : `${String(rows.length)} uploads`;
+
   return (
     <>
-      {/* Batch C — Music library matches the Today full-bleed canvas. */}
+      {/* Phase 4 — Library page chrome migrated to the locked design. */}
       <div className="relative isolate">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
         />
-        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-8 pb-12 sm:px-8 lg:px-12 lg:pt-12">
-          <header className="mb-4">
-            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
+          <header className="mb-5">
+            <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
               Library
-            </p>
-            <h1 className="mt-2 font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
-              Music
+              <span className="text-[rgb(var(--brand-primary))]">.</span>
             </h1>
-            <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
-              Every track you&apos;ve uploaded, newest first. Tap a cover to open its Project Room.
+            <p className="mt-1.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
+              {subtitleCounts}
             </p>
           </header>
-          <MusicLibrary tracks={rows} />
+          <MusicLibraryScreen tracks={rows} />
         </div>
       </div>
     </>
   );
+}
+
+function formatRelativeDate(d: Date): string {
+  const diff = Date.now() - d.getTime();
+  const day = 24 * 60 * 60 * 1000;
+  if (diff < day) return "today";
+  if (diff < 2 * day) return "yesterday";
+  if (diff < 7 * day) return `${String(Math.floor(diff / day))} days ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }

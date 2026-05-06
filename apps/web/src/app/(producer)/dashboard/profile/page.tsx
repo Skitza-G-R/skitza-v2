@@ -1,13 +1,15 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import type { ServicePackageRow } from "~/components/dashboard/setup/services-section";
+import {
+  StorefrontScreen,
+  type StorefrontProduct,
+} from "~/components/dashboard/storefront/storefront-screen";
 import type { PortfolioTrackRow } from "~/components/dashboard/setup/portfolio-section";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { ProfileTabs } from "./profile-tabs";
 import { type ProfileTabKey, isProfileTab } from "./profile-tab-key";
-import { StorePanel } from "./store-panel";
 import {
   PortfolioPanel,
   type ExternalLinkRow,
@@ -39,18 +41,17 @@ export default async function ProfilePage({
 
   const caller = appRouter.createCaller({ userId });
 
-  // Store tab needs both the package list AND the producer's profile
-  // default currency (the latter seeds the New-service form so it
-  // matches the producer's locale instead of falling back to USD).
-  // Fan out in parallel — the two calls are independent.
-  let servicesPackages: ServicePackageRow[] = [];
-  let storeDefaultCurrency: "USD" | "EUR" | "GBP" | "ILS" = "USD";
+  // Store tab fetches the product list + producer profile. Profile
+  // gives us the public storefront URL we surface above the
+  // products tab toggle.
+  let storefrontProducts: StorefrontProduct[] = [];
+  let storefrontPublicUrl: string | null = null;
   if (active === "store") {
     const [packages, profile] = await Promise.all([
       caller.booking.packages.list(),
       caller.producer.me(),
     ]);
-    servicesPackages = packages.map((p) => ({
+    storefrontProducts = packages.map((p) => ({
       id: p.id,
       name: p.name,
       description: p.description,
@@ -58,20 +59,26 @@ export default async function ProfilePage({
       sessionCount: p.sessionCount,
       priceCents: p.priceCents,
       currency: p.currency,
-      depositPct: p.depositPct,
       active: p.active,
-      kind: p.kind,
-      locationType: p.locationType,
-      bufferMinutes: p.bufferMinutes,
-      minLeadHours: p.minLeadHours,
-      paymentPlans: p.paymentPlans,
-      contractUrl: p.contractUrl,
+      // Plan label is derived from paymentPlans (a row of normalized
+      // plan kinds); show the first plan's label or "Pay once" for
+      // a single flat plan. Real plan-display logic lives in the
+      // settings/services CRUD path; this is a lightweight summary.
+      planLabel:
+        p.paymentPlans.length === 0
+          ? "Pay once"
+          : p.paymentPlans.length === 1
+            ? "Pay once"
+            : `${String(p.paymentPlans.length)} plan options`,
     }));
-    storeDefaultCurrency = profile.defaultCurrency as
-      | "USD"
-      | "EUR"
-      | "GBP"
-      | "ILS";
+
+    const publicBase =
+      process.env.NEXT_PUBLIC_SITE_URL ??
+      process.env.SITE_URL ??
+      "https://skitza.app";
+    storefrontPublicUrl = profile.slug
+      ? `${publicBase.replace(/\/$/, "")}/p/${profile.slug}`
+      : null;
   }
 
   let portfolioTracks: PortfolioTrackRow[] = [];
@@ -113,54 +120,47 @@ export default async function ProfilePage({
     }));
   }
 
-  const headerMeta = META[active];
+  // Header subtitle: count line on Store, descriptive blurb on Portfolio.
+  const subtitle =
+    active === "store"
+      ? `${String(storefrontProducts.length)} ${storefrontProducts.length === 1 ? "service" : "services"} available to book`
+      : META[active].description;
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
-      <div className="sk-card-glow rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-5 sm:px-6 sm:py-6">
-        <header className="reveal-up mb-4">
-          <p className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Profile
-          </p>
-          <h1
-            key={`title-${active}`}
-            className="reveal-up mt-1 font-display text-2xl leading-tight tracking-tight sm:text-3xl"
-            style={{ fontVariationSettings: '"opsz" 36' }}
-          >
-            {headerMeta.title}
-          </h1>
-          <p
-            key={`desc-${active}`}
-            className="reveal-up mt-1.5 max-w-xl text-xs text-[rgb(var(--fg-secondary))]"
-          >
-            {headerMeta.description}
-          </p>
-        </header>
+    <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
+      <header className="mb-5">
+        <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
+          Storefront
+          <span className="text-[rgb(var(--brand-primary))]">.</span>
+        </h1>
+        <p className="mt-1.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
+          {subtitle}
+        </p>
+      </header>
 
-        <ProfileTabs active={active} />
+      <ProfileTabs active={active} />
 
-        <div
-          key={active}
-          id={`profile-panel-${active}`}
-          role="tabpanel"
-          aria-labelledby={`profile-tab-${active}`}
-          className="reveal-up pt-4"
-        >
-          {active === "store" && (
-            <StorePanel
-              packages={servicesPackages}
-              defaultCurrency={storeDefaultCurrency}
-            />
-          )}
-          {active === "portfolio" && (
-            <PortfolioPanel
-              tracks={portfolioTracks}
-              links={externalLinks}
-              library={libraryRows}
-              addedAudioUrls={addedAudioUrls}
-            />
-          )}
-        </div>
+      <div
+        key={active}
+        id={`profile-panel-${active}`}
+        aria-labelledby={`profile-tab-${active}`}
+        className="pt-5"
+      >
+        {active === "store" && (
+          <StorefrontScreen
+            products={storefrontProducts}
+            analytics={null}
+            publicUrl={storefrontPublicUrl}
+          />
+        )}
+        {active === "portfolio" && (
+          <PortfolioPanel
+            tracks={portfolioTracks}
+            links={externalLinks}
+            library={libraryRows}
+            addedAudioUrls={addedAudioUrls}
+          />
+        )}
       </div>
     </div>
   );

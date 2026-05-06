@@ -4,6 +4,8 @@ import Link from "next/link";
 
 import type { ProfileTabKey } from "./profile-tab-key";
 
+// Phase 4 — pill-style toggle (matches ClientsPageTabs / CalendarTabs).
+
 const TABS: readonly { id: ProfileTabKey; label: string }[] = [
   { id: "store", label: "Store" },
   { id: "portfolio", label: "Portfolio" },
@@ -13,28 +15,25 @@ export function ProfileTabs({ active }: { active: ProfileTabKey }) {
   return (
     <nav
       aria-label="Profile sections"
-      role="tablist"
-      className="sk-scroll-x -mx-4 overflow-x-auto border-b border-[rgb(var(--border-subtle))] sm:mx-0"
+      className="sk-scroll-x -mx-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0"
     >
-      <div className="flex min-w-max gap-1 px-4 sm:px-0">
+      <div className="flex min-w-max gap-2">
         {TABS.map((tab) => {
           const isActive = active === tab.id;
           return (
             <Link
               key={tab.id}
               href={`/dashboard/profile?tab=${tab.id}`}
-              role="tab"
-              aria-selected={isActive}
-              {...(isActive ? { "aria-current": "page" as const } : {})}
+              aria-current={isActive ? "page" : undefined}
               id={`profile-tab-${tab.id}`}
               aria-controls={`profile-panel-${tab.id}`}
               scroll={false}
               className={[
-                "-mb-px inline-flex min-h-[44px] items-center whitespace-nowrap rounded-t-sm border-b-2 px-4 py-2.5 text-sm font-medium transition-colors sm:min-h-0",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
+                "sk-press inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]",
                 isActive
-                  ? "border-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))]"
-                  : "border-transparent text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
+                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.08)] text-[rgb(var(--brand-primary))]"
+                  : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
               ].join(" ")}
             >
               {tab.label}

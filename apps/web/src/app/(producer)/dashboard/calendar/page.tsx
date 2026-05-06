@@ -9,9 +9,13 @@ import {
 } from "~/components/dashboard/setup/availability-section";
 import { appRouter } from "~/server/trpc/routers/_app";
 
+import {
+  MeetingsScreen,
+  type MeetingsScreenRow,
+} from "~/components/dashboard/calendar/meetings-screen";
+
 import { CalendarTabs } from "./calendar-tabs";
 import { type CalendarTabKey, isCalendarTab } from "./calendar-tab-key";
-import { MeetingsPanel, type MeetingRow } from "./meetings-panel";
 
 const META: Record<CalendarTabKey, { title: string; description: string }> = {
   meetings: {
@@ -39,21 +43,24 @@ export default async function CalendarPage({
 
   const caller = appRouter.createCaller({ userId });
 
-  let pendingMeetings: MeetingRow[] = [];
-  let upcomingMeetings: MeetingRow[] = [];
-  let meetingsAutoConfirm = false;
+  let pendingMeetings: MeetingsScreenRow[] = [];
+  let upcomingMeetings: MeetingsScreenRow[] = [];
   if (active === "meetings") {
-    const [pending, upcoming, settings] = await Promise.all([
+    const [pending, upcoming] = await Promise.all([
       caller.booking.list({ status: "pending" }),
       caller.booking.upcoming({ days: 14 }),
-      caller.booking.availability.getSettings(),
     ]);
     pendingMeetings = pending.map((b) => ({
       id: b.id,
       artistName: b.artistName,
+      artistEmail: b.artistEmail,
       startsAt: b.startsAt.toISOString(),
       durationMin: b.durationMin,
       packageName: b.packageNameSnapshot,
+      // bookings table doesn't carry priceCents (the price lives on
+      // the products table via productId). The Sheet review modal
+      // shows duration instead when price isn't available.
+      message: b.notes,
     }));
     upcomingMeetings = upcoming.map((b) => ({
       id: b.id,
@@ -62,7 +69,6 @@ export default async function CalendarPage({
       durationMin: b.durationMin,
       packageName: b.packageName,
     }));
-    meetingsAutoConfirm = settings.autoConfirmBookings;
   }
 
   let availabilityBlocks: AvailabilityBlock[] = [];
@@ -96,54 +102,47 @@ export default async function CalendarPage({
     };
   }
 
-  const headerMeta = META[active];
+  // Header counts mirror the design's "X upcoming · Y pending"
+  // subtitle on the Meetings tab. Availability tab shows a static
+  // helper sub-line per the existing META entry.
+  const subtitle =
+    active === "meetings"
+      ? `${String(upcomingMeetings.length)} upcoming · ${String(pendingMeetings.length)} pending`
+      : META[active].description;
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
-      <div className="sk-card-glow rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-5 sm:px-6 sm:py-6">
-        <header className="reveal-up mb-4">
-          <p className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Calendar
-          </p>
-          <h1
-            key={`title-${active}`}
-            className="reveal-up mt-1 font-display text-2xl leading-tight tracking-tight sm:text-3xl"
-            style={{ fontVariationSettings: '"opsz" 36' }}
-          >
-            {headerMeta.title}
-          </h1>
-          <p
-            key={`desc-${active}`}
-            className="reveal-up mt-1.5 max-w-xl text-xs text-[rgb(var(--fg-secondary))]"
-          >
-            {headerMeta.description}
-          </p>
-        </header>
+    <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
+      <header className="mb-5">
+        <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
+          Calendar
+          <span className="text-[rgb(var(--brand-primary))]">.</span>
+        </h1>
+        <p className="mt-1.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
+          {subtitle}
+        </p>
+      </header>
 
-        <CalendarTabs active={active} />
+      <CalendarTabs active={active} />
 
-        <div
-          key={active}
-          id={`calendar-panel-${active}`}
-          role="tabpanel"
-          aria-labelledby={`calendar-tab-${active}`}
-          className="reveal-up pt-4"
-        >
-          {active === "meetings" && (
-            <MeetingsPanel
-              pending={pendingMeetings}
-              upcoming={upcomingMeetings}
-              autoConfirm={meetingsAutoConfirm}
-            />
-          )}
-          {active === "availability" && (
-            <AvailabilitySection
-              blocks={availabilityBlocks}
-              blackouts={availabilityBlackouts}
-              settings={availabilitySettings}
-            />
-          )}
-        </div>
+      <div
+        key={active}
+        id={`calendar-panel-${active}`}
+        aria-labelledby={`calendar-tab-${active}`}
+        className="pt-5"
+      >
+        {active === "meetings" && (
+          <MeetingsScreen
+            pending={pendingMeetings}
+            upcoming={upcomingMeetings}
+          />
+        )}
+        {active === "availability" && (
+          <AvailabilitySection
+            blocks={availabilityBlocks}
+            blackouts={availabilityBlackouts}
+            settings={availabilitySettings}
+          />
+        )}
       </div>
     </div>
   );
