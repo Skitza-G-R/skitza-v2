@@ -3,6 +3,8 @@ import { auth } from "@clerk/nextjs/server";
 import { createDb, desc, eq, invoices, producers } from "@skitza/db";
 
 import { ProjectHeader } from "~/components/dashboard/project/project-header";
+import { ProjectRoomHero } from "~/components/dashboard/project/project-room-hero";
+import { ProjectStatStrip } from "~/components/dashboard/project/project-stat-strip";
 // Server-safe imports (pure types + type-guard) come from the
 // shared module; the UI-only `ProjectSubTabs` component stays in
 // the `"use client"` file. Importing the guard from the client
@@ -21,7 +23,6 @@ import {
   SessionsSubTab,
   type SessionBooking,
 } from "~/components/dashboard/project/sub-tabs/sessions-sub-tab";
-import { Breadcrumbs } from "~/components/ui/breadcrumbs";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { getStripe } from "~/server/stripe/client";
 
@@ -211,29 +212,45 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     finalDelivered: data.project.finalPaid,
   };
 
+  // 2026-05-06 redesign — slim hero shape sits above the existing
+  // ProjectHeader. The hero is purely cosmetic (back link, gradient,
+  // title, info row, "Play latest"); ProjectHeader keeps owning the
+  // stage select, action menu, tag editor, payment strip, and timeline
+  // so existing tests + flows aren't disturbed.
+  const heroProject = {
+    id: data.project.id,
+    title: data.project.title,
+    stage: data.project.stage,
+    artistName: data.project.clientName ?? data.project.artistName,
+    trackCount: data.tracks.length,
+    sessionCount: sessionBooking ? 1 : 0,
+    totalAmountCents: data.project.totalAmountCents,
+    currency: projectCurrency,
+    firstTrackId: data.tracks[0]?.id ?? null,
+  };
+
   return (
     <>
-      {/* The Project Room has the richest content surface in the
-          dashboard — ProjectHeader + 5-step timeline + payment strip
-          + sub-tabs that can render a waveform player, a comment
-          thread, and a money ledger simultaneously. 1600px (vs the
-          1400px default on Today/Projects/Music) reclaims roughly
-          one waveform-worth of horizontal breathing room on
-          ultra-wide 2560px+ displays without feeling stretched on
-          a 1280px MacBook Air. */}
+      {/* Full-bleed gradient hero — title, info row, Play latest */}
+      <ProjectRoomHero project={heroProject} />
+
+      {/* Centered body — stat strip + ProjectHeader (controls) + tabs */}
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
-        <Breadcrumbs
-          className="mb-3"
-          items={[
-            { label: "Clients & Projects", href: "/dashboard/clients-projects" },
-            { label: data.project.title },
-          ]}
+        <ProjectStatStrip
+          stage={data.project.stage}
+          nextSessionAt={sessionBooking?.startsAt ?? null}
+          outstandingCents={moneyForProject.outstandingCents}
+          currency={projectCurrency}
         />
-        <ProjectHeader
-          project={headerProject}
-          clientContact={clientContact}
-          tagVocabulary={tagVocabulary}
-        />
+
+        <div className="mt-5">
+          <ProjectHeader
+            project={headerProject}
+            clientContact={clientContact}
+            tagVocabulary={tagVocabulary}
+          />
+        </div>
+
         <div className="mt-6">
           <ProjectSubTabs activeTab={activeTab}>
             {activeTab === "overview" ? (

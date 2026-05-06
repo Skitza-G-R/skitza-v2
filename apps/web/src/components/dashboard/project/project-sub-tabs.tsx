@@ -35,12 +35,17 @@ export {
   type VisibleProjectSubTabId,
 };
 
+// 2026-05-06 design refresh: tab LABELS shifted to match the founder's
+// HTML mockup (Songs / Activity), but the internal IDs stay (`music`,
+// `notes`) so existing bookmarks, deep-links, and the URL surface keep
+// resolving. Renaming the IDs would be a breaking change with no UX
+// payoff.
 const TABS: { id: VisibleProjectSubTabId; label: string }[] = [
   { id: "overview", label: "Overview" },
-  { id: "music", label: "Music" },
+  { id: "music", label: "Songs" },
   { id: "sessions", label: "Sessions" },
   { id: "files", label: "Files" },
-  { id: "notes", label: "Notes" },
+  { id: "notes", label: "Activity" },
 ];
 
 export function ProjectSubTabs({

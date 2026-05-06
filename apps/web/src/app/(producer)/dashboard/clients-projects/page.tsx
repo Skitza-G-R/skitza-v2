@@ -2,7 +2,6 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { Button } from "~/components/ui/button";
 import {
   ClientsListScreen,
   type ClientsListRow,
@@ -14,16 +13,27 @@ import {
   type Stage,
 } from "~/components/dashboard/projects/projects-list";
 import { isProjectState, type ProjectState } from "~/lib/projects/states";
+import { formatMoney } from "~/lib/format/money";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { ClientsPageTabs } from "./clients-page-tabs";
 import { type ClientsTabKey, isClientsTab } from "./clients-tab-key";
 
-// Task 4 + Task 3 (tabs): the page now has two tabs — Clients and
-// Projects. The Projects tab preserves the existing browse view; the
-// Clients tab is a CRM list (one row per contact, expand for projects).
-// `?tab` is parsed first; default is "projects" for backward compat
-// (existing bookmarks / sidebar links land on the projects view).
+// /dashboard/clients-projects — producer's "Clients & Projects"
+// workspace. Two URL-driven tabs:
+//
+//   ?tab=projects (default)  → ProjectsList (one row per project,
+//     grouped by display state Live / Done / Archived).
+//   ?tab=clients             → ClientsListScreen (one card per
+//     contact with rolled-up stats).
+//
+// 2026-05-06 redesign — page header now matches the founder's HTML
+// mockup: "Clients & Projects" display title, rich subtitle (project
+// counts + outstanding total), and a context-aware "+ New" CTA whose
+// label changes with the active tab. Both views are sourced from
+// `clientContacts.listWithProjects` so the rows can render real
+// outstanding/lifetime/next-session numbers without a second fetch
+// from the client.
 
 type PageProps = {
   searchParams: Promise<{ tab?: string; state?: string }>;
@@ -37,7 +47,21 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const active: ClientsTabKey = isClientsTab(sp.tab) ? sp.tab : "projects";
 
-  let clientRows: ClientsListRow[] = [];
+  // Two parallel calls — one fold per view. Cheap (Neon HTTP, both
+  // producer-scoped, both indexed lookups) and lets the header show
+  // accurate counts for whichever tab isn't currently rendered.
+  const [projectsResult, clientsResult] = await Promise.all([
+    caller.clientContacts.listWithProjects({ view: "all-projects" }),
+    caller.clientContacts.listWithProjects({ view: "by-client" }),
+  ]);
+
+  // Group projects by stage for the ProjectsList client component.
+  // The state filter (?state=) is read here and threaded down so
+  // bookmarks like "?state=live" continue to work.
+  const activeState: ProjectState | null = isProjectState(sp.state)
+    ? sp.state
+    : null;
+
   const clientGrouped: GroupedProjects = {
     lead: [],
     booked: [],
@@ -46,92 +70,129 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     paid: [],
     archived: [],
   };
-  let activeState: ProjectState | null = null;
 
-  if (active === "clients") {
-    const res = await caller.clientContacts.listWithProjects({
-      view: "by-client",
-    });
-    if (res.view === "by-client") {
-      clientRows = res.clients.map((c) => ({
-        id: c.id,
-        email: c.email,
-        name: c.name,
-        totalProjectCount: c.totalProjectCount,
-        activeProjectCount: c.activeProjectCount,
-        outstandingCents: c.outstandingCents,
-        lifetimeCents: c.lifetimeCents,
-        // outstandingCents/lifetimeCents on the contact aggregate
-        // are summed across project rows without currency
-        // normalization. v1 treats every client as USD; per-client
-        // currency is deferred (see Phase 4 handoff).
-        currency: "USD",
-        needsAttention: c.needsAttention,
-        isStale: c.isStale,
-        lastActivityIso:
-          c.lastActivity instanceof Date
-            ? c.lastActivity.toISOString()
-            : new Date(c.lastActivity).toISOString(),
-      }));
-    }
-  } else {
-    const grouped = await caller.project.listByStage();
-    activeState = isProjectState(sp.state) ? sp.state : null;
-    for (const stage of Object.keys(clientGrouped) as Stage[]) {
-      clientGrouped[stage] = grouped[stage].map<ProjectRow>((p) => ({
+  let totalOutstandingCents = 0;
+  let activeProjectCount = 0;
+
+  if (projectsResult.view === "all-projects") {
+    for (const p of projectsResult.projects) {
+      // The Stage type on v3-clean is the full visible set already
+      // (lead / booked / in_production / final_review / paid / archived);
+      // no runtime narrowing needed.
+      const stage: Stage = p.stage;
+      const updatedAt = p.updatedAt instanceof Date ? p.updatedAt : new Date(p.updatedAt);
+      const row: ProjectRow = {
         id: p.id,
         title: p.title,
-        artistName: p.artistName,
-        stage: p.stage,
-        updatedAtIso: p.updatedAt.toISOString(),
-      }));
+        artistName: p.client.name,
+        stage,
+        updatedAtIso: updatedAt.toISOString(),
+        outstandingCents: p.outstandingCents,
+        nextSessionAtIso: p.nextSessionAt?.toISOString() ?? null,
+        unresolvedComments: p.unresolvedComments,
+        currency: p.currency,
+      };
+      clientGrouped[stage].push(row);
+      totalOutstandingCents += p.outstandingCents;
+      if (p.isActive) activeProjectCount += 1;
     }
   }
 
-  // Header counts: clients tab shows total + active. Projects tab
-  // shows total projects across stages. Both render the design's
-  // "X total · Y active" count line under the title.
-  const headerCounts =
-    active === "clients"
-      ? `${String(clientRows.length)} total · ${String(
-          clientRows.filter((r) => !r.isStale).length,
-        )} active`
-      : `${String(
-          Object.values(clientGrouped).reduce((sum, list) => sum + list.length, 0),
-        )} projects across stages`;
+  const clientRows: ClientsListRow[] =
+    clientsResult.view === "by-client"
+      ? clientsResult.clients.map((c) => {
+          const last =
+            c.lastActivity instanceof Date
+              ? c.lastActivity
+              : new Date(c.lastActivity);
+          return {
+            id: c.id,
+            email: c.email,
+            name: c.name,
+            totalProjectCount: c.totalProjectCount,
+            activeProjectCount: c.activeProjectCount,
+            outstandingCents: c.outstandingCents,
+            lifetimeCents: c.lifetimeCents,
+            // outstandingCents/lifetimeCents on the contact aggregate
+            // are summed across project rows without currency
+            // normalization. v1 treats every client as USD; per-client
+            // currency is deferred (see Phase 4 handoff).
+            currency: "USD",
+            needsAttention: c.needsAttention,
+            isStale: c.isStale,
+            lastActivityIso: last.toISOString(),
+          };
+        })
+      : [];
+
+  const totalProjectCount = Object.values(clientGrouped).reduce(
+    (sum, list) => sum + list.length,
+    0,
+  );
+
+  // Display currency for the "$X outstanding" tagline. Picks the
+  // most-common currency across the producer's projects to avoid a
+  // per-row currency lookup; falls back to USD when there's nothing.
+  const displayCurrency = pickDominantCurrency(clientGrouped, "USD");
+
+  // CTA destination + label switch on the active tab. Today both go
+  // to the new-project flow because the new-client surface doesn't
+  // exist yet — that's a fast-follow.
+  const ctaHref = "/dashboard/clients-projects/new";
+  const ctaLabel = active === "clients" ? "+ New client" : "+ New project";
 
   return (
     <>
       <div className="relative isolate">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[300px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
         />
-        {/* Mobile: full-bleed. Desktop (lg+): cap at max-w-4xl so a
-            list of client rows reads at a comfortable column width
-            instead of sprawling across an ultrawide canvas. The
-            master-detail pattern (list left, drill-down right) is
-            held back for after the Raz pattern review — Phase 4 does
-            not commit to a multi-column layout for the inner panels
-            until Raz signs off on the desktop direction. */}
-        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8 lg:max-w-4xl lg:pt-10">
-          {/* Phase 4 header — locked design's title-with-amber-period
-              + counts subtitle. The "+ New project" CTA stays as a
-              right-aligned anchor at the same row as the title so
-              touch users can reach it without a long scroll. */}
-          <header className="flex items-start justify-between gap-4">
+        <div className="sk-page-enter mx-auto max-w-[1400px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
+          {/* HTML-mockup header — display title, rich subtitle with
+              counts + outstanding, context-aware CTA. */}
+          <header className="flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
-                Clients
-                <span className="text-[rgb(var(--brand-primary))]">.</span>
+              <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+                Workspace
+              </p>
+              <h1 className="mt-2 font-display text-4xl font-extrabold tracking-tight text-[rgb(var(--fg-default))] sm:text-5xl">
+                Clients &amp; Projects
               </h1>
-              <p className="mt-1.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
-                {headerCounts}
+              <p className="mt-2 text-[13px] text-[rgb(var(--fg-muted))]">
+                <span className="sk-num font-mono tabular-nums">
+                  {totalProjectCount.toString()}
+                </span>{" "}
+                project{totalProjectCount === 1 ? "" : "s"} ·{" "}
+                <span className="sk-num font-mono tabular-nums">
+                  {activeProjectCount.toString()}
+                </span>{" "}
+                active ·{" "}
+                <span className="sk-num font-mono tabular-nums">
+                  {clientRows.length.toString()}
+                </span>{" "}
+                client{clientRows.length === 1 ? "" : "s"}
+                {totalOutstandingCents > 0 ? (
+                  <>
+                    {" "}
+                    ·{" "}
+                    <span
+                      className="sk-num font-mono font-bold tabular-nums"
+                      style={{ color: "rgb(var(--fg-danger))" }}
+                    >
+                      {formatMoney(totalOutstandingCents, displayCurrency)}
+                    </span>{" "}
+                    outstanding
+                  </>
+                ) : null}
               </p>
             </div>
-            <Button asChild className="shrink-0">
-              <Link href="/dashboard/clients-projects/new">+ New project</Link>
-            </Button>
+            <Link
+              href={ctaHref}
+              className="sk-pop inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--bg-base))] shadow-sm transition-transform hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
+            >
+              {ctaLabel}
+            </Link>
           </header>
 
           <div className="mt-5">
@@ -154,4 +215,26 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
       </div>
     </>
   );
+}
+
+function pickDominantCurrency(
+  grouped: GroupedProjects,
+  fallback: string,
+): string {
+  const counts = new Map<string, number>();
+  for (const list of Object.values(grouped)) {
+    for (const r of list) {
+      const c = r.currency ?? fallback;
+      counts.set(c, (counts.get(c) ?? 0) + 1);
+    }
+  }
+  let best = fallback;
+  let bestN = 0;
+  for (const [c, n] of counts) {
+    if (n > bestN) {
+      best = c;
+      bestN = n;
+    }
+  }
+  return best;
 }
