@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { PersistentPlayer } from "~/components/audio/persistent-player";
 import { ProducerBottomNav } from "~/components/nav/producer-bottom-nav";
 import { ProducerSidebar } from "~/components/nav/producer-sidebar";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { getShellState } from "~/server/shell-data";
 
 import { CoachmarkTour } from "./coachmark-tour";
@@ -43,12 +44,11 @@ import { ShortcutsBridge } from "./shortcuts-bridge";
 export async function AppShell({ children }: { children: ReactNode }) {
   const { slug, unreadCount, unreadItems } = await getShellState();
   // Public origin used by the SidebarShareChip to render the
-  // /join/<slug> URL. Same fallback chain as before — not redefined
-  // because Phase 2 is chrome-only.
-  const publicBaseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.SITE_URL ??
-    "https://skitza.app";
+  // /join/<slug> URL. Always the canonical brand origin — share links
+  // land in producer bios + socials, so they must always read as
+  // `skitza.app/join/<slug>`, regardless of which deployment generated
+  // them. See `lib/share/public-url` for the rationale.
+  const publicBaseUrl = PUBLIC_BRAND_ORIGIN;
 
   return (
     <div

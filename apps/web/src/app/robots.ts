@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-const BASE = process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
+const BASE = process.env.SITE_URL ?? "https://skitza.app";
 
 // Crawl policy:
 // * / , /about, /privacy, /terms, /changelog, /sign-up, /sign-in are

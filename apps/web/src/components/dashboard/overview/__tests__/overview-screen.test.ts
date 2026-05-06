@@ -104,8 +104,11 @@ describe("OverviewScreen — design-aligned hierarchy", () => {
 
   it("imports the new slug + recentUploads contract on the props type", () => {
     expect(overviewSource).toMatch(/slug:\s*string\s*\|\s*null;/);
-    expect(overviewSource).toMatch(/publicBaseUrl:\s*string;/);
     expect(overviewSource).toMatch(/recentUploads:\s*Array</);
+    // 2026-05-06: `publicBaseUrl` removed — PublicLinkStrip now reads
+    // the canonical brand origin from `~/lib/share/public-url`, so
+    // OverviewScreen no longer threads the env-driven origin through.
+    expect(overviewSource).not.toMatch(/publicBaseUrl:\s*string;/);
   });
 
   it("does NOT use Tailwind color literals (bg-blue-500, text-red-600, etc)", () => {
@@ -147,15 +150,29 @@ describe("PublicLinkStrip — dark hero card", () => {
     expect(linkStripSource).toContain("bg-[rgb(var(--fg-success))]");
   });
 
-  it("constructs the URL by joining publicBaseUrl + '/p/<slug>'", () => {
-    // Future regression: someone refactors and accidentally drops the
-    // /p/ namespace. Pin the path explicitly.
-    expect(linkStripSource).toContain("`${base}/p/${slug}`");
+  it("constructs the URL via buildJoinUrl from ~/lib/share/public-url", () => {
+    // 2026-05-06: the prior version pinned `${base}/p/${slug}` — that
+    // path is the deprecated /p/ route (PRD §6.6 / Story 03 deletion)
+    // which 404s. The strip's "Copy" button was therefore copying a
+    // broken URL on every producer's dashboard. Pin the canonical
+    // helper now so a future refactor can't reintroduce either bug
+    // (wrong path OR env-driven base URL).
+    expect(linkStripSource).toContain("buildJoinUrl(slug)");
+    expect(linkStripSource).toContain('from "~/lib/share/public-url"');
   });
 
-  it("strips a trailing slash from publicBaseUrl before constructing the URL", () => {
-    // Otherwise we'd emit `https://skitza.app//p/<slug>`.
-    expect(linkStripSource).toContain('publicBaseUrl.replace(/\\/$/, "")');
+  it("does NOT reference the deprecated /p/ path", () => {
+    // /p/<slug> was removed in Story 03 (PRD §6.6). Pin so a redesign
+    // that re-derives the link from a layout file can't regress here.
+    expect(linkStripSource).not.toMatch(/\/p\/\$\{/);
+  });
+
+  it("does NOT thread an env-driven publicBaseUrl prop anymore", () => {
+    // Producer share links must be brand-canonical regardless of the
+    // deployment env (NEXT_PUBLIC_SITE_URL / SITE_URL might point at
+    // a Vercel preview host in misconfigured envs). The component
+    // reads the canonical origin directly from the helper module.
+    expect(linkStripSource).not.toContain("publicBaseUrl: string");
   });
 
   it("does NOT use Tailwind color literals", () => {

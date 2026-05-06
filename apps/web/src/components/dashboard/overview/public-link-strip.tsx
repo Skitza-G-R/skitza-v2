@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 
+import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
+
 // Public Link Strip — the dark "hero" card on the producer Overview.
 // Mirrors the locked design (notes/producer-screens.jsx :: OverviewTab,
 // `LinkBlock` block): dark sidebar-tinted card, amber link icon in a
-// subtle ring, eyebrow + subtitle on the left, mono `skitza.app/p/<slug>`
+// subtle ring, eyebrow + subtitle on the left, mono `skitza.app/join/<slug>`
 // pill + Copy button on the right.
 //
 // Behavior: clicking Copy writes the full public URL to the clipboard
@@ -19,20 +21,24 @@ import { useState } from "react";
 // `slug` — the producer's chosen handle. We don't render this strip
 // when the slug is null (the Day-1 empty branch handles that case).
 //
-// `publicBaseUrl` — passed in from the server so the URL stays correct
-// across env (preview / prod). Falls back to `https://skitza.app`.
+// URL: always the canonical brand origin + /join/<slug>. Pre-2026-05-06
+// this took a `publicBaseUrl` prop (env-driven) AND used the deprecated
+// `/p/<slug>` path — both bugs fixed at once by routing through
+// `~/lib/share/public-url`. The `publicBaseUrl` prop is removed because
+// the URL must NOT depend on deployment env (it's brand-canonical).
 
 interface PublicLinkStripProps {
   slug: string;
-  publicBaseUrl: string;
 }
 
-export function PublicLinkStrip({ slug, publicBaseUrl }: PublicLinkStripProps) {
+export function PublicLinkStrip({ slug }: PublicLinkStripProps) {
   const [copied, setCopied] = useState(false);
 
-  // Strip trailing slash so we never emit `https://skitza.app//p/<slug>`.
-  const base = publicBaseUrl.replace(/\/$/, "");
-  const fullUrl = `${base}/p/${slug}`;
+  // Canonical brand origin + /join/<slug>. Always skitza.app/join/<slug>
+  // — never the preview host, never the deprecated /p/ path.
+  const fullUrl = buildJoinUrl(slug);
+  // Display form: drop the scheme so the pill reads `skitza.app/join/`.
+  const displayBase = PUBLIC_BRAND_ORIGIN.replace(/^https?:\/\//, "");
 
   const onCopy = () => {
     // `navigator.clipboard` is gated on a secure context (HTTPS or
@@ -79,7 +85,7 @@ export function PublicLinkStrip({ slug, publicBaseUrl }: PublicLinkStripProps) {
         </div>
         <div className="flex shrink-0 items-center gap-2 rounded-[var(--radius-md)] border border-white/10 bg-white/5 p-1.5">
           <span className="px-3 font-mono text-[13.5px] font-medium">
-            <span className="text-white/30">{base.replace(/^https?:\/\//, "")}/p/</span>
+            <span className="text-white/30">{displayBase}/join/</span>
             <span className="text-white">{slug}</span>
           </span>
           <button

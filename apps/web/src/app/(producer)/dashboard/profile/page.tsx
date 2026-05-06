@@ -7,6 +7,7 @@ import {
   type StorefrontProduct,
 } from "~/components/dashboard/storefront/storefront-screen";
 import type { PortfolioTrackRow } from "~/components/dashboard/setup/portfolio-section";
+import { buildJoinUrl } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { ProfileTabs } from "./profile-tabs";
@@ -85,13 +86,7 @@ export default async function ProfilePage({
       planLabel: derivePlanLabel(p.paymentPlans),
     }));
 
-    const publicBase =
-      process.env.NEXT_PUBLIC_SITE_URL ??
-      process.env.SITE_URL ??
-      "https://skitza.app";
-    storefrontPublicUrl = profile.slug
-      ? `${publicBase.replace(/\/$/, "")}/p/${profile.slug}`
-      : null;
+    storefrontPublicUrl = profile.slug ? buildJoinUrl(profile.slug) : null;
     storefrontProducerName = profile.displayName;
     storefrontProducerSlug = profile.slug;
   }

@@ -40,8 +40,6 @@ export interface OverviewScreenProps {
   displayName: string | null;
   /** Producer's chosen public slug (null until they pick one). */
   slug: string | null;
-  /** Public origin used to build the share URL. */
-  publicBaseUrl: string;
   pulseStats: {
     thisMonthCents: number;
     currency: string;
@@ -109,7 +107,6 @@ export interface OverviewScreenProps {
 export function OverviewScreen({
   displayName,
   slug,
-  publicBaseUrl,
   pulseStats,
   pendingApprovals,
   todaySession,
@@ -154,7 +151,7 @@ export function OverviewScreen({
           branch upstream owns the "set your slug" path. */}
       {slug ? (
         <div className="reveal-up reveal-up-delay-1">
-          <PublicLinkStrip slug={slug} publicBaseUrl={publicBaseUrl} />
+          <PublicLinkStrip slug={slug} />
         </div>
       ) : null}
 

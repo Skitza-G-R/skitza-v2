@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardEmptyOnboarding } from "~/components/dashboard/today/empty-onboarding";
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
@@ -69,12 +70,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   );
 
   // Public origin used by DashboardEmptyOnboarding to render the
-  // /join/<slug> URL. Fallback chain matches getSiteUrl() over in
-  // server/stripe/client.ts.
-  const publicBaseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.SITE_URL ??
-    "https://skitza.app";
+  // /join/<slug> URL. Always the canonical brand origin — share links
+  // land in producer bios + socials, so they must always read as
+  // `skitza.app/join/<slug>`. See `lib/share/public-url`.
+  const publicBaseUrl = PUBLIC_BRAND_ORIGIN;
 
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
@@ -195,7 +194,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             <OverviewScreen
               displayName={me.displayName}
               slug={me.slug}
-              publicBaseUrl={publicBaseUrl}
               pulseStats={today.pulseStats}
               pendingApprovals={pendingApprovals}
               todaySession={todaySession}
