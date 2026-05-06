@@ -23,6 +23,12 @@ import { useMemo } from "react";
 import { Button } from "~/components/ui/button";
 import { fmtDateTime, formatRelativeTime } from "~/lib/time/relative";
 
+import {
+  buildOverviewTimeline,
+  computeLastActivity,
+  type OverviewTimelineEvent,
+} from "./overview-helpers";
+
 // ─── Public prop shape ───────────────────────────────────────────────
 
 export interface OverviewMoney {
@@ -85,17 +91,13 @@ export function OverviewSubTab({
 }) {
   // Last activity timestamp — the most recent of project.updatedAt,
   // any version uploaded, any comment posted. Used for the relative
-  // "Last activity" copy in the stat strip.
-  const lastActivity = useMemo(() => {
-    let latest = project.updatedAt;
-    for (const v of versions) {
-      if (v.uploadedAt > latest) latest = v.uploadedAt;
-    }
-    for (const c of comments) {
-      if (c.createdAt > latest) latest = c.createdAt;
-    }
-    return latest;
-  }, [project.updatedAt, versions, comments]);
+  // "Last activity" copy in the stat strip. Pure helper lives in
+  // ./overview-helpers so the data-shaping is unit-tested without
+  // mounting React.
+  const lastActivity = useMemo(
+    () => computeLastActivity(project.updatedAt, versions, comments),
+    [project.updatedAt, versions, comments],
+  );
 
   return (
     <section
@@ -303,16 +305,6 @@ function MetaCard({
 
 // ─── Activity timeline (last 6 events) ───────────────────────────────
 
-type TimelineEvent =
-  | { kind: "created"; at: Date; title: string }
-  | { kind: "session"; at: Date; status: string }
-  | { kind: "track"; at: Date; trackTitle: string }
-  | { kind: "version"; at: Date; trackId: string; label: string }
-  | { kind: "comment"; at: Date; authorName: string; fromProducer: boolean; body: string }
-  | { kind: "paid"; at: Date };
-
-const MAX_EVENTS = 6;
-
 function ActivityTimeline({
   session,
   tracks,
@@ -328,46 +320,27 @@ function ActivityTimeline({
   finalPaid: boolean;
   createdAt: Date;
 }) {
-  const events: TimelineEvent[] = useMemo(() => {
-    const out: TimelineEvent[] = [];
-    out.push({ kind: "created", at: createdAt, title: "Project created" });
-    if (session) {
-      out.push({ kind: "session", at: session.startsAt, status: session.status });
-    }
-    for (const t of tracks) {
-      out.push({ kind: "track", at: t.createdAt, trackTitle: t.title });
-    }
-    for (const v of versions) {
-      out.push({
-        kind: "version",
-        at: v.uploadedAt,
-        trackId: v.trackId,
-        label: v.label,
-      });
-    }
-    for (const c of comments) {
-      out.push({
-        kind: "comment",
-        at: c.createdAt,
-        authorName: c.authorName,
-        fromProducer: c.fromProducer,
-        body: c.body,
-      });
-    }
-    if (finalPaid) {
-      // We don't have a real paid-at timestamp here — fall back to the
-      // most recent activity timestamp as a reasonable surrogate. The
-      // canonical ledger lives in invoices/Stripe; this is a hint, not
-      // a source of truth.
-      const fallback =
-        out.length > 0
-          ? new Date(Math.max(...out.map((e) => e.at.valueOf())))
-          : createdAt;
-      out.push({ kind: "paid", at: fallback });
-    }
-    out.sort((a, b) => b.at.valueOf() - a.at.valueOf());
-    return out.slice(0, MAX_EVENTS);
-  }, [session, tracks, versions, comments, finalPaid, createdAt]);
+  const events: OverviewTimelineEvent[] = useMemo(
+    () =>
+      buildOverviewTimeline({
+        createdAt,
+        finalPaid,
+        session: session ? { startsAt: session.startsAt, status: session.status } : null,
+        tracks: tracks.map((t) => ({ createdAt: t.createdAt, title: t.title })),
+        versions: versions.map((v) => ({
+          uploadedAt: v.uploadedAt,
+          trackId: v.trackId,
+          label: v.label,
+        })),
+        comments: comments.map((c) => ({
+          createdAt: c.createdAt,
+          authorName: c.authorName,
+          fromProducer: c.fromProducer,
+          body: c.body,
+        })),
+      }),
+    [session, tracks, versions, comments, finalPaid, createdAt],
+  );
 
   if (events.length === 0) {
     return (
@@ -398,7 +371,7 @@ function ActivityTimeline({
   );
 }
 
-function EventIcon({ kind }: { kind: TimelineEvent["kind"] }) {
+function EventIcon({ kind }: { kind: OverviewTimelineEvent["kind"] }) {
   const tone =
     kind === "paid"
       ? "rgb(var(--brand-primary))"
@@ -414,7 +387,7 @@ function EventIcon({ kind }: { kind: TimelineEvent["kind"] }) {
   );
 }
 
-function EventBody({ event }: { event: TimelineEvent }) {
+function EventBody({ event }: { event: OverviewTimelineEvent }) {
   if (event.kind === "created") {
     return (
       <p className="text-sm text-[rgb(var(--fg-primary))]">
