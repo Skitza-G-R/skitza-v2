@@ -23,6 +23,19 @@ export interface WaveformPlayerHandle {
   getCurrentTime: () => number;
 }
 
+/**
+ * Comment marker shown as a tick above the waveform. `tMs` is in
+ * milliseconds — same shape `library.detail.comments` returns.
+ * Clicking the tick seeks the player to that timestamp.
+ */
+export interface WaveformCommentMarker {
+  id: string;
+  /** Timestamp on the track, in milliseconds. */
+  tMs: number;
+  /** True for producer comments (amber dot), false for artist (cream). */
+  fromProducer: boolean;
+}
+
 // Visual waveform player for project-room playback (dashboard + share).
 //
 // Why waveforms here and not on the portfolio: project rooms render a
@@ -33,6 +46,14 @@ export interface WaveformPlayerHandle {
 //
 // This component mirrors TrackPlayer's button aesthetics (brand-primary
 // bg, play/pause SVGs, spinner on load) so the two feel like a family.
+//
+// Phase 4 added four optional props to support the L3 Song Page in the
+// producer Music tab (per `notes/producer-screens-2.jsx` TrackDetail):
+//   - `comments` — clickable tick markers above the waveform
+//   - `dark` — flips palette for a `bg-sidebar` dock surface
+//   - `showTime` — anchors a JetBrains Mono tooltip to the playhead
+//   - playhead tooltip — implicit when `showTime` is set
+// The existing imperative ref API is unchanged.
 
 interface WaveformPlayerProps {
   src: string;
@@ -50,13 +71,43 @@ interface WaveformPlayerProps {
    * to the primary interaction surface, Samply-style.
    */
   height?: number;
+  /**
+   * Optional comment markers rendered as small ticks anchored over
+   * the waveform. Clicking a tick seeks the player to that timestamp
+   * (and fires `onSeek`). Producer comments render in `--brand-primary`
+   * (amber); artist comments in `--fg-onsidebar` on dark / `--fg-muted`
+   * on light.
+   */
+  comments?: WaveformCommentMarker[];
+  /**
+   * Flip the waveform palette to dark-on-dark (`bg-sidebar` surface,
+   * cream wave colour at 18% alpha). Used by the L3 Song Page where
+   * the waveform sits inside a dark hero dock.
+   */
+  dark?: boolean;
+  /**
+   * Render a JetBrains Mono tooltip pinned to the playhead, showing
+   * the live current-time. The static time labels below the waveform
+   * remain visible regardless. Default: false.
+   */
+  showTime?: boolean;
 }
 
 export const WaveformPlayer = forwardRef<
   WaveformPlayerHandle,
   WaveformPlayerProps
 >(function WaveformPlayer(
-  { src, label, onReady, onSeek, className, height = 80 },
+  {
+    src,
+    label,
+    onReady,
+    onSeek,
+    className,
+    height = 80,
+    comments,
+    dark = false,
+    showTime = false,
+  },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -108,6 +159,7 @@ export const WaveformPlayer = forwardRef<
     const accent = styles.getPropertyValue("--brand-accent").trim() || "176 104 48";
     const primary = styles.getPropertyValue("--brand-primary").trim() || "212 150 10";
     const fgPrimary = styles.getPropertyValue("--fg-primary").trim() || "26 23 20";
+    const fgInverse = styles.getPropertyValue("--fg-inverse").trim() || "242 237 230";
 
     setReady(false);
     setPlaying(false);
@@ -115,12 +167,22 @@ export const WaveformPlayer = forwardRef<
     setDuration(null);
     setError(null);
 
+    // Dark mode: cream waves at low alpha, amber progress, cream cursor
+    // — reads as the L3 Song Page hero dock. Light mode: copper waves
+    // at 35%, amber progress, near-black cursor (the existing palette).
+    const waveColor = dark
+      ? `rgba(${fgInverse.replaceAll(" ", ", ")}, 0.18)`
+      : `rgba(${accent.replaceAll(" ", ", ")}, 0.35)`;
+    const cursorColor = dark
+      ? `rgb(${fgInverse.replaceAll(" ", ", ")})`
+      : `rgb(${fgPrimary.replaceAll(" ", ", ")})`;
+
     const ws = WaveSurfer.create({
       container,
       height,
-      waveColor: `rgba(${accent.replaceAll(" ", ", ")}, 0.35)`,
+      waveColor,
       progressColor: `rgb(${primary.replaceAll(" ", ", ")})`,
-      cursorColor: `rgb(${fgPrimary.replaceAll(" ", ", ")})`,
+      cursorColor,
       cursorWidth: 1,
       barWidth: 2,
       barRadius: 1,
@@ -166,18 +228,35 @@ export const WaveformPlayer = forwardRef<
       ws.destroy();
       wsRef.current = null;
     };
-    // height is a visual prop only — wavesurfer picks it up on
-    // construction, so changing height needs a re-mount of the
-    // instance (no getter/setter in v7). Including it here keeps
-    // the promotion from 80→320 cleanly handled when the active
-    // version switches.
-  }, [src, height]);
+    // height + dark are visual props only — wavesurfer picks them up
+    // on construction, so changing either needs a re-mount of the
+    // instance (no getter/setter in v7). Including them here keeps
+    // both the promotion from 80→320 (active version switches) and
+    // the dark/light flip cleanly handled.
+  }, [src, height, dark]);
 
   const toggle = useCallback(() => {
     const ws = wsRef.current;
     if (!ws || !ready) return;
     void ws.playPause();
   }, [ready]);
+
+  // Programmatic seek used by comment-marker clicks. Wavesurfer v7's
+  // `setTime(seconds)` jumps without affecting play/pause state. We
+  // also forward the new time to onSeek so the parent (e.g. the
+  // comments thread) can scroll the matching comment into view.
+  const seekToSec = useCallback(
+    (sec: number) => {
+      const ws = wsRef.current;
+      if (!ws || !ready) return;
+      ws.setTime(sec);
+      onSeekRef.current?.(sec);
+    },
+    [ready],
+  );
+
+  // Playhead percentage for the tooltip overlay (showTime).
+  const progressPct = duration && duration > 0 ? (current / duration) * 100 : 0;
 
   // Space toggles play/pause when the button is focused (mirrors the
   // behaviour of TrackPlayer). We swallow the default so the page doesn't
@@ -220,19 +299,88 @@ export const WaveformPlayer = forwardRef<
       </button>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="relative w-full">
+          <div
+            ref={containerRef}
+            aria-label={label ?? "Audio track waveform"}
+            className={[
+              "relative w-full rounded-sm",
+              // Placeholder shimmer while decoding — wavesurfer itself paints
+              // nothing until "ready", so without this the user sees a blank
+              // gap and wonders if the upload is broken.
+              !ready && !error
+                ? dark
+                  ? "animate-pulse bg-[rgb(var(--fg-onsidebar)/0.08)]"
+                  : "animate-pulse bg-[rgb(var(--bg-sunken))]"
+                : "",
+            ].join(" ")}
+            style={{ height, touchAction: "none" }}
+          />
+
+          {/* Comment markers — clickable ticks anchored over the
+              waveform. Producer comments render in amber, artist in
+              cream-on-dark / muted-on-light. Each tick is a 12px-wide
+              tap target sitting above the waveform top edge so it
+              doesn't obscure the wave bars. */}
+          {comments && comments.length > 0 && duration && duration > 0 ? (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 -top-1 h-2"
+            >
+              {comments.map((c) => {
+                const pct = (c.tMs / 1000 / duration) * 100;
+                if (pct < 0 || pct > 100) return null;
+                const tone = c.fromProducer
+                  ? "bg-[rgb(var(--brand-primary))]"
+                  : dark
+                    ? "bg-[rgb(var(--fg-onsidebar)/0.7)]"
+                    : "bg-[rgb(var(--fg-muted))]";
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      seekToSec((c.tMs / 1000));
+                    }}
+                    aria-label={`Jump to ${formatTime(c.tMs / 1000)}`}
+                    className={[
+                      "sk-press pointer-events-auto absolute -translate-x-1/2 rounded-full",
+                      "h-2 w-1.5",
+                      tone,
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]",
+                    ].join(" ")}
+                    style={{ left: `${pct.toFixed(2)}%` }}
+                  />
+                );
+              })}
+            </div>
+          ) : null}
+
+          {/* Playhead tooltip — pinned to the live progress %. The
+              tooltip itself doesn't move the playhead (the wavesurfer
+              cursor still owns that). It's a quiet floating chip
+              that surfaces the current time without forcing the user
+              to look at the corner labels. Visible only when
+              `showTime` is set, and only after `ready`. */}
+          {showTime && ready && duration && duration > 0 ? (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -top-7 -translate-x-1/2 rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sidebar))] px-1.5 py-0.5 font-mono text-[0.66rem] font-semibold leading-tight text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-sm)] tabular-nums"
+              style={{ left: `${progressPct.toFixed(2)}%` }}
+            >
+              {formatTime(current)}
+            </div>
+          ) : null}
+        </div>
+
         <div
-          ref={containerRef}
-          aria-label={label ?? "Audio track waveform"}
           className={[
-            "relative w-full rounded-sm",
-            // Placeholder shimmer while decoding — wavesurfer itself paints
-            // nothing until "ready", so without this the user sees a blank
-            // gap and wonders if the upload is broken.
-            !ready && !error ? "animate-pulse bg-[rgb(var(--bg-sunken))]" : "",
+            "flex items-center justify-between font-mono text-[0.66rem] tracking-wide tabular-nums",
+            dark
+              ? "text-[rgb(var(--fg-onsidebar)/0.6)]"
+              : "text-[rgb(var(--fg-muted))]",
           ].join(" ")}
-          style={{ height, touchAction: "none" }}
-        />
-        <div className="flex items-center justify-between font-mono text-[0.66rem] tracking-wide text-[rgb(var(--fg-muted))]">
+        >
           <span>{formatTime(current)}</span>
           {error ? (
             <span role="alert" className="text-[rgb(var(--fg-danger))]">
