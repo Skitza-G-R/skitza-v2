@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { PersistentPlayer } from "~/components/audio/persistent-player";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { getShellState } from "~/server/shell-data";
 
 import { CoachmarkTour } from "./coachmark-tour";
@@ -34,13 +35,11 @@ import { Sidebar } from "./sidebar";
 export async function AppShell({ children }: { children: ReactNode }) {
   const { slug, unreadCount, unreadItems } = await getShellState();
   // Public origin used by the SidebarShareChip to render the
-  // /join/<slug> URL. Same fallback chain as the Today page hero
-  // ShareLinkCard before Story 05 relocated the surface — keep it
-  // here in the shell so every authenticated page renders the chip.
-  const publicBaseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.SITE_URL ??
-    "https://skitza.app";
+  // /join/<slug> URL. Always the canonical brand origin — share
+  // links land in producer bios + socials, so they must always
+  // read as `skitza.app/join/<slug>`, regardless of which deployment
+  // generated them. See `lib/share/public-url` for the rationale.
+  const publicBaseUrl = PUBLIC_BRAND_ORIGIN;
   return (
     <div className="flex min-h-dvh bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
       {/* Skip-to-content link — only visible on keyboard focus (sr-only

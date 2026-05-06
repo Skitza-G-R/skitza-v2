@@ -24,5 +24,7 @@ export const FROM_ADDRESS =
 
 // Hint for templates that want to drop in a bare host. Pulled from the
 // existing SITE_URL env to stay consistent with the magic-link surface.
+// Default falls back to the canonical brand origin so misconfigured
+// envs still send producers + artists to the right host.
 export const SITE_URL =
-  process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app";
+  process.env.SITE_URL ?? "https://skitza.app";

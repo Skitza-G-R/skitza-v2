@@ -8,6 +8,7 @@ import { InboxSection } from "~/components/dashboard/today/inbox-section";
 import type { TodayListItem } from "~/components/dashboard/today/today-list";
 import { PulseCard } from "~/components/dashboard/today/pulse-card";
 import { RecentUploadsShelf } from "~/components/dashboard/today/recent-uploads-shelf";
+import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
@@ -69,12 +70,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   ]);
 
   // Public origin used by DashboardEmptyOnboarding to render the
-  // /join/<slug> URL. Fallback chain matches getSiteUrl() over in
-  // server/stripe/client.ts.
-  const publicBaseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.SITE_URL ??
-    "https://skitza.app";
+  // /join/<slug> URL. Always the canonical brand origin — share
+  // links land in producer bios + socials, so they must always
+  // read as `skitza.app/join/<slug>`. See `lib/share/public-url`.
+  const publicBaseUrl = PUBLIC_BRAND_ORIGIN;
 
   // Active projects count — drives the send-invoice fallback in
   // ContextualActions. The pulseStats payload is the canonical
@@ -85,9 +84,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // Full share URL — used by ContextualActions' share-link fallback.
   // Null when the producer hasn't picked a slug, in which case
   // ContextualActions surfaces the set-slug CTA instead.
-  const shareUrl = me.slug
-    ? `${publicBaseUrl.replace(/\/$/, "")}/join/${me.slug}`
-    : null;
+  const shareUrl = me.slug ? buildJoinUrl(me.slug) : null;
 
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
