@@ -526,34 +526,43 @@ function ProductMenu({
         </div>
       ) : null}
       {editing ? (
-        // Backdrop: full-viewport scroll container. Keep `overflow-y-auto`
-        // here so vertical scroll never escapes the modal into the page
-        // beneath it. Click → close (the inner div stops propagation).
+        // Bounded-panel modal. The earlier "outer scrolls, content
+        // centers" pattern broke down because (a) `<input autoFocus>`
+        // on Service Name fired during mount and the browser scrolled
+        // the nearest ancestor to bring the input into view, and (b)
+        // `items-center` on a flex container that grew with a tall
+        // form left the top of the form above the scroll origin — the
+        // user opened the modal already mid-form. The robust fix is
+        // to NEVER let the panel exceed the viewport: cap height
+        // (90vh on phones / 100vh-3rem on desktop), put internal
+        // scroll INSIDE the panel. The panel always fits, the top
+        // (Service Name) is always the first thing visible, and the
+        // producer scrolls within the panel to reach Save at the
+        // bottom. On <sm we anchor to the bottom edge (sheet style)
+        // because centering a tall sheet on a phone wastes the
+        // valuable thumb-zone real estate.
         <div
           role="dialog"
           aria-modal="true"
           aria-label={`Edit ${product.name}`}
-          className="fixed inset-0 z-40 overflow-y-auto bg-black/60"
+          className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 sm:items-center sm:p-6"
           onClick={() => {
             setEditing(false);
           }}
         >
-          {/* Inner flex container with `min-h-full` is the centering
-              fix: if the form is shorter than the viewport, items-center
-              stacks it in the middle as expected; if it's taller, the
-              flex container grows with the content (because min-h-full
-              pegs its minimum to the parent's height) and the outer
-              backdrop's overflow-y-auto handles the scroll. Without
-              min-h-full, items-center on a 100vh parent + a >100vh form
-              hides the top of the form above the scroll region — the
-              "kebab Edit modal cuts off the top" regression. */}
-          <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-              className="w-full max-w-2xl"
-            >
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[var(--radius-xl)] shadow-2xl sm:max-h-[calc(100vh-3rem)] sm:rounded-[var(--radius-lg)]"
+          >
+            {/* Inner scroll container. NewPackageForm provides its own
+                rounded card chrome; we let it bleed to the panel edges
+                (no extra padding here) and rely on its outer corners
+                being clipped by the panel's `overflow-hidden` so the
+                rounded-top sheet on mobile + the rounded panel on
+                desktop both look right. */}
+            <div className="overflow-y-auto">
               <NewPackageForm
                 initialValues={editValues}
                 onClose={() => {
