@@ -2,59 +2,45 @@ import { SignUp } from "@clerk/nextjs";
 
 // Dedicated sign-up entry for the /join/<slug> → artist flow.
 //
-// 2026-04-22 — FIX v2. Initial attempt (v1) mounted SignUp at the
-// specific route /sign-up/join/[slug]/page.tsx, which looked right
-// but broke Clerk's multi-step flow. When the user submitted their
-// email and Clerk needed to navigate to /sign-up/join/<slug>/verify-
-// email-address (or /sso-callback for OAuth), that sub-path had no
-// matching route — result: white page / infinite loading loop /
-// bounce to a different sign-in surface.
+// 2026-05-06 — Removed `fallbackRedirectUrl={artist-welcome/<slug>}`.
+// The destination is now decided server-side at /post-signup, which
+// reads the same `unsafeMetadata` we set here, validates the slug
+// against the DB, and redirects to /artist-welcome/<slug>. Centralizing
+// the decision means: (a) tampered metadata can't bypass DB
+// validation, (b) the Clerk dashboard's "After sign-up fallback"
+// setting (= /post-signup) is the single source of truth for where
+// signed-up users land.
 //
-// Clerk's docs are explicit: "The route needs to be an optional
-// catch-all route so the sign-up flow can handle nested paths."
-// https://clerk.com/docs/reference/components/authentication/sign-up
+// `unsafeMetadata` STAYS — it's how /post-signup knows this signup
+// originated at /join/<slug>. The webhook also reads it on
+// `user.created` to insert the right `client_contacts` row.
 //
-// Fix: this file now lives under an optional catch-all segment
-// ([[...rest]]), so /sign-up/join/<slug> AND any sub-path like
-// /sign-up/join/<slug>/verify-email-address all resolve here. The
-// `path` prop tells Clerk where it's mounted so it navigates to
-// sub-paths under THIS route instead of defaulting to /sign-up.
+// "unsafe" in Clerk's naming means "client-settable" — both the
+// webhook AND /post-signup re-validate the slug against the DB before
+// trusting it.
 //
-// End-to-end flow (how this works):
-//  1. `SignupCta` on `/join/<slug>` points its Link at
-//     `/sign-up/join/<slug>`.
-//  2. This page renders Clerk's `<SignUp>` with
-//     `unsafeMetadata={ signupOrigin: "join", producerSlug: <slug> }`,
-//     and `path={`/sign-up/join/${slug}`}` so Clerk's internal
-//     routing stays within this subtree.
-//  3. The webhook at `/api/webhooks/clerk` reads the metadata on
-//     `user.created`, resolves the slug to a real producer, and
-//     inserts a `client_contacts` row instead of a `producers` row.
-//  4. `fallbackRedirectUrl` sends the freshly-signed-in user to
-//     `/artist-welcome/<slug>`, which greets them + links to /artist.
+// 2026-04-22 — FIX v2 background. Optional catch-all `[[...rest]]`
+// is required so Clerk's multi-step flow (verify-email-address,
+// sso-callback) resolves under this same route. The `path` prop tells
+// Clerk where it's mounted so its internal navigation stays inside
+// the subtree.
 //
-// "unsafe" in Clerk's naming just means "client-settable" — it's
-// fine to use because the webhook re-validates the slug against the
-// DB before trusting it. A tampered metadata value falls through to
-// the default producer-insert branch.
+// End-to-end flow (current):
+//   1. SignupCta on /join/<slug> links to /sign-up/join/<slug>.
+//   2. This page mounts <SignUp unsafeMetadata={{signupOrigin, producerSlug}}>.
+//   3. The webhook at /api/webhooks/clerk reads metadata + inserts
+//      client_contacts (no producers row).
+//   4. Clerk redirects the signed-in user to /post-signup (dashboard
+//      setting) → which redirects to /artist-welcome/<slug>.
 
 type Props = { params: Promise<{ slug: string; rest?: string[] }> };
 
 export default async function JoinSignUpPage({ params }: Props) {
   const { slug } = await params;
-  // `path` must NOT be URL-encoded — Clerk uses it as-is for
-  // navigation. Slugs are validated upstream as kebab-case ASCII
-  // (^[a-z0-9-]+$), so percent-encoding is a no-op for us and
-  // passing the raw slug avoids double-encoding when Clerk appends
-  // sub-paths like "/verify-email-address".
-  //
-  // `fallbackRedirectUrl` IS URL-encoded — Next's router handles the
-  // final navigation and expects a valid URL.
   return (
     <SignUp
       path={`/sign-up/join/${slug}`}
       signInUrl="/sign-in"
-      fallbackRedirectUrl={`/artist-welcome/${encodeURIComponent(slug)}`}
       unsafeMetadata={{ signupOrigin: "join", producerSlug: slug }}
     />
   );
