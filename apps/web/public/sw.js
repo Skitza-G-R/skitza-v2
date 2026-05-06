@@ -23,7 +23,11 @@
  * so old caches get cleared during `activate`.
  */
 
-const CACHE_NAME = "skitza-shell-v2";
+// Bumped 2026-05-06: floating-dock redesign produced a new
+// persistent-player chunk hash; the activate handler evicts caches
+// whose name doesn't match this constant, so bumping forces installed
+// clients to drop the stale dock JS on the next deploy.
+const CACHE_NAME = "skitza-shell-v3";
 const SHELL_URLS = [
   "/",
   "/sign-in",
