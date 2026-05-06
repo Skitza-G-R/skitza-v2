@@ -91,7 +91,19 @@ export function OverviewScreen({
   });
 
   return (
-    <div className="sk-page-enter flex flex-col gap-5 px-4 pt-6 pb-24 sm:gap-6 sm:px-6">
+    // Mobile: single vertical stack. Desktop (lg+): 2-column grid
+    // where the left column holds the action-oriented surfaces
+    // (hero / approvals / today's session / money split) and the
+    // right column hosts the read-only Activity stream. The grid
+    // auto-balances heights, so a producer with no approvals still
+    // sees a clean side-by-side layout. The col-fractions
+    // (3fr / 2fr) come from the design's "Activity is supporting
+    // context, not the main act" hierarchy — Activity gets the
+    // narrower column.
+    <div className="sk-page-enter flex flex-col gap-5 px-4 pt-6 pb-24 sm:gap-6 sm:px-6 lg:grid lg:grid-cols-[3fr_2fr] lg:items-start lg:gap-8 lg:px-8 lg:pt-10">
+      {/* LEFT COLUMN (mobile: full width) — hero + approvals +
+          today's session + money split */}
+      <div className="flex flex-col gap-5 sm:gap-6 lg:col-start-1 lg:col-end-2">
       {/* HERO */}
       <header>
         <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[rgb(var(--fg-muted))]">
@@ -262,7 +274,10 @@ export function OverviewScreen({
           </p>
         </div>
       </section>
+      </div>
 
+      {/* RIGHT COLUMN (mobile: continues vertical stack) — activity */}
+      <div className="lg:col-start-2 lg:col-end-3 lg:sticky lg:top-6">
       {/* ACTIVITY */}
       <section aria-labelledby="activity-heading">
         <h2
@@ -308,6 +323,7 @@ export function OverviewScreen({
           </ul>
         )}
       </section>
+      </div>
     </div>
   );
 }

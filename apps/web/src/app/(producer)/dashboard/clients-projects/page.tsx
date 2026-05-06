@@ -97,7 +97,14 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
         />
-        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
+        {/* Mobile: full-bleed. Desktop (lg+): cap at max-w-4xl so a
+            list of client rows reads at a comfortable column width
+            instead of sprawling across an ultrawide canvas. The
+            master-detail pattern (list left, drill-down right) is
+            held back for after the Raz pattern review — Phase 4 does
+            not commit to a multi-column layout for the inner panels
+            until Raz signs off on the desktop direction. */}
+        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8 lg:max-w-4xl lg:pt-10">
           {/* Phase 4 header — locked design's title-with-amber-period
               + counts subtitle. The "+ New project" CTA stays as a
               right-aligned anchor at the same row as the title so
