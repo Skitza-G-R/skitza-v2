@@ -190,22 +190,13 @@ function BrandPanel() {
 function FormColumn({ children }: { children: ReactNode }) {
   return (
     <section className="relative flex flex-col px-6 py-8 sm:px-10 sm:py-10 lg:px-14 lg:py-12">
-      {/* Mobile-only condensed eyebrow — replaces the BrandPanel
-          hero copy on small screens. */}
-      <div className="lg:hidden">
-        <div
-          className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em]"
-          style={{ color: "rgb(var(--fg-muted))" }}
-        >
-          The hall
-        </div>
-        <h2
-          className="font-syne mb-7 text-[28px] font-extrabold leading-[1.1]"
-          style={{ letterSpacing: "-0.025em", color: "rgb(var(--fg-primary))" }}
-        >
-          Where producers run the business of music.
-        </h2>
-      </div>
+      {/* The mobile-only marketing eyebrow that used to live here was
+          retired now that each page renders its own `<AuthHero>` (see
+          apps/web/src/components/auth/auth-hero.tsx). Per-page hero
+          copy ("Welcome back." / "Build your hall." / "Make it
+          official.") matches the locked design source — generic
+          "Where producers run the business of music." would have
+          double-stacked above it on mobile. */}
 
       {/* Clerk form wrapper — centered on desktop, top-aligned on
           mobile. The wrapper is a flex column so Clerk's variable-
@@ -214,20 +205,25 @@ function FormColumn({ children }: { children: ReactNode }) {
         <div className="w-full max-w-[400px]">{children}</div>
       </div>
 
-      {/* Footer links — same on every auth surface. */}
+      {/* Footer links — same on every auth surface. The "Back to
+          Skitza" link mirrors the locked design's `← Back` pattern
+          on `/tmp/skitza-design/tabs/auth.jsx`. Mono uppercase keeps
+          it visually quiet against the brand-amber CTA. */}
       <div
-        className="mt-10 flex flex-wrap justify-between gap-3 text-[11.5px]"
+        className="font-mono mt-10 flex flex-wrap items-center justify-between gap-3 text-[11px] uppercase tracking-[0.14em]"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
-        <span>© Skitza 2026</span>
+        <Link href="/" className="hover:text-[rgb(var(--fg-primary))]">
+          ← Back to Skitza
+        </Link>
         <div className="flex gap-4">
-          <Link href="/terms" className="hover:underline">
+          <Link href="/terms" className="hover:text-[rgb(var(--fg-primary))]">
             Terms
           </Link>
-          <Link href="/privacy" className="hover:underline">
+          <Link href="/privacy" className="hover:text-[rgb(var(--fg-primary))]">
             Privacy
           </Link>
-          <Link href="/about" className="hover:underline">
+          <Link href="/about" className="hover:text-[rgb(var(--fg-primary))]">
             About
           </Link>
         </div>
