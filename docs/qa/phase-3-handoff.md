@@ -1,12 +1,30 @@
 # Phase 3 — Public routes (landing + auth + /join/[slug] + legal) Handoff
 
-**Status:** PR open, awaiting review.
-**Branch:** `phase-3-public` (base: `v3-clean`).
+**Status:** ✅ **Merged into `v3-clean` 2026-05-06 06:38 UTC**
+**PR:** [skitza-v2#58](https://github.com/Skitza-G-R/skitza-v2/pull/58) — merged via merge-commit (preserves the 1-commit feature history)
+**Merge commit:** [`42682df`](https://github.com/Skitza-G-R/skitza-v2/commit/42682df)
+**Source branch:** `phase-3-public` — deleted from origin and locally after merge
 **Approver:** Raz (technical co-founder).
 **Author:** Gili (with Claude Code).
 **Scope:** Replace the PR #50 verbatim-port landing with the v3 marketing surface from `~/Downloads/skitza (1)/`. Replace the `(public)/(auth)` layout with a split-screen BrandPanel + Clerk-form layout. Enhance Clerk appearance. Polish the legal pages (About replaced; Privacy/Terms cleaned up).
 
 This document records every decision made during Phase 3 so Phase 4 (producer dashboard pages) and Phase 5 (artist platform) can pick up cleanly.
+
+## Final state on `v3-clean`
+
+- `git log v3-clean --oneline` (top of history after merge):
+  - `42682df` Merge pull request #58 from Skitza-G-R/phase-3-public
+  - `3af59f2` chore(ui): phase 3 — landing + auth (rebased on Phase 4)
+  - `deb8d76` Merge pull request #57 from Skitza-G-R/phase-4-producer
+  - `c535292` feat(ui): sheet primitive
+- **Pre-merge CI on PR #58:** `test` workflow ✅ SUCCESS (3m5s), `Vercel` deploy ✅ SUCCESS, `Vercel Preview Comments` ✅ SUCCESS, `mergeStateStatus: CLEAN`.
+- **Post-merge local re-verify on `v3-clean` tip `42682df` (2026-05-06 09:42 UTC):**
+  - `pnpm -F web typecheck` ✅ both `packages/db` and `apps/web` clean
+  - `pnpm -F web lint` ✅ apps/web ESLint clean
+  - `pnpm -F web test` ✅ 994 passed / 4 skipped (995 / 4 with packages/db) — same as the rebase verification, no drift introduced by the merge.
+- **Merge order note:** Phase 4 PR #57 merged BEFORE Phase 3 PR #58 (despite the documented 3 → 4 → 5 order). Rebase resolved cleanly — Phase 3 kept Phase 4's `.sk-sheet-enter` reduce-motion gate AND Phase 3's `.sk-soft-pulse` / `.sk-float*` gates in `globals.css`. See [§7 motion-primitives test merge](#7-motion-primitives-test-updated) for the lockstep test update.
+- **Branch hygiene:** `phase-3-public` deleted from `origin` (`git push origin --delete phase-3-public` ✅) and from local (`git branch -D phase-3-public` ✅). `git ls-remote --heads origin phase-3-public` confirms no remote ref remains.
+- **Vercel preview** of `phase-3-public` was deployed during PR review at the per-branch preview URL; the same artefacts now serve from any v3-clean deployment post-merge.
 
 ---
 
@@ -181,7 +199,7 @@ Tokens added to `globals.css` are NEW additions only — no existing tokens were
 
 ---
 
-## Verification (re-checked 2026-05-05 on `phase-3-public`)
+## Verification (re-checked 2026-05-06 on `v3-clean` tip `42682df`)
 
 ```
 $ pnpm typecheck
