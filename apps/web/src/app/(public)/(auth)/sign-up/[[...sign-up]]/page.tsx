@@ -1,26 +1,22 @@
 import { SignUp } from "@clerk/nextjs";
 
-// Default producer sign-up. The landing-page CTAs + direct /sign-up
-// visits end up here. Post-signup we want the new Producer on the
-// dashboard so /onboarding can greet them.
+// Default sign-up surface. Used by:
+//   - /join/<slug> CTA → routes to the sibling /sign-up/join/<slug>
+//     (NOT this page) so it can attach unsafeMetadata.
+//   - Direct /sign-up visits + landing-page CTAs.
 //
-// 2026-04-22 — Dropped `forceRedirectUrl` (see docs/audit-report.md
-// Task 15). `forceRedirectUrl` unconditionally overrides any
-// `redirect_url` query param, which silently broke the /join →
-// artist-welcome flow: even when `SignupCta` passed
-// `?redirect_url=/artist-welcome/<slug>` to /sign-up, this page
-// force-sent the user to /dashboard anyway.
+// 2026-05-06 — Removed `fallbackRedirectUrl` (prior value
+// `/dashboard`). Post-auth routing is now centralized at /post-signup,
+// configured in the Clerk dashboard's "After sign-up fallback"
+// setting. Keeping a component-level fallback here would drift from
+// the dashboard config — and Clerk applies the dashboard value first,
+// so the prop was already a no-op in production. Removing it makes
+// the routing surface match what's actually live.
 //
-// With only `fallbackRedirectUrl`: /dashboard is still the default,
-// but any explicit redirect_url the user arrived with is honored.
-// Defense in depth — the /join signup flow now lives on its own
-// dedicated route at /sign-up/join/<slug>, but if someone hits
-// /sign-up with a redirect_url we respect it rather than ignoring it.
+// 2026-04-22 — `forceRedirectUrl` was dropped earlier (audit Task 15)
+// because it overrode the /join → artist-welcome flow's redirect
+// query param. The current shape (no forceRedirectUrl + no
+// fallbackRedirectUrl) lets the dashboard config own the destination.
 export default function Page() {
-  return (
-    <SignUp
-      signInUrl="/sign-in"
-      fallbackRedirectUrl="/dashboard"
-    />
-  );
+  return <SignUp signInUrl="/sign-in" />;
 }
