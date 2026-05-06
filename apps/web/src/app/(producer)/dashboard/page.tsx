@@ -2,41 +2,35 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { ContextualActions } from "~/components/dashboard/today/contextual-actions";
-import { DashboardGreeting } from "~/components/dashboard/today/dashboard-greeting";
 import { DashboardEmptyOnboarding } from "~/components/dashboard/today/empty-onboarding";
-import { InboxSection } from "~/components/dashboard/today/inbox-section";
-import type { TodayListItem } from "~/components/dashboard/today/today-list";
-import { PulseCard } from "~/components/dashboard/today/pulse-card";
-import { RecentUploadsShelf } from "~/components/dashboard/today/recent-uploads-shelf";
+import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
 import { isDayOneEmpty } from "./page-helpers";
 
-// Story 06 — Today page rebuild.
+// Phase 4 — Overview rebuild.
 //
-// Restructured render tree. The prior layout (ShareLinkCard hero →
-// 8-button QuickActions → 4-KPI strip → 6-month chart → inbox below
-// the fold) sat the producer's most-actionable surface (the inbox)
-// below the fold. The redesign inverts that hierarchy in workflow
-// order: greeting → inbox first → recent uploads middle → pulse +
-// contextual actions bottom.
+// Replaces the Story 06 layout (DashboardGreeting → InboxSection →
+// RecentUploadsShelf → PulseCard → ContextualActions) with the locked
+// design's mobile-first hierarchy (per `notes/producer-screens.jsx`):
+//   1. Hero — date eyebrow + name with amber period + status line
+//   2. Pending Approvals card (conditional on booking.list pending count)
+//   3. Today's Session card (conditional on first session item being today)
+//   4. Money split row — Earned + open-items count
+//   5. Activity feed — first 5 today.items
 //
-// Day-1 empty state: when the producer has no projects, no uploads,
-// and no inbox items, the entire populated layout is replaced with
-// a single centered onboarding card pointing at the share-link
-// gateway. No wall of zeros. The populated layout returns
-// automatically when any of those three counts go positive.
+// The auth + skipper-nudge + day-1 empty-state flow is preserved
+// (auth-fix is in flight on PR #60 — Phase 4 keeps its hands off
+// role/auth logic). FinishSetupNudge + DashboardEmptyOnboarding
+// branches still render above the populated layout when applicable.
 //
-// FinishSetupNudge stays — it fires for skippers (producers who hit
-// "skip" on the onboarding wizard but haven't set up packages yet),
-// independent of the day-1 predicate.
-//
-// Hero gradient + max-w-[1920px] + sk-page-enter mount animation are
-// preserved (the spec says only the content within is restructured).
-// Share link surface lives in the sidebar footer now (Story 05's
-// SidebarShareChip), not the page hero.
+// All page-level data is server-fetched via the tRPC server caller —
+// no new procedures, no schema changes. Outstanding-balance
+// aggregation is currently surfaced as `pulseStats.unresolvedItems`
+// (count of unpaid invoices + open comments); a real
+// `outstandingCents` aggregation is deferred to a follow-up that can
+// touch producer.today safely.
 
 type PageProps = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -47,27 +41,22 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const skipOnboarding = sp.skip === "1" || sp.skip === "true";
 
-  // First-run redirect. `?skip=1` lets the producer bypass the wizard
-  // — honored on both the redirect decision and the banner state so
-  // power users can get straight in.
+  // First-run redirect — preserved from Story 06.
   const onboarding = await detectOnboardingState(userId);
   if (onboarding.firstRun && !skipOnboarding) {
     redirect("/dashboard/onboarding");
   }
 
   const caller = appRouter.createCaller({ userId });
-  // Fetch the today payload + producer profile in parallel. The
-  // project.list call from the prior layout is no longer needed —
-  // ContextualActions' continue-track CTA reads from
-  // today.recentUploads[0] (more current than project.updatedAt) and
-  // send-invoice is gated on today.pulseStats.activeProjects alone.
-  // revenueTrend also dropped — the deep 6-month chart moved to
-  // /dashboard/revenue (Story 07) and Pulse renders its own ambient
-  // sparkline from `today.pulseStats.sparkline`.
-  const [today, me, followUpRaw] = await Promise.all([
+
+  // Fan-out: today payload, profile, follow-up sessions (post-session
+  // banner), and pending approvals (new — needed for the approvals
+  // card). All independent reads run in parallel.
+  const [today, me, followUpRaw, pendingBookings] = await Promise.all([
     caller.producer.today(),
     caller.producer.me(),
     caller.booking.needsFollowUp(),
+    caller.booking.list({ status: "pending" }),
   ]);
 
   // Drop sessions that aren't yet linked to a project — without a
@@ -85,89 +74,80 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     process.env.SITE_URL ??
     "https://skitza.app";
 
-  // Active projects count — drives the send-invoice fallback in
-  // ContextualActions. The pulseStats payload is the canonical
-  // source; using the same number keeps the actions algorithm in
-  // sync with what the Pulse card's footer displays.
-  const activeProjectsCount = today.pulseStats.activeProjects;
-
-  // Full share URL — used by ContextualActions' share-link fallback.
-  // Null when the producer hasn't picked a slug, in which case
-  // ContextualActions surfaces the set-slug CTA instead.
-  const shareUrl = me.slug
-    ? `${publicBaseUrl.replace(/\/$/, "")}/join/${me.slug}`
-    : null;
-
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
   // is completely empty with no next step to take.
   const showSetupNudge =
     skipOnboarding && !onboarding.hasPackages && today.items.length === 0;
 
-  // Selected item comes from ?itemId. Only accept a single string —
-  // an array here means the client tampered with the URL, and the
-  // list component would have no sane way to render a multi-select
-  // anyway.
-  const selectedItemId = typeof sp.itemId === "string" ? sp.itemId : null;
-
-  // Dates cross the RSC → client boundary as ISO strings. We
-  // serialize them here so the InboxSection props stay a plain JSON
-  // shape — no mystery revivers on the client side.
-  const items: TodayListItem[] = today.items.map((it) => ({
-    id: it.id,
-    kind: it.kind,
-    title: it.title,
-    subtitle: it.subtitle,
-    occurredAtIso: it.occurredAt.toISOString(),
-    href: it.href,
-    unread: it.unread,
-  }));
-
-  // Day-1 empty-state predicate. When ALL three counts are zero, the
-  // whole populated layout collapses to a single onboarding card.
-  // Skippers with the FinishSetupNudge active still get their nudge
-  // — that banner fires above this block regardless.
+  // Day-1 empty-state predicate. When ALL three counts are zero the
+  // populated layout collapses to the empty-onboarding card. Same
+  // signature as Story 06.
   const empty = isDayOneEmpty({
     recentUploadsCount: today.recentUploads.length,
-    activeProjectsCount,
+    activeProjectsCount: today.pulseStats.activeProjects,
     itemsCount: today.items.length,
   });
 
+  // Today's session = first session item whose occurredAt is today.
+  // Producer.today fans the items list across sessions/comments/
+  // invoices in priority order, so the first session row is also the
+  // soonest one. We re-check the date to avoid surfacing a session
+  // that's actually "tomorrow at 12:01am" as today's.
+  const now = new Date();
+  const todaySession = (() => {
+    const sessionItem = today.items.find((it) => it.kind === "session");
+    if (!sessionItem) return null;
+    const sessionDay = sessionItem.occurredAt.toDateString();
+    if (sessionDay !== now.toDateString()) return null;
+    return {
+      id: sessionItem.id,
+      title: sessionItem.title,
+      subtitle: sessionItem.subtitle,
+      occurredAt: sessionItem.occurredAt,
+      href: sessionItem.href,
+    };
+  })();
+
+  // Reshape pending bookings for the approvals card. Only the fields
+  // the card surfaces — drop the rest so the prop interface is
+  // narrow and easy to follow. The schema column is `notes`; we
+  // expose it as `message` to the screen since that's what the
+  // design language calls it (the artist-side input field is
+  // labelled "Your message").
+  const pendingApprovals = pendingBookings.map((b) => ({
+    id: b.id,
+    artistName: b.artistName,
+    artistEmail: b.artistEmail,
+    startsAt: b.startsAt,
+    durationMin: b.durationMin,
+    packageNameSnapshot: b.packageNameSnapshot,
+    message: b.notes,
+  }));
+
   return (
     <>
-      {/* Hero gradient + page chrome — preserved from the prior
-          layout. A subtle radial brand gradient sits on top of the
-          warm cream base so the upper fold glows with amber instead
-          of looking like a bordered white card. The gradient fades
-          to bg-base before the content reaches the fold, keeping the
-          subsequent surfaces on a flat background. max-width lifts
-          to 1920px for ultrawide producers; we still center below
-          1920 so the breathing room never degrades into an empty-
-          gutter wasteland. */}
+      {/* Hero gradient + page chrome — preserved from Story 06. */}
       <div className="relative isolate">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.12)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
         />
-        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-8 pb-10 sm:px-8 lg:px-12 lg:pt-12">
+        <div className="sk-page-enter mx-auto max-w-[1920px]">
           <h1 className="sr-only">Today</h1>
 
           {/* FinishSetupNudge fires above the day-1 empty state when
-              both apply (skipper + nothing set up + empty inbox).
-              Catching skippers before they bounce is the highest-
-              priority CTA on the page, so it sits at the very top. */}
+              both apply. Catching skippers before they bounce stays
+              the highest-priority CTA. */}
           {showSetupNudge ? <FinishSetupNudge /> : null}
 
           {/* Post-session follow-up nudges. Confirmed sessions whose
               end time has passed while the project still sits in
-              `booked` or `in_production` — the producer hasn't moved
-              the project forward, so we surface a "how did it go?"
-              prompt with one-click paths to upload files or update
-              the project. Renders above both the empty-state and the
-              populated layout so it's the first thing a producer sees
-              when there's stale work to close out. */}
+              `booked` or `in_production`. Renders above the
+              populated layout so it's the first thing a producer
+              sees when there's stale work to close out. */}
           {followUpSessions.length > 0 ? (
-            <div className="mb-6 space-y-2">
+            <div className="mx-4 mb-5 mt-5 space-y-2 sm:mx-6">
               {followUpSessions.map((session) => (
                 <div
                   key={session.id}
@@ -198,46 +178,34 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </div>
           ) : null}
 
-          {/* Day-1 empty state — replaces the populated layout when
-              the producer has no projects, no uploads, and no inbox
-              items. FinishSetupNudge still renders above when the
-              skipper predicate matches; the empty-onboarding card
-              sits below it. */}
+          {/* Day-1 empty state */}
           {empty && !showSetupNudge ? (
-            <DashboardEmptyOnboarding
-              slug={me.slug}
-              publicBaseUrl={publicBaseUrl}
-            />
-          ) : null}
-
-          {/* Populated layout — renders unless the empty-state branch
-              short-circuits above. The order matters: greeting →
-              inbox → recent uploads → pulse → contextual actions.
-              Spec locks this in __tests__/page-rebuild.test.ts. */}
-          {!empty ? (
-            // Single vertical-rhythm rule for the populated stack.
-            // Per UX-critic on PR #48: replaces the prior per-component
-            // `mb-*` salad (was `mb-8`, `mb-10`, `mb-6` across sections)
-            // which made the page feel "made of components" rather than
-            // "designed as a page." `space-y-12` lands a deliberate
-            // 48-px gap between major sections — bigger than typical
-            // card spacing so sections read as sections, not stacked
-            // cards. The greeting still gets its own internal spacing
-            // because it's a header, not a section peer.
-            <div className="space-y-12">
-              <DashboardGreeting
-                unresolvedItems={today.pulseStats.unresolvedItems}
-              />
-              <InboxSection items={items} selectedItemId={selectedItemId} />
-              <RecentUploadsShelf uploads={today.recentUploads} />
-              <PulseCard stats={today.pulseStats} />
-              <ContextualActions
-                unresolvedItems={today.pulseStats.unresolvedItems}
-                recentUploads={today.recentUploads}
-                activeProjectsCount={activeProjectsCount}
-                shareUrl={shareUrl}
+            <div className="px-4 pt-6 pb-10 sm:px-6">
+              <DashboardEmptyOnboarding
+                slug={me.slug}
+                publicBaseUrl={publicBaseUrl}
               />
             </div>
+          ) : null}
+
+          {/* Populated layout — new Phase 4 OverviewScreen */}
+          {!empty ? (
+            <OverviewScreen
+              displayName={me.displayName}
+              pulseStats={today.pulseStats}
+              pendingApprovals={pendingApprovals}
+              todaySession={todaySession}
+              activity={today.items.map((it) => ({
+                id: it.id,
+                kind: it.kind,
+                title: it.title,
+                subtitle: it.subtitle,
+                occurredAt: it.occurredAt,
+                href: it.href,
+                unread: it.unread,
+              }))}
+              now={now}
+            />
           ) : null}
         </div>
       </div>
@@ -246,14 +214,14 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 }
 
 // Soft onboarding banner for producers who skipped the wizard and
-// haven't set up packages yet. Not a hard redirect — they might have
-// a reason for skipping — but we give them one prominent next step so
-// an empty dashboard doesn't feel like a dead end.
+// haven't set up packages yet. Not a hard redirect — we just give
+// them one prominent next step so an empty dashboard doesn't feel
+// like a dead end.
 function FinishSetupNudge() {
   return (
     <div
       role="status"
-      className="mb-6 flex flex-col gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.06)] p-4 sm:flex-row sm:items-center sm:justify-between"
+      className="mx-4 mt-5 mb-5 flex flex-col gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.06)] p-4 sm:mx-6 sm:flex-row sm:items-center sm:justify-between"
     >
       <div className="min-w-0">
         <p className="text-sm font-semibold text-[rgb(var(--fg-primary))]">
