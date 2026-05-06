@@ -96,7 +96,7 @@ export default async function JoinPage({ params }: PageProps) {
           externalLinks={data.externalLinks}
         />
 
-        <JoinMetaStrip />
+        <JoinMetaStrip meta={data.meta} />
 
         <PublicSamplesPlayer samples={data.publicSamples} />
 

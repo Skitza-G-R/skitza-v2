@@ -104,7 +104,7 @@ vi.mock("@skitza/db", () => ({
   desc: (col: unknown) => ({ desc: col }),
 }));
 
-function sensitiveProducerRow(): Row {
+function sensitiveProducerRow(overrides: Partial<Row> = {}): Row {
   // Shape mirrors producers.$inferSelect — we need the sensitive fields
   // present on the source row to prove the router strips them.
   return {
@@ -133,8 +133,15 @@ function sensitiveProducerRow(): Row {
     timezone: "Asia/Jerusalem",
     defaultCurrency: "USD",
     cancellationPolicyHours: 24,
+    // Marketing meta — defaults to all-null for an unset producer.
+    // Tests that need real values pass them via `overrides`.
+    genres: null,
+    releasedSummary: null,
+    streamsSummary: null,
+    responseHours: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
     updatedAt: new Date("2026-02-01T00:00:00Z"),
+    ...overrides,
   };
 }
 
@@ -354,6 +361,51 @@ describe("publicProfile.forJoin — sensitive data stripped", () => {
     expect(serialized).not.toMatch(/stripe/i);
     expect(serialized).not.toMatch(/clerkUserId/i);
     expect(serialized).not.toMatch(/defaultCurrency/i);
+  });
+});
+
+describe("publicProfile.forJoin — marketing meta (migration 0006)", () => {
+  it("returns the producer's marketing fields verbatim when they're set", async () => {
+    producerSelectMock.mockResolvedValueOnce([
+      sensitiveProducerRow({
+        genres: ["indie", "alt-pop"],
+        releasedSummary: "3 LPs",
+        streamsSummary: "On Spotify, Apple",
+        responseHours: 48,
+      }),
+    ]);
+    trackSelectMock.mockResolvedValueOnce([]);
+    externalLinksSelectMock.mockResolvedValueOnce([]);
+
+    const caller = await buildCaller();
+    const result = await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
+
+    expect(result.meta).toEqual({
+      genres: ["indie", "alt-pop"],
+      releasedSummary: "3 LPs",
+      streamsSummary: "On Spotify, Apple",
+      responseHours: 48,
+    });
+  });
+
+  it("returns null fields when the producer hasn't filled them in", async () => {
+    // All-null meta is the default for a fresh producer row. The
+    // router must NOT substitute defaults — that's the React layer's
+    // job. Sending null preserves the contract that the strip can
+    // hide a stat block when the producer hasn't authored it.
+    producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
+    trackSelectMock.mockResolvedValueOnce([]);
+    externalLinksSelectMock.mockResolvedValueOnce([]);
+
+    const caller = await buildCaller();
+    const result = await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
+
+    expect(result.meta).toEqual({
+      genres: null,
+      releasedSummary: null,
+      streamsSummary: null,
+      responseHours: null,
+    });
   });
 });
 
