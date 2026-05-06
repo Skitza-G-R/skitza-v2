@@ -151,6 +151,17 @@ describe("Today page — Phase 4 populated layout", () => {
     expect(pageSource).toContain("pulseStats=");
   });
 
+  it("passes slug + publicBaseUrl + recentUploads to <OverviewScreen>", () => {
+    // Overview Polish: the public-link strip needs the producer's slug
+    // and the public origin to render the share URL; the recent
+    // uploads shelf needs the recentUploads array. Pinning these here
+    // catches a future regression where someone refactors page.tsx and
+    // forgets to thread the props through.
+    expect(pageSource).toContain("slug={me.slug}");
+    expect(pageSource).toContain("publicBaseUrl={publicBaseUrl}");
+    expect(pageSource).toContain("recentUploads={today.recentUploads.map(");
+  });
+
   it("calls booking.list with status='pending' for the approvals card", () => {
     expect(pageSource).toContain('caller.booking.list({ status: "pending" })');
   });

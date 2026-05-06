@@ -188,13 +188,25 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </div>
           ) : null}
 
-          {/* Populated layout — new Phase 4 OverviewScreen */}
+          {/* Populated layout — Phase 4 OverviewScreen (Overview Polish) */}
           {!empty ? (
             <OverviewScreen
               displayName={me.displayName}
+              slug={me.slug}
+              publicBaseUrl={publicBaseUrl}
               pulseStats={today.pulseStats}
               pendingApprovals={pendingApprovals}
               todaySession={todaySession}
+              recentUploads={today.recentUploads.map((u) => ({
+                versionId: u.versionId,
+                trackId: u.trackId,
+                title: u.title,
+                versionLabel: u.versionLabel,
+                uploadedAt: u.uploadedAt,
+                durationMs: u.durationMs,
+                projectId: u.projectId,
+                projectClientName: u.projectClientName,
+              }))}
               activity={today.items.map((it) => ({
                 id: it.id,
                 kind: it.kind,
