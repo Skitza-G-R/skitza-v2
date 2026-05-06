@@ -1,17 +1,46 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState, useTransition } from "react";
+
 import { useArtistAudio } from "~/components/artist/artist-audio-context";
+import { ProducerAvatar } from "~/components/artist/producer-avatar";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "~/components/ui/sheet";
 import {
   WaveformPlayer,
   type WaveformPlayerHandle,
 } from "~/components/audio/waveform-player";
+
 import { submitTimestampedComment, type AddedComment } from "./actions";
 
-// ─── Types ────────────────────────────────────────────────────────────
-// Mirrors `artist.music.project` return shape. Kept local so we don't
-// re-import the router's inferred types in a Client Component (the
-// router is server-only).
+// Song page (project detail) — locked design system (Phase 5).
+//
+// In-place redesign of the previous flat list. Audio plumbing,
+// optimistic comment append, version selection, and the
+// `useArtistAudio().requestComment()` flag flow are PRESERVED — only
+// the chrome changes.
+//
+// Layout per track:
+//   1. Dark `--bg-sidebar` hero strip — back chevron + producer chip,
+//      project eyebrow, Syne title, upload meta, version pills.
+//   2. Waveform card pulled up `-mt-3` over the hero edge — transport
+//      row + WaveformPlayer (h=70 mobile, h=84 desktop) + dashed
+//      "Comment at @X:XX" trigger.
+//   3. Gated/live download row.
+//   4. Comments thread — eyebrow + cards.
+//   5. Composer surface — Sheet (mobile, side="bottom") OR inline
+//      panel (desktop, lg+). Same form body in both; visibility
+//      controlled by responsive utility classes.
+//
+// `audio.state.pendingComment` is the single source of truth for "is
+// the composer open?" — the existing flag set by `requestComment()`
+// flows transparently through both surfaces.
+
+// ─── Types (mirror artist.music.project return shape) ───────────────
 
 type Version = {
   id: string;
@@ -62,13 +91,9 @@ type NowPlayingData = {
   sessions: Session[];
 };
 
-// ─── Component ────────────────────────────────────────────────────────
-export function NowPlaying({ data }: { data: NowPlayingData }) {
-  const audio = useArtistAudio();
+// ─── Top-level component ────────────────────────────────────────────
 
-  // Per-track selected version — defaults to the latest (first in the
-  // desc-sorted `versions` array). When the artist switches versions,
-  // the track list keeps the new choice sticky.
+export function NowPlaying({ data }: { data: NowPlayingData }) {
   const [selectedVersionByTrack, setSelectedVersionByTrack] = useState<
     Record<string, string>
   >(() => {
@@ -80,32 +105,27 @@ export function NowPlaying({ data }: { data: NowPlayingData }) {
     return initial;
   });
 
-  // Optimistic comment appends keyed by versionId. We merge with the
-  // server-sent comments whenever we render, so a successful submit
-  // shows up instantly (before the mutation resolves) and survives the
-  // resolve unchanged because the server returns the same shape.
   const [optimisticByVersion, setOptimisticByVersion] = useState<
     Record<string, Comment[]>
   >({});
 
   return (
-    <div className="space-y-6">
-      <header>
-        <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-          {data.project.producerName}
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          {data.project.title}
-        </h1>
-      </header>
+    <div className="space-y-6 pb-12 lg:space-y-8">
+      {/* Page-level back chip — links up to the library. */}
+      <div className="flex items-center gap-2">
+        <Link
+          href="/artist/music"
+          className="sk-press inline-flex h-9 items-center gap-1.5 rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+        >
+          <span aria-hidden>←</span>
+          <span>Library</span>
+        </Link>
+      </div>
 
       {data.tracks.length === 0 ? (
-        <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center text-sm text-[rgb(var(--fg-secondary))]">
-          No tracks in this project yet. Your producer will upload
-          mixes here once work begins.
-        </div>
+        <EmptyTracksCard producerName={data.project.producerName} />
       ) : (
-        <ul className="space-y-4">
+        <ul className="space-y-8 lg:space-y-12">
           {data.tracks.map((track) => {
             const selectedVersionId =
               selectedVersionByTrack[track.id] ?? track.versions[0]?.id;
@@ -121,15 +141,10 @@ export function NowPlaying({ data }: { data: NowPlayingData }) {
             const combined = [...serverComments, ...optimistic];
 
             return (
-              <li
-                key={track.id}
-                className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4"
-              >
-                <TrackHeader
-                  title={track.title}
-                  artist={track.artist}
-                  producerName={data.project.producerName}
-                  versions={track.versions}
+              <li key={track.id} className="space-y-4 lg:space-y-5">
+                <SongCard
+                  project={data.project}
+                  track={track}
                   selectedVersion={selectedVersion ?? null}
                   onSelectVersion={(id) => {
                     setSelectedVersionByTrack((prev) => ({
@@ -137,30 +152,14 @@ export function NowPlaying({ data }: { data: NowPlayingData }) {
                       [track.id]: id,
                     }));
                   }}
+                  comments={combined}
+                  onOptimisticAppend={(c) => {
+                    setOptimisticByVersion((prev) => ({
+                      ...prev,
+                      [c.versionId]: [...(prev[c.versionId] ?? []), c],
+                    }));
+                  }}
                 />
-
-                {selectedVersion ? (
-                  <VersionBody
-                    track={track}
-                    version={selectedVersion}
-                    producerName={data.project.producerName}
-                    finalPaid={data.project.finalPaid}
-                    comments={combined}
-                    onOptimisticAppend={(c) => {
-                      setOptimisticByVersion((prev) => ({
-                        ...prev,
-                        [selectedVersion.id]: [
-                          ...(prev[selectedVersion.id] ?? []),
-                          c,
-                        ],
-                      }));
-                    }}
-                  />
-                ) : (
-                  <p className="mt-2 text-xs text-[rgb(var(--fg-muted))]">
-                    No versions uploaded yet.
-                  </p>
-                )}
               </li>
             );
           })}
@@ -168,154 +167,151 @@ export function NowPlaying({ data }: { data: NowPlayingData }) {
       )}
 
       {data.sessions.length > 0 ? (
-        <section className="mt-8">
-          <h2 className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] mb-3">
-            Sessions
-          </h2>
-          <ul className="space-y-2">
-            {data.sessions.map((session) => {
-              const date = new Date(session.startsAt);
-              const isPast = date < new Date();
-              const statusLabel = isPast
-                ? "Completed"
-                : session.status === "pending"
-                  ? "Pending approval"
-                  : "Upcoming";
-              return (
-                <li
-                  key={session.id}
-                  className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] p-3"
-                >
-                  <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
-                    {date.toLocaleDateString(undefined, {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                    })}
-                    {" · "}
-                    {date.toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      hour12: false,
-                    })}
-                  </p>
-                  <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
-                    {session.durationMin} min
-                    {session.packageName ? ` · ${session.packageName}` : ""}
-                    {" · "}
-                    {statusLabel}
-                  </p>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ) : null}
-
-      {/* Mobile-only FAB — stacks above the persistent mini-player
-          (which sits at bottom-16). Only renders once a track is
-          actively loaded so we don't pin a comment with no audio
-          context. Mirrors the inline desktop "+ Comment" affordance. */}
-      {audio.state.currentTrack ? (
-        <button
-          type="button"
-          onClick={() => {
-            audio.requestComment();
-          }}
-          aria-label="Add comment at current time"
-          className="fixed bottom-20 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_4px_12px_-2px_rgb(var(--brand-primary)/0.45)] transition-transform active:translate-y-px sm:hidden"
-        >
-          <CommentIcon size={20} />
-        </button>
+        <SessionsRail sessions={data.sessions} />
       ) : null}
     </div>
   );
 }
 
-function CommentIcon({ size }: { size: number }) {
+// ─── One track = one full "song page" card ──────────────────────────
+
+function SongCard({
+  project,
+  track,
+  selectedVersion,
+  onSelectVersion,
+  comments,
+  onOptimisticAppend,
+}: {
+  project: NowPlayingData["project"];
+  track: Track;
+  selectedVersion: Version | null;
+  onSelectVersion: (id: string) => void;
+  comments: Comment[];
+  onOptimisticAppend: (c: Comment) => void;
+}) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
+    <section
+      aria-label={`${track.title} (${selectedVersion?.label ?? "no versions"})`}
+      className="overflow-hidden rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
     >
-      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-    </svg>
+      <SongHero
+        project={project}
+        track={track}
+        selectedVersion={selectedVersion}
+        onSelectVersion={onSelectVersion}
+      />
+      {selectedVersion ? (
+        <SongBody
+          project={project}
+          track={track}
+          version={selectedVersion}
+          comments={comments}
+          onOptimisticAppend={onOptimisticAppend}
+        />
+      ) : (
+        <div className="px-5 py-10 text-center text-sm text-[rgb(var(--fg-muted))]">
+          No versions uploaded yet.
+        </div>
+      )}
+    </section>
   );
 }
 
-// ─── Track header (title + version switcher) ─────────────────────────
-function TrackHeader({
-  title,
-  artist,
-  versions,
+// ─── Dark hero header per track ─────────────────────────────────────
+
+function SongHero({
+  project,
+  track,
   selectedVersion,
   onSelectVersion,
 }: {
-  title: string;
-  artist: string | null;
-  producerName: string;
-  versions: Version[];
+  project: NowPlayingData["project"];
+  track: Track;
   selectedVersion: Version | null;
   onSelectVersion: (id: string) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold">{title}</p>
-        {artist ? (
-          <p className="truncate text-xs text-[rgb(var(--fg-muted))]">
-            {artist}
-          </p>
-        ) : null}
-      </div>
-      {versions.length > 1 ? (
-        <div className="flex gap-1">
-          {versions.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => {
-                onSelectVersion(v.id);
-              }}
-              className={`rounded-sm border px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider transition-colors ${
-                v.id === selectedVersion?.id
-                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))]/10 text-[rgb(var(--brand-primary))]"
-                  : "border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--fg-muted))]"
-              }`}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
-      ) : selectedVersion ? (
-        <span className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-          {selectedVersion.label}
+    <div
+      className="px-5 pb-8 pt-5 text-[rgb(var(--fg-inverse))] lg:px-7 lg:pb-10 lg:pt-6"
+      style={{ background: "rgb(var(--bg-sidebar))" }}
+    >
+      <div className="flex items-center gap-2.5">
+        <ProducerAvatar name={project.producerName} size={22} />
+        <span className="text-[12px] text-[rgb(var(--fg-inverse)/0.7)]">
+          {project.producerName}
         </span>
+      </div>
+
+      <p className="mt-4 font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--brand-primary))]">
+        {project.title}
+      </p>
+      <h2 className="mt-1.5 font-display text-[26px] font-extrabold leading-[1.05] tracking-tight lg:text-[34px]">
+        {track.title}
+      </h2>
+      {track.artist ? (
+        <p className="mt-1 text-[13px] text-[rgb(var(--fg-inverse)/0.7)]">
+          {track.artist}
+        </p>
+      ) : null}
+
+      {selectedVersion ? (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="font-mono text-[11px] text-[rgb(var(--fg-inverse)/0.65)]">
+            {formatRelativeDate(selectedVersion.uploadedAt)}
+          </span>
+          <span aria-hidden className="text-[rgb(var(--fg-inverse)/0.35)]">
+            ·
+          </span>
+          <span className="font-mono text-[11px] text-[rgb(var(--fg-inverse)/0.65)]">
+            {formatDuration(selectedVersion.durationMs)}
+          </span>
+        </div>
+      ) : null}
+
+      {track.versions.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          {track.versions.map((v, i) => {
+            const active = v.id === selectedVersion?.id;
+            const isLatest = i === 0;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => {
+                  onSelectVersion(v.id);
+                }}
+                className={
+                  active
+                    ? "sk-press rounded-full bg-[rgb(var(--brand-primary))] px-3 py-1.5 font-mono text-[11px] font-bold text-[rgb(var(--bg-sidebar))]"
+                    : "sk-press rounded-full border border-[rgb(var(--border-sidebar))] bg-[rgb(var(--fg-inverse)/0.08)] px-3 py-1.5 font-mono text-[11px] font-bold text-[rgb(var(--fg-inverse)/0.7)]"
+                }
+              >
+                {v.label}
+                {isLatest ? (
+                  <span className="ml-1 opacity-60">· latest</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
       ) : null}
     </div>
   );
 }
 
-// ─── Version body (waveform stub + play/comment + comment list) ──────
-function VersionBody({
+// ─── Body: waveform card + actions + comments + composer ────────────
+
+function SongBody({
+  project,
   track,
   version,
-  producerName,
-  finalPaid,
   comments,
   onOptimisticAppend,
 }: {
+  project: NowPlayingData["project"];
   track: Track;
   version: Version;
-  producerName: string;
-  finalPaid: boolean;
   comments: Comment[];
   onOptimisticAppend: (c: Comment) => void;
 }) {
@@ -323,117 +319,264 @@ function VersionBody({
   const isCurrent = audio.state.currentTrack?.id === version.id;
   const pendingComment =
     isCurrent && audio.state.pendingComment ? audio.state.pendingComment : null;
-  // Imperative handle to the wavesurfer instance — lets the comment
-  // composer pause playback on focus and resume on submit (QA F7).
   const wavesurferRef = useRef<WaveformPlayerHandle | null>(null);
 
   const handleRequestComment = () => {
     if (!isCurrent && version.audioUrl) {
-      // If the artist taps Comment while this track isn't the current
-      // track in the mini-player, prime it first so requestComment()
-      // captures a meaningful timestamp. playTrack() resets position to
-      // 0, so the first comment pins at 0s — a reasonable default.
       audio.playTrack({
         id: version.id,
         url: version.audioUrl,
         title: `${version.label} of ${track.title}`,
-        producerName,
+        producerName: project.producerName,
         artworkUrl: null,
       });
     }
     audio.requestComment();
   };
 
+  const positionMs = isCurrent
+    ? Math.round(audio.state.position * 1000)
+    : 0;
+
   return (
-    <div className="mt-3 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-          {formatDuration(version.durationMs)}
-        </span>
-        <div className="flex items-center gap-2">
-          {version.audioUrl && finalPaid ? (
-            <a
-              href={version.audioUrl}
-              download
-              className="inline-flex h-7 items-center rounded px-2 text-xs text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
-              aria-label={`Download ${version.label}`}
+    <>
+      {/* Waveform card — pulled up to overlap the dark hero edge. */}
+      <div className="-mt-4 px-3 lg:-mt-5 lg:px-5">
+        <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[var(--shadow-md)] lg:p-5">
+          {version.audioUrl ? (
+            <>
+              <WaveformPlayer
+                ref={wavesurferRef}
+                src={version.audioUrl}
+                height={70}
+                className="lg:hidden"
+                label={`${version.label} of ${track.title}`}
+                onSeek={(sec) => {
+                  audio.setPosition(sec);
+                }}
+              />
+              <WaveformPlayer
+                ref={wavesurferRef}
+                src={version.audioUrl}
+                height={84}
+                className="hidden lg:block"
+                label={`${version.label} of ${track.title}`}
+                onSeek={(sec) => {
+                  audio.setPosition(sec);
+                }}
+              />
+              <div className="mt-3 flex items-center justify-between font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+                <span>{formatTime(positionMs)}</span>
+                <span>{formatDuration(version.durationMs)}</span>
+              </div>
+            </>
+          ) : (
+            <div
+              className="flex h-20 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--bg-sunken))] text-xs text-[rgb(var(--fg-muted))]"
+              aria-label="No audio uploaded for this version"
             >
-              Download
-            </a>
-          ) : version.audioUrl && !finalPaid ? (
-            <span className="text-xs text-[rgb(var(--fg-muted))] opacity-50">
-              Download unlocks after payment
-            </span>
-          ) : null}
-          {/* Inline + Comment is desktop-only. On mobile (<sm) the FAB at
-              the bottom-right of the page replaces it, so the waveform
-              gets the full row width to itself. */}
+              No audio yet
+            </div>
+          )}
+
           <button
             type="button"
             onClick={handleRequestComment}
             disabled={!version.audioUrl}
-            className="hidden rounded-sm border border-[rgb(var(--border-subtle))] px-2 py-1 font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--fg-muted))] disabled:opacity-40 sm:inline-flex"
+            className="sk-press mt-3 flex w-full items-center justify-center gap-2 rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 py-3 text-[13px] font-semibold text-[rgb(var(--fg-muted))] disabled:opacity-40"
           >
-            + Comment
+            <PlusIcon size={14} />
+            <span>
+              Comment at{" "}
+              <span className="font-mono text-[rgb(var(--brand-primary))]">
+                {formatTime(positionMs)}
+              </span>
+            </span>
           </button>
         </div>
       </div>
 
-      {version.audioUrl ? (
-        <WaveformPlayer
-          ref={wavesurferRef}
-          src={version.audioUrl}
-          height={120}
-          label={`${version.label} of ${track.title}`}
-          onSeek={(sec) => {
-            audio.setPosition(sec);
-          }}
-        />
-      ) : (
-        <div
-          className="flex h-16 items-center justify-center rounded-sm bg-[rgb(var(--bg-sunken))] text-xs text-[rgb(var(--fg-muted))]"
-          aria-label="No audio uploaded for this version"
-        >
-          No audio yet
-        </div>
-      )}
-
-      {pendingComment ? (
-        <CommentComposer
+      {/* Download / gated row */}
+      <div className="px-3 pt-4 lg:px-5">
+        <DownloadRow
           version={version}
-          timeMs={Math.round(pendingComment.time * 1000)}
-          onSubmit={onOptimisticAppend}
-          onDismiss={audio.dismissComment}
-          wavesurferRef={wavesurferRef}
+          finalPaid={project.finalPaid}
         />
-      ) : null}
+      </div>
 
-      <CommentList comments={comments} />
+      {/* Comments */}
+      <div className="px-3 pb-5 pt-5 lg:px-5 lg:pb-6">
+        <p className="mb-3 font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+          Timestamped feedback · {String(comments.length)}
+        </p>
+        <CommentList comments={comments} producerName={project.producerName} />
+      </div>
+
+      {/* Mobile composer — Sheet */}
+      <Sheet
+        open={pendingComment !== null}
+        onOpenChange={(open) => {
+          if (!open) audio.dismissComment();
+        }}
+      >
+        <SheetContent className="lg:hidden">
+          <SheetTitle className="sr-only">Add comment</SheetTitle>
+          {pendingComment ? (
+            <CommentComposer
+              version={version}
+              timeMs={Math.round(pendingComment.time * 1000)}
+              producerName={project.producerName}
+              wavesurferRef={wavesurferRef}
+              onSubmit={onOptimisticAppend}
+              onDismiss={audio.dismissComment}
+              variant="sheet"
+            />
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
+      {/* Desktop composer — inline panel under the comments */}
+      {pendingComment ? (
+        <div className="hidden border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-5 pb-5 pt-5 lg:block">
+          <CommentComposer
+            version={version}
+            timeMs={Math.round(pendingComment.time * 1000)}
+            producerName={project.producerName}
+            wavesurferRef={wavesurferRef}
+            onSubmit={onOptimisticAppend}
+            onDismiss={audio.dismissComment}
+            variant="inline"
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+// ─── Download row (gated when finalPaid is false) ───────────────────
+
+function DownloadRow({
+  version,
+  finalPaid,
+}: {
+  version: Version;
+  finalPaid: boolean;
+}) {
+  if (!version.audioUrl) return null;
+
+  if (finalPaid) {
+    return (
+      <a
+        href={version.audioUrl}
+        download
+        className="sk-press flex w-full items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--bg-sidebar))] px-4 py-3 text-[13px] font-semibold text-[rgb(var(--fg-inverse))]"
+        aria-label={`Download ${version.label}`}
+      >
+        <DownloadIcon size={14} />
+        <span>
+          Download {version.label} <span className="opacity-60">· WAV</span>
+        </span>
+      </a>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3">
+      <span
+        aria-hidden
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--fg-warning)/0.15)] text-[rgb(var(--fg-warning))]"
+      >
+        <LockIcon size={14} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+          Download unlocks after final payment
+        </p>
+        <p className="text-[11.5px] text-[rgb(var(--fg-muted))]">
+          Once your producer marks the project as paid, the WAV download
+          becomes available.
+        </p>
+      </div>
     </div>
   );
 }
 
-// ─── Comment composer (inline form) ──────────────────────────────────
+// ─── Comments list ──────────────────────────────────────────────────
+
+function CommentList({
+  comments,
+  producerName,
+}: {
+  comments: Comment[];
+  producerName: string;
+}) {
+  if (comments.length === 0) {
+    return (
+      <p className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 py-5 text-center text-xs text-[rgb(var(--fg-muted))]">
+        No notes yet. Tap the dashed button above to drop your first
+        timestamped comment.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="flex flex-col gap-2.5">
+      {comments.map((c) => (
+        <li
+          key={c.id}
+          className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5"
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <span
+              className={
+                c.fromProducer
+                  ? "rounded-[6px] bg-[rgb(var(--brand-copper)/0.15)] px-1.5 py-0.5 font-mono text-[11px] font-bold text-[rgb(var(--brand-copper))]"
+                  : "rounded-[6px] bg-[rgb(var(--brand-primary)/0.15)] px-1.5 py-0.5 font-mono text-[11px] font-bold text-[rgb(var(--brand-primary))]"
+              }
+            >
+              @ {formatTime(c.timeMs)}
+            </span>
+            <span className="text-[12.5px] font-bold text-[rgb(var(--fg-default))]">
+              {c.fromProducer ? c.authorName || producerName : "You"}
+            </span>
+            <span className="ml-auto font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+              {formatRelativeDate(c.createdAt)}
+            </span>
+            {c.resolvedAt ? (
+              <span className="pill pill-success">Resolved</span>
+            ) : null}
+          </div>
+          <p className="whitespace-pre-wrap text-[13.5px] leading-snug text-[rgb(var(--fg-default))]">
+            {c.body}
+          </p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ─── Composer (mobile sheet variant + desktop inline variant) ───────
+
 function CommentComposer({
   version,
   timeMs,
+  producerName,
+  wavesurferRef,
   onSubmit,
   onDismiss,
-  wavesurferRef,
+  variant,
 }: {
   version: Version;
   timeMs: number;
+  producerName: string;
+  wavesurferRef: React.RefObject<WaveformPlayerHandle | null>;
   onSubmit: (c: Comment) => void;
   onDismiss: () => void;
-  wavesurferRef: React.RefObject<WaveformPlayerHandle | null>;
+  variant: "sheet" | "inline";
 }) {
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  // Tracks whether the waveform was playing at the moment we paused it
-  // on focus, so a submit only resumes audio that was actually playing
-  // (avoids jarring 0s playback if the artist hadn't started the
-  // waveform yet).
   const wasPlayingRef = useRef(false);
 
   const handleFocus = () => {
@@ -472,9 +615,6 @@ function CommentComposer({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter submits, Shift+Enter inserts a newline (chat-composer
-    // convention). Required by F7 AC: "Pressing Enter to submit the
-    // comment resumes playback."
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSave();
@@ -482,85 +622,211 @@ function CommentComposer({
   };
 
   return (
-    <div className="space-y-2 rounded-sm border border-[rgb(var(--brand-primary))]/40 bg-[rgb(var(--bg-sunken))] p-3">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--brand-primary))]">
-          Comment at {formatTime(timeMs)}
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <span className="rounded-[6px] bg-[rgb(var(--brand-primary)/0.15)] px-2 py-1 font-mono text-[11px] font-bold text-[rgb(var(--brand-primary))]">
+          @ {formatTime(timeMs)}
         </span>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-primary))]"
-        >
-          Cancel
-        </button>
+        <span className="text-[12.5px] text-[rgb(var(--fg-muted))]">
+          Leaving feedback for {producerName}
+        </span>
       </div>
+
       <textarea
         value={body}
+        autoFocus={variant === "sheet"}
         onChange={(e) => {
           setBody(e.currentTarget.value);
         }}
         onFocus={handleFocus}
         onKeyDown={handleKeyDown}
-        rows={3}
+        rows={variant === "sheet" ? 4 : 3}
         maxLength={2000}
-        placeholder="What did you hear?"
-        className="w-full resize-none rounded-sm border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 text-sm text-[rgb(var(--fg-primary))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+        placeholder="What sounds off — or great — at this moment?"
+        className="w-full resize-none rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 text-[14px] leading-snug text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
       />
+
       {error ? (
-        <p className="text-xs text-red-400" role="alert">
+        <p className="text-xs text-[rgb(var(--fg-danger))]" role="alert">
           {error}
         </p>
       ) : null}
-      <div className="flex justify-end">
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="sk-press flex-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 py-3 text-[13px] font-semibold text-[rgb(var(--fg-default))]"
+        >
+          Cancel
+        </button>
         <button
           type="button"
           onClick={handleSave}
           disabled={pending}
-          className="rounded-full bg-[rgb(var(--brand-primary))] px-3 py-1 text-xs font-medium text-[rgb(var(--bg-base))] disabled:opacity-50"
+          className="sk-press flex flex-[2] items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-3 text-[13px] font-bold text-[rgb(var(--bg-sidebar))] disabled:opacity-50"
         >
-          {pending ? "Sending…" : "Post"}
+          {pending ? (
+            "Sending…"
+          ) : (
+            <>
+              <SendIcon size={14} />
+              <span>Send</span>
+            </>
+          )}
         </button>
       </div>
     </div>
   );
 }
 
-// ─── Comment list ────────────────────────────────────────────────────
-function CommentList({ comments }: { comments: Comment[] }) {
-  if (comments.length === 0) {
-    return (
-      <p className="text-xs text-[rgb(var(--fg-muted))]">
-        No comments yet. Tap + Comment while playing to pin your first.
-      </p>
-    );
-  }
+// ─── Sessions rail (kept as a quiet bottom section) ──────────────────
+
+function SessionsRail({ sessions }: { sessions: Session[] }) {
   return (
-    <ul className="space-y-2">
-      {comments.map((c) => (
-        <li
-          key={c.id}
-          className="rounded-sm border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-2"
-        >
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-              {c.fromProducer ? c.authorName : "You"} · {formatTime(c.timeMs)}
-            </span>
-            {c.resolvedAt ? (
-              <span className="font-mono text-[0.6rem] uppercase tracking-wider text-[rgb(var(--brand-primary))]">
-                Resolved
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 text-sm text-[rgb(var(--fg-primary))]">{c.body}</p>
-        </li>
-      ))}
-    </ul>
+    <section className="space-y-3">
+      <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+        Sessions
+      </p>
+      <ul className="flex flex-col gap-2">
+        {sessions.map((s) => {
+          const date = new Date(s.startsAt);
+          const isPast = date < new Date();
+          const statusLabel = isPast
+            ? "Completed"
+            : s.status === "pending"
+              ? "Pending approval"
+              : "Upcoming";
+          return (
+            <li
+              key={s.id}
+              className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3"
+            >
+              <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                {date.toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+                {" · "}
+                <span className="font-mono">
+                  {date.toLocaleTimeString(undefined, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                  })}
+                </span>
+              </p>
+              <p className="mt-0.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                {String(s.durationMin)} min
+                {s.packageName ? ` · ${s.packageName}` : ""}
+                {" · "}
+                {statusLabel}
+              </p>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+// ─── Empty state ─────────────────────────────────────────────────────
+
+function EmptyTracksCard({ producerName }: { producerName: string }) {
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-5 py-12 text-center">
+      <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+        No tracks yet
+      </p>
+      <p className="mx-auto mt-2 max-w-sm text-sm text-[rgb(var(--fg-muted))]">
+        {producerName} will upload mixes here once work begins. You&rsquo;ll
+        be able to listen, leave timestamped notes, and download the
+        final version once it&rsquo;s paid.
+      </p>
+    </div>
+  );
+}
+
+// ─── Icons ───────────────────────────────────────────────────────────
+
+function PlusIcon({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function DownloadIcon({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 3v12M6 11l6 6 6-6M3 21h18" />
+    </svg>
+  );
+}
+
+function LockIcon({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 1 1 8 0v4" />
+    </svg>
+  );
+}
+
+function SendIcon({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M22 2 11 13M22 2 15 22l-4-9-9-4z" />
+    </svg>
   );
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
+
 function formatTime(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "0:00";
   const totalSec = Math.floor(ms / 1000);
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
@@ -572,9 +838,17 @@ function formatDuration(ms: number | null): string {
   return formatTime(ms);
 }
 
-// The server action returns createdAt as a serialized Date via
-// superjson (dates pass through fine); cast here so the optimistic
-// append renders the same shape as server-fetched rows.
+function formatRelativeDate(d: Date): string {
+  const diffDays = Math.floor(
+    (Date.now() - d.getTime()) / (24 * 60 * 60 * 1000),
+  );
+  if (diffDays < 0) return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${String(diffDays)}d ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 function toCommentShape(c: AddedComment): Comment {
   return {
     id: c.id,

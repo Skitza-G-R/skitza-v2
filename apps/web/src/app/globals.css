@@ -645,6 +645,17 @@
     transform-origin: right;
   }
 
+  /* Tooltip entrance — fast 100ms fade with a 2px slide for direction
+     hint. Used by the <Tooltip> primitive in
+     apps/web/src/components/ui/tooltip.tsx. Reduce-motion gated below. */
+  @keyframes skitza-tooltip-in {
+    from { opacity: 0; transform: translateY(-2px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sk-tooltip-enter {
+    animation: skitza-tooltip-in 100ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
   /* ----------------------------------------------------------------
    * Pill / status / kbd / wordmark
    * ---------------------------------------------------------------- */
@@ -802,6 +813,7 @@
     .slide-up-modal,
     .sk-dialog-enter,
     .sk-sheet-enter,
+    .sk-tooltip-enter,
     .sk-toast-in,
     .sk-soft-pulse,
     .sk-float,

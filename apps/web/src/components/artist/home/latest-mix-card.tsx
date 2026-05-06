@@ -2,12 +2,20 @@
 
 import Link from "next/link";
 
+import { producerGradient } from "~/lib/artist/producer-color";
+
 import { useArtistAudio } from "../artist-audio-context";
 
-// Client component — needs the audio context hook to start playback.
-// The card itself is mostly chrome + a single button that pushes the
-// track into the persistent mini-player. If audioUrl is null (still
-// uploading), the play button is disabled.
+import { DecorativeWaveform } from "./decorative-waveform";
+
+// Latest-mix card — locked design system (Phase 5).
+//
+// Top row:   amber NEW + version → bold title → producer + comment count
+// Play btn:  44px gradient circle (per-producer hue) with dark ring
+// Bottom:    decorative 36px mini-waveform across the full card width
+//
+// Tap on the card body opens the project room. Tap on the play button
+// loads the track into the persistent mini-player (audio context).
 
 export type LatestMix = {
   id: string;
@@ -27,15 +35,15 @@ export function LatestMixCard({ mix }: { mix: LatestMix | null }) {
     return (
       <section
         aria-labelledby="latest-mix-heading"
-        className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-5"
+        className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-5"
       >
-        <h2
+        <p
           id="latest-mix-heading"
-          className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
+          className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]"
         >
           Latest mix
-        </h2>
-        <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
+        </p>
+        <p className="mt-2 text-sm text-[rgb(var(--fg-muted))]">
           New mixes from your producer will show up here — play them right in the app.
         </p>
       </section>
@@ -53,52 +61,66 @@ export function LatestMixCard({ mix }: { mix: LatestMix | null }) {
       artworkUrl: null,
     });
   };
+  const gradient = producerGradient(mix.producerName);
 
   return (
     <section
       aria-labelledby="latest-mix-heading"
-      className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
+      className="sk-lift overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
     >
-      <h2
-        id="latest-mix-heading"
-        className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
-      >
-        Latest mix
-      </h2>
-      <div className="mt-2 flex items-center gap-4">
+      <div className="flex items-center gap-3 px-5 pb-3 pt-5">
         <button
           type="button"
           onClick={onPlay}
           disabled={!ready}
-          aria-label={ready ? `Play ${mix.trackTitle} ${mix.label}` : "Audio still uploading"}
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-base))] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={
+            ready
+              ? `Play ${mix.trackTitle} ${mix.label}`
+              : "Audio still uploading"
+          }
+          className="sk-press relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md)] text-white shadow-[0_4px_12px_rgb(17_16_9_/_0.18)] disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ background: gradient }}
         >
-          ▶
+          <span aria-hidden className="absolute inset-0 bg-black/30" />
+          <svg
+            aria-hidden
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="currentColor"
+            className="relative"
+          >
+            <path d="M8 5v14l11-7z" />
+          </svg>
         </button>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-display text-lg text-[rgb(var(--fg-primary))]">
-            {mix.trackTitle}
-          </p>
-          <p className="truncate text-sm text-[rgb(var(--fg-secondary))]">
-            {mix.label} · {mix.producerName} · {formatRelative(mix.uploadedAt)}
-          </p>
-        </div>
-      </div>
-      <div className="mt-3">
+
         <Link
           href={`/artist/music/${mix.projectId}`}
-          className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
+          className="min-w-0 flex-1"
+          id="latest-mix-heading"
+          aria-label={`${mix.trackTitle} ${mix.label} — open project`}
         >
-          Open project →
+          <p className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-widest">
+            <span className="text-[rgb(var(--brand-primary))]">
+              New · {mix.label}
+            </span>
+          </p>
+          <p className="mt-0.5 truncate text-[15px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+            {mix.trackTitle}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-[rgb(var(--fg-muted))]">
+            {mix.producerName} · {formatRelative(mix.uploadedAt)}
+          </p>
         </Link>
+      </div>
+
+      <div className="px-5 pb-4">
+        <DecorativeWaveform seed={mix.id} height={36} highlight={0.32} />
       </div>
     </section>
   );
 }
 
-// Cheap relative formatter — "today", "yesterday", or "Apr 17". Spec
-// is intentionally loose: more important to be readable at a glance
-// than precise.
 function formatRelative(d: Date): string {
   const ms = Date.now() - d.getTime();
   const days = Math.floor(ms / (24 * 60 * 60 * 1000));
