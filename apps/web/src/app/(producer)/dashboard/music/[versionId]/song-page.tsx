@@ -148,6 +148,13 @@ export function SongPage({ data }: { data: SongPageData }) {
   // the existing <audio> element in PersistentPlayer.
   const nowPlaying = useNowPlaying();
 
+  // Local-only "favorite" toggle — the backend mutation isn't wired
+  // yet, but the UI affordance ships now so the action rail matches
+  // the design. State resets per page navigation, which is fine for
+  // the optimistic preview; persistence lands when producer-favorites
+  // is added on the server.
+  const [isFavorite, setIsFavorite] = useState(false);
+
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const draftRef = useRef<HTMLInputElement | null>(null);
@@ -448,6 +455,76 @@ export function SongPage({ data }: { data: SongPageData }) {
               })()}
               <button
                 type="button"
+                aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                aria-pressed={isFavorite}
+                title={isFavorite ? "In favorites" : "Add to favorites"}
+                onClick={() => {
+                  setIsFavorite((f) => !f);
+                }}
+                className={[
+                  "sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border transition",
+                  isFavorite
+                    ? "border-white bg-white text-[rgb(var(--brand-primary-dark))]"
+                    : "border-white/22 bg-white/14 text-white",
+                ].join(" ")}
+              >
+                <StarIcon filled={isFavorite} />
+              </button>
+              <button
+                type="button"
+                aria-label="Share with artist"
+                title="Share with artist"
+                onClick={() => {
+                  if (typeof window === "undefined") return;
+                  const url = window.location.href;
+                  // DOM lib types `navigator.share` as required, but
+                  // browsers without the Web Share API throw on call
+                  // — synchronous TypeError, not rejected promise.
+                  // try/catch handles both that path AND a missing
+                  // navigator.clipboard (insecure contexts) without
+                  // tripping the strict-truthy lint rule.
+                  try {
+                    void navigator.share({ title: data.track.title, url }).catch(() => {
+                      // User dismissed the native sheet — no-op.
+                    });
+                  } catch {
+                    try {
+                      void navigator.clipboard.writeText(url).catch(() => {
+                        // Permission denied or no focus — silent.
+                      });
+                    } catch {
+                      // Neither API available; the affordance is non-
+                      // destructive, so silent fall-through is fine.
+                    }
+                  }
+                }}
+                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white"
+              >
+                <ShareIcon />
+              </button>
+              {activeVersion.audioUrl ? (
+                <a
+                  aria-label="Download"
+                  title="Download"
+                  href={activeVersion.audioUrl}
+                  download
+                  className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white"
+                >
+                  <DownloadIcon />
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  aria-label="Download"
+                  title="Download (no audio uploaded yet)"
+                  disabled
+                  className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white opacity-50"
+                >
+                  <DownloadIcon />
+                </button>
+              )}
+              <button
+                type="button"
                 onClick={handleApproveToggle}
                 disabled={isPending}
                 className={[
@@ -701,6 +778,39 @@ function PauseIcon() {
     <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
       <rect x="3" y="2.5" width="2" height="7" rx="0.5" />
       <rect x="7" y="2.5" width="2" height="7" rx="0.5" />
+    </svg>
+  );
+}
+
+function StarIcon({ filled }: { filled: boolean }) {
+  // 5-point star — `d="M8 1.5..."` keeps the test grep stable across
+  // future tweaks to stroke / fill. Filled toggles between solid (in-
+  // favorites) and outline (not yet favorited).
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden>
+      <path d="M8 1.5 9.94 5.85 14.5 6.4 11.05 9.55 12 14.5 8 11.95 4 14.5 4.95 9.55 1.5 6.4 6.06 5.85 Z" />
+    </svg>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="3.5" r="2" />
+      <circle cx="4" cy="8" r="2" />
+      <circle cx="12" cy="12.5" r="2" />
+      <line x1="5.7" y1="7" x2="10.3" y2="4.5" />
+      <line x1="5.7" y1="9" x2="10.3" y2="11.5" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M8 2v8" />
+      <polyline points="4.5 7 8 10.5 11.5 7" />
+      <line x1="2.5" y1="13.5" x2="13.5" y2="13.5" />
     </svg>
   );
 }

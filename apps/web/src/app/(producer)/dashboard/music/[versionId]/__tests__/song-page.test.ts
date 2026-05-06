@@ -146,6 +146,45 @@ describe("playButtonState — Play/Pause + disabled + action mode", () => {
 
 // ─── Source-grep — wiring ────────────────────────────────────────────
 
+describe("song-page.tsx source — secondary action rail icons (Star / Share / Download)", () => {
+  it("Favorite (Star) button is rendered with an aria-label", () => {
+    // Allow either a static label or a conditional ternary — both
+    // strings must appear so the toggle reads correctly to screen
+    // readers in either state.
+    expect(songPageSrc).toContain('"Add to favorites"');
+    expect(songPageSrc).toContain('"Remove from favorites"');
+  });
+
+  it("Share button is rendered with an aria-label", () => {
+    expect(songPageSrc).toContain('aria-label="Share with artist"');
+  });
+
+  it("Download button is rendered with an aria-label", () => {
+    expect(songPageSrc).toContain('aria-label="Download"');
+  });
+
+  it("Star icon is an inline SVG path (avoids icon-font-load failures the user saw on the dock mockup)", () => {
+    // Both filled + outlined variants ship as SVG so the toggle never
+    // shows an empty circle while a glyph is missing.
+    expect(songPageSrc).toContain("StarIcon");
+    expect(songPageSrc).toMatch(/<path[^>]*d="M8 1\.5/); // five-point star path begins here
+  });
+
+  it("Share + Download icons are inline SVGs too", () => {
+    expect(songPageSrc).toContain("ShareIcon");
+    expect(songPageSrc).toContain("DownloadIcon");
+  });
+
+  it("Download button anchors to the active version's audioUrl", () => {
+    // Pin the wiring to audioUrl so the button stays in sync with the
+    // active version (switching versions should swap the download
+    // target). We don't enforce the `download` attribute literal —
+    // that's handled by the browser based on the URL — but the href
+    // MUST come from the current version's audioUrl.
+    expect(songPageSrc).toMatch(/href=\{activeVersion\.audioUrl[^}]*\}/);
+  });
+});
+
 describe("song-page.tsx source — Play button wiring", () => {
   it("imports playerPlay + playerToggle + useNowPlaying from persistent-player", () => {
     expect(songPageSrc).toMatch(/from\s+["']~\/components\/audio\/persistent-player["']/);
