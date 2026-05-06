@@ -19,20 +19,27 @@ import type { ReactNode } from "react";
 import {
   isProjectSubTabId,
   PROJECT_SUB_TAB_IDS,
+  resolveProjectSubTab,
+  VISIBLE_PROJECT_SUB_TAB_IDS,
   type ProjectSubTabId,
+  type VisibleProjectSubTabId,
 } from "./project-sub-tab-shared";
 
 // Re-export for backward compatibility with existing import paths.
 export {
   isProjectSubTabId,
   PROJECT_SUB_TAB_IDS,
+  resolveProjectSubTab,
+  VISIBLE_PROJECT_SUB_TAB_IDS,
   type ProjectSubTabId,
+  type VisibleProjectSubTabId,
 };
 
-const TABS: { id: ProjectSubTabId; label: string }[] = [
+const TABS: { id: VisibleProjectSubTabId; label: string }[] = [
+  { id: "overview", label: "Overview" },
   { id: "music", label: "Music" },
   { id: "sessions", label: "Sessions" },
-  { id: "money", label: "Money" },
+  { id: "files", label: "Files" },
   { id: "notes", label: "Notes" },
 ];
 
@@ -40,13 +47,13 @@ export function ProjectSubTabs({
   activeTab,
   children,
 }: {
-  activeTab: ProjectSubTabId;
+  activeTab: VisibleProjectSubTabId;
   children?: ReactNode;
 }) {
   const pathname = usePathname();
   const sp = useSearchParams();
 
-  const makeHref = (tab: ProjectSubTabId): string => {
+  const makeHref = (tab: VisibleProjectSubTabId): string => {
     const params = new URLSearchParams(sp.toString());
     params.set("tab", tab);
     return `${pathname}?${params.toString()}`;

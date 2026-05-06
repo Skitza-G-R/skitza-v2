@@ -6,21 +6,32 @@ import { Badge } from "~/components/ui/badge";
 import { EmptyState } from "~/components/ui/empty-state";
 import { fmtDateTime } from "~/lib/time/relative";
 
-// Task 9 — Project Room Notes sub-tab.
+// Project Room → Notes tab.
 //
-// Last of the four Project Room sub-tabs. Lifts the old "Overview" and
-// "Activity" inner tabs out of project-view.tsx (Tasks 6/7/8 already
-// lifted Music / Sessions / Contract+Invoices). With this extraction
-// project-view.tsx is fully gutted and gets deleted in the same commit.
+// PRD §3.2 (May 2026 polish): the Project Room has 5 tabs — Overview /
+// Music / Sessions / Files / Notes. The Notes tab is now the **activity
+// feed** for this project: reverse-chronological list of version
+// uploads + comments, plus a small read-only client/timeline summary
+// for context.
 //
-// Composition:
-//   1. OverviewSection — read-only client + timeline metadata + 3 stat
-//      blocks (Tracks / Versions / Contracts). All mutating stage /
-//      payment / cancel controls now live on the new ProjectHeader
-//      (Task 5); Overview is pure display here.
+// What used to live here:
+//   • The 3-stat block (Tracks / Versions / Contracts) — moved to the
+//     Overview tab where it belongs as a top-of-page summary.
+//   • The mutating stage / payment / cancel controls — already on
+//     ProjectHeader's 3-dot menu since Batch G.
+//
+// What still lives here:
+//   1. OverviewSection — read-only client + timeline metadata. Kept
+//      because the producer often opens Notes after a notification and
+//      wants the "who is this with?" context next to the activity feed
+//      without bouncing back to Overview.
 //   2. ActivitySection — reverse-chronological feed of version uploads
-//      and comments. Contract events will slot in once the
-//      project_events table lands.
+//      and comments. Project events (contract signed, invoice paid)
+//      will slot in here once the project_events table lands.
+//
+// A free-text private-notes textarea is on the post-launch roadmap —
+// not wired in this pass because v3-clean doesn't expose a
+// `projects.updateNotes` procedure.
 //
 // ProjectSubTabs still owns the tab button that controls this panel, so
 // the ARIA ids are `panel-notes` / `tab-notes` to match project-sub-tabs.
@@ -110,13 +121,15 @@ function OverviewSection({
   trackCount: number;
   versionCount: number;
 }) {
+  // The 3-stat strip lives on the Overview tab now. We only keep the
+  // numbers around because future "private notes" copy may want to
+  // render "X tracks, Y versions" inline as context. For now, ignore
+  // them so the lint doesn't fire — the props stay so the page-level
+  // call site doesn't need changing yet.
+  void trackCount;
+  void versionCount;
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <StatBlock label="Tracks" value={String(trackCount)} />
-        <StatBlock label="Versions" value={String(versionCount)} />
-      </div>
-
       <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
         <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
           Client
@@ -168,22 +181,6 @@ function OverviewSection({
           </div>
         </dl>
       </div>
-    </div>
-  );
-}
-
-function StatBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
-      <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-        {label}
-      </p>
-      <p
-        className="mt-1 font-display text-3xl tracking-tight text-[rgb(var(--fg-primary))]"
-        style={{ fontWeight: 800 }}
-      >
-        {value}
-      </p>
     </div>
   );
 }
