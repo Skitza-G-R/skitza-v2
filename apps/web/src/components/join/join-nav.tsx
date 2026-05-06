@@ -15,17 +15,18 @@
 // visual cue — the live URL is `/join/<slug>` (not `/p/`). This matches
 // the design language where artists recognise the producer's "page"
 // identifier independent of routing.
+//
+// 2026-05-06 — booking-gate Layer 1: the "Book a session" pill links
+// straight to /sign-up/join/<slug>. The inline modal flow was removed
+// because it created `pending` bookings without ever forcing sign-up.
 
 import Link from "next/link";
 
-import { BookingFlowTrigger } from "./booking-flow-trigger";
-
 interface JoinNavProps {
   slug: string;
-  producerName: string;
 }
 
-export function JoinNav({ slug, producerName }: JoinNavProps) {
+export function JoinNav({ slug }: JoinNavProps) {
   return (
     <nav
       aria-label="Page navigation"
@@ -74,9 +75,8 @@ export function JoinNav({ slug, producerName }: JoinNavProps) {
           >
             Contact
           </a>
-          <BookingFlowTrigger
-            slug={slug}
-            producerName={producerName}
+          <Link
+            href={`/sign-up/join/${encodeURIComponent(slug)}`}
             className={[
               "sk-pop inline-flex min-h-9 items-center whitespace-nowrap",
               "rounded-[var(--radius-md)] bg-[rgb(var(--fg-primary))] px-3.5 py-2",
@@ -86,7 +86,7 @@ export function JoinNav({ slug, producerName }: JoinNavProps) {
             ].join(" ")}
           >
             Book a session
-          </BookingFlowTrigger>
+          </Link>
         </div>
       </div>
     </nav>

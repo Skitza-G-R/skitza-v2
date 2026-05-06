@@ -16,8 +16,14 @@
 //
 // English-only, LTR-only per CLAUDE.md i18n scope: this is the public
 // route and translation strings would leak past the per-locale wave.
+//
+// 2026-05-06 — booking-gate Layer 1: the "Book a session" CTA is now
+// a `<Link>` to /sign-up/join/<slug> rather than a trigger that opens
+// the inline 3-step modal. Visitors must sign up before any booking
+// surface (slot picker / product list / contact form) is shown. The
+// modal flow + `booking.publicRequest` were removed in the same pass.
 
-import { BookingFlowTrigger } from "./booking-flow-trigger";
+import Link from "next/link";
 
 interface JoinHeroProps {
   producer: {
@@ -129,9 +135,8 @@ export function JoinHero({ producer, slug, externalLinks }: JoinHeroProps) {
             ) : null}
 
             <div className="reveal-up-delay-2 mt-8 flex flex-wrap gap-3">
-              <BookingFlowTrigger
-                slug={slug}
-                producerName={name}
+              <Link
+                href={`/sign-up/join/${encodeURIComponent(slug)}`}
                 className={[
                   "sk-pop inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap",
                   "rounded-[var(--radius-md)] bg-[rgb(var(--fg-primary))] px-5 py-3",
@@ -142,7 +147,7 @@ export function JoinHero({ producer, slug, externalLinks }: JoinHeroProps) {
               >
                 <CalendarIcon className="h-3.5 w-3.5" />
                 Book a session
-              </BookingFlowTrigger>
+              </Link>
 
               <a
                 href="#work"
