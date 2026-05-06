@@ -526,27 +526,41 @@ function ProductMenu({
         </div>
       ) : null}
       {editing ? (
+        // Backdrop: full-viewport scroll container. Keep `overflow-y-auto`
+        // here so vertical scroll never escapes the modal into the page
+        // beneath it. Click → close (the inner div stops propagation).
         <div
           role="dialog"
           aria-modal="true"
           aria-label={`Edit ${product.name}`}
-          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:items-center sm:p-6"
+          className="fixed inset-0 z-40 overflow-y-auto bg-black/60"
           onClick={() => {
             setEditing(false);
           }}
         >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-            className="w-full max-w-2xl"
-          >
-            <NewPackageForm
-              initialValues={editValues}
-              onClose={() => {
-                setEditing(false);
+          {/* Inner flex container with `min-h-full` is the centering
+              fix: if the form is shorter than the viewport, items-center
+              stacks it in the middle as expected; if it's taller, the
+              flex container grows with the content (because min-h-full
+              pegs its minimum to the parent's height) and the outer
+              backdrop's overflow-y-auto handles the scroll. Without
+              min-h-full, items-center on a 100vh parent + a >100vh form
+              hides the top of the form above the scroll region — the
+              "kebab Edit modal cuts off the top" regression. */}
+          <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
               }}
-            />
+              className="w-full max-w-2xl"
+            >
+              <NewPackageForm
+                initialValues={editValues}
+                onClose={() => {
+                  setEditing(false);
+                }}
+              />
+            </div>
           </div>
         </div>
       ) : null}
