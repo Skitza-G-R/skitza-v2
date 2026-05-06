@@ -207,7 +207,13 @@ export function PersistentPlayer() {
       // play button doesn't overlap the gesture strip when the app
       // is installed as a PWA. Inset resolves to 0 in a standard
       // browser, so no change elsewhere.
-      className="sk-safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 shadow-lg md:px-6"
+      // Stack the dock ABOVE the producer bottom nav on mobile.
+      // The bottom nav (z-30, `fixed bottom-0`) measures ~62px
+      // tab row + iOS safe-area inset; the `.persistent-player-dock`
+      // class in globals.css layers that offset on <lg, then drops
+      // back to `bottom: 0` + safe-area-padding on lg+ where the
+      // desktop sidebar replaces the bottom nav.
+      className="persistent-player-dock fixed inset-x-0 z-40 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 shadow-lg md:px-6"
     >
       <div className="mx-auto flex max-w-5xl items-center gap-3">
         <button
