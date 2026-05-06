@@ -79,7 +79,7 @@ export default async function JoinPage({ params }: PageProps) {
 
   return (
     <div className="relative min-h-dvh">
-      <JoinNav slug={slug} />
+      <JoinNav slug={slug} producerName={data.producer.displayName ?? "Producer"} />
 
       <main className="relative z-0 flex min-h-dvh flex-col">
         {/* Accessible page title — the visible display font is h1 on
@@ -116,7 +116,11 @@ export default async function JoinPage({ params }: PageProps) {
           </p>
         ) : null}
 
-        <SignupCta slug={slug} socialLinks={data.externalLinks} />
+        <SignupCta
+          slug={slug}
+          producerName={data.producer.displayName ?? "Producer"}
+          socialLinks={data.externalLinks}
+        />
 
         <footer className="bg-[rgb(var(--fg-primary))] pb-10 text-center">
           <p className="font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--bg-base)/0.4)]">

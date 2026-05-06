@@ -17,7 +17,7 @@
 // English-only, LTR-only per CLAUDE.md i18n scope: this is the public
 // route and translation strings would leak past the per-locale wave.
 
-import Link from "next/link";
+import { BookingFlowTrigger } from "./booking-flow-trigger";
 
 interface JoinHeroProps {
   producer: {
@@ -129,19 +129,26 @@ export function JoinHero({ producer, slug, externalLinks }: JoinHeroProps) {
             ) : null}
 
             <div className="reveal-up-delay-2 mt-8 flex flex-wrap gap-3">
-              <Link
-                href={`/sign-up/join/${encodeURIComponent(slug)}`}
-                className={[
-                  "sk-pop inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap",
-                  "rounded-[var(--radius-md)] bg-[rgb(var(--fg-primary))] px-5 py-3",
-                  "text-sm font-bold text-[rgb(var(--bg-base))]",
-                  "transition-transform hover:-translate-y-[1px]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
-                ].join(" ")}
-              >
-                <CalendarIcon className="h-3.5 w-3.5" />
-                Book a session
-              </Link>
+              <BookingFlowTrigger
+                slug={slug}
+                producerName={name}
+                trigger={({ onClick }) => (
+                  <button
+                    type="button"
+                    onClick={onClick}
+                    className={[
+                      "sk-pop inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap",
+                      "rounded-[var(--radius-md)] bg-[rgb(var(--fg-primary))] px-5 py-3",
+                      "text-sm font-bold text-[rgb(var(--bg-base))]",
+                      "transition-transform hover:-translate-y-[1px]",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
+                    ].join(" ")}
+                  >
+                    <CalendarIcon className="h-3.5 w-3.5" />
+                    Book a session
+                  </button>
+                )}
+              />
 
               <a
                 href="#work"
