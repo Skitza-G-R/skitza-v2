@@ -65,23 +65,17 @@ export function SignupCta({ slug, producerName, socialLinks }: SignupCtaProps) {
           <BookingFlowTrigger
             slug={slug}
             producerName={producerName}
-            trigger={({ onClick }) => (
-              <button
-                type="button"
-                onClick={onClick}
-                className={[
-                  "sk-cta-shine pulse-glow inline-flex min-h-12 w-full items-center justify-center whitespace-nowrap",
-                  "rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))]",
-                  "px-8 py-4 text-base font-bold text-[rgb(var(--fg-primary))] sm:w-auto sm:text-lg",
-                  "shadow-[0_6px_20px_-4px_rgb(var(--brand-primary)/0.4)]",
-                  "transition-transform hover:-translate-y-[1px] active:translate-y-[1px]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]",
-                ].join(" ")}
-              >
-                <span className="relative z-10">Book a session →</span>
-              </button>
-            )}
-          />
+            className={[
+              "sk-cta-shine pulse-glow inline-flex min-h-12 w-full items-center justify-center whitespace-nowrap",
+              "rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))]",
+              "px-8 py-4 text-base font-bold text-[rgb(var(--fg-primary))] sm:w-auto sm:text-lg",
+              "shadow-[0_6px_20px_-4px_rgb(var(--brand-primary)/0.4)]",
+              "transition-transform hover:-translate-y-[1px] active:translate-y-[1px]",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]",
+            ].join(" ")}
+          >
+            <span className="relative z-10">Book a session →</span>
+          </BookingFlowTrigger>
 
           <JoinSocialLinks links={socialLinks} />
         </div>

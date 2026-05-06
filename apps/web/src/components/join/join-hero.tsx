@@ -132,23 +132,17 @@ export function JoinHero({ producer, slug, externalLinks }: JoinHeroProps) {
               <BookingFlowTrigger
                 slug={slug}
                 producerName={name}
-                trigger={({ onClick }) => (
-                  <button
-                    type="button"
-                    onClick={onClick}
-                    className={[
-                      "sk-pop inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap",
-                      "rounded-[var(--radius-md)] bg-[rgb(var(--fg-primary))] px-5 py-3",
-                      "text-sm font-bold text-[rgb(var(--bg-base))]",
-                      "transition-transform hover:-translate-y-[1px]",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
-                    ].join(" ")}
-                  >
-                    <CalendarIcon className="h-3.5 w-3.5" />
-                    Book a session
-                  </button>
-                )}
-              />
+                className={[
+                  "sk-pop inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap",
+                  "rounded-[var(--radius-md)] bg-[rgb(var(--fg-primary))] px-5 py-3",
+                  "text-sm font-bold text-[rgb(var(--bg-base))]",
+                  "transition-transform hover:-translate-y-[1px]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
+                ].join(" ")}
+              >
+                <CalendarIcon className="h-3.5 w-3.5" />
+                Book a session
+              </BookingFlowTrigger>
 
               <a
                 href="#work"

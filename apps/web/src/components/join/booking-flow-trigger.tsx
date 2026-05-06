@@ -4,16 +4,34 @@ import { useState, type ReactNode } from "react";
 
 import { BookingFlowModal } from "./booking-flow-modal";
 
-// Tiny client-side wrapper that owns a single piece of state — the
-// "is the booking modal open?" boolean — and exposes a render-prop
-// trigger so its parent (typically a server component) can shape
-// the button however it wants.
+// Client-side wrapper that owns "is the booking modal open?" and
+// renders a `<button>` that toggles it on click.
 //
-// Two invocations live on `/join/<slug>`: one in JoinNav (a small
-// pill-shaped CTA) and one in JoinHero (a fuller "Book a session"
-// button). Both want the same modal open behaviour but completely
-// different button styling, so a render-prop fits better than a
-// pre-styled button + classname prop.
+// API is `children` + `className`, NOT a render-prop callback.
+// Why: this file is `"use client"`, but it's invoked from server
+// components (JoinHero, JoinNav, SignupCta). RSC payloads are
+// serialized when the server hands work over to the client, and
+// functions are not serializable — Next throws
+//
+//   Error: Functions cannot be passed directly to Client Components
+//   unless you explicitly expose it by marking it with "use server"
+//
+// at runtime when an RSC parent passes a callback prop.
+//
+// An earlier iteration used `trigger={({ onClick }) => <button .../>}`.
+// It typechecked, passed `renderToStaticMarkup` unit tests (which run
+// in one process, no RSC boundary), and built clean. But every
+// `/join/<slug>` request died on Vercel with that exact error. See
+// the runtime logs around 2026-05-06T16:44Z and CLAUDE.md mistake log.
+//
+// The fix: let the parent describe the button declaratively. `children`
+// carries the icons/text (server-rendered JSX, serializable). `className`
+// carries the visual variant (string, serializable). The trigger renders
+// its own `<button>` so the click handler stays inside the client island.
+//
+// Two visual variants live today — a small pill in JoinNav (`min-h-9`)
+// and a fuller CTA in JoinHero / SignupCta (`min-h-12`). Both share
+// this trigger by varying `className` only.
 //
 // Public route — ENGLISH ONLY, LTR ONLY per CLAUDE.md i18n scope.
 
@@ -21,22 +39,36 @@ interface BookingFlowTriggerProps {
   slug: string;
   producerName: string;
   /**
-   * Render-prop — receives an `onClick` to wire to whatever button-
-   * shaped element the parent wants to render. Returns the trigger
-   * element. The trigger sits in the layout BEFORE the modal.
+   * Tailwind / CSS classes applied to the wrapping `<button>`. The
+   * visual variants live at the callsites; the trigger does not
+   * impose its own styling.
    */
-  trigger: (props: { onClick: () => void }) => ReactNode;
+  className?: string;
+  /**
+   * Button contents (text, icons, etc.). Server-rendered JSX is fine —
+   * ReactNode serializes across the RSC boundary; functions do not.
+   */
+  children: ReactNode;
 }
 
 export function BookingFlowTrigger({
   slug,
   producerName,
-  trigger,
+  className,
+  children,
 }: BookingFlowTriggerProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      {trigger({ onClick: () => { setOpen(true); } })}
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(true);
+        }}
+        className={className}
+      >
+        {children}
+      </button>
       <BookingFlowModal
         open={open}
         onOpenChange={setOpen}
