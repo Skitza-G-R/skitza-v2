@@ -1,13 +1,15 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import type { ServicePackageRow } from "~/components/dashboard/setup/services-section";
+import {
+  StorefrontScreen,
+  type StorefrontProduct,
+} from "~/components/dashboard/storefront/storefront-screen";
 import type { PortfolioTrackRow } from "~/components/dashboard/setup/portfolio-section";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { ProfileTabs } from "./profile-tabs";
 import { type ProfileTabKey, isProfileTab } from "./profile-tab-key";
-import { StorePanel } from "./store-panel";
 import {
   PortfolioPanel,
   type ExternalLinkRow,
@@ -39,18 +41,17 @@ export default async function ProfilePage({
 
   const caller = appRouter.createCaller({ userId });
 
-  // Store tab needs both the package list AND the producer's profile
-  // default currency (the latter seeds the New-service form so it
-  // matches the producer's locale instead of falling back to USD).
-  // Fan out in parallel — the two calls are independent.
-  let servicesPackages: ServicePackageRow[] = [];
-  let storeDefaultCurrency: "USD" | "EUR" | "GBP" | "ILS" = "USD";
+  // Store tab fetches the product list + producer profile. Profile
+  // gives us the public storefront URL we surface above the
+  // products tab toggle.
+  let storefrontProducts: StorefrontProduct[] = [];
+  let storefrontPublicUrl: string | null = null;
   if (active === "store") {
     const [packages, profile] = await Promise.all([
       caller.booking.packages.list(),
       caller.producer.me(),
     ]);
-    servicesPackages = packages.map((p) => ({
+    storefrontProducts = packages.map((p) => ({
       id: p.id,
       name: p.name,
       description: p.description,
@@ -58,20 +59,26 @@ export default async function ProfilePage({
       sessionCount: p.sessionCount,
       priceCents: p.priceCents,
       currency: p.currency,
-      depositPct: p.depositPct,
       active: p.active,
-      kind: p.kind,
-      locationType: p.locationType,
-      bufferMinutes: p.bufferMinutes,
-      minLeadHours: p.minLeadHours,
-      paymentPlans: p.paymentPlans,
-      contractUrl: p.contractUrl,
+      // Plan label is derived from paymentPlans (a row of normalized
+      // plan kinds); show the first plan's label or "Pay once" for
+      // a single flat plan. Real plan-display logic lives in the
+      // settings/services CRUD path; this is a lightweight summary.
+      planLabel:
+        p.paymentPlans.length === 0
+          ? "Pay once"
+          : p.paymentPlans.length === 1
+            ? "Pay once"
+            : `${String(p.paymentPlans.length)} plan options`,
     }));
-    storeDefaultCurrency = profile.defaultCurrency as
-      | "USD"
-      | "EUR"
-      | "GBP"
-      | "ILS";
+
+    const publicBase =
+      process.env.NEXT_PUBLIC_SITE_URL ??
+      process.env.SITE_URL ??
+      "https://skitza.app";
+    storefrontPublicUrl = profile.slug
+      ? `${publicBase.replace(/\/$/, "")}/p/${profile.slug}`
+      : null;
   }
 
   let portfolioTracks: PortfolioTrackRow[] = [];
@@ -116,7 +123,7 @@ export default async function ProfilePage({
   // Header subtitle: count line on Store, descriptive blurb on Portfolio.
   const subtitle =
     active === "store"
-      ? `${String(servicesPackages.length)} ${servicesPackages.length === 1 ? "service" : "services"} available to book`
+      ? `${String(storefrontProducts.length)} ${storefrontProducts.length === 1 ? "service" : "services"} available to book`
       : META[active].description;
 
   return (
@@ -140,9 +147,10 @@ export default async function ProfilePage({
         className="pt-5"
       >
         {active === "store" && (
-          <StorePanel
-            packages={servicesPackages}
-            defaultCurrency={storeDefaultCurrency}
+          <StorefrontScreen
+            products={storefrontProducts}
+            analytics={null}
+            publicUrl={storefrontPublicUrl}
           />
         )}
         {active === "portfolio" && (

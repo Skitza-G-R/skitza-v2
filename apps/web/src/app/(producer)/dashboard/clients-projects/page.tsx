@@ -4,6 +4,10 @@ import { redirect } from "next/navigation";
 
 import { Button } from "~/components/ui/button";
 import {
+  ClientsListScreen,
+  type ClientsListRow,
+} from "~/components/dashboard/clients/clients-list-screen";
+import {
   ProjectsList,
   type GroupedProjects,
   type ProjectRow,
@@ -14,7 +18,6 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 import { ClientsPageTabs } from "./clients-page-tabs";
 import { type ClientsTabKey, isClientsTab } from "./clients-tab-key";
-import { ClientsPanel, type ClientRow } from "./clients-panel";
 
 // Task 4 + Task 3 (tabs): the page now has two tabs — Clients and
 // Projects. The Projects tab preserves the existing browse view; the
@@ -34,7 +37,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const active: ClientsTabKey = isClientsTab(sp.tab) ? sp.tab : "projects";
 
-  let clientRows: ClientRow[] = [];
+  let clientRows: ClientsListRow[] = [];
   const clientGrouped: GroupedProjects = {
     lead: [],
     booked: [],
@@ -56,6 +59,13 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
         name: c.name,
         totalProjectCount: c.totalProjectCount,
         activeProjectCount: c.activeProjectCount,
+        outstandingCents: c.outstandingCents,
+        lifetimeCents: c.lifetimeCents,
+        // outstandingCents/lifetimeCents on the contact aggregate
+        // are summed across project rows without currency
+        // normalization. v1 treats every client as USD; per-client
+        // currency is deferred (see Phase 4 handoff).
+        currency: "USD",
         needsAttention: c.needsAttention,
         isStale: c.isStale,
         lastActivityIso:
@@ -135,7 +145,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
             className="pt-5"
           >
             {active === "clients" ? (
-              <ClientsPanel rows={clientRows} />
+              <ClientsListScreen rows={clientRows} />
             ) : (
               <ProjectsList grouped={clientGrouped} activeState={activeState} />
             )}
