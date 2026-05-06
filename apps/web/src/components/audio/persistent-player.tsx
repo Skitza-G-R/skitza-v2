@@ -380,10 +380,13 @@ function DesktopDock({
           </div>
         </div>
 
-        {/* CENTER — transport. Auto-width column, sits in the middle
-            grid track. Internal layout is column-stack: transport
-            buttons on top, time + waveform + time below. */}
-        <div className="hidden flex-col items-center gap-1.5 lg:flex">
+        {/* CENTER — transport. Sits in the auto-width middle grid
+            track. The inner stack carries `min-w-[360px]` so the
+            auto column expands to give the time + waveform row room
+            to render — without it the waveform collapses (regression
+            the founder flagged: "no waveform bar on the floating
+            player"). */}
+        <div className="hidden min-w-[360px] flex-col items-center gap-1.5 lg:flex">
           <div className="flex items-center justify-center gap-4">
             <button
               type="button"
@@ -414,7 +417,7 @@ function DesktopDock({
               <SkipForwardIcon />
             </button>
           </div>
-          <div className="flex w-full max-w-[420px] items-center gap-2.5 font-mono text-[10px] text-white/40">
+          <div className="flex w-full items-center gap-2.5 font-mono text-[10px] text-white/40">
             <span className="w-8 text-right tabular-nums">{fmtTime(currentMs)}</span>
             <MiniWaveform seed={track.id} progressPct={progressPct} onScrub={onScrub} />
             <span className="w-8 tabular-nums">{durationMs == null ? "—" : fmtTime(durationMs)}</span>

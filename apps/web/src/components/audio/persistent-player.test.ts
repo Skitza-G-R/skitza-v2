@@ -208,6 +208,16 @@ describe("PersistentPlayer source — dock truly centers the transport (founder 
     // right content imbalance.
     expect(playerSrc).toMatch(/grid-cols-\[1fr_auto_1fr\]/);
   });
+
+  it("center transport carries a min-width so the inline waveform row doesn't collapse", () => {
+    // Round 6 regression: switching to grid-cols-[1fr_auto_1fr]
+    // shrunk the auto column down to the transport-buttons row
+    // (~120px), starving the waveform/time row underneath. Without
+    // a min-width on the center stack, MiniWaveform renders at 0px
+    // and the founder sees a play-button-only dock. Pin: the center
+    // stack carries `min-w-[<n>px]` (any n ≥ 320 is reasonable).
+    expect(playerSrc).toMatch(/min-w-\[(?:3[2-9]\d|[4-9]\d{2})px\][^"]*flex-col[^"]*lg:flex/);
+  });
 });
 
 describe("PersistentPlayer source — dock progress visual is a mini waveform, not a thin line", () => {
