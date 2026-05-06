@@ -78,6 +78,18 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     }
   }
 
+  // Header counts: clients tab shows total + active. Projects tab
+  // shows total projects across stages. Both render the design's
+  // "X total · Y active" count line under the title.
+  const headerCounts =
+    active === "clients"
+      ? `${String(clientRows.length)} total · ${String(
+          clientRows.filter((r) => !r.isStale).length,
+        )} active`
+      : `${String(
+          Object.values(clientGrouped).reduce((sum, list) => sum + list.length, 0),
+        )} projects across stages`;
+
   return (
     <>
       <div className="relative isolate">
@@ -85,34 +97,35 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
         />
-        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-8 pb-12 sm:px-8 lg:px-12 lg:pt-12">
-          <header>
-            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
-              Pipeline
-            </p>
-            <div className="mt-2 flex items-start justify-between gap-4">
-              <h1 className="font-display text-4xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-5xl">
-                Clients & Projects
+        <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
+          {/* Phase 4 header — locked design's title-with-amber-period
+              + counts subtitle. The "+ New project" CTA stays as a
+              right-aligned anchor at the same row as the title so
+              touch users can reach it without a long scroll. */}
+          <header className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
+                Clients
+                <span className="text-[rgb(var(--brand-primary))]">.</span>
               </h1>
-              <Button asChild className="shrink-0">
-                <Link href="/dashboard/clients-projects/new">+ New project</Link>
-              </Button>
+              <p className="mt-1.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
+                {headerCounts}
+              </p>
             </div>
-            <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
-              Browse your clients or open the project room for any active engagement.
-            </p>
+            <Button asChild className="shrink-0">
+              <Link href="/dashboard/clients-projects/new">+ New project</Link>
+            </Button>
           </header>
 
-          <div className="mt-6">
+          <div className="mt-5">
             <ClientsPageTabs active={active} />
           </div>
 
           <div
             key={active}
             id={`clients-panel-${active}`}
-            role="tabpanel"
             aria-labelledby={`clients-tab-${active}`}
-            className="pt-6"
+            className="pt-5"
           >
             {active === "clients" ? (
               <ClientsPanel rows={clientRows} />
