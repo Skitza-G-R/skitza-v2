@@ -17,11 +17,11 @@ import {
 // branching — so a tuple index is enough. Labels live in one array
 // so the progress dots + the step titles stay in sync.
 type StepKey = "identity" | "package" | "hours" | "share";
-const STEPS: { key: StepKey; label: string }[] = [
-  { key: "identity", label: "You" },
-  { key: "package", label: "Package" },
-  { key: "hours", label: "Hours" },
-  { key: "share", label: "Share" },
+const STEPS: { key: StepKey; label: string; eyebrow: string }[] = [
+  { key: "identity", label: "You", eyebrow: "Studio identity" },
+  { key: "package", label: "Package", eyebrow: "What you sell" },
+  { key: "hours", label: "Hours", eyebrow: "When you're open" },
+  { key: "share", label: "Share", eyebrow: "Drop the link" },
 ];
 
 export interface OnboardingInitial {
@@ -35,6 +35,20 @@ export interface OnboardingInitial {
 // 4-step, skippable, idiot-proof. Mobile-first: each step is one
 // column, large inputs, giant Next button. Desktop gets the same
 // layout centred + wider.
+//
+// Polish pass (May 2026): aligned the chrome to the locked design
+// system used across Today / Clients / Storefront / Music.
+//   - Syne 800 step heading w/ amber period accent
+//   - Mono `01 / 04` step counter + uppercase eyebrow tracking
+//   - Thin amber progress fill on a border-subtle rail
+//   - Primary CTA picks up `sk-lift sk-cta-shine` for the diagonal
+//     shimmer + 1px hover lift; ≥44px tap target on mobile
+//   - Form fields keep the existing token classes but bump padding
+//     to py-3.5 and gain a focus-visible amber ring
+//   - Each step root re-keys on `step` to retrigger `reveal-up`,
+//     and inner fields use `reveal-up-delay-N` for a 60ms stagger
+//   - All animations sit behind the @media reduce gate already in
+//     globals.css — no extra work required here.
 export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
   const router = useRouter();
   const [step, setStep] = useState<number>(0);
@@ -161,38 +175,66 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
     router.refresh();
   }
 
+  // Progress ratio — 0..1, lights the amber fill behind the rail.
+  const progressPct = ((step + 1) / STEPS.length) * 100;
+  const stepNumber = String(step + 1).padStart(2, "0");
+  const totalSteps = String(STEPS.length).padStart(2, "0");
+  const currentStep = STEPS[step];
+
   return (
     <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+88px)] pt-6 sm:px-6">
+      {/* Top chrome — wordmark eyebrow + skip link.  Mirrors the
+          identity strip used on the public landing + auth pages so
+          producers feel they're inside the same product. */}
       <div className="flex items-center justify-between">
-        <div className="flex gap-1.5" aria-hidden>
-          {STEPS.map((s, i) => (
-            <span
-              key={s.key}
-              className={[
-                "h-2 w-2 rounded-full transition-colors",
-                i === step
-                  ? "bg-[rgb(var(--brand-primary))]"
-                  : i < step
-                    ? "bg-[rgb(var(--fg-secondary))]"
-                    : "bg-[rgb(var(--border-subtle))]",
-              ].join(" ")}
-            />
-          ))}
-        </div>
+        <Link href="/dashboard" className="skitza-wordmark text-base">
+          Skitza<span className="dot">.</span>
+        </Link>
         <button
           type="button"
           onClick={skipAll}
-          className="text-xs text-[rgb(var(--fg-muted))] underline decoration-dotted underline-offset-2 hover:text-[rgb(var(--fg-secondary))]"
+          className="rounded-[var(--radius-md)] px-2 py-1 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] underline decoration-dotted underline-offset-4 transition-colors hover:text-[rgb(var(--fg-secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
         >
-          Skip — I&rsquo;ll set this up later
+          Skip — set up later
         </button>
       </div>
 
-      <p className="mt-8 font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-        Step {String(step + 1)} of {String(STEPS.length)} · {STEPS[step]?.label}
-      </p>
+      {/* Progress rail — single 2px row with an amber fill that
+          animates between steps.  Replaces the prior 4 dots so the
+          producer reads progress as continuous (78% complete) rather
+          than discrete (3 of 4 dots filled). */}
+      <div
+        role="progressbar"
+        aria-valuenow={step + 1}
+        aria-valuemin={1}
+        aria-valuemax={STEPS.length}
+        aria-label="Onboarding progress"
+        className="relative mt-6 h-[3px] w-full overflow-hidden rounded-full bg-[rgb(var(--border-subtle))]"
+      >
+        <span
+          className="absolute inset-y-0 left-0 rounded-full bg-[rgb(var(--brand-primary))] transition-[width] duration-300 ease-out"
+          style={{ width: `${String(progressPct)}%` }}
+        />
+      </div>
 
-      <div className="mt-3 flex-1">
+      {/* Step counter strip — mono "01 / 04" + eyebrow.  Small caps,
+          tracked-out, so the wide tracking signals "label, not body
+          copy" the same way the rest of the app does. */}
+      <div
+        key={`eyebrow-${currentStep?.key ?? "x"}`}
+        className="reveal-up mt-8 flex flex-wrap items-baseline gap-x-3 gap-y-1"
+      >
+        <span className="font-mono text-[0.72rem] tabular-nums text-[rgb(var(--fg-muted))]">
+          {stepNumber} / {totalSteps}
+        </span>
+        <span className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+          {currentStep?.eyebrow}
+        </span>
+      </div>
+
+      {/* Step body.  Re-keys per step so reveal-up retriggers; inner
+          fields use reveal-up-delay-N for a 60ms cascade. */}
+      <div key={`step-${currentStep?.key ?? "x"}`} className="mt-3 flex-1">
         {step === 0 ? (
           <IdentityStep
             displayName={displayName}
@@ -229,7 +271,7 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
       {error ? (
         <p
           role="alert"
-          className="mt-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-3 py-2 text-sm text-[rgb(var(--fg-primary))]"
+          className="sk-pop-center mt-4 rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.4)] bg-[rgb(var(--fg-danger)/0.08)] px-3 py-2 text-sm text-[rgb(var(--fg-primary))]"
         >
           {error}
         </p>
@@ -243,9 +285,9 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
               setError(null);
               setStep((s) => Math.max(0, s - 1));
             }}
-            className="text-sm text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]"
+            className="min-h-11 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
           >
-            Back
+            ← Back
           </button>
         ) : (
           <span />
@@ -254,22 +296,26 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
           type="button"
           onClick={onNext}
           disabled={pending}
-          className="inline-flex h-14 flex-1 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-6 text-base font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110 disabled:opacity-60 sm:flex-none sm:px-8"
+          className="sk-lift sk-cta-shine inline-flex h-14 min-h-11 flex-1 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-6 text-base font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-sm)] transition-[filter,transform,box-shadow] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none sm:px-8"
         >
-          {pending ? "Saving…" : step === STEPS.length - 1 ? "Go to dashboard" : "Next"}
+          {pending
+            ? "Saving…"
+            : step === STEPS.length - 1
+              ? "Go to dashboard →"
+              : "Continue →"}
         </button>
       </div>
 
       {step === 3 ? (
-        <p className="mt-4 text-center text-xs text-[rgb(var(--fg-muted))]">
-          You can edit any of this later under Setup & Booking.
-          <br />
+        <p className="reveal-up reveal-up-delay-2 mt-6 text-center text-xs text-[rgb(var(--fg-muted))]">
+          You can edit any of this later under{" "}
           <Link
-            href="/dashboard"
-            className="underline decoration-dotted underline-offset-2 hover:text-[rgb(var(--fg-secondary))]"
+            href="/dashboard/settings"
+            className="underline decoration-dotted underline-offset-4 hover:text-[rgb(var(--fg-secondary))]"
           >
-            Go to your dashboard →
+            Settings
           </Link>
+          .
         </p>
       ) : null}
 
@@ -281,6 +327,38 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
 }
 
 // ─── Steps ─────────────────────────────────────────────────────────
+
+// Shared field-label class.  Identical surface across every step so
+// the producer reads the form as one rhythmic stack rather than four
+// distinct cards.
+const FIELD_LABEL =
+  "mb-1.5 block font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]";
+
+const FIELD_INPUT =
+  "block w-full rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3.5 text-base text-[rgb(var(--fg-primary))] placeholder:text-[rgb(var(--fg-muted))] transition-colors focus:border-[rgb(var(--brand-primary))] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]";
+
+// Heading shared by every step — Syne 800 with the amber period
+// micro-accent.  Pinned to one component so a future copy tweak
+// doesn't drift across the four steps.
+function StepHeading({
+  title,
+  subhead,
+}: {
+  title: string;
+  subhead: string;
+}) {
+  return (
+    <header className="reveal-up">
+      <h1 className="font-display text-[2.25rem] font-extrabold leading-[1.05] tracking-[-0.02em] text-[rgb(var(--fg-primary))] sm:text-[2.75rem]">
+        {title}
+        <span className="text-[rgb(var(--brand-primary))]">.</span>
+      </h1>
+      <p className="mt-3 text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
+        {subhead}
+      </p>
+    </header>
+  );
+}
 
 function IdentityStep({
   displayName,
@@ -295,18 +373,13 @@ function IdentityStep({
 }) {
   return (
     <div>
-      <h1 className="font-display text-3xl leading-tight tracking-tight sm:text-4xl">
-        What do clients call you?
-      </h1>
-      <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-        This is your studio name on your public page, and the short URL clients
-        use to book you.
-      </p>
-      <div className="mt-6 space-y-4">
-        <label className="block">
-          <span className="mb-1 block font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-            Display name
-          </span>
+      <StepHeading
+        title="What do clients call you"
+        subhead="This is your studio name on your public page, and the short URL clients use to book you."
+      />
+      <div className="mt-7 space-y-4">
+        <label className="reveal-up reveal-up-delay-1 block">
+          <span className={FIELD_LABEL}>Display name</span>
           <input
             type="text"
             value={displayName}
@@ -315,15 +388,13 @@ function IdentityStep({
             }}
             placeholder="Skitza Studio"
             autoFocus
-            className="block w-full rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-base text-[rgb(var(--fg-primary))] placeholder:text-[rgb(var(--fg-muted))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+            className={FIELD_INPUT}
           />
         </label>
-        <label className="block">
-          <span className="mb-1 block font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-            Your URL
-          </span>
-          <div className="flex items-center overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] focus-within:border-[rgb(var(--brand-primary))]">
-            <span className="select-none px-3 text-sm text-[rgb(var(--fg-muted))]">
+        <label className="reveal-up reveal-up-delay-2 block">
+          <span className={FIELD_LABEL}>Your URL</span>
+          <div className="flex items-center overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-colors focus-within:border-[rgb(var(--brand-primary))]">
+            <span className="select-none px-3 font-mono text-sm text-[rgb(var(--fg-muted))]">
               skitza.app/join/
             </span>
             <input
@@ -333,7 +404,7 @@ function IdentityStep({
                 setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""));
               }}
               placeholder="yourname"
-              className="block w-full bg-transparent py-3 pr-4 text-base text-[rgb(var(--fg-primary))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none"
+              className="block w-full bg-transparent py-3.5 pr-4 font-mono text-base text-[rgb(var(--fg-primary))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none"
             />
           </div>
         </label>
@@ -371,18 +442,13 @@ function PackageStep({
   };
   return (
     <div>
-      <h1 className="font-display text-3xl leading-tight tracking-tight sm:text-4xl">
-        What do you sell?
-      </h1>
-      <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-        Pick one thing to sell today — a mixing session, a production day,
-        whatever&apos;s most common for you. More can come later.
-      </p>
-      <div className="mt-6 space-y-4">
-        <label className="block">
-          <span className="mb-1 block font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-            Name
-          </span>
+      <StepHeading
+        title="What do you sell"
+        subhead="Pick one thing to sell today — a mixing session, a production day, whatever's most common for you. More can come later."
+      />
+      <div className="mt-7 space-y-4">
+        <label className="reveal-up reveal-up-delay-1 block">
+          <span className={FIELD_LABEL}>Name</span>
           <input
             type="text"
             value={pkgName}
@@ -390,14 +456,12 @@ function PackageStep({
               setPkgName(e.target.value);
             }}
             placeholder="Mixing session"
-            className="block w-full rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-base text-[rgb(var(--fg-primary))] placeholder:text-[rgb(var(--fg-muted))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+            className={FIELD_INPUT}
           />
         </label>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="reveal-up reveal-up-delay-2 grid grid-cols-2 gap-4">
           <label className="block">
-            <span className="mb-1 block font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-              Duration (min)
-            </span>
+            <span className={FIELD_LABEL}>Duration (min)</span>
             <input
               type="number"
               min={15}
@@ -407,11 +471,11 @@ function PackageStep({
               onChange={(e) => {
                 setPkgDurationMin(Number(e.target.value));
               }}
-              className="sk-num block w-full rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-base text-[rgb(var(--fg-primary))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+              className={`sk-num font-mono ${FIELD_INPUT}`}
             />
           </label>
           <label className="block">
-            <span className="mb-1 block font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            <span className={FIELD_LABEL}>
               Price ({currencySymbol[currency] ?? currency})
             </span>
             <input
@@ -422,14 +486,12 @@ function PackageStep({
               onChange={(e) => {
                 setPkgPriceDollars(e.target.value);
               }}
-              className="sk-num block w-full rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-base text-[rgb(var(--fg-primary))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+              className={`sk-num font-mono ${FIELD_INPUT}`}
             />
           </label>
         </div>
-        <label className="block">
-          <span className="mb-1 block font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-            Deposit % (optional)
-          </span>
+        <label className="reveal-up reveal-up-delay-3 block">
+          <span className={FIELD_LABEL}>Deposit % (optional)</span>
           <input
             type="number"
             min={0}
@@ -439,7 +501,7 @@ function PackageStep({
             onChange={(e) => {
               setPkgDepositPct(e.target.value);
             }}
-            className="sk-num block w-full rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-base text-[rgb(var(--fg-primary))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+            className={`sk-num font-mono ${FIELD_INPUT}`}
           />
         </label>
       </div>
@@ -497,27 +559,29 @@ function HoursStep({
   }
   return (
     <div>
-      <h1 className="font-display text-3xl leading-tight tracking-tight sm:text-4xl">
-        When are you open?
-      </h1>
-      <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-        Clients only see slots inside these hours. Most producers start with the
-        preset and adjust one or two days.
-      </p>
-      <div className="mt-6">
+      <StepHeading
+        title="When are you open"
+        subhead="Clients only see slots inside these hours. Most producers start with the preset and adjust one or two days."
+      />
+      <div className="reveal-up reveal-up-delay-1 mt-7">
         <button
           type="button"
           onClick={applyPreset}
-          className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-4 py-2 text-sm text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--border-strong))]"
+          className="sk-lift inline-flex min-h-11 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
         >
           Use Mon–Fri, 10am–6pm
         </button>
       </div>
-      <ul className="mt-4 space-y-2">
+      <ul className="reveal-up reveal-up-delay-2 mt-4 space-y-2">
         {blocks.map((b) => (
           <li
             key={b.weekday}
-            className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2"
+            className={[
+              "flex min-h-11 items-center gap-3 rounded-[var(--radius-md)] border bg-[rgb(var(--bg-elevated))] px-3 py-2 transition-colors",
+              b.enabled
+                ? "border-[rgb(var(--border-subtle))]"
+                : "border-[rgb(var(--border-subtle)/0.6)] bg-[rgb(var(--bg-elevated)/0.6)]",
+            ].join(" ")}
           >
             <label className="flex items-center gap-2 text-sm text-[rgb(var(--fg-primary))]">
               <input
@@ -526,9 +590,10 @@ function HoursStep({
                 onChange={() => {
                   toggle(b.weekday);
                 }}
-                className="h-4 w-4"
+                className="h-4 w-4 accent-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
+                aria-label={`${WEEKDAY_LABELS[b.weekday] ?? ""} enabled`}
               />
-              <span className="w-10 font-mono text-xs uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
+              <span className="w-10 font-mono text-[0.7rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-secondary))]">
                 {WEEKDAY_LABELS[b.weekday]}
               </span>
             </label>
@@ -540,7 +605,7 @@ function HoursStep({
                   setTime(b.weekday, "startMin", v);
                 }}
               />
-              <span className="text-[rgb(var(--fg-muted))]">–</span>
+              <span className="font-mono text-[rgb(var(--fg-muted))]">–</span>
               <TimeInput
                 value={b.endMin}
                 disabled={!b.enabled}
@@ -580,7 +645,7 @@ function TimeInput({
         if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return;
         onChange((hours ?? 0) * 60 + (minutes ?? 0));
       }}
-      className="sk-num rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-1 text-sm text-[rgb(var(--fg-primary))] disabled:opacity-40"
+      className="sk-num rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-1 font-mono text-sm text-[rgb(var(--fg-primary))] transition-colors focus:border-[rgb(var(--brand-primary))] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--bg-elevated))] disabled:opacity-40"
     />
   );
 }
@@ -591,24 +656,21 @@ function ShareStep({ publicUrl }: { publicUrl: string }) {
   const { toast } = useToast();
   return (
     <div>
-      <h1 className="font-display text-3xl leading-tight tracking-tight sm:text-4xl">
-        You&rsquo;re set. Share your link.
-      </h1>
-      <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-        Paste this anywhere — DMs, email, link-in-bio. Clients pick a slot,
-        you see the request land in your inbox.
-      </p>
-      <div className="mt-6 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
+      <StepHeading
+        title="Almost there"
+        subhead="Paste this anywhere — DMs, email, link-in-bio. Clients pick a slot, you see the request land in your inbox."
+      />
+      <div className="reveal-up reveal-up-delay-1 sk-card-glow mt-7 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
         <div className="flex items-start gap-4">
           <QrCode value={publicUrl} size={96} className="shrink-0" />
           <div className="min-w-0 flex-1">
-            <p className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
               Your link
             </p>
-            <p className="mt-1 truncate font-mono text-sm text-[rgb(var(--fg-primary))]">
+            <p className="mt-1.5 truncate font-mono text-sm text-[rgb(var(--fg-primary))]">
               {publicUrl}
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -616,7 +678,7 @@ function ShareStep({ publicUrl }: { publicUrl: string }) {
                     toast("Link copied", "success");
                   });
                 }}
-                className="inline-flex h-9 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-medium text-[rgb(var(--fg-inverse))] hover:brightness-110"
+                className="sk-lift sk-cta-shine inline-flex h-9 min-h-11 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-sm)] transition-[filter,transform] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
               >
                 Copy link
               </button>
@@ -624,7 +686,7 @@ function ShareStep({ publicUrl }: { publicUrl: string }) {
                 href={publicUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-9 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-4 text-sm text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--border-strong))]"
+                className="sk-lift inline-flex h-9 min-h-11 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-4 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
               >
                 Preview
               </a>
