@@ -123,6 +123,58 @@ export async function deactivatePackage(input: { id: string }): Promise<ActionRe
   }
 }
 
+// Storefront visibility toggle — flips `active` without archiving.
+// Used by the storefront product card's Show / Hide control.
+export async function setPackageActive(input: {
+  id: string;
+  active: boolean;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.packages.setActive(input);
+    revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Duplicate a product. The copy starts hidden (active=false) so the
+// producer can edit it before exposing it on the public page.
+export async function duplicatePackage(input: {
+  id: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.packages.duplicate(input);
+    revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Archive (soft-delete). Distinct from deactivate / setActive — this
+// removes the product from the dashboard list entirely. Re-exposed
+// here so the storefront kebab menu doesn't import the
+// "deactivatePackage" name (which is the legacy alias).
+export async function archivePackage(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.packages.archive(input);
+    revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // ─── Availability ───────────────────────────────────────────────────
 
 export async function setAvailabilityWeek(input: {
