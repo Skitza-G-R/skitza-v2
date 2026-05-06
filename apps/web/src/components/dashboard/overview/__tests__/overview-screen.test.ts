@@ -85,10 +85,14 @@ describe("OverviewScreen — design-aligned hierarchy", () => {
     expect(overviewSource).toContain("buildSparkPath(pulseStats.sparkline)");
   });
 
-  it("filters today.items to non-session kinds for the Urgent card", () => {
-    // The urgent card surfaces unpaid invoices + unread comments —
-    // i.e. activity items where kind !== 'session'.
-    expect(overviewSource).toContain('activity.filter((it) => it.kind !== "session")');
+  it("renders the Urgent card from the project-level urgentProjects prop", () => {
+    // Project-level urgent (replaced the today.items filter): the
+    // Urgent card now consumes pre-classified project rows with a
+    // colored urgency pill (overdue / deposit_due / stuck) and a
+    // green-check empty state.
+    expect(overviewSource).toContain("urgentProjects: Array<");
+    expect(overviewSource).toContain("<UrgentCard projects={urgentProjects} />");
+    expect(overviewSource).toMatch(/urgency:\s*"overdue"\s*\|\s*"deposit_due"\s*\|\s*"stuck"/);
   });
 
   it("renders the Recent Uploads card with PlayCircle + uploaded-relative + duration", () => {

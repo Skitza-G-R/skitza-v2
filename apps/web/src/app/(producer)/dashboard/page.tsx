@@ -50,13 +50,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const caller = appRouter.createCaller({ userId });
 
   // Fan-out: today payload, profile, follow-up sessions (post-session
-  // banner), and pending approvals (new — needed for the approvals
-  // card). All independent reads run in parallel.
-  const [today, me, followUpRaw, pendingBookings] = await Promise.all([
+  // banner), pending approvals, and project-level urgent rows (the
+  // Overview's Urgent card — replaces the old today.items-derived
+  // urgency strip). All independent reads run in parallel.
+  const [today, me, followUpRaw, pendingBookings, urgent] = await Promise.all([
     caller.producer.today(),
     caller.producer.me(),
     caller.booking.needsFollowUp(),
     caller.booking.list({ status: "pending" }),
+    caller.producer.overview.urgent(),
   ]);
 
   // Drop sessions that aren't yet linked to a project — without a
@@ -197,6 +199,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               pulseStats={today.pulseStats}
               pendingApprovals={pendingApprovals}
               todaySession={todaySession}
+              urgentProjects={urgent.items}
               recentUploads={today.recentUploads.map((u) => ({
                 versionId: u.versionId,
                 trackId: u.trackId,
