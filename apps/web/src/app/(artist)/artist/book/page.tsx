@@ -28,10 +28,20 @@ export default async function BookPage({ searchParams }: PageProps) {
   const activeStudioId = sp.studio ?? studios[0]?.producerId;
   if (!activeStudioId) {
     return (
-      <div className="py-12 text-center">
-        <p className="text-sm text-[rgb(var(--fg-secondary))]">
-          No studios yet. Once a producer invites you, booking shows up here.
-        </p>
+      <div className="reveal-up space-y-4">
+        <header className="px-1">
+          <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))]">
+            Book
+            <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+          </h1>
+          <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
+            Sessions live here once you're connected to a producer.
+          </p>
+        </header>
+        <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center text-sm text-[rgb(var(--fg-secondary))]">
+          No studios yet. Once a producer invites you, booking shows up
+          here.
+        </div>
       </div>
     );
   }
@@ -42,11 +52,24 @@ export default async function BookPage({ searchParams }: PageProps) {
   ]);
 
   return (
-    <BookingClient
-      activeStudioId={activeStudioId}
-      availability={availability}
-      products={products}
-      studios={studios}
-    />
+    <div className="reveal-up space-y-4">
+      <header className="px-1">
+        <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))]">
+          Book
+          <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+        </h1>
+        <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
+          {studios.length > 1
+            ? "Pick a producer to see their availability."
+            : "Pick a slot in the next 14 days."}
+        </p>
+      </header>
+      <BookingClient
+        activeStudioId={activeStudioId}
+        availability={availability}
+        products={products}
+        studios={studios}
+      />
+    </div>
   );
 }
