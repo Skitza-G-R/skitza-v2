@@ -357,6 +357,12 @@ export const projects = pgTable("projects", {
   testimonialRequestedAt: timestamp("testimonial_requested_at", {
     withTimezone: true,
   }),
+  // Producer-only private notes for this project. Free-text, nullable
+  // (a project with no notes is the default). Surface: Project Room →
+  // Notes tab; producer types and we autosave debounced. Capped at 5000
+  // chars at the procedure layer; the column itself is `text` so we can
+  // raise the cap later without a migration.
+  notes: text("notes"),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
