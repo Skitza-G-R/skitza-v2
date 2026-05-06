@@ -2,9 +2,9 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import {
-  MusicLibrary,
-  type MusicRow,
-} from "~/components/dashboard/music/music-library";
+  MusicLibraryScreen,
+  type MusicLibraryRow,
+} from "~/components/dashboard/music/music-library-screen";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Task 10: Music top-level — Samply-style cross-project library. One
@@ -21,7 +21,7 @@ export default async function MusicPage() {
   // Dates cross the RSC → client boundary as ISO strings. Project
   // down to the minimal row shape — we don't need to ship audio R2
   // keys or peaks URLs to the list view.
-  const rows: MusicRow[] = data.tracks.map((t) => ({
+  const rows: MusicLibraryRow[] = data.tracks.map((t) => ({
     id: t.id,
     trackTitle: t.trackTitle,
     label: t.label,
@@ -64,7 +64,7 @@ export default async function MusicPage() {
               {subtitleCounts}
             </p>
           </header>
-          <MusicLibrary tracks={rows} />
+          <MusicLibraryScreen tracks={rows} />
         </div>
       </div>
     </>

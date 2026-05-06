@@ -9,9 +9,13 @@ import {
 } from "~/components/dashboard/setup/availability-section";
 import { appRouter } from "~/server/trpc/routers/_app";
 
+import {
+  MeetingsScreen,
+  type MeetingsScreenRow,
+} from "~/components/dashboard/calendar/meetings-screen";
+
 import { CalendarTabs } from "./calendar-tabs";
 import { type CalendarTabKey, isCalendarTab } from "./calendar-tab-key";
-import { MeetingsPanel, type MeetingRow } from "./meetings-panel";
 
 const META: Record<CalendarTabKey, { title: string; description: string }> = {
   meetings: {
@@ -39,21 +43,24 @@ export default async function CalendarPage({
 
   const caller = appRouter.createCaller({ userId });
 
-  let pendingMeetings: MeetingRow[] = [];
-  let upcomingMeetings: MeetingRow[] = [];
-  let meetingsAutoConfirm = false;
+  let pendingMeetings: MeetingsScreenRow[] = [];
+  let upcomingMeetings: MeetingsScreenRow[] = [];
   if (active === "meetings") {
-    const [pending, upcoming, settings] = await Promise.all([
+    const [pending, upcoming] = await Promise.all([
       caller.booking.list({ status: "pending" }),
       caller.booking.upcoming({ days: 14 }),
-      caller.booking.availability.getSettings(),
     ]);
     pendingMeetings = pending.map((b) => ({
       id: b.id,
       artistName: b.artistName,
+      artistEmail: b.artistEmail,
       startsAt: b.startsAt.toISOString(),
       durationMin: b.durationMin,
       packageName: b.packageNameSnapshot,
+      // bookings table doesn't carry priceCents (the price lives on
+      // the products table via productId). The Sheet review modal
+      // shows duration instead when price isn't available.
+      message: b.notes,
     }));
     upcomingMeetings = upcoming.map((b) => ({
       id: b.id,
@@ -62,7 +69,6 @@ export default async function CalendarPage({
       durationMin: b.durationMin,
       packageName: b.packageName,
     }));
-    meetingsAutoConfirm = settings.autoConfirmBookings;
   }
 
   let availabilityBlocks: AvailabilityBlock[] = [];
@@ -125,10 +131,9 @@ export default async function CalendarPage({
         className="pt-5"
       >
         {active === "meetings" && (
-          <MeetingsPanel
+          <MeetingsScreen
             pending={pendingMeetings}
             upcoming={upcomingMeetings}
-            autoConfirm={meetingsAutoConfirm}
           />
         )}
         {active === "availability" && (
