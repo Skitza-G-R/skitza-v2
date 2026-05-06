@@ -18,94 +18,84 @@ import {
   type ServicePackageRow,
 } from "~/components/dashboard/setup/services-section";
 import {
-  isSetupSectionKey,
-  type SetupSectionKey,
+  isSettingsBranchKey,
+  isLegacySectionKey,
+  LEGACY_SECTION_TO_BRANCH,
+  type SettingsBranchKey,
 } from "~/components/dashboard/setup/setup-deeplink";
-import { SETUP_SECTION_META } from "~/components/dashboard/setup/setup-headers";
-import { SetupTabs } from "~/components/dashboard/setup/setup-tabs";
+import { SETTINGS_BRANCH_META } from "~/components/dashboard/setup/setup-headers";
+import { SettingsBranches } from "~/components/dashboard/setup/settings-branches";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { SettingsForm } from "./settings-form";
 import { StripeCard } from "./stripe-card";
 
-// Setup — the four-screen producer-dashboard consolidation. After the
-// 2026-04-25 flatten, every tab renders its full management UI inline:
-// Profile (SettingsForm), Services (ServicesSection — packages CRUD),
-// Portfolio (PortfolioSection), Availability (AvailabilitySection —
-// hours + blackouts + policies), Autopilot (AutopilotSection),
-// Connections (StripeCard), Account (AccountSection inline below).
-// No more cross-link "Manage X" buttons — those bounced to /dashboard/
-// booking, which still exists for the read-only Weekly schedule + the
-// Upcoming sessions list, but configuration now happens here.
+// /dashboard/settings — collapsed from 7 tabs into 2 branches per PRD
+// v3 §4.6 ("Settings has 2 branches only: Profile and Integrations").
 //
-// The page-level <h1> + description swap per active tab via
-// SETUP_SECTION_META so producers always know what surface they're on
-// without scanning back to the tab bar; the breadcrumb dropped because
-// the dynamic title carries the same orientation.
+// PROFILE branch       — account identity (display name, slug,
+//                        currency, timezone, brand colors/logo,
+//                        portfolio image picks, account/data export).
+// INTEGRATIONS branch  — operational config + payment processing
+//                        (services CRUD, availability, autopilot
+//                        rules, Stripe).
+//
+// LEGACY URL HANDLING. The 7-tab era used `?section=<key>`. Every
+// known section key is rewritten to its new branch via
+// LEGACY_SECTION_TO_BRANCH so existing bookmarks (and the in-app
+// links from /today, contextual-actions, sidebar-share-chip,
+// storefront-screen, and middleware redirects of /dashboard/portfolio
+// etc.) keep landing on the right surface.
 //
 // Stays a Server Component so we can await Clerk + the tRPC caller
-// once per render. Tab-active data fetches are gated so each tab pays
-// only for its own queries — fanning out everything would slow down
-// the most-common landing tab (Profile).
-export default async function SetupPage({
+// once per render. Branch-specific data fetches are gated so each
+// branch pays only for its own queries.
+export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ section?: string }>;
+  searchParams: Promise<{ branch?: string; section?: string }>;
 }) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
-  // Parse + narrow the `?section=` param. Unknown values fall back to
-  // "profile" — same defensive default as the old client-side
-  // deeplink, just evaluated server-side now so we only render one
-  // section.
   const resolvedSearchParams = await searchParams;
+
+  // Resolve the active branch in this priority order:
+  //   1. New `?branch=<key>` param (canonical)
+  //   2. Legacy `?section=<key>` param → mapped via LEGACY_SECTION_TO_BRANCH
+  //   3. Default to "profile" (the entry-point branch)
+  //
+  // When a legacy `?section=*` arrives we issue a server-side
+  // redirect to the canonical `?branch=*` URL so the browser address
+  // bar updates and any future shares carry the new key. This keeps
+  // the 7-tab era bookmarks working without forking the URL space
+  // long-term.
+  const rawBranch = resolvedSearchParams.branch;
   const rawSection = resolvedSearchParams.section;
-  const active: SetupSectionKey = isSetupSectionKey(rawSection)
-    ? rawSection
+
+  if (rawBranch === undefined && isLegacySectionKey(rawSection)) {
+    const target = LEGACY_SECTION_TO_BRANCH[rawSection];
+    redirect(`/dashboard/settings?branch=${target}`);
+  }
+
+  const active: SettingsBranchKey = isSettingsBranchKey(rawBranch)
+    ? rawBranch
     : "profile";
 
   const caller = appRouter.createCaller({ userId });
 
-  // Profile data is always needed — it powers the Profile tab AND
-  // feeds the Autopilot section (which reads `profile.autopilot`).
-  // Other tab-specific queries fan out only when the matching tab is
-  // active; gating keeps the cold-load cost of each tab bounded.
+  // Profile data is always needed — the Profile branch reads it and
+  // the Integrations branch reads `profile.autopilot` for the
+  // automation switches and `profile.stripeConnected/.stripeChargesEnabled`
+  // for the Stripe card. One query is cheaper than gating it.
   const profile = await caller.producer.me();
 
-  const portfolioTracks: PortfolioTrackRow[] =
-    active === "portfolio"
-      ? (await caller.portfolio.list()).map((t) => ({
-          id: t.id,
-          title: t.title,
-          artist: t.artist,
-          isPublicSample: t.isPublicSample,
-        }))
-      : [];
-
-  const servicesPackages: ServicePackageRow[] =
-    active === "services"
-      ? (await caller.booking.packages.list()).map((p) => ({
-          id: p.id,
-          name: p.name,
-          description: p.description,
-          durationMin: p.durationMin,
-          sessionCount: p.sessionCount,
-          priceCents: p.priceCents,
-          currency: p.currency,
-          depositPct: p.depositPct,
-          active: p.active,
-          kind: p.kind,
-          locationType: p.locationType,
-          bufferMinutes: p.bufferMinutes,
-          minLeadHours: p.minLeadHours,
-          paymentPlans: p.paymentPlans,
-          contractUrl: p.contractUrl,
-        }))
-      : [];
-
-  // Availability tab needs three queries — fan them out in parallel
-  // when active. The settings query has its own producer row read,
-  // so this is 3 round-trips, not 1.
+  // Branch-scoped data fetches. Profile branch needs portfolio
+  // tracks (one of the identity-image surfaces); Integrations branch
+  // needs services packages + availability windows. Both run their
+  // queries in parallel via Promise.all when the matching branch is
+  // active. Inactive branches skip every query.
+  let portfolioTracks: PortfolioTrackRow[] = [];
+  let servicesPackages: ServicePackageRow[] = [];
   let availabilityBlocks: AvailabilityBlock[] = [];
   let availabilityBlackouts: Blackout[] = [];
   let availabilitySettings: AvailabilitySettings = {
@@ -113,12 +103,41 @@ export default async function SetupPage({
     autoConfirmBookings: false,
     cancellationPolicyHours: 24,
   };
-  if (active === "availability") {
-    const [blocks, blackouts, settings] = await Promise.all([
+
+  if (active === "profile") {
+    const tracks = await caller.portfolio.list();
+    portfolioTracks = tracks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      artist: t.artist,
+      isPublicSample: t.isPublicSample,
+    }));
+  }
+
+  if (active === "integrations") {
+    const [packages, blocks, blackouts, settings] = await Promise.all([
+      caller.booking.packages.list(),
       caller.booking.availability.list(),
       caller.booking.blackouts.list(),
       caller.booking.availability.getSettings(),
     ]);
+    servicesPackages = packages.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      durationMin: p.durationMin,
+      sessionCount: p.sessionCount,
+      priceCents: p.priceCents,
+      currency: p.currency,
+      depositPct: p.depositPct,
+      active: p.active,
+      kind: p.kind,
+      locationType: p.locationType,
+      bufferMinutes: p.bufferMinutes,
+      minLeadHours: p.minLeadHours,
+      paymentPlans: p.paymentPlans,
+      contractUrl: p.contractUrl,
+    }));
     availabilityBlocks = blocks.map((b) => ({
       weekday: b.weekday,
       startMin: b.startMin,
@@ -137,44 +156,36 @@ export default async function SetupPage({
     };
   }
 
-  const headerMeta = SETUP_SECTION_META[active];
+  const headerMeta = SETTINGS_BRANCH_META[active];
 
   return (
-    <>
-      <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
-        {/* Phase 4 — re-tokenize the existing Setup IA per brief:
-            replace the eyebrow + 2xl-3xl heading + sk-card-glow
-            wrapper with the design's mobile-first chrome (Settings.
-            with amber period + per-tab subtitle). The tab-specific
-            sections inside render flat. */}
-        <header className="mb-5">
-          <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
-            Settings
-            <span className="text-[rgb(var(--brand-primary))]">.</span>
-          </h1>
-          <p
-            key={`desc-${active}`}
-            className="reveal-up mt-1.5 max-w-2xl text-[12.5px] text-[rgb(var(--fg-muted))]"
-          >
-            {headerMeta.title} · {headerMeta.description}
-          </p>
-        </header>
-
-        <SetupTabs active={active} />
-
-        {/* Only the active section renders. Keying the wrapper on
-            `active` replays reveal-up on tab change so content slides
-            in instead of hard-cutting. The strict role="tablist" /
-            role="tab" semantic was dropped in favour of aria-current
-            on the chips, but aria-labelledby keeps the panel ↔ tab
-            relationship for AT wiring. */}
-        <div
-          key={active}
-          id={`setup-panel-${active}`}
-          aria-labelledby={`setup-tab-${active}`}
-          className="reveal-up pt-5"
+    <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
+      {/* Mobile-first chrome — Settings. with amber period (Syne 800),
+          per-branch subtitle below. Mirrors Overview/Clients/Storefront
+          hero pattern in the design system. */}
+      <header className="mb-5">
+        <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
+          Settings
+          <span className="text-[rgb(var(--brand-primary))]">.</span>
+        </h1>
+        <p
+          key={`desc-${active}`}
+          className="reveal-up mt-1.5 max-w-2xl text-[12.5px] text-[rgb(var(--fg-muted))]"
         >
-          {active === "profile" && (
+          {headerMeta.title} · {headerMeta.description}
+        </p>
+      </header>
+
+      <SettingsBranches active={active} />
+
+      <div
+        key={active}
+        id={`settings-panel-${active}`}
+        aria-labelledby={`settings-branch-${active}`}
+        className="reveal-up pt-5"
+      >
+        {active === "profile" && (
+          <div className="space-y-10">
             <SettingsForm
               profile={{
                 displayName: profile.displayName ?? "",
@@ -188,58 +199,119 @@ export default async function SetupPage({
                 brand: profile.brand,
               }}
             />
-          )}
 
-          {active === "services" && (
+            {/* Portfolio image picks — PRD §4.6 places "image" inside
+                Profile (account identity). Showcased tracks on the
+                public join page render here so the producer manages
+                them next to brand colors + logo. */}
+            <BranchDivider title="Tracklist on your join page" />
+            <PortfolioSection tracks={portfolioTracks} />
+
+            {/* Account — data export, email/password hint, replay tour.
+                Last block on the Profile branch because it's the
+                least-frequent surface. */}
+            <BranchDivider title="Account" />
+            <AccountSection />
+          </div>
+        )}
+
+        {active === "integrations" && (
+          <div className="space-y-10">
+            {/* Stripe — PRD §4.6 "Payment Clearing System". The first
+                integration the producer touches because no money flows
+                without it. */}
+            <section aria-labelledby="settings-stripe-heading">
+              <SectionHeading
+                id="settings-stripe-heading"
+                title="Payments"
+                description="Stripe takes deposits and final payments. Skitza adds no platform fee — you keep everything minus Stripe's standard rates."
+              />
+              <StripeCard
+                connected={profile.stripeConnected}
+                chargesEnabled={profile.stripeChargesEnabled}
+              />
+            </section>
+
+            {/* Services — what clients can book. Operational integration
+                that lives here until the Storefront page (PRD v3 §4.5)
+                ships. */}
+            <BranchDivider title="Services" />
             <ServicesSection
               packages={servicesPackages}
               defaultCurrency={
                 profile.defaultCurrency as "USD" | "EUR" | "GBP" | "ILS"
               }
             />
-          )}
 
-          {active === "portfolio" && (
-            <PortfolioSection tracks={portfolioTracks} />
-          )}
-
-          {active === "availability" && (
+            {/* Availability — when clients can book. Lives here until
+                the standalone Calendar page (PRD v3 §4.4) hosts it. */}
+            <BranchDivider title="Availability" />
             <AvailabilitySection
               blocks={availabilityBlocks}
               blackouts={availabilityBlackouts}
               settings={availabilitySettings}
             />
-          )}
 
-          {active === "autopilot" && (
+            {/* Autopilot — automation rules Skitza runs on the
+                producer's behalf (welcome emails, unpaid reminders,
+                etc.). */}
+            <BranchDivider title="Autopilot" />
             <AutopilotSection initial={profile.autopilot} />
-          )}
-
-          {active === "connections" && (
-            <StripeCard
-              connected={profile.stripeConnected}
-              chargesEnabled={profile.stripeChargesEnabled}
-            />
-          )}
-
-          {active === "account" && <AccountSection />}
-        </div>
+          </div>
+        )}
       </div>
-    </>
+    </div>
+  );
+}
+
+// Compact mono-eyebrow + thin separator. Used to carve the long
+// inline-scroll branches into readable chunks without nesting tabs.
+function BranchDivider({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+        {title}
+      </span>
+      <span className="h-px flex-1 bg-[rgb(var(--border-subtle))]" />
+    </div>
+  );
+}
+
+// Section heading used by inline blocks (e.g. Stripe Payments) that
+// need a heading + supporting copy of their own.
+function SectionHeading({
+  id,
+  title,
+  description,
+}: {
+  id: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <header className="mb-3">
+      <h2
+        id={id}
+        className="font-display text-base tracking-tight"
+        style={{ fontWeight: 700 }}
+      >
+        {title}
+      </h2>
+      <p className="mt-0.5 text-xs text-[rgb(var(--fg-secondary))]">
+        {description}
+      </p>
+    </header>
   );
 }
 
 // Account panel — data export + a hint about Clerk-managed email
-// /password + replay tour. Two real subsections (Your data + Tour) so
-// the inner h2/h3 stay; they distinguish subsections within this tab
-// rather than re-stating the tab title (the page header does that).
-// Renders flat inside the outer Setup container — no card frame.
+// /password + replay tour. Renders flat inside the Profile branch.
 function AccountSection() {
   return (
-    <section aria-labelledby="setup-account-heading">
+    <section aria-labelledby="settings-account-heading">
       <header className="mb-3">
         <h2
-          id="setup-account-heading"
+          id="settings-account-heading"
           className="font-display text-base tracking-tight"
           style={{ fontWeight: 700 }}
         >
