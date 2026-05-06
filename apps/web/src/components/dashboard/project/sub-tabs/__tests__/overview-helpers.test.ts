@@ -26,6 +26,7 @@ describe("buildOverviewTimeline", () => {
     const events = buildOverviewTimeline({
       createdAt: D1,
       finalPaid: false,
+      paidAt: null,
       session: null,
       tracks: [],
       versions: [],
@@ -40,6 +41,7 @@ describe("buildOverviewTimeline", () => {
     const events = buildOverviewTimeline({
       createdAt: D1,
       finalPaid: false,
+      paidAt: null,
       session: null,
       tracks: [{ createdAt: D2, title: "A" }],
       versions: [{ uploadedAt: D3, trackId: "t1", label: "v1" }],
@@ -60,6 +62,7 @@ describe("buildOverviewTimeline", () => {
     const events = buildOverviewTimeline({
       createdAt: D1,
       finalPaid: false,
+      paidAt: null,
       session: { startsAt: D2, status: "confirmed" },
       tracks: [],
       versions: [],
@@ -73,10 +76,15 @@ describe("buildOverviewTimeline", () => {
     }
   });
 
-  it("appends a 'paid' event when finalPaid is true, dated to the latest activity", () => {
+  it("uses the real paidAt timestamp when provided (not the latest-activity surrogate)", () => {
+    // paidAt is D7, but the latest non-paid activity is a version
+    // uploaded at D5. The "Paid" event must render at D7 — the actual
+    // moment the producer marked it paid — not at D5.
+    const paidAt = new Date("2026-01-15T10:00:00Z");
     const events = buildOverviewTimeline({
       createdAt: D1,
       finalPaid: true,
+      paidAt,
       session: null,
       tracks: [],
       versions: [{ uploadedAt: D5, trackId: "t1", label: "v1" }],
@@ -84,15 +92,32 @@ describe("buildOverviewTimeline", () => {
     });
     const paid = events.find((e) => e.kind === "paid");
     expect(paid).toBeDefined();
-    // The paid event surrogate timestamp uses the latest of the
-    // pre-paid events, so it should equal the latest version upload.
+    expect(paid?.at).toEqual(paidAt);
+  });
+
+  it("falls back to the latest-activity surrogate when finalPaid is true but paidAt is null", () => {
+    // Legacy row: finalPaid=true, paidAt=null (unbackfilled). Use
+    // the latest-activity proxy so the event still renders somewhere
+    // sensible on the timeline.
+    const events = buildOverviewTimeline({
+      createdAt: D1,
+      finalPaid: true,
+      paidAt: null,
+      session: null,
+      tracks: [],
+      versions: [{ uploadedAt: D5, trackId: "t1", label: "v1" }],
+      comments: [],
+    });
+    const paid = events.find((e) => e.kind === "paid");
+    expect(paid).toBeDefined();
     expect(paid?.at).toEqual(D5);
   });
 
-  it("does not include a 'paid' event when finalPaid is false", () => {
+  it("does not include a 'paid' event when finalPaid is false and paidAt is null", () => {
     const events = buildOverviewTimeline({
       createdAt: D1,
       finalPaid: false,
+      paidAt: null,
       session: null,
       tracks: [],
       versions: [{ uploadedAt: D2, trackId: "t1", label: "v1" }],
@@ -113,6 +138,7 @@ describe("buildOverviewTimeline", () => {
     const events = buildOverviewTimeline({
       createdAt: D1,
       finalPaid: false,
+      paidAt: null,
       session: null,
       tracks: [],
       versions,
@@ -127,6 +153,7 @@ describe("buildOverviewTimeline", () => {
     const events = buildOverviewTimeline({
       createdAt: D1,
       finalPaid: false,
+      paidAt: null,
       session: null,
       tracks: [],
       versions: [],

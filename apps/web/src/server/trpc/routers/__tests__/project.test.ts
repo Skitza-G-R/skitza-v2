@@ -666,10 +666,13 @@ describe("project.cancel", () => {
 // Smart Retries exhaust). Allowing the producer to flip it manually
 // detaches Skitza state from Stripe state.
 describe("project.setStage", () => {
-  function seedSetStage(stage: string = "in_production") {
+  function seedSetStage(
+    stage: string = "in_production",
+    paidAt: Date | null = null,
+  ) {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     projectSelectQueue.push([
-      { id: PROJECT_ID, producerId: PRODUCER_ID, stage },
+      { id: PROJECT_ID, producerId: PRODUCER_ID, stage, paidAt },
     ]);
   }
 
@@ -707,5 +710,52 @@ describe("project.setStage", () => {
     expect(res).toEqual({ ok: true });
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
     expect(lastSet.stage).toBe("archived");
+  });
+
+  // ─── paid_at stamping (migration 0005) ─────────────────────────────
+  // First transition INTO stage='paid' MUST stamp paid_at to NOW so the
+  // Project Room Overview timeline can render a real "Paid" event
+  // instead of the latest-activity surrogate. Subsequent calls with
+  // stage='paid' MUST be idempotent — a producer flipping the dropdown
+  // back-and-forth shouldn't reset the original moment-of-payment
+  // signal. Non-paid transitions MUST never touch paid_at.
+  it("stamps paidAt when transitioning into 'paid' for the first time", async () => {
+    // Existing row has paidAt=null (never been paid before).
+    seedSetStage("in_production", null);
+    const before = Date.now();
+    const caller = await buildCaller();
+    await caller.project.setStage({ id: PROJECT_ID, stage: "paid" });
+    const after = Date.now();
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("paid");
+    // paidAt must be a Date, stamped within the call window.
+    expect(lastSet.paidAt).toBeInstanceOf(Date);
+    const stamped = (lastSet.paidAt as Date).valueOf();
+    expect(stamped).toBeGreaterThanOrEqual(before);
+    expect(stamped).toBeLessThanOrEqual(after);
+  });
+
+  it("does NOT overwrite paidAt when re-setting an already-paid project to 'paid' (idempotent)", async () => {
+    const original = new Date("2026-04-01T12:00:00Z");
+    seedSetStage("paid", original);
+    const caller = await buildCaller();
+    await caller.project.setStage({ id: PROJECT_ID, stage: "paid" });
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("paid");
+    // paidAt is intentionally absent from the SET payload — the first
+    // stamp wins. The DB column keeps the original timestamp.
+    expect(lastSet.paidAt).toBeUndefined();
+  });
+
+  it("does NOT touch paidAt for non-'paid' stage transitions", async () => {
+    seedSetStage("in_production", null);
+    const caller = await buildCaller();
+    await caller.project.setStage({
+      id: PROJECT_ID,
+      stage: "final_review",
+    });
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("final_review");
+    expect(lastSet.paidAt).toBeUndefined();
   });
 });

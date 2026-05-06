@@ -243,6 +243,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
                   createdAt: data.project.createdAt,
                   updatedAt: data.project.updatedAt,
                   finalPaid: data.project.finalPaid,
+                  paidAt: data.project.paidAt,
                 }}
                 money={moneyForProject}
                 session={

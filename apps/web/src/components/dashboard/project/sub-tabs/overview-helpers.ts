@@ -32,6 +32,16 @@ export type OverviewTimelineEvent =
 export interface BuildOverviewTimelineInput {
   createdAt: Date;
   finalPaid: boolean;
+  /**
+   * Real timestamp of when the project transitioned into stage='paid'.
+   * Stamped by project.setStage on first transition; null for any
+   * project that has never been paid. When present, the "Paid" event
+   * uses this exact timestamp. When null but `finalPaid` is true (rare
+   * — the row pre-dates migration 0005 and has no backfill match), we
+   * fall back to the legacy "latest activity" surrogate so the event
+   * still renders in something close to the right slot.
+   */
+  paidAt: Date | null;
   session: { startsAt: Date; status: string } | null;
   tracks: { createdAt: Date; title: string }[];
   versions: { uploadedAt: Date; trackId: string; label: string }[];
@@ -51,9 +61,9 @@ export const OVERVIEW_TIMELINE_MAX = 6;
  * Fold a project's tracks/versions/comments into a reverse-chronological
  * timeline of milestone events, capped at OVERVIEW_TIMELINE_MAX. Always
  * includes a "created" event at the head; appends a "session" event if
- * one is linked, and a "paid" event when finalPaid is true (using the
- * latest activity timestamp as a proxy since we don't carry a real
- * paid-at column).
+ * one is linked, and a "paid" event when paidAt is set (preferred) or
+ * finalPaid is true (legacy fallback — uses latest-activity as a
+ * surrogate timestamp for rows that pre-date the paid_at column).
  */
 export function buildOverviewTimeline(
   input: BuildOverviewTimelineInput,
@@ -91,13 +101,14 @@ export function buildOverviewTimeline(
       body: c.body,
     });
   }
-  if (input.finalPaid) {
-    // No real paid_at column — fall back to the most recent activity
-    // timestamp as a reasonable surrogate. The canonical ledger lives
-    // in the invoices table + Stripe; this is a hint, not a source of
-    // truth, and the comment in the original component flagged it as
-    // such. If a paid_at column lands later, this branch becomes a
-    // simple read.
+  // Prefer the real paid_at timestamp (column added in migration 0005).
+  // Fall back to the latest-activity surrogate only when finalPaid is
+  // true but the column is null — covers legacy rows whose UPDATE
+  // backfill didn't catch them (rare; the migration's UPDATE handles
+  // the canonical case).
+  if (input.paidAt) {
+    events.push({ kind: "paid", at: input.paidAt });
+  } else if (input.finalPaid) {
     const latest =
       events.length > 0
         ? new Date(Math.max(...events.map((e) => e.at.valueOf())))
