@@ -1,5 +1,6 @@
 "use client";
 
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { PaymentPlan } from "@skitza/db";
@@ -442,18 +443,8 @@ function ProductMenu({
     };
   }, [open]);
 
-  // Close the edit modal on Escape. The backdrop click is the primary
-  // dismiss path; this is the keyboard fallback.
-  useEffect(() => {
-    if (!editing) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setEditing(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [editing]);
+  // Edit modal escape / click-outside / scroll-lock / focus-trap are
+  // all owned by Radix Dialog below — no hand-rolled effects needed.
 
   return (
     <div ref={ref} className="relative">
@@ -525,44 +516,76 @@ function ProductMenu({
           )}
         </div>
       ) : null}
-      {editing ? (
-        // Bounded-panel modal. The earlier "outer scrolls, content
-        // centers" pattern broke down because (a) `<input autoFocus>`
-        // on Service Name fired during mount and the browser scrolled
-        // the nearest ancestor to bring the input into view, and (b)
-        // `items-center` on a flex container that grew with a tall
-        // form left the top of the form above the scroll origin — the
-        // user opened the modal already mid-form. The robust fix is
-        // to NEVER let the panel exceed the viewport: cap height
-        // (90vh on phones / 100vh-3rem on desktop), put internal
-        // scroll INSIDE the panel. The panel always fits, the top
-        // (Service Name) is always the first thing visible, and the
-        // producer scrolls within the panel to reach Save at the
-        // bottom. On <sm we anchor to the bottom edge (sheet style)
-        // because centering a tall sheet on a phone wastes the
-        // valuable thumb-zone real estate.
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Edit ${product.name}`}
-          className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 sm:items-center sm:p-6"
-          onClick={() => {
-            setEditing(false);
-          }}
-        >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
+      {/* Edit modal — Radix Dialog primitive.
+       *
+       * Why Radix and not the hand-rolled modal that lived here
+       * before: hand-rolled gave focus management / scroll-lock /
+       * escape / click-outside up to the implementer, and on a tall
+       * form the combination of (a) `<input autoFocus>` on Service
+       * Name + (b) the browser's `scrollIntoView` walking up the
+       * tree + (c) the modal's flex centering produced a stuck-mid-
+       * form initial scroll position. Producers opened the modal and
+       * never saw the Service-Name field. Radix:
+       *   - Owns body scroll-lock so the page beneath can't bleed
+       *     scroll events into the modal.
+       *   - Owns focus management; we override its open-auto-focus so
+       *     the browser-native autoFocus on the input doesn't trigger
+       *     scrollIntoView at the wrong moment.
+       *   - Owns the portal, so the dialog renders at the top of
+       *     <body> and `position: fixed` actually means viewport-
+       *     fixed (not fighting an ancestor that's transformed).
+       *
+       * The Skitza Dialog wrapper at ~/components/ui/dialog adds
+       * card chrome (border + bg + p-6) that would nest awkwardly
+       * with NewPackageForm's own card chrome. Using the Radix
+       * primitive directly lets the form provide ALL the chrome
+       * while we just position + size + scroll-bound the panel.
+       *
+       * Layout:
+       *   - Mobile (<sm): bottom-sheet — full-width, rounded-top,
+       *     anchored to viewport bottom, max-h 90vh.
+       *   - Desktop (sm+): centered modal — max-w-2xl, max-h
+       *     calc(100vh - 3rem), rounded-lg.
+       *   - In both: panel = `flex flex-col overflow-hidden` so the
+       *     internal `flex-1 overflow-y-auto` div fills the bounded
+       *     space and scrolls the form. (Without `flex-1`, the inner
+       *     div sizes to content and the panel's overflow-hidden
+       *     just CLIPS — that was the silent bug in the prior fix.)
+       */}
+      <DialogPrimitive.Root
+        open={editing}
+        onOpenChange={(open) => {
+          setEditing(open);
+        }}
+      >
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60" />
+          <DialogPrimitive.Content
+            // Native autoFocus on the Service Name input does the job
+            // already; Radix's auto-focus on top of that doubles up
+            // and combined with reveal-up's translate animation is
+            // what was scroll-jacking the panel mid-mount.
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
             }}
-            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[var(--radius-xl)] shadow-2xl sm:max-h-[calc(100vh-3rem)] sm:rounded-[var(--radius-lg)]"
+            aria-label={`Edit ${product.name}`}
+            className="fixed z-50 flex flex-col overflow-hidden shadow-2xl
+              inset-x-0 bottom-0 max-h-[90vh] rounded-t-[var(--radius-xl)]
+              sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2
+              sm:w-[calc(100vw-3rem)] sm:max-w-2xl sm:max-h-[calc(100vh-3rem)]
+              sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--radius-lg)]"
           >
-            {/* Inner scroll container. NewPackageForm provides its own
-                rounded card chrome; we let it bleed to the panel edges
-                (no extra padding here) and rely on its outer corners
-                being clipped by the panel's `overflow-hidden` so the
-                rounded-top sheet on mobile + the rounded panel on
-                desktop both look right. */}
-            <div className="overflow-y-auto">
+            <DialogPrimitive.Title className="sr-only">
+              Edit {product.name}
+            </DialogPrimitive.Title>
+            {/* `flex-1` is the missing piece: it makes this scroll
+                container fill the bounded panel's height, so
+                `overflow-y-auto` actually has something to clip
+                against. Without flex-1 the div sizes to its
+                content (the form) and overflow-y-auto becomes a
+                no-op — the panel's overflow-hidden just clips the
+                form silently. */}
+            <div className="flex-1 overflow-y-auto">
               <NewPackageForm
                 initialValues={editValues}
                 onClose={() => {
@@ -570,9 +593,9 @@ function ProductMenu({
                 }}
               />
             </div>
-          </div>
-        </div>
-      ) : null}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
     </div>
   );
 }
