@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { PaymentPlan } from "@skitza/db";
 
@@ -8,7 +9,14 @@ import {
   archivePackage,
   duplicatePackage,
   setPackageActive,
+  type PackageKind,
+  type PackageLocationType,
 } from "~/app/(producer)/dashboard/booking/actions";
+import {
+  NewPackageForm,
+  type Currency,
+  type InitialPackageValues,
+} from "~/app/(producer)/dashboard/booking/package-form";
 import { useToast } from "~/components/ui/toast";
 import { formatMoney } from "~/lib/format/money";
 
@@ -46,6 +54,19 @@ export interface StorefrontProduct {
   /** Display name of the payment plan (e.g. "50/50", "Pay once"). */
   planLabel?: string;
   featured?: boolean;
+  // Edit-form fields. The kebab → Edit menuitem opens NewPackageForm
+  // pre-filled with these values so the producer can update without
+  // leaving Storefront. Required (not optional) because every product
+  // has a row in the DB with these columns. `kind` + `locationType`
+  // stay loose strings here (DB columns are `text`, not enum) — we
+  // narrow at the form-binding site below to match the
+  // ServicePackageRow convention.
+  depositPct: number;
+  kind: string;
+  locationType: string;
+  bufferMinutes: number;
+  minLeadHours: number;
+  contractUrl: string | null;
 }
 
 export interface StorefrontAnalytics {
@@ -72,6 +93,10 @@ interface StorefrontScreenProps {
   producerName: string | null;
   /** Slug for the public-link strip in the snapshot's browser chrome. */
   producerSlug: string | null;
+  /** Producer's profile-level default currency. Seeds the create-form
+   *  currency dropdown so an Israeli producer doesn't have to reach
+   *  for the dropdown every time they add a service. */
+  defaultCurrency: Currency;
 }
 
 export function StorefrontScreen({
@@ -80,13 +105,14 @@ export function StorefrontScreen({
   publicUrl,
   producerName,
   producerSlug,
+  defaultCurrency,
 }: StorefrontScreenProps) {
   const visibleCount = products.filter((p) => p.active).length;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
       <section aria-label="Products">
-        <ProductsSection products={products} />
+        <ProductsSection products={products} defaultCurrency={defaultCurrency} />
       </section>
 
       <aside
@@ -114,16 +140,42 @@ export function StorefrontScreen({
 
 // — Products list (left column) —
 
-function ProductsSection({ products }: { products: StorefrontProduct[] }) {
+function ProductsSection({
+  products,
+  defaultCurrency,
+}: {
+  products: StorefrontProduct[];
+  defaultCurrency: Currency;
+}) {
+  // The Create flow stays on Storefront — the prior implementation
+  // navigated to /dashboard/settings?section=services&action=create
+  // because Services CRUD lived in Settings. PRD v3 §4.5 places the
+  // products surface here, so we render NewPackageForm inline instead.
+  // `creating` toggles between the CTA button and the form; the form
+  // calls onClose when the producer cancels or finishes saving.
+  const [creating, setCreating] = useState(false);
+
   return (
     <div className="flex flex-col gap-2">
-      <a
-        href="/dashboard/settings?section=services&action=create"
-        className="sk-press flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--bg-sidebar))] px-4 py-3 text-sm font-bold text-[rgb(var(--fg-onsidebar))]"
-      >
-        <PlusIcon />
-        Create product
-      </a>
+      {creating ? (
+        <NewPackageForm
+          initialCurrency={defaultCurrency}
+          onClose={() => {
+            setCreating(false);
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setCreating(true);
+          }}
+          className="sk-press flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--bg-sidebar))] px-4 py-3 text-sm font-bold text-[rgb(var(--fg-onsidebar))]"
+        >
+          <PlusIcon />
+          Create product
+        </button>
+      )}
 
       {products.length === 0 ? (
         <p className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-8 text-center text-[13px] text-[rgb(var(--fg-muted))]">
@@ -286,7 +338,7 @@ function ProductCard({ product }: { product: StorefrontProduct }) {
             {active ? "Live" : "Hidden"}
           </button>
           <ProductMenu
-            productId={product.id}
+            product={product}
             onDuplicate={onDuplicate}
             onArchive={onArchive}
             disabled={pending}
@@ -300,20 +352,73 @@ function ProductCard({ product }: { product: StorefrontProduct }) {
 // Minimal kebab menu — no external dropdown primitive needed. Click
 // outside to close, Escape to close. Built fresh because the wider
 // codebase doesn't ship a Menu primitive yet.
+//
+// Edit opens an inline modal with NewPackageForm pre-filled — the
+// previous implementation linked to /dashboard/settings?section=services
+// which yanked the producer out of Storefront mid-flow. PRD v3 §4.5
+// places product CRUD on this surface.
 function ProductMenu({
-  productId,
+  product,
   onDuplicate,
   onArchive,
   disabled,
 }: {
-  productId: string;
+  product: StorefrontProduct;
   onDuplicate: () => void;
   onArchive: () => void;
   disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Project the product row into the form's InitialPackageValues
+  // shape. Memoised so the form's mount-time effect doesn't see a new
+  // identity on every parent render. DB columns for currency / kind /
+  // locationType are loose `text` — we narrow each with a safe default
+  // so the form's enum-typed inputs never receive an out-of-range
+  // value. Same pattern as ServicesSection.toInitialValues.
+  const editValues: InitialPackageValues = useMemo(() => {
+    const VALID_CURRENCIES = ["USD", "EUR", "GBP", "ILS"] as const;
+    const VALID_KINDS = [
+      "session",
+      "mixing",
+      "mastering",
+      "producing",
+      "other",
+    ] as const;
+    const VALID_LOCATIONS = ["studio", "remote", "client_space"] as const;
+    const currency = (VALID_CURRENCIES as readonly string[]).includes(
+      product.currency,
+    )
+      ? (product.currency as Currency)
+      : "USD";
+    const kind = (VALID_KINDS as readonly string[]).includes(product.kind)
+      ? (product.kind as PackageKind)
+      : "session";
+    const locationType = (VALID_LOCATIONS as readonly string[]).includes(
+      product.locationType,
+    )
+      ? (product.locationType as PackageLocationType)
+      : "studio";
+    return {
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      durationMin: product.durationMin,
+      sessionCount: product.sessionCount,
+      priceCents: product.priceCents,
+      currency,
+      depositPct: product.depositPct,
+      kind,
+      locationType,
+      bufferMinutes: product.bufferMinutes,
+      minLeadHours: product.minLeadHours,
+      paymentPlans: product.paymentPlans ?? [],
+      contractUrl: product.contractUrl,
+    };
+  }, [product]);
 
   useEffect(() => {
     if (!open) return;
@@ -338,6 +443,9 @@ function ProductMenu({
     };
   }, [open]);
 
+  // Edit modal escape / click-outside / scroll-lock / focus-trap are
+  // all owned by Radix Dialog below — no hand-rolled effects needed.
+
   return (
     <div ref={ref} className="relative">
       <button
@@ -359,13 +467,17 @@ function ProductMenu({
           role="menu"
           className="sk-pop absolute right-0 top-[calc(100%+4px)] z-20 flex min-w-[160px] flex-col rounded-[var(--radius-md)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] p-1 shadow-lg"
         >
-          <a
+          <button
+            type="button"
             role="menuitem"
-            href={`/dashboard/settings?section=services&product=${productId}`}
-            className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-[12px] font-semibold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-base))]"
+            onClick={() => {
+              setOpen(false);
+              setEditing(true);
+            }}
+            className="sk-press rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-[12px] font-semibold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-base))]"
           >
             Edit
-          </a>
+          </button>
           <button
             type="button"
             role="menuitem"
@@ -404,6 +516,86 @@ function ProductMenu({
           )}
         </div>
       ) : null}
+      {/* Edit modal — Radix Dialog primitive.
+       *
+       * Why Radix and not the hand-rolled modal that lived here
+       * before: hand-rolled gave focus management / scroll-lock /
+       * escape / click-outside up to the implementer, and on a tall
+       * form the combination of (a) `<input autoFocus>` on Service
+       * Name + (b) the browser's `scrollIntoView` walking up the
+       * tree + (c) the modal's flex centering produced a stuck-mid-
+       * form initial scroll position. Producers opened the modal and
+       * never saw the Service-Name field. Radix:
+       *   - Owns body scroll-lock so the page beneath can't bleed
+       *     scroll events into the modal.
+       *   - Owns focus management; we override its open-auto-focus so
+       *     the browser-native autoFocus on the input doesn't trigger
+       *     scrollIntoView at the wrong moment.
+       *   - Owns the portal, so the dialog renders at the top of
+       *     <body> and `position: fixed` actually means viewport-
+       *     fixed (not fighting an ancestor that's transformed).
+       *
+       * The Skitza Dialog wrapper at ~/components/ui/dialog adds
+       * card chrome (border + bg + p-6) that would nest awkwardly
+       * with NewPackageForm's own card chrome. Using the Radix
+       * primitive directly lets the form provide ALL the chrome
+       * while we just position + size + scroll-bound the panel.
+       *
+       * Layout:
+       *   - Mobile (<sm): bottom-sheet — full-width, rounded-top,
+       *     anchored to viewport bottom, max-h 90vh.
+       *   - Desktop (sm+): centered modal — max-w-2xl, max-h
+       *     calc(100vh - 3rem), rounded-lg.
+       *   - In both: panel = `flex flex-col overflow-hidden` so the
+       *     internal `flex-1 overflow-y-auto` div fills the bounded
+       *     space and scrolls the form. (Without `flex-1`, the inner
+       *     div sizes to content and the panel's overflow-hidden
+       *     just CLIPS — that was the silent bug in the prior fix.)
+       */}
+      <DialogPrimitive.Root
+        open={editing}
+        onOpenChange={(open) => {
+          setEditing(open);
+        }}
+      >
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60" />
+          <DialogPrimitive.Content
+            // Native autoFocus on the Service Name input does the job
+            // already; Radix's auto-focus on top of that doubles up
+            // and combined with reveal-up's translate animation is
+            // what was scroll-jacking the panel mid-mount.
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+            }}
+            aria-label={`Edit ${product.name}`}
+            className="fixed z-50 flex flex-col overflow-hidden shadow-2xl
+              inset-x-0 bottom-0 max-h-[90vh] rounded-t-[var(--radius-xl)]
+              sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2
+              sm:w-[calc(100vw-3rem)] sm:max-w-2xl sm:max-h-[calc(100vh-3rem)]
+              sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--radius-lg)]"
+          >
+            <DialogPrimitive.Title className="sr-only">
+              Edit {product.name}
+            </DialogPrimitive.Title>
+            {/* `flex-1` is the missing piece: it makes this scroll
+                container fill the bounded panel's height, so
+                `overflow-y-auto` actually has something to clip
+                against. Without flex-1 the div sizes to its
+                content (the form) and overflow-y-auto becomes a
+                no-op — the panel's overflow-hidden just clips the
+                form silently. */}
+            <div className="flex-1 overflow-y-auto">
+              <NewPackageForm
+                initialValues={editValues}
+                onClose={() => {
+                  setEditing(false);
+                }}
+              />
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
     </div>
   );
 }

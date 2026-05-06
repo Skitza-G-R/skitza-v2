@@ -33,13 +33,17 @@ const STATIC_REDIRECTS: Record<string, string> = {
   "/dashboard/inbox":     "/dashboard",
   "/dashboard/library":   "/dashboard/music",
   "/dashboard/portfolio": "/dashboard/settings?section=portfolio",
-  // Services + Availability were never live as their own routes, but
-  // pre-flatten the Setup tabs cross-linked into /dashboard/booking.
-  // Per the PRD §4.4 delta we promise bookmarks / pasted email links
-  // to these "natural" URLs keep working — they redirect to the
-  // matching Setup sub-tab.
-  "/dashboard/services":     "/dashboard/settings?section=services",
-  "/dashboard/availability": "/dashboard/settings?section=availability",
+  // 2026-05-06 — Services + Availability moved out of Settings:
+  //   - Services CRUD is now part of the Storefront page (PRD v3
+  //     §4.5). Producers create + edit products on the same surface
+  //     they curate the public store, so the create/edit flow no
+  //     longer punts them to Settings mid-task.
+  //   - Availability is a Calendar tab (PRD v3 §4.4). Hours +
+  //     blackouts + booking policies live next to the schedule grid.
+  // The legacy /dashboard/services and /dashboard/availability paths
+  // 301 to the new homes so any prior bookmarks resolve cleanly.
+  "/dashboard/services":     "/dashboard/profile?tab=store",
+  "/dashboard/availability": "/dashboard/calendar?tab=availability",
 };
 
 // Dynamic paths — /dashboard/contracts/<id> etc. We collapse them all

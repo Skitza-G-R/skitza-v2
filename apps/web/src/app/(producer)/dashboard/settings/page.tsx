@@ -2,22 +2,12 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { ReplayTourButton } from "~/components/shell/replay-tour-button";
-import {
-  AvailabilitySection,
-  type AvailabilityBlock,
-  type Blackout,
-  type AvailabilitySettings,
-} from "~/components/dashboard/setup/availability-section";
 import { AutopilotSection } from "~/components/dashboard/setup/autopilot-section";
 import {
   PortfolioSection,
   type PortfolioTrackRow,
 } from "~/components/dashboard/setup/portfolio-section";
 import { MarketingSection } from "~/components/dashboard/setup/marketing-section";
-import {
-  ServicesSection,
-  type ServicePackageRow,
-} from "~/components/dashboard/setup/services-section";
 import {
   isSettingsBranchKey,
   isLegacySectionKey,
@@ -31,21 +21,30 @@ import { SettingsForm } from "./settings-form";
 import { StripeCard } from "./stripe-card";
 
 // /dashboard/settings — collapsed from 7 tabs into 2 branches per PRD
-// v3 §4.6 ("Settings has 2 branches only: Profile and Integrations").
+// v3 §4.6 ("Settings has 2 branches only: Profile and Integrations"),
+// then further trimmed on 2026-05-06 when Services + Availability
+// moved out of Integrations into their canonical homes:
+//   - Services CRUD → Storefront (`/dashboard/profile?tab=store`).
+//     PRD v3 §4.5 places product management on the same surface the
+//     producer curates the public storefront.
+//   - Availability  → Calendar (`/dashboard/calendar?tab=availability`).
+//     PRD v3 §4.4 nests hours + blackouts + booking policies next to
+//     the schedule grid.
 //
-// PROFILE branch       — account identity (display name, slug,
-//                        currency, timezone, brand colors/logo,
-//                        portfolio image picks, account/data export).
-// INTEGRATIONS branch  — operational config + payment processing
-//                        (services CRUD, availability, autopilot
-//                        rules, Stripe).
+// What's left in each branch:
+//   PROFILE branch       — account identity (display name, slug,
+//                          currency, timezone, brand colors/logo,
+//                          portfolio image picks, marketing copy,
+//                          account/data export).
+//   INTEGRATIONS branch  — Stripe (Payments) + Autopilot (automation
+//                          rules). Both are *cross-screen* concerns
+//                          that don't belong on a single domain
+//                          surface.
 //
-// LEGACY URL HANDLING. The 7-tab era used `?section=<key>`. Every
-// known section key is rewritten to its new branch via
-// LEGACY_SECTION_TO_BRANCH so existing bookmarks (and the in-app
-// links from /today, contextual-actions, sidebar-share-chip,
-// storefront-screen, and middleware redirects of /dashboard/portfolio
-// etc.) keep landing on the right surface.
+// LEGACY URL HANDLING. The 7-tab era used `?section=<key>`. Most keys
+// still map to one of the 2 branches via LEGACY_SECTION_TO_BRANCH;
+// `services` and `availability` are special-cased BEFORE that lookup
+// so they redirect to the NEW external homes (not back into Settings).
 //
 // Stays a Server Component so we can await Clerk + the tRPC caller
 // once per render. Branch-specific data fetches are gated so each
@@ -74,6 +73,18 @@ export default async function SettingsPage({
   const rawSection = resolvedSearchParams.section;
 
   if (rawBranch === undefined && isLegacySectionKey(rawSection)) {
+    // 2026-05-06 — services + availability migrated out of Settings.
+    // Bookmarks pointing at the old `?section=<key>` form must reach
+    // the new homes, not bounce back into Integrations (which no
+    // longer renders either section). Branch-internal keys
+    // (profile / portfolio / autopilot / connections / account)
+    // still map via LEGACY_SECTION_TO_BRANCH below.
+    if (rawSection === "services") {
+      redirect("/dashboard/profile?tab=store");
+    }
+    if (rawSection === "availability") {
+      redirect("/dashboard/calendar?tab=availability");
+    }
     const target = LEGACY_SECTION_TO_BRANCH[rawSection];
     redirect(`/dashboard/settings?branch=${target}`);
   }
@@ -91,19 +102,12 @@ export default async function SettingsPage({
   const profile = await caller.producer.me();
 
   // Branch-scoped data fetches. Profile branch needs portfolio
-  // tracks (one of the identity-image surfaces); Integrations branch
-  // needs services packages + availability windows. Both run their
-  // queries in parallel via Promise.all when the matching branch is
-  // active. Inactive branches skip every query.
+  // tracks (one of the identity-image surfaces). The Integrations
+  // branch only needs the producer profile (already fetched above)
+  // for Stripe-connection state + Autopilot defaults — no extra
+  // round-trip required. Services + availability data left this
+  // page when those sections moved to Storefront + Calendar.
   let portfolioTracks: PortfolioTrackRow[] = [];
-  let servicesPackages: ServicePackageRow[] = [];
-  let availabilityBlocks: AvailabilityBlock[] = [];
-  let availabilityBlackouts: Blackout[] = [];
-  let availabilitySettings: AvailabilitySettings = {
-    defaultSessionMin: 60,
-    autoConfirmBookings: false,
-    cancellationPolicyHours: 24,
-  };
 
   if (active === "profile") {
     const tracks = await caller.portfolio.list();
@@ -113,48 +117,6 @@ export default async function SettingsPage({
       artist: t.artist,
       isPublicSample: t.isPublicSample,
     }));
-  }
-
-  if (active === "integrations") {
-    const [packages, blocks, blackouts, settings] = await Promise.all([
-      caller.booking.packages.list(),
-      caller.booking.availability.list(),
-      caller.booking.blackouts.list(),
-      caller.booking.availability.getSettings(),
-    ]);
-    servicesPackages = packages.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      durationMin: p.durationMin,
-      sessionCount: p.sessionCount,
-      priceCents: p.priceCents,
-      currency: p.currency,
-      depositPct: p.depositPct,
-      active: p.active,
-      kind: p.kind,
-      locationType: p.locationType,
-      bufferMinutes: p.bufferMinutes,
-      minLeadHours: p.minLeadHours,
-      paymentPlans: p.paymentPlans,
-      contractUrl: p.contractUrl,
-    }));
-    availabilityBlocks = blocks.map((b) => ({
-      weekday: b.weekday,
-      startMin: b.startMin,
-      endMin: b.endMin,
-    }));
-    availabilityBlackouts = blackouts.map((b) => ({
-      id: b.id,
-      startDate: b.startDate,
-      endDate: b.endDate,
-      reason: b.reason,
-    }));
-    availabilitySettings = {
-      defaultSessionMin: settings.defaultSessionMin,
-      autoConfirmBookings: settings.autoConfirmBookings,
-      cancellationPolicyHours: settings.cancellationPolicyHours,
-    };
   }
 
   const headerMeta = SETTINGS_BRANCH_META[active];
@@ -240,29 +202,11 @@ export default async function SettingsPage({
               />
             </section>
 
-            {/* Services — what clients can book. Operational integration
-                that lives here until the Storefront page (PRD v3 §4.5)
-                ships. */}
-            <BranchDivider title="Services" />
-            <ServicesSection
-              packages={servicesPackages}
-              defaultCurrency={
-                profile.defaultCurrency as "USD" | "EUR" | "GBP" | "ILS"
-              }
-            />
-
-            {/* Availability — when clients can book. Lives here until
-                the standalone Calendar page (PRD v3 §4.4) hosts it. */}
-            <BranchDivider title="Availability" />
-            <AvailabilitySection
-              blocks={availabilityBlocks}
-              blackouts={availabilityBlackouts}
-              settings={availabilitySettings}
-            />
-
             {/* Autopilot — automation rules Skitza runs on the
                 producer's behalf (welcome emails, unpaid reminders,
-                etc.). */}
+                etc.). Cross-screen concern, not domain-specific, so
+                it lives next to Stripe instead of being attached to
+                a single surface. */}
             <BranchDivider title="Autopilot" />
             <AutopilotSection initial={profile.autopilot} />
           </div>
