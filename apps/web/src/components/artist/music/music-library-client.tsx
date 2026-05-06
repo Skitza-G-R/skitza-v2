@@ -3,25 +3,22 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import {
+  matchesMusicFilter,
+  type Filter,
+  type MusicProjectRow,
+} from "./music-library-filter";
+
 // Polished Music Library — mirrors the locked design's:
 //   - Hero headline ("Music." with brand accent dot)
 //   - Avatar producer-filter rail (only when 2+ studios)
-//   - Filter chips (All / Recent / With comments)
+//   - Filter chips (All / Recent / With tracks)
 //   - Card list with per-row subtle metadata
 //
 // Pure client UI — the parent server component fetches and passes the
 // already-shaped projects array. We just filter + sort in memory.
 
-export type MusicProjectRow = {
-  projectId: string;
-  title: string;
-  producerId: string;
-  producerName: string;
-  producerSlug: string;
-  latestTrackTitle: string | null;
-  latestTrackUploadedAt: Date | null;
-  trackCount: number;
-};
+export type { MusicProjectRow };
 
 export type StudioOption = {
   producerId: string;
@@ -29,8 +26,6 @@ export type StudioOption = {
   slug: string;
   logoUrl: string | null;
 };
-
-type Filter = "all" | "recent" | "with_tracks";
 
 export function MusicLibraryClient({
   projects,
@@ -43,21 +38,10 @@ export function MusicLibraryClient({
   const [filter, setFilter] = useState<Filter>("all");
 
   const filtered = useMemo(() => {
-    return projects.filter((p) => {
-      if (producerFilter !== "all" && p.producerId !== producerFilter)
-        return false;
-      if (filter === "with_tracks" && p.trackCount === 0) return false;
-      if (filter === "recent") {
-        // "Recent" = uploaded within the last 14 days. If a project
-        // has never had an upload, it's never recent.
-        if (!p.latestTrackUploadedAt) return false;
-        const ageDays =
-          (Date.now() - p.latestTrackUploadedAt.getTime()) /
-          (1000 * 60 * 60 * 24);
-        if (ageDays > 14) return false;
-      }
-      return true;
-    });
+    const now = new Date();
+    return projects.filter((p) =>
+      matchesMusicFilter(p, producerFilter, filter, now),
+    );
   }, [projects, producerFilter, filter]);
 
   const totalProducers = studios.length;
