@@ -210,28 +210,29 @@ function KpiCard({
   sub?: string;
   tone?: "default" | "danger" | "brand";
 }) {
-  // Tone-aware palette. The label + sub colors used to be a fixed
-  // `--fg-muted` (warm brown) which washed out on the danger-tinted
-  // card — both share the same warm-tone family, so the contrast ratio
-  // dropped below readable. Tinting the label/sub to match the tone
-  // (just darker than the value, with reduced opacity) keeps the eye
-  // travelling label → value as one composed unit.
+  // Tone-aware palette. Tinted cards (danger / brand) use a near-
+  // black label so the eye reads label → value as utility-then-signal
+  // (Stripe / Linear pattern). The 0.85-alpha-on-tone variant tested
+  // first kept the label in the same warm-tone family as the
+  // background and stayed too low-contrast — the founder's screenshot
+  // confirmed it. Default cards keep the muted warm-brown label since
+  // the cream background gives that combo a clean ~5:1 ratio already.
   const palette =
     tone === "danger"
       ? {
           bg: "bg-[rgb(var(--fg-danger)/0.08)]",
           border: "border-[rgb(var(--fg-danger)/0.18)]",
           value: "rgb(var(--fg-danger))",
-          label: "text-[rgb(var(--fg-danger)/0.85)]",
-          sub: "text-[rgb(var(--fg-danger)/0.75)]",
+          label: "text-[rgb(var(--fg-default))]",
+          sub: "text-[rgb(var(--fg-default)/0.7)]",
         }
       : tone === "brand"
         ? {
             bg: "bg-[rgb(var(--brand-primary)/0.08)]",
             border: "border-[rgb(var(--brand-primary)/0.20)]",
             value: "rgb(var(--brand-primary))",
-            label: "text-[rgb(var(--brand-primary)/0.85)]",
-            sub: "text-[rgb(var(--brand-primary)/0.75)]",
+            label: "text-[rgb(var(--fg-default))]",
+            sub: "text-[rgb(var(--fg-default)/0.7)]",
           }
         : {
             bg: "bg-[rgb(var(--bg-elevated))]",
