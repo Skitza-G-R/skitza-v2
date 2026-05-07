@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { formatMoney } from "~/lib/format/money";
 import { STAGE_LABEL, type Stage } from "~/lib/projects/stages";
 import { formatRelativeTime } from "~/lib/time/relative";
@@ -7,19 +8,22 @@ import { formatRelativeTime } from "~/lib/time/relative";
 // Overview panel — landing tab on the client detail page.
 //
 // Two-column layout matching the founder's HTML mockup: the left rail
-// holds "Active projects" + "Recent activity" (the day-to-day work the
-// producer cares about), and the right rail holds "Financial
-// relationship" (a glanceable money summary).
+// holds "Active projects" + "Recent activity" (the day-to-day work),
+// and the right rail holds "Financial relationship" (a glanceable
+// money summary).
 //
-// Per direction (2026-05-06): the "Send payment reminder" CTA was
-// dropped because the underlying mutation doesn't exist yet — shipping
-// a button that no-ops would lie to the producer. The financial card
-// stays informational; the producer can act from a project page.
-//
-// Active-projects rows show the stage as a soft progress bar (each
-// stage maps to a deterministic % so the visual matches the design's
-// "65% · mixing" treatment). Stage→% is a presentation concern, not a
-// product invariant — adjusting it here is safe.
+// Per founder direction (2026-05-07):
+//   • Recent activity comments render as chat bubbles — producer-side
+//     messages right-aligned with a dark bubble + initials chip;
+//     client-side messages left-aligned with their initials avatar +
+//     a soft cream bubble. Project stage events stay as plain
+//     timeline lines so they don't masquerade as conversation.
+//   • Active project rows ditch the bordered-card frame and lean
+//     into a 1px hairline divider. The progress bar now uses the
+//     full near-black fill on a soft track so the % reads at a
+//     glance even on the warm-cream background.
+//   • "Send payment reminder" CTA is gone — the financial card is
+//     informational; producer takes action from a project page.
 
 type Project = {
   id: string;
@@ -53,12 +57,14 @@ const STAGE_PROGRESS: Record<Stage, number> = {
 
 export function ClientOverviewPanel({
   clientId,
+  clientName,
   projects,
   comments,
   stats,
   currency,
 }: {
   clientId: string;
+  clientName: string;
   projects: Project[];
   comments: Comment[];
   stats: { lifetimeCents: number; outstandingCents: number };
@@ -82,7 +88,11 @@ export function ClientOverviewPanel({
           projects={activeProjects}
           totalProjects={projects.length}
         />
-        <RecentActivityCard projects={projects} comments={comments} />
+        <RecentActivityCard
+          projects={projects}
+          comments={comments}
+          clientName={clientName}
+        />
       </div>
 
       {/* RIGHT (1/3 on lg+) — financial relationship */}
@@ -118,7 +128,7 @@ function ActiveProjectsCard({
       <header className="flex items-center justify-between gap-3">
         <h2
           id="overview-active-projects"
-          className="font-display text-base font-bold tracking-tight text-[rgb(var(--fg-default))]"
+          className="font-display text-[17px] font-bold tracking-tight text-[rgb(var(--fg-default))]"
         >
           Active projects
         </h2>
@@ -126,9 +136,9 @@ function ActiveProjectsCard({
           <Link
             href={`/dashboard/clients-projects/clients/${clientId}?tab=projects`}
             scroll={false}
-            className="font-mono text-[0.66rem] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
           >
-            See all
+            See all →
           </Link>
         ) : null}
       </header>
@@ -138,7 +148,10 @@ function ActiveProjectsCard({
           No active projects with this client right now.
         </p>
       ) : (
-        <ul role="list" className="mt-4 flex flex-col gap-2">
+        <ul
+          role="list"
+          className="mt-4 divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]"
+        >
           {projects.slice(0, 4).map((p) => (
             <li key={p.id}>
               <ActiveProjectRow project={p} />
@@ -159,38 +172,32 @@ function ActiveProjectRow({ project }: { project: Project }) {
   return (
     <Link
       href={`/dashboard/clients-projects/${project.id}`}
-      className="sk-press flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-3 transition-colors hover:border-[rgb(var(--border-strong))] sm:flex-row sm:items-center sm:gap-4"
+      className="flex items-center gap-4 py-3 transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
     >
-      <div className="flex shrink-0 items-center gap-3 sm:w-44">
-        <ProjectThumb title={project.title} />
-        <div className="min-w-0">
+      <ProjectThumb title={project.title} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
           <p className="truncate text-[13.5px] font-bold text-[rgb(var(--fg-default))]">
             {project.title}
           </p>
           {overdue ? (
-            <span className="pill pill-danger mt-1 inline-flex">Overdue</span>
+            <span className="pill pill-danger">Overdue</span>
           ) : null}
         </div>
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-3">
+        <div className="mt-1.5 flex items-center gap-3">
           <div
             aria-hidden
-            className="h-1.5 flex-1 overflow-hidden rounded-full bg-[rgb(var(--bg-overlay))]"
+            className="h-[5px] flex-1 overflow-hidden rounded-full bg-[rgb(var(--bg-overlay))]"
           >
             <div
               className="h-full rounded-full bg-[rgb(var(--fg-default))]"
               style={{ width: `${pct.toString()}%` }}
             />
           </div>
-          <p className="sk-num shrink-0 font-mono text-[11.5px] font-bold tabular-nums text-[rgb(var(--fg-muted))]">
-            {pct.toString()}%
+          <p className="sk-num shrink-0 font-mono text-[11px] font-bold tabular-nums text-[rgb(var(--fg-muted))]">
+            {pct.toString()}% · {stageLabel}
           </p>
         </div>
-        <p className="mt-1 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
-          {stageLabel}
-        </p>
       </div>
 
       {overdueLabel ? (
@@ -205,14 +212,16 @@ function ActiveProjectRow({ project }: { project: Project }) {
   );
 }
 
-// 36px square thumb keyed off the project title — same hue formula as
-// the avatar so a project's marker stays stable across views.
+// 40px square thumb keyed off the project title — same gradient
+// formula as the avatar so a project's marker stays stable across
+// views. Slightly larger than the previous 36px to balance with the
+// row's increased vertical rhythm.
 function ProjectThumb({ title }: { title: string }) {
   const hue = simpleHue(title);
   return (
     <div
       aria-hidden
-      className="h-9 w-9 shrink-0 rounded-[var(--radius-sm)]"
+      className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)]"
       style={{
         background: `linear-gradient(135deg, oklch(0.58 0.16 ${hue.toString()}), oklch(0.4 0.14 ${((hue + 30) % 360).toString()}))`,
       }}
@@ -245,13 +254,20 @@ function formatOverdueLabel(raw: Date | string | null): string {
 
 // ─── Recent activity ────────────────────────────────────────────────
 
-type ActivityItem = {
-  id: string;
-  kind: "comment" | "project-update";
-  body: string;
-  who: string;
-  at: Date;
-};
+type ActivityItem =
+  | {
+      kind: "comment";
+      id: string;
+      body: string;
+      fromProducer: boolean;
+      at: Date;
+    }
+  | {
+      kind: "project-update";
+      id: string;
+      body: string;
+      at: Date;
+    };
 
 function buildActivity(
   projects: Project[],
@@ -260,10 +276,10 @@ function buildActivity(
   const items: ActivityItem[] = [];
   for (const c of comments) {
     items.push({
-      id: `c-${c.id}`,
       kind: "comment",
+      id: `c-${c.id}`,
       body: c.body,
-      who: c.fromProducer ? "you" : "them",
+      fromProducer: c.fromProducer,
       at: c.createdAt instanceof Date ? c.createdAt : new Date(c.createdAt),
     });
   }
@@ -271,10 +287,9 @@ function buildActivity(
     const at =
       p.updatedAt instanceof Date ? p.updatedAt : new Date(p.updatedAt);
     items.push({
-      id: `p-${p.id}`,
       kind: "project-update",
+      id: `p-${p.id}`,
       body: `${STAGE_LABEL[p.stage]} — ${p.title}`,
-      who: "system",
       at,
     });
   }
@@ -285,11 +300,14 @@ function buildActivity(
 function RecentActivityCard({
   projects,
   comments,
+  clientName,
 }: {
   projects: Project[];
   comments: Comment[];
+  clientName: string;
 }) {
   const items = buildActivity(projects, comments);
+  const clientInitials = producerInitials(clientName);
   return (
     <section
       aria-labelledby="overview-recent-activity"
@@ -298,7 +316,7 @@ function RecentActivityCard({
       <header className="flex items-center justify-between gap-3">
         <h2
           id="overview-recent-activity"
-          className="font-display text-base font-bold tracking-tight text-[rgb(var(--fg-default))]"
+          className="font-display text-[17px] font-bold tracking-tight text-[rgb(var(--fg-default))]"
         >
           Recent activity
         </h2>
@@ -306,54 +324,107 @@ function RecentActivityCard({
 
       {items.length === 0 ? (
         <p className="mt-4 rounded-[var(--radius-sm)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] p-6 text-center text-[13px] text-[rgb(var(--fg-muted))]">
-          Nothing yet — activity from track comments and stage changes will land here.
+          Nothing yet — comments + stage updates will appear here.
         </p>
       ) : (
         <ul role="list" className="mt-4 flex flex-col gap-3">
-          {items.map((it) => (
-            <li key={it.id} className="flex items-start gap-3">
-              <ActivityDot kind={it.kind} who={it.who} />
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] leading-snug text-[rgb(var(--fg-default))]">
-                  {it.body}
-                </p>
-                <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-[rgb(var(--fg-muted))]">
-                  {formatRelativeTime(it.at)}
-                </p>
-              </div>
-            </li>
-          ))}
+          {items.map((it) =>
+            it.kind === "comment" ? (
+              <CommentBubbleRow
+                key={it.id}
+                body={it.body}
+                fromProducer={it.fromProducer}
+                at={it.at}
+                clientInitials={clientInitials}
+              />
+            ) : (
+              <ProjectUpdateRow key={it.id} body={it.body} at={it.at} />
+            ),
+          )}
         </ul>
       )}
     </section>
   );
 }
 
-function ActivityDot({
-  kind,
-  who,
+// Producer messages right-aligned with a dark bubble + producer
+// initials chip at the trailing edge. Client messages left-aligned
+// with their initials avatar at the leading edge and a soft cream
+// bubble. Mirrors a chat-thread feel without committing to a real
+// inbox surface.
+function CommentBubbleRow({
+  body,
+  fromProducer,
+  at,
+  clientInitials,
 }: {
-  kind: ActivityItem["kind"];
-  who: string;
+  body: string;
+  fromProducer: boolean;
+  at: Date;
+  clientInitials: string;
 }) {
-  if (kind === "comment") {
-    const tone =
-      who === "you" ? "rgb(var(--brand-primary))" : "rgb(var(--fg-muted))";
+  if (fromProducer) {
     return (
-      <span
-        aria-hidden
-        className="mt-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-        style={{ background: tone }}
-      >
-        {who === "you" ? "GS" : "·"}
-      </span>
+      <li className="flex items-start justify-end gap-2">
+        <div className="flex max-w-[80%] flex-col items-end gap-1">
+          <div className="rounded-[18px] rounded-br-sm bg-[rgb(var(--fg-default))] px-3.5 py-2 text-[13px] leading-snug text-[rgb(var(--bg-elevated))] shadow-sm">
+            {body}
+          </div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+            you · {formatRelativeTime(at)}
+          </p>
+        </div>
+        <span
+          aria-hidden
+          className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[10.5px] font-bold text-[rgb(var(--bg-base))]"
+        >
+          GS
+        </span>
+      </li>
     );
   }
   return (
-    <span
-      aria-hidden
-      className="mt-2 inline-block h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--fg-muted))]"
-    />
+    <li className="flex items-start gap-2">
+      <span
+        aria-hidden
+        className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--bg-overlay))] text-[10.5px] font-bold text-[rgb(var(--fg-default))]"
+      >
+        {clientInitials}
+      </span>
+      <div className="flex max-w-[80%] flex-col items-start gap-1">
+        <div className="rounded-[18px] rounded-bl-sm bg-[rgb(var(--bg-base))] px-3.5 py-2 text-[13px] leading-snug text-[rgb(var(--fg-default))] shadow-sm ring-1 ring-[rgb(var(--border-subtle))]">
+          {body}
+        </div>
+        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+          {formatRelativeTime(at)}
+        </p>
+      </div>
+    </li>
+  );
+}
+
+// Project stage updates render as a centered, thin timeline line so
+// they read as ambient activity rather than conversation. Different
+// affordance from comments stops the producer mistaking system events
+// for messages from the client.
+function ProjectUpdateRow({ body, at }: { body: string; at: Date }) {
+  return (
+    <li className="flex items-center justify-center gap-2 px-2 py-1 text-center">
+      <span
+        aria-hidden
+        className="h-[1px] flex-1 bg-[rgb(var(--border-subtle))]"
+      />
+      <p className="text-[12px] text-[rgb(var(--fg-muted))]">
+        <span className="font-mono uppercase tracking-[0.1em] text-[10px]">
+          {formatRelativeTime(at)}
+        </span>{" "}
+        · {body}
+      </p>
+      <span
+        aria-hidden
+        className="h-[1px] flex-1 bg-[rgb(var(--border-subtle))]"
+      />
+    </li>
   );
 }
 
@@ -379,15 +450,15 @@ function FinancialRelationshipCard({
     >
       <h2
         id="overview-financial"
-        className="font-display text-base font-bold tracking-tight text-[rgb(var(--fg-default))]"
+        className="font-display text-[17px] font-bold tracking-tight text-[rgb(var(--fg-default))]"
       >
         Financial relationship
       </h2>
 
-      <p className="mt-4 text-[11.5px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+      <p className="mt-4 text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
         Paid of billed
       </p>
-      <p className="mt-1 font-display text-3xl font-extrabold leading-tight tracking-tight text-[rgb(var(--fg-default))]">
+      <p className="mt-1.5 font-display text-[34px] font-extrabold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]">
         <span className="sk-num font-mono tabular-nums">
           {formatMoney(paidCents, currency)}
         </span>

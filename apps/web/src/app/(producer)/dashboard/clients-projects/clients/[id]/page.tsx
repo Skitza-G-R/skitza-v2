@@ -1,5 +1,4 @@
 import { auth } from "@clerk/nextjs/server";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { ClientDetailHeader } from "~/components/dashboard/clients/detail/client-detail-header";
@@ -87,115 +86,84 @@ export default async function ClientDetailPage({
     )}&clientName=${encodeURIComponent(detail.contact.name)}`;
 
   return (
-    <>
-      {/* Top row — "All clients" back link (left) + breadcrumb (right).
-          Anchored above the gradient band so the slim chrome reads as
-          page navigation rather than part of the editorial header. */}
-      <div className="mx-auto max-w-[1400px] px-4 pt-4 sm:px-6 lg:px-8 lg:pt-6">
-        <nav
-          aria-label="Breadcrumb"
-          className="flex flex-wrap items-center justify-between gap-3 text-[11.5px] font-mono uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]"
-        >
-          <Link
-            href="/dashboard/clients-projects?tab=clients"
-            className="rounded-[var(--radius-sm)] hover:text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-          >
-            ← All clients
-          </Link>
-          <p className="truncate">
-            <Link
-              href="/dashboard/clients-projects"
-              className="hover:text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-            >
-              Clients &amp; Projects
-            </Link>
-            <span aria-hidden> / </span>
-            <span className="text-[rgb(var(--fg-default))]">
-              {detail.contact.name}
-            </span>
-          </p>
-        </nav>
-      </div>
+    <main className="sk-page-enter">
+      {/* Hero band + KPI strip — both rendered by the header component
+          so the breadcrumb, identity slab, and KPI floats stay
+          composed as one editorial slab. Hero is full-bleed; KPI
+          strip sits in the standard 1400px container and overlaps
+          the band's bottom edge. */}
+      <ClientDetailHeader
+        contact={{
+          id: detail.contact.id,
+          name: detail.contact.name,
+          email: detail.contact.email,
+          firstSeenAt: toDate(detail.contact.firstSeenAt),
+        }}
+        stats={{
+          activeProjectCount: detail.stats.activeProjectCount,
+          totalProjectCount: detail.stats.totalProjectCount,
+          outstandingCents: detail.stats.outstandingCents,
+        }}
+        nextSession={nextSession}
+        currency={producerCurrency}
+        newProjectHref={newProjectHref}
+      />
 
-      <div className="relative isolate">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[280px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.08)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+      <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-8 sm:px-6 sm:pt-10 lg:px-8">
+        <ClientDetailTabs
+          active={activeTab}
+          clientId={detail.contact.id}
+          projectCount={detail.projects.length}
         />
-        <div className="sk-page-enter mx-auto max-w-[1400px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
-          <ClientDetailHeader
-            contact={{
-              id: detail.contact.id,
-              name: detail.contact.name,
-              email: detail.contact.email,
-              firstSeenAt: toDate(detail.contact.firstSeenAt),
-            }}
-            stats={{
-              activeProjectCount: detail.stats.activeProjectCount,
-              totalProjectCount: detail.stats.totalProjectCount,
-              outstandingCents: detail.stats.outstandingCents,
-            }}
-            nextSession={nextSession}
-            currency={producerCurrency}
-            newProjectHref={newProjectHref}
-          />
 
-          <div className="mt-7">
-            <ClientDetailTabs
-              active={activeTab}
+        <div
+          key={activeTab}
+          id={`client-detail-panel-${activeTab}`}
+          aria-labelledby={`client-detail-tab-${activeTab}`}
+          className="pt-6"
+        >
+          {activeTab === "overview" ? (
+            <ClientOverviewPanel
               clientId={detail.contact.id}
+              clientName={detail.contact.name}
+              projects={detail.projects}
+              comments={detail.comments}
+              stats={{
+                lifetimeCents: detail.stats.lifetimeCents,
+                outstandingCents: detail.stats.outstandingCents,
+              }}
+              currency={producerCurrency}
+            />
+          ) : null}
+          {activeTab === "projects" ? (
+            <ClientProjectsPanel
+              projects={detail.projects}
+              currency={producerCurrency}
+            />
+          ) : null}
+          {activeTab === "payments" ? (
+            <ClientPaymentsPanel
+              projects={detail.projects}
+              stats={{
+                lifetimeCents: detail.stats.lifetimeCents,
+                outstandingCents: detail.stats.outstandingCents,
+              }}
+              currency={producerCurrency}
+            />
+          ) : null}
+          {activeTab === "notes" ? (
+            <ClientNotesPanel
+              contact={{
+                notes: detail.contact.notes,
+                tags: detail.contact.tags,
+                referralSource: detail.contact.referralSource,
+              }}
               projectCount={detail.projects.length}
             />
-          </div>
-
-          <div
-            key={activeTab}
-            id={`client-detail-panel-${activeTab}`}
-            aria-labelledby={`client-detail-tab-${activeTab}`}
-            className="pt-5"
-          >
-            {activeTab === "overview" ? (
-              <ClientOverviewPanel
-                clientId={detail.contact.id}
-                projects={detail.projects}
-                comments={detail.comments}
-                stats={{
-                  lifetimeCents: detail.stats.lifetimeCents,
-                  outstandingCents: detail.stats.outstandingCents,
-                }}
-                currency={producerCurrency}
-              />
-            ) : null}
-            {activeTab === "projects" ? (
-              <ClientProjectsPanel
-                projects={detail.projects}
-                currency={producerCurrency}
-              />
-            ) : null}
-            {activeTab === "payments" ? (
-              <ClientPaymentsPanel
-                projects={detail.projects}
-                stats={{
-                  lifetimeCents: detail.stats.lifetimeCents,
-                  outstandingCents: detail.stats.outstandingCents,
-                }}
-                currency={producerCurrency}
-              />
-            ) : null}
-            {activeTab === "notes" ? (
-              <ClientNotesPanel
-                contact={{
-                  notes: detail.contact.notes,
-                  tags: detail.contact.tags,
-                  referralSource: detail.contact.referralSource,
-                }}
-                projectCount={detail.projects.length}
-              />
-            ) : null}
-          </div>
+          ) : null}
         </div>
       </div>
-    </>
+    </main>
   );
 }
 

@@ -99,6 +99,7 @@ const {
     artistName: { __column: "bookings.artist_name" },
     durationMin: { __column: "bookings.duration_min" },
     packageNameSnapshot: { __column: "bookings.package_name_snapshot" },
+    projectId: { __column: "bookings.project_id" },
   };
   const trackCommentsMarker = {
     __table: "track_comments",
@@ -433,6 +434,46 @@ describe("producer.today", () => {
     // And the sessions should appear in the items list, kind=session.
     const sessionItems = result.items.filter((i) => i.kind === "session");
     expect(sessionItems).toHaveLength(2);
+  });
+
+  // Pinned 2026-05-07 — the "Open client room" button on the Overview
+  // screen reads from `today.items[*].href`. Pre-fix, every session item
+  // hard-coded `/dashboard/booking?id=...` which the v3-clean middleware
+  // 301'd to `/dashboard/calendar`, so the button silently navigated to
+  // the calendar instead of the project room. Fix routes through
+  // bookings.projectId, falling back to /dashboard/calendar only when no
+  // project is attached. This test pins both branches.
+  it("session items deep-link to the project room when bookings.projectId is set", async () => {
+    const now = new Date();
+    const in1hour = new Date(now.getTime() + 60 * 60 * 1000);
+    const in2hours = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    upcomingSessionsMock.mockResolvedValueOnce([
+      {
+        id: "b-with-project",
+        startsAt: in1hour,
+        durationMin: 60,
+        artistName: "Alice",
+        packageNameSnapshot: "1h Mix",
+        projectId: "proj-123",
+      },
+      {
+        id: "b-orphan",
+        startsAt: in2hours,
+        durationMin: 30,
+        artistName: "Bob",
+        packageNameSnapshot: "Consult",
+        projectId: null,
+      },
+    ]);
+
+    const caller = await buildCaller();
+    const result = await caller.producer.today();
+    const sessions = result.items.filter((i) => i.kind === "session");
+    const withProject = sessions.find((s) => s.id === "session:b-with-project");
+    const orphan = sessions.find((s) => s.id === "session:b-orphan");
+
+    expect(withProject?.href).toBe("/dashboard/clients-projects/proj-123");
+    expect(orphan?.href).toBe("/dashboard/calendar");
   });
 
   it("sums unpaid invoices + open comments into unresolvedItems", async () => {
