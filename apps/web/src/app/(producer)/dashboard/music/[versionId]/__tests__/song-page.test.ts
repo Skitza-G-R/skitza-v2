@@ -146,6 +146,47 @@ describe("playButtonState — Play/Pause + disabled + action mode", () => {
 
 // ─── Source-grep — wiring ────────────────────────────────────────────
 
+describe("song-page.tsx — composer is at the TOP of the comments thread (founder feedback)", () => {
+  it("renders the composer block BEFORE the visibleComments .map iterator", () => {
+    // Founder asked to flip the layout: the new-comment input should
+    // be the first thing producers see when they scroll to the
+    // comments. Pin via source ordering — the composer's marker
+    // ("Add a note at this timestamp") must appear before the
+    // visibleComments mapping.
+    const composerIdx = songPageSrc.indexOf("Add a note at this timestamp");
+    const listIdx = songPageSrc.indexOf("visibleComments.map");
+    expect(composerIdx).toBeGreaterThan(0);
+    expect(listIdx).toBeGreaterThan(0);
+    expect(composerIdx).toBeLessThan(listIdx);
+  });
+});
+
+describe("song-page.tsx — composer pauses playback on focus + resumes on submit", () => {
+  it("composer input has an onFocus handler that pauses if currently playing", () => {
+    // Pattern: track wasPlayingBeforeFocus state, then call
+    // playerToggle on focus + on submit. Pin both the state ref and
+    // the toggle call in the source.
+    expect(songPageSrc).toMatch(/wasPlayingBeforeFocus|pauseForTyping/);
+    // The composer input must wire onFocus.
+    expect(songPageSrc).toMatch(/onFocus=\{[^}]+\}/);
+  });
+
+  it("handleAddComment resumes playback if it was paused for typing", () => {
+    expect(songPageSrc).toMatch(/playerToggle\(\)/);
+  });
+});
+
+describe("song-page.tsx — composer timestamp follows the live player", () => {
+  it("subscribes to PLAYER_EVENTS.time so currentMs ticks while audio plays", () => {
+    // Without this, the composer's @mm:ss chip stays frozen at the
+    // last click/drag position even while the dock advances. Founder
+    // asked: "the comment time stamp should always be in sync with
+    // the player time."
+    expect(songPageSrc).toContain("PLAYER_EVENTS");
+    expect(songPageSrc).toMatch(/addEventListener\(\s*PLAYER_EVENTS\.time/);
+  });
+});
+
 describe("song-page.tsx — comments don't double-post on submit", () => {
   it("clears the optimistic entry by tempId in BOTH ok and !ok branches of l3AddComment", () => {
     // Bug: revalidatePath in the server action makes the page re-render

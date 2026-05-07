@@ -210,6 +210,23 @@ export function PersistentPlayer() {
     };
   }, []);
 
+  // Toggle a body data attribute so globals.css can reserve
+  // padding-bottom equal to the dock's height on every dashboard
+  // page. Without it the dock overlays the bottom of long pages
+  // (founder reported the comment thread getting hidden under it).
+  // The attribute is removed on unmount + when the dock is closed.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (state.track) {
+      document.body.dataset.skitzaDock = "1";
+    } else {
+      delete document.body.dataset.skitzaDock;
+    }
+    return () => {
+      delete document.body.dataset.skitzaDock;
+    };
+  }, [state.track]);
+
   // Drive the <audio> element imperatively from state. Split out so
   // setting a new track (id changes) resets the element before play
   // kicks in.

@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { Waveform50, type WaveformComment } from "~/components/audio/waveform-50";
 import {
+  PLAYER_EVENTS,
   playerPlay,
   playerSeek,
   playerToggle,
@@ -154,6 +155,29 @@ export function SongPage({ data }: { data: SongPageData }) {
   // the existing <audio> element in PersistentPlayer.
   const nowPlaying = useNowPlaying();
 
+  // Tracks whether playback was ours-paused for typing. Used by the
+  // composer's onFocus + handleAddComment so submitting (or
+  // dismissing) the composer auto-resumes only when WE paused, not
+  // when the producer had already paused themselves.
+  const wasPlayingBeforeFocus = useRef(false);
+
+  // Sync the composer's `@mm:ss` chip with live audio time. Without
+  // this, currentMs only updates on user click/drag/keyboard
+  // (Waveform50's onProgress fires only on user interaction). The
+  // founder reported the timestamp falling behind the dock; this
+  // listener mirrors PersistentPlayer's broadcast so the chip stays
+  // exact while audio plays.
+  useEffect(() => {
+    function onTime(e: Event) {
+      const ms = (e as CustomEvent<number>).detail;
+      if (Number.isFinite(ms) && ms >= 0) setCurrentMs(ms);
+    }
+    window.addEventListener(PLAYER_EVENTS.time, onTime as EventListener);
+    return () => {
+      window.removeEventListener(PLAYER_EVENTS.time, onTime as EventListener);
+    };
+  }, []);
+
   // Local-only "favorite" toggle — the backend mutation isn't wired
   // yet, but the UI affordance ships now so the action rail matches
   // the design. State resets per page navigation, which is fine for
@@ -246,6 +270,15 @@ export function SongPage({ data }: { data: SongPageData }) {
     }));
     if (draftRef.current) draftRef.current.value = "";
 
+    // If we paused playback when the composer got focus, resume
+    // playback now that the producer's done typing. Pre-flip the
+    // ref so the input's onBlur can't double-fire.
+    const shouldResume = wasPlayingBeforeFocus.current;
+    wasPlayingBeforeFocus.current = false;
+    if (shouldResume) {
+      playerToggle();
+    }
+
     startTransition(async () => {
       const res = await l3AddComment({
         versionId: activeVersion.id,
@@ -275,6 +308,30 @@ export function SongPage({ data }: { data: SongPageData }) {
         }));
       }
     });
+  }
+
+  // Focus on the composer pauses live playback so the producer can
+  // think + type without the music racing ahead. Submitting (handle
+  // AddComment) or blurring resumes playback if WE paused it.
+  function handleComposerFocus() {
+    if (!activeVersion) return;
+    const isThisVersionPlaying =
+      nowPlaying.trackId === activeVersion.id && nowPlaying.playing;
+    if (isThisVersionPlaying) {
+      wasPlayingBeforeFocus.current = true;
+      playerToggle();
+    }
+  }
+
+  function handleComposerBlur() {
+    // Resume on blur ONLY if the composer didn't submit (handleAdd
+    // Comment already resumed in that path). The flag is cleared on
+    // submit, so this branch only fires when the user clicked away
+    // without posting.
+    if (wasPlayingBeforeFocus.current) {
+      wasPlayingBeforeFocus.current = false;
+      playerToggle();
+    }
   }
 
   function handleResolveToggle(comment: SongPageComment) {
@@ -699,9 +756,43 @@ export function SongPage({ data }: { data: SongPageData }) {
             </p>
           ) : null}
 
+          {/* Composer — anchors to the live playhead. Lives ABOVE the
+              comment list per founder feedback so the action is the
+              first thing producers see. Focusing the input pauses
+              playback (so the producer can think + type without the
+              audio racing past); submitting or blurring resumes it. */}
+          <div className="mb-3 flex items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2">
+            <span className="shrink-0 rounded-full bg-[rgb(var(--brand-primary)/0.18)] px-1.5 py-px font-mono text-[9.5px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums">
+              @{fmtMs(currentMs)}
+            </span>
+            <input
+              ref={draftRef}
+              type="text"
+              maxLength={2000}
+              placeholder="Add a note at this timestamp…"
+              className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
+              onFocus={handleComposerFocus}
+              onBlur={handleComposerBlur}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddComment();
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleAddComment}
+              disabled={isPending}
+              className="sk-press rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-3 py-1.5 text-[11.5px] font-bold text-[rgb(var(--bg-elevated))] disabled:opacity-60"
+            >
+              Post
+            </button>
+          </div>
+
           {visibleComments.length === 0 ? (
             <p className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-8 text-center text-[13px] text-[rgb(var(--fg-muted))]">
-              No notes yet on this version. Type below to drop one at the
+              No notes yet on this version. Type one above to drop it at the
               current playhead.
             </p>
           ) : (
@@ -805,34 +896,6 @@ export function SongPage({ data }: { data: SongPageData }) {
               })}
             </ul>
           )}
-
-          {/* Composer — anchors to the current playhead */}
-          <div className="mt-3 flex items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2">
-            <span className="shrink-0 rounded-full bg-[rgb(var(--brand-primary)/0.18)] px-1.5 py-px font-mono text-[9.5px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums">
-              @{fmtMs(currentMs)}
-            </span>
-            <input
-              ref={draftRef}
-              type="text"
-              maxLength={2000}
-              placeholder="Add a note at this timestamp…"
-              className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAddComment();
-                }
-              }}
-            />
-            <button
-              type="button"
-              onClick={handleAddComment}
-              disabled={isPending}
-              className="sk-press rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-3 py-1.5 text-[11.5px] font-bold text-[rgb(var(--bg-elevated))] disabled:opacity-60"
-            >
-              Post
-            </button>
-          </div>
         </div>
       </section>
     </main>
