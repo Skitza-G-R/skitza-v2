@@ -210,23 +210,35 @@ function KpiCard({
   sub?: string;
   tone?: "default" | "danger" | "brand";
 }) {
+  // Tone-aware palette. The label + sub colors used to be a fixed
+  // `--fg-muted` (warm brown) which washed out on the danger-tinted
+  // card — both share the same warm-tone family, so the contrast ratio
+  // dropped below readable. Tinting the label/sub to match the tone
+  // (just darker than the value, with reduced opacity) keeps the eye
+  // travelling label → value as one composed unit.
   const palette =
     tone === "danger"
       ? {
           bg: "bg-[rgb(var(--fg-danger)/0.08)]",
           border: "border-[rgb(var(--fg-danger)/0.18)]",
           value: "rgb(var(--fg-danger))",
+          label: "text-[rgb(var(--fg-danger)/0.85)]",
+          sub: "text-[rgb(var(--fg-danger)/0.75)]",
         }
       : tone === "brand"
         ? {
             bg: "bg-[rgb(var(--brand-primary)/0.08)]",
             border: "border-[rgb(var(--brand-primary)/0.20)]",
             value: "rgb(var(--brand-primary))",
+            label: "text-[rgb(var(--brand-primary)/0.85)]",
+            sub: "text-[rgb(var(--brand-primary)/0.75)]",
           }
         : {
             bg: "bg-[rgb(var(--bg-elevated))]",
             border: "border-[rgb(var(--border-subtle))]",
             value: "rgb(var(--fg-default))",
+            label: "text-[rgb(var(--fg-muted))]",
+            sub: "text-[rgb(var(--fg-muted))]",
           };
   return (
     <div
@@ -236,7 +248,9 @@ function KpiCard({
         palette.border,
       ].join(" ")}
     >
-      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+      <p
+        className={`text-[10px] font-bold uppercase tracking-[0.16em] ${palette.label}`}
+      >
         {label}
       </p>
       <p
@@ -246,9 +260,7 @@ function KpiCard({
         {value}
       </p>
       {sub ? (
-        <p className="mt-1 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
-          {sub}
-        </p>
+        <p className={`mt-1 truncate text-[11.5px] ${palette.sub}`}>{sub}</p>
       ) : null}
     </div>
   );
