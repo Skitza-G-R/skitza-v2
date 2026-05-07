@@ -24,7 +24,12 @@ import {
 //
 // KPI strip rules:
 //   • PROJECTS — total count, "N active" sub-label.
-//   • OUTSTANDING — danger-tinted card when > 0, neutral "—" when 0.
+//   • OUTSTANDING — brand-amber tint when > 0 ("money pending" =
+//     calm reminder, not alarm). Sub-label gives project context
+//     ("across N projects") so the card matches PROJECTS' vertical
+//     rhythm. Danger-red is reserved for actually-overdue states
+//     (handled by NEXT DEADLINE, not OUTSTANDING — outstanding ≠
+//     overdue).
 //   • NEXT DEADLINE — earliest upcoming `nextSessionAt`. Brand-amber
 //     when within a week, danger when overdue or within 24h, "—" when
 //     nothing scheduled.
@@ -40,6 +45,11 @@ export interface ClientDetailHeaderProps {
     activeProjectCount: number;
     totalProjectCount: number;
     outstandingCents: number;
+    /** Number of this client's projects with a non-zero unpaid
+     *  balance. Drives the OUTSTANDING card's sub-label so a single
+     *  ₪250 figure tells the producer "1 project is waiting on
+     *  payment" instead of leaving the card blank below the value. */
+    unpaidProjectCount: number;
   };
   nextSession: { startsAt: Date; projectTitle: string } | null;
   currency: string;
@@ -166,12 +176,15 @@ export function ClientDetailHeader({
           />
           <KpiCard
             label="Outstanding"
-            tone={stats.outstandingCents > 0 ? "danger" : "default"}
+            tone={stats.outstandingCents > 0 ? "brand" : "default"}
             value={
               stats.outstandingCents > 0
                 ? formatMoney(stats.outstandingCents, currency)
                 : "—"
             }
+            {...(stats.outstandingCents > 0
+              ? { sub: formatUnpaidSub(stats.unpaidProjectCount) }
+              : {})}
           />
           <KpiCard
             label="Next deadline"
@@ -260,11 +273,30 @@ function KpiCard({
       >
         {value}
       </p>
-      {sub ? (
-        <p className={`mt-1 truncate text-[11.5px] ${palette.sub}`}>{sub}</p>
-      ) : null}
+      {/* Sub line is always rendered (with NBSP fallback) so all three
+          cards in the strip share the same vertical rhythm. Without
+          this, OUTSTANDING / NEXT DEADLINE collapsed shorter than
+          PROJECTS' "1 active", making the strip read as uneven. */}
+      <p
+        className={`mt-1 truncate text-[11.5px] ${palette.sub}`}
+        aria-hidden={sub ? undefined : true}
+      >
+        {sub ?? " "}
+      </p>
     </div>
   );
+}
+
+// "across N projects" — sub-label for the OUTSTANDING card so the
+// money figure has context. Falls back to a graceful "Awaiting
+// payment" when the count is somehow zero but there's still a
+// non-zero balance (defensive: stats.outstandingCents and per-
+// project rollups should agree, but if they ever diverge we still
+// render something honest).
+function formatUnpaidSub(unpaidProjectCount: number): string {
+  if (unpaidProjectCount <= 0) return "Awaiting payment";
+  if (unpaidProjectCount === 1) return "across 1 project";
+  return `across ${unpaidProjectCount.toString()} projects`;
 }
 
 // firstSeenAt → "Nov 2025" (matches the design's "Client since Nov 2025").
