@@ -1,22 +1,26 @@
 "use client";
 
-// Project Room header — sits above the 4 sub-tabs. Composes:
-//   • Top row: avatar (artist initials) + client name + stage badge +
-//     3-dot actions dropdown.
-//   • Middle: <PaymentStatusStrip/> (reused from the old header).
-//   • Bottom: 5-step <ProjectTimeline/>.
+// Project Room header — orchestrating component for the page-top
+// surface above the sub-tabs. Composes:
+//   • <ProjectHero/>           — gradient album-style hero with
+//                                title, action pills, and the kebab.
+//   • <ProjectStatusStrip/>    — 4 at-a-glance tiles (Stage / Progress
+//                                / Next charge / Outstanding).
+//   • <PaymentStatusStrip/>    — payment-plan detail strip (split or
+//                                monthly only; renders null on full).
 //
-// The 3-dot actions menu is the new home for the destructive and
-// money-handling controls that used to sit in the Overview tab:
-//   • Mark final delivered   → sets finalPaid=true (runs the confirm
-//     modal first for split_50_50 projects with a pending charge).
-//   • Upload track           → jumps to ?tab=music&action=upload.
-//   • Cancel project         → opens the existing CancelConfirmModal
-//     (type-to-confirm + Stripe schedule cancellation).
+// State + side effects (kebab open/close, stage select, modals,
+// hotkeys, server-action wiring) all live here. The presentational
+// pieces (ProjectHero, ProjectStatusStrip) are stateless so they can
+// be restyled without dragging the orchestration along.
 //
-// The stage <select> dropdown is rendered inline in the top row next to
-// the badge rather than buried in the dropdown — it's the primary
-// control for moving a project through the pipeline.
+// Workflow rail (<ProjectTimeline/>) moved to the Overview sub-tab in
+// the 2026-05 redesign — it's now the heart of the "Workflow" card.
+//
+// 3-dot menu actions (Mark final delivered / Upload track / Cancel
+// project) keep their previous wiring: the kebab opens a small
+// dropdown, click-outside + Esc close it, and individual items either
+// fire a server action or open a confirm modal.
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -24,7 +28,6 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { CancelConfirmModal } from "~/components/project/cancel-confirm-modal";
 import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
 import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
-import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/input";
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import { useToast } from "~/components/ui/toast";
@@ -42,9 +45,14 @@ import {
   setProjectPaid,
   setStageAction,
 } from "~/app/(app)/dashboard/projects/actions";
+import type { GradientKey } from "~/lib/projects/gradient";
 
-import { ProjectTimeline } from "./project-timeline";
-import { TagEditor } from "./tag-editor";
+import { ProjectHero } from "./project-hero";
+import { ProjectStatusStrip } from "./project-status-strip";
+import {
+  computeTimeline,
+  type ProjectTimelineInput,
+} from "./timeline-helpers";
 
 export interface ProjectHeaderProject {
   id: string;
@@ -63,29 +71,41 @@ export interface ProjectHeaderProject {
   totalAmountCents: number | null;
   cardLast4: string | null;
   currency: string;
-  // Task 5 timeline signals. contractSigned is true when the producer
-  // has a contract on this project with status === "signed". Surfaced
-  // by the page loader.
+  // Task 5 timeline signal — true when at least one contract has been
+  // signed for this project.
   contractSigned: boolean;
-  // finalDelivered mirrors the legacy finalPaid flag for now — until a
-  // dedicated "final delivered" column lands, delivery and final
-  // payment collapse to the same thing.
+  // Mirrors finalPaid until a dedicated "delivered" column lands.
   finalDelivered: boolean;
 }
 
 export function ProjectHeader({
   project,
-  clientContact,
-  tagVocabulary = [],
+  // Tag editor disappeared from the visible header in the 2026-05
+  // redesign — it surfaces on the Overview tab's Client card instead.
+  // Props kept for backward-compat with the existing page.tsx call
+  // shape; they're forwarded to nothing here. Remove once page.tsx
+  // stops passing them.
+  gradientClass,
+  songsCount,
+  sessionsCount,
+  hasVersions,
+  outstandingCents,
 }: {
   project: ProjectHeaderProject;
-  // Batch D — the matching client_contacts row for this project's
-  // client, if the lookup found one. Undefined/null on legacy rows
-  // with no CRM entry; the header omits the tag strip in that case.
-  clientContact?: { id: string; tags: string[] } | null;
-  // Distinct set of tags this producer has used across their contacts,
-  // sorted by frequency. Feeds the TagEditor autocomplete dropdown.
-  tagVocabulary?: string[];
+  // Per-project hero gradient (deterministic from project id).
+  // Computed by the server page using gradientForId(id).
+  gradientClass: GradientKey;
+  // Counts for the hero meta strip — passed in rather than derived
+  // here because the orchestrator already loads them server-side.
+  songsCount: number;
+  sessionsCount: number;
+  // Whether any version exists across the project's tracks. Drives
+  // the visibility of the "Play latest" pill.
+  hasVersions: boolean;
+  // Outstanding balance for the StatusStrip — page.tsx loads this
+  // from caller.project.money() once per render, so we pass the
+  // already-loaded value rather than re-fetching here.
+  outstandingCents: number;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -100,8 +120,6 @@ export function ProjectHeader({
 
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  // Close the actions menu when the user clicks outside it. Kept simple
-  // — a Radix popover would be overkill for three static items.
   useEffect(() => {
     if (!menuOpen) return;
     function onDocClick(e: MouseEvent) {
@@ -122,9 +140,6 @@ export function ProjectHeader({
 
   const isTerminal = isTerminalStage(stage);
 
-  // Task 7 parity — split_50_50 with deposit landed needs a confirm
-  // modal before firing the off-session charge. Other plan shapes (or
-  // already-paid) flip the flag directly.
   const needsChargeModal =
     project.paymentPlanKind === "split_50_50" &&
     project.chargesCompleted === 1 &&
@@ -151,8 +166,6 @@ export function ProjectHeader({
   function onMarkFinalClick() {
     setMenuOpen(false);
     if (finalPaid) {
-      // Already marked — flip back via the flag mutation. Rare; mainly a
-      // mis-click escape hatch while the full flow beds in.
       startTransition(async () => {
         const res = await setProjectPaid({
           projectId: project.id,
@@ -191,17 +204,12 @@ export function ProjectHeader({
 
   function onUploadTrackClick() {
     setMenuOpen(false);
-    // Deep-link to the music sub-tab with an action hint. The music
-    // sub-tab handles the ?action=upload param (landing Task 6).
     router.push(`/dashboard/projects/${project.id}?tab=music&action=upload`);
   }
 
-  // Batch D — Project Room keyboard shortcuts. Scoped to the header's
-  // mount (the Project Room renders one header per page), so they
-  // disappear when the producer navigates to another surface.
-  //
+  // Project Room keyboard shortcuts:
   //   T → toggle the "final delivered" flag (mark/unmark done)
-  //   E → move focus to the stage <select> (primary edit on this page)
+  //   E → move focus to the stage <select> in the hero
   useHotkey("t", () => {
     if (isTerminalStage(stage)) return;
     onMarkFinalClick();
@@ -245,72 +253,66 @@ export function ProjectHeader({
     router.refresh();
   }
 
-  // Client display name — clientName is nullable on older rows, fall
-  // back to the artistName the producer keys off.
-  const displayName = project.clientName ?? project.artistName;
-  const initials = computeInitials(displayName);
+  // ─── Derived strings + props for child components ──────────────────
+
+  const displayClient = project.clientName ?? project.artistName;
+  const stateLabel = STATE_LABEL[stageToState(stage)];
+  const stageDetail = STAGE_LABEL[stage];
+
+  // Eyebrow over the hero title — lifts the high-level state, not the
+  // fine-grained stage. "Project · In production" reads cleaner than
+  // "Project · Mixing v3".
+  const eyebrow = `Project · ${stateLabel}`;
+
+  // Meta strip — joined with center-dots in ProjectHero. Drop falsy
+  // entries so a project with no tracks doesn't show "0 songs".
+  const meta: string[] = [];
+  meta.push(displayClient);
+  if (songsCount > 0) {
+    meta.push(`${String(songsCount)} ${songsCount === 1 ? "song" : "songs"}`);
+  }
+  if (sessionsCount > 0) {
+    meta.push(
+      `${String(sessionsCount)} ${sessionsCount === 1 ? "session" : "sessions"}`,
+    );
+  }
+  if (project.totalAmountCents && project.totalAmountCents > 0) {
+    meta.push(formatMoney(project.totalAmountCents, project.currency));
+  }
+
+  const playLatestHref = hasVersions
+    ? `/dashboard/projects/${project.id}?tab=music`
+    : null;
+
+  // Progress for the StatusStrip. Reuse the same computeTimeline used
+  // by the workflow card so the percent and the rail tell the same
+  // story; no risk of the strip showing 60% while the rail shows 4/5.
+  const timelineInput: ProjectTimelineInput = {
+    stage,
+    contractSigned: project.contractSigned,
+    chargesCompleted: project.chargesCompleted,
+    chargesTotal: project.chargesTotal,
+    finalDelivered: finalPaid,
+  };
+  const timelineSteps = computeTimeline(timelineInput);
+  const doneCount = timelineSteps.filter((s) => s.state === "done").length;
+  const progressPercent = (doneCount / timelineSteps.length) * 100;
 
   return (
     <header className="flex flex-col gap-4">
-      {/* Top row: avatar + name + stage badge/select + 3-dot actions */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div
-          aria-hidden="true"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--bg-elevated))] font-mono text-sm font-semibold text-[rgb(var(--fg-secondary))]"
-        >
-          {initials}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          {/* Batch C — Project Room page title lifts to the editorial
-              display-4xl/5xl so the Project Room reads as a room, not
-              a grid item. Paired with a mono eyebrow above it on
-              desktop (hidden on narrow widths where the avatar + title
-              alone is already a lot). */}
-          <p className="hidden font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))] sm:block">
-            Project Room
-          </p>
-          <h1
-            className="mt-1 truncate font-display text-3xl leading-tight tracking-tight sm:text-4xl"
-            style={{ fontWeight: 800 }}
-          >
-            {project.title}
-          </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <p className="truncate text-sm text-[rgb(var(--fg-secondary))]">
-              {displayName}
-            </p>
-            {clientContact ? (
-              <TagEditor
-                contactId={clientContact.id}
-                initialTags={clientContact.tags}
-                vocabulary={tagVocabulary}
-              />
-            ) : null}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Batch G — badge now shows the high-level STATE as the
-              primary label, with the fine-grained STAGE label small
-              and muted underneath it. Advanced users still see the
-              funnel position without being forced to read the 9-value
-              taxonomy as the primary cue. */}
-          <div className="flex flex-col items-start">
-            <Badge variant="neutral">{STATE_LABEL[stageToState(stage)]}</Badge>
-            {STAGE_LABEL[stage] !== STATE_LABEL[stageToState(stage)] ? (
-              <span className="mt-0.5 font-mono text-[0.62rem] uppercase tracking-[0.08em] text-[rgb(var(--fg-muted))]">
-                {STAGE_LABEL[stage]}
-              </span>
-            ) : null}
-          </div>
-
-          {/* Inline stage select — hidden for terminal stages so the
-              producer doesn't try to walk back a cancelled project via
-              dropdown (use the Cancel button / support instead). */}
-          {!isTerminal ? (
+      <ProjectHero
+        title={project.title}
+        eyebrow={eyebrow}
+        meta={meta}
+        gradientClass={gradientClass}
+        playLatestHref={playLatestHref}
+        stageSelectSlot={
+          !isTerminal ? (
             <>
-              <Label htmlFor="project-header-stage-select" className="sr-only">
+              <Label
+                htmlFor="project-header-stage-select"
+                className="sr-only"
+              >
                 Change stage
               </Label>
               <select
@@ -318,22 +320,36 @@ export function ProjectHeader({
                 value={stage}
                 onChange={(e) => {
                   const next = e.target.value;
-                  const isSelectable = (SELECTABLE_STAGES as readonly string[]).includes(next);
+                  const isSelectable = (
+                    SELECTABLE_STAGES as readonly string[]
+                  ).includes(next);
                   if (isSelectable) onStageChange(next as Stage);
                 }}
                 disabled={pending}
-                className="h-8 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 text-xs text-[rgb(var(--fg-primary))]"
+                // Pill-shaped select that reads on the gradient: white
+                // border + translucent fill + white text. The native
+                // dropdown popover keeps system styling — that's fine,
+                // OS chrome wins for accessibility.
+                className="h-8 rounded-full border border-white/40 bg-white/15 px-3 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                 aria-label="Change stage"
               >
                 {SELECTABLE_STAGES.map((s) => (
-                  <option key={s} value={s}>
+                  <option
+                    key={s}
+                    value={s}
+                    // System dropdown text uses the OS color, but we
+                    // still set a fallback so the option text reads
+                    // when ChromeOS / Linux render flat-styled options.
+                    className="text-[rgb(var(--fg-primary))]"
+                  >
                     {STAGE_LABEL[s]}
                   </option>
                 ))}
               </select>
             </>
-          ) : null}
-
+          ) : null
+        }
+        extraActions={
           <ActionsMenu
             rootRef={menuRef}
             open={menuOpen}
@@ -345,10 +361,18 @@ export function ProjectHeader({
             onUploadTrack={onUploadTrackClick}
             onCancelProject={onCancelClick}
           />
-        </div>
-      </div>
+        }
+      />
 
-      {/* Payment plan strip — hidden for legacy rows without a plan. */}
+      <ProjectStatusStrip
+        stateLabel={stateLabel}
+        stageDetail={stageDetail}
+        progressPercent={progressPercent}
+        nextChargeAt={project.nextChargeAt}
+        outstandingCents={outstandingCents}
+        currency={project.currency || "USD"}
+      />
+
       <PaymentStatusStrip
         paymentPlanKind={
           project.paymentPlanKind === "full" ||
@@ -366,18 +390,6 @@ export function ProjectHeader({
         stage={stage}
       />
 
-      {/* 5-step progress rail. */}
-      <ProjectTimeline
-        stage={stage}
-        contractSigned={project.contractSigned}
-        chargesCompleted={project.chargesCompleted}
-        chargesTotal={project.chargesTotal}
-        finalDelivered={project.finalDelivered}
-      />
-
-      {/* Modals — mounted lazily so we don't ship the confirm UI until
-          it's actually in use. Only mounted on non-terminal projects so
-          the button never opens in a no-op state. */}
       {!isTerminal ? (
         <CancelConfirmModal
           open={cancelOpen}
@@ -392,7 +404,7 @@ export function ProjectHeader({
       {needsChargeModal ? (
         <ConfirmChargeModal
           open={chargeOpen}
-          clientName={displayName}
+          clientName={displayClient}
           amountCents={finalAmountCents}
           currency={project.currency}
           {...(project.cardLast4 ? { cardLast4: project.cardLast4 } : {})}
@@ -406,20 +418,7 @@ export function ProjectHeader({
   );
 }
 
-// Generates "JS" from "John Smith" / "A" from "Alex" / "??" from empty.
-// Kept ASCII-only and max-2-chars so the avatar renders predictably at
-// 40px across fonts.
-function computeInitials(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return "??";
-  const parts = trimmed.split(/\s+/);
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
-  const result = `${first}${last}`.toUpperCase();
-  return result || "??";
-}
-
-// ─── 3-dot actions menu ──────────────────────────────────────────────
+// ─── 3-dot actions menu (rendered into ProjectHero's extraActions) ──
 
 interface ActionsMenuProps {
   rootRef: React.RefObject<HTMLDivElement | null>;
@@ -456,10 +455,11 @@ function ActionsMenu({
             onOpenChange(!open);
           }}
           disabled={pending}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-primary))] disabled:opacity-60"
+          // Trigger lives ON the gradient hero so it gets the same
+          // translucent-white pill treatment as the Share button.
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-white/15 text-white backdrop-blur-sm transition-colors hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
         >
-          {/* Three vertical dots */}
-          <span aria-hidden="true" className="font-mono text-sm leading-none">
+          <span aria-hidden="true" className="font-mono text-base leading-none">
             ⋮
           </span>
         </button>
@@ -467,11 +467,11 @@ function ActionsMenu({
       {open ? (
         <div
           role="menu"
-          // Right-aligned dropdown: override the default top-left
-          // origin so the scale-in visually springs from the 3-dot
-          // trigger sitting to the upper-right of the menu.
+          // Right-aligned dropdown under the trigger; fade-scale origin
+          // pinned to top-right so the menu visibly springs from the
+          // trigger pill.
           style={{ transformOrigin: "top right" }}
-          className="sk-pop absolute right-0 top-9 z-20 w-56 overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-lg"
+          className="sk-pop absolute right-0 top-11 z-20 w-56 overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] shadow-lg"
         >
           <MenuItem
             onClick={onMarkFinal}
@@ -510,8 +510,6 @@ function MenuItem({
   disabled: boolean;
   label: string;
   destructive?: boolean;
-  // Optional inline shortcut pill (e.g. "T" for toggle done). Pairs
-  // with the matching useHotkey wired up on the ProjectHeader.
   shortcut?: string;
 }) {
   return (
@@ -536,4 +534,15 @@ function MenuItem({
       ) : null}
     </button>
   );
+}
+
+// ─── Local helper ─────────────────────────────────────────────────────
+
+function formatMoney(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
 }

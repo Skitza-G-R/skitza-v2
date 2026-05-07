@@ -16,11 +16,21 @@
 //
 // See: docs/audit-report.md Task 18 + qa/2026-04-23-* for the trace.
 
+// Tab order = render order in the pill strip. `overview` leads as the
+// canonical landing tab (the "album page" of a project — shows stage
+// timeline, latest songs, and client info at a glance). The other ids
+// (`music` / `sessions` / `money`) keep their old URL spelling so any
+// bookmarked `?tab=music` or share link still resolves; only the
+// visible labels rebrand to "Songs" / "Sessions" / "Payments". The
+// `notes` tab was retired in 2026-05 — its content was redundant with
+// the project header + overview cards. Any inbound `?tab=notes` URL
+// now falls through `isProjectSubTabId` and is rewritten to the
+// default tab by `resolveSubTab` on the server page.
 export const PROJECT_SUB_TAB_IDS = [
+  "overview",
   "music",
   "sessions",
   "money",
-  "notes",
 ] as const;
 
 export type ProjectSubTabId = (typeof PROJECT_SUB_TAB_IDS)[number];

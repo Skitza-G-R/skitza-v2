@@ -31,7 +31,14 @@ describe("project-sub-tab-shared — type-guard behavior", () => {
     expect(isProjectSubTabId("garbage")).toBe(false);
     expect(isProjectSubTabId("")).toBe(false);
     expect(isProjectSubTabId("Music")).toBe(false); // case-sensitive
+    // Visible label "Payments" still maps to id "money" — the URL
+    // didn't migrate, only the rendered label.
     expect(isProjectSubTabId("payments")).toBe(false);
+    // "songs" is the visible label for id "music" — same reasoning.
+    expect(isProjectSubTabId("songs")).toBe(false);
+    // "notes" was retired in 2026-05; bookmarked URLs fall through to
+    // the default tab via resolveSubTab().
+    expect(isProjectSubTabId("notes")).toBe(false);
   });
 
   it("rejects null + undefined safely", () => {
@@ -42,12 +49,14 @@ describe("project-sub-tab-shared — type-guard behavior", () => {
   it("exposes PROJECT_SUB_TAB_IDS as the 4 canonical ids", () => {
     // Pin the literal tuple so a reorder / rename (e.g. if someone
     // adds a "contracts" tab later) trips this test first and forces
-    // them to update the enum/URL handling together.
+    // them to update the enum/URL handling together. Order matches
+    // the rendered pill strip: Overview leads, then Songs (music) /
+    // Sessions / Payments (money).
     expect([...PROJECT_SUB_TAB_IDS]).toEqual([
+      "overview",
       "music",
       "sessions",
       "money",
-      "notes",
     ]);
   });
 });

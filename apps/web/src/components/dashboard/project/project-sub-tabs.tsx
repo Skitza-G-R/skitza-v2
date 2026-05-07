@@ -29,11 +29,76 @@ export {
   type ProjectSubTabId,
 };
 
-const TABS: { id: ProjectSubTabId; label: string }[] = [
-  { id: "music", label: "Music" },
-  { id: "sessions", label: "Sessions" },
-  { id: "money", label: "Money" },
-  { id: "notes", label: "Notes" },
+// Each tab carries a label and a tiny inline-SVG icon. SVGs (rather
+// than emoji or icon-font) keep us dependency-free and currentColor
+// reactive — the icon recolors with the active/inactive text class
+// without a separate stylesheet rule.
+type IconProps = { className?: string };
+
+const SVG_BASE = {
+  width: 14,
+  height: 14,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  "aria-hidden": true,
+} as const;
+
+function IconLayoutGrid({ className }: IconProps) {
+  return (
+    <svg {...SVG_BASE} className={className}>
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
+    </svg>
+  );
+}
+
+function IconMusic({ className }: IconProps) {
+  return (
+    <svg {...SVG_BASE} className={className}>
+      <path d="M9 18V5l12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </svg>
+  );
+}
+
+function IconCalendar({ className }: IconProps) {
+  return (
+    <svg {...SVG_BASE} className={className}>
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
+}
+
+function IconDollar({ className }: IconProps) {
+  return (
+    <svg {...SVG_BASE} className={className}>
+      <line x1="12" y1="1" x2="12" y2="23" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
+  );
+}
+
+// label = visible name; id = URL slug. The rename per 2026-05 is
+// label-only — id "music" stays put so bookmarked URLs keep working.
+const TABS: {
+  id: ProjectSubTabId;
+  label: string;
+  Icon: (props: IconProps) => ReactNode;
+}[] = [
+  { id: "overview", label: "Overview", Icon: IconLayoutGrid },
+  { id: "music", label: "Songs", Icon: IconMusic },
+  { id: "sessions", label: "Sessions", Icon: IconCalendar },
+  { id: "money", label: "Payments", Icon: IconDollar },
 ];
 
 export function ProjectSubTabs({
@@ -54,14 +119,22 @@ export function ProjectSubTabs({
 
   return (
     <div>
+      {/* Pill-segmented strip, lifted from the HTML reference design.
+          Outer container = elevated background + subtle border + small
+          inner padding so each tab sits inside a "track". The active
+          tab gets the lighter base background plus a soft shadow,
+          inactive tabs are flat-transparent and pick up brand color
+          on hover via the inner-tab classes below. The strip is a
+          horizontally-scrollable track on narrow viewports. */}
       <nav
         aria-label="Project sections"
         role="tablist"
-        className="sk-scroll-x -mx-4 overflow-x-auto border-b border-[rgb(var(--border-subtle))] sm:mx-0"
+        className="sk-scroll-x mb-4 overflow-x-auto"
       >
-        <div className="flex min-w-max gap-1 px-4 sm:px-0">
+        <div className="inline-flex min-w-max gap-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1">
           {TABS.map((t) => {
             const isActive = activeTab === t.id;
+            const { Icon } = t;
             return (
               <Link
                 key={t.id}
@@ -71,19 +144,21 @@ export function ProjectSubTabs({
                 {...(isActive ? { "aria-current": "page" as const } : {})}
                 id={`tab-${t.id}`}
                 aria-controls={`panel-${t.id}`}
-                // min-h-[44px] on mobile → the existing py-2.5 (~40px)
-                // on desktop keeps the tab strip compact. rounded-t-sm
-                // clips the inset focus-visible ring to the tab's own
-                // rectangle instead of flying across the underline.
+                // min-h-[44px] hits the touch target on mobile; on
+                // desktop the natural py-2 collapses to ~36px so the
+                // strip stays compact. rounded-[var(--radius-sm)] for
+                // the active background, plus a soft shadow that lifts
+                // the active tab off the track.
                 className={[
-                  "-mb-px inline-flex min-h-[44px] items-center whitespace-nowrap rounded-t-sm border-b-2 px-4 py-2.5 text-sm font-medium transition-colors sm:min-h-0",
+                  "inline-flex min-h-[44px] items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-sm)] px-3.5 py-2 text-sm font-semibold transition-colors sm:min-h-0",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
                   isActive
-                    ? "border-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))]"
-                    : "border-transparent text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
+                    ? "bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] shadow-[var(--shadow-sm)]"
+                    : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-primary))]",
                 ].join(" ")}
                 scroll={false}
               >
+                <Icon className="shrink-0" />
                 {t.label}
               </Link>
             );
@@ -95,7 +170,7 @@ export function ProjectSubTabs({
           the new content slides + fades in instead of hard-cutting.
           The animation itself respects prefers-reduced-motion via
           globals.css's @media block. */}
-      <div key={activeTab} className="reveal-up pt-6">
+      <div key={activeTab} className="reveal-up">
         {children}
       </div>
     </div>

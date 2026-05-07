@@ -31,6 +31,7 @@
     --fg-primary: 26 23 20;           /* #1A1714 — warm near-black, not pure */
     --fg-secondary: 61 55 48;
     --fg-muted: 107 97 88;
+    --fg-faint: 156 148 138;          /* tertiary — meta lines, '—' placeholders */
     --fg-inverse: 251 247 240;
 
     --fg-success: 63 125 78;          /* warm sage */
@@ -79,6 +80,7 @@
     --fg-primary: 242 237 230;        /* cream stays for text */
     --fg-secondary: 215 206 194;
     --fg-muted: 168 154 139;
+    --fg-faint: 130 119 105;          /* tertiary — meta lines, '—' placeholders */
     --fg-inverse: 31 26 21;
 
     --fg-success: 120 180 130;
@@ -587,6 +589,47 @@
       stroke-dashoffset: 0 !important;
     }
   }
+
+  /* Project Room gradient backgrounds — six warm-tinted swatches used
+     as the per-project hero background (see lib/projects/gradient.ts
+     for the deterministic hash that maps each project to one). Hex
+     stops live here in the design system, NOT at call-sites — the
+     CLAUDE.md "no hex" rule targets Tailwind arbitrary values, not
+     decorative gradient definitions. */
+  .grad-rose    { background: linear-gradient(135deg, #fb7185, #ef4444); }
+  .grad-amber   { background: linear-gradient(135deg, #fcd34d, #fb923c); }
+  .grad-slate   { background: linear-gradient(135deg, #cbd5e1, #94a3b8); }
+  .grad-emerald { background: linear-gradient(135deg, #6ee7b7, #10b981); }
+  .grad-violet  { background: linear-gradient(135deg, #c4b5fd, #8b5cf6); }
+  .grad-indigo  { background: linear-gradient(135deg, #a5b4fc, #6366f1); }
+
+  /* Eyebrow label — uppercase mono microcopy that sits above section
+     titles and stat tile labels. Single source of truth so we don't
+     re-style ten "10px uppercase 0.12em letter-spacing" call-sites. */
+  .label-tiny {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 0.625rem;            /* 10px */
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgb(var(--fg-muted));
+  }
+
+  /* Card surface — the elevated rounded container used for stat tiles,
+     workflow cards, and Spotify-style content panels. Mirrors the
+     reference design's `.surface-card` so consumers can opt into the
+     full panel look with one class instead of stitching three Tailwind
+     arbitrary values together. */
+  .surface-card {
+    background: rgb(var(--bg-elevated));
+    border: 1px solid rgb(var(--border-subtle));
+    border-radius: var(--radius-lg);
+  }
+
+  /* Tabular numerals — keeps numbers in the stat tiles and money rows
+     monospace-aligned without forcing the whole element to a mono font.
+     Useful when you want Outfit/system fonts but lined-up digits. */
+  .tabular { font-variant-numeric: tabular-nums; }
 }
 
 @utility font-display {
