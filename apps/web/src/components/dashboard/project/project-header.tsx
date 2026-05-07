@@ -25,7 +25,6 @@ import { CancelConfirmModal } from "~/components/project/cancel-confirm-modal";
 import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
 import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
 import { EditProjectModal } from "./edit-project-modal";
-import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/input";
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import { useToast } from "~/components/ui/toast";
@@ -36,7 +35,6 @@ import {
   STAGE_LABEL,
   type Stage,
 } from "~/lib/projects/stages";
-import { STATE_LABEL, stageToState } from "~/lib/projects/states";
 import {
   cancelProjectAction,
   chargeFinalAction,
@@ -248,66 +246,34 @@ export function ProjectHeader({
     router.refresh();
   }
 
-  // Client display name — clientName is nullable on older rows, fall
-  // back to the artistName the producer keys off.
+  // Client display name — used by the ConfirmChargeModal preflight.
+  // The visible top-row avatar+name moved to ProjectRoomHero, so the
+  // initials helper is gone too. clientName is nullable on older rows;
+  // fall back to artistName the producer keyed off.
   const displayName = project.clientName ?? project.artistName;
-  const initials = computeInitials(displayName);
 
   return (
     <header className="flex flex-col gap-4">
-      {/* Top row: avatar + name + stage badge/select + 3-dot actions */}
+      {/* 2026-05-07 — slim controls row. The redundant title/eyebrow/
+          avatar/displayName from the old top row moved to the gradient
+          ProjectRoomHero up the page; keeping them here would render
+          the project name twice. What remains is the producer-only
+          controls (client tags + stage select + 3-dot actions menu)
+          that the hero doesn't expose. The badge with STATE_LABEL is
+          also dropped because the StatStrip's "Status" tile already
+          shows the same data immediately below this row. */}
       <div className="flex flex-wrap items-center gap-3">
-        <div
-          aria-hidden="true"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--bg-elevated))] font-mono text-sm font-semibold text-[rgb(var(--fg-secondary))]"
-        >
-          {initials}
-        </div>
-
         <div className="min-w-0 flex-1">
-          {/* Batch C — Project Room page title lifts to the editorial
-              display-4xl/5xl so the Project Room reads as a room, not
-              a grid item. Paired with a mono eyebrow above it on
-              desktop (hidden on narrow widths where the avatar + title
-              alone is already a lot). */}
-          <p className="hidden font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))] sm:block">
-            Project Room
-          </p>
-          <h1
-            className="mt-1 truncate font-display text-3xl leading-tight tracking-tight sm:text-4xl"
-            style={{ fontWeight: 800 }}
-          >
-            {project.title}
-          </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <p className="truncate text-sm text-[rgb(var(--fg-secondary))]">
-              {displayName}
-            </p>
-            {clientContact ? (
-              <TagEditor
-                contactId={clientContact.id}
-                initialTags={clientContact.tags}
-                vocabulary={tagVocabulary}
-              />
-            ) : null}
-          </div>
+          {clientContact ? (
+            <TagEditor
+              contactId={clientContact.id}
+              initialTags={clientContact.tags}
+              vocabulary={tagVocabulary}
+            />
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Batch G — badge now shows the high-level STATE as the
-              primary label, with the fine-grained STAGE label small
-              and muted underneath it. Advanced users still see the
-              funnel position without being forced to read the 9-value
-              taxonomy as the primary cue. */}
-          <div className="flex flex-col items-start">
-            <Badge variant="neutral">{STATE_LABEL[stageToState(stage)]}</Badge>
-            {STAGE_LABEL[stage] !== STATE_LABEL[stageToState(stage)] ? (
-              <span className="mt-0.5 font-mono text-[0.62rem] uppercase tracking-[0.08em] text-[rgb(var(--fg-muted))]">
-                {STAGE_LABEL[stage]}
-              </span>
-            ) : null}
-          </div>
-
           {/* Inline stage select — hidden for terminal stages so the
               producer doesn't try to walk back a cancelled project via
               dropdown (use the Cancel button / support instead). */}
@@ -325,7 +291,7 @@ export function ProjectHeader({
                   if (isSelectable) onStageChange(next as Stage);
                 }}
                 disabled={pending}
-                className="h-8 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 text-xs text-[rgb(var(--fg-primary))]"
+                className="h-8 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 text-xs font-medium text-[rgb(var(--fg-primary))]"
                 aria-label="Change stage"
               >
                 {SELECTABLE_STAGES.map((s) => (
@@ -418,19 +384,6 @@ export function ProjectHeader({
       />
     </header>
   );
-}
-
-// Generates "JS" from "John Smith" / "A" from "Alex" / "??" from empty.
-// Kept ASCII-only and max-2-chars so the avatar renders predictably at
-// 40px across fonts.
-function computeInitials(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return "??";
-  const parts = trimmed.split(/\s+/);
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
-  const result = `${first}${last}`.toUpperCase();
-  return result || "??";
 }
 
 // ─── 3-dot actions menu ──────────────────────────────────────────────

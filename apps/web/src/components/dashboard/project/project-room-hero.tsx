@@ -1,18 +1,27 @@
+"use client";
+
 // Spotify-style hero header for the Project Room.
 //
 // Sits above the existing `<ProjectHeader />` (which keeps the stage
 // select + 3-dot menu + tag editor + payment strip + timeline). The
 // hero itself is purely cosmetic — gradient swatch + display title +
-// counts + a "Play latest" link. All the mutating actions live in
-// ProjectHeader and they stay there to avoid duplicating their state
-// + modals.
+// counts + "Play latest" + "Share" pills. All the mutating actions
+// (stage change, mark delivered, cancel project, etc.) live in
+// ProjectHeader and they stay there to avoid duplicating modal state.
 //
 // The gradient color is hashed from the project id so the same
 // project always lands on the same swatch, giving every project a
 // recognizable identity without a new schema column.
+//
+// 2026-05-07: converted to client component + added Share button.
+// Share copies the current URL to clipboard. The clipboard API can
+// throw synchronously in insecure contexts (HTTP, some embedded
+// webviews), so we wrap in try/catch + .catch() rather than relying
+// on a runtime undefined check that the DOM type lib doesn't support.
 
 import Link from "next/link";
 
+import { useToast } from "~/components/ui/toast";
 import { gradientCss, gradientFor } from "~/lib/project-gradient";
 import { STAGE_LABEL, type Stage } from "~/lib/projects/stages";
 
@@ -34,6 +43,25 @@ export function ProjectRoomHero({
   project: ProjectRoomHeroProject;
 }) {
   const grad = gradientFor(project.id);
+  const { toast } = useToast();
+
+  function copyShareLink() {
+    if (typeof window === "undefined") return;
+    const url = window.location.href;
+    try {
+      void navigator.clipboard
+        .writeText(url)
+        .then(() => {
+          toast("Project link copied", "success");
+        })
+        .catch(() => {
+          toast("Couldn't copy link", "error");
+        });
+    } catch {
+      toast("Couldn't copy link", "error");
+    }
+  }
+
   return (
     <div
       // White text reads cleanly across all 8 gradient buckets without
@@ -122,14 +150,26 @@ export function ProjectRoomHero({
             </div>
           </div>
 
-          {project.firstTrackId ? (
-            <Link
-              href={`/dashboard/clients-projects/${project.id}?tab=music&track=${project.firstTrackId}`}
-              className="sk-press inline-flex h-11 shrink-0 items-center gap-2 rounded-full bg-white px-5 text-[0.85rem] font-bold text-[rgb(var(--fg-default))] shadow-[0_6px_18px_rgb(0_0_0/0.24)] transition-transform hover:brightness-105"
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {project.firstTrackId ? (
+              <Link
+                href={`/dashboard/clients-projects/${project.id}?tab=music&track=${project.firstTrackId}`}
+                className="sk-press inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 text-[0.85rem] font-bold text-[rgb(var(--fg-primary))] shadow-[0_6px_18px_rgb(0_0_0/0.24)] transition-transform hover:brightness-105"
+              >
+                <PlayIcon /> Play latest
+              </Link>
+            ) : null}
+            {/* Share = copy URL. Translucent-white pill so it reads as
+                a secondary action next to the white "Play latest" CTA
+                regardless of which gradient bucket landed. */}
+            <button
+              type="button"
+              onClick={copyShareLink}
+              className="sk-press inline-flex h-11 items-center gap-2 rounded-full border border-[rgb(255_255_255/0.3)] bg-[rgb(255_255_255/0.16)] px-4 text-[0.85rem] font-bold text-white backdrop-blur-sm transition-colors hover:bg-[rgb(255_255_255/0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
-              <PlayIcon /> Play latest
-            </Link>
-          ) : null}
+              <ShareIcon /> Share
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -205,6 +245,28 @@ function PlayIcon() {
       fill="currentColor"
     >
       <path d="M5 3l14 9-14 9V3z" />
+    </svg>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx={18} cy={5} r={3} />
+      <circle cx={6} cy={12} r={3} />
+      <circle cx={18} cy={19} r={3} />
+      <line x1={8.59} y1={13.51} x2={15.42} y2={17.49} />
+      <line x1={15.41} y1={6.51} x2={8.59} y2={10.49} />
     </svg>
   );
 }
