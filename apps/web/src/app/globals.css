@@ -315,6 +315,22 @@
     }
   }
 
+  /* When PersistentPlayer mounts a track it sets `data-skitza-dock="1"`
+   * on <body>. Reserve enough padding-bottom on the dashboard's main
+   * scroll container so long pages (notably the L3 song-page comment
+   * thread) can scroll past the fixed dock instead of disappearing
+   * underneath it. 88px on mobile (62px dock + 16px gap + safe-area
+   * already added by the dock itself), 110px on desktop (~94px dock
+   * pill + 16px gap). */
+  body[data-skitza-dock="1"] main#main-content {
+    padding-bottom: 110px;
+  }
+  @media (max-width: 1023px) {
+    body[data-skitza-dock="1"] main#main-content {
+      padding-bottom: 168px; /* 62px nav + 88px dock + buffer */
+    }
+  }
+
   /* Custom 4px scrollbars per design-system.md. */
   .custom-scrollbar { -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: rgb(var(--fg-muted) / 0.25) transparent; }
   .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }

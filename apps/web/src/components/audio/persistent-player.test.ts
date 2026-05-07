@@ -199,6 +199,18 @@ describe("PersistentPlayer source — album art cover slot", () => {
   });
 });
 
+describe("PersistentPlayer source — reserves bottom padding so the dock doesn't hide page content", () => {
+  it("toggles a body data attribute when a track is loaded so global CSS can apply padding-bottom", () => {
+    // Founder reported: the dock overlaps the bottom of the comments
+    // thread on the song page. The fix is global — every page mounted
+    // under AppShell needs to reserve the dock's height when audio
+    // is loaded. We toggle a data attribute on <body> so a single
+    // CSS selector in globals.css adds the padding without each page
+    // having to opt in.
+    expect(playerSrc).toMatch(/document\.body[^;]*(?:dataset|setAttribute|classList)/);
+  });
+});
+
 describe("PersistentPlayer source — dock truly centers the transport (founder asked twice)", () => {
   it("uses a 1fr-auto-1fr grid (or equivalent fixed-edges layout) so the center column sits visually centered", () => {
     // Round 5 of the centering issue. The founder said "still not
