@@ -77,6 +77,15 @@ export default async function ClientDetailPage({
   // bloating the header component.
   const nextSession = pickNextSession(detail.projects);
 
+  // OUTSTANDING card sub-label data: how many of this client's
+  // projects have a non-zero unpaid balance. Same rollup the trpc
+  // detail() procedure already computed per-project; we just count
+  // the rows here rather than re-running the math. Pre-computed so
+  // the header stays presentational.
+  const unpaidProjectCount = detail.projects.filter(
+    (p) => p.outstandingCents > 0,
+  ).length;
+
   // "+ New project" — pre-fills the new-project form with the
   // client's identity. Both fields are URI-encoded; the form reads
   // them as defaults but the producer can edit before submit.
@@ -103,6 +112,7 @@ export default async function ClientDetailPage({
           activeProjectCount: detail.stats.activeProjectCount,
           totalProjectCount: detail.stats.totalProjectCount,
           outstandingCents: detail.stats.outstandingCents,
+          unpaidProjectCount,
         }}
         nextSession={nextSession}
         currency={producerCurrency}
