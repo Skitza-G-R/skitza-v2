@@ -559,6 +559,10 @@ export const producerRouter = router({
 
       // (4) Upcoming sessions — confirmed bookings in [now, now+7d].
       // Also reused for the items list so we pull full fields.
+      // projectId is nullable on bookings (the FK is `set null` so a
+      // deleted project leaves its sessions in place); the session
+      // item's `href` falls back to the calendar when no project is
+      // attached so a click never lands on a dead URL.
       ctx.db
         .select({
           id: bookings.id,
@@ -566,6 +570,7 @@ export const producerRouter = router({
           durationMin: bookings.durationMin,
           artistName: bookings.artistName,
           packageNameSnapshot: bookings.packageNameSnapshot,
+          projectId: bookings.projectId,
         })
         .from(bookings)
         .where(
@@ -753,7 +758,18 @@ export const producerRouter = router({
       title: b.artistName,
       subtitle: `${b.packageNameSnapshot ?? "Session"} · ${b.durationMin.toString()} min`,
       occurredAt: b.startsAt,
-      href: `/dashboard/booking?id=${b.id}`,
+      // "Open client room" on the Overview screen routes here. The
+      // legacy `/dashboard/booking?id=...` URL was retired in v3-clean
+      // (D9 demolition) and now redirects to /dashboard/calendar via
+      // middleware — the side-effect being that "Open client room"
+      // was opening the calendar instead of the actual project room.
+      // Routing through the project page (when a project is attached)
+      // matches the button's promise; bookings without a project fall
+      // back to the calendar where the producer can still see the
+      // session detail.
+      href: b.projectId
+        ? `/dashboard/clients-projects/${b.projectId}`
+        : `/dashboard/calendar`,
       unread: true,
     }));
 
