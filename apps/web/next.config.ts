@@ -70,11 +70,29 @@ const config: NextConfig = {
   },
 
   async headers() {
+    // The /get-started ad funnel embeds the founder's standalone demo
+    // (apps/web/public/landing/demo.html) inside an <iframe>. The
+    // global X-Frame-Options: DENY in SECURITY_HEADERS would block
+    // even same-origin framing — so we override it for landing assets
+    // with SAMEORIGIN. CSP frame-ancestors would be cleaner long-term,
+    // but X-Frame-Options is the legacy header older browsers honor.
+    const SECURITY_HEADERS_LANDING_FRAMEABLE = SECURITY_HEADERS.map((h) =>
+      h.key === "X-Frame-Options" ? { ...h, value: "SAMEORIGIN" } : h,
+    );
     return [
       {
-        // Apply to every route — server responses, static files, HTML.
+        // Catch-all FIRST — every route gets the strict security
+        // headers by default.
         source: "/:path*",
         headers: SECURITY_HEADERS,
+      },
+      {
+        // Then override for /landing/* — Next.js applies header rules
+        // in array order and the LAST matching rule wins per header
+        // name, so this swaps X-Frame-Options to SAMEORIGIN for the
+        // demo iframe asset.
+        source: "/landing/:path*",
+        headers: SECURITY_HEADERS_LANDING_FRAMEABLE,
       },
     ];
   },
