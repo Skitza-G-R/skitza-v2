@@ -3,6 +3,7 @@ import "~/styles/get-started.css";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
+import { DemoVideoSection } from "./_components/demo-video-section";
 import { HeroSection } from "./_components/hero-section";
 import { StaticLogo } from "./_components/static-logo";
 
@@ -28,7 +29,7 @@ export default async function GetStartedPage() {
         <HeroSection locale="en" />
       </section>
       <section id="demo" className="px-6 py-16 sm:py-20">
-        {/* Task 15 — demo video */}
+        <DemoVideoSection />
       </section>
       <section id="cascade" className="px-6 py-16 sm:py-20">
         {/* Task 16 — pain cascade + stack-reveal */}
