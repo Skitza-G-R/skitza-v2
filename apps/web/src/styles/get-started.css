@@ -1,0 +1,67 @@
+/* Landing-page-specific CSS for the /get-started ad funnel.
+ * Scoped to .get-started-root so it never leaks onto the rest of
+ * the app. Animations + transitions are added per-section in tasks
+ * 14, 15, 16; this file holds the page-level scaffold + the
+ * catch-all reduced-motion gate.
+ *
+ * Why a separate file (not globals.css): the ad funnel is a different
+ * surface from the producer dashboard, with its own visual language
+ * (heavier animation, marketing-grade typography). Splitting keeps
+ * the dashboard CSS small. The motion-primitives test pins the
+ * existence of the reduce gate at the .get-started-root scope.
+ */
+
+.get-started-root {
+  background: rgb(var(--bg-base));
+  color: rgb(var(--fg-primary));
+  min-height: 100svh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* RTL adjustments — currently none, but scoped here so future
+ * direction-sensitive rules can hook into the variant cleanly. */
+.get-started-root--he {
+  /* placeholder for direction-specific overrides */
+}
+
+/* Confetti placeholder — Task 10's <PostSignupConfetti> renders this
+ * empty container. Real animation is below; the element is invisible
+ * if reduced-motion is on (see catch-all at the bottom of the file). */
+.get-started-confetti {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(2px 2px at 20% 30%, rgb(var(--brand-primary)) 99%, transparent 100%),
+    radial-gradient(2px 2px at 60% 20%, rgb(var(--brand-accent)) 99%, transparent 100%),
+    radial-gradient(2px 2px at 80% 40%, rgb(var(--brand-primary)) 99%, transparent 100%),
+    radial-gradient(2px 2px at 30% 70%, rgb(var(--brand-accent)) 99%, transparent 100%),
+    radial-gradient(2px 2px at 70% 80%, rgb(var(--brand-primary)) 99%, transparent 100%);
+  background-size: 100% 100%;
+  animation: gs-confetti-fade 1800ms ease-out forwards;
+  opacity: 0;
+}
+
+@keyframes gs-confetti-fade {
+  0%   { opacity: 0; transform: translateY(-12px); }
+  20%  { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(8px); }
+}
+
+/* Catch-all reduce-motion gate. Neutralises animation + transition
+ * for everything inside .get-started-root in one rule, including any
+ * future keyframes we add for sections (chaos↔calm, stack-reveal,
+ * etc.). Pinned by the motion-primitives test (Task 14 step 3). */
+@media (prefers-reduced-motion: reduce) {
+  .get-started-root *,
+  .get-started-root *::before,
+  .get-started-root *::after {
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+  }
+  .get-started-confetti {
+    display: none;
+  }
+}
