@@ -7,6 +7,8 @@ import {
   afterEach,
 } from "vitest";
 
+import { checkRateLimit } from "~/lib/rate-limit/in-memory";
+
 // The waitlist router POSTs signups to a Make.com webhook. We mock
 // next/headers (for IP + UA), the rate-limit util, and global fetch
 // so the test exercises the procedure in isolation — no DB, no
@@ -85,6 +87,45 @@ describe("waitlist.signup — happy path", () => {
     const [, init] = call as [string, RequestInit];
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body.email).toBe("yuval@example.com");
+  });
+});
+
+describe("waitlist.signup — rate limiting", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    process.env.MAKE_WAITLIST_WEBHOOK_URL = "https://hook.test/abc";
+    vi.mocked(checkRateLimit).mockReturnValue({
+      ok: true,
+      remaining: 4,
+      resetMs: 0,
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.MAKE_WAITLIST_WEBHOOK_URL;
+  });
+
+  it("throws TOO_MANY_REQUESTS when rate limit exceeded — webhook NOT called", async () => {
+    vi.mocked(checkRateLimit).mockReturnValueOnce({
+      ok: false,
+      remaining: 0,
+      resetMs: 12_000,
+    });
+
+    await expect(
+      caller.signup({ email: "yuval@example.com", locale: "en" }),
+    ).rejects.toThrow(/Too many signups/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses IP-keyed bucket with limit=5, window=1 hour", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
+    await caller.signup({ email: "y@example.com", locale: "en" });
+    expect(checkRateLimit).toHaveBeenCalledWith(
+      "waitlist:203.0.113.42",
+      5,
+      3_600_000,
+    );
   });
 });
 
