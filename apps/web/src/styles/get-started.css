@@ -199,6 +199,69 @@
   80%, 100% { transform: translateY(-50%) rotateY(360deg); }
 }
 
+/* ---------------------------------------------------------------- *
+ * Stack-reveal — 5 legacy-tool chips merge into 1 Skitza chip.
+ * 8s loop. Per-chip animation-delay set inline (each tool appears
+ * staggered 0.15s after the previous).
+ * ---------------------------------------------------------------- */
+
+.get-started-stack {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.get-started-stack__logos {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.get-started-stack__logo {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  background: rgb(var(--bg-elevated));
+  border: 1px solid rgb(var(--border-strong));
+  border-radius: var(--radius-md);
+  color: rgb(var(--fg-secondary));
+  animation: gs-stack-merge 8s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.get-started-stack__skitza {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 700;
+  background: rgb(var(--brand-primary));
+  color: rgb(var(--fg-inverse));
+  border-radius: var(--radius-lg);
+  opacity: 0;
+  animation: gs-stack-skitza 8s infinite cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes gs-stack-merge {
+  0%,  30%  { transform: scale(1); opacity: 1; }
+  50%, 70%  { transform: scale(0); opacity: 0; }
+  100%      { transform: scale(1); opacity: 1; }
+}
+
+@keyframes gs-stack-skitza {
+  0%,  40%  { opacity: 0; transform: scale(0.5); }
+  55%, 80%  { opacity: 1; transform: scale(1); }
+  100%      { opacity: 0; transform: scale(0.5); }
+}
+
 /* Catch-all reduce-motion gate. Neutralises animation + transition
  * for everything inside .get-started-root in one rule, including any
  * future keyframes we add for sections (chaos↔calm, stack-reveal,

@@ -5,6 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 
 import { DemoVideoSection } from "./_components/demo-video-section";
 import { HeroSection } from "./_components/hero-section";
+import { PainCascadeSection } from "./_components/pain-cascade-section";
 import { StaticLogo } from "./_components/static-logo";
 
 // Ad-traffic destination — the route group's layout already sets
@@ -32,7 +33,7 @@ export default async function GetStartedPage() {
         <DemoVideoSection />
       </section>
       <section id="cascade" className="px-6 py-16 sm:py-20">
-        {/* Task 16 — pain cascade + stack-reveal */}
+        <PainCascadeSection locale="en" />
       </section>
       <section
         id="founder"
