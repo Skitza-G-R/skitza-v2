@@ -2,37 +2,25 @@
 
 import { useState } from "react";
 
-// Founder portrait. Tries /landing/founder.jpg first; if the file is
-// not on disk yet (404) the onError callback hides the broken-image
-// icon and the gradient + GA initials underneath show through. This
-// lets the founder drop the real photo into apps/web/public/landing/
-// any time without a code change — the page renders either way.
+// Founder portrait. Renders the photo OPAQUE by default — if the
+// asset 404s, onError hides the <img> and the gradient + GA initials
+// underneath show through. Default-opaque means SSR + reduced-motion
+// + no-JS visitors see the photo without waiting for an onLoad
+// handler that might never fire if hydration is delayed.
 
 export function FounderPhoto({ alt }: { alt: string }) {
-  const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
   return (
-    <div
-      className="relative mx-auto h-32 w-32 overflow-hidden rounded-full bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] sm:h-44 sm:w-44"
-      aria-label={alt}
-    >
-      {/* Initials placeholder — visible until/unless the photo loads */}
-      <div className="absolute inset-0 flex items-center justify-center text-3xl font-bold text-[rgb(var(--fg-inverse))]">
-        GA
-      </div>
+    <div className="founder__portrait" aria-label={alt}>
+      <div className="founder__portrait-initials">GA</div>
       {failed ? null : (
-        // eslint-disable-next-line @next/next/no-img-element -- we don't want next/image's processing here; a static public asset with graceful 404-fallback is the right primitive
+        // eslint-disable-next-line @next/next/no-img-element -- public-folder static asset with graceful 404 fallback
         <img
+          className="founder__portrait-photo"
           src="/landing/founder.jpg"
           alt=""
           aria-hidden
-          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${
-            loaded ? "opacity-100" : "opacity-0"
-          }`}
-          onLoad={() => {
-            setLoaded(true);
-          }}
           onError={() => {
             setFailed(true);
           }}

@@ -1,3 +1,5 @@
+import "~/styles/get-started.css";
+
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
@@ -5,10 +7,6 @@ import { PostSignupConfetti } from "../../_components/post-signup-confetti";
 import { StaticLogo } from "../../_components/static-logo";
 
 export const dynamic = "force-dynamic";
-
-// dir="rtl" lang="he" lives on the page-level <div>, NEVER on root
-// <html> — see CLAUDE.md mistake log 2026-04-20 (next-themes + Clerk
-// hydration breaks with `<html dir>` toggling).
 
 function sanitizeName(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -31,25 +29,33 @@ export default async function ThanksPageHe({
   const name = sanitizeName(params.n);
 
   return (
-    <div
-      lang="he"
-      dir="rtl"
-      className="get-started-root get-started-root--he"
-    >
-      <main className="flex min-h-[100svh] flex-col bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
-        <header className="px-6 py-6">
+    <div lang="he" dir="rtl" className="get-started-root">
+      <header className="gs-header">
+        <div className="container">
           <StaticLogo />
-        </header>
-        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <PostSignupConfetti />
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">
-            {name ? `אתה בפנים, ${name}.` : "אתה בפנים."}
-          </h1>
-          <p className="mt-6 max-w-md text-base text-[rgb(var(--fg-secondary))] sm:text-lg">
-            הביטא נפתחת בקרוב. נשלח לך מייל ברגע שהמקום שלך מתפנה.
-          </p>
         </div>
-      </main>
+      </header>
+      <div
+        className="container"
+        style={{
+          minHeight: "70vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          padding: "80px 24px",
+        }}
+      >
+        <PostSignupConfetti />
+        <span className="eyebrow">{"אתה ברשימה"}</span>
+        <h1 className="h1" style={{ marginTop: 14, maxWidth: 760 }}>
+          {name ? `אתה בפנים, ${name}.` : "אתה בפנים."}
+        </h1>
+        <p className="body-lg" style={{ maxWidth: 520, marginTop: 8 }}>
+          הביטא נפתחת בקרוב. נשלח לך מייל ברגע שהמקום שלך מתפנה.
+        </p>
+      </div>
     </div>
   );
 }

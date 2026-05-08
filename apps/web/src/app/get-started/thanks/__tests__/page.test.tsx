@@ -25,7 +25,11 @@ describe("English /get-started/thanks page", () => {
       searchParams: Promise.resolve({ n: "Yuval" }),
     });
     const html = renderToStaticMarkup(ui);
+    // Note: the period is rendered in a separate <span class="accent-dot">
+    // for the brand amber dot. We assert presence of the name + the
+    // amber-dot span, not the literal "You're in, Yuval." string.
     expect(html).toMatch(/You&#x27;re in, Yuval/);
+    expect(html).toMatch(/<span class="accent-dot">\./);
   });
 
   it("falls back to no-name greeting when ?n is absent", async () => {
@@ -34,8 +38,9 @@ describe("English /get-started/thanks page", () => {
       searchParams: Promise.resolve({}),
     });
     const html = renderToStaticMarkup(ui);
-    // "You're in." with no trailing name
-    expect(html).toMatch(/You&#x27;re in\./);
+    // "You're in" with no trailing name (no comma + name) — the
+    // period is a separate span. Comma must NOT appear.
+    expect(html).toMatch(/You&#x27;re in</);
     expect(html).not.toMatch(/You&#x27;re in,/);
   });
 

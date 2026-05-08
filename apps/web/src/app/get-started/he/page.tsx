@@ -7,13 +7,13 @@ import { CtaSection } from "../_components/cta-section";
 import { DemoVideoSection } from "../_components/demo-video-section";
 import { FounderSection } from "../_components/founder-section";
 import { HeroSection } from "../_components/hero-section";
+import { IsLoadedPing } from "../_components/is-loaded-ping";
 import { PainCascadeSection } from "../_components/pain-cascade-section";
 import { StaticLogo } from "../_components/static-logo";
 
-// Hebrew landing page. Same 5 sections as the EN page, with locale="he"
-// threaded through each section. dir/lang live on the page-level
-// <div> — root <html> stays en/ltr (CLAUDE.md mistake log 2026-04-20:
-// next-themes + Clerk hydration breaks if root <html> is RTL).
+// Hebrew landing page. Same 5 sections, locale='he' threaded through.
+// dir/lang on the page-level <div> only — root <html> stays en/ltr
+// per CLAUDE.md mistake log 2026-04-20.
 
 export const dynamic = "force-dynamic";
 
@@ -22,26 +22,32 @@ export default async function GetStartedPageHe() {
   if (userId) redirect("/dashboard");
 
   return (
-    <div lang="he" dir="rtl" className="get-started-root get-started-root--he">
-      <header className="px-6 py-6">
-        <StaticLogo />
+    <div lang="he" dir="rtl" className="get-started-root">
+      <IsLoadedPing />
+
+      <header className="gs-header">
+        <div className="container">
+          <StaticLogo />
+        </div>
       </header>
-      <section id="hero" className="px-6 py-12">
+
+      <section id="hero">
         <HeroSection locale="he" />
       </section>
-      <section id="demo" className="px-6 py-16 sm:py-20">
-        <DemoVideoSection />
+
+      <section id="demo" className="section">
+        <DemoVideoSection locale="he" />
       </section>
-      <section id="cascade" className="px-6 py-16 sm:py-20">
+
+      <section id="cascade" className="section section-dark">
         <PainCascadeSection locale="he" />
       </section>
-      <section
-        id="founder"
-        className="bg-[rgb(var(--bg-elevated))] px-6 py-16 sm:py-20"
-      >
+
+      <section id="founder" className="section section-dark">
         <FounderSection locale="he" />
       </section>
-      <section id="cta" className="px-6 py-16 sm:py-24">
+
+      <section id="cta" className="section section-dark">
         <CtaSection locale="he" />
       </section>
     </div>

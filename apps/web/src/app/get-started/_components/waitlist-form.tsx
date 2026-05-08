@@ -5,18 +5,10 @@ import { useRouter } from "next/navigation";
 
 import { submitWaitlist } from "../actions";
 
-// Shared form for hero + CTA-repeat sections.
-//
-// Pattern: server-action call via useTransition (same as
-// quick-note-actions across the dashboard). On success, push to the
-// thanks route with `?n=<firstName>` for personalization. On failure,
-// surface the message inline with aria-live="polite" so screen readers
-// announce it without grabbing focus.
-//
-// Honeypot: the visible `company` input has `display:none` +
-// `aria-hidden="true"` + `tabIndex={-1}` so humans never reach it.
-// Bots autofilling the field will hit the silent-success branch in
-// the waitlist procedure.
+// Shared form for hero + final CTA sections. Uses marketing-class
+// styling (.gs-form / .gs-input / .btn-primary) from get-started.css
+// rather than Tailwind arbitrary values, so light/dark theme variants
+// are handled via parent .section-dark.
 
 export function WaitlistForm({
   locale,
@@ -42,9 +34,6 @@ export function WaitlistForm({
         ?.value ?? "";
     const trimmedFirstName = firstName.trim();
 
-    // Build the action input deliberately — exactOptionalPropertyTypes
-    // forbids `key: undefined`, so we omit optional fields when empty
-    // rather than passing them as undefined.
     startTransition(async () => {
       const payload: Parameters<typeof submitWaitlist>[0] = {
         email: email.trim().toLowerCase(),
@@ -66,40 +55,37 @@ export function WaitlistForm({
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="flex flex-col gap-3 sm:flex-row sm:items-start"
-      noValidate
-    >
+    <form className="gs-form" onSubmit={onSubmit} noValidate>
       <label className="sr-only" htmlFor="waitlist-email">
         {isHe ? "אימייל" : "Email"}
       </label>
       <input
         id="waitlist-email"
+        className="gs-input"
         type="email"
         required
         autoComplete="email"
-        placeholder={isHe ? "הזן אימייל" : "your@email.com"}
+        placeholder={isHe ? "your@email.com" : "your@email.com"}
         value={email}
         onChange={(e) => {
           setEmail(e.target.value);
         }}
-        className="h-12 flex-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 text-[rgb(var(--fg-primary))] placeholder-[rgb(var(--fg-muted))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[rgb(var(--brand-primary))] sm:h-14"
       />
       <label className="sr-only" htmlFor="waitlist-first-name">
         {isHe ? "שם פרטי" : "First name (optional)"}
       </label>
       <input
         id="waitlist-first-name"
+        className="gs-input"
         type="text"
         autoComplete="given-name"
-        placeholder={isHe ? "שם פרטי (אופציונלי)" : "First name (optional)"}
+        placeholder={isHe ? "שם פרטי" : "First name"}
         value={firstName}
         onChange={(e) => {
           setFirstName(e.target.value);
         }}
-        className="h-12 flex-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 text-[rgb(var(--fg-primary))] placeholder-[rgb(var(--fg-muted))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[rgb(var(--brand-primary))] sm:h-14"
       />
+      {/* Honeypot — bots fill it, humans don't see it (display:none) */}
       <input
         type="text"
         name="company"
@@ -108,24 +94,16 @@ export function WaitlistForm({
         style={{ display: "none" }}
         aria-hidden="true"
       />
-      <button
-        type="submit"
-        disabled={isPending}
-        className="sk-cta-shine h-12 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-6 font-semibold text-[rgb(var(--fg-inverse))] disabled:opacity-50 sm:h-14"
-      >
+      <button type="submit" className="btn-primary" disabled={isPending}>
         {isPending
-          ? isHe
-            ? "שולח..."
-            : "Sending..."
-          : isHe
-            ? "גישה מוקדמת"
-            : "Get early access"}
+          ? isHe ? "שולח…" : "Sending…"
+          : isHe ? "גישה מוקדמת" : "Get early access"}
       </button>
       {error ? (
         <p
           role="alert"
           aria-live="polite"
-          className="text-sm text-[rgb(var(--fg-danger))] sm:basis-full"
+          className="gs-form-error"
         >
           {error}
         </p>

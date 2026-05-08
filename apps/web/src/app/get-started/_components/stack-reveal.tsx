@@ -1,9 +1,10 @@
-// Stack-reveal animation — 5 monochrome chips for the legacy stack
-// (WhatsApp, Drive, Notion, DocuSign, Stripe) shrink and fade out;
-// a single Skitza chip fades in to take their place. 8s loop.
+// Stack-reveal — 5 chips for the legacy stack (WhatsApp, Drive,
+// Notion, DocuSign, Stripe) merge into 1 amber Skitza chip on an
+// 8-second loop.
 //
-// We use plain 2-letter abbreviations rather than the real wordmarks
-// so we don't need trademark permissions and the visual stays light.
+// We use 2-letter abbreviations rather than the real wordmarks —
+// avoids trademark headaches and keeps the visual quiet enough that
+// it doesn't compete with the headline above it.
 
 const LEGACY_TOOLS = [
   { abbr: "WA", label: "WhatsApp" },
@@ -16,15 +17,15 @@ const LEGACY_TOOLS = [
 export function StackReveal() {
   return (
     <div
-      className="get-started-stack"
+      className="stack-reveal"
       role="img"
       aria-label="Replaces 5 tools with 1"
     >
-      <div className="get-started-stack__logos">
+      <div className="stack-reveal__logos">
         {LEGACY_TOOLS.map((tool, i) => (
           <div
             key={tool.abbr}
-            className="get-started-stack__logo"
+            className="stack-reveal__logo"
             style={{ animationDelay: `${String(i * 0.15)}s` }}
             aria-hidden
           >
@@ -32,9 +33,7 @@ export function StackReveal() {
           </div>
         ))}
       </div>
-      <div className="get-started-stack__skitza" aria-hidden>
-        S
-      </div>
+      <div className="stack-reveal__skitza" aria-hidden>S</div>
     </div>
   );
 }

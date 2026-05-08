@@ -1,87 +1,132 @@
+import { Fragment } from "react";
+
 import { WaitlistForm } from "./waitlist-form";
 
-// Hero section copy — design doc §4.1.
-// Headline ↔ "You're a producer. Not an assistant."
-// Sub-head ↔ replaces-the-stack pitch
-// CTA ↔ shared WaitlistForm with locale-aware redirect target.
+// Hero section. Marketing-class styling (.hero / .h1 / .body-lg /
+// .eyebrow) lives in get-started.css.
 //
-// The split-screen animation slot lives below the form and is
-// populated in Task 14. Until then the section reads cleanly as a
-// hero with copy + form (acceptable interim state — no half-built UI).
+// Headline word-fade — each word renders as <span class="hero-word">
+// with a per-word --w-i index, fired by .get-started-root.is-loaded
+// (set by IsLoadedPing 100ms after mount). Spaces are explicit text
+// nodes BETWEEN the spans, not inside them — inline-block elements
+// trim trailing whitespace inside, so a space inside the span gets
+// collapsed.
+//
+// Period accent — sentence-final periods are rendered as a separate
+// <span class="accent-dot"> for amber color. If a "word" string ends
+// in `.`, we split the period off and render it amber.
+
+interface HeroWord {
+  text: string;
+  /** True if this word should have an amber period dot after it. */
+  amberDot?: boolean;
+  /** True if a hard line break should follow this word. */
+  lineBreakAfter?: boolean;
+}
+
+const EN_HEADLINE: HeroWord[] = [
+  { text: "You’re" },
+  { text: "a" },
+  { text: "producer", amberDot: true, lineBreakAfter: true },
+  { text: "Not" },
+  { text: "an" },
+  { text: "assistant", amberDot: true },
+];
+
+const HE_HEADLINE: HeroWord[] = [
+  { text: "אתה" },
+  { text: "מפיק", amberDot: true, lineBreakAfter: true },
+  { text: "לא" },
+  { text: "מזכירה", amberDot: true },
+];
 
 export function HeroSection({ locale }: { locale: "en" | "he" }) {
   const isHe = locale === "he";
   const thanksHref = isHe ? "/get-started/he/thanks" : "/get-started/thanks";
+  const headline = isHe ? HE_HEADLINE : EN_HEADLINE;
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
-        {isHe ? (
-          <>
-            אתה מפיק.
-            <br />
-            לא מזכירה.
-          </>
-        ) : (
-          <>
-            You&apos;re a producer.
-            <br />
-            Not an assistant.
-          </>
-        )}
-      </h1>
-      <p className="mt-6 max-w-2xl text-lg text-[rgb(var(--fg-secondary))] sm:text-xl">
-        {isHe
-          ? "תיאום סשן לא אמור להיות ארוך יותר מהסשן עצמו. סקיצה מחליפה את WhatsApp, Drive, Notion, DocuSign ו-Stripe — בלינק אחד."
-          : "Booking a session shouldn't take longer than the session. Skitza replaces WhatsApp, Drive, Notion, DocuSign, and Stripe — with one link."}
-      </p>
-      <div className="mt-8 max-w-xl">
-        <WaitlistForm locale={locale} thanksHref={thanksHref} />
-        <p className="mt-3 text-sm text-[rgb(var(--fg-muted))]">
-          {isHe
-            ? "בלי ספאם. נשלח לך מייל ברגע שהמקום שלך מתפנה."
-            : "No spam. We email you when your spot opens."}
-        </p>
+    <div className="container">
+      <div className="hero">
+        <div>
+          <span className="eyebrow">
+            {isHe ? "כלי אחד למפיקים" : "Built for solo producers"}
+          </span>
+          <h1 className="h1" style={{ marginTop: 14 }}>
+            {headline.map((word, i) => (
+              <Fragment key={`${word.text}-${String(i)}`}>
+                <span
+                  className="hero-word"
+                  style={{ ["--w-i" as string]: i }}
+                >
+                  {word.text}
+                  {word.amberDot ? (
+                    <span className="accent-dot">.</span>
+                  ) : null}
+                </span>
+                {word.lineBreakAfter ? (
+                  <br />
+                ) : i < headline.length - 1 ? (
+                  " "
+                ) : null}
+              </Fragment>
+            ))}
+          </h1>
+          <p className="body-lg" style={{ maxWidth: 560 }}>
+            {isHe
+              ? "תיאום סשן לא אמור להיות ארוך יותר מהסשן עצמו. סקיצה מאחדת WhatsApp, Drive, Notion, DocuSign ו-Stripe — לקישור אחד."
+              : "Booking a session shouldn’t take longer than the session. Skitza replaces WhatsApp, Drive, Notion, DocuSign, and Stripe — with one link your clients remember."}
+          </p>
+          <div style={{ marginTop: 32 }}>
+            <WaitlistForm locale={locale} thanksHref={thanksHref} />
+            <p className="gs-form-meta">
+              {isHe
+                ? "בלי ספאם. נשלח לך מייל ברגע שהמקום שלך מתפנה."
+                : "No spam. We’ll email you the moment your spot opens."}
+            </p>
+          </div>
+        </div>
+        <SplitScreen locale={locale} />
       </div>
-      <SplitScreen locale={locale} />
     </div>
   );
 }
 
-// Chaos↔Skitza split-screen animation. The chaos panel cycles through
-// the four stressors a producer recognizes (random booking ping,
-// confused payment ask, the "FINAL_v7.wav" rabbit hole, a card
-// decline). The Skitza panel shows a single confirmed session card —
-// the calm version. Aria-hidden because it's pure decoration; the
-// hero copy + form are what's announced to screen readers.
+// Chaos↔calm visual proof. Pure decoration (aria-hidden); the
+// hero copy + form are the announced surface.
 function SplitScreen({ locale }: { locale: "en" | "he" }) {
   const isHe = locale === "he";
   return (
-    <div
-      className="get-started-split mt-12 sm:mt-16"
-      aria-hidden
-    >
-      <div className="get-started-split__chaos">
-        <div className="get-started-split__msg get-started-split__msg--1">
+    <div className="hero-split" aria-hidden>
+      <div className="hero-split__chaos">
+        <div className="hero-split__msg hero-split__msg--1">
           {isHe ? "פנוי שלישי 19:00?" : "u up to record Tuesday?"}
         </div>
-        <div className="get-started-split__msg get-started-split__msg--2">
-          {isHe ? "איפה הקישור לתשלום?" : "where's the Stripe link?"}
+        <div className="hero-split__msg hero-split__msg--2">
+          {isHe ? "איפה הקישור לתשלום?" : "where’s the Stripe link?"}
         </div>
-        <div className="get-started-split__msg get-started-split__msg--3">
+        <div className="hero-split__msg hero-split__msg--3">
           FINAL_v7.wav
         </div>
-        <div className="get-started-split__msg get-started-split__msg--4">
-          DECLINED
+        <div className="hero-split__msg hero-split__msg--4">
+          {isHe ? "לא שולם" : "Unpaid · 12 days"}
         </div>
       </div>
-      <div className="get-started-split__calm">
-        <div className="get-started-split__card">
-          <span className="get-started-split__card-title">
+      <div className="hero-split__calm">
+        <div className="hero-split__card">
+          <span className="hero-split__card-eyebrow">
+            {isHe ? "אישור הזמנה" : "New booking"}
+          </span>
+          <span className="hero-split__card-title">
             {isHe ? "סשן · 14.8, 14:00" : "Session — Aug 14, 2:00 PM"}
           </span>
-          <span className="get-started-split__card-status">
-            {isHe ? "מאושר ✓" : "Confirmed ✓"}
+          <span className="hero-split__card-meta">
+            <span>Marcus T.</span>
+            <span>·</span>
+            <span>$240 paid</span>
+          </span>
+          <span className="hero-split__card-status">
+            {isHe ? "✓ מאושר ושולם" : "✓ Confirmed & paid"}
           </span>
         </div>
       </div>

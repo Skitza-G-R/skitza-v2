@@ -1,159 +1,369 @@
-/* Landing-page-specific CSS for the /get-started ad funnel.
- * Scoped to .get-started-root so it never leaks onto the rest of
- * the app. Animations + transitions are added per-section in tasks
- * 14, 15, 16; this file holds the page-level scaffold + the
- * catch-all reduced-motion gate.
+/* ============================================================
+ * /get-started — ad-funnel landing styles
  *
- * Why a separate file (not globals.css): the ad funnel is a different
- * surface from the producer dashboard, with its own visual language
- * (heavier animation, marketing-grade typography). Splitting keeps
- * the dashboard CSS small. The motion-primitives test pins the
- * existence of the reduce gate at the .get-started-root scope.
- */
+ * Brand language inherited from the homepage (see
+ * docs/design/homepage.md): warm cream (--light-bg) above the fold,
+ * near-black brown (--dark-bg) below; amber + copper as the only
+ * accent colors; Syne for headlines, Outfit for body. Two corner
+ * radii (6px small, 16px large). Two breakpoints (≤768px, >992px).
+ *
+ * Scoped under .get-started-root so the marketing tokens never leak
+ * into the authenticated app's :root system. Same firewall logic as
+ * landing.css ADR-4.
+ * ============================================================ */
 
 .get-started-root {
-  background: rgb(var(--bg-base));
-  color: rgb(var(--fg-primary));
-  min-height: 100svh;
+  /* Marketing tokens (mirror landing.css; see homepage.md §4) */
+  --light-bg: #F2EDE6;
+  --light-text: #1A1714;
+  --light-body: #6B6560;
+  --light-border: rgba(0, 0, 0, 0.08);
+  --light-watermark: rgba(0, 0, 0, 0.04);
+
+  --dark-bg: #111009;
+  --dark-surface: #1A1814;
+  --dark-elevated: #222018;
+  --dark-text: #EDE8E2;
+  --dark-body: #B5ABA0;
+  --dark-border: rgba(255, 255, 255, 0.07);
+
+  --amber: #D4960A;
+  --copper: #B06830;
+  --amber-glow: rgba(212, 150, 10, 0.15);
+
+  --gs-font-head: var(--font-syne, "Syne"), system-ui, sans-serif;
+  --gs-font-body: var(--font-outfit, "Outfit"), system-ui, sans-serif;
+
+  background: var(--light-bg);
+  color: var(--light-text);
+  font-family: var(--gs-font-body);
+  font-weight: 300;
   -webkit-font-smoothing: antialiased;
+  min-height: 100svh;
 }
 
-/* RTL adjustments — currently none, but scoped here so future
- * direction-sensitive rules can hook into the variant cleanly. */
-.get-started-root--he {
-  /* placeholder for direction-specific overrides */
+/* Container — single 1200 px max-width, used by every section. */
+.get-started-root .container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
 }
 
-/* Confetti placeholder — Task 10's <PostSignupConfetti> renders this
- * empty container. Real animation is below; the element is invisible
- * if reduced-motion is on (see catch-all at the bottom of the file). */
-.get-started-confetti {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  background:
-    radial-gradient(2px 2px at 20% 30%, rgb(var(--brand-primary)) 99%, transparent 100%),
-    radial-gradient(2px 2px at 60% 20%, rgb(var(--brand-accent)) 99%, transparent 100%),
-    radial-gradient(2px 2px at 80% 40%, rgb(var(--brand-primary)) 99%, transparent 100%),
-    radial-gradient(2px 2px at 30% 70%, rgb(var(--brand-accent)) 99%, transparent 100%),
-    radial-gradient(2px 2px at 70% 80%, rgb(var(--brand-primary)) 99%, transparent 100%);
-  background-size: 100% 100%;
-  animation: gs-confetti-fade 1800ms ease-out forwards;
-  opacity: 0;
+/* Section padding — fluid clamp, identical for every section. */
+.get-started-root .section {
+  padding: clamp(80px, 10vw, 140px) 0;
 }
 
-@keyframes gs-confetti-fade {
-  0%   { opacity: 0; transform: translateY(-12px); }
-  20%  { opacity: 1; transform: translateY(0); }
-  100% { opacity: 0; transform: translateY(8px); }
+/* Eyebrow / label — ALL CAPS, 11px, letter-spacing 0.1em. */
+.get-started-root .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--copper);
+}
+
+.get-started-root .eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--copper);
+}
+
+.get-started-root.is-dark .eyebrow,
+.get-started-root .section-dark .eyebrow {
+  color: var(--amber);
+}
+
+.get-started-root .section-dark .eyebrow::before {
+  background: var(--amber);
+}
+
+/* Headlines — Syne. Hero H1 is huge; section H2s are smaller. */
+.get-started-root h1,
+.get-started-root h2,
+.get-started-root h3 {
+  font-family: var(--gs-font-head);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.get-started-root .h1 {
+  /* Sized to fit "You're a producer." on one line in a 50% hero
+   * column at 1280 px viewport (~600 px container). Larger than the
+   * homepage's full-width hero would not fit cleanly. */
+  font-size: clamp(40px, 5.5vw, 68px);
+  line-height: 1.05;
+  margin-bottom: 24px;
+}
+
+.get-started-root .h2 {
+  font-size: clamp(28px, 4.5vw, 56px);
+  line-height: 1.05;
+  margin-bottom: 16px;
+}
+
+.get-started-root .h3 {
+  font-size: clamp(18px, 2vw, 22px);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.get-started-root .body-lg {
+  font-size: clamp(16px, 1.6vw, 19px);
+  line-height: 1.55;
+  color: var(--light-body);
+  font-weight: 300;
+}
+
+.get-started-root .body {
+  font-size: clamp(15px, 1.5vw, 17px);
+  line-height: 1.6;
+  color: var(--light-body);
+  font-weight: 300;
+}
+
+/* Period accent — amber dot at the end of headline phrases. */
+.get-started-root .accent-dot {
+  color: var(--amber);
 }
 
 /* ---------------------------------------------------------------- *
- * Demo iframe frame. The founder's standalone demo HTML is loaded in
- * an iframe at /landing/demo.html. We give it a soft container (rounded,
- * subtle shadow) so it reads as "embedded UI" rather than "third-party
- * widget." Aspect ratio matches the demo's design (4:3-ish on desktop,
- * roomier on mobile so phone visitors aren't squinting).
+ * Header — the static logo, top-left. No nav, no CTA in header.
  * ---------------------------------------------------------------- */
-
-.get-started-demo-frame {
-  position: relative;
-  width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
-  aspect-ratio: 4 / 3;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  background: rgb(var(--bg-elevated));
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.04),
-    0 12px 40px rgb(0 0 0 / 0.10);
+.get-started-root .gs-header {
+  padding: 28px 0 0;
 }
 
-@media (max-width: 640px) {
-  .get-started-demo-frame {
-    /* Slightly taller on small screens — the demo's UI elements need
-     * vertical room to breathe when the viewport is narrow. */
-    aspect-ratio: 3 / 4;
+/* ---------------------------------------------------------------- *
+ * Light → dark theme split. Hero + demo are light; cascade + founder
+ * + final CTA are dark. The transition itself is just a section
+ * boundary — no fancy gradient. Cleaner that way.
+ * ---------------------------------------------------------------- */
+.get-started-root .section-dark {
+  background: var(--dark-bg);
+  color: var(--dark-text);
+}
+
+.get-started-root .section-dark .body,
+.get-started-root .section-dark .body-lg {
+  color: var(--dark-body);
+}
+
+/* ---------------------------------------------------------------- *
+ * Buttons — primary amber, secondary outlined. Match the homepage's
+ * .sk-pop motion + amber glow shadow.
+ * ---------------------------------------------------------------- */
+.get-started-root .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 26px;
+  font-family: var(--gs-font-body);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  border-radius: 12px;
+  background: var(--amber);
+  color: #111009;
+  border: 0;
+  cursor: pointer;
+  transition:
+    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 12px rgba(212, 150, 10, 0.30);
+}
+.get-started-root .btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 6px 20px rgba(212, 150, 10, 0.40),
+    0 0 0 4px var(--amber-glow);
+}
+.get-started-root .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ---------------------------------------------------------------- *
+ * Form — flex row on desktop, stack on mobile. Amber focus ring.
+ * Inputs use Outfit, 16px on mobile (no iOS zoom).
+ * ---------------------------------------------------------------- */
+.get-started-root .gs-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 540px;
+}
+@media (min-width: 769px) {
+  .get-started-root .gs-form {
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 }
 
-.get-started-demo-frame__iframe {
-  width: 100%;
-  height: 100%;
-  border: 0;
-  display: block;
+.get-started-root .gs-input {
+  height: 56px;
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 0 18px;
+  font-family: var(--gs-font-body);
+  font-size: 16px;
+  color: var(--light-text);
+  background: #fff;
+  border: 1px solid var(--light-border);
+  border-radius: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.get-started-root .gs-input::placeholder {
+  color: rgba(26, 23, 20, 0.4);
+}
+.get-started-root .gs-input:focus-visible {
+  outline: none;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 4px var(--amber-glow);
+}
+
+.get-started-root .section-dark .gs-input {
+  background: var(--dark-surface);
+  border-color: var(--dark-border);
+  color: var(--dark-text);
+}
+.get-started-root .section-dark .gs-input::placeholder {
+  color: rgba(237, 232, 226, 0.4);
+}
+
+.get-started-root .gs-form-meta {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--light-body);
+}
+.get-started-root .section-dark .gs-form-meta {
+  color: var(--dark-body);
+}
+
+.get-started-root .gs-form-error {
+  flex-basis: 100%;
+  margin-top: 4px;
+  font-size: 14px;
+  color: #b04545;
 }
 
 /* ---------------------------------------------------------------- *
- * Hero — split-screen (chaos vs. Skitza calm). 8s loop, hover-
- * reactive on desktop, stacks vertically on narrow viewports.
+ * Hero — split layout: copy on left, animated split-screen mockup
+ * on right (desktop). Stacks on tablet/phone.
  * ---------------------------------------------------------------- */
+.get-started-root .hero {
+  display: grid;
+  gap: 56px;
+  align-items: center;
+  padding: clamp(40px, 6vw, 80px) 0 clamp(80px, 10vw, 140px);
+}
+@media (min-width: 992px) {
+  .get-started-root .hero {
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(48px, 6vw, 96px);
+  }
+}
 
-.get-started-split {
+/* Hero word-fade — fires once on .page-loaded. Same pattern as
+ * landing.css (ADR-2: chained class, not descendant). */
+.get-started-root .hero-word {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(0.4em);
+  transition:
+    opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.get-started-root.is-loaded .hero-word {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: calc(var(--w-i, 0) * 90ms);
+}
+
+/* ---------------------------------------------------------------- *
+ * Hero split-screen mockup. Chaos (red-tinted) cycles 4 messages on
+ * an 8s loop; calm (amber-tinted) shows a single confirmed-session
+ * card that fades in. NOTE: no rotateY on the calm card — that
+ * mirrored the text on screenshot review (looked like reversed
+ * Hebrew). Plain fade-in is cleaner.
+ * ---------------------------------------------------------------- */
+.get-started-root .hero-split {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  height: 320px;
-}
-
-@media (max-width: 768px) {
-  .get-started-split {
-    grid-template-columns: 1fr;
-    height: 480px;
-  }
-}
-
-.get-started-split__chaos,
-.get-started-split__calm {
-  position: relative;
-  border: 1px solid rgb(var(--border-subtle));
-  border-radius: var(--radius-lg);
+  gap: 16px;
+  height: 360px;
+  border-radius: 16px;
   overflow: hidden;
-  transition:
-    transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid var(--light-border);
 }
-
-@media (hover: hover) {
-  .get-started-split:hover .get-started-split__chaos:not(:hover),
-  .get-started-split:hover .get-started-split__calm:not(:hover) {
-    opacity: 0.5;
-  }
-  .get-started-split__chaos:hover,
-  .get-started-split__calm:hover {
-    transform: scale(1.02);
+@media (max-width: 768px) {
+  .get-started-root .hero-split {
+    grid-template-columns: 1fr;
+    height: 460px;
   }
 }
 
-.get-started-split__chaos {
-  background: rgb(var(--fg-danger) / 0.08);
+.get-started-root .hero-split__chaos,
+.get-started-root .hero-split__calm {
+  position: relative;
+  overflow: hidden;
 }
 
-.get-started-split__calm {
-  background: rgb(var(--brand-primary) / 0.08);
+.get-started-root .hero-split__chaos {
+  background:
+    radial-gradient(ellipse at center, rgba(176, 104, 48, 0.10), transparent 70%),
+    rgba(176, 104, 48, 0.04);
 }
 
-.get-started-split__msg {
+.get-started-root .hero-split__calm {
+  background:
+    radial-gradient(ellipse at center, rgba(212, 150, 10, 0.12), transparent 70%),
+    rgba(212, 150, 10, 0.04);
+  border-left: 1px solid var(--light-border);
+}
+@media (max-width: 768px) {
+  .get-started-root .hero-split__calm {
+    border-left: 0;
+    border-top: 1px solid var(--light-border);
+  }
+}
+
+.get-started-root .hero-split__msg {
   position: absolute;
-  padding: 0.5rem 1rem;
-  background: rgb(var(--bg-elevated));
-  border-radius: var(--radius-md);
-  font-size: 0.875rem;
-  color: rgb(var(--fg-secondary));
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(6px);
+  border-radius: 10px;
+  font-family: var(--gs-font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--light-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
   opacity: 0;
   animation: gs-chaos-fade 8s infinite;
 }
 
-.get-started-split__msg--1 { top: 16%; left: 8%;  animation-delay: 0s; }
-.get-started-split__msg--2 { top: 35%; left: 25%; animation-delay: 1s; }
-.get-started-split__msg--3 { top: 55%; left: 12%; animation-delay: 2s; }
-.get-started-split__msg--4 {
-  top: 74%;
+.get-started-root .hero-split__msg--1 { top: 14%; left: 8%;  animation-delay: 0s; }
+.get-started-root .hero-split__msg--2 { top: 32%; left: 28%; animation-delay: 1s; }
+.get-started-root .hero-split__msg--3 { top: 52%; left: 12%; animation-delay: 2s; font-family: ui-monospace, monospace; }
+.get-started-root .hero-split__msg--4 {
+  top: 72%;
   left: 30%;
   animation-delay: 3s;
-  color: rgb(var(--fg-danger));
+  color: #b04545;
   font-weight: 700;
 }
 
@@ -163,103 +373,298 @@
   100%     { opacity: 0; }
 }
 
-.get-started-split__card {
+/* Calm card — single source of truth for the "this is what Skitza
+ * looks like" moment. Plain fade-in (no flip, no rotate). */
+.get-started-root .hero-split__card {
   position: absolute;
-  inset: 50% 1.5rem auto 1.5rem;
+  inset: 50% 24px auto 24px;
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 1.25rem;
-  background: rgb(var(--bg-elevated));
-  border-radius: var(--radius-md);
-  box-shadow: 0 4px 24px rgb(0 0 0 / 0.08);
-  animation: gs-skitza-flip 8s infinite cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 8px;
+  padding: 20px 22px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 28px rgba(0, 0, 0, 0.08);
+  animation: gs-card-fade 8s infinite cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.get-started-split__card-title {
-  font-weight: 600;
-  color: rgb(var(--fg-primary));
+.get-started-root .hero-split__card-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--copper);
+}
+.get-started-root .hero-split__card-title {
+  font-family: var(--gs-font-head);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--light-text);
+}
+.get-started-root .hero-split__card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--light-body);
+}
+.get-started-root .hero-split__card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--amber);
 }
 
-.get-started-split__card-status {
-  font-size: 0.875rem;
-  color: rgb(var(--brand-primary));
-}
-
-@keyframes gs-skitza-flip {
-  0%,  30% { transform: translateY(-50%) rotateY(0deg); }
-  40%, 70% { transform: translateY(-50%) rotateY(180deg); }
-  80%, 100% { transform: translateY(-50%) rotateY(360deg); }
+@keyframes gs-card-fade {
+  0%, 25%   { opacity: 0; transform: translateY(calc(-50% + 8px)); }
+  35%, 90%  { opacity: 1; transform: translateY(-50%); }
+  100%      { opacity: 0; transform: translateY(calc(-50% - 8px)); }
 }
 
 /* ---------------------------------------------------------------- *
- * Stack-reveal — 5 legacy-tool chips merge into 1 Skitza chip.
- * 8s loop. Per-chip animation-delay set inline (each tool appears
- * staggered 0.15s after the previous).
+ * Demo iframe frame — light cream surface with hairline border.
+ * Aspect 4:3 desktop, 3:4 phone. Embeds /landing/demo.html.
  * ---------------------------------------------------------------- */
+.get-started-root .demo-frame {
+  position: relative;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  aspect-ratio: 16 / 10;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--light-border);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 24px 48px rgba(0, 0, 0, 0.08);
+}
+@media (max-width: 640px) {
+  .get-started-root .demo-frame {
+    aspect-ratio: 3 / 4;
+  }
+}
 
-.get-started-stack {
+.get-started-root .demo-frame__iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+/* ---------------------------------------------------------------- *
+ * Section watermark numerals — huge, low-opacity, in the corner.
+ * Visual rhythm device. (See homepage ADR-6.)
+ * ---------------------------------------------------------------- */
+.get-started-root .watermark {
+  position: absolute;
+  top: 10%;
+  right: 6%;
+  font-family: var(--gs-font-head);
+  font-size: clamp(120px, 24vw, 320px);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  color: var(--light-watermark);
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+.get-started-root .section-dark .watermark {
+  color: rgba(255, 255, 255, 0.025);
+}
+
+/* ---------------------------------------------------------------- *
+ * Stack-reveal — 5 chips merge into 1 amber Skitza chip on 8s loop.
+ * ---------------------------------------------------------------- */
+.get-started-root .stack-reveal {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 120px;
+  min-height: 140px;
+  margin: 32px auto 0;
 }
-
-.get-started-stack__logos {
+.get-started-root .stack-reveal__logos {
   display: flex;
-  gap: 1rem;
+  gap: 14px;
   flex-wrap: wrap;
   justify-content: center;
 }
-
-.get-started-stack__logo {
-  width: 56px;
-  height: 56px;
+.get-started-root .stack-reveal__logo {
+  width: 64px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-family: var(--gs-font-head);
+  font-size: 18px;
   font-weight: 700;
-  background: rgb(var(--bg-elevated));
-  border: 1px solid rgb(var(--border-strong));
-  border-radius: var(--radius-md);
-  color: rgb(var(--fg-secondary));
+  letter-spacing: -0.02em;
+  color: var(--dark-body);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--dark-border);
+  border-radius: 16px;
   animation: gs-stack-merge 8s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
-
-.get-started-stack__skitza {
+.get-started-root .stack-reveal__skitza {
   position: absolute;
-  width: 72px;
-  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2rem;
-  font-weight: 700;
-  background: rgb(var(--brand-primary));
-  color: rgb(var(--fg-inverse));
-  border-radius: var(--radius-lg);
+  width: 88px;
+  height: 88px;
+  font-family: var(--gs-font-head);
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  background: var(--amber);
+  color: #111009;
+  border-radius: 16px;
+  box-shadow:
+    0 0 32px var(--amber-glow),
+    0 8px 24px rgba(212, 150, 10, 0.25);
   opacity: 0;
   animation: gs-stack-skitza 8s infinite cubic-bezier(0.16, 1, 0.3, 1);
 }
+.get-started-root .stack-reveal__skitza::after {
+  content: ".";
+  color: #111009;
+}
 
 @keyframes gs-stack-merge {
-  0%,  30%  { transform: scale(1); opacity: 1; }
-  50%, 70%  { transform: scale(0); opacity: 0; }
-  100%      { transform: scale(1); opacity: 1; }
+  0%,  30% { transform: scale(1); opacity: 1; }
+  50%, 70% { transform: scale(0); opacity: 0; }
+  100%     { transform: scale(1); opacity: 1; }
 }
 
 @keyframes gs-stack-skitza {
-  0%,  40%  { opacity: 0; transform: scale(0.5); }
-  55%, 80%  { opacity: 1; transform: scale(1); }
-  100%      { opacity: 0; transform: scale(0.5); }
+  0%,  40% { opacity: 0; transform: scale(0.4); }
+  55%, 80% { opacity: 1; transform: scale(1); }
+  100%     { opacity: 0; transform: scale(0.4); }
 }
 
-/* Catch-all reduce-motion gate. Neutralises animation + transition
- * for everything inside .get-started-root in one rule, including any
- * future keyframes we add for sections (chaos↔calm, stack-reveal,
- * etc.). Pinned by the motion-primitives test (Task 14 step 3). */
+/* ---------------------------------------------------------------- *
+ * Founder section — editorial single-column on dark, with portrait
+ * + 3 paragraphs + signoff.
+ * ---------------------------------------------------------------- */
+.get-started-root .founder {
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
+}
+.get-started-root .founder__portrait {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  margin: 0 auto 28px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--amber), var(--copper));
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 16px 32px rgba(0, 0, 0, 0.4);
+}
+.get-started-root .founder__portrait-initials {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--gs-font-head);
+  font-size: 38px;
+  font-weight: 800;
+  color: #111009;
+  letter-spacing: -0.04em;
+}
+.get-started-root .founder__portrait-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.get-started-root .founder__paragraph {
+  font-size: clamp(16px, 1.6vw, 19px);
+  line-height: 1.65;
+  color: var(--dark-text);
+  margin: 0 0 18px;
+  font-weight: 300;
+}
+.get-started-root .founder__paragraph:last-of-type {
+  margin-bottom: 28px;
+}
+.get-started-root .founder__signoff {
+  font-family: var(--gs-font-body);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--amber);
+}
+
+/* ---------------------------------------------------------------- *
+ * Final CTA — centered card on dark, amber radial glow behind.
+ * ---------------------------------------------------------------- */
+.get-started-root .final-cta {
+  position: relative;
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: clamp(40px, 5vw, 64px) clamp(24px, 4vw, 56px);
+  background: var(--dark-surface);
+  border: 1px solid var(--dark-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+.get-started-root .final-cta::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(circle at center, var(--amber-glow), transparent 60%);
+  pointer-events: none;
+  z-index: -1;
+}
+.get-started-root .final-cta .gs-form {
+  margin: 0 auto;
+}
+.get-started-root .final-cta .gs-form-meta {
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- *
+ * Pain cascade — dark theme, big H2, body, then stack-reveal.
+ * ---------------------------------------------------------------- */
+.get-started-root .cascade {
+  position: relative;
+  text-align: center;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.get-started-root .cascade__hook {
+  font-family: var(--gs-font-head);
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--amber);
+  margin: 24px 0 16px;
+}
+.get-started-root .cascade__close {
+  font-family: var(--gs-font-body);
+  font-size: clamp(15px, 1.5vw, 17px);
+  color: var(--dark-text);
+  margin-top: 24px;
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------------- *
+ * Reduce-motion gate — neutralises every animation + transition
+ * inside .get-started-root. Pinned by motion-primitives test.
+ * ---------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .get-started-root *,
   .get-started-root *::before,
@@ -268,7 +673,18 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0ms !important;
   }
-  .get-started-confetti {
-    display: none;
+  .get-started-root .hero-word {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .get-started-root .hero-split__msg,
+  .get-started-root .hero-split__card,
+  .get-started-root .stack-reveal__logo,
+  .get-started-root .stack-reveal__skitza {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .get-started-root .stack-reveal__skitza {
+    display: none !important;
   }
 }

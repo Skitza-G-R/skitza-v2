@@ -1,65 +1,60 @@
 import { StackReveal } from "./stack-reveal";
 
-// Pain cascade — design doc §4.3.
-//
-// EN copy structure:
-//   How much time goes to waste on…
-//   <list of recognized pains>
-//   Who's got time for this?
-//   You used to need a part-time assistant.
-//   Now you have Skitza.
-//   One app. For everything. Forever.
-//
-// HE mirrors the same arc with culturally-equivalent producer-talk
-// rather than literal translation.
+// Pain cascade — recognition → relief beat (homepage.md §1 thesis).
+// Dark theme. Big amber H2, tired-but-not-bitter body, then the
+// stack-reveal animation as visual proof of "one app for everything."
 
 export function PainCascadeSection({ locale }: { locale: "en" | "he" }) {
   const isHe = locale === "he";
 
   return (
-    <div className="mx-auto max-w-3xl text-center">
-      {isHe ? (
-        <>
-          <h2 className="text-3xl font-semibold sm:text-4xl">
-            כמה זמן הולך לך על?
-          </h2>
-          <p className="mt-6 text-lg text-[rgb(var(--fg-secondary))]">
-            לקבוע סשנים. לזכור מי חייב לך. לרדוף אחרי תשלומים. לחפש גרסאות
-            בוואטסאפ. לעקוב מי לקוח פעיל ומה דחוף ואז עוד לתעד את הכל מחדש —
-            בכל פעם.
-          </p>
-          <p className="mt-8 text-2xl font-semibold">למי יש זמן לזה?</p>
-          <p className="mt-6 text-lg text-[rgb(var(--fg-secondary))]">
-            פעם היה צריך לזה מזכירה.
-            <br />
-            היום, יש סקיצה.
-          </p>
-          <p className="mt-6 text-xl font-semibold">
-            אפליקציה אחת שסוגרת לך את כל הפינות.
-          </p>
-        </>
-      ) : (
-        <>
-          <h2 className="text-3xl font-semibold sm:text-4xl">
-            How much time goes to waste on…
-          </h2>
-          <p className="mt-6 text-lg text-[rgb(var(--fg-secondary))]">
-            Booking sessions. Searching WhatsApp for the right version. Chasing
-            payments. Tracking what&apos;s due Friday and re-typing the same
-            to-do list, every. single. time.
-          </p>
-          <p className="mt-8 text-2xl font-semibold">Who&apos;s got time for this?</p>
-          <p className="mt-6 text-lg text-[rgb(var(--fg-secondary))]">
-            You used to need a part-time assistant just to keep up.
-            <br />
-            Now you have Skitza.
-          </p>
-          <p className="mt-6 text-xl font-semibold">
-            One app. For everything. Forever.
-          </p>
-        </>
-      )}
-      <div className="mt-12">
+    <div className="container">
+      <div className="cascade">
+        <span className="eyebrow">
+          {isHe ? "הזמן שלך" : "Your Tuesday"}
+        </span>
+        {isHe ? (
+          <>
+            <h2 className="h2" style={{ marginTop: 14 }}>
+              כמה זמן הולך לך על
+              <span className="accent-dot">…</span>
+            </h2>
+            <p className="body-lg">
+              לקבוע סשנים. לחפש גרסאות בוואטסאפ. לרדוף אחרי תשלומים. לעקוב מי
+              לקוח פעיל ומה דחוף — ואז לתעד את הכל מחדש, בכל פעם.
+            </p>
+            <p className="cascade__hook">למי יש זמן לזה?</p>
+            <p className="body-lg">
+              פעם היה צריך לזה מזכירה. היום, יש סקיצה.
+            </p>
+            <p className="cascade__close">
+              אפליקציה אחת שסוגרת לך את כל הפינות. לעד.
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="h2" style={{ marginTop: 14 }}>
+              How much time goes
+              <br />
+              to waste on
+              <span className="accent-dot">…</span>
+            </h2>
+            <p className="body-lg">
+              Booking sessions. Searching WhatsApp for the right version.
+              Chasing payments. Tracking what&apos;s due Friday and re-typing
+              the same to-do list — every. single. time.
+            </p>
+            <p className="cascade__hook">Who&apos;s got time for this?</p>
+            <p className="body-lg">
+              You used to need a part-time assistant just to keep up.
+              <br />
+              Now you have Skitza.
+            </p>
+            <p className="cascade__close">
+              One app. For everything. Forever.
+            </p>
+          </>
+        )}
         <StackReveal />
       </div>
     </div>

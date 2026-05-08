@@ -31,8 +31,14 @@ describe("Hebrew /get-started/he page", () => {
     authMock.mockResolvedValueOnce({ userId: null });
     const ui = await GetStartedPageHe();
     const html = renderToStaticMarkup(ui);
-    expect(html).toMatch(/אתה מפיק/);
-    expect(html).toMatch(/לא מזכירה/);
+    // Hero headline is split into per-word <span class="hero-word">
+    // for the page-loaded fade stagger, so each word lives in its
+    // own span. We assert each word + the wrapping h1 separately.
+    expect(html).toMatch(/<h1[^>]*class="h1"/);
+    expect(html).toMatch(/אתה/);
+    expect(html).toMatch(/מפיק/);
+    expect(html).toMatch(/לא/);
+    expect(html).toMatch(/מזכירה/);
   });
 
   it("redirects signed-in users to /dashboard", async () => {
