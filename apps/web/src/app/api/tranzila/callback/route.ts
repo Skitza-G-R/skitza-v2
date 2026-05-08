@@ -32,6 +32,10 @@ async function handle(
 }
 
 export async function GET(request: Request): Promise<Response> {
+  console.log("[tranzila callback]", {
+    url: request.url,
+    params: Object.fromEntries(new URL(request.url).searchParams),
+  });
   const { searchParams } = new URL(request.url);
   const bookingId = searchParams.get("bookingId");
   const status = searchParams.get("status");
