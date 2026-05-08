@@ -15,6 +15,7 @@ import { producerNotesRouter } from "./producer-notes";
 import { projectRouter } from "./project";
 import { publicProfileRouter } from "./public-profile";
 import { stripeRouter } from "./stripe";
+import { waitlistRouter } from "./waitlist";
 
 export const appRouter = router({
   artist: artistRouter,
@@ -33,6 +34,7 @@ export const appRouter = router({
   project: projectRouter,
   publicProfile: publicProfileRouter,
   stripe: stripeRouter,
+  waitlist: waitlistRouter,
 });
 
 export type AppRouter = typeof appRouter;
