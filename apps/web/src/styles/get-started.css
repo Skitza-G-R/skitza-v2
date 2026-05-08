@@ -50,7 +50,22 @@ body:has(.get-started-root) {
   font-family: var(--gs-font-body);
   font-weight: 300;
   -webkit-font-smoothing: antialiased;
-  min-height: 100svh;
+  /* No min-height — funnel content fills the viewport on its own.
+   * min-height: 100svh would leave dead space below the final CTA on
+   * tall viewports.
+   *
+   * overflow-x: hidden — the ambient glow pseudo-element + cursor
+   * spotlight + grid drift can each push pixels just past the viewport
+   * edge. Clipping at the wrapper kills any horizontal scroll on
+   * mobile (where 4-6 px of overflow is enough to expose a scrollbar). */
+  overflow-x: hidden;
+}
+
+/* And one level up — html/body should never horizontal-scroll on
+ * funnel pages, even if a child element escapes its bounds. */
+html:has(.get-started-root),
+body:has(.get-started-root) {
+  overflow-x: hidden;
 }
 
 /* Full-page grid pattern — drawn as a repeating linear-gradient
@@ -89,7 +104,7 @@ body:has(.get-started-root) {
 .get-started-root::after {
   content: "";
   position: fixed;
-  inset: -10%;
+  inset: 0;
   background-image:
     radial-gradient(
       ellipse 50% 40% at 20% 30%,
@@ -106,10 +121,15 @@ body:has(.get-started-root) {
   animation: gs-ambient-drift 24s ease-in-out infinite alternate;
 }
 
+/* Drift animates only opacity now — no transform on translate axes,
+ * which would push the element past the viewport edge and trigger
+ * horizontal scroll on narrow mobile viewports. The radial gradient
+ * positions inside the element shift in their own keyframe via
+ * background-position. */
 @keyframes gs-ambient-drift {
-  0%   { transform: translate3d(0, 0, 0); opacity: 0.7; }
-  50%  { transform: translate3d(2%, -3%, 0); opacity: 1; }
-  100% { transform: translate3d(-2%, 2%, 0); opacity: 0.8; }
+  0%   { background-position: 0% 0%, 100% 100%; opacity: 0.7; }
+  50%  { background-position: 5% -3%, 95% 102%; opacity: 1; }
+  100% { background-position: -3% 4%, 103% 97%; opacity: 0.8; }
 }
 
 /* Sections sit above the fixed grid + glows */
