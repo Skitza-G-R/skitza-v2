@@ -1,22 +1,18 @@
+import { FounderPhoto } from "./founder-photo";
+
 // Founder section — design doc §4.4.
-// Pre-launch: gradient placeholder for the headshot. Once
-// apps/web/public/landing/founder.jpg lands, swap the inner <div>
-// for `<Image src="/landing/founder.jpg" .../>` (next/image).
+// FounderPhoto auto-swaps to /landing/founder.jpg when the file is
+// dropped into apps/web/public/landing/. Until then, the gradient +
+// GA initials placeholder shows.
 
 export function FounderSection({ locale }: { locale: "en" | "he" }) {
   const isHe = locale === "he";
 
   return (
     <div className="mx-auto grid max-w-4xl items-center gap-8 sm:grid-cols-[auto_1fr]">
-      <div
-        className="mx-auto h-32 w-32 overflow-hidden rounded-full bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] sm:h-44 sm:w-44"
-        aria-label={isHe ? "גילי אסרף, מייסד סקיצה" : "Gili Asraf, Skitza founder"}
-      >
-        {/* Pre-launch placeholder — replaces with real photo when ready */}
-        <div className="flex h-full items-center justify-center text-3xl font-bold text-[rgb(var(--fg-inverse))]">
-          GA
-        </div>
-      </div>
+      <FounderPhoto
+        alt={isHe ? "גילי אסרף, מייסד סקיצה" : "Gili Asraf, Skitza founder"}
+      />
       <div className="text-[rgb(var(--fg-primary))]">
         {isHe ? (
           <>
