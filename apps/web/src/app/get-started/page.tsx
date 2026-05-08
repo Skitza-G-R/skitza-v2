@@ -3,7 +3,9 @@ import "~/styles/get-started.css";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
+import { CtaSection } from "./_components/cta-section";
 import { DemoVideoSection } from "./_components/demo-video-section";
+import { FounderSection } from "./_components/founder-section";
 import { HeroSection } from "./_components/hero-section";
 import { PainCascadeSection } from "./_components/pain-cascade-section";
 import { StaticLogo } from "./_components/static-logo";
@@ -39,10 +41,10 @@ export default async function GetStartedPage() {
         id="founder"
         className="bg-[rgb(var(--bg-elevated))] px-6 py-16 sm:py-20"
       >
-        {/* Task 17 — founder note */}
+        <FounderSection locale="en" />
       </section>
       <section id="cta" className="px-6 py-16 sm:py-24">
-        {/* Task 17 — CTA repeat */}
+        <CtaSection locale="en" />
       </section>
     </main>
   );
