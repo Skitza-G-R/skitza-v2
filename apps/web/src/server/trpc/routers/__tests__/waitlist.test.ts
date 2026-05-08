@@ -149,3 +149,44 @@ describe("waitlist.signup — honeypot", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("waitlist.signup — webhook failure modes", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.mocked(checkRateLimit).mockReturnValue({
+      ok: true,
+      remaining: 4,
+      resetMs: 0,
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.MAKE_WAITLIST_WEBHOOK_URL;
+  });
+
+  it("throws INTERNAL_SERVER_ERROR when MAKE_WAITLIST_WEBHOOK_URL is not configured", async () => {
+    delete process.env.MAKE_WAITLIST_WEBHOOK_URL;
+    await expect(
+      caller.signup({ email: "y@example.com", locale: "en" }),
+    ).rejects.toThrow(/temporarily unavailable/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("throws INTERNAL_SERVER_ERROR when webhook returns 500", async () => {
+    process.env.MAKE_WAITLIST_WEBHOOK_URL = "https://hook.test/abc";
+    fetchMock.mockResolvedValueOnce(new Response("oops", { status: 500 }));
+    await expect(
+      caller.signup({ email: "y@example.com", locale: "en" }),
+    ).rejects.toThrow(/Could not save/);
+  });
+
+  it("throws INTERNAL_SERVER_ERROR when webhook fetch aborts (timeout)", async () => {
+    process.env.MAKE_WAITLIST_WEBHOOK_URL = "https://hook.test/abc";
+    fetchMock.mockRejectedValueOnce(
+      new DOMException("aborted", "AbortError"),
+    );
+    await expect(
+      caller.signup({ email: "y@example.com", locale: "en" }),
+    ).rejects.toThrow(/Could not save/);
+  });
+});
