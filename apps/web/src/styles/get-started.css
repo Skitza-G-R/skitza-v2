@@ -182,6 +182,12 @@ body:has(.get-started-root) {
   padding: clamp(24px, 3vw, 48px) 0;
 }
 
+/* Last section: no bottom padding — keeps the page from showing a
+ * dead-air slab below the final CTA card. */
+.get-started-root .section:last-child {
+  padding-bottom: 0;
+}
+
 /* Eyebrow / label — ALL CAPS, 11px, letter-spacing 0.1em. Default
  * to amber since the funnel is dark-from-top. */
 .get-started-root .eyebrow {
