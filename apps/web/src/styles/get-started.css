@@ -54,11 +54,14 @@ body:has(.get-started-root) {
    * min-height: 100svh would leave dead space below the final CTA on
    * tall viewports.
    *
-   * overflow-x: hidden — the ambient glow pseudo-element + cursor
-   * spotlight + grid drift can each push pixels just past the viewport
-   * edge. Clipping at the wrapper kills any horizontal scroll on
-   * mobile (where 4-6 px of overflow is enough to expose a scrollbar). */
-  overflow-x: hidden;
+   * overflow-x: CLIP (not hidden) — `hidden` on one axis implicitly
+   * promotes the other axis to `auto`, turning the wrapper into a
+   * scroll container and producing a SECOND scrollbar next to the
+   * page-level one. `clip` does the same clipping (kills any pixel
+   * pushed past the viewport edge by the ambient glows / cursor
+   * spotlight / grid drift) WITHOUT becoming a scroll container.
+   * Browser support: Chrome 90+, Safari 16+, Firefox 81+. */
+  overflow-x: clip;
 }
 
 /* Note: we deliberately do NOT set overflow-x on html/body. Setting
