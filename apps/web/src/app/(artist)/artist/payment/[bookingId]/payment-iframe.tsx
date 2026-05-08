@@ -41,7 +41,9 @@ export function PaymentIframe({
                 setStatus('error');
               }
             })
-            .catch(() => setStatus('error'));
+            .catch(() => {
+              setStatus('error');
+            });
         }
       } catch {
         // Cross-origin — iframe is still on Tranzila's domain, ignore
@@ -49,7 +51,9 @@ export function PaymentIframe({
     };
 
     iframe.addEventListener('load', handleLoad);
-    return () => iframe.removeEventListener('load', handleLoad);
+    return () => {
+      iframe.removeEventListener('load', handleLoad);
+    };
   }, [bookingId, router]);
 
   if (status === 'processing') {
@@ -65,7 +69,9 @@ export function PaymentIframe({
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <p className="text-sm text-[rgb(var(--fg-muted))]">Payment verification failed.</p>
         <button
-          onClick={() => setStatus('idle')}
+          onClick={() => {
+            setStatus('idle');
+          }}
           className="text-sm text-[rgb(var(--brand-primary))] hover:underline"
         >
           Try again
