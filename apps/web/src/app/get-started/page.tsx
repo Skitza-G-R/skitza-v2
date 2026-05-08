@@ -7,6 +7,7 @@ import { auth } from "@clerk/nextjs/server";
 import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
 
 import { CtaSection } from "./_components/cta-section";
+import { CursorSpotlight } from "./_components/cursor-spotlight";
 import { FounderSection } from "./_components/founder-section";
 import { HeroSection } from "./_components/hero-section";
 import { IsLoadedPing } from "./_components/is-loaded-ping";
@@ -33,6 +34,8 @@ export default async function GetStartedPage() {
     <main className="landing-v3-root get-started-root">
       <IsLoadedPing />
       <RevealOnScroll />
+      <CursorSpotlight />
+      <div className="gs-spotlight" aria-hidden />
 
       {/* Minimal logo header — top-left only, no nav, no CTA. Dead-end-
           funnel rule: every off-page link is a conversion leak. */}

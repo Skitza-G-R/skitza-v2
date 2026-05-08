@@ -7,6 +7,7 @@ import { auth } from "@clerk/nextjs/server";
 import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
 
 import { CtaSection } from "../_components/cta-section";
+import { CursorSpotlight } from "../_components/cursor-spotlight";
 import { FounderSection } from "../_components/founder-section";
 import { HeroSection } from "../_components/hero-section";
 import { IsLoadedPing } from "../_components/is-loaded-ping";
@@ -31,6 +32,8 @@ export default async function GetStartedPageHe() {
     >
       <IsLoadedPing />
       <RevealOnScroll />
+      <CursorSpotlight />
+      <div className="gs-spotlight" aria-hidden />
 
       <header
         className="relative z-20"

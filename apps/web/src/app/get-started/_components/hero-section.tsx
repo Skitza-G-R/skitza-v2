@@ -54,7 +54,7 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
     <section
       id="hero"
       className="relative overflow-hidden"
-      style={{ background: "transparent", color: "#F2EDE6", padding: "48px 20px 72px" }}
+      style={{ background: "transparent", color: "#F2EDE6", padding: "16px 20px 64px" }}
     >
       {/* No animate-shine, no masked .hero-grid-bg here — those create
           a visible seam where the hero's effects end and the
@@ -62,11 +62,10 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
           .get-started-root::before, fixed-position) covers this
           section uniformly. */}
 
-      {/* Asymmetric grid — copy column 30%, demo column 70%. The
-          homepage uses 50/50; the funnel weights heavily toward the
-          demo because that's the conversion lever (see what they're
-          getting). */}
-      <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[30%_70%] lg:gap-10">
+      {/* Asymmetric grid — copy column 40%, demo column 60%. The
+          funnel weights toward the demo because that's the
+          conversion lever (see what they're getting). */}
+      <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[40%_60%] lg:gap-10">
         {/* Left — copy + form */}
         <div className="sk-reveal-left">
           <div
@@ -90,7 +89,7 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
           <h1
             className="font-syne m-0 font-extrabold"
             style={{
-              fontSize: "clamp(36px, 4.5vw, 64px)",
+              fontSize: "clamp(32px, 3.5vw, 52px)",
               letterSpacing: "-0.038em",
               lineHeight: 0.98,
             }}

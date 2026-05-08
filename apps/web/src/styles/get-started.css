@@ -56,7 +56,11 @@ body:has(.get-started-root) {
 /* Full-page grid pattern — drawn as a repeating linear-gradient
  * pseudo-element on the page root, fixed in viewport so it stays
  * visible as the user scrolls. Lower opacity than the hero's
- * masked grid since it shows under every section. */
+ * masked grid since it shows under every section.
+ *
+ * The grid SLOWLY drifts diagonally on a 90s loop. One full cycle
+ * shifts by exactly one tile (60×60 px) so the pattern wraps
+ * seamlessly — the background looks alive without pulling the eye. */
 .get-started-root::before {
   content: "";
   position: fixed;
@@ -67,12 +71,77 @@ body:has(.get-started-root) {
   background-size: 60px 60px;
   pointer-events: none;
   z-index: 0;
+  animation: gs-grid-drift 90s linear infinite;
 }
 
-/* Sections sit above the fixed grid */
+@keyframes gs-grid-drift {
+  from { background-position: 0 0, 0 0; }
+  to   { background-position: 60px 60px, 60px 60px; }
+}
+
+/* Ambient amber glows — two soft radial gradients that drift slowly
+ * across the page, giving depth + warmth without distracting from
+ * the content. Sits ABOVE the grid (z-index:0 too, but later in DOM)
+ * but below all sections (z-index:1).
+ *
+ * Each glow has its own rhythm — different durations + delays — so
+ * they never line up the same way twice. */
+.get-started-root::after {
+  content: "";
+  position: fixed;
+  inset: -10%;
+  background-image:
+    radial-gradient(
+      ellipse 50% 40% at 20% 30%,
+      rgba(212, 150, 10, 0.10),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 40% 30% at 75% 65%,
+      rgba(176, 104, 48, 0.10),
+      transparent 60%
+    );
+  pointer-events: none;
+  z-index: 0;
+  animation: gs-ambient-drift 24s ease-in-out infinite alternate;
+}
+
+@keyframes gs-ambient-drift {
+  0%   { transform: translate3d(0, 0, 0); opacity: 0.7; }
+  50%  { transform: translate3d(2%, -3%, 0); opacity: 1; }
+  100% { transform: translate3d(-2%, 2%, 0); opacity: 0.8; }
+}
+
+/* Sections sit above the fixed grid + glows */
 .get-started-root > * {
   position: relative;
   z-index: 1;
+}
+
+/* Cursor spotlight — a soft amber radial gradient that tracks the
+ * mouse across the viewport. The CursorSpotlight client component
+ * (cursor-spotlight.tsx) updates --gs-mx / --gs-my on every
+ * requestAnimationFrame as the cursor moves; this gradient reads
+ * those vars to position the highlight.
+ *
+ * Hidden on touch devices (no cursor to follow). Sits ABOVE the
+ * grid + ambient glows but BELOW any content (z-index:0, positioned
+ * fixed). pointer-events:none so it never blocks clicks. */
+@media (pointer: fine) {
+  .get-started-root > .gs-spotlight {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(
+      450px circle at var(--gs-mx, 50vw) var(--gs-my, 30vh),
+      rgba(212, 150, 10, 0.10),
+      rgba(212, 150, 10, 0.03) 35%,
+      transparent 65%
+    );
+    transition: background 60ms linear;
+    mix-blend-mode: screen;
+  }
 }
 
 /* Container — single 1200 px max-width, used by every section. */
@@ -86,7 +155,7 @@ body:has(.get-started-root) {
  * a series of standalone marketing slabs, so it reads better with
  * less air between sections than the homepage's 80-140px range. */
 .get-started-root .section {
-  padding: clamp(40px, 5vw, 72px) 0;
+  padding: clamp(24px, 3vw, 48px) 0;
 }
 
 /* Eyebrow / label — ALL CAPS, 11px, letter-spacing 0.1em. Default
@@ -246,10 +315,18 @@ body:has(.get-started-root) {
   }
 }
 
-/* Default form is dark since the entire funnel is dark-from-top. */
+/* Default form is dark since the entire funnel is dark-from-top.
+ *
+ * Sizing rules differ between column (mobile) and row (desktop) flex:
+ *   - Mobile: form is column-direction → flex-basis would set the
+ *     element's HEIGHT (main axis is vertical), so we MUST NOT use
+ *     `flex: 1 1 200px`. Use width:100% + fixed height.
+ *   - Desktop: form flips to row-direction → flex-basis becomes width
+ *     and we want the inputs to share horizontal space. The desktop
+ *     override below sets `flex: 1 1 200px`. */
 .get-started-root .gs-input {
+  width: 100%;
   height: 56px;
-  flex: 1 1 200px;
   min-width: 0;
   padding: 0 18px;
   font-family: var(--gs-font-body);
@@ -262,6 +339,12 @@ body:has(.get-started-root) {
     border-color 0.2s,
     box-shadow 0.2s,
     background 0.2s;
+}
+@media (min-width: 769px) {
+  .get-started-root .gs-input {
+    flex: 1 1 200px;
+    width: auto;
+  }
 }
 .get-started-root .gs-input::placeholder {
   color: rgba(237, 232, 226, 0.4);
@@ -479,13 +562,11 @@ body:has(.get-started-root) {
   overflow: hidden;
 }
 
-/* Demo column shift — push the demo right on desktop so it tucks
- * toward the viewport edge for a fuller "look at the product" feel.
- * On mobile the hero stacks vertically (single column) and the
- * shift would cause horizontal overflow, so it's desktop-only. */
+/* Demo column shift — small left nudge on desktop only. Pulls the
+ * demo slightly toward the copy column for a tighter pairing. */
 @media (min-width: 1024px) {
   .get-started-root .gs-demo-shift {
-    margin-left: 14%;
+    margin-left: -4%;
   }
 }
 
@@ -516,16 +597,16 @@ body:has(.get-started-root) {
 }
 
 .get-started-root .get-started-demo-iframe {
-  /* Native <video> playing /landing/demo.mp4. Per founder feedback:
-   * NO crop, NO transform — render the recording exactly as captured.
-   * object-fit: cover so it fills the frame with the natural aspect
-   * ratio (slight crop only if the wrapper aspect mismatches; no
-   * letterboxing). */
+  /* Native <video> playing /landing/demo.mp4. object-fit: contain
+   * shows the ENTIRE video frame — no crop on any edge. The body's
+   * aspect-ratio is already matched to the video (1488/806) so any
+   * letterbox in practice is sub-pixel. */
   width: 100%;
   height: 100%;
   border: 0;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
+  background: #111009;
   pointer-events: none;
 }
 
@@ -734,6 +815,87 @@ body:has(.get-started-root) {
 }
 
 /* ---------------------------------------------------------------- *
+ * Scroll-driven section reveal — modern animation-timeline: view().
+ * Each section's children fade + slide up as they enter the viewport.
+ * Browsers without view() support (Safari ≤17.4, older Firefox) fall
+ * back to no animation — the section is visible by default, not
+ * stuck at opacity:0 like the older sk-reveal-* primitives.
+ * ---------------------------------------------------------------- */
+@supports (animation-timeline: view()) {
+  .get-started-root .section > * {
+    animation: gs-section-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 30%;
+  }
+}
+
+@keyframes gs-section-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Eyebrow pulse — the amber dot gets a subtle breathing pulse so the
+ * "NOW BOOKING · EARLY ACCESS" pill (and other eyebrows) feel alive
+ * without competing for attention with the headline. */
+.get-started-root .eyebrow::before {
+  animation: gs-eyebrow-pulse 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes gs-eyebrow-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 8px rgba(212, 150, 10, 0.5),
+      0 0 0 0 rgba(212, 150, 10, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 12px rgba(212, 150, 10, 0.7),
+      0 0 0 6px rgba(212, 150, 10, 0);
+  }
+}
+
+/* Form button shine — light sweep on hover. The pseudo-element
+ * sits over the button at 0% opacity until hover, then animates
+ * across with a soft white gradient. */
+.get-started-root .btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+.get-started-root .btn-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    transparent 35%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 65%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+.get-started-root .btn-primary:hover::after {
+  animation: gs-btn-shine 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes gs-btn-shine {
+  to { transform: translateX(100%); }
+}
+
+/* Demo frame idle float — very subtle vertical bob so the browser-
+ * chrome window feels alive while the page sits open. 6 s ease loop. */
+.get-started-root .hero-peek-frame {
+  animation: gs-peek-float 6s ease-in-out infinite;
+}
+
+@keyframes gs-peek-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+/* ---------------------------------------------------------------- *
  * Reduce-motion gate — neutralises every animation + transition
  * inside .get-started-root. Pinned by motion-primitives test.
  * ---------------------------------------------------------------- */
@@ -745,18 +907,22 @@ body:has(.get-started-root) {
     animation-iteration-count: 1 !important;
     transition-duration: 0ms !important;
   }
-  .get-started-root .hero-word {
-    opacity: 1 !important;
-    transform: none !important;
-  }
+  .get-started-root .hero-word,
   .get-started-root .hero-split__msg,
   .get-started-root .hero-split__card,
   .get-started-root .stack-reveal__logo,
-  .get-started-root .stack-reveal__skitza {
+  .get-started-root .stack-reveal__skitza,
+  .get-started-root .section > * {
     opacity: 1 !important;
     transform: none !important;
   }
   .get-started-root .stack-reveal__skitza {
     display: none !important;
+  }
+  /* Background ambient — kill the drift + glow pulse, keep the
+   * static grid + tints visible (zero motion). */
+  .get-started-root::before,
+  .get-started-root::after {
+    animation: none !important;
   }
 }
