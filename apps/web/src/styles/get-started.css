@@ -61,12 +61,13 @@ body:has(.get-started-root) {
   overflow-x: hidden;
 }
 
-/* And one level up — html/body should never horizontal-scroll on
- * funnel pages, even if a child element escapes its bounds. */
-html:has(.get-started-root),
-body:has(.get-started-root) {
-  overflow-x: hidden;
-}
+/* Note: we deliberately do NOT set overflow-x on html/body. Setting
+ * overflow-x to a non-default value implicitly flips the other axis
+ * to `auto`, creating a NESTED scroll container — html scrolls
+ * vertically AND the wrapper inside body scrolls vertically, so the
+ * user sees two side-by-side scrollbars. The wrapper's own
+ * overflow-x: hidden above is sufficient to clip any escaping pixel
+ * from the ambient glow / cursor spotlight / grid drift. */
 
 /* Full-page grid pattern — drawn as a repeating linear-gradient
  * pseudo-element on the page root, fixed in viewport so it stays
