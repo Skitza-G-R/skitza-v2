@@ -50,46 +50,40 @@
 }
 
 /* ---------------------------------------------------------------- *
- * Demo phone-frame. Pure CSS — no PNG asset required. Speaker notch
- * via the ::before pseudo. Aspect ratio 9:16 matches the recording.
+ * Demo iframe frame. The founder's standalone demo HTML is loaded in
+ * an iframe at /landing/demo.html. We give it a soft container (rounded,
+ * subtle shadow) so it reads as "embedded UI" rather than "third-party
+ * widget." Aspect ratio matches the demo's design (4:3-ish on desktop,
+ * roomier on mobile so phone visitors aren't squinting).
  * ---------------------------------------------------------------- */
 
-.get-started-phone {
+.get-started-demo-frame {
   position: relative;
-  width: 320px;
+  width: 100%;
+  max-width: 720px;
   margin: 0 auto;
-  aspect-ratio: 9 / 16;
-  border-radius: 32px;
-  background: rgb(var(--fg-primary));
-  padding: 8px;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.18);
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: rgb(var(--bg-elevated));
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 12px 40px rgb(0 0 0 / 0.10);
 }
 
-@media (min-width: 768px) {
-  .get-started-phone {
-    width: 380px;
+@media (max-width: 640px) {
+  .get-started-demo-frame {
+    /* Slightly taller on small screens — the demo's UI elements need
+     * vertical room to breathe when the viewport is narrow. */
+    aspect-ratio: 3 / 4;
   }
 }
 
-.get-started-phone::before {
-  content: "";
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100px;
-  height: 24px;
-  background: rgb(var(--fg-primary));
-  border-radius: 16px;
-  z-index: 1;
-}
-
-.get-started-phone__video {
+.get-started-demo-frame__iframe {
   width: 100%;
   height: 100%;
-  border-radius: 24px;
-  object-fit: cover;
-  background: rgb(var(--bg-elevated));
+  border: 0;
+  display: block;
 }
 
 /* ---------------------------------------------------------------- *
