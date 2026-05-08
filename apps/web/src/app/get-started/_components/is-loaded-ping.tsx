@@ -2,19 +2,14 @@
 
 import { useEffect } from "react";
 
-// Ad funnel's mirror of the homepage's `.page-loaded` chained-class.
-// 100ms after mount, adds `.is-loaded` to the nearest .get-started-root
-// ancestor — that triggers the .hero-word stagger. Chained class, NOT
-// descendant combinator (CLAUDE.md mistake log 2026-04-26 / homepage
-// ADR-2). The CSS rule is `.get-started-root.is-loaded .hero-word`.
-//
-// 100 ms delay matches the homepage. Long enough that the first paint
-// is the still state (no flash of un-faded text); short enough that
-// the visitor doesn't notice a stagger lag.
+// Add `.is-loaded` to the .landing-v3-root wrapper 100ms after mount.
+// That triggers the homepage's `.landing-v3-root.is-loaded .hero-word`
+// stagger (chained class — homepage ADR-2). Same primitive as the
+// homepage uses for its own first-paint hero animation.
 
 export function IsLoadedPing() {
   useEffect(() => {
-    const root = document.querySelector(".get-started-root");
+    const root = document.querySelector(".landing-v3-root");
     if (!root) return;
     const t = setTimeout(() => {
       root.classList.add("is-loaded");

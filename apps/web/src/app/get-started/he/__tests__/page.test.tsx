@@ -33,8 +33,9 @@ describe("Hebrew /get-started/he page", () => {
     const html = renderToStaticMarkup(ui);
     // Hero headline is split into per-word <span class="hero-word">
     // for the page-loaded fade stagger, so each word lives in its
-    // own span. We assert each word + the wrapping h1 separately.
-    expect(html).toMatch(/<h1[^>]*class="h1"/);
+    // own span. The h1 itself uses the homepage's font-syne utility
+    // (not a `.h1` brand class). Assert tag + each word.
+    expect(html).toMatch(/<h1\b/);
     expect(html).toMatch(/אתה/);
     expect(html).toMatch(/מפיק/);
     expect(html).toMatch(/לא/);

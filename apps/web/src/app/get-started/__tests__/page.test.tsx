@@ -24,21 +24,20 @@ describe("English /get-started page", () => {
     await expect(GetStartedPage()).rejects.toThrow("__REDIRECT__:/dashboard");
   });
 
-  it("renders 5 distinct sections in order: hero, demo, cascade, founder, cta", async () => {
+  it("renders sections in order: hero, cascade, founder, cta", async () => {
     authMock.mockResolvedValueOnce({ userId: null });
     const ui = await GetStartedPage();
     const html = renderToStaticMarkup(ui);
     // Each section has a stable id used for in-page anchors and
-    // testing. Asserting their *relative order* in the rendered HTML
-    // pins the section sequence specified in design doc §4.
+    // testing. The standalone "demo" section was folded into the
+    // hero (right column) post-redesign — the demo iframe is part
+    // of the hero now, not a separate scroll surface.
     const idxHero = html.indexOf('id="hero"');
-    const idxDemo = html.indexOf('id="demo"');
     const idxCascade = html.indexOf('id="cascade"');
     const idxFounder = html.indexOf('id="founder"');
     const idxCta = html.indexOf('id="cta"');
     expect(idxHero).toBeGreaterThanOrEqual(0);
-    expect(idxDemo).toBeGreaterThan(idxHero);
-    expect(idxCascade).toBeGreaterThan(idxDemo);
+    expect(idxCascade).toBeGreaterThan(idxHero);
     expect(idxFounder).toBeGreaterThan(idxCascade);
     expect(idxCta).toBeGreaterThan(idxFounder);
   });

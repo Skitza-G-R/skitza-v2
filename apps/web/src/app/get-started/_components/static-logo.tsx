@@ -5,8 +5,10 @@
 
 export function StaticLogo({
   variant = "light",
+  size = 30,
 }: {
   variant?: "light" | "dark";
+  size?: number;
 }) {
   const color = variant === "dark" ? "#EDE8E2" : "#1A1714";
   return (
@@ -16,8 +18,8 @@ export function StaticLogo({
       style={{
         fontFamily: "var(--font-syne, Syne), system-ui, sans-serif",
         fontWeight: 800,
-        letterSpacing: "-0.02em",
-        fontSize: "22px",
+        letterSpacing: "-0.04em",
+        fontSize: `${String(size)}px`,
         lineHeight: 1,
         color,
       }}

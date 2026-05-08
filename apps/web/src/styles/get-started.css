@@ -12,6 +12,16 @@
  * landing.css ADR-4.
  * ============================================================ */
 
+/* Body's default background is cream (--bg-background from globals.css).
+ * The funnel needs the body itself dark, otherwise a thin cream stripe
+ * peeks out below the page wrapper if the content's height doesn't
+ * exactly match the viewport. :has() lets us scope this to pages
+ * actually rendering the funnel — no impact on the rest of the app. */
+html:has(.get-started-root),
+body:has(.get-started-root) {
+  background: #111009 !important;
+}
+
 .get-started-root {
   /* Marketing tokens (mirror landing.css; see homepage.md §4) */
   --light-bg: #F2EDE6;
@@ -34,12 +44,35 @@
   --gs-font-head: var(--font-syne, "Syne"), system-ui, sans-serif;
   --gs-font-body: var(--font-outfit, "Outfit"), system-ui, sans-serif;
 
-  background: var(--light-bg);
-  color: var(--light-text);
+  position: relative;
+  background: var(--dark-bg);
+  color: var(--dark-text);
   font-family: var(--gs-font-body);
   font-weight: 300;
   -webkit-font-smoothing: antialiased;
   min-height: 100svh;
+}
+
+/* Full-page grid pattern — drawn as a repeating linear-gradient
+ * pseudo-element on the page root, fixed in viewport so it stays
+ * visible as the user scrolls. Lower opacity than the hero's
+ * masked grid since it shows under every section. */
+.get-started-root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Sections sit above the fixed grid */
+.get-started-root > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* Container — single 1200 px max-width, used by every section. */
@@ -49,12 +82,15 @@
   padding: 0 24px;
 }
 
-/* Section padding — fluid clamp, identical for every section. */
+/* Section padding — tight. The funnel is one continuous scroll, not
+ * a series of standalone marketing slabs, so it reads better with
+ * less air between sections than the homepage's 80-140px range. */
 .get-started-root .section {
-  padding: clamp(80px, 10vw, 140px) 0;
+  padding: clamp(40px, 5vw, 72px) 0;
 }
 
-/* Eyebrow / label — ALL CAPS, 11px, letter-spacing 0.1em. */
+/* Eyebrow / label — ALL CAPS, 11px, letter-spacing 0.1em. Default
+ * to amber since the funnel is dark-from-top. */
 .get-started-root .eyebrow {
   display: inline-flex;
   align-items: center;
@@ -63,7 +99,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--copper);
+  color: var(--amber);
 }
 
 .get-started-root .eyebrow::before {
@@ -72,16 +108,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--copper);
-}
-
-.get-started-root.is-dark .eyebrow,
-.get-started-root .section-dark .eyebrow {
-  color: var(--amber);
-}
-
-.get-started-root .section-dark .eyebrow::before {
   background: var(--amber);
+  box-shadow: 0 0 8px rgba(212, 150, 10, 0.5);
 }
 
 /* Headlines — Syne. Hero H1 is huge; section H2s are smaller. */
@@ -118,14 +146,14 @@
 .get-started-root .body-lg {
   font-size: clamp(16px, 1.6vw, 19px);
   line-height: 1.55;
-  color: var(--light-body);
+  color: var(--dark-body);
   font-weight: 300;
 }
 
 .get-started-root .body {
   font-size: clamp(15px, 1.5vw, 17px);
   line-height: 1.6;
-  color: var(--light-body);
+  color: var(--dark-body);
   font-weight: 300;
 }
 
@@ -142,9 +170,8 @@
 }
 
 /* ---------------------------------------------------------------- *
- * Light → dark theme split. Hero + demo are light; cascade + founder
- * + final CTA are dark. The transition itself is just a section
- * boundary — no fancy gradient. Cleaner that way.
+ * Dark sections (everything below the hero). The hero itself sets
+ * its own dark BG inline (matching homepage Hero pattern).
  * ---------------------------------------------------------------- */
 .get-started-root .section-dark {
   background: var(--dark-bg);
@@ -154,6 +181,14 @@
 .get-started-root .section-dark .body,
 .get-started-root .section-dark .body-lg {
   color: var(--dark-body);
+}
+
+/* On dark sections, the eyebrow uses amber instead of copper. */
+.get-started-root .section-dark .eyebrow {
+  color: var(--amber);
+}
+.get-started-root .section-dark .eyebrow::before {
+  background: var(--amber);
 }
 
 /* ---------------------------------------------------------------- *
@@ -211,6 +246,7 @@
   }
 }
 
+/* Default form is dark since the entire funnel is dark-from-top. */
 .get-started-root .gs-input {
   height: 56px;
   flex: 1 1 200px;
@@ -218,37 +254,29 @@
   padding: 0 18px;
   font-family: var(--gs-font-body);
   font-size: 16px;
-  color: var(--light-text);
-  background: #fff;
-  border: 1px solid var(--light-border);
+  color: var(--dark-text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background 0.2s;
 }
 .get-started-root .gs-input::placeholder {
-  color: rgba(26, 23, 20, 0.4);
+  color: rgba(237, 232, 226, 0.4);
 }
 .get-started-root .gs-input:focus-visible {
   outline: none;
   border-color: var(--amber);
+  background: rgba(255, 255, 255, 0.10);
   box-shadow: 0 0 0 4px var(--amber-glow);
-}
-
-.get-started-root .section-dark .gs-input {
-  background: var(--dark-surface);
-  border-color: var(--dark-border);
-  color: var(--dark-text);
-}
-.get-started-root .section-dark .gs-input::placeholder {
-  color: rgba(237, 232, 226, 0.4);
 }
 
 .get-started-root .gs-form-meta {
   margin-top: 12px;
   font-size: 13px;
-  color: var(--light-body);
-}
-.get-started-root .section-dark .gs-form-meta {
-  color: var(--dark-body);
+  color: rgba(237, 232, 226, 0.5);
 }
 
 .get-started-root .gs-form-error {
@@ -427,34 +455,46 @@
 }
 
 /* ---------------------------------------------------------------- *
- * Demo iframe frame — light cream surface with hairline border.
- * Aspect 4:3 desktop, 3:4 phone. Embeds /landing/demo.html.
+ * Hero demo peek — iframe inside a browser-chrome frame. The
+ * .hero-peek-frame 3D tilt comes from landing.css (we re-use the
+ * homepage's primitive). The iframe body crops the demo's outer
+ * page padding so only the actual UI is visible.
+ *
+ * "Crop the background" implementation: the wrapper has a fixed
+ * height + overflow:hidden; the iframe is sized larger and shifted
+ * up via translate so the demo's outer dark padding sits outside
+ * the visible window. Adjust .get-started-demo-iframe transform if
+ * the demo's content moves.
  * ---------------------------------------------------------------- */
-.get-started-root .demo-frame {
+
+.get-started-root .get-started-demo-body {
   position: relative;
   width: 100%;
-  max-width: 880px;
-  margin: 0 auto;
-  aspect-ratio: 16 / 10;
-  border-radius: 16px;
+  height: 460px;
+  background: #111009;
   overflow: hidden;
-  background: #fff;
-  border: 1px solid var(--light-border);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.04),
-    0 24px 48px rgba(0, 0, 0, 0.08);
 }
-@media (max-width: 640px) {
-  .get-started-root .demo-frame {
-    aspect-ratio: 3 / 4;
+
+@media (max-width: 768px) {
+  .get-started-root .get-started-demo-body {
+    height: 360px;
   }
 }
 
-.get-started-root .demo-frame__iframe {
+.get-started-root .get-started-demo-iframe {
+  /* Native <video> playing /landing/demo.mp4. The recording has a
+   * thin dark band at top + bottom (macOS title-bar / window chrome
+   * artifacts from the screen recording). We scale the video up by
+   * ~12% so those bands fall outside the wrapper's overflow:hidden
+   * box; object-fit:cover keeps the UI centred. */
   width: 100%;
   height: 100%;
   border: 0;
   display: block;
+  object-fit: cover;
+  transform: scale(1.12);
+  transform-origin: center center;
+  pointer-events: none;
 }
 
 /* ---------------------------------------------------------------- *
