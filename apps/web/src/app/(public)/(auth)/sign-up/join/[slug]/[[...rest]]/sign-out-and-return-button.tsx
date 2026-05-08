@@ -33,7 +33,7 @@ export function SignOutAndReturnButton({ slug }: { slug: string }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => void onClick()}
       disabled={pending}
       className={[
         "sk-cta-shine inline-flex min-h-12 w-full items-center justify-center",
