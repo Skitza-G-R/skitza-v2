@@ -43,6 +43,48 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
             : "No spam. We email you when your spot opens."}
         </p>
       </div>
+      <SplitScreen locale={locale} />
+    </div>
+  );
+}
+
+// Chaos↔Skitza split-screen animation. The chaos panel cycles through
+// the four stressors a producer recognizes (random booking ping,
+// confused payment ask, the "FINAL_v7.wav" rabbit hole, a card
+// decline). The Skitza panel shows a single confirmed session card —
+// the calm version. Aria-hidden because it's pure decoration; the
+// hero copy + form are what's announced to screen readers.
+function SplitScreen({ locale }: { locale: "en" | "he" }) {
+  const isHe = locale === "he";
+  return (
+    <div
+      className="get-started-split mt-12 sm:mt-16"
+      aria-hidden
+    >
+      <div className="get-started-split__chaos">
+        <div className="get-started-split__msg get-started-split__msg--1">
+          {isHe ? "פנוי שלישי 19:00?" : "u up to record Tuesday?"}
+        </div>
+        <div className="get-started-split__msg get-started-split__msg--2">
+          {isHe ? "איפה הקישור לתשלום?" : "where's the Stripe link?"}
+        </div>
+        <div className="get-started-split__msg get-started-split__msg--3">
+          FINAL_v7.wav
+        </div>
+        <div className="get-started-split__msg get-started-split__msg--4">
+          DECLINED
+        </div>
+      </div>
+      <div className="get-started-split__calm">
+        <div className="get-started-split__card">
+          <span className="get-started-split__card-title">
+            {isHe ? "סשן · 14.8, 14:00" : "Session — Aug 14, 2:00 PM"}
+          </span>
+          <span className="get-started-split__card-status">
+            {isHe ? "מאושר ✓" : "Confirmed ✓"}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
