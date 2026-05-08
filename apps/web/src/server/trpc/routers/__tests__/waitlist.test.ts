@@ -87,3 +87,24 @@ describe("waitlist.signup — happy path", () => {
     expect(body.email).toBe("yuval@example.com");
   });
 });
+
+describe("waitlist.signup — honeypot", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    process.env.MAKE_WAITLIST_WEBHOOK_URL = "https://hook.test/abc";
+  });
+
+  afterEach(() => {
+    delete process.env.MAKE_WAITLIST_WEBHOOK_URL;
+  });
+
+  it("returns ok WITHOUT firing the webhook when company field is non-empty", async () => {
+    const result = await caller.signup({
+      email: "bot@spam.com",
+      locale: "en",
+      company: "definitely-a-bot",
+    });
+    expect(result).toEqual({ status: "ok" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
