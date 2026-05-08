@@ -80,18 +80,19 @@ export const waitlistRouter = router({
         });
       }
 
+      // Webhook payload — minimal by request: only what Make.com needs
+      // to insert a row into Airtable. Server-side fields (IP, UA,
+      // locale, UTMs) are still captured for rate-limiting, but they
+      // don't ride the wire. Future additions belong here only if
+      // the founder confirms Make/Airtable needs them.
       const payload = {
         email: input.email,
         firstName: input.firstName ?? null,
-        locale: input.locale,
-        utmSource: input.utm?.source ?? null,
-        utmMedium: input.utm?.medium ?? null,
-        utmCampaign: input.utm?.campaign ?? null,
-        referrer: input.referrer ?? null,
-        userAgent,
-        ipAddress: ip,
-        signedUpAt: new Date().toISOString(),
       };
+      // Reference the rate-limit-only locals so the linter doesn't
+      // flag them as unused.
+      void userAgent;
+      void ip;
 
       const controller = new AbortController();
       const timer = setTimeout(() => {

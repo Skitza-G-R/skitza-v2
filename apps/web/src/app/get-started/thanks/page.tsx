@@ -69,6 +69,16 @@ export default async function ThanksPage({
           Beta opens soon. We&apos;ll email you the moment your spot opens
           — usually a few weeks, not months.
         </p>
+        {/* In-funnel back button — /get-started is allowed by the
+            isolation rule (§3.5). Gives the visitor somewhere to go
+            after the success message instead of a dead-end page. */}
+        <a
+          href="/get-started"
+          className="btn-primary"
+          style={{ marginTop: 32, textDecoration: "none" }}
+        >
+          ← Back to Skitza
+        </a>
       </div>
     </main>
   );

@@ -468,32 +468,64 @@ body:has(.get-started-root) {
  * ---------------------------------------------------------------- */
 
 .get-started-root .get-started-demo-body {
+  /* Aspect ratio matches /landing/demo.mp4 EXACTLY (1488×806).
+   * Setting aspect-ratio + object-fit: cover means the video fills
+   * the body with no cropping AND no letterbox — width and height
+   * scale together as the right column resizes. */
   position: relative;
   width: 100%;
-  height: 460px;
+  aspect-ratio: 1488 / 806;
   background: #111009;
   overflow: hidden;
 }
 
-@media (max-width: 768px) {
-  .get-started-root .get-started-demo-body {
-    height: 360px;
+/* Demo column shift — push the demo right on desktop so it tucks
+ * toward the viewport edge for a fuller "look at the product" feel.
+ * On mobile the hero stacks vertically (single column) and the
+ * shift would cause horizontal overflow, so it's desktop-only. */
+@media (min-width: 1024px) {
+  .get-started-root .gs-demo-shift {
+    margin-left: 14%;
   }
 }
 
+/* Disable scroll-reveal opacity-0 default inside the funnel.
+ * The homepage uses .sk-reveal-* with opacity:0 + IntersectionObserver
+ * → opacity:1 once visible. On a focused funnel this just means
+ * elements look "missing" if the IO callback hasn't fired yet
+ * (Playwright screenshots, slow scrolling, prefers-reduced-motion).
+ * Force everything visible from the start; transforms still apply
+ * if the IO does fire later — no jump because we're at rest already. */
+.get-started-root .sk-reveal,
+.get-started-root .sk-reveal-left,
+.get-started-root .sk-reveal-right,
+.get-started-root .sk-reveal-scale {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* Override the homepage's 3-D tilt + perspective on the peek frame.
+ * The tilt looks great on the marketing-mock peek (which is HTML
+ * cards with no detail) but anti-aliases video edges into blur. The
+ * funnel needs the video crisp; flat axis-aligned rendering avoids
+ * subpixel softness. */
+.get-started-root .hero-peek-frame {
+  transform: none;
+  perspective: none;
+  transform-style: flat;
+}
+
 .get-started-root .get-started-demo-iframe {
-  /* Native <video> playing /landing/demo.mp4. The recording has a
-   * thin dark band at top + bottom (macOS title-bar / window chrome
-   * artifacts from the screen recording). We scale the video up by
-   * ~12% so those bands fall outside the wrapper's overflow:hidden
-   * box; object-fit:cover keeps the UI centred. */
+  /* Native <video> playing /landing/demo.mp4. Per founder feedback:
+   * NO crop, NO transform — render the recording exactly as captured.
+   * object-fit: cover so it fills the frame with the natural aspect
+   * ratio (slight crop only if the wrapper aspect mismatches; no
+   * letterboxing). */
   width: 100%;
   height: 100%;
   border: 0;
   display: block;
   object-fit: cover;
-  transform: scale(1.12);
-  transform-origin: center center;
   pointer-events: none;
 }
 

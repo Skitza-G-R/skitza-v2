@@ -25,14 +25,23 @@ interface HeroLine {
   amberDotOnLastWord?: boolean;
 }
 
+// 4-line layout: "You're a" / "producer." / "Not an" / "assistant."
+// Each sentence-ending period gets the amber accent dot. Splitting
+// into 4 short lines (instead of 2 longer ones) lets the headline
+// fit comfortably in the narrow 30 % copy column without wrapping
+// mid-word.
 const EN_LINES: HeroLine[] = [
-  { words: ["You’re", "a", "producer."] },
-  { words: ["Not", "an", "assistant."], amberDotOnLastWord: true },
+  { words: ["You’re", "a"] },
+  { words: ["producer."], amberDotOnLastWord: true },
+  { words: ["Not", "an"] },
+  { words: ["assistant."], amberDotOnLastWord: true },
 ];
 
 const HE_LINES: HeroLine[] = [
-  { words: ["אתה", "מפיק."] },
-  { words: ["לא", "מזכירה."], amberDotOnLastWord: true },
+  { words: ["אתה"] },
+  { words: ["מפיק."], amberDotOnLastWord: true },
+  { words: ["לא"] },
+  { words: ["מזכירה."], amberDotOnLastWord: true },
 ];
 
 export function HeroSection({ locale }: { locale: "en" | "he" }) {
@@ -47,10 +56,17 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
       className="relative overflow-hidden"
       style={{ background: "transparent", color: "#F2EDE6", padding: "48px 20px 72px" }}
     >
-      <div className="animate-shine" />
-      <div className="hero-grid-bg is-dark absolute inset-0 pointer-events-none opacity-100" />
+      {/* No animate-shine, no masked .hero-grid-bg here — those create
+          a visible seam where the hero's effects end and the
+          page-wide grid begins. The page-wide grid (set on
+          .get-started-root::before, fixed-position) covers this
+          section uniformly. */}
 
-      <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-2 lg:gap-16">
+      {/* Asymmetric grid — copy column 30%, demo column 70%. The
+          homepage uses 50/50; the funnel weights heavily toward the
+          demo because that's the conversion lever (see what they're
+          getting). */}
+      <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[30%_70%] lg:gap-10">
         {/* Left — copy + form */}
         <div className="sk-reveal-left">
           <div
@@ -74,21 +90,23 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
           <h1
             className="font-syne m-0 font-extrabold"
             style={{
-              fontSize: "clamp(40px, 5vw, 68px)",
+              fontSize: "clamp(36px, 4.5vw, 64px)",
               letterSpacing: "-0.038em",
               lineHeight: 0.98,
             }}
           >
             {lines.map((line, lineIdx) => {
-              const isLastLine = lineIdx === lines.length - 1;
               return (
-                <span key={lineIdx} className="block">
+                <span
+                  key={lineIdx}
+                  className="block"
+                  style={{ whiteSpace: "nowrap" }}
+                >
                   {line.words.map((word, wIdx) => {
                     const i = wordIndex++;
                     const isLastWord = wIdx === line.words.length - 1;
                     const trailingSpace = wIdx < line.words.length - 1;
                     if (
-                      isLastLine &&
                       isLastWord &&
                       line.amberDotOnLastWord === true
                     ) {
@@ -200,7 +218,9 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
 // page padding is hidden behind the chrome frame.
 function HeroDemoPeek() {
   return (
-    <div className="sk-reveal-right sk-d-1 sk-float-slow relative">
+    <div
+      className="sk-reveal-right sk-d-1 sk-float-slow relative gs-demo-shift"
+    >
       <div
         className="hero-peek-frame relative overflow-hidden rounded-2xl"
         style={{

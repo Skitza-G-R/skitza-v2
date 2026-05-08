@@ -64,14 +64,13 @@ describe("waitlist.signup — happy path", () => {
     expect(init.method).toBe("POST");
     expect(init.headers).toMatchObject({ "Content-Type": "application/json" });
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(body).toMatchObject({
+    // Webhook payload is intentionally minimal — email + firstName
+    // only. Locale, UTMs, IP, UA, timestamp are captured server-side
+    // for rate limiting but NOT sent to Make.com.
+    expect(body).toEqual({
       email: "yuval@example.com",
       firstName: "Yuval",
-      locale: "en",
-      ipAddress: "203.0.113.42",
-      userAgent: "Mozilla/5.0 (Test)",
     });
-    expect(body.signedUpAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("normalizes email to lowercase + trimmed", async () => {

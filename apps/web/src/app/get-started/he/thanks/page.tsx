@@ -55,6 +55,13 @@ export default async function ThanksPageHe({
         <p className="body-lg" style={{ maxWidth: 520, marginTop: 8 }}>
           הביטא נפתחת בקרוב. נשלח לך מייל ברגע שהמקום שלך מתפנה.
         </p>
+        <a
+          href="/get-started/he"
+          className="btn-primary"
+          style={{ marginTop: 32, textDecoration: "none" }}
+        >
+          חזרה לסקיצה →
+        </a>
       </div>
     </div>
   );

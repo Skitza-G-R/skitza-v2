@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type SyntheticEvent } from "react";
+import { useId, useState, useTransition, type SyntheticEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { submitWaitlist } from "../actions";
@@ -22,6 +22,13 @@ export function WaitlistForm({
   const [firstName, setFirstName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // Unique IDs per form instance — the funnel renders two
+  // <WaitlistForm>s (hero + final CTA), so hardcoded IDs would
+  // duplicate across the page (a11y violation, label-for breakage).
+  const formId = useId();
+  const emailId = `waitlist-email-${formId}`;
+  const firstNameId = `waitlist-first-name-${formId}`;
 
   const isHe = locale === "he";
 
@@ -56,26 +63,26 @@ export function WaitlistForm({
 
   return (
     <form className="gs-form" onSubmit={onSubmit} noValidate>
-      <label className="sr-only" htmlFor="waitlist-email">
+      <label className="sr-only" htmlFor={emailId}>
         {isHe ? "אימייל" : "Email"}
       </label>
       <input
-        id="waitlist-email"
+        id={emailId}
         className="gs-input"
         type="email"
         required
         autoComplete="email"
-        placeholder={isHe ? "your@email.com" : "your@email.com"}
+        placeholder="your@email.com"
         value={email}
         onChange={(e) => {
           setEmail(e.target.value);
         }}
       />
-      <label className="sr-only" htmlFor="waitlist-first-name">
+      <label className="sr-only" htmlFor={firstNameId}>
         {isHe ? "שם פרטי" : "First name (optional)"}
       </label>
       <input
-        id="waitlist-first-name"
+        id={firstNameId}
         className="gs-input"
         type="text"
         autoComplete="given-name"
