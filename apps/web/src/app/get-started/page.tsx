@@ -3,6 +3,7 @@ import "~/styles/get-started.css";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
+import { HeroSection } from "./_components/hero-section";
 import { StaticLogo } from "./_components/static-logo";
 
 // Ad-traffic destination — the route group's layout already sets
@@ -24,7 +25,7 @@ export default async function GetStartedPage() {
           stable section ids are used by the test (page.test.tsx) and
           by the in-page anchors in CTA copy. */}
       <section id="hero" className="px-6 py-12">
-        {/* Task 13 — hero copy + form */}
+        <HeroSection locale="en" />
       </section>
       <section id="demo" className="px-6 py-16 sm:py-20">
         {/* Task 15 — demo video */}
