@@ -49,7 +49,7 @@ export default async function CalendarPage({
   let meetingsAutoConfirm = false;
   if (active === "meetings") {
     const [pending, upcoming, settings] = await Promise.all([
-      caller.booking.list({ status: "pending" }),
+      caller.booking.list({ status: "pending_approval" }),
       caller.booking.upcoming({ days: 14 }),
       caller.booking.availability.getSettings(),
     ]);
@@ -61,6 +61,10 @@ export default async function CalendarPage({
       durationMin: b.durationMin,
       message: b.notes,
       packageName: b.packageNameSnapshot,
+      // Mirrors the branching in booking.confirm: when there's a product
+      // attached and no existing project, approval lands the booking in
+      // `pending_payment` rather than `confirmed`.
+      needsPayment: b.productId !== null && b.projectId === null,
     }));
     upcomingMeetings = upcoming.map((b) => ({
       id: b.id,
@@ -87,7 +91,7 @@ export default async function CalendarPage({
           durationMin: b.durationMin,
           artistName: b.artistName,
           packageName: b.packageNameSnapshot,
-          status: "pending",
+          status: "pending_approval",
         })),
       ...upcoming
         .filter((b) => inWeek(b.startsAt))

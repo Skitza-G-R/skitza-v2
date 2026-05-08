@@ -461,8 +461,10 @@ function statusLabel(status: string): string {
   switch (status) {
     case "confirmed":
       return "Confirmed";
-    case "pending":
+    case "pending_approval":
       return "Pending";
+    case "pending_payment":
+      return "Awaiting Payment";
     case "rejected":
       return "Rejected";
     case "cancelled":

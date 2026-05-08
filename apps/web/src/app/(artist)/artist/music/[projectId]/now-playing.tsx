@@ -178,9 +178,11 @@ export function NowPlaying({ data }: { data: NowPlayingData }) {
               const isPast = date < new Date();
               const statusLabel = isPast
                 ? "Completed"
-                : session.status === "pending"
+                : session.status === "pending_approval"
                   ? "Pending approval"
-                  : "Upcoming";
+                  : session.status === "pending_payment"
+                    ? "Awaiting payment"
+                    : "Upcoming";
               return (
                 <li
                   key={session.id}

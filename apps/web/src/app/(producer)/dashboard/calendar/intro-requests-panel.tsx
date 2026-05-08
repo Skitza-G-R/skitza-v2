@@ -10,7 +10,8 @@
 //   - Accept / Decline buttons that fire the same server actions the
 //     classic Pending list uses, with optimistic removal on success
 //
-// Pure visual; data comes from the page (booking.list({ status: "pending" })).
+// Pure visual; data comes from the page
+// (booking.list({ status: "pending_approval" })).
 
 import { useState, useTransition } from "react";
 
@@ -26,6 +27,12 @@ export type IntroRequest = {
   durationMin: number;
   message: string | null;
   packageName: string | null;
+  // True when approving moves the booking to `pending_payment` rather
+  // than straight to `confirmed` — the artist still owes money for a
+  // productized booking that doesn't have an existing project (and
+  // therefore no prior payment) attached. Drives the Accept/Approve
+  // button copy + the post-action toast.
+  needsPayment: boolean;
 };
 
 export function IntroRequestsPanel({
@@ -56,7 +63,11 @@ export function IntroRequestsPanel({
         return;
       }
       toast(
-        kind === "confirm" ? "Booking confirmed." : "Booking rejected.",
+        kind === "reject"
+          ? "Booking rejected."
+          : row.needsPayment
+            ? "Approved — awaiting artist payment."
+            : "Booking confirmed.",
         "success",
       );
     });
@@ -125,7 +136,7 @@ export function IntroRequestsPanel({
                   className="inline-flex h-7 flex-1 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-primary))] px-2 text-[0.66rem] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:opacity-50"
                   style={{ fontWeight: 700 }}
                 >
-                  Accept
+                  {row.needsPayment ? "Approve" : "Accept"}
                 </button>
                 <button
                   type="button"

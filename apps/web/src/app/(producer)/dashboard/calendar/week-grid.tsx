@@ -26,7 +26,7 @@ export type ScheduleSession = {
   durationMin: number;
   artistName: string;
   packageName: string | null;
-  status: "pending" | "confirmed";
+  status: "pending_approval" | "confirmed";
 };
 
 export function WeekGrid({ sessions }: { sessions: ScheduleSession[] }) {
@@ -203,7 +203,7 @@ function SessionBlock({ session }: { session: ScheduleSession }) {
     24,
     (session.durationMin / 60) * HOUR_ROW_PX - 4,
   );
-  const isPending = session.status === "pending";
+  const isPending = session.status === "pending_approval";
   const timeLabel = dt.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",

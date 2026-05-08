@@ -58,7 +58,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     caller.producer.today(),
     caller.producer.me(),
     caller.booking.needsFollowUp(),
-    caller.booking.list({ status: "pending" }),
+    caller.booking.list({ status: "pending_approval" }),
     caller.producer.overview.urgent(),
   ]);
 

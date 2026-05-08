@@ -229,32 +229,36 @@ const buildCaller = async (userId: string | null = "user_test_confirm") => {
 };
 
 // Seeds the happy-path queues: producer middleware + booking row (no
-// existing project link) + product (for the email side-effect).
+// existing project link) + producer row (for the email side-effect).
+//
+// `productId` is null here because booking.confirm now routes
+// (productId !== null && projectId === null) to `pending_payment` and
+// skips auto-project creation. The confirmed-branch auto-project flow
+// these tests cover only fires for product-less bookings (a producer-
+// created session with no Stripe-checkout product attached) and for
+// returning artists whose project already exists (covered by the
+// idempotency test below).
 function seedPendingBookingNoProject(overrides: { booking?: Partial<Row> } = {}) {
   producerSelectQueue.push([{ id: PRODUCER_ID }]);
   bookingSelectQueue.push([
     {
       id: BOOKING_ID,
       producerId: PRODUCER_ID,
-      status: "pending",
+      status: "pending_approval",
       artistName: "Alice Artist",
       artistEmail: "alice@example.com",
       startsAt: new Date("2026-05-01T15:00:00Z"),
       durationMin: 120,
-      productId: PRODUCT_ID,
+      productId: null,
       packageNameSnapshot: "Mix — 2 hours",
       projectId: null,
       ...(overrides.booking ?? {}),
     },
   ]);
-  // The email-path fetches producers (displayName/timezone/currency)
-  // and products (name/priceCents/currency/depositPct) after status
-  // transition. Seed both so the path doesn't unwind.
+  // Email-path producer fetch. autopilotWelcomeEmail is unset → falsy,
+  // so the email branch short-circuits before fetching products.
   producerSelectQueue.push([
     { displayName: "Bob Producer", timezone: "UTC", defaultCurrency: "USD" },
-  ]);
-  productSelectQueue.push([
-    { name: "Mix — 2 hours", priceCents: 20000, currency: "USD", depositPct: 50 },
   ]);
 }
 
@@ -329,7 +333,7 @@ describe("booking.confirm auto-project creation", () => {
       {
         id: BOOKING_ID,
         producerId: PRODUCER_ID,
-        status: "pending",
+        status: "pending_approval",
         artistName: "Alice Artist",
         artistEmail: "alice@example.com",
         startsAt: new Date("2026-05-01T15:00:00Z"),
@@ -361,7 +365,7 @@ describe("booking.confirm auto-project creation", () => {
       {
         id: BOOKING_ID,
         producerId: OTHER_PRODUCER_ID,
-        status: "pending",
+        status: "pending_approval",
         artistName: "Alice Artist",
         artistEmail: "alice@example.com",
         startsAt: new Date("2026-05-01T15:00:00Z"),
@@ -392,7 +396,7 @@ describe("booking.confirm auto-project creation", () => {
       {
         id: BOOKING_ID,
         producerId: PRODUCER_ID,
-        status: "pending",
+        status: "pending_approval",
         artistName: "Zoe Artist",
         artistEmail: "zoe@example.com",
         startsAt: new Date("2026-05-01T15:00:00Z"),

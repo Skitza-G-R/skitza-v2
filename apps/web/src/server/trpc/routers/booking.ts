@@ -851,7 +851,7 @@ export const bookingRouter = router({
       .where(
         and(
           eq(bookings.producerId, ctx.producerId),
-          inArray(bookings.status, ["pending", "confirmed"]),
+          inArray(bookings.status, ["pending_approval", "pending_payment", "confirmed"]),
         ),
       );
     if (bookingRows.length === 0) {
@@ -952,7 +952,15 @@ export const bookingRouter = router({
     .input(
       z
         .object({
-          status: z.enum(["pending", "confirmed", "rejected", "cancelled"]).optional(),
+          status: z
+            .enum([
+              "pending_approval",
+              "pending_payment",
+              "confirmed",
+              "rejected",
+              "cancelled",
+            ])
+            .optional(),
         })
         .optional(),
     )
@@ -994,13 +1002,32 @@ export const bookingRouter = router({
       if (existing.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      if (existing.status !== "pending") {
+      if (existing.status !== "pending_approval") {
         if (existing.status === "confirmed") return { ok: true as const };
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `Cannot confirm a ${existing.status} booking`,
         });
       }
+
+      // Producer "Approve" branches on whether the booking still owes
+      // money. A booking with a productId AND no project yet is a fresh,
+      // unpaid engagement — approval moves it to `pending_payment` and we
+      // skip auto-project creation + the confirmation email until the
+      // artist actually pays. A booking that already has a linked project
+      // is a returning-artist follow-up (already paid for the engagement),
+      // so we go straight to `confirmed` and run the auto-project +
+      // welcome-email side effects as before.
+      const needsPayment =
+        existing.productId !== null && existing.projectId === null;
+      if (needsPayment) {
+        await ctx.db
+          .update(bookings)
+          .set({ status: "pending_payment", statusChangedAt: new Date() })
+          .where(eq(bookings.id, input.id));
+        return { ok: true as const };
+      }
+
       await ctx.db
         .update(bookings)
         .set({ status: "confirmed", statusChangedAt: new Date() })
@@ -1167,7 +1194,7 @@ export const bookingRouter = router({
       if (existing.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      if (existing.status !== "pending") {
+      if (existing.status !== "pending_approval") {
         if (existing.status === "rejected") return { ok: true as const };
         throw new TRPCError({
           code: "BAD_REQUEST",

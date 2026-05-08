@@ -341,7 +341,11 @@ const musicSubrouter = router({
         .where(
           and(
             eq(bookings.projectId, project.id),
-            inArray(bookings.status, ["pending", "confirmed"]),
+            inArray(bookings.status, [
+              "pending_approval",
+              "pending_payment",
+              "confirmed",
+            ]),
           ),
         )
         .orderBy(asc(bookings.startsAt));
@@ -563,7 +567,11 @@ const bookSubrouter = router({
           .where(
             and(
               eq(bookings.producerId, input.producerId),
-              inArray(bookings.status, ["pending", "confirmed"]),
+              inArray(bookings.status, [
+                "pending_approval",
+                "pending_payment",
+                "confirmed",
+              ]),
               gte(bookings.startsAt, today),
               lte(bookings.startsAt, horizon),
             ),
@@ -712,7 +720,11 @@ const bookSubrouter = router({
         .where(
           and(
             eq(bookings.producerId, input.producerId),
-            inArray(bookings.status, ["pending", "confirmed"]),
+            inArray(bookings.status, [
+              "pending_approval",
+              "pending_payment",
+              "confirmed",
+            ]),
             gte(
               bookings.startsAt,
               new Date(startsAt.getTime() - 24 * 60 * 60 * 1000),
@@ -734,9 +746,11 @@ const bookSubrouter = router({
       }
 
       // 4. Insert. Bookings created via the artist self-serve flow land
-      //    in `pending` so the producer's Calendar → Meetings → Pending
-      //    approvals queue is the gate; producer-side booking.confirm is
-      //    what flips to `confirmed` and triggers auto-project creation.
+      //    in `pending_approval` so the producer's Calendar → Meetings →
+      //    Pending approvals queue is the gate; producer-side
+      //    booking.confirm is what flips it to `pending_payment` (when
+      //    payment is still owed) or `confirmed` (returning artist with
+      //    an existing project), and triggers auto-project creation.
       const [row] = await ctx.db
         .insert(bookings)
         .values({
@@ -745,7 +759,7 @@ const bookSubrouter = router({
           artistName: contact.name,
           startsAt,
           durationMin: input.durationMin,
-          status: "pending",
+          status: "pending_approval",
           statusChangedAt: new Date(),
           projectId: input.projectId,
           productId: input.productId,

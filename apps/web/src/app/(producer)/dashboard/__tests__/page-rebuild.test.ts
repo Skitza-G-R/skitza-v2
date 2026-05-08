@@ -175,8 +175,10 @@ describe("Today page — Phase 4 populated layout", () => {
     );
   });
 
-  it("calls booking.list with status='pending' for the approvals card", () => {
-    expect(pageSource).toContain('caller.booking.list({ status: "pending" })');
+  it("calls booking.list with status='pending_approval' for the approvals card", () => {
+    expect(pageSource).toContain(
+      'caller.booking.list({ status: "pending_approval" })',
+    );
   });
 });
 

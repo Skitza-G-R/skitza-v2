@@ -243,7 +243,8 @@ export type NewBlackout = typeof availabilityBlackouts.$inferInsert;
 // all statuses in one table (vs. a separate `booking_requests`) keeps
 // the audit trail + producer dashboard single-source-of-truth.
 export const bookingStatus = pgEnum("booking_status", [
-  "pending",
+  "pending_approval",
+  "pending_payment",
   "confirmed",
   "rejected",
   "cancelled",
@@ -270,7 +271,7 @@ export const bookings = pgTable("bookings", {
   notes: text("notes"),
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
   durationMin: integer("duration_min").notNull(),
-  status: bookingStatus("status").notNull().default("pending"),
+  status: bookingStatus("status").notNull().default("pending_approval"),
   statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
   // Phase H.4c — reminder dispatch markers. Nullable timestamp = "not
   // sent yet"; the cron at /api/cron/session-reminders stamps the
