@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { buildTranzilaIframeUrl } from "~/lib/tranzila";
 import { appRouter } from "~/server/trpc/routers/_app";
+import { PaymentIframe } from "./payment-iframe";
 
 type PageProps = {
   params: Promise<{ bookingId: string }>;
@@ -103,14 +104,7 @@ export default async function PaymentPage({ params, searchParams }: PageProps) {
       ) : null}
 
       {/* Tranzila iframe — PCI scope stays with Tranzila. */}
-      <div className="overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-white">
-        <iframe
-          src={tranzilaUrl}
-          title="Tranzila payment"
-          className="block w-full"
-          style={{ minHeight: 480, border: "none" }}
-        />
-      </div>
+      <PaymentIframe iframeUrl={tranzilaUrl} bookingId={bookingId} />
 
       <p className="px-1 text-center text-[11px] text-[rgb(var(--fg-muted))]">
         Secured by Tranzila · SSL encrypted

@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Tranzila redirects the artist back here on success (GET) and also
@@ -32,39 +30,41 @@ async function handle(
   }
 }
 
-export async function GET(request: Request): Promise<Response> {
-  console.log("[tranzila callback]", {
-    url: request.url,
-    params: Object.fromEntries(new URL(request.url).searchParams),
-  });
+export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const bookingId = searchParams.get("bookingId");
   const status = searchParams.get("status");
-  // Tranzila appends ConfirmationCode + Response on success.
-  const confirmationCode = searchParams.get("ConfirmationCode");
+
+  console.log("[tranzila callback]", {
+    url: request.url,
+    params: Object.fromEntries(searchParams),
+  });
 
   if (!bookingId) {
-    return NextResponse.redirect(new URL("/artist", request.url));
+    return Response.json(
+      { ok: false, error: "missing bookingId" },
+      { status: 400 },
+    );
   }
 
-  // fail_url in tranzila.ts targets this same route with status=fail.
-  // Without this guard, a cancel/decline would land here and confirm the
-  // booking — we explicitly short-circuit to the payment page instead.
   if (status === "fail") {
-    return NextResponse.redirect(
-      new URL(`/artist/payment/${bookingId}?error=payment_failed`, request.url),
+    return Response.json(
+      { ok: false, error: "payment_failed" },
+      { status: 400 },
     );
   }
 
-  const { ok } = await handle(bookingId, confirmationCode);
-  if (ok) {
-    return NextResponse.redirect(
-      new URL("/artist?payment=success", request.url),
+  try {
+    const caller = appRouter.createCaller({ userId: null });
+    await caller.booking.confirmAfterPayment({ bookingId });
+    return Response.json({ ok: true });
+  } catch (err) {
+    console.error("[tranzila] confirmAfterPayment failed", err);
+    return Response.json(
+      { ok: false, error: "confirm_failed" },
+      { status: 500 },
     );
   }
-  return NextResponse.redirect(
-    new URL(`/artist/payment/${bookingId}?error=payment_failed`, request.url),
-  );
 }
 
 export async function POST(request: Request): Promise<Response> {
