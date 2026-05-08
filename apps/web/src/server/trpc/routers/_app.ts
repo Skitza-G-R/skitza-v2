@@ -7,6 +7,7 @@ import { healthRouter } from "./health";
 import { inboxRouter } from "./inbox";
 import { libraryRouter } from "./library";
 import { paletteRouter } from "./palette";
+import { paymentRouter } from "./payment";
 import { portfolioRouter } from "./portfolio";
 import { producerRouter } from "./producer";
 import { producerExternalLinksRouter } from "./producer-external-links";
@@ -24,6 +25,7 @@ export const appRouter = router({
   inbox: inboxRouter,
   library: libraryRouter,
   palette: paletteRouter,
+  payment: paymentRouter,
   portfolio: portfolioRouter,
   producer: producerRouter,
   producerExternalLinks: producerExternalLinksRouter,

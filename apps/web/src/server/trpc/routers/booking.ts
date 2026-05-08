@@ -20,9 +20,10 @@ import {
   sql,
   type Product,
 } from "@skitza/db";
+import { createDb } from "@skitza/db";
 import { z } from "zod";
 
-import { router } from "../init";
+import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import {
@@ -1170,6 +1171,184 @@ export const bookingRouter = router({
       }
 
       return { ok: true as const };
+    }),
+
+  // Public — called from the Tranzila callback handler at
+  // /api/tranzila/callback. We can't gate on a signed-in artist because
+  // Tranzila's server-to-server `notify_url` POST has no Clerk session.
+  //
+  // SECURITY: The current shape trusts that anyone hitting this with a
+  // valid `bookingId + status=success` actually paid. Real Tranzila
+  // integrations call Tranzila's `confirm.php` verification endpoint
+  // with the txn id to confirm the charge cleared. For MVP we accept the
+  // bookingId at face value; a follow-up should verify against
+  // tranzila so a guessed UUID can't flip a booking to confirmed.
+  // TODO(payments): verify with Tranzila's confirm.php API.
+  confirmAfterPayment: publicProcedure
+    .input(
+      z.object({
+        bookingId: z.string().uuid(),
+        tranzilaConfirmationCode: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "missing DATABASE_URL",
+        });
+      }
+      const db = createDb(dbUrl);
+
+      const [existing] = await db
+        .select({
+          id: bookings.id,
+          producerId: bookings.producerId,
+          status: bookings.status,
+          artistName: bookings.artistName,
+          artistEmail: bookings.artistEmail,
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+          productId: bookings.productId,
+          packageNameSnapshot: bookings.packageNameSnapshot,
+          projectId: bookings.projectId,
+        })
+        .from(bookings)
+        .where(eq(bookings.id, input.bookingId))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // Idempotent — if the artist re-hits the success URL after the
+      // booking already flipped, just return the existing project id.
+      if (existing.status === "confirmed") {
+        return { ok: true as const, projectId: existing.projectId };
+      }
+      if (existing.status !== "pending_payment") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Cannot confirm payment on ${existing.status} booking`,
+        });
+      }
+
+      await db
+        .update(bookings)
+        .set({ status: "confirmed", statusChangedAt: new Date() })
+        .where(eq(bookings.id, input.bookingId));
+
+      // Auto-provision a project — same shape as booking.confirm's
+      // auto-project block. Idempotent on existing.projectId so a
+      // duplicate callback (browser redirect AND notify_url POST) only
+      // inserts once.
+      let projectId = existing.projectId;
+      if (!projectId) {
+        const title =
+          existing.packageNameSnapshot && existing.packageNameSnapshot.length > 0
+            ? existing.packageNameSnapshot
+            : `Session with ${existing.artistName}`;
+        const lowerEmail = existing.artistEmail.trim().toLowerCase();
+        try {
+          const [projectRow] = await db
+            .insert(projects)
+            .values({
+              producerId: existing.producerId,
+              bookingId: existing.id,
+              title,
+              artistName: existing.artistName,
+              artistEmail: lowerEmail,
+              clientName: existing.artistName,
+              clientEmail: lowerEmail,
+              stage: "booked",
+              depositPaid: false,
+              finalPaid: false,
+            })
+            .returning();
+          if (projectRow) {
+            projectId = projectRow.id;
+            await db
+              .update(bookings)
+              .set({ projectId: projectRow.id })
+              .where(eq(bookings.id, existing.id));
+          }
+        } catch (err) {
+          console.warn("[payment] auto-project insert failed", err);
+        }
+
+        try {
+          const emailHash = createHash("sha256")
+            .update(lowerEmail)
+            .digest("hex");
+          const now = new Date();
+          await db
+            .insert(clientContacts)
+            .values({
+              producerId: existing.producerId,
+              emailHash,
+              email: lowerEmail,
+              name: existing.artistName,
+              firstSeenAt: now,
+              lastSeenAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [clientContacts.producerId, clientContacts.emailHash],
+              set: { name: existing.artistName, lastSeenAt: now },
+            });
+        } catch (err) {
+          console.warn("[payment] client_contacts upsert failed", err);
+        }
+      }
+
+      // Confirmation email — best-effort, gated on autopilot toggle to
+      // match booking.confirm's semantics.
+      try {
+        const [producer] = await db
+          .select({
+            displayName: producers.displayName,
+            timezone: producers.timezone,
+            defaultCurrency: producers.defaultCurrency,
+            autopilotWelcomeEmail: producers.autopilotWelcomeEmail,
+          })
+          .from(producers)
+          .where(eq(producers.id, existing.producerId))
+          .limit(1);
+        if (producer && producer.autopilotWelcomeEmail) {
+          const product = existing.productId
+            ? (
+                await db
+                  .select({
+                    name: products.name,
+                    priceCents: products.priceCents,
+                    currency: products.currency,
+                    depositPct: products.depositPct,
+                  })
+                  .from(products)
+                  .where(eq(products.id, existing.productId))
+                  .limit(1)
+              )[0]
+            : undefined;
+          const priceCents = product?.priceCents ?? 0;
+          const depositPct = product?.depositPct ?? 0;
+          const depositCents = Math.round((priceCents * depositPct) / 100);
+          await sendBookingConfirmedEmail(existing.artistEmail, {
+            artistName: existing.artistName,
+            producerName: producer.displayName ?? "Your producer",
+            productName:
+              product?.name ?? existing.packageNameSnapshot ?? "Session",
+            startsAt: existing.durationMin > 0 ? existing.startsAt : null,
+            producerTimezone: producer.timezone,
+            currency: product?.currency ?? producer.defaultCurrency,
+            priceCents,
+            depositCents,
+          });
+        }
+      } catch (err) {
+        console.warn(
+          "[email] sendBookingConfirmedEmail failed in confirmAfterPayment",
+          err,
+        );
+      }
+
+      return { ok: true as const, projectId };
     }),
 
   reject: producerProcedure

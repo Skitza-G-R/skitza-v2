@@ -769,6 +769,64 @@ const bookSubrouter = router({
 
       return { id: row.id };
     }),
+
+  // Bookings the producer has approved but the artist hasn't paid for
+  // yet. Drives the "Session approved — payment required" banner on
+  // the artist home. Joined to producers + products so the banner can
+  // render the full sentence in one round-trip.
+  //
+  // Amount calc mirrors payment.getPaymentDetails: first paymentPlan
+  // wins, split_50_50 → half, monthly → 1/N, otherwise full price.
+  myPendingPayments: artistProcedure.query(async ({ ctx }) => {
+    const myContacts = await ctx.db
+      .select({ email: clientContacts.email })
+      .from(clientContacts)
+      .where(eq(clientContacts.clerkUserId, ctx.clerkUserId));
+    if (myContacts.length === 0) return { bookings: [] };
+
+    const myEmails = [
+      ...new Set(myContacts.map((c) => c.email.toLowerCase())),
+    ];
+
+    const rows = await ctx.db
+      .select({
+        id: bookings.id,
+        startsAt: bookings.startsAt,
+        producerName: producers.displayName,
+        packageName: bookings.packageNameSnapshot,
+        priceCents: products.priceCents,
+        currency: products.currency,
+        paymentPlans: products.paymentPlans,
+      })
+      .from(bookings)
+      .innerJoin(producers, eq(producers.id, bookings.producerId))
+      .leftJoin(products, eq(products.id, bookings.productId))
+      .where(
+        and(
+          eq(bookings.status, "pending_payment"),
+          inArray(bookings.artistEmail, myEmails),
+        ),
+      )
+      .orderBy(asc(bookings.startsAt));
+
+    const out = rows.map((r) => {
+      const price = r.priceCents ?? 0;
+      const firstPlan = r.paymentPlans?.[0];
+      let amountCents = price;
+      if (firstPlan?.kind === "split_50_50") amountCents = Math.round(price / 2);
+      else if (firstPlan?.kind === "monthly")
+        amountCents = Math.round(price / firstPlan.installments);
+      return {
+        id: r.id,
+        startsAt: r.startsAt,
+        producerName: r.producerName ?? "Producer",
+        packageName: r.packageName ?? "Session",
+        amountCents,
+        currency: r.currency ?? "ILS",
+      };
+    });
+    return { bookings: out };
+  }),
 });
 
 // ─── artist.store sub-router ─────────────────────────────────────────

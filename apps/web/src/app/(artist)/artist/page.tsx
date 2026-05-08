@@ -1,4 +1,5 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
+import Link from "next/link";
 
 import { ActivityFeed } from "~/components/artist/home/activity-feed";
 import { BalanceCard } from "~/components/artist/home/balance-card";
@@ -8,6 +9,18 @@ import { NextSessionCard } from "~/components/artist/home/next-session-card";
 import { UpcomingSessionsCard } from "~/components/artist/home/upcoming-sessions-card";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { WelcomeModal } from "./welcome-modal";
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  ILS: "₪",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+};
+
+function formatAmount(amountCents: number, currency: string): string {
+  const symbol = CURRENCY_SYMBOLS[currency.toUpperCase()] ?? `${currency} `;
+  return `${symbol}${(amountCents / 100).toFixed(2)}`;
+}
 
 // Server Component. Reads everything in one tRPC call (artist.home),
 // then hands typed slices to the four child cards. The artist layout
@@ -22,9 +35,11 @@ export default async function ArtistHomePage() {
   const { userId } = await auth();
   if (!userId) return null;
 
-  const [user, data] = await Promise.all([
+  const caller = appRouter.createCaller({ userId });
+  const [user, data, pendingPayments] = await Promise.all([
     currentUser(),
-    appRouter.createCaller({ userId }).artist.home(),
+    caller.artist.home(),
+    caller.artist.book.myPendingPayments(),
   ]);
 
   // Hero copy. firstName falls back to "there" so a user without a
@@ -57,6 +72,26 @@ export default async function ArtistHomePage() {
         todayLabel={todayLabel}
         statusLine={statusLine}
       />
+      {pendingPayments.bookings.length > 0 ? (
+        <div className="space-y-2">
+          {pendingPayments.bookings.map((booking) => (
+            <Link key={booking.id} href={`/artist/payment/${booking.id}`}>
+              <div className="rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.06)] p-4">
+                <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
+                  Session approved — payment required
+                </p>
+                <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
+                  {booking.producerName} · {booking.packageName} ·{" "}
+                  {formatAmount(booking.amountCents, booking.currency)}
+                </p>
+                <p className="mt-2 text-xs font-medium text-[rgb(var(--brand-primary))]">
+                  Complete payment →
+                </p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      ) : null}
       <NextSessionCard session={data.nextSession} />
       <UpcomingSessionsCard sessions={data.upcomingSessions} />
       <LatestMixCard mix={data.latestMix} />
