@@ -1,16 +1,14 @@
 import { appRouter } from "~/server/trpc/routers/_app";
 
-// Tranzila redirects the artist back here on success (GET) and also
-// posts a server-to-server notification (POST). Tranzila is configured
-// with separate success_url and fail_url, so landing on this route at
-// all means Tranzila considered the charge successful — we trigger the
-// booking flip on bookingId presence alone, ignoring our own status
-// param. The mutation is idempotent on already-confirmed rows so a
-// duplicate (browser GET + Tranzila POST) is fine.
+// Tranzila's server-to-server confirmation (notify_url POST). The
+// browser flow now redirects directly to /artist/payment/success — this
+// route only handles the S2S confirmation. confirmAfterPayment is
+// idempotent so a duplicate (browser-side success page + this POST) is
+// fine.
 //
-// SECURITY: trusts the bookingId query param. See the SECURITY note on
-// booking.confirmAfterPayment for the follow-up that should call
-// Tranzila's confirm.php verification endpoint to harden this.
+// SECURITY: trusts the bookingId query/form param. See the SECURITY
+// note on booking.confirmAfterPayment for the follow-up that should
+// call Tranzila's confirm.php verification endpoint to harden this.
 
 async function handle(
   bookingId: string | null,
@@ -27,43 +25,6 @@ async function handle(
   } catch (err) {
     console.error("[tranzila] confirmAfterPayment failed", err);
     return { ok: false };
-  }
-}
-
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const bookingId = searchParams.get("bookingId");
-  const status = searchParams.get("status");
-
-  console.log("[tranzila callback]", {
-    url: request.url,
-    params: Object.fromEntries(searchParams),
-  });
-
-  if (!bookingId) {
-    return Response.json(
-      { ok: false, error: "missing bookingId" },
-      { status: 400 },
-    );
-  }
-
-  if (status === "fail") {
-    return Response.json(
-      { ok: false, error: "payment_failed" },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const caller = appRouter.createCaller({ userId: null });
-    await caller.booking.confirmAfterPayment({ bookingId });
-    return Response.json({ ok: true });
-  } catch (err) {
-    console.error("[tranzila] confirmAfterPayment failed", err);
-    return Response.json(
-      { ok: false, error: "confirm_failed" },
-      { status: 500 },
-    );
   }
 }
 

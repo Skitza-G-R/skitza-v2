@@ -104,7 +104,7 @@ export default async function PaymentPage({ params, searchParams }: PageProps) {
       ) : null}
 
       {/* Tranzila iframe — PCI scope stays with Tranzila. */}
-      <PaymentIframe iframeUrl={tranzilaUrl} bookingId={bookingId} />
+      <PaymentIframe iframeUrl={tranzilaUrl} />
 
       <p className="px-1 text-center text-[11px] text-[rgb(var(--fg-muted))]">
         Secured by Tranzila · SSL encrypted
