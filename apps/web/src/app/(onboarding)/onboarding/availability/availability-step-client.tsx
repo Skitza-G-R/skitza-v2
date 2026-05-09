@@ -315,11 +315,16 @@ export function AvailabilityStepClient({
                   text that still suggests data). The wrapper uses
                   flex-nowrap so adding a 2nd window can't push
                   anything to a 2nd row — the row's height is locked
-                  by `h-9` on the <li>, and the `+` button now lives
+                  by `h-10` on the <li>, and the `+` button now lives
                   OUTSIDE this wrapper so it can never be the thing
-                  that wraps. */}
+                  that wraps. NOTE: NO `min-w-0` here — with
+                  `justify-end` it lets the wrapper shrink below
+                  its content's natural size, after which the
+                  right-aligned pills overflow LEFT and visually
+                  collide with the Copy button. Letting the wrapper
+                  claim its content width keeps a clean gap. */}
               {day.active ? (
-                <div className="ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-1.5">
+                <div className="ml-auto flex flex-nowrap items-center justify-end gap-1.5">
                   {day.windows.map((w, idx) => (
                     <div
                       key={idx}
