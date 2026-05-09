@@ -69,3 +69,65 @@ export async function rejectBooking(input: { id: string }): Promise<ActionResult
     return { ok: false, error: toMessage(err) };
   }
 }
+
+// Availability + blackouts wrappers — mirror the booking-page actions
+// but revalidate the calendar path so updates surface here without a
+// hard refresh. tRPC procs are shared so behaviour is identical.
+
+export async function setAvailabilityWeek(input: {
+  blocks: { weekday: number; startMin: number; endMin: number }[];
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.availability.setWeek(input);
+    revalidatePath(CALENDAR_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function updateAvailabilitySettings(input: {
+  defaultSessionMin?: number;
+  autoConfirmBookings?: boolean;
+  cancellationPolicyHours?: number;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.availability.updateSettings(input);
+    revalidatePath(CALENDAR_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function addBlackout(input: {
+  startDate: string;
+  endDate: string;
+  reason?: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.blackouts.create(input);
+    revalidatePath(CALENDAR_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function removeBlackout(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.blackouts.remove(input);
+    revalidatePath(CALENDAR_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}

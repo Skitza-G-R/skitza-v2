@@ -1,26 +1,32 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import {
-  AvailabilitySection,
-  type AvailabilityBlock,
-  type Blackout,
-  type AvailabilitySettings,
-} from "~/components/dashboard/setup/availability-section";
 import { appRouter } from "~/server/trpc/routers/_app";
 
+import { AvailabilityPanel } from "./availability-panel";
+
 import { CalendarTabs } from "./calendar-tabs";
-import { type CalendarTabKey, isCalendarTab } from "./calendar-tab-key";
-import type { IntroRequest } from "./intro-requests-panel";
-import type { ScheduleSession } from "./week-grid";
-import type { TodayNext } from "./today-card";
-import { MeetingsPanel, type MeetingRow } from "./meetings-panel";
+import {
+  type CalendarTabKey,
+  resolveCalendarTab,
+} from "./calendar-tab-key";
+import { SchedulePanel } from "./schedule-panel";
+import type { ScheduleSession } from "./schedule-week-grid";
+import type { TodaySession } from "./schedule-today-agenda";
+import type { PendingRequest } from "./schedule-pending-card";
+import { SessionsPanel } from "./sessions-panel";
+import type { SessionListItem } from "./session-row";
 
 const META: Record<CalendarTabKey, { title: string; description: string }> = {
-  meetings: {
-    title: "Meetings",
+  schedule: {
+    title: "Calendar",
     description:
-      "Sessions with your artists. Confirm new requests and review what's coming up.",
+      "Your week at a glance — confirmed sessions, pending requests, today's lineup.",
+  },
+  sessions: {
+    title: "Sessions",
+    description:
+      "Every session you've booked — upcoming, past, and the actions you can take per row.",
   },
   availability: {
     title: "Availability",
@@ -32,104 +38,103 @@ const META: Record<CalendarTabKey, { title: string; description: string }> = {
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string | string[] }>;
 }) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const resolved = await searchParams;
-  const active: CalendarTabKey = isCalendarTab(resolved.tab) ? resolved.tab : "meetings";
+  const active = resolveCalendarTab(resolved.tab);
 
   const caller = appRouter.createCaller({ userId });
 
-  let pendingMeetings: IntroRequest[] = [];
-  let upcomingMeetings: MeetingRow[] = [];
+  // -------- Schedule tab data --------
   let scheduleSessions: ScheduleSession[] = [];
-  let todayNext: TodayNext | null = null;
-  let meetingsAutoConfirm = false;
-  if (active === "meetings") {
+  let todaySessions: TodaySession[] = [];
+  let pendingRequests: PendingRequest[] = [];
+  let scheduleAutoConfirm = false;
+  const initialNow = new Date();
+  if (active === "schedule") {
     const [pending, upcoming, settings] = await Promise.all([
       caller.booking.list({ status: "pending_approval" }),
-      caller.booking.upcoming({ days: 14 }),
+      caller.booking.upcoming({ days: 21 }),
       caller.booking.availability.getSettings(),
     ]);
-    pendingMeetings = pending.map((b) => ({
+
+    scheduleAutoConfirm = settings.autoConfirmBookings;
+
+    pendingRequests = pending.map((b) => ({
       id: b.id,
       artistName: b.artistName,
       artistEmail: b.artistEmail,
       startsAt: b.startsAt.toISOString(),
       durationMin: b.durationMin,
-      message: b.notes,
       packageName: b.packageNameSnapshot,
-      // Mirrors the branching in booking.confirm: when there's a product
-      // attached and no existing project, approval lands the booking in
-      // `pending_payment` rather than `confirmed`.
-      needsPayment: b.productId !== null && b.projectId === null,
+      message: b.notes,
+      receivedAtIso: b.createdAt.toISOString(),
     }));
-    upcomingMeetings = upcoming.map((b) => ({
-      id: b.id,
-      artistName: b.artistName,
-      startsAt: b.startsAt.toISOString(),
-      durationMin: b.durationMin,
-      packageName: b.packageName,
-    }));
-    meetingsAutoConfirm = settings.autoConfirmBookings;
 
-    // Schedule grid combines this week's pending + confirmed bookings.
-    // Pending bookings appear in their requested slot so the producer can
-    // see — at a glance — whether incoming requests overlap existing work.
-    const weekStart = startOfWeek(new Date());
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 7);
-    const inWeek = (d: Date) => d >= weekStart && d < weekEnd;
     scheduleSessions = [
-      ...pending
-        .filter((b) => inWeek(b.startsAt))
-        .map<ScheduleSession>((b) => ({
-          id: b.id,
-          startsAt: b.startsAt.toISOString(),
-          durationMin: b.durationMin,
-          artistName: b.artistName,
-          packageName: b.packageNameSnapshot,
-          status: "pending_approval",
-        })),
-      ...upcoming
-        .filter((b) => inWeek(b.startsAt))
-        .map<ScheduleSession>((b) => ({
-          id: b.id,
-          startsAt: b.startsAt.toISOString(),
-          durationMin: b.durationMin,
-          artistName: b.artistName,
-          packageName: b.packageName,
-          status: "confirmed",
-        })),
+      ...pending.map<ScheduleSession>((b) => ({
+        id: b.id,
+        startsAt: b.startsAt.toISOString(),
+        durationMin: b.durationMin,
+        artistName: b.artistName,
+        packageName: b.packageNameSnapshot,
+        status: "pending_approval",
+      })),
+      ...upcoming.map<ScheduleSession>((b) => ({
+        id: b.id,
+        startsAt: b.startsAt.toISOString(),
+        durationMin: b.durationMin,
+        artistName: b.artistName,
+        packageName: b.packageName,
+        status: "confirmed",
+      })),
     ];
 
-    // Today card — the next confirmed session today (start time still
-    // in the future). `upcoming` is already sorted by startsAt asc, so
-    // the first match is the right one.
-    const now = new Date();
-    const endOfToday = new Date(now);
-    endOfToday.setHours(23, 59, 59, 999);
-    const next = upcoming.find(
-      (b) => b.startsAt > now && b.startsAt <= endOfToday,
-    );
-    if (next) {
-      const ends = new Date(next.startsAt.getTime() + next.durationMin * 60_000);
-      todayNext = {
-        id: next.id,
-        artistName: next.artistName,
-        startsAt: next.startsAt.toISOString(),
-        endsAt: ends.toISOString(),
-        packageName: next.packageName,
-      };
-    }
+    // Today's agenda — confirmed sessions whose date matches "today".
+    const startOfToday = new Date(initialNow);
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+    todaySessions = upcoming
+      .filter(
+        (b) => b.startsAt >= startOfToday && b.startsAt < startOfTomorrow,
+      )
+      .map((b) => ({
+        id: b.id,
+        artistName: b.artistName,
+        startsAt: b.startsAt.toISOString(),
+        durationMin: b.durationMin,
+        packageName: b.packageName,
+      }));
   }
 
-  let availabilityBlocks: AvailabilityBlock[] = [];
-  let availabilityBlackouts: Blackout[] = [];
-  let availabilitySettings: AvailabilitySettings = {
-    defaultSessionMin: 60,
+  // -------- Sessions tab data --------
+  let allSessions: SessionListItem[] = [];
+  if (active === "sessions") {
+    const list = await caller.booking.list();
+    allSessions = list.map((b) => ({
+      id: b.id,
+      artistName: b.artistName,
+      artistEmail: b.artistEmail,
+      startsAt: b.startsAt.toISOString(),
+      durationMin: b.durationMin,
+      packageName: b.packageNameSnapshot,
+      status: b.status,
+    }));
+  }
+
+  // -------- Availability tab data --------
+  let availabilityBlocks: { weekday: number; startMin: number; endMin: number }[] = [];
+  let availabilityBlackouts: {
+    id: string;
+    startDate: string;
+    endDate: string;
+    reason: string | null;
+  }[] = [];
+  let availabilitySettings = {
     autoConfirmBookings: false,
     cancellationPolicyHours: 24,
   };
@@ -151,7 +156,6 @@ export default async function CalendarPage({
       reason: b.reason,
     }));
     availabilitySettings = {
-      defaultSessionMin: settings.defaultSessionMin,
       autoConfirmBookings: settings.autoConfirmBookings,
       cancellationPolicyHours: settings.cancellationPolicyHours,
     };
@@ -160,52 +164,65 @@ export default async function CalendarPage({
   const headerMeta = META[active];
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 sm:py-10">
-      {/* Drop the inner card chrome on mobile — at 360px the
-          outer page padding (px-4) plus inner card padding (px-4)
-          left only ~296px of usable width, which squeezed the week
-          grid + meetings sidebar. From sm+ (640px) the
-          card-glow border returns to mark the surface. */}
-      <div className="sk-card-glow rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-lg)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-6 sm:py-6">
-        <header className="reveal-up mb-4">
-          <p className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Calendar
-          </p>
-          <h1
-            key={`title-${active}`}
-            className="reveal-up mt-1 font-display text-2xl leading-tight tracking-tight sm:text-3xl"
-            style={{ fontVariationSettings: '"opsz" 36' }}
-          >
-            {headerMeta.title}
-          </h1>
-          <p
-            key={`desc-${active}`}
-            className="reveal-up mt-1.5 max-w-xl text-xs text-[rgb(var(--fg-secondary))]"
-          >
-            {headerMeta.description}
-          </p>
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
+      {/* Calendar gets a generous canvas — sm+ surfaces the elevated
+          card; mobile drops the chrome to maximise usable width. */}
+      <div className="rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-2xl)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-6 sm:py-7">
+        {/* Header — eyebrow + Syne 800 H1 on the left, segmented tabs
+            on the right at sm+. The sub-line lives inside each panel
+            because Schedule has a dynamic count ("6 sessions · 3
+            pending"). */}
+        <header className="reveal-up mb-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+            <div className="min-w-0">
+              <p className="font-mono text-[10px] tracking-[0.18em] text-[rgb(var(--fg-muted))]" style={{ fontWeight: 700 }}>
+                CALENDAR
+              </p>
+              <h1
+                key={`title-${active}`}
+                className="reveal-up mt-1 font-display text-[34px] leading-[0.95] sm:text-[44px]"
+                style={{
+                  fontWeight: 800,
+                  letterSpacing: "-0.035em",
+                }}
+              >
+                {headerMeta.title}
+              </h1>
+              <p
+                key={`desc-${active}`}
+                className="reveal-up mt-2 max-w-xl text-[13px] text-[rgb(var(--fg-muted))]"
+              >
+                {headerMeta.description}
+              </p>
+            </div>
+            <CalendarTabs active={active} />
+          </div>
         </header>
-
-        <CalendarTabs active={active} />
 
         <div
           key={active}
           id={`calendar-panel-${active}`}
           role="tabpanel"
           aria-labelledby={`calendar-tab-${active}`}
-          className="reveal-up pt-4"
+          className="reveal-up pt-1"
         >
-          {active === "meetings" && (
-            <MeetingsPanel
-              pending={pendingMeetings}
-              upcoming={upcomingMeetings}
-              schedule={scheduleSessions}
-              todayNext={todayNext}
-              autoConfirm={meetingsAutoConfirm}
+          {active === "schedule" && (
+            <SchedulePanel
+              sessions={scheduleSessions}
+              todaySessions={todaySessions}
+              pending={pendingRequests}
+              autoConfirm={scheduleAutoConfirm}
+              initialNow={initialNow.toISOString()}
+            />
+          )}
+          {active === "sessions" && (
+            <SessionsPanel
+              sessions={allSessions}
+              initialNow={initialNow.toISOString()}
             />
           )}
           {active === "availability" && (
-            <AvailabilitySection
+            <AvailabilityPanel
               blocks={availabilityBlocks}
               blackouts={availabilityBlackouts}
               settings={availabilitySettings}
@@ -215,12 +232,4 @@ export default async function CalendarPage({
       </div>
     </div>
   );
-}
-
-function startOfWeek(date: Date): Date {
-  // Sunday-based week — the design uses Sun-Sat columns.
-  const sunday = new Date(date);
-  sunday.setDate(date.getDate() - date.getDay());
-  sunday.setHours(0, 0, 0, 0);
-  return sunday;
 }

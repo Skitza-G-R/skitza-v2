@@ -100,6 +100,17 @@
     --brand-primary-dark: 161 113 6;
     --brand-copper: 176 104 48;
 
+    /* Session-kind accents for the producer Calendar.
+       Used as: `rgb(var(--kind-mix))` for solid stripes and dots,
+       `rgb(var(--kind-mix) / 0.15)` for soft fills. Channel form
+       (no rgb() wrapper) so the alpha syntax works. */
+    --kind-tracking:    212 150 10;   /* #D4960A — amber, also brand */
+    --kind-mix:         124  58 237;  /* #7C3AED — violet */
+    --kind-master:       14 165 233;  /* #0EA5E9 — sky */
+    --kind-intro:        16 185 129;  /* #10B981 — emerald */
+    --kind-songwriting: 236  72 153;  /* #EC4899 — pink */
+    --kind-meeting:     100 116 139;  /* #64748B — slate */
+
     --border-subtle: 232 225 212;
     --border-strong: 200 192 178;
     --border-sidebar: 40 38 35;
