@@ -827,6 +827,20 @@
   .sk-float      { animation: sk-float 5.5s ease-in-out infinite; }
   .sk-float-slow { animation: sk-float 8s ease-in-out infinite; }
 
+  /* Confetti burst — onboarding Done celebration. Each piece falls
+     from the top of the viewport while spinning by a per-piece random
+     rotation set as --confetti-rotate. */
+  @keyframes confetti-fall {
+    0%   { transform: translateY(-12vh) rotate(0deg); opacity: 0; }
+    8%   { opacity: 1; }
+    100% { transform: translateY(110vh) rotate(var(--confetti-rotate, 360deg)); opacity: 1; }
+  }
+  .confetti-piece {
+    border-radius: 1px;
+    animation: confetti-fall linear forwards;
+    will-change: transform, opacity;
+  }
+
   /* ----------------------------------------------------------------
    * Reduced motion — covers every primitive that animates above.
    * The motion-primitives test extracts every reduce block and asserts
@@ -849,7 +863,8 @@
     .sk-toast-in,
     .sk-soft-pulse,
     .sk-float,
-    .sk-float-slow { animation: none !important; }
+    .sk-float-slow,
+    .confetti-piece { animation: none !important; }
     .seal-enter { animation: none; opacity: 1; transform: none; }
 
     .sk-reveal,

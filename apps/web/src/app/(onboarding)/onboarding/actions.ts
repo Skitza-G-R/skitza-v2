@@ -34,13 +34,6 @@ import { appRouter } from "~/server/trpc/routers/_app";
 const Input = z.object({
   displayName: z.string().trim().min(1).max(80),
   timezone: z.string().min(1).max(64),
-  // May 2026 redesign — Step 1 (Identity) captures monogram +
-  // tagline. Both are accepted in the action input but NOT yet
-  // persisted to the producers row — schema migration 0007
-  // (monogram_color + tagline columns) is queued for Raz to apply.
-  // Once 0007 lands, extend the upsert below to write both.
-  monogramColor: z.string().min(1).max(32).optional(),
-  tagline: z.string().max(80).optional(),
 });
 
 const MAX_SLUG_ATTEMPTS = 3;
@@ -56,10 +49,6 @@ function isSlugConflict(err: unknown): boolean {
 export async function completeStudio(input: {
   displayName: string;
   timezone: string;
-  /** Captured by Step 1 redesign UI; persistence pending migration 0007. */
-  monogramColor?: string;
-  /** Captured by Step 1 redesign UI; persistence pending migration 0007. */
-  tagline?: string;
 }): Promise<void> {
   const { userId } = await auth();
   if (!userId) throw new Error("unauthorized");

@@ -1,13 +1,13 @@
 "use client";
 
-import { UploadCloud } from "lucide-react";
+import { Plus, UploadCloud, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
 import {
-  ExternalLinksEditor,
+  PORTFOLIO_PLATFORMS,
   emptyExternalLinksState,
   toLinksPayload,
   type ExternalLinksFormState,
@@ -16,7 +16,6 @@ import {
 
 import { saveExternalLinks } from "./links-actions";
 import {
-  PORTFOLIO_HELPER_COPY,
   PORTFOLIO_STEP_INDEX,
   PORTFOLIO_STEP_SUBTITLE,
   PORTFOLIO_STEP_TITLE,
@@ -25,26 +24,23 @@ import {
   routeOnSkipFromPortfolio,
 } from "./constants";
 
-// Step 4 — A taste of your work. May 2026 redesign.
+// Step 4 — A taste of your work. May 2026 redesign (revised
+// 2026-05-09 — progressive link disclosure + compact upload stub).
 //
-// Two regions:
+// First render shows ONE empty link slot (Spotify) plus a "+ Add another"
+// button. Tapping the button reveals the next platform's input, up to
+// the 3 platforms the DB schema supports today (Spotify / YouTube /
+// Instagram). Producers who only have Spotify get a short, focused
+// form; producers with all three can fill them all.
 //
-//   1. Upload zone — VISUAL STUB only (per Decision #3). The redesign
-//      shows a "Drop a track or click to upload" card; we render a
-//      dashed-border card explaining producers upload tracks from
-//      Setup → Portfolio for now. Real upload waits on the schema FK
-//      fix (track_versions.trackId hardwired to projectTracks instead
-//      of portfolioTracks). Separate brief.
-//
-//   2. Add-links list — uses the existing ExternalLinksEditor (Story
-//      06 shipped) for now. The redesign's LinksList variant (per-row
-//      Save buttons + add-pill chips for unused types) is a follow-up.
-//
-// Continue saves any typed links via saveExternalLinks then advances
-// to /onboarding/payment (Step 5). Skip routes forward without saving.
-//
-// Pure presentation only — wrapped in WizardChrome with the rail
-// pre-highlighting Step 4.
+// Upload zone is a visual stub per Decision #3 — schema FK blocker
+// on track_versions → projectTracks (separate brief).
+
+const PLATFORM_ORDER: PortfolioPlatformKey[] = [
+  "spotify",
+  "youtube",
+  "instagram_reels",
+];
 
 export function PortfolioStepClient() {
   const router = useRouter();
@@ -52,6 +48,12 @@ export function PortfolioStepClient() {
   const [links, setLinks] = useState<ExternalLinksFormState>(
     emptyExternalLinksState,
   );
+  // Which platforms have been "added" (visible). First render = just
+  // Spotify. Tapping "+ Add another" appends the next unrevealed
+  // platform from PLATFORM_ORDER.
+  const [revealed, setRevealed] = useState<PortfolioPlatformKey[]>([
+    "spotify",
+  ]);
   const [error, setError] = useState<string | null>(null);
 
   const updateLink = (key: PortfolioPlatformKey, url: string) => {
@@ -59,10 +61,17 @@ export function PortfolioStepClient() {
     if (error) setError(null);
   };
 
-  const updateTitle = (key: PortfolioPlatformKey, title: string) => {
-    setLinks((prev) => ({ ...prev, [key]: { ...prev[key], title } }));
-    if (error) setError(null);
+  const removeLink = (key: PortfolioPlatformKey) => {
+    setLinks((prev) => ({ ...prev, [key]: { url: "", title: "" } }));
+    setRevealed((prev) => prev.filter((k) => k !== key));
   };
+
+  const addNextPlatform = () => {
+    const next = PLATFORM_ORDER.find((k) => !revealed.includes(k));
+    if (next) setRevealed((prev) => [...prev, next]);
+  };
+
+  const canAddMore = revealed.length < PLATFORM_ORDER.length;
 
   const handleContinue = () => {
     setError(null);
@@ -107,39 +116,68 @@ export function PortfolioStepClient() {
           {PORTFOLIO_STEP_SUBTITLE}
         </p>
 
-        {/* Upload zone — visual stub. Real upload waits on schema fix. */}
-        <div className="mt-6 flex flex-col items-center justify-center gap-2.5 rounded-2xl border-2 border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-6 py-10 text-center">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
-            <UploadCloud size={18} aria-hidden />
+        {/* Compact upload stub */}
+        <div className="mt-5 flex items-center gap-3 rounded-xl border-2 border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-3">
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
+            <UploadCloud size={16} aria-hidden />
           </span>
-          <p className="text-[14px] font-bold text-[rgb(var(--fg-default))]">
-            Track upload — coming soon
-          </p>
-          <p className="max-w-xs text-[12.5px] text-[rgb(var(--fg-muted))]">
-            For now, add your streaming links below. You&apos;ll be able to upload
-            tracks from Setup → Portfolio after onboarding.
-          </p>
+          <div className="flex-1 text-[12.5px]">
+            <div className="font-bold text-[rgb(var(--fg-default))]">
+              Track upload — coming soon
+            </div>
+            <div className="text-[rgb(var(--fg-muted))]">
+              For now, add links below. You&apos;ll upload tracks from Setup
+              → Portfolio after onboarding.
+            </div>
+          </div>
         </div>
 
-        {/* OR divider */}
-        <div className="my-6 flex items-center gap-3">
-          <span className="h-px flex-1 bg-[rgb(var(--border-subtle))]" />
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Add links
-          </span>
-          <span className="h-px flex-1 bg-[rgb(var(--border-subtle))]" />
+        {/* Progressive link list */}
+        <div className="mt-4 flex flex-col gap-2.5">
+          {revealed.map((key) => {
+            const platform = PORTFOLIO_PLATFORMS.find((p) => p.key === key);
+            if (!platform) return null;
+            return (
+              <div
+                key={key}
+                className="flex items-center gap-2 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2"
+              >
+                <span className="w-20 flex-shrink-0 text-[12px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+                  {platform.label}
+                </span>
+                <input
+                  type="url"
+                  value={links[key].url}
+                  onChange={(e) => updateLink(key, e.target.value)}
+                  placeholder={platform.placeholder}
+                  className="flex-1 bg-transparent font-mono text-[13px] text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))]"
+                  disabled={pending}
+                />
+                {revealed.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => removeLink(key)}
+                    aria-label={`Remove ${platform.label}`}
+                    className="sk-pop flex h-7 w-7 items-center justify-center rounded-lg text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))] hover:text-[rgb(var(--fg-default))]"
+                  >
+                    <X size={14} />
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+
+          {canAddMore ? (
+            <button
+              type="button"
+              onClick={addNextPlatform}
+              className="sk-pop flex items-center justify-center gap-1.5 self-start rounded-full border border-dashed border-[rgb(var(--border-strong))] px-3.5 py-1.5 text-[12px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+            >
+              <Plus size={12} aria-hidden />
+              Add another link
+            </button>
+          ) : null}
         </div>
-
-        <p className="mb-3 text-[13px] text-[rgb(var(--fg-muted))]">
-          {PORTFOLIO_HELPER_COPY}
-        </p>
-
-        <ExternalLinksEditor
-          value={links}
-          onChange={updateLink}
-          onTitleChange={updateTitle}
-          disabled={pending}
-        />
 
         {error ? (
           <p

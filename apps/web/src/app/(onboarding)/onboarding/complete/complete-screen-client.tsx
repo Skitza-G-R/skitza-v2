@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 
+import { ConfettiBurst } from "~/components/onboarding/wizard-shell/confetti-burst";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 
 // Step 6 — "You're live." Done celebration. May 2026 redesign.
@@ -86,6 +87,7 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
       completedCount={5}
       stepIndicator="Done"
     >
+      <ConfettiBurst />
       <div className="reveal-up flex flex-col items-center text-center">
         {/* Live-dot pill: gold-tinted bg + pulsing dot. */}
         <span className="mb-7 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
