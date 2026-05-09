@@ -2,18 +2,31 @@ import { auth } from "@clerk/nextjs/server";
 import { createDb, eq, producers } from "@skitza/db";
 import { redirect } from "next/navigation";
 
+import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 import { fetchUserRole } from "~/server/auth/role";
 
 import { decideOnboardingRedirect } from "../decide-redirect";
 import { CompleteScreenClient } from "./complete-screen-client";
 
-// T8 — completion screen. NOT wrapped by OnboardingShell (no progress
-// bar, no header eyebrow, no action bar) — this is the post-wizard
-// celebration moment. The role gate still runs: producer-complete
-// renders, producer-incomplete bounces back to /onboarding/studio
-// (handled by decideOnboardingRedirect's existing non-studio rule).
+// Done — post-Step 5 celebration screen. May 2026 redesign — wrapped
+// in WizardChrome with all 5 rail rows marked completed.
+//
+// Producer-complete renders; producer-incomplete bounces back to
+// /onboarding/studio (handled by decideOnboardingRedirect's existing
+// non-studio rule).
 
-export default async function CompleteScreenPage() {
+export default async function CompleteScreenPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const isPreview = isDevPreviewBypass(params);
+
+  if (isPreview) {
+    return <CompleteScreenClient slug="preview-studio" />;
+  }
+
   const { userId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
