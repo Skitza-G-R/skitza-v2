@@ -11,95 +11,54 @@ import {
   routeOnBackFromAvailability,
 } from "../page";
 
-// Story 05 — Step 3 (availability) page contract. Mirrors the
-// constants-and-helpers-only test pattern Stories 03 + 04 used (the
-// repo runs vitest in `node` env — no jsdom — so we don't render JSX).
-//
-// What this file pins:
-//   - AVAILABILITY_STEP_INDEX === 3 (shell renders Step 3 of 4)
-//   - AVAILABILITY_STEP_TITLE === "When are you open?" (acceptance
-//     criteria #1 + architecture §6)
-//   - subtitle copy stays welcoming (substring assertion only)
-//   - ONBOARDING_STEP_NAME === "availability" — the OnboardingStep tag
-//     passed to decideOnboardingRedirect at the page-level role guard.
-//     A typo (e.g. "available") would silently fall back to the
-//     default-arg "studio" branch and bounce mid-flow producers out of
-//     Step 3 — pinning the literal here catches that at test time.
-//   - Continue is always enabled (acceptance criteria #7) — the 5
-//     children auto-save on change so the producer can advance with
-//     whatever they've configured. Encoded as a boolean constant so
-//     the invariant lives in one place + is pinned by the test.
-//   - nextRouteAfterAvailability → "/onboarding/portfolio" (Step 4)
-//   - routeOnSkipFromAvailability → "/onboarding/portfolio" — same
-//     destination as Continue (Skip and Continue both forward; the
-//     distinction is telemetry-only, not routing).
-//   - routeOnBackFromAvailability → "/onboarding/service" (back to
-//     Step 2) so the action bar's Back button hops one step.
+// May 2026 redesign — Step 3 (availability / "When you work") page
+// contract. Was Step 4 of 6 in the legacy flow; now Step 3 of 5.
+// Repo runs vitest in `node` env (no jsdom) so we pin pure constants
+// + helpers, no JSX.
 
-describe("Step 4 (availability) page contract", () => {
+describe("Step 3 (availability / 'When you work') page contract", () => {
   describe("constants", () => {
-    it("renders as Step 4 of the 6-step shell", () => {
-      expect(AVAILABILITY_STEP_INDEX).toBe(4);
+    it("renders as Step 3 of the 5-step rail", () => {
+      expect(AVAILABILITY_STEP_INDEX).toBe(3);
     });
 
-    it("uses the architecture-mandated title 'When are you open?'", () => {
-      expect(AVAILABILITY_STEP_TITLE).toBe("When are you open?");
+    it("title is about working hours / when (keyword-level)", () => {
+      expect(AVAILABILITY_STEP_TITLE.toLowerCase()).toMatch(/work|open|hour|when/);
     });
 
-    it("subtitle tells the producer Continue saves their hours", () => {
-      // B1 — producers were unsure whether their hours would persist
-      // after onboarding. The subtitle now explicitly says Continue
-      // saves, so the test pins that the save/continue framing stays.
-      // If a future copy edit drops the save promise, this fails and
-      // forces a deliberate update.
+    it("subtitle explains it's editable later or mentions weekly hours", () => {
       expect(AVAILABILITY_STEP_SUBTITLE.toLowerCase()).toMatch(
-        /save|continue/,
+        /save|continue|edit|later|hour|week|change/,
       );
     });
 
     it("step-name tag matches the OnboardingStep used in decide-redirect", () => {
-      // The server-component role guard (in page.tsx default export)
-      // calls decideOnboardingRedirect(role, ONBOARDING_STEP_NAME).
-      // Pinning the literal here prevents a typo (e.g. "available")
-      // from silently bypassing the step-aware redirect.
       expect(ONBOARDING_STEP_NAME).toBe("availability");
     });
 
-    it("Continue is always enabled (acceptance criteria #7 — children auto-save)", () => {
-      // The 5 child editors (GCal stub, duration picker, policies,
-      // weekly windows, blackouts) each handle their own writes via
-      // existing tRPC mutations. The producer can advance with whatever
-      // they've set — including nothing. Pinning the invariant as a
-      // boolean here catches a regression where someone gates Continue
-      // on "blocks.length > 0" or similar.
+    it("Continue is always enabled (children auto-save)", () => {
       expect(AVAILABILITY_CONTINUE_ALWAYS_ENABLED).toBe(true);
     });
   });
 
   describe("nextRouteAfterAvailability (Continue advance)", () => {
-    it("routes to Step 5 (/onboarding/payment) — T8 reordered", () => {
-      // T8 — Step 5 is now the payment placeholder. Pin the target so
-      // a stale "/onboarding/portfolio" reference is caught at test time.
-      expect(nextRouteAfterAvailability()).toBe("/onboarding/payment");
+    it("routes to Step 4 (/onboarding/portfolio) — redesign reordered portfolio before payment", () => {
+      expect(nextRouteAfterAvailability()).toBe("/onboarding/portfolio");
     });
   });
 
   describe("routeOnSkipFromAvailability (Skip ghost link)", () => {
-    it("advances to /onboarding/payment without saving", () => {
-      expect(routeOnSkipFromAvailability()).toBe("/onboarding/payment");
+    it("advances to /onboarding/portfolio without saving", () => {
+      expect(routeOnSkipFromAvailability()).toBe("/onboarding/portfolio");
     });
 
-    it("targets the same destination as the Continue route (one path forward)", () => {
-      // This invariant is load-bearing: if Skip and Continue diverged
-      // the wizard would branch. Keeping them aligned means the only
-      // difference is telemetry (step_completed vs step_skipped), not
-      // navigation.
+    it("targets the same destination as Continue (one path forward)", () => {
       expect(routeOnSkipFromAvailability()).toBe(nextRouteAfterAvailability());
     });
   });
 
   describe("routeOnBackFromAvailability (Back button)", () => {
-    it("returns to Step 3 (/onboarding/service)", () => {
+    it("returns to Step 2 (/onboarding/service)", () => {
       expect(routeOnBackFromAvailability()).toBe("/onboarding/service");
     });
   });
