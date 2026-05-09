@@ -2,39 +2,45 @@ import { describe, expect, it } from "vitest";
 
 import { nextStepFor } from "./next-step";
 
-// T8 — pin the wizard's forward-step routing for the 6-step flow.
+// May 2026 redesign — pin the wizard's forward-step routing.
 //
-// Each step page also exports a `nextRouteAfter*` helper of its own;
-// this central helper aliases the same destinations so a future tooling
-// surface (Setup-nudge deep-link, "skip remaining" admin action) has a
-// single source of truth without depending on per-page modules.
+// Flow (5 captures + completion screen, plus a back-compat hop for
+// the dropped /services chip step):
+//
+//   studio       → /onboarding/service        (Step 1 → Step 2)
+//   services     → /onboarding/service        (legacy back-compat)
+//   service      → /onboarding/availability   (Step 2 → Step 3)
+//   availability → /onboarding/portfolio      (Step 3 → Step 4)
+//   portfolio    → /onboarding/payment        (Step 4 → Step 5)
+//   payment      → /onboarding/complete       (Step 5 → celebration)
+//   complete     → /dashboard                 (terminal exit)
 
-describe("nextStepFor (forward-step routing for the 6-step wizard)", () => {
-  it("studio → /onboarding/services (Step 1 → Step 2)", () => {
-    expect(nextStepFor("studio")).toBe("/onboarding/services");
+describe("nextStepFor (forward-step routing for the redesigned wizard)", () => {
+  it("studio → /onboarding/service (Step 1 → Step 2; bypasses dropped /services)", () => {
+    expect(nextStepFor("studio")).toBe("/onboarding/service");
   });
 
-  it("services → /onboarding/service (Step 2 → Step 3)", () => {
+  it("services → /onboarding/service (legacy back-compat hop)", () => {
     expect(nextStepFor("services")).toBe("/onboarding/service");
   });
 
-  it("service → /onboarding/availability (Step 3 → Step 4)", () => {
+  it("service → /onboarding/availability (Step 2 → Step 3)", () => {
     expect(nextStepFor("service")).toBe("/onboarding/availability");
   });
 
-  it("availability → /onboarding/payment (Step 4 → Step 5)", () => {
-    expect(nextStepFor("availability")).toBe("/onboarding/payment");
+  it("availability → /onboarding/portfolio (Step 3 → Step 4)", () => {
+    expect(nextStepFor("availability")).toBe("/onboarding/portfolio");
   });
 
-  it("payment → /onboarding/portfolio (Step 5 → Step 6)", () => {
-    expect(nextStepFor("payment")).toBe("/onboarding/portfolio");
+  it("portfolio → /onboarding/payment (Step 4 → Step 5; redesign reorders portfolio first)", () => {
+    expect(nextStepFor("portfolio")).toBe("/onboarding/payment");
   });
 
-  it("portfolio → /onboarding/complete (Step 6 → completion screen)", () => {
-    expect(nextStepFor("portfolio")).toBe("/onboarding/complete");
+  it("payment → /onboarding/complete (Step 5 → celebration)", () => {
+    expect(nextStepFor("payment")).toBe("/onboarding/complete");
   });
 
-  it("complete → /dashboard (terminal exit when producer clicks the CTA)", () => {
+  it("complete → /dashboard (terminal exit when producer clicks Open dashboard)", () => {
     expect(nextStepFor("complete")).toBe("/dashboard");
   });
 
