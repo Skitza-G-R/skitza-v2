@@ -39,13 +39,25 @@ import { decideOnboardingRedirect, stepFromPath } from "./decide-redirect";
 //   - producer-incomplete OR orphan on /onboarding/studio → render
 //   - producer-incomplete OR orphan on /onboarding/{2,3,4} → /onboarding/studio
 export default async function OnboardingLayout({ children }: { children: ReactNode }) {
+  const reqHeaders = await headers();
+
+  // Dev-only preview bypass — middleware sets this header when both
+  // NODE_ENV=development AND ?__preview=1 are present. Skip the role
+  // gate (and the DB round-trip that fetchUserRole would otherwise do)
+  // so visual review of onboarding screens works without a fresh
+  // producer signup. See lib/onboarding/dev-preview.ts for the gate
+  // logic + tests; middleware.ts is what writes this header.
+  if (reqHeaders.get("x-onboarding-preview-bypass") === "1") {
+    return <AppI18nProvider>{children}</AppI18nProvider>;
+  }
+
   const { userId } = await auth();
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
   const role = await fetchUserRole({ dbUrl, userId });
-  const pathname = (await headers()).get("x-pathname");
+  const pathname = reqHeaders.get("x-pathname");
   const currentStep = stepFromPath(pathname);
   const redirectTo = decideOnboardingRedirect(role, currentStep);
   if (redirectTo) redirect(redirectTo);

@@ -1,56 +1,42 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import { OnboardingShell } from "~/app/(onboarding)/onboarding/shell";
-import { Input, Label } from "~/components/ui/input";
+import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
+import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
 
 import { completeStudio } from "../actions";
 
-// Story 03 — Step 1: studio name.
+// Step 1 — Identity / "Your hall".
 //
-// One input ("Display name"). Slug + currency + timezone are all
-// invisible: slug + currency are derived server-side in completeStudio;
-// timezone is read once from the browser (Intl) and passed to the
-// action. The shell handles progress bar, header, ambient blob, and
-// the sticky action bar.
+// May 2026 redesign — minimal capture: just the studio/producer name.
+// The slug stays server-derived + hidden (Decision #1) and the earlier
+// rev's monogram + tagline fields were dropped per Gili's 2026-05-09
+// pass — they'd require a schema migration that's out-of-scope, and
+// the simpler form fits the no-scroll constraint cleanly.
 //
 // Pure helpers (constants + isContinueAllowed + defaultTimezone +
-// nextRouteAfterStudio) are exported so the unit test in
-// __tests__/page.test.tsx can pin behaviour without RTL — the repo
-// runs vitest in `node` env, no jsdom (mirrors progress-bar.test +
-// action-bar.test from Story 02).
+// nextRouteAfterStudio) are exported so the unit test pins behaviour
+// without RTL — the repo runs vitest in `node` env.
 
-/** 1-indexed step number passed to <OnboardingShell currentStep={…} />. */
-export const STUDIO_STEP_INDEX: 1 | 2 | 3 | 4 | 5 | 6 = 1;
+/** 1-indexed step number (rail position). Pinned by tests. */
+export const STUDIO_STEP_INDEX: 1 | 2 | 3 | 4 | 5 = 1;
 
-/** H1 displayed by the shell. Pinned by tests + architecture §6. */
-export const STUDIO_STEP_TITLE = "Name your studio.";
+export const STUDIO_STEP_TITLE = "Your hall, in one breath.";
 
-/**
- * Subtitle copy. Reassures the producer that nothing is locked in —
- * pinned at the keyword level by the test so a future copy edit that
- * goes formal/legalese forces a deliberate update.
- */
 export const STUDIO_STEP_SUBTITLE =
-  "A few quick details and you're in. You can change this later from settings.";
+  "Just your name to start. Everything's editable later.";
 
 /**
- * Continue button gate. Disabled while the trimmed display name is
- * empty (acceptance criteria #2). Server-side zod also enforces
- * trim().min(1) — this is the client-side mirror so the button
- * communicates the requirement immediately.
+ * Continue button gate. Trimmed name must have ≥ 2 characters. Server
+ * action also re-validates with zod.
  */
 export function isContinueAllowed(displayName: string): boolean {
-  return displayName.trim().length >= 1;
+  return displayName.trim().length >= 2;
 }
 
-/**
- * Read the browser timezone via Intl. Defaults to "UTC" if Intl is
- * unavailable (rare older browsers). Mirrors the fallback used in the
- * pre-Story-03 single-screen onboarding (page.tsx:13-17).
- */
 export function defaultTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -59,9 +45,13 @@ export function defaultTimezone(): string {
   }
 }
 
-/** Step 1 → Step 2 route. Pinned by tests so a typo is caught early. */
-export function nextRouteAfterStudio(): "/onboarding/services" {
-  return "/onboarding/services";
+/**
+ * Step 1 → Step 2 route. The legacy `/onboarding/services` chip step
+ * is dropped (Decision #4: drop service_roles entirely), so Step 1
+ * advances directly to `/onboarding/service` (the template picker).
+ */
+export function nextRouteAfterStudio(): "/onboarding/service" {
+  return "/onboarding/service";
 }
 
 export default function StudioStepPage() {
@@ -69,6 +59,7 @@ export default function StudioStepPage() {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
+
   const allowContinue = isContinueAllowed(displayName);
 
   function handleContinue() {
@@ -80,8 +71,6 @@ export default function StudioStepPage() {
           displayName: displayName.trim(),
           timezone: defaultTimezone(),
         });
-        // TODO(telemetry): fire producer.onboarding.step_completed
-        // with { step: "studio" } once an analytics helper exists.
         router.push(nextRouteAfterStudio());
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong");
@@ -90,58 +79,100 @@ export default function StudioStepPage() {
   }
 
   return (
-    <OnboardingShell
-      currentStep={STUDIO_STEP_INDEX}
-      title={STUDIO_STEP_TITLE}
-      subtitle={STUDIO_STEP_SUBTITLE}
-      onContinue={handleContinue}
-      continueLabel="Enter your studio →"
-      continueDisabled={!allowContinue}
-      pending={pending}
-      pendingLabel="Saving…"
+    <WizardChrome
+      activePosition={STUDIO_STEP_INDEX}
+      stepIndicator="Step 1 of 5"
+      footer={
+        <WizardFooter
+          onBack={() => { router.push("/onboarding/welcome"); }}
+          onContinue={handleContinue}
+          continueDisabled={!allowContinue}
+          pending={pending}
+        />
+      }
     >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleContinue();
-        }}
-        className="space-y-5"
-      >
-        <div>
-          <Label htmlFor="displayName">Display name</Label>
-          <Input
+      <div className="ob-stagger">
+        <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
+          Step 1 of 5 · Required
+        </p>
+        <h1
+          className="mt-3 font-display text-[30px] font-extrabold leading-[1.05] tracking-[-0.03em] text-balance"
+          style={{ fontVariationSettings: '"opsz" 96' }}
+        >
+          {STUDIO_STEP_TITLE}
+        </h1>
+        <p className="mt-2.5 text-[15px] leading-relaxed text-[rgb(var(--fg-muted))]">
+          {STUDIO_STEP_SUBTITLE}
+        </p>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleContinue();
+          }}
+          className="mt-7"
+        >
+          <label
+            htmlFor="displayName"
+            className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
+          >
+            Studio or producer name
+          </label>
+          <input
             id="displayName"
             type="text"
             value={displayName}
-            onChange={(e) => {
-              setDisplayName(e.target.value);
-            }}
-            placeholder="Your studio name"
+            onChange={(e) => { setDisplayName(e.target.value); }}
+            placeholder="e.g. Yael Naim Studio"
             required
             autoFocus
             maxLength={80}
-            // Submit on Enter (default form behavior). The visible
-            // Continue button lives inside the shell's sticky ActionBar
-            // and is wired via onContinue → handleContinue.
+            className="w-full rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3.5 text-[16px] font-medium text-[rgb(var(--fg-default))] outline-none transition-shadow placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_4px_rgba(212,150,10,0.12)]"
           />
-          <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
-            Shown at the top of your public portfolio.
+          <p className="mt-2 text-[12.5px] text-[rgb(var(--fg-muted))]">
+            Shown at the top of your public hall. You can change this anytime.
           </p>
+
+          {error ? (
+            <p
+              role="alert"
+              className="mt-4 text-[13px] text-[rgb(var(--fg-danger))]"
+            >
+              {error}
+            </p>
+          ) : null}
+        </form>
+
+        {/* Live storefront preview — same warm card the producer's
+            visitors will see at /join/<slug>. Updates as they type. */}
+        <div className="mt-6">
+          <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--fg-muted))]">
+            Preview
+          </p>
+          <div className="ob-breath relative overflow-hidden rounded-2xl border border-[rgb(var(--border-subtle))] bg-gradient-to-br from-[rgb(var(--bg-background))] to-[rgb(var(--bg-elevated))] p-5">
+            <div
+              aria-hidden
+              className="absolute right-[-30px] top-[-30px] h-32 w-32 rounded-full bg-[rgb(var(--brand-primary)/0.18)] blur-3xl"
+            />
+            <p className="relative font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--fg-muted))]">
+              skitza.app/your-hall
+            </p>
+            <h2
+              className="relative mt-2 font-display text-[22px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[rgb(var(--fg-default))]"
+              style={{ fontVariationSettings: '"opsz" 96' }}
+            >
+              {displayName.trim() || "Your studio name"}
+            </h2>
+            <p className="relative mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
+              The card artists land on. You can change everything later.
+            </p>
+            <div className="relative mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[11px] font-bold text-white">
+              Book a session
+              <ArrowRight size={11} aria-hidden />
+            </div>
+          </div>
         </div>
-
-        {error ? (
-          <p
-            role="alert"
-            className="text-sm text-[rgb(var(--fg-danger))]"
-          >
-            {error}
-          </p>
-        ) : null}
-      </form>
-
-      <p className="mt-8 text-center font-mono text-xs text-[rgb(var(--fg-muted))]">
-        You can edit all of this later · nothing&apos;s locked in
-      </p>
-    </OnboardingShell>
+      </div>
+    </WizardChrome>
   );
 }
