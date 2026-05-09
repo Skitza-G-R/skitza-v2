@@ -62,9 +62,9 @@ export function LandingPage() {
       <FeaturesSection />
       <FeatureGrid />
       <HowSection />
-      <FounderNote />
       <Pricing />
       <FAQ activeFaq={activeFaq} setActiveFaq={setActiveFaq} />
+      <FounderNote />
       <FinalCTA />
       <LandingFooter />
     </div>
@@ -333,7 +333,7 @@ function Nav({
           </Link>
           <span
             className="font-mono hidden sm:inline text-[11px]"
-            style={{ color: "rgb(255 255 255 / 0.4)" }}
+            style={{ color: "rgb(255 255 255 / 0.55)" }}
           >
             v1.0 — early access
           </span>
@@ -368,7 +368,7 @@ function Nav({
               boxShadow: "0 2px 12px rgba(212,150,10,0.3)",
             }}
           >
-            Get demo access →
+            Start free trial →
           </Link>
         </div>
         {/* Mobile toggle */}
@@ -435,7 +435,7 @@ function Nav({
                 color: "#111009",
               }}
             >
-              Get demo access →
+              Start free trial →
             </Link>
           </div>
         </div>
@@ -538,9 +538,8 @@ function Hero() {
             }}
           >
             The producer dashboard that replaces Calendly, DocuSign, Stripe, Notion &amp;
-            WhatsApp. Sessions book themselves. Deposits land before the downbeat. The
-            mix delivers itself — automatically — the moment the invoice clears. You
-            stay in the room. Skitza handles the rest.
+            WhatsApp. One link, one inbox, one bill — sessions book themselves and the
+            mix delivers itself the moment the invoice clears.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
@@ -553,11 +552,11 @@ function Hero() {
                 boxShadow: "0 8px 24px rgba(212,150,10,0.35)",
               }}
             >
-              Get demo access
+              Start free trial
               <Icon name="arrow-right" size={16} strokeWidth={2.6} />
             </Link>
             <a
-              href="#features"
+              href="#how"
               className="sk-pop inline-flex items-center gap-2 rounded-[12px] border px-[22px] py-[14px] text-[14.5px] font-bold"
               style={{
                 background: "transparent",
@@ -570,41 +569,32 @@ function Hero() {
             </a>
           </div>
 
-          {/* Trust strip */}
-          <div className="mt-10 flex flex-wrap items-center gap-5">
-            <div className="flex">
-              {(["grad-amber", "grad-rose", "grad-violet", "grad-emerald"] as const).map(
-                (g, i) => (
-                  <div
-                    key={g}
-                    className={`${g} flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-extrabold`}
-                    style={{
-                      border: `2px solid #111009`,
-                      marginLeft: i ? -8 : 0,
-                      color: "#111009",
-                    }}
-                    aria-hidden
-                  >
-                    {["MR", "LV", "CD", "TK"][i]}
-                  </div>
-                ),
-              )}
-            </div>
-            <div
-              className="text-[12.5px] leading-[1.4]"
-              style={{ color: "rgb(242 237 230 / 0.6)" }}
-            >
-              <div
-                className="mb-0.5 flex gap-0.5"
-                style={{ color: "rgb(var(--brand-primary))" }}
-              >
-                ★★★★★
-              </div>
-              <span>
-                <strong className="font-bold text-white">340+</strong> producers booked
-                early access
-              </span>
-            </div>
+          {/* Trial-terms strip — pre-launch, no fabricated social proof. */}
+          <div
+            className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px]"
+            style={{ color: "rgb(242 237 230 / 0.65)" }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: "rgb(var(--brand-primary))",
+                  boxShadow: "0 0 8px rgb(var(--brand-primary))",
+                }}
+                aria-hidden
+              />
+              <strong className="font-bold text-white">5 founding producers</strong>{" "}
+              · onboarding now
+            </span>
+            <span style={{ color: "rgb(242 237 230 / 0.35)" }}>·</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="check" size={13} strokeWidth={3} />
+              14-day free trial
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="check" size={13} strokeWidth={3} />
+              No credit card
+            </span>
           </div>
         </div>
 
@@ -939,8 +929,7 @@ function StackReplace() {
         >
           Six tabs. Six logins.
           <br />
-          Forty-seven emails per session
-          <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+          Forty-seven emails per session.
         </h2>
 
         <div className="mx-auto mt-14 grid max-w-4xl items-center gap-8 md:grid-cols-2">
@@ -1066,8 +1055,7 @@ function FeaturesSection() {
               lineHeight: 1,
             }}
           >
-            Your studio. On autopilot
-            <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+            Your studio. On autopilot.
           </h2>
         </div>
 
@@ -1474,8 +1462,8 @@ function FeatureGrid() {
     },
     {
       i: "smartphone",
-      t: "Mobile companion",
-      b: "Push notifications, offline cache, the booking link one tap away. iOS + Android.",
+      t: "Works on every device",
+      b: "Your link opens beautifully on iPhone, Android, or laptop. No app to install — just one URL your clients tap.",
     },
   ];
   return (
@@ -1555,8 +1543,7 @@ function HowSection() {
               lineHeight: 1,
             }}
           >
-            Set it up once. Let it run forever
-            <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+            Set it up once. Let it run forever.
           </h2>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
@@ -1673,8 +1660,7 @@ function Pricing() {
               lineHeight: 1,
             }}
           >
-            One plan. No surprises
-            <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+            One plan. No surprises.
           </h2>
         </div>
 
@@ -1725,7 +1711,7 @@ function Pricing() {
               "Full client CRM",
               "WhatsApp + email automation",
               "Lead pipeline + auto follow-ups",
-              "Cloudflare R2 storage included",
+              "Encrypted cloud storage included",
               "Priority support",
             ].map((f) => (
               <div key={f} className="flex items-center gap-2 text-[13.5px]">
@@ -1745,7 +1731,7 @@ function Pricing() {
             className="sk-pop block w-full rounded-xl px-5 py-4 text-center text-[15px] font-bold"
             style={{ background: "#111009", color: "#fff" }}
           >
-            Get demo access →
+            Start free trial →
           </Link>
           <div
             className="font-mono mt-3 text-center text-[11.5px]"
@@ -1773,7 +1759,7 @@ function FAQ({
   const items = [
     {
       q: "Do you store my master files?",
-      a: "All files stay in your Cloudflare R2 bucket — Skitza never reads them. We hold metadata and signed URLs only. Cancel and your audio is still 100% yours.",
+      a: "All files stay in encrypted cloud storage — Skitza holds metadata and signed URLs only. Cancel and your audio is still 100% yours.",
     },
     {
       q: "What if my client doesn't pay?",
@@ -1784,12 +1770,12 @@ function FAQ({
       a: "Not at launch. You get skitza.app/<your-name> — clean, memorable, zero DNS. Custom domains are on the Studio-tier roadmap.",
     },
     {
-      q: "Does it work offline?",
-      a: "The desktop app caches your last 7 days of projects. Open sessions, view contracts, queue deliveries — syncs the next time you're online.",
+      q: "How is this different from Samply?",
+      a: "Samply does file delivery — that's what it does. Skitza does the rest of the studio: booking, contracts, invoices, follow-ups, the link. If Samply replaced Dropbox for you, Skitza replaces the other five tabs.",
     },
     {
-      q: "Can I import from Calendly, Samply, Notion?",
-      a: "CSV imports for clients and invoices ship at launch. Sample uploads via drag-and-drop. Notion import is on the roadmap.",
+      q: "Can I import my existing clients and audio?",
+      a: "Audio uploads work day one — drag-and-drop into any project. CSV client import and Samply migration are on the post-launch roadmap.",
     },
   ];
   return (
@@ -1808,8 +1794,7 @@ function FAQ({
               lineHeight: 1,
             }}
           >
-            Things people ask before signing up
-            <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+            Things people ask before signing up.
           </h2>
         </div>
         <div style={{ borderTop: "1px solid rgb(var(--border-subtle))" }}>
@@ -1897,12 +1882,12 @@ function FinalCTA() {
             boxShadow: "0 12px 30px rgba(212,150,10,0.4)",
           }}
         >
-          Get demo access
+          Start free trial
           <Icon name="arrow-right" size={16} strokeWidth={2.6} />
         </Link>
         <div
           className="font-mono mt-3.5 text-[11.5px]"
-          style={{ color: "rgb(255 255 255 / 0.4)" }}
+          style={{ color: "rgb(255 255 255 / 0.55)" }}
         >
           14-day trial · no card · cancel anytime
         </div>
