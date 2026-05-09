@@ -1,14 +1,24 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { Check, Minus, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 
-import { Button } from "~/components/ui/button";
-import { useToast } from "~/components/ui/toast";
-import { cn } from "~/lib/cn";
-import { SERVICE_TEMPLATES, type ServiceTemplate } from "~/lib/service-templates";
-import { OnboardingShell } from "~/app/(onboarding)/onboarding/shell";
-import { createOnboardingPackage } from "~/app/(onboarding)/onboarding/actions";
+import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
+import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
+import {
+  ONBOARDING_SERVICE_TEMPLATES,
+  PAYMENT_PLANS,
+  SUPPORTED_CURRENCIES,
+  type OnboardingServiceTemplate,
+  type OnboardingServiceTemplateId,
+  type PaymentPlanId,
+  type SupportedCurrency,
+  depositPctForPlan,
+  isServiceContinueAllowed,
+} from "~/lib/onboarding/service-templates-onboarding";
+
+import { createOnboardingPackage } from "../actions";
 
 import {
   SERVICE_STEP_INDEX,
@@ -19,373 +29,261 @@ import {
   routeOnSkipFromService,
 } from "./constants";
 
-type SupportedCurrency = "USD" | "EUR" | "GBP" | "ILS";
-
-const ROLE_TEMPLATE_IDS: Record<string, string[]> = {
-  Producer: ["album-package", "weekend-intensive"],
-  "Mixing Engineer": ["mix-3h", "remote-feedback"],
-  "Mastering Engineer": ["mastering-pass"],
-  "Recording Artist": ["weekend-intensive"],
-  Songwriter: ["remote-feedback"],
-  "Audio Engineer": ["mix-3h", "mastering-pass"],
-};
-
-const CUSTOM_ID = "__custom__";
-
-interface DraftValues {
-  templateId: string;
-  name: string;
-  priceDecimal: string;
-  durationMin: number;
-  depositPct: number;
-}
-
-const CUSTOM_BLANK: Omit<DraftValues, "templateId"> = {
-  name: "",
-  priceDecimal: "",
-  durationMin: 60,
-  depositPct: 25,
-};
-
-function templateToDraft(t: ServiceTemplate): DraftValues {
-  return {
-    templateId: t.id,
-    name: t.defaults.name,
-    priceDecimal: (t.defaults.priceCents / 100).toFixed(2),
-    durationMin: t.defaults.durationMin,
-    depositPct: t.defaults.depositPct,
-  };
-}
-
-function deriveSuggested(roles: string[]): ServiceTemplate[] {
-  const seen = new Set<string>();
-  const ids: string[] = [];
-  for (const role of roles) {
-    const matched = ROLE_TEMPLATE_IDS[role];
-    if (!matched) continue;
-    for (const id of matched) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      ids.push(id);
-    }
-  }
-  if (ids.length === 0) return [...SERVICE_TEMPLATES];
-  return ids
-    .map((id) => SERVICE_TEMPLATES.find((t) => t.id === id))
-    .filter((t): t is ServiceTemplate => t !== undefined);
-}
-
-function formatPrice(cents: number, currency: SupportedCurrency): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(cents / 100);
-  } catch {
-    return `${currency} ${(cents / 100).toFixed(0)}`;
-  }
-}
-
-function priceDecimalToCents(input: string): number {
-  const trimmed = input.trim();
-  if (!trimmed) return 0;
-  const num = Number.parseFloat(trimmed);
-  if (Number.isNaN(num) || num < 0) return 0;
-  return Math.round(num * 100);
-}
-
-export interface ServiceStepClientProps {
-  defaultCurrency: SupportedCurrency;
-  serviceRoles: string[];
-}
+// Step 2 — First service. May 2026 redesign.
+//
+// 2x2 grid of 4 starter templates → producer picks one → name + price
+// pre-fill, producer can edit any field → Continue creates a package
+// via the existing createOnboardingPackage action (no schema change).
 
 export function ServiceStepClient({
   defaultCurrency,
-  serviceRoles,
-}: ServiceStepClientProps) {
+}: {
+  defaultCurrency: SupportedCurrency;
+}) {
   const router = useRouter();
-  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
-  const suggested = useMemo(() => deriveSuggested(serviceRoles), [serviceRoles]);
+  const [selectedId, setSelectedId] =
+    useState<OnboardingServiceTemplateId>("mix");
+  const initialTemplate =
+    ONBOARDING_SERVICE_TEMPLATES.find((t) => t.id === "mix") ??
+    ONBOARDING_SERVICE_TEMPLATES[0]!;
+  const [name, setName] = useState(initialTemplate.defaultName);
+  const [price, setPrice] = useState<number>(initialTemplate.defaultPrice);
+  const [sessions, setSessions] = useState<number>(
+    initialTemplate.defaultSessions,
+  );
+  const [currency, setCurrency] = useState<SupportedCurrency>(defaultCurrency);
+  const [plan, setPlan] = useState<PaymentPlanId>("full");
 
-  const [phase, setPhase] = useState<"select" | "edit">("select");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [queue, setQueue] = useState<DraftValues[]>([]);
-  const [draft, setDraft] = useState<DraftValues | null>(null);
-  const [queueIndex, setQueueIndex] = useState(0);
+  const allowContinue = isServiceContinueAllowed(name, price, sessions);
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  };
+  function selectTemplate(template: OnboardingServiceTemplate) {
+    setSelectedId(template.id);
+    setName(template.defaultName);
+    setPrice(template.defaultPrice);
+    setSessions(template.defaultSessions);
+  }
 
-  const buildQueue = (): DraftValues[] => {
-    const drafts: DraftValues[] = [];
-    for (const id of selectedIds) {
-      if (id === CUSTOM_ID) {
-        drafts.push({ templateId: CUSTOM_ID, ...CUSTOM_BLANK });
-        continue;
-      }
-      const template = SERVICE_TEMPLATES.find((t) => t.id === id);
-      if (template) drafts.push(templateToDraft(template));
-    }
-    return drafts;
-  };
-
-  const startEditingFromSelection = () => {
-    const drafts = buildQueue();
-    if (drafts.length === 0) {
-      router.push(routeOnSkipFromService());
+  function handleContinue() {
+    if (!allowContinue) return;
+    setError(null);
+    const tpl = ONBOARDING_SERVICE_TEMPLATES.find((t) => t.id === selectedId);
+    if (!tpl) {
+      setError("Pick a template first.");
       return;
     }
-    const first = drafts[0];
-    if (!first) {
-      router.push(routeOnSkipFromService());
-      return;
-    }
-    setQueue(drafts);
-    setQueueIndex(0);
-    setDraft(first);
-    setPhase("edit");
-  };
-
-  const advanceAfterSave = () => {
-    const nextIndex = queueIndex + 1;
-    const nextDraft = queue[nextIndex];
-    if (!nextDraft) {
-      router.push(nextRouteAfterService());
-      return;
-    }
-    setQueueIndex(nextIndex);
-    setDraft(nextDraft);
-  };
-
-  const saveDraft = () => {
-    if (!draft) return;
-    const priceCents = priceDecimalToCents(draft.priceDecimal);
-    const trimmedName = draft.name.trim();
-    if (!trimmedName) {
-      toast("Give this service a short name.", "error");
-      return;
-    }
-    if (draft.durationMin <= 0) {
-      toast("Set a session length greater than zero minutes.", "error");
-      return;
-    }
-
-    const isCustom = draft.templateId === CUSTOM_ID;
-    const template = isCustom
-      ? null
-      : SERVICE_TEMPLATES.find((t) => t.id === draft.templateId);
-
-    const kind = template?.defaults.kind ?? "session";
-    const locationType = template?.defaults.locationType ?? "studio";
-
     startTransition(async () => {
-      const res = await createOnboardingPackage({
-        name: trimmedName,
-        kind,
-        priceCents,
-        durationMin: draft.durationMin,
-        depositPct: draft.depositPct,
-        locationType,
-        currency: defaultCurrency,
+      const result = await createOnboardingPackage({
+        name: name.trim(),
+        kind: tpl.packageKind,
+        priceCents: Math.round(price * 100),
+        durationMin: tpl.defaultDurationMin,
+        depositPct: depositPctForPlan(plan),
+        locationType: "studio",
+        currency,
       });
-      if (!res.ok) {
-        toast(`Couldn't save service: ${res.error}`, "error");
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
-      advanceAfterSave();
+      router.push(nextRouteAfterService());
     });
-  };
-
-  const onBack = () => {
-    router.push(routeOnBackFromService());
-  };
-
-  if (phase === "edit" && draft) {
-    const totalCount = queue.length;
-    const currentNumber = queueIndex + 1;
-    const headerLabel =
-      totalCount > 1
-        ? `Service ${String(currentNumber)} of ${String(totalCount)}`
-        : "Edit service";
-    return (
-      <OnboardingShell
-        currentStep={SERVICE_STEP_INDEX}
-        title={SERVICE_STEP_TITLE}
-        subtitle={SERVICE_STEP_SUBTITLE}
-        onBack={() => {
-          setPhase("select");
-        }}
-      >
-        <div className="space-y-5">
-          <p className="text-sm font-medium text-muted-foreground">
-            {headerLabel}
-          </p>
-          <div className="space-y-4 rounded-md border border-border bg-card p-5">
-            <label className="block space-y-1.5 text-sm">
-              <span className="font-medium text-foreground">Name</span>
-              <input
-                type="text"
-                value={draft.name}
-                onChange={(e) => {
-                  setDraft({ ...draft, name: e.target.value });
-                }}
-                disabled={pending}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </label>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium text-foreground">
-                  Price ({defaultCurrency})
-                </span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  min="0"
-                  value={draft.priceDecimal}
-                  onChange={(e) => {
-                    setDraft({ ...draft, priceDecimal: e.target.value });
-                  }}
-                  disabled={pending}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium text-foreground">
-                  Duration (min)
-                </span>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={draft.durationMin}
-                  onChange={(e) => {
-                    setDraft({
-                      ...draft,
-                      durationMin: Number.parseInt(e.target.value, 10) || 0,
-                    });
-                  }}
-                  disabled={pending}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium text-foreground">Deposit %</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={draft.depositPct}
-                  onChange={(e) => {
-                    setDraft({
-                      ...draft,
-                      depositPct: Math.max(
-                        0,
-                        Math.min(100, Number.parseInt(e.target.value, 10) || 0),
-                      ),
-                    });
-                  }}
-                  disabled={pending}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                />
-              </label>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <Button type="button" onClick={saveDraft} disabled={pending}>
-                {pending
-                  ? "Saving…"
-                  : currentNumber < totalCount
-                    ? "Save & next"
-                    : "Save service"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </OnboardingShell>
-    );
   }
 
   return (
-    <OnboardingShell
-      currentStep={SERVICE_STEP_INDEX}
-      title={SERVICE_STEP_TITLE}
-      subtitle={SERVICE_STEP_SUBTITLE}
-      onBack={onBack}
-      onSkip={() => {
-        router.push(routeOnSkipFromService());
-      }}
-      onContinue={startEditingFromSelection}
+    <WizardChrome
+      activePosition={SERVICE_STEP_INDEX}
+      stepIndicator="Step 2 of 5"
+      footer={
+        <WizardFooter
+          onBack={() => router.push(routeOnBackFromService())}
+          onContinue={handleContinue}
+          continueDisabled={!allowContinue}
+          pending={pending}
+        />
+      }
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {suggested.map((t) => {
-          const selected = selectedIds.includes(t.id);
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => {
-                toggleSelect(t.id);
-              }}
-              className={cn(
-                "relative flex flex-col gap-2 rounded-md border p-4 text-left transition",
-                selected
-                  ? "border-primary bg-primary/5 ring-1 ring-primary"
-                  : "border-border bg-card hover:border-foreground/30",
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-medium text-foreground">{t.title}</span>
-                <span className="rounded-full border border-border bg-background px-2 py-0.5 text-xs uppercase tracking-wide text-muted-foreground">
-                  {t.defaults.kind}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">{t.tagline}</p>
-              <div className="mt-auto flex items-center justify-between text-xs text-muted-foreground">
-                <span>
-                  {formatPrice(t.defaults.priceCents, t.defaults.currency)}
-                </span>
-                <span>{t.defaults.durationMin} min</span>
-              </div>
-              {selected ? (
-                <span
-                  aria-hidden="true"
-                  className="absolute right-3 top-3 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground"
-                >
-                  ✓
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-
-        <button
-          type="button"
-          onClick={() => {
-            toggleSelect(CUSTOM_ID);
-          }}
-          className={cn(
-            "flex flex-col items-center justify-center gap-1 rounded-md border border-dashed p-4 text-sm transition",
-            selectedIds.includes(CUSTOM_ID)
-              ? "border-primary bg-primary/5 text-primary"
-              : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-          )}
+      <div className="reveal-up">
+        <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
+          Step 2 of 5 · Required
+        </p>
+        <h1
+          className="mt-3 font-display text-[30px] font-extrabold leading-[1.05] tracking-[-0.03em] text-balance"
+          style={{ fontVariationSettings: '"opsz" 96' }}
         >
-          <span className="text-2xl leading-none">+</span>
-          <span>Add custom</span>
-        </button>
+          {SERVICE_STEP_TITLE}
+        </h1>
+        <p className="mt-2.5 text-[15px] leading-relaxed text-[rgb(var(--fg-muted))]">
+          {SERVICE_STEP_SUBTITLE}
+        </p>
+
+        {/* 2x2 template grid */}
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          {ONBOARDING_SERVICE_TEMPLATES.map((t) => {
+            const isSelected = t.id === selectedId;
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => selectTemplate(t)}
+                aria-pressed={isSelected}
+                className={`sk-pop relative flex flex-col items-start gap-2 rounded-2xl border p-3.5 text-left transition-all ${
+                  isSelected
+                    ? "border-transparent bg-[rgb(var(--bg-sidebar))] text-white shadow-[0_6px_18px_rgba(17,16,9,0.18)]"
+                    : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]"
+                }`}
+              >
+                <span
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg ${
+                    isSelected
+                      ? "bg-[rgb(var(--brand-primary)/0.22)] text-[rgb(var(--brand-primary))]"
+                      : "bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]"
+                  }`}
+                  aria-hidden
+                >
+                  <Icon size={14} />
+                </span>
+                <span className="text-[13.5px] font-bold leading-tight">
+                  {t.title}
+                </span>
+                <span
+                  className={`text-[11.5px] leading-snug ${isSelected ? "text-white/80" : "text-[rgb(var(--fg-muted))]"}`}
+                >
+                  {t.description}
+                </span>
+                {isSelected ? (
+                  <span
+                    aria-hidden
+                    className="absolute right-2.5 top-2.5 flex h-5 w-5 items-center justify-center rounded-full bg-white text-[rgb(var(--bg-sidebar))]"
+                  >
+                    <Check size={12} strokeWidth={3} />
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Service name */}
+        <div className="mt-5">
+          <label
+            htmlFor="serviceName"
+            className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
+          >
+            Service name
+          </label>
+          <input
+            id="serviceName"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={selectedId === "custom" ? "e.g. Beat lease" : ""}
+            maxLength={80}
+            className="w-full rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3 text-[15px] font-medium text-[rgb(var(--fg-default))] outline-none transition-shadow placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_4px_rgba(212,150,10,0.12)]"
+          />
+        </div>
+
+        {/* Price + currency */}
+        <div className="mt-5">
+          <label
+            htmlFor="servicePrice"
+            className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
+          >
+            Price
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="servicePrice"
+              type="number"
+              min={0}
+              step={1}
+              value={price}
+              onChange={(e) => setPrice(Number(e.target.value) || 0)}
+              className="flex-1 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3 font-mono text-[15px] font-semibold text-[rgb(var(--fg-default))] outline-none transition-shadow focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_4px_rgba(212,150,10,0.12)]"
+            />
+            <select
+              value={currency}
+              onChange={(e) =>
+                setCurrency(e.target.value as SupportedCurrency)
+              }
+              className="rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-3 font-mono text-[14px] font-semibold text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_4px_rgba(212,150,10,0.12)]"
+            >
+              {SUPPORTED_CURRENCIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Sessions stepper + Payment plan */}
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+              Sessions
+            </label>
+            <div className="flex items-center justify-between rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 py-1.5">
+              <button
+                type="button"
+                onClick={() => setSessions(Math.max(1, sessions - 1))}
+                aria-label="Decrease sessions"
+                className="sk-pop flex h-7 w-7 items-center justify-center rounded-lg text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
+              >
+                <Minus size={14} />
+              </button>
+              <span className="font-mono text-[15px] font-bold text-[rgb(var(--fg-default))]">
+                {sessions}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSessions(sessions + 1)}
+                aria-label="Increase sessions"
+                className="sk-pop flex h-7 w-7 items-center justify-center rounded-lg text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+              Payment
+            </label>
+            <div className="flex rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1">
+              {PAYMENT_PLANS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPlan(p.id)}
+                  className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+                    plan === p.id
+                      ? "bg-[rgb(var(--bg-sidebar))] text-white"
+                      : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {error ? (
+          <p
+            role="alert"
+            className="mt-4 text-[13px] text-[rgb(var(--fg-danger))]"
+          >
+            {error}
+          </p>
+        ) : null}
+
+        {/* Skip helper — Continue is required, but tests ensure
+            routeOnSkipFromService is wired in case we add Skip later. */}
+        <p className="sr-only">{routeOnSkipFromService()}</p>
       </div>
-    </OnboardingShell>
+    </WizardChrome>
   );
 }

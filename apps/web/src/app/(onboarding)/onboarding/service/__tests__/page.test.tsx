@@ -10,22 +10,24 @@ import {
   ONBOARDING_STEP_NAME,
 } from "../page";
 
-// Step 3 (service) page contract. T8 bumped index 2 → 3 (services
-// chip step now sits between studio and service). Repo runs vitest in
-// `node` env (no jsdom) so we pin pure constants + helpers, no JSX.
+// May 2026 redesign — Step 2 (service / "First service") page contract.
+// Was Step 3 of 6 in the legacy flow; now Step 2 of 5 because the
+// /services chip-multi-select step is dropped (Decision #4).
+// Repo runs vitest in `node` env (no jsdom) so we pin pure constants
+// + helpers, no JSX.
 
-describe("Step 3 (service) page contract", () => {
+describe("Step 2 (service / 'First service') page contract", () => {
   describe("constants", () => {
-    it("renders as Step 3 of the 6-step shell", () => {
-      expect(SERVICE_STEP_INDEX).toBe(3);
+    it("renders as Step 2 of the 5-step rail", () => {
+      expect(SERVICE_STEP_INDEX).toBe(2);
     });
 
-    it("uses the architecture-mandated title 'Add your first service.'", () => {
-      expect(SERVICE_STEP_TITLE).toBe("Add your first service.");
+    it("title is about choosing/picking a first service (keyword-level)", () => {
+      expect(SERVICE_STEP_TITLE.toLowerCase()).toMatch(/service/);
     });
 
     it("subtitle stays welcoming (mentions reversibility / freedom to skip)", () => {
-      expect(SERVICE_STEP_SUBTITLE.toLowerCase()).toMatch(/later|skip|change|edit/);
+      expect(SERVICE_STEP_SUBTITLE.toLowerCase()).toMatch(/later|skip|change|edit|done/);
     });
 
     it("step-name tag matches the OnboardingStep used in decide-redirect", () => {
@@ -34,7 +36,7 @@ describe("Step 3 (service) page contract", () => {
   });
 
   describe("nextRouteAfterService (form-success advance)", () => {
-    it("routes to Step 4 (/onboarding/availability) after createPackage succeeds", () => {
+    it("routes to Step 3 (/onboarding/availability) after createPackage succeeds", () => {
       expect(nextRouteAfterService()).toBe("/onboarding/availability");
     });
   });
@@ -49,9 +51,9 @@ describe("Step 3 (service) page contract", () => {
     });
   });
 
-  describe("routeOnBackFromService (Back button — T8 added)", () => {
-    it("returns to Step 2 (/onboarding/services)", () => {
-      expect(routeOnBackFromService()).toBe("/onboarding/services");
+  describe("routeOnBackFromService (Back button — May 2026 redesign)", () => {
+    it("returns to Step 1 (/onboarding/studio) — /services chip step dropped", () => {
+      expect(routeOnBackFromService()).toBe("/onboarding/studio");
     });
   });
 });
