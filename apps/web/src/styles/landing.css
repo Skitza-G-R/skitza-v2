@@ -119,6 +119,9 @@
 .landing-v3-root.scroll-host {
   overflow-y: auto;
   height: 100dvh;
+  /* Sticky nav (#navbar) is ~56px tall; pad anchor jumps so the
+     destination heading isn't cropped under the bar. */
+  scroll-padding-top: 72px;
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--fg-muted) / 0.25) transparent;
 }

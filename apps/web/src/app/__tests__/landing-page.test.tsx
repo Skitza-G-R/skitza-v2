@@ -13,10 +13,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 //      distinguishing landmark is present in the rendered markup, in
 //      order. The 11 v3 sections are sibling JSX in landing-page.tsx;
 //      this test asserts each id / class fingerprint is present.
-//   3. CTA wiring — every primary "Get demo access" CTA points at
+//   3. CTA wiring — every primary signup CTA points at
 //      /sign-up?redirect_url=/onboarding (PRD §3.5: no waitlist; all
 //      CTAs drive sign-up directly, even though the v3 design source
 //      offered a WaitlistModal — the modal was retired in this port).
+//      Visible CTA text is "Start free trial" (the prior "Get demo
+//      access" copy was bait-and-switch since the destination is the
+//      sign-up form, not a demo).
 //   4. No fabricated social proof / no waitlist copy.
 //
 // In-repo testing convention: `react-dom/server` `renderToStaticMarkup`
@@ -110,7 +113,7 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     expect(html).toContain("Lead pipeline that doesn");
     expect(html).toContain("Files stay yours");
     expect(html).toContain("One link, every channel");
-    expect(html).toContain("Mobile companion");
+    expect(html).toContain("Works on every device");
   });
 
   it("renders all 3 alternating feature-hero titles", async () => {
@@ -126,7 +129,7 @@ describe("HomePage (landing) — composition (Phase 3 v3)", () => {
     expect(html).toMatch(/reminders you.{1,8}d never send/i);
   });
 
-  it("every primary 'Get demo access' CTA points at /sign-up?redirect_url=%2Fonboarding", async () => {
+  it("every primary signup CTA points at /sign-up?redirect_url=%2Fonboarding", async () => {
     authMock.mockResolvedValue({ userId: null });
     const { default: HomePage } = await import("../page");
     const ui = await HomePage();
