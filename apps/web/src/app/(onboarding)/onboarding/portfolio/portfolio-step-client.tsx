@@ -1,18 +1,21 @@
 "use client";
 
-import { Plus, UploadCloud, X } from "lucide-react";
+import { ChevronDown, Plus, UploadCloud, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
 import {
-  PORTFOLIO_PLATFORMS,
   emptyExternalLinksState,
   toLinksPayload,
   type ExternalLinksFormState,
   type PortfolioPlatformKey,
 } from "~/components/onboarding/external-links-editor";
+// emptyExternalLinksState is a FUNCTION (not a constant) — invoking it
+// returns a fresh ExternalLinksFormState with all 3 platform keys set
+// to empty url/title strings. Calling it inside handleContinue keeps
+// each save independent.
 
 import { saveExternalLinks } from "./links-actions";
 import {
@@ -25,59 +28,111 @@ import {
 } from "./constants";
 
 // Step 4 — A taste of your work. May 2026 redesign (revised
-// 2026-05-09 — progressive link disclosure + compact upload stub).
+// 2026-05-09 — per-row dropdown for picking link type).
 //
-// First render shows ONE empty link slot (Spotify) plus a "+ Add another"
-// button. Tapping the button reveals the next platform's input, up to
-// the 3 platforms the DB schema supports today (Spotify / YouTube /
-// Instagram). Producers who only have Spotify get a short, focused
-// form; producers with all three can fill them all.
+// Producer adds links one at a time. Each row has a dropdown
+// (Spotify / YouTube / Instagram / Custom) + URL input + × remove.
+// First render shows ONE empty row defaulting to Spotify. Tapping
+// "+ Add another link" appends a new row defaulting to the first
+// unused platform type (or Custom if all 3 are used).
 //
-// Upload zone is a visual stub per Decision #3 — schema FK blocker
-// on track_versions → projectTracks (separate brief).
+// Custom links: schema only supports 3 platforms today, so custom
+// rows are captured in local state but skipped on save with a TODO
+// for the schema follow-up. The placeholder + helper copy makes the
+// "coming soon" status explicit so producers don't think they're
+// being silently dropped.
 
-const PLATFORM_ORDER: PortfolioPlatformKey[] = [
+type LinkType = PortfolioPlatformKey | "custom";
+
+interface LinkRow {
+  /** Stable id so React doesn't reuse the wrong DOM node when reordering. */
+  id: string;
+  type: LinkType;
+  url: string;
+}
+
+interface TypeMeta {
+  label: string;
+  placeholder: string;
+}
+
+const TYPE_META: Record<LinkType, TypeMeta> = {
+  spotify: {
+    label: "Spotify",
+    placeholder: "https://open.spotify.com/artist/…",
+  },
+  youtube: {
+    label: "YouTube",
+    placeholder: "https://youtube.com/@yourhandle",
+  },
+  instagram_reels: {
+    label: "Instagram",
+    placeholder: "https://instagram.com/yourhandle",
+  },
+  custom: {
+    label: "Custom",
+    placeholder: "https://yoursite.com (saving coming soon)",
+  },
+};
+
+const PLATFORM_TYPES: ReadonlyArray<PortfolioPlatformKey> = [
   "spotify",
   "youtube",
   "instagram_reels",
 ];
+const ALL_TYPES: ReadonlyArray<LinkType> = [
+  ...PLATFORM_TYPES,
+  "custom",
+];
+
+function nextDefaultType(rows: ReadonlyArray<LinkRow>): LinkType {
+  const used = new Set(rows.map((r) => r.type));
+  return PLATFORM_TYPES.find((t) => !used.has(t)) ?? "custom";
+}
+
+function makeId(): string {
+  return `link-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 export function PortfolioStepClient() {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [links, setLinks] = useState<ExternalLinksFormState>(
-    emptyExternalLinksState,
-  );
-  // Which platforms have been "added" (visible). First render = just
-  // Spotify. Tapping "+ Add another" appends the next unrevealed
-  // platform from PLATFORM_ORDER.
-  const [revealed, setRevealed] = useState<PortfolioPlatformKey[]>([
-    "spotify",
+  const [rows, setRows] = useState<LinkRow[]>([
+    { id: makeId(), type: "spotify", url: "" },
   ]);
   const [error, setError] = useState<string | null>(null);
 
-  const updateLink = (key: PortfolioPlatformKey, url: string) => {
-    setLinks((prev) => ({ ...prev, [key]: { ...prev[key], url } }));
+  const updateRow = (id: string, patch: Partial<LinkRow>) => {
+    setRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    );
     if (error) setError(null);
   };
 
-  const removeLink = (key: PortfolioPlatformKey) => {
-    setLinks((prev) => ({ ...prev, [key]: { url: "", title: "" } }));
-    setRevealed((prev) => prev.filter((k) => k !== key));
+  const removeRow = (id: string) => {
+    setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const addNextPlatform = () => {
-    const next = PLATFORM_ORDER.find((k) => !revealed.includes(k));
-    if (next) setRevealed((prev) => [...prev, next]);
+  const addRow = () => {
+    setRows((prev) => [
+      ...prev,
+      { id: makeId(), type: nextDefaultType(prev), url: "" },
+    ]);
   };
-
-  const canAddMore = revealed.length < PLATFORM_ORDER.length;
 
   const handleContinue = () => {
     setError(null);
+    // Roll the rows into the legacy ExternalLinksFormState shape so we
+    // can keep using saveExternalLinks unchanged. Custom rows are
+    // dropped on save (TODO: schema column for custom links).
+    const formState: ExternalLinksFormState = emptyExternalLinksState();
+    for (const row of rows) {
+      if (row.type === "custom") continue;
+      formState[row.type] = { url: row.url, title: "" };
+    }
     startTransition(async () => {
       try {
-        await saveExternalLinks(toLinksPayload(links));
+        await saveExternalLinks(toLinksPayload(formState));
         router.push(routeOnContinueFromPortfolio());
       } catch (err) {
         setError(
@@ -132,33 +187,61 @@ export function PortfolioStepClient() {
           </div>
         </div>
 
-        {/* Progressive link list */}
-        <div className="mt-4 flex flex-col gap-2.5">
-          {revealed.map((key) => {
-            const platform = PORTFOLIO_PLATFORMS.find((p) => p.key === key);
-            if (!platform) return null;
+        {/* Link rows */}
+        <div className="mt-4 flex flex-col gap-2">
+          {rows.map((row) => {
+            const meta = TYPE_META[row.type];
             return (
               <div
-                key={key}
-                className="flex items-center gap-2 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2"
+                key={row.id}
+                className="flex items-center gap-2 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 py-1.5"
               >
-                <span className="w-20 flex-shrink-0 text-[12px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
-                  {platform.label}
-                </span>
+                {/* Type dropdown — styled to look obviously interactive
+                    (chevron + bordered pill) since native <select>
+                    chrome varies by browser. The actual <select> is
+                    overlaid invisibly on top so click + keyboard
+                    behaviour stays native. */}
+                <div className="relative flex-shrink-0">
+                  <div className="pointer-events-none flex items-center gap-1 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2 py-1.5 text-[11.5px] font-bold uppercase tracking-[0.08em] text-[rgb(var(--fg-default))]">
+                    <span className="min-w-[58px]">
+                      {TYPE_META[row.type].label}
+                    </span>
+                    <ChevronDown
+                      size={11}
+                      className="text-[rgb(var(--fg-muted))]"
+                      aria-hidden
+                    />
+                  </div>
+                  <select
+                    value={row.type}
+                    onChange={(e) =>
+                      updateRow(row.id, { type: e.target.value as LinkType })
+                    }
+                    className="absolute inset-0 cursor-pointer opacity-0"
+                    disabled={pending}
+                    aria-label="Link type"
+                  >
+                    {ALL_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {TYPE_META[t].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <input
                   type="url"
-                  value={links[key].url}
-                  onChange={(e) => updateLink(key, e.target.value)}
-                  placeholder={platform.placeholder}
-                  className="flex-1 bg-transparent font-mono text-[13px] text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))]"
+                  value={row.url}
+                  onChange={(e) => updateRow(row.id, { url: e.target.value })}
+                  placeholder={meta.placeholder}
+                  className="flex-1 bg-transparent px-1 py-1 font-mono text-[13px] text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))]"
                   disabled={pending}
                 />
-                {revealed.length > 1 ? (
+                {rows.length > 1 ? (
                   <button
                     type="button"
-                    onClick={() => removeLink(key)}
-                    aria-label={`Remove ${platform.label}`}
-                    className="sk-pop flex h-7 w-7 items-center justify-center rounded-lg text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))] hover:text-[rgb(var(--fg-default))]"
+                    onClick={() => removeRow(row.id)}
+                    aria-label="Remove link"
+                    className="sk-pop flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))] hover:text-[rgb(var(--fg-default))]"
                   >
                     <X size={14} />
                   </button>
@@ -167,16 +250,14 @@ export function PortfolioStepClient() {
             );
           })}
 
-          {canAddMore ? (
-            <button
-              type="button"
-              onClick={addNextPlatform}
-              className="sk-pop flex items-center justify-center gap-1.5 self-start rounded-full border border-dashed border-[rgb(var(--border-strong))] px-3.5 py-1.5 text-[12px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
-            >
-              <Plus size={12} aria-hidden />
-              Add another link
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={addRow}
+            className="sk-pop flex items-center justify-center gap-1.5 self-start rounded-full border border-dashed border-[rgb(var(--border-strong))] px-3.5 py-1.5 text-[12px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+          >
+            <Plus size={12} aria-hidden />
+            Add another link
+          </button>
         </div>
 
         {error ? (

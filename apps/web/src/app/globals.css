@@ -827,6 +827,18 @@
   .sk-float      { animation: sk-float 5.5s ease-in-out infinite; }
   .sk-float-slow { animation: sk-float 8s ease-in-out infinite; }
 
+  /* Strip native chrome from <input type="time"> so the time text fits
+     in tight onboarding cells (the WebKit clock indicator + spin
+     buttons would otherwise eat ~25px of horizontal space and clip the
+     "00" in "10:00"). */
+  input.time-input-naked::-webkit-calendar-picker-indicator { display: none; }
+  input.time-input-naked::-webkit-inner-spin-button { display: none; }
+  input.time-input-naked::-webkit-clear-button { display: none; }
+  input.time-input-naked {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
   /* Confetti burst — onboarding Done celebration. Each piece falls
      from the top of the viewport while spinning by a per-piece random
      rotation set as --confetti-rotate. */

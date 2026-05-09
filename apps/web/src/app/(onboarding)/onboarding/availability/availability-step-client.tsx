@@ -294,7 +294,7 @@ export function AvailabilityStepClient({
                           startMin: timeToMinutes(e.target.value),
                         })
                       }
-                      className="w-[58px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                      className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
                     />
                     <span className="text-[rgb(var(--fg-faint))]">–</span>
                     <input
@@ -306,7 +306,7 @@ export function AvailabilityStepClient({
                           endMin: timeToMinutes(e.target.value),
                         })
                       }
-                      className="w-[58px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                      className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
                     />
                     {day.active && day.windows.length > 1 ? (
                       <button
