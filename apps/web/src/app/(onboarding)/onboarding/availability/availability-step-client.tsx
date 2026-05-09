@@ -292,10 +292,29 @@ export function AvailabilityStepClient({
                 {day.label}
               </span>
 
+              {/* Copy lives left-of-windows on purpose: dropping it
+                  into the windows row let it wrap to a second line as
+                  soon as a 2nd window appeared, which grew the
+                  bracket. Anchoring Copy to the day-label cluster
+                  keeps the row a constant height regardless of how
+                  many windows the day has, and reads as "this day's
+                  action" — same convention as the toggle. */}
+              {day.active ? (
+                <button
+                  type="button"
+                  onClick={() => { copyDayToAll(day.weekday); }}
+                  aria-label={`Copy ${day.label}'s hours to all days`}
+                  title="Copy to all days"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                >
+                  <Copy size={11} />
+                </button>
+              ) : null}
+
               {/* Windows — hidden when day is off (cleaner than dimmed
                   text that still suggests data). */}
               {day.active ? (
-                <div className="ml-auto flex flex-1 flex-wrap items-center justify-end gap-1.5">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                   {day.windows.map((w, idx) => (
                     <div
                       key={idx}
@@ -341,20 +360,11 @@ export function AvailabilityStepClient({
                       type="button"
                       onClick={() => { addWindow(day.weekday); }}
                       aria-label={`Add window to ${day.label}`}
-                      className="flex h-7 w-7 items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
                     >
                       <Plus size={12} />
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => { copyDayToAll(day.weekday); }}
-                    aria-label={`Copy ${day.label}'s hours to all days`}
-                    title="Copy to all days"
-                    className="flex h-7 w-7 items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
-                  >
-                    <Copy size={11} />
-                  </button>
                 </div>
               ) : (
                 <span className="ml-auto pr-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]">
