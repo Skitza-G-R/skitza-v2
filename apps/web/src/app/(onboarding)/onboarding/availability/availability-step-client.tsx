@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, Plus, X } from "lucide-react";
+import { Calendar, Copy, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -9,6 +9,11 @@ import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
 import { useToast } from "~/components/ui/toast";
 
+import {
+  buildNextWindow,
+  DEFAULT_WINDOW,
+  type WindowConfig,
+} from "./availability-helpers";
 import {
   AVAILABILITY_STEP_INDEX,
   nextRouteAfterAvailability,
@@ -33,11 +38,6 @@ import {
 
 type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
-interface WindowConfig {
-  startMin: number;
-  endMin: number;
-}
-
 interface DayConfig {
   weekday: Weekday;
   label: string;
@@ -58,8 +58,6 @@ const ROW_TEMPLATE: ReadonlyArray<{
   { weekday: 6, label: "Sat", defaultActive: false },
   { weekday: 0, label: "Sun", defaultActive: false },
 ];
-
-const DEFAULT_WINDOW: WindowConfig = { startMin: 10 * 60, endMin: 18 * 60 };
 
 const BUFFER_OPTIONS: ReadonlyArray<{ label: string; value: number }> = [
   { label: "None", value: 0 },
@@ -172,7 +170,7 @@ export function AvailabilityStepClient({
     setDays((prev) =>
       prev.map((d) =>
         d.weekday === weekday && d.windows.length < 3
-          ? { ...d, windows: [...d.windows, { ...DEFAULT_WINDOW }] }
+          ? { ...d, windows: [...d.windows, buildNextWindow(d.windows)] }
           : d,
       ),
     );
@@ -186,6 +184,22 @@ export function AvailabilityStepClient({
           : d,
       ),
     );
+  };
+
+  // Copy this day's hours to every other day. Active flags are left
+  // alone — `Sun` stays Off but inherits the windows so re-enabling
+  // it later doesn't reset to 10–18. Matches Calendly / Cal.com.
+  const copyDayToAll = (sourceWeekday: Weekday) => {
+    const source = days.find((d) => d.weekday === sourceWeekday);
+    if (!source) return;
+    setDays((prev) =>
+      prev.map((d) =>
+        d.weekday === sourceWeekday
+          ? d
+          : { ...d, windows: source.windows.map((w) => ({ ...w })) },
+      ),
+    );
+    toast(`Copied ${source.label}'s hours to all days`, "success");
   };
 
   const collectBlocks = (): BlockInput[] =>
@@ -332,6 +346,15 @@ export function AvailabilityStepClient({
                       <Plus size={12} />
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => { copyDayToAll(day.weekday); }}
+                    aria-label={`Copy ${day.label}'s hours to all days`}
+                    title="Copy to all days"
+                    className="flex h-7 w-7 items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                  >
+                    <Copy size={11} />
+                  </button>
                 </div>
               ) : (
                 <span className="ml-auto pr-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]">
