@@ -21,37 +21,43 @@ export function FounderSection({ locale }: { locale: "en" | "he" }) {
         {isHe ? (
           <>
             <p className="founder__paragraph">
-              אני גילי. בניתי את סקיצה אחרי שצפיתי בחברים מפיקים מבזבזים יותר
-              זמן בוואטסאפ מאשר בסטודיו.
+              אני גילי. אני מפיק — כזה שבילה יותר זמן בחיפוש בוואטסאפ מאשר
+              במיקס בסטודיו.
             </p>
             <p className="founder__paragraph">
-              הזמנות באפליקציה אחת. דרייב באחרת. חוזים בשלישית. תשלומים
-              ברביעית. אף אחד מהם לא דיבר עם השני, ואף אחד לא נבנה למוזיקה.
+              הזמנות באפליקציה אחת. דרייב בשנייה. חוזים בשלישית. תשלומים
+              ברביעית, אם הם בכלל הגיעו. אף אחד לא דיבר עם השני. אף אחד לא
+              נבנה למוזיקה. אני הייתי האינטגרציה — והמחיר היה היצירה.
             </p>
             <p className="founder__paragraph">
-              סקיצה היא הכלי שתמיד רציתי שיהיה להם — לינק אחד שמטפל בכל
-              הסטאק, כדי שתוכל לחזור לעשות מוזיקה.
+              אז בניתי את הכלי שרציתי. לינק אחד שהאמנים שלך כבר מבינים:
+              מזמינים, חותמים, משלמים, שומעים, חוזרים. הדבר היחיד שנשאר
+              להיות טוב בו הוא המוזיקה.
             </p>
           </>
         ) : (
           <>
             <p className="founder__paragraph">
-              I&apos;m Gili, and I built Skitza after watching my producer
-              friends spend more time on WhatsApp than in the studio.
+              I&apos;m Gili. I&apos;m a producer — the kind who spent more
+              time digging through WhatsApp than mixing in the studio.
             </p>
             <p className="founder__paragraph">
-              Bookings in one app. Drive in another. Contracts in a third.
-              Payments in a fourth. None of them talked to each other. None
-              of them were built for music.
+              Bookings in one app. Files in another. Contracts in a third.
+              Payments in a fourth, if they ever cleared. None of them
+              talked to each other. None of them were built for music. I
+              was the integration — and the cost was the work.
             </p>
             <p className="founder__paragraph">
-              Skitza is what I wish they had — one link that handles the
-              whole stack so you can get back to making music.
+              So I built the tool I wanted. One link your artists already
+              understand: book, sign, pay, hear, come back. The only thing
+              left to be good at is the music.
             </p>
           </>
         )}
         <p className="founder__signoff">
-          {isHe ? "— גילי אסרף, מייסד" : "— Gili Asraf, founder"}
+          {isHe
+            ? "— גילי אסרף, מפיק ומייסד"
+            : "— Gili Asraf, producer & founder"}
         </p>
       </div>
     </div>

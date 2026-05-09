@@ -2,6 +2,7 @@
 
 import { useId, useState, useTransition, type SyntheticEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 import { submitWaitlist } from "../actions";
 
@@ -102,6 +103,9 @@ export function WaitlistForm({
         aria-hidden="true"
       />
       <button type="submit" className="btn-primary" disabled={isPending}>
+        {isPending ? (
+          <Loader2 size={16} className="animate-spin" aria-hidden />
+        ) : null}
         {isPending
           ? isHe ? "שולח…" : "Sending…"
           : isHe ? "גישה מוקדמת" : "Get early access"}

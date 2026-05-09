@@ -29,8 +29,8 @@ export function CtaSection({ locale }: { locale: "en" | "he" }) {
         </h2>
         <p className="body" style={{ marginBottom: 28 }}>
           {isHe
-            ? "הביטא נפתחת בקרוב. המקומות מוגבלים — מפיק אחד בפעם אחת."
-            : "Beta opens soon. Spots are limited — one producer at a time."}
+            ? "הביטא נפתחת בקרוב. 100 מפיקים — אחד בכל פעם."
+            : "Beta opens soon. 100 producers — one at a time."}
         </p>
         <WaitlistForm locale={locale} thanksHref={thanksHref} />
         <p className="gs-form-meta">

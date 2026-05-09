@@ -311,15 +311,27 @@ body:has(.get-started-root) {
   border: 0;
   cursor: pointer;
   transition:
-    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: 0 2px 12px rgba(212, 150, 10, 0.30);
 }
-.get-started-root .btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    0 6px 20px rgba(212, 150, 10, 0.40),
-    0 0 0 4px var(--amber-glow);
+/* Hover-only on real pointer devices — prevents sticky pressed state
+ * on touch where :hover persists until the user taps elsewhere. */
+@media (hover: hover) and (pointer: fine) {
+  .get-started-root .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 6px 20px rgba(212, 150, 10, 0.40),
+      0 0 0 4px var(--amber-glow);
+  }
+}
+/* Press feedback — instant scale-down using iOS-drawer curve. Engages
+ * fast (160ms) since the user is watching for response; release uses
+ * the slower base transition so it springs back, not snaps. */
+.get-started-root .btn-primary:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 80ms;
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
 }
 .get-started-root .btn-primary:disabled {
   opacity: 0.6;
@@ -365,10 +377,13 @@ body:has(.get-started-root) {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
+  /* Explicit ease-out — focus is an entry state, default `ease` feels
+   * mushy because it starts slow at the exact moment the user is
+   * watching for response. */
   transition:
-    border-color 0.2s,
-    box-shadow 0.2s,
-    background 0.2s;
+    border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 @media (min-width: 769px) {
   .get-started-root .gs-input {
@@ -692,7 +707,9 @@ body:has(.get-started-root) {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--dark-border);
   border-radius: 16px;
-  animation: gs-stack-merge 8s infinite cubic-bezier(0.4, 0, 0.2, 1);
+  /* Stronger ease-in-out — the merge is the section's hero gesture,
+   * deserves a curve with more punch than the generic 0.4,0,0.2,1. */
+  animation: gs-stack-merge 8s infinite cubic-bezier(0.77, 0, 0.175, 1);
 }
 .get-started-root .stack-reveal__skitza {
   position: absolute;
@@ -719,9 +736,11 @@ body:has(.get-started-root) {
   color: #111009;
 }
 
+/* Chips shrink to 0.85 (not 0) — Emil's principle: nothing in the
+ * real world disappears completely. They feel absorbed, not vanished. */
 @keyframes gs-stack-merge {
   0%,  30% { transform: scale(1); opacity: 1; }
-  50%, 70% { transform: scale(0); opacity: 0; }
+  50%, 70% { transform: scale(0.85); opacity: 0; }
   100%     { transform: scale(1); opacity: 1; }
 }
 
@@ -906,8 +925,12 @@ body:has(.get-started-root) {
   transform: translateX(-100%);
   pointer-events: none;
 }
-.get-started-root .btn-primary:hover::after {
-  animation: gs-btn-shine 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+/* Shine only on hover-capable devices — sweeping shine on every
+ * mobile tap was reading as a glitch. */
+@media (hover: hover) and (pointer: fine) {
+  .get-started-root .btn-primary:hover::after {
+    animation: gs-btn-shine 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
 }
 
 @keyframes gs-btn-shine {
@@ -915,9 +938,22 @@ body:has(.get-started-root) {
 }
 
 /* Demo frame idle float — very subtle vertical bob so the browser-
- * chrome window feels alive while the page sits open. 6 s ease loop. */
+ * chrome window feels alive while the page sits open. Stronger custom
+ * curve (vs generic ease-in-out) — gives the bob intentional weight
+ * instead of mechanical sine-wave timing.
+ *
+ * Starts at opacity 0 and fades in with a 1.5s delay — gives the H1
+ * word-fade time to land before the video's looping motion competes
+ * for the visitor's eye on the right column. */
 .get-started-root .hero-peek-frame {
-  animation: gs-peek-float 6s ease-in-out infinite;
+  opacity: 0;
+  animation:
+    gs-peek-float 6s cubic-bezier(0.77, 0, 0.175, 1) infinite,
+    gs-peek-fadein 0.9s 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes gs-peek-fadein {
+  to { opacity: 1; }
 }
 
 @keyframes gs-peek-float {
@@ -942,6 +978,7 @@ body:has(.get-started-root) {
   .get-started-root .hero-split__card,
   .get-started-root .stack-reveal__logo,
   .get-started-root .stack-reveal__skitza,
+  .get-started-root .hero-peek-frame,
   .get-started-root .section > * {
     opacity: 1 !important;
     transform: none !important;
