@@ -2,18 +2,17 @@
 
 // Producer Calendar — Schedule tab week grid (spec § 4.2).
 //
-// `grid-template-columns: 46px repeat(7, 1fr)`, body 10 hours sized by
-// the `--hour-px` CSS variable set on the page wrapper. The variable
-// uses `clamp()` against `100dvh` so the grid fills the viewport-
-// locked Calendar page on tall screens and compresses gracefully on
-// short ones — keeping the entire Schedule tab on screen without
-// page-level scroll. Confirmed sessions render as dark blocks;
-// pending sessions render as white "card with kind stripe" treatment
-// so the producer can spot requests at a glance. The "now-line"
-// sweeps today's column when the producer is viewing the current
-// week.
+// Body rows fill the available height: a ResizeObserver measures the
+// section, derives `--hour-px = (sectionHeight - HEADER_ROW_PX) / N`,
+// and writes it back as a CSS variable. SessionBlock + NowLineOverlay
+// consume the same variable through calc() so their absolute
+// positioning stays glued to the right minute regardless of viewport.
+// Result: the Schedule tab fits exactly inside its parent flex box —
+// no page-level scroll, no overflow, no guessing the chrome budget.
 //
 // Pure visual; data comes pre-resolved from page.tsx.
+
+import { useEffect, useRef } from "react";
 
 import { isSameDay } from "./calendar-week";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
@@ -29,11 +28,13 @@ export type ScheduleSession = {
 
 const HOUR_START = 9;
 const HOUR_END = 18; // last cell row label
-// Hour row height is driven by the page-level `--hour-px` CSS variable
-// so the grid fills the viewport. SessionBlock + NowLineOverlay use
-// the same var via calc() to keep absolute positioning aligned.
-const HOUR_ROW_CSS = "var(--hour-px, 48px)";
-const HEADER_ROW_PX = 44; // day-label row; matches the calc offset in NowLineOverlay
+// Hour row height is driven by `--hour-px` (set on the section via
+// ResizeObserver); SessionBlock + NowLineOverlay use this variable in
+// calc() to stay aligned as the value changes.
+const HOUR_ROW_CSS = "var(--hour-px, 44px)";
+const HEADER_ROW_PX = 38; // compact day-label row; matches the offset in NowLineOverlay
+const HOURS_VISIBLE = 10;
+const MIN_HOUR_PX = 28; // floor so labels stay legible on tiny viewports
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 export function ScheduleWeekGrid({
@@ -47,6 +48,28 @@ export function ScheduleWeekGrid({
   todayIdx: number;
   showNowLine: boolean;
 }) {
+  const sectionRef = useRef<HTMLElement>(null);
+
+  // Measure the section and write `--hour-px` so the grid rows + the
+  // SessionBlock absolute math stay perfectly synced with the actual
+  // available height. No viewport math, no chrome guesses — the row
+  // height is just (sectionHeight - HEADER_ROW_PX) / HOURS_VISIBLE.
+  useEffect(() => {
+    const node = sectionRef.current;
+    if (!node) return;
+    const update = () => {
+      const total = node.clientHeight;
+      const perHour = Math.max(MIN_HOUR_PX, (total - HEADER_ROW_PX) / HOURS_VISIBLE);
+      node.style.setProperty("--hour-px", `${String(perHour)}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(node);
+    return () => {
+      ro.disconnect();
+    };
+  }, []);
+
   const hours = Array.from(
     { length: HOUR_END - HOUR_START + 1 },
     (_, i) => HOUR_START + i,
@@ -63,6 +86,7 @@ export function ScheduleWeekGrid({
 
   return (
     <section
+      ref={sectionRef}
       aria-label="Weekly schedule"
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
     >
@@ -89,7 +113,7 @@ export function ScheduleWeekGrid({
             >
               <div
                 className={[
-                  "font-mono text-[10px] leading-none tracking-[0.12em]",
+                  "font-mono text-[9.5px] leading-none tracking-[0.1em]",
                   isToday
                     ? "text-[rgb(var(--brand-primary-dark))]"
                     : "text-[rgb(var(--fg-muted))]",
@@ -100,7 +124,7 @@ export function ScheduleWeekGrid({
               </div>
               <div
                 className={[
-                  "mt-1 inline-flex h-[24px] w-[24px] items-center justify-center rounded-full font-mono text-[11.5px]",
+                  "mt-0.5 inline-flex h-[20px] w-[20px] items-center justify-center rounded-full font-mono text-[11px]",
                   isToday
                     ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                     : "text-[rgb(var(--fg-default))]",

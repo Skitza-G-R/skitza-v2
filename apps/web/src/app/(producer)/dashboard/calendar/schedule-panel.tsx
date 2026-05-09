@@ -91,14 +91,18 @@ export function SchedulePanel({
         }}
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
         <ScheduleWeekGrid
           week={week}
           sessions={visible}
           todayIdx={tIdx}
           showNowLine={weekOffset === 0}
         />
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+        {/* Right rail mirrors the grid's height (same grid row).
+            min-h-0 + overflow-hidden keeps content inside the rail
+            without a visible scrollbar — cards are sized for the
+            typical case (a few sessions, a few pending). */}
+        <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
           <ScheduleTodayAgenda
             sessions={todaySessions}
             weekOffset={weekOffset}
