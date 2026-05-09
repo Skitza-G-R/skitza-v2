@@ -112,13 +112,13 @@ export default async function WelcomePage({
 
         <Link
           href={nextRouteAfterWelcome()}
-          className="sk-pop mt-7 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3.5 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] transition-shadow hover:shadow-[0_6px_20px_rgba(17,16,9,0.28)]"
+          className="sk-pop mt-9 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3.5 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] transition-shadow hover:shadow-[0_6px_20px_rgba(17,16,9,0.28)]"
         >
           Start setting up
           <span aria-hidden>→</span>
         </Link>
 
-        <p className="mt-3.5 font-mono text-[11px] tracking-[0.04em] text-[rgb(var(--fg-muted))]">
+        <p className="mt-5 font-mono text-[11px] tracking-[0.04em] text-[rgb(var(--fg-muted))]">
           About 2 minutes · Skip anything · Come back later
         </p>
       </div>

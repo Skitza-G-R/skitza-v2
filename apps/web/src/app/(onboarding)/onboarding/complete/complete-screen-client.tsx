@@ -1,16 +1,16 @@
 "use client";
 
-import {
-  AtSign,
-  Check,
-  Copy,
-  MessageCircle,
-  Send,
-} from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
 import { ConfettiBurst } from "~/components/onboarding/wizard-shell/confetti-burst";
+import {
+  CopyIcon,
+  InstagramIcon,
+  WhatsAppIcon,
+  XTwitterIcon,
+} from "~/components/onboarding/wizard-shell/share-icons";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 
 // Step 6 — "You're live." Done celebration. May 2026 redesign.
@@ -51,32 +51,32 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
   const shareButtons: ReadonlyArray<{
     id: string;
     label: string;
-    icon: typeof Copy;
+    Icon: ({ size }: { size?: number }) => React.ReactElement;
     onClick?: () => void;
     href?: string;
   }> = [
     {
       id: "copy",
       label: "Copy link",
-      icon: Copy,
+      Icon: CopyIcon,
       onClick: () => void handleCopy(),
     },
     {
       id: "instagram",
       label: "Instagram",
-      icon: AtSign,
+      Icon: InstagramIcon,
       href: "https://www.instagram.com/",
     },
     {
       id: "twitter",
-      label: "X / Twitter",
-      icon: Send,
+      label: "X",
+      Icon: XTwitterIcon,
       href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(`${shareText} ${fullUrl}`)}`,
     },
     {
       id: "whatsapp",
       label: "WhatsApp",
-      icon: MessageCircle,
+      Icon: WhatsAppIcon,
       href: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${fullUrl}`)}`,
     },
   ];
@@ -130,12 +130,12 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
         {/* Share strip — 4 buttons */}
         <div className="mt-5 grid w-full max-w-md grid-cols-4 gap-2.5">
           {shareButtons.map((b) => {
-            const Icon = b.icon;
+            const Icon = b.Icon;
             const baseClass =
               "sk-pop flex flex-col items-center justify-center gap-1.5 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 py-3 text-[11px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.08)]";
             const inner = (
               <>
-                <Icon size={16} aria-hidden />
+                <Icon size={16} />
                 <span>{b.label}</span>
               </>
             );
@@ -174,7 +174,7 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
           <span aria-hidden>→</span>
         </Link>
 
-        <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--fg-faint))]">
+        <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
           Edit anything from settings
         </p>
       </div>

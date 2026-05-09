@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -141,6 +142,36 @@ export default function StudioStepPage() {
             </p>
           ) : null}
         </form>
+
+        {/* Live storefront preview — same warm card the producer's
+            visitors will see at /join/<slug>. Updates as they type. */}
+        <div className="mt-6">
+          <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--fg-muted))]">
+            Preview
+          </p>
+          <div className="relative overflow-hidden rounded-2xl border border-[rgb(var(--border-subtle))] bg-gradient-to-br from-[rgb(var(--bg-background))] to-[rgb(var(--bg-elevated))] p-5">
+            <div
+              aria-hidden
+              className="absolute right-[-30px] top-[-30px] h-32 w-32 rounded-full bg-[rgb(var(--brand-primary)/0.18)] blur-3xl"
+            />
+            <p className="relative font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--fg-muted))]">
+              skitza.app/your-hall
+            </p>
+            <h2
+              className="relative mt-2 font-display text-[22px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[rgb(var(--fg-default))]"
+              style={{ fontVariationSettings: '"opsz" 96' }}
+            >
+              {displayName.trim() || "Your studio name"}
+            </h2>
+            <p className="relative mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
+              The card artists land on. You can change everything later.
+            </p>
+            <div className="relative mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[11px] font-bold text-white">
+              Book a session
+              <ArrowRight size={11} aria-hidden />
+            </div>
+          </div>
+        </div>
       </div>
     </WizardChrome>
   );

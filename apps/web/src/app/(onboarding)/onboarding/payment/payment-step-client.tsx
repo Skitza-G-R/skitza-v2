@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, Wallet } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -116,8 +116,10 @@ export function PaymentStepClient() {
           >
             <span
               aria-hidden
-              className="h-10 w-10 flex-shrink-0 rounded-xl bg-[rgb(var(--brand-primary)/0.12)]"
-            />
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]"
+            >
+              <Wallet size={18} />
+            </span>
             <div className="min-w-0 flex-1">
               <div className="text-[14px] font-bold text-[rgb(var(--fg-default))]">
                 I&apos;ll handle payments myself

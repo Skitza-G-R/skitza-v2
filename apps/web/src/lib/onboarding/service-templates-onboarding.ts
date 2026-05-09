@@ -92,8 +92,8 @@ export const SUPPORTED_CURRENCIES = ["USD", "EUR", "GBP", "ILS"] as const;
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
 
 export const PAYMENT_PLANS = [
-  { id: "full", label: "Pay in full" },
-  { id: "deposit", label: "50% deposit" },
+  { id: "full", label: "Full" },
+  { id: "deposit", label: "50% upfront" },
   { id: "monthly", label: "Monthly" },
 ] as const;
 

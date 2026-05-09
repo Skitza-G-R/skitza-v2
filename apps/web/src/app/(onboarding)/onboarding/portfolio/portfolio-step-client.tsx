@@ -42,7 +42,7 @@ import {
 // "coming soon" status explicit so producers don't think they're
 // being silently dropped.
 
-type LinkType = PortfolioPlatformKey | "custom";
+type LinkType = PortfolioPlatformKey;
 
 interface LinkRow {
   /** Stable id so React doesn't reuse the wrong DOM node when reordering. */
@@ -56,22 +56,21 @@ interface TypeMeta {
   placeholder: string;
 }
 
-const TYPE_META: Record<LinkType, TypeMeta> = {
+const TYPE_META: Record<LinkType, TypeMeta & { color: string }> = {
   spotify: {
     label: "Spotify",
     placeholder: "https://open.spotify.com/artist/…",
+    color: "#1DB954",
   },
   youtube: {
     label: "YouTube",
     placeholder: "https://youtube.com/@yourhandle",
+    color: "#FF0033",
   },
   instagram_reels: {
     label: "Instagram",
     placeholder: "https://instagram.com/yourhandle",
-  },
-  custom: {
-    label: "Custom",
-    placeholder: "https://yoursite.com (saving coming soon)",
+    color: "#E4405F",
   },
 };
 
@@ -80,14 +79,11 @@ const PLATFORM_TYPES: ReadonlyArray<PortfolioPlatformKey> = [
   "youtube",
   "instagram_reels",
 ];
-const ALL_TYPES: ReadonlyArray<LinkType> = [
-  ...PLATFORM_TYPES,
-  "custom",
-];
+const ALL_TYPES: ReadonlyArray<LinkType> = PLATFORM_TYPES;
 
-function nextDefaultType(rows: ReadonlyArray<LinkRow>): LinkType {
+function nextDefaultType(rows: ReadonlyArray<LinkRow>): LinkType | null {
   const used = new Set(rows.map((r) => r.type));
-  return PLATFORM_TYPES.find((t) => !used.has(t)) ?? "custom";
+  return PLATFORM_TYPES.find((t) => !used.has(t)) ?? null;
 }
 
 function makeId(): string {
@@ -114,20 +110,17 @@ export function PortfolioStepClient() {
   };
 
   const addRow = () => {
-    setRows((prev) => [
-      ...prev,
-      { id: makeId(), type: nextDefaultType(prev), url: "" },
-    ]);
+    const next = nextDefaultType(rows);
+    if (!next) return; // all 3 platforms already shown
+    setRows((prev) => [...prev, { id: makeId(), type: next, url: "" }]);
   };
+
+  const canAddMore = nextDefaultType(rows) !== null;
 
   const handleContinue = () => {
     setError(null);
-    // Roll the rows into the legacy ExternalLinksFormState shape so we
-    // can keep using saveExternalLinks unchanged. Custom rows are
-    // dropped on save (TODO: schema column for custom links).
     const formState: ExternalLinksFormState = emptyExternalLinksState();
     for (const row of rows) {
-      if (row.type === "custom") continue;
       formState[row.type] = { url: row.url, title: "" };
     }
     startTransition(async () => {
@@ -171,24 +164,46 @@ export function PortfolioStepClient() {
           {PORTFOLIO_STEP_SUBTITLE}
         </p>
 
-        {/* Compact upload stub */}
-        <div className="mt-5 flex items-center gap-3 rounded-xl border-2 border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-3">
-          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
-            <UploadCloud size={16} aria-hidden />
+        {/* Live preview — colored circles per platform, brighten when
+            the producer fills a URL. Quiet visual proof of "this is
+            what artists will see in your storefront hero." */}
+        <div className="mt-5 flex items-center gap-2.5 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3">
+          <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+            Preview
           </span>
-          <div className="flex-1 text-[12.5px]">
-            <div className="font-bold text-[rgb(var(--fg-default))]">
-              Track upload — coming soon
-            </div>
-            <div className="text-[rgb(var(--fg-muted))]">
-              For now, add links below. You&apos;ll upload tracks from Setup
-              → Portfolio after onboarding.
-            </div>
+          <div className="flex flex-1 gap-1.5">
+            {PLATFORM_TYPES.map((t) => {
+              const filled =
+                rows.find((r) => r.type === t)?.url.trim().length ?? 0;
+              const meta = TYPE_META[t];
+              const initial = meta.label[0] ?? "";
+              return (
+                <span
+                  key={t}
+                  aria-hidden
+                  className="flex h-6 w-6 items-center justify-center rounded-full font-mono text-[10px] font-bold text-white transition-all"
+                  style={{
+                    background:
+                      filled > 0
+                        ? meta.color
+                        : "rgb(var(--border-strong))",
+                    opacity: filled > 0 ? 1 : 0.5,
+                  }}
+                  title={meta.label}
+                >
+                  {initial}
+                </span>
+              );
+            })}
           </div>
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]">
+            <UploadCloud size={11} className="mr-1 inline" aria-hidden />
+            Track upload soon
+          </span>
         </div>
 
         {/* Link rows */}
-        <div className="mt-4 flex flex-col gap-2">
+        <div className="mt-3 flex flex-col gap-2">
           {rows.map((row) => {
             const meta = TYPE_META[row.type];
             return (
@@ -250,14 +265,16 @@ export function PortfolioStepClient() {
             );
           })}
 
-          <button
-            type="button"
-            onClick={addRow}
-            className="sk-pop flex items-center justify-center gap-1.5 self-start rounded-full border border-dashed border-[rgb(var(--border-strong))] px-3.5 py-1.5 text-[12px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
-          >
-            <Plus size={12} aria-hidden />
-            Add another link
-          </button>
+          {canAddMore ? (
+            <button
+              type="button"
+              onClick={addRow}
+              className="sk-pop flex items-center justify-center gap-1.5 self-start rounded-full border border-dashed border-[rgb(var(--border-strong))] px-3.5 py-1.5 text-[12px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+            >
+              <Plus size={12} aria-hidden />
+              Add another link
+            </button>
+          ) : null}
         </div>
 
         {error ? (

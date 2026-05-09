@@ -278,59 +278,66 @@ export function AvailabilityStepClient({
                 {day.label}
               </span>
 
-              {/* Windows */}
-              <div className="ml-auto flex flex-1 flex-wrap items-center justify-end gap-1.5">
-                {day.windows.map((w, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center gap-1 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-1 py-0.5"
-                  >
-                    <input
-                      type="time"
-                      value={minutesToTime(w.startMin)}
-                      disabled={!day.active || pending}
-                      onChange={(e) =>
-                        updateWindow(day.weekday, idx, {
-                          startMin: timeToMinutes(e.target.value),
-                        })
-                      }
-                      className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
-                    />
-                    <span className="text-[rgb(var(--fg-faint))]">–</span>
-                    <input
-                      type="time"
-                      value={minutesToTime(w.endMin)}
-                      disabled={!day.active || pending}
-                      onChange={(e) =>
-                        updateWindow(day.weekday, idx, {
-                          endMin: timeToMinutes(e.target.value),
-                        })
-                      }
-                      className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
-                    />
-                    {day.active && day.windows.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => removeWindow(day.weekday, idx)}
-                        aria-label="Remove window"
-                        className="flex h-4 w-4 items-center justify-center rounded text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))]"
-                      >
-                        <X size={9} />
-                      </button>
-                    ) : null}
-                  </div>
-                ))}
-                {day.active && day.windows.length < 3 ? (
-                  <button
-                    type="button"
-                    onClick={() => addWindow(day.weekday)}
-                    aria-label={`Add window to ${day.label}`}
-                    className="flex h-5 w-5 items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
-                  >
-                    <Plus size={10} />
-                  </button>
-                ) : null}
-              </div>
+              {/* Windows — hidden when day is off (cleaner than dimmed
+                  text that still suggests data). */}
+              {day.active ? (
+                <div className="ml-auto flex flex-1 flex-wrap items-center justify-end gap-1.5">
+                  {day.windows.map((w, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-1 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-1 py-0.5"
+                    >
+                      <input
+                        type="time"
+                        value={minutesToTime(w.startMin)}
+                        disabled={pending}
+                        onChange={(e) =>
+                          updateWindow(day.weekday, idx, {
+                            startMin: timeToMinutes(e.target.value),
+                          })
+                        }
+                        className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                      />
+                      <span className="text-[rgb(var(--fg-faint))]">–</span>
+                      <input
+                        type="time"
+                        value={minutesToTime(w.endMin)}
+                        disabled={pending}
+                        onChange={(e) =>
+                          updateWindow(day.weekday, idx, {
+                            endMin: timeToMinutes(e.target.value),
+                          })
+                        }
+                        className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                      />
+                      {day.windows.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => removeWindow(day.weekday, idx)}
+                          aria-label="Remove window"
+                          className="flex h-7 w-7 items-center justify-center rounded text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))]"
+                        >
+                          <X size={12} />
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                  {day.windows.length < 3 ? (
+                    <button
+                      type="button"
+                      onClick={() => addWindow(day.weekday)}
+                      aria-label={`Add window to ${day.label}`}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                    >
+                      <Plus size={12} />
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <span className="ml-auto pr-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]">
+                  Off
+                </span>
+              )}
             </li>
           ))}
         </ul>
