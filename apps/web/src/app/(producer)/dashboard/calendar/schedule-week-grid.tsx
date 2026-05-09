@@ -236,15 +236,18 @@ function SessionBlock({
           PENDING
         </span>
       ) : null}
+      {/* Title (700, prominent) = the session purpose so producers
+          scan their week by craft ("3 mixes, 1 master") rather than
+          by client. Client name + time mono'd on the row below. */}
       <div
         className="truncate text-[11px] leading-tight"
         style={{ fontWeight: 700 }}
       >
-        {session.artistName}
+        {serviceLabel}
       </div>
       <div className="truncate font-mono text-[9px] opacity-70">
         {timeLabel}
-        {lenHours >= 1 ? ` · ${serviceLabel}` : ""}
+        {lenHours >= 1 ? ` · ${session.artistName}` : ""}
       </div>
     </div>
   );

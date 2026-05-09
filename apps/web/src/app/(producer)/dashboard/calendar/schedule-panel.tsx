@@ -13,12 +13,7 @@
 
 import { useMemo, useState } from "react";
 
-import {
-  buildWeek,
-  isSameDay,
-  todayIndex,
-  weekEyebrow,
-} from "./calendar-week";
+import { buildWeek, isSameDay, todayIndex } from "./calendar-week";
 import {
   ScheduleWeekGrid,
   type ScheduleSession,
@@ -59,8 +54,6 @@ export function SchedulePanel({
     [reference, weekOffset],
   );
   const tIdx = todayIndex(week);
-  const eyebrowDate = week[0];
-  const eyebrow = eyebrowDate ? weekEyebrow(eyebrowDate) : "";
 
   // Filter sessions visible in the current week.
   const visible = useMemo(() => {
@@ -77,26 +70,8 @@ export function SchedulePanel({
       (visible.reduce((acc, s) => acc + s.durationMin, 0) / 60) * 10,
     ) / 10;
 
-  const subline =
-    totalSessions === 0
-      ? "Quiet week — accepting bookings."
-      : `${String(totalSessions)} session${totalSessions === 1 ? "" : "s"} this week${
-          pending.length > 0 ? ` · ${String(pending.length)} pending` : ""
-        }`;
-
   return (
-    <div className="space-y-5">
-      {/* Eyebrow + subline (the H1 lives on the page). On mobile the
-          tabs sit beneath the header; on sm+ the page header puts
-          tabs to the top-right of the H1. */}
-      <p className="font-mono text-[10px] tracking-[0.12em] text-[rgb(var(--fg-muted))]" style={{ fontWeight: 700 }}>
-        {eyebrow}
-      </p>
-
-      <p className="-mt-3 text-[12.5px] text-[rgb(var(--fg-secondary))]">
-        {subline}
-      </p>
-
+    <div className="space-y-4">
       <ScheduleWeekNav
         week={week}
         weekOffset={weekOffset}

@@ -224,12 +224,29 @@ function IconBtn({
 }
 
 function StatusPill({ status }: { status: DerivedStatus }) {
-  const map: Record<DerivedStatus, { label: string; cls: string }> = {
+  // Rejected uses an outline-only red treatment so it's visually
+  // distinct from Cancelled (filled red). Same family — different
+  // severity. Rejected = "I declined this incoming request before it
+  // became a confirmed session"; Cancelled = "I cancelled an already-
+  // confirmed session". Outline-vs-filled mirrors that hierarchy.
+  if (status === "rejected") {
+    return (
+      <span
+        className="inline-flex items-center rounded-[6px] border border-[rgb(var(--fg-danger)/0.4)] bg-transparent px-2 py-[2px] text-[10px] uppercase tracking-[0.08em] text-[rgb(var(--fg-danger))]"
+        style={{ fontWeight: 700 }}
+      >
+        Rejected
+      </span>
+    );
+  }
+  const map: Record<
+    Exclude<DerivedStatus, "rejected">,
+    { label: string; cls: string }
+  > = {
     confirmed: { label: "Confirmed", cls: "pill-success" },
     pending: { label: "Pending", cls: "pill-warning" },
     awaiting_payment: { label: "Awaiting payment", cls: "pill-warning" },
     completed: { label: "Completed", cls: "pill-neutral" },
-    rejected: { label: "Rejected", cls: "pill-danger" },
     cancelled: { label: "Cancelled", cls: "pill-danger" },
   };
   const m = map[status];

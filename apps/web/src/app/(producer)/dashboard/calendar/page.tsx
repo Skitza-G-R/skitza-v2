@@ -10,6 +10,7 @@ import {
   type CalendarTabKey,
   resolveCalendarTab,
 } from "./calendar-tab-key";
+import { weekEyebrow } from "./calendar-week";
 import { SchedulePanel } from "./schedule-panel";
 import type { ScheduleSession } from "./schedule-week-grid";
 import type { TodaySession } from "./schedule-today-agenda";
@@ -17,22 +18,16 @@ import type { PendingRequest } from "./schedule-pending-card";
 import { SessionsPanel } from "./sessions-panel";
 import type { SessionListItem } from "./session-row";
 
-const META: Record<CalendarTabKey, { title: string; description: string }> = {
-  schedule: {
-    title: "Calendar",
-    description:
-      "Your week at a glance — confirmed sessions, pending requests, today's lineup.",
-  },
-  sessions: {
-    title: "Sessions",
-    description:
-      "Every session you've booked — upcoming, past, and the actions you can take per row.",
-  },
-  availability: {
-    title: "Availability",
-    description:
-      "When you're open for bookings — weekly hours, blackouts, and session policies.",
-  },
+// Per-tab subline copy. The H1 is always "Calendar" — the tab in the
+// segmented control names the section, the eyebrow gives dynamic
+// context (week / total sessions / weekly hours).
+const SUBLINE: Record<CalendarTabKey, string> = {
+  schedule:
+    "Your week at a glance — confirmed sessions, pending requests, today's lineup.",
+  sessions:
+    "Every session you've booked — upcoming, past, and the actions you can take per row.",
+  availability:
+    "When you're open for bookings — weekly hours, blackouts, and session policies.",
 };
 
 export default async function CalendarPage({
@@ -161,38 +156,79 @@ export default async function CalendarPage({
     };
   }
 
-  const headerMeta = META[active];
+  // Tab-aware eyebrow — gives the section dynamic context. Schedule
+  // shows the current week date; Sessions shows totals; Availability
+  // shows weekly hours open. The eyebrow stays static across client-
+  // side week navigation — the WeekNav inside SchedulePanel surfaces
+  // the navigated week's range readout instead.
+  let eyebrow = "PRODUCER CALENDAR";
+  if (active === "schedule") {
+    const sun = new Date(initialNow);
+    sun.setDate(sun.getDate() - sun.getDay());
+    sun.setHours(0, 0, 0, 0);
+    eyebrow = weekEyebrow(sun);
+  } else if (active === "sessions") {
+    const total = allSessions.length;
+    const upcomingCount = allSessions.filter((s) => {
+      const start = new Date(s.startsAt);
+      const endMs = start.getTime() + s.durationMin * 60_000;
+      const isCancelled =
+        s.status === "cancelled" || s.status === "rejected";
+      return !isCancelled && endMs > initialNow.getTime();
+    }).length;
+    eyebrow =
+      total === 0
+        ? "NO SESSIONS YET"
+        : `${String(total)} SESSION${total === 1 ? "" : "S"} · ${String(upcomingCount)} UPCOMING`;
+  } else {
+    // active === "availability" by exhaustive narrowing.
+    const totalMin = availabilityBlocks.reduce(
+      (acc, b) => acc + (b.endMin - b.startMin),
+      0,
+    );
+    const hours = Math.round((totalMin / 60) * 10) / 10;
+    const hoursLabel = Number.isInteger(hours)
+      ? String(hours)
+      : hours.toFixed(1).replace(/\.0$/, "");
+    eyebrow =
+      hours === 0
+        ? "AVAILABILITY NOT SET"
+        : `${hoursLabel}H OPEN PER WEEK`;
+  }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
+    <div className="mx-auto max-w-[1180px] px-4 py-6 sm:py-10">
       {/* Calendar gets a generous canvas — sm+ surfaces the elevated
           card; mobile drops the chrome to maximise usable width. */}
       <div className="rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-2xl)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-6 sm:py-7">
-        {/* Header — eyebrow + Syne 800 H1 on the left, segmented tabs
-            on the right at sm+. The sub-line lives inside each panel
-            because Schedule has a dynamic count ("6 sessions · 3
-            pending"). */}
+        {/* Header — eyebrow + Syne 800 "Calendar" H1 on the left,
+            segmented tabs top-right at sm+. The H1 is always
+            "Calendar" — the tab below names the section. */}
         <header className="reveal-up mb-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
             <div className="min-w-0">
-              <p className="font-mono text-[10px] tracking-[0.18em] text-[rgb(var(--fg-muted))]" style={{ fontWeight: 700 }}>
-                CALENDAR
+              <p
+                key={`eyebrow-${active}`}
+                className="reveal-up font-mono text-[10px] tracking-[0.18em] text-[rgb(var(--fg-muted))]"
+                style={{ fontWeight: 700 }}
+              >
+                {eyebrow}
               </p>
               <h1
-                key={`title-${active}`}
-                className="reveal-up mt-1 font-display text-[34px] leading-[0.95] sm:text-[44px]"
+                className="reveal-up mt-1 font-display leading-[0.95]"
                 style={{
+                  fontSize: "clamp(34px, 4.5vw, 52px)",
                   fontWeight: 800,
                   letterSpacing: "-0.035em",
                 }}
               >
-                {headerMeta.title}
+                Calendar
               </h1>
               <p
                 key={`desc-${active}`}
-                className="reveal-up mt-2 max-w-xl text-[13px] text-[rgb(var(--fg-muted))]"
+                className="reveal-up mt-2 max-w-xl text-[13.5px] text-[rgb(var(--fg-muted))]"
               >
-                {headerMeta.description}
+                {SUBLINE[active]}
               </p>
             </div>
             <CalendarTabs active={active} />

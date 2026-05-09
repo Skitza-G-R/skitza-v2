@@ -56,12 +56,28 @@ export function ChangeTimeModal({
     endTime !== initialEnd ||
     note.length > 0;
 
+  // End must be strictly after start. The select renders 30-min slots
+  // 08:00–21:30, so a "13:00 → 12:00" picking mistake is easy to make
+  // — disable submit + show inline error rather than letting the diff
+  // chip pretend it's valid.
+  const endIsAfterStart = compareTime(endTime, startTime) > 0;
+
   function handleSubmit() {
+    if (!endIsAfterStart) return;
     toast(
       "Reschedule wiring lands next sprint — saved your draft locally for review.",
       "info",
     );
     onOpenChange(false);
+  }
+
+  // When the producer picks a start time that pushes past the current
+  // end, snap the end to start + 1h so the form stays valid by default.
+  function handleStartChange(next: string) {
+    setStartTime(next);
+    if (compareTime(endTime, next) <= 0) {
+      setEndTime(addOneHour(next));
+    }
   }
 
   return (
@@ -89,13 +105,23 @@ export function ChangeTimeModal({
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Start">
-              <TimeSelect value={startTime} onChange={setStartTime} />
+              <TimeSelect value={startTime} onChange={handleStartChange} />
             </Field>
             <Field label="End">
               <TimeSelect value={endTime} onChange={setEndTime} />
             </Field>
           </div>
-          {changed ? <DiffChip date={date} startTime={startTime} endTime={endTime} /> : null}
+          {changed && !endIsAfterStart ? (
+            <div
+              role="alert"
+              className="rounded-[10px] border border-[rgb(var(--fg-danger)/0.4)] bg-[rgb(var(--fg-danger)/0.06)] px-3 py-2 text-[11.5px] text-[rgb(var(--fg-danger))]"
+              style={{ fontWeight: 600 }}
+            >
+              End time must be after start time.
+            </div>
+          ) : changed ? (
+            <DiffChip date={date} startTime={startTime} endTime={endTime} />
+          ) : null}
           <Field label="Note for the artist (optional)">
             <textarea
               rows={3}
@@ -118,7 +144,11 @@ export function ChangeTimeModal({
           >
             Cancel
           </ModalGhostButton>
-          <ModalPrimaryButton onClick={handleSubmit} disabled={!changed} tone="dark">
+          <ModalPrimaryButton
+            onClick={handleSubmit}
+            disabled={!changed || !endIsAfterStart}
+            tone="dark"
+          >
             Send new time
           </ModalPrimaryButton>
         </>
@@ -255,6 +285,23 @@ function toDateInput(d: Date): string {
 
 function toTimeInput(d: Date): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// Compares two "HH:MM" strings. Returns positive if a > b, 0 if equal,
+// negative if a < b. String compare works because the format is fixed-
+// width zero-padded.
+function compareTime(a: string, b: string): number {
+  return a.localeCompare(b);
+}
+
+function addOneHour(t: string): string {
+  const [h = "0", m = "0"] = t.split(":");
+  const total = (Number(h) + 1) * 60 + Number(m);
+  // Cap at 21:30 — last available slot.
+  const capped = Math.min(total, 21 * 60 + 30);
+  const newH = Math.floor(capped / 60);
+  const newM = capped % 60;
+  return `${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`;
 }
 
 function formatHumanRange(start: Date, end: Date): string {
