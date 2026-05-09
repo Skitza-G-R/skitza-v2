@@ -264,7 +264,7 @@ export function AvailabilityStepClient({
           {days.map((day) => (
             <li
               key={day.weekday}
-              className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-opacity ${
+              className={`flex h-10 items-center gap-2 rounded-lg px-2.5 transition-opacity ${
                 day.active
                   ? "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] opacity-100"
                   : "border border-transparent opacity-50"
@@ -312,13 +312,18 @@ export function AvailabilityStepClient({
               ) : null}
 
               {/* Windows — hidden when day is off (cleaner than dimmed
-                  text that still suggests data). */}
+                  text that still suggests data). The wrapper uses
+                  flex-nowrap so adding a 2nd window can't push
+                  anything to a 2nd row — the row's height is locked
+                  by `h-9` on the <li>, and the `+` button now lives
+                  OUTSIDE this wrapper so it can never be the thing
+                  that wraps. */}
               {day.active ? (
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                <div className="ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-1.5">
                   {day.windows.map((w, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center gap-1 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-1 py-0.5"
+                      className="flex flex-shrink-0 items-center gap-1 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-1 py-0.5"
                     >
                       <input
                         type="time"
@@ -355,22 +360,29 @@ export function AvailabilityStepClient({
                       ) : null}
                     </div>
                   ))}
-                  {day.windows.length < 3 ? (
-                    <button
-                      type="button"
-                      onClick={() => { addWindow(day.weekday); }}
-                      aria-label={`Add window to ${day.label}`}
-                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
-                    >
-                      <Plus size={12} />
-                    </button>
-                  ) : null}
                 </div>
               ) : (
                 <span className="ml-auto pr-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]">
                   Off
                 </span>
               )}
+              {/* `+` is a sibling of the windows wrapper, not a
+                  child. Inside the wrapper it was the last item to
+                  fit and the first to wrap onto a 2nd line as soon
+                  as a 2nd window arrived — which was making the
+                  bracket grow. As a sibling it sits in fixed space
+                  on the row's right edge regardless of how many
+                  windows are in. */}
+              {day.active && day.windows.length < 3 ? (
+                <button
+                  type="button"
+                  onClick={() => { addWindow(day.weekday); }}
+                  aria-label={`Add window to ${day.label}`}
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                >
+                  <Plus size={12} />
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>
