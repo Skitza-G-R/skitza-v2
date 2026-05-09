@@ -96,7 +96,7 @@ export function WizardChrome({
           </TipCard>
         </aside>
 
-        <main className="custom-scrollbar overflow-y-auto overflow-x-hidden px-6 py-5 pb-[88px]">
+        <main className="custom-scrollbar overflow-y-auto overflow-x-hidden px-6 py-4 pb-[80px]">
           <div className="mx-auto w-full max-w-[540px]">{children}</div>
         </main>
       </div>

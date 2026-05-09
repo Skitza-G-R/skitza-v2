@@ -63,7 +63,7 @@ export default async function WelcomePage({
       <div className="ob-stagger flex flex-col items-center text-center">
         {/* Live-dot pill: gold-tinted bg + alive heartbeat (combined
             scale + glow). Reads as breathing rather than blinking. */}
-        <span className="mb-7 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
+        <span className="mb-4 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
           <span
             aria-hidden
             className="ob-alive-dot inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"
@@ -72,7 +72,7 @@ export default async function WelcomePage({
         </span>
 
         <h1
-          className="font-display text-[34px] font-extrabold leading-[1.02] tracking-[-0.035em] text-balance sm:text-5xl"
+          className="font-display text-[30px] font-extrabold leading-[1.04] tracking-[-0.035em] text-balance sm:text-[40px]"
           style={{ fontVariationSettings: '"opsz" 96' }}
         >
           Let&apos;s set up
@@ -83,13 +83,13 @@ export default async function WelcomePage({
           <span className="text-[rgb(var(--brand-primary))]">.</span>
         </h1>
 
-        <p className="mt-5 max-w-md text-[15px] leading-relaxed text-[rgb(var(--fg-muted))]">
+        <p className="mt-3 max-w-md text-[14px] leading-relaxed text-[rgb(var(--fg-muted))]">
           Five short steps. About two minutes. By the end, you&apos;ll have
           a public link you can paste anywhere — and Skitza will handle
           the rest.
         </p>
 
-        <ul className="mt-7 grid w-full grid-cols-3 gap-2.5 text-left">
+        <ul className="mt-5 grid w-full grid-cols-3 gap-2 text-left">
           {[
             { Icon: Mic2, label: "Your studio identity" },
             { Icon: Package, label: "One service to start" },
@@ -97,12 +97,12 @@ export default async function WelcomePage({
           ].map(({ Icon, label }) => (
             <li
               key={label}
-              className="flex items-center gap-2.5 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 py-3.5"
+              className="flex items-center gap-2 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2.5 py-2.5"
             >
-              <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
-                <Icon size={16} aria-hidden />
+              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
+                <Icon size={14} aria-hidden />
               </span>
-              <span className="text-[13px] font-semibold leading-tight">
+              <span className="text-[12px] font-semibold leading-tight">
                 {label}
               </span>
             </li>
@@ -111,13 +111,13 @@ export default async function WelcomePage({
 
         <Link
           href={nextRouteAfterWelcome()}
-          className="ob-press mt-9 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3.5 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] hover:shadow-[0_8px_24px_rgba(17,16,9,0.32)]"
+          className="ob-press mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] hover:shadow-[0_8px_24px_rgba(17,16,9,0.32)]"
         >
           Start setting up
           <span aria-hidden>→</span>
         </Link>
 
-        <p className="mt-5 font-mono text-[11px] tracking-[0.04em] text-[rgb(var(--fg-muted))]">
+        <p className="mt-3 font-mono text-[11px] tracking-[0.04em] text-[rgb(var(--fg-muted))]">
           About 2 minutes · Skip anything · Come back later
         </p>
       </div>
