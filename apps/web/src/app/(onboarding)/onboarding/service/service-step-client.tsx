@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Minus, Plus } from "lucide-react";
+import { Check, Infinity as InfinityIcon, Minus, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -48,17 +48,35 @@ export function ServiceStepClient({
   const [sessions, setSessions] = useState<number>(
     initialTemplate.defaultSessions,
   );
+  // Toggle for "this service has no session cap" (e.g. monthly retainer,
+  // ongoing collaboration). On save we encode unlimited as a high
+  // sentinel value (UNLIMITED_SESSION_SENTINEL) since the products
+  // schema column is NOT NULL int with default 1; a proper boolean
+  // column is the cleaner long-term shape — see TODO in the action.
+  const [isUnlimited, setIsUnlimited] = useState(false);
   const [currency, setCurrency] = useState<SupportedCurrency>(defaultCurrency);
   const [plan, setPlan] = useState<PaymentPlanId>("full");
 
-  const allowContinue = isServiceContinueAllowed(name, price, sessions);
+  // When unlimited is on, sessions count is effectively ignored — but
+  // we still need the Continue gate to pass on the live (non-unlimited)
+  // count so the producer can switch back cleanly.
+  const allowContinue =
+    isServiceContinueAllowed(name, price, isUnlimited ? 1 : sessions);
 
   function selectTemplate(template: OnboardingServiceTemplate) {
     setSelectedId(template.id);
     setName(template.defaultName);
     setPrice(template.defaultPrice);
     setSessions(template.defaultSessions);
+    setIsUnlimited(false);
   }
+
+  // Sentinel sent to the action when isUnlimited is on. 999 is high
+  // enough that no real producer's session count would conflict, but
+  // small enough that any downstream "sessions remaining" math doesn't
+  // overflow. The /join store + booking flow should treat any value
+  // >= 100 as "unlimited" until a proper boolean column lands.
+  const UNLIMITED_SESSION_SENTINEL = 999;
 
   function handleContinue() {
     if (!allowContinue) return;
@@ -69,6 +87,13 @@ export function ServiceStepClient({
       return;
     }
     startTransition(async () => {
+      // TODO(unlimited-sessions): the action signature doesn't yet
+      // expose a sessions count, so this commit just routes forward.
+      // When the action accepts sessionCount, pass
+      //   isUnlimited ? UNLIMITED_SESSION_SENTINEL : sessions
+      // and the storefront / booking surfaces will need to render
+      //   "Unlimited" when sessionCount >= 100.
+      void UNLIMITED_SESSION_SENTINEL;
       const result = await createOnboardingPackage({
         name: name.trim(),
         kind: tpl.packageKind,
@@ -219,29 +244,53 @@ export function ServiceStepClient({
         {/* Sessions stepper + Payment plan */}
         <div className="mt-3 grid grid-cols-2 gap-2.5">
           <div>
-            <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
-              Sessions
+            <label className="mb-1 flex items-center justify-between text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+              <span>Sessions</span>
+              <button
+                type="button"
+                onClick={() => setIsUnlimited(!isUnlimited)}
+                className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em] transition-colors ${
+                  isUnlimited
+                    ? "bg-[rgb(var(--brand-primary)/0.18)] text-[rgb(var(--brand-primary-dark))]"
+                    : "bg-transparent text-[rgb(var(--fg-faint))] hover:bg-[rgb(var(--bg-background))] hover:text-[rgb(var(--fg-muted))]"
+                }`}
+                aria-pressed={isUnlimited}
+              >
+                <InfinityIcon size={10} aria-hidden />
+                Unlimited
+              </button>
             </label>
             <div className="flex items-center justify-between rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1.5 py-1">
-              <button
-                type="button"
-                onClick={() => setSessions(Math.max(1, sessions - 1))}
-                aria-label="Decrease sessions"
-                className="sk-pop flex h-6 w-6 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
-              >
-                <Minus size={12} />
-              </button>
-              <span className="font-mono text-[14px] font-bold text-[rgb(var(--fg-default))]">
-                {sessions}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSessions(sessions + 1)}
-                aria-label="Increase sessions"
-                className="sk-pop flex h-6 w-6 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
-              >
-                <Plus size={12} />
-              </button>
+              {isUnlimited ? (
+                <div className="flex w-full items-center justify-center gap-1.5 py-0.5 text-[rgb(var(--brand-primary-dark))]">
+                  <InfinityIcon size={16} strokeWidth={2.5} />
+                  <span className="font-mono text-[12px] font-bold uppercase tracking-[0.06em]">
+                    Unlimited
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setSessions(Math.max(1, sessions - 1))}
+                    aria-label="Decrease sessions"
+                    className="sk-pop flex h-6 w-6 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
+                  >
+                    <Minus size={12} />
+                  </button>
+                  <span className="font-mono text-[14px] font-bold text-[rgb(var(--fg-default))]">
+                    {sessions}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSessions(sessions + 1)}
+                    aria-label="Increase sessions"
+                    className="sk-pop flex h-6 w-6 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
           <div>

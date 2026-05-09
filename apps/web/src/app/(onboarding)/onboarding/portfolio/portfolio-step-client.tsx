@@ -42,7 +42,7 @@ import {
 // "coming soon" status explicit so producers don't think they're
 // being silently dropped.
 
-type LinkType = PortfolioPlatformKey;
+type LinkType = PortfolioPlatformKey | "custom";
 
 interface LinkRow {
   /** Stable id so React doesn't reuse the wrong DOM node when reordering. */
@@ -72,6 +72,11 @@ const TYPE_META: Record<LinkType, TypeMeta & { color: string }> = {
     placeholder: "https://instagram.com/yourhandle",
     color: "#E4405F",
   },
+  custom: {
+    label: "Custom",
+    placeholder: "https://yoursite.com",
+    color: "rgb(var(--brand-primary-dark))",
+  },
 };
 
 const PLATFORM_TYPES: ReadonlyArray<PortfolioPlatformKey> = [
@@ -79,11 +84,19 @@ const PLATFORM_TYPES: ReadonlyArray<PortfolioPlatformKey> = [
   "youtube",
   "instagram_reels",
 ];
-const ALL_TYPES: ReadonlyArray<LinkType> = PLATFORM_TYPES;
+// All four selectable types — 3 schema-backed platforms + Custom.
+// Custom is captured locally but not yet persisted (schema only
+// supports the 3 platform enum values today). When the schema gains
+// a generic-link column, drop the filter inside handleContinue below.
+const ALL_TYPES: ReadonlyArray<LinkType> = [...PLATFORM_TYPES, "custom"];
 
-function nextDefaultType(rows: ReadonlyArray<LinkRow>): LinkType | null {
+function nextDefaultType(rows: ReadonlyArray<LinkRow>): LinkType {
   const used = new Set(rows.map((r) => r.type));
-  return PLATFORM_TYPES.find((t) => !used.has(t)) ?? null;
+  // Prefer the next unused platform; fall back to Custom (which can
+  // appear multiple times — every Custom row is a distinct freeform
+  // URL, unlike the 3 platforms which dedupe per producer).
+  const nextPlatform = PLATFORM_TYPES.find((t) => !used.has(t));
+  return nextPlatform ?? "custom";
 }
 
 function makeId(): string {
@@ -111,16 +124,24 @@ export function PortfolioStepClient() {
 
   const addRow = () => {
     const next = nextDefaultType(rows);
-    if (!next) return; // all 3 platforms already shown
     setRows((prev) => [...prev, { id: makeId(), type: next, url: "" }]);
   };
 
-  const canAddMore = nextDefaultType(rows) !== null;
+  // Custom rows can stack indefinitely — only stop adding when there's
+  // no sensible default left, which never happens since we fall back
+  // to Custom. Cap at 6 rows total to keep the layout sane.
+  const canAddMore = rows.length < 6;
 
   const handleContinue = () => {
     setError(null);
     const formState: ExternalLinksFormState = emptyExternalLinksState();
     for (const row of rows) {
+      // Custom links captured locally but NOT yet persisted —
+      // producer_external_links.platform is a 7-value enum that
+      // doesn't include a generic/custom slot. TODO(schema): add a
+      // free-form url column or extend the enum, then drop this
+      // filter so the row joins the upsert.
+      if (row.type === "custom") continue;
       formState[row.type] = { url: row.url, title: "" };
     }
     startTransition(async () => {
@@ -195,6 +216,21 @@ export function PortfolioStepClient() {
                 </span>
               );
             })}
+            {(() => {
+              const customCount = rows.filter(
+                (r) => r.type === "custom" && r.url.trim().length > 0,
+              ).length;
+              if (customCount === 0) return null;
+              return (
+                <span
+                  aria-hidden
+                  className="flex h-6 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.18)] px-2 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))]"
+                  title={`${customCount} custom link${customCount === 1 ? "" : "s"}`}
+                >
+                  +{customCount}
+                </span>
+              );
+            })()}
           </div>
           <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]">
             <UploadCloud size={11} className="mr-1 inline" aria-hidden />
