@@ -171,7 +171,7 @@ export function PortfolioStepClient() {
         />
       }
     >
-      <div className="reveal-up">
+      <div className="ob-stagger">
         <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
           Step 4 of 5 · Optional
         </p>
@@ -188,7 +188,7 @@ export function PortfolioStepClient() {
         {/* Live preview — colored circles per platform, brighten when
             the producer fills a URL. Quiet visual proof of "this is
             what artists will see in your storefront hero." */}
-        <div className="mt-5 flex items-center gap-2.5 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3">
+        <div className="ob-breath mt-5 flex items-center gap-2.5 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3">
           <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
             Preview
           </span>

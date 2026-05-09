@@ -60,14 +60,13 @@ export default async function WelcomePage({
 
   return (
     <WizardChrome activePosition={1} stepIndicator="Setup">
-      <div className="reveal-up flex flex-col items-center text-center">
-        {/* Live-dot pill: gold-tinted bg + pulsing dot. CSS-only via
-            the global pulse-glow keyframe; respects
-            prefers-reduced-motion through the global media query. */}
+      <div className="ob-stagger flex flex-col items-center text-center">
+        {/* Live-dot pill: gold-tinted bg + alive heartbeat (combined
+            scale + glow). Reads as breathing rather than blinking. */}
         <span className="mb-7 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
           <span
             aria-hidden
-            className="pulse-glow inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"
+            className="ob-alive-dot inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"
           />
           Welcome
         </span>
@@ -112,7 +111,7 @@ export default async function WelcomePage({
 
         <Link
           href={nextRouteAfterWelcome()}
-          className="sk-pop mt-9 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3.5 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] transition-shadow hover:shadow-[0_6px_20px_rgba(17,16,9,0.28)]"
+          className="ob-press mt-9 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3.5 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] hover:shadow-[0_8px_24px_rgba(17,16,9,0.32)]"
         >
           Start setting up
           <span aria-hidden>→</span>

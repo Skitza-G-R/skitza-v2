@@ -91,7 +91,7 @@ export default function StudioStepPage() {
         />
       }
     >
-      <div className="reveal-up">
+      <div className="ob-stagger">
         <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
           Step 1 of 5 · Required
         </p>
@@ -149,7 +149,7 @@ export default function StudioStepPage() {
           <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--fg-muted))]">
             Preview
           </p>
-          <div className="relative overflow-hidden rounded-2xl border border-[rgb(var(--border-subtle))] bg-gradient-to-br from-[rgb(var(--bg-background))] to-[rgb(var(--bg-elevated))] p-5">
+          <div className="ob-breath relative overflow-hidden rounded-2xl border border-[rgb(var(--border-subtle))] bg-gradient-to-br from-[rgb(var(--bg-background))] to-[rgb(var(--bg-elevated))] p-5">
             <div
               aria-hidden
               className="absolute right-[-30px] top-[-30px] h-32 w-32 rounded-full bg-[rgb(var(--brand-primary)/0.18)] blur-3xl"

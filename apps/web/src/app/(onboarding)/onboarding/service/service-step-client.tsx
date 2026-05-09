@@ -124,7 +124,7 @@ export function ServiceStepClient({
         />
       }
     >
-      <div className="reveal-up">
+      <div className="ob-stagger">
         <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
           Step 2 of 5 · Required
         </p>
@@ -149,10 +149,10 @@ export function ServiceStepClient({
                 type="button"
                 onClick={() => selectTemplate(t)}
                 aria-pressed={isSelected}
-                className={`sk-pop relative flex items-start gap-2 rounded-xl border p-2.5 text-left transition-all ${
+                className={`ob-card-press relative flex items-start gap-2 rounded-xl border p-2.5 text-left ${
                   isSelected
-                    ? "border-transparent bg-[rgb(var(--bg-sidebar))] text-white shadow-[0_4px_14px_rgba(17,16,9,0.18)]"
-                    : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]"
+                    ? "border-transparent bg-[rgb(var(--bg-sidebar))] text-white shadow-[0_6px_20px_rgba(17,16,9,0.22)]"
+                    : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_4px_14px_rgba(17,16,9,0.08)]"
                 }`}
               >
                 <span

@@ -231,7 +231,7 @@ export function AvailabilityStepClient({
         />
       }
     >
-      <div className="reveal-up">
+      <div className="ob-stagger">
         <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
           Step 3 of 5 · Required
         </p>

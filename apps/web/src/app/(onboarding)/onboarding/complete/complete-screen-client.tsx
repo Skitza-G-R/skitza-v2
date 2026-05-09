@@ -88,12 +88,12 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
       stepIndicator="Done"
     >
       <ConfettiBurst />
-      <div className="reveal-up flex flex-col items-center text-center">
+      <div className="ob-stagger flex flex-col items-center text-center">
         {/* Live-dot pill: gold-tinted bg + pulsing dot. */}
         <span className="mb-7 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
           <span
             aria-hidden
-            className="pulse-glow inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"
+            className="ob-alive-dot inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"
           />
           Live
         </span>
@@ -120,7 +120,7 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
             type="button"
             onClick={() => void handleCopy()}
             aria-label="Copy join link"
-            className="sk-pop inline-flex items-center gap-1.5 rounded-xl bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[12px] font-bold text-white transition-colors"
+            className="ob-press inline-flex items-center gap-1.5 rounded-xl bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[12px] font-bold text-white"
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
             {copied ? "Copied" : "Copy"}
@@ -132,7 +132,7 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
           {shareButtons.map((b) => {
             const Icon = b.Icon;
             const baseClass =
-              "sk-pop flex flex-col items-center justify-center gap-1.5 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 py-3 text-[11px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.08)]";
+              "ob-press flex flex-col items-center justify-center gap-1.5 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 py-3 text-[11px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.08)]";
             const inner = (
               <>
                 <Icon size={16} />
@@ -168,7 +168,7 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
         {/* Open dashboard — primary CTA */}
         <Link
           href="/dashboard"
-          className="sk-pop mt-8 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3.5 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] transition-shadow hover:shadow-[0_6px_20px_rgba(17,16,9,0.28)]"
+          className="ob-press mt-8 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3.5 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] hover:shadow-[0_8px_28px_rgba(17,16,9,0.36)]"
         >
           Open my dashboard
           <span aria-hidden>→</span>

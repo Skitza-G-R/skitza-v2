@@ -46,11 +46,15 @@ export function StepRail({
         return (
           <li
             key={step.id}
-            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${rowClasses}`}
+            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors duration-200 ${rowClasses}${
+              isActive
+                ? ""
+                : " hover:bg-[rgb(var(--bg-elevated)/0.6)]"
+            }`}
           >
             <span
               aria-hidden
-              className={`flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${circleClasses}`}
+              className={`ob-rail-circle flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${circleClasses}`}
             >
               {isComplete ? <Check size={14} strokeWidth={3} /> : step.position}
             </span>

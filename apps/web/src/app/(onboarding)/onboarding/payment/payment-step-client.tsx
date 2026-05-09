@@ -46,7 +46,7 @@ export function PaymentStepClient() {
         />
       }
     >
-      <div className="reveal-up">
+      <div className="ob-stagger">
         <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
           Step 5 of 5 · Optional
         </p>
@@ -68,11 +68,12 @@ export function PaymentStepClient() {
             type="button"
             onClick={() => setSelectedId("stripe")}
             aria-pressed={selectedId === "stripe"}
-            className={`sk-pop relative flex items-center gap-3.5 rounded-2xl border p-4 text-left transition-all ${
+            className={`ob-card-press relative flex items-center gap-3.5 rounded-2xl border p-4 text-left ${
               selectedId === "stripe"
-                ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.06)]"
-                : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] hover:border-[rgb(var(--border-strong))]"
+                ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.06)] shadow-[0_4px_14px_rgba(212,150,10,0.12)]"
+                : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_4px_14px_rgba(17,16,9,0.06)]"
             }`}
+            data-stripe-card
           >
             <span
               aria-hidden
