@@ -197,15 +197,32 @@ export default async function CalendarPage({
   }
 
   return (
-    <div className="mx-auto max-w-[1180px] px-4 py-6 sm:py-10">
+    // Viewport-locked layout: the page is sized to the visible viewport
+    // (minus the mobile bottom nav, which is fixed-positioned and
+    // overlays the bottom 80px) so all three Calendar tabs fit on
+    // screen without page-level scroll. `--hour-px` is a CSS variable
+    // consumed by the Schedule week grid so its hour rows stretch /
+    // compress with the available height — clamped to a legible range
+    // so the grid never collapses past usability or balloons on huge
+    // monitors.
+    <div
+      className="mx-auto flex h-[calc(100dvh-5rem)] max-w-[1180px] flex-col px-4 py-3 sm:py-4 lg:h-[100dvh] lg:py-5"
+      style={
+        {
+          // 360px ≈ chrome budget (page+card padding, header, tab nav).
+          // (vh - 360) / 10 hours, clamped 38–56px per row.
+          "--hour-px": "clamp(38px, calc((100dvh - 360px) / 10), 56px)",
+        } as React.CSSProperties
+      }
+    >
       {/* Calendar gets a generous canvas — sm+ surfaces the elevated
           card; mobile drops the chrome to maximise usable width. */}
-      <div className="rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-2xl)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-6 sm:py-7">
+      <div className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-2xl)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-5 sm:py-4 lg:px-6 lg:py-5">
         {/* Header — eyebrow + Syne 800 "Calendar" H1 on the left,
             segmented tabs top-right at sm+. The H1 is always
             "Calendar" — the tab below names the section. */}
-        <header className="reveal-up mb-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <header className="reveal-up mb-3 shrink-0 sm:mb-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
             <div className="min-w-0">
               <p
                 key={`eyebrow-${active}`}
@@ -215,9 +232,9 @@ export default async function CalendarPage({
                 {eyebrow}
               </p>
               <h1
-                className="reveal-up mt-1 font-display leading-[0.95]"
+                className="reveal-up mt-0.5 font-display leading-[0.95]"
                 style={{
-                  fontSize: "clamp(34px, 4.5vw, 52px)",
+                  fontSize: "clamp(26px, 3.2vw, 38px)",
                   fontWeight: 800,
                   letterSpacing: "-0.035em",
                 }}
@@ -226,7 +243,7 @@ export default async function CalendarPage({
               </h1>
               <p
                 key={`desc-${active}`}
-                className="reveal-up mt-2 max-w-xl text-[13.5px] text-[rgb(var(--fg-muted))]"
+                className="reveal-up mt-1 hidden max-w-xl text-[12.5px] text-[rgb(var(--fg-muted))] sm:block"
               >
                 {SUBLINE[active]}
               </p>
@@ -240,7 +257,7 @@ export default async function CalendarPage({
           id={`calendar-panel-${active}`}
           role="tabpanel"
           aria-labelledby={`calendar-tab-${active}`}
-          className="reveal-up pt-1"
+          className="reveal-up flex min-h-0 flex-1 flex-col"
         >
           {active === "schedule" && (
             <SchedulePanel

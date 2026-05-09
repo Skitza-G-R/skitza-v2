@@ -57,7 +57,10 @@ export function SessionsPanel({
   }, [buckets, filter, search]);
 
   return (
-    <div className="space-y-4">
+    // Flex column matching the parent's viewport-locked layout.
+    // Toolbar stays pinned; the session list scrolls internally so the
+    // page chrome (header + tabs) never moves.
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <Toolbar
         filter={filter}
         onFilter={setFilter}
@@ -72,7 +75,7 @@ export function SessionsPanel({
       {filtered.length === 0 ? (
         <EmptyState filter={filter} hasSearch={search.trim().length > 0} />
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
           {filtered.map((s) => (
             <li key={s.id}>
               <SessionRow

@@ -2,11 +2,16 @@
 
 // Producer Calendar — Schedule tab week grid (spec § 4.2).
 //
-// `grid-template-columns: 46px repeat(7, 1fr)`, body 10 hours × 56px.
-// Confirmed sessions render as dark blocks; pending sessions render as
-// white "card with kind stripe" treatment so the producer can spot
-// requests at a glance. The "now-line" sweeps today's column when the
-// producer is viewing the current week.
+// `grid-template-columns: 46px repeat(7, 1fr)`, body 10 hours sized by
+// the `--hour-px` CSS variable set on the page wrapper. The variable
+// uses `clamp()` against `100dvh` so the grid fills the viewport-
+// locked Calendar page on tall screens and compresses gracefully on
+// short ones — keeping the entire Schedule tab on screen without
+// page-level scroll. Confirmed sessions render as dark blocks;
+// pending sessions render as white "card with kind stripe" treatment
+// so the producer can spot requests at a glance. The "now-line"
+// sweeps today's column when the producer is viewing the current
+// week.
 //
 // Pure visual; data comes pre-resolved from page.tsx.
 
@@ -24,7 +29,11 @@ export type ScheduleSession = {
 
 const HOUR_START = 9;
 const HOUR_END = 18; // last cell row label
-const HOUR_ROW_PX = 56;
+// Hour row height is driven by the page-level `--hour-px` CSS variable
+// so the grid fills the viewport. SessionBlock + NowLineOverlay use
+// the same var via calc() to keep absolute positioning aligned.
+const HOUR_ROW_CSS = "var(--hour-px, 48px)";
+const HEADER_ROW_PX = 44; // day-label row; matches the calc offset in NowLineOverlay
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 export function ScheduleWeekGrid({
@@ -55,14 +64,19 @@ export function ScheduleWeekGrid({
   return (
     <section
       aria-label="Weekly schedule"
-      className="relative overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
     >
       <div
-        className="grid"
+        className="grid min-h-0 flex-1"
         style={{ gridTemplateColumns: "46px repeat(7, minmax(0, 1fr))" }}
       >
-        {/* Header row */}
-        <div aria-hidden className="border-b border-[rgb(var(--border-subtle))] py-3" />
+        {/* Header row — fixed compact height so the body rows soak up
+            the remaining viewport via `--hour-px`. */}
+        <div
+          aria-hidden
+          className="border-b border-[rgb(var(--border-subtle))]"
+          style={{ height: HEADER_ROW_PX }}
+        />
         {DAY_LABELS.map((label, i) => {
           const day = week[i];
           if (!day) return null;
@@ -70,11 +84,12 @@ export function ScheduleWeekGrid({
           return (
             <div
               key={label}
-              className="border-b border-l border-[rgb(var(--border-subtle))] px-1 py-3 text-center first-of-type:border-l-0"
+              className="flex flex-col items-center justify-center border-b border-l border-[rgb(var(--border-subtle))] px-1 first-of-type:border-l-0"
+              style={{ height: HEADER_ROW_PX }}
             >
               <div
                 className={[
-                  "font-mono text-[10px] tracking-[0.12em]",
+                  "font-mono text-[10px] leading-none tracking-[0.12em]",
                   isToday
                     ? "text-[rgb(var(--brand-primary-dark))]"
                     : "text-[rgb(var(--fg-muted))]",
@@ -85,7 +100,7 @@ export function ScheduleWeekGrid({
               </div>
               <div
                 className={[
-                  "mx-auto mt-1.5 inline-flex h-[30px] w-[30px] items-center justify-center rounded-full font-mono text-[12px]",
+                  "mt-1 inline-flex h-[24px] w-[24px] items-center justify-center rounded-full font-mono text-[11.5px]",
                   isToday
                     ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                     : "text-[rgb(var(--fg-default))]",
@@ -99,7 +114,7 @@ export function ScheduleWeekGrid({
           );
         })}
 
-        {/* Body rows */}
+        {/* Body rows — each cell's height is driven by `--hour-px`. */}
         {hours.map((hour, hourIdx) => (
           <HourRow
             key={hour}
@@ -116,7 +131,7 @@ export function ScheduleWeekGrid({
           rather than overlay-positioned so it scrolls with content
           (the grid is the only scroll container on small widths). */}
       {showNowLine && todayIdx >= 0 ? (
-        <NowLineOverlay todayIdx={todayIdx} firstHour={HOUR_START} hourPx={HOUR_ROW_PX} />
+        <NowLineOverlay todayIdx={todayIdx} firstHour={HOUR_START} />
       ) : null}
     </section>
   );
@@ -138,7 +153,7 @@ function HourRow({
       <div
         className="pr-1.5 text-right font-mono text-[9.5px] text-[rgb(var(--fg-faint))]"
         style={{
-          height: HOUR_ROW_PX,
+          height: HOUR_ROW_CSS,
           paddingTop: hourIdx === 0 ? 0 : 4,
           borderTop:
             hourIdx === 0 ? "none" : "1px solid rgb(var(--border-subtle))",
@@ -153,7 +168,7 @@ function HourRow({
             key={dayIdx}
             className="relative border-l border-[rgb(var(--border-subtle))] first-of-type:border-l-0"
             style={{
-              height: HOUR_ROW_PX,
+              height: HOUR_ROW_CSS,
               borderTop:
                 hourIdx === 0
                   ? "none"
@@ -169,7 +184,7 @@ function HourRow({
                 return dt.getHours() === hour;
               })
               .map((s) => (
-                <SessionBlock key={s.id} session={s} hourPx={HOUR_ROW_PX} />
+                <SessionBlock key={s.id} session={s} />
               ))}
           </div>
         );
@@ -178,18 +193,10 @@ function HourRow({
   );
 }
 
-function SessionBlock({
-  session,
-  hourPx,
-}: {
-  session: ScheduleSession;
-  hourPx: number;
-}) {
+function SessionBlock({ session }: { session: ScheduleSession }) {
   const dt = new Date(session.startsAt);
   const minute = dt.getMinutes();
   const lenHours = session.durationMin / 60;
-  const top = (minute / 60) * hourPx;
-  const height = Math.max(28, lenHours * hourPx - 8);
   const isPending = session.status !== "confirmed";
   const kind = inferSessionKind(session.packageName);
   const kindToken = KIND_COLORS[kind];
@@ -201,6 +208,12 @@ function SessionBlock({
   });
   const serviceLabel = session.packageName ?? "Session";
 
+  // Pixel math is expressed in CSS so the block stays aligned as
+  // `--hour-px` shrinks/grows with the viewport.
+  const minuteFraction = minute / 60;
+  const top = `calc(${String(minuteFraction)} * ${HOUR_ROW_CSS} + 2px)`;
+  const height = `max(28px, calc(${String(lenHours)} * ${HOUR_ROW_CSS} - 8px))`;
+
   return (
     <div
       className={[
@@ -210,7 +223,7 @@ function SessionBlock({
           : "bg-[rgb(var(--bg-sidebar))] text-[rgb(var(--fg-inverse))] shadow-[0_2px_8px_rgb(17_16_9_/_0.18)]",
       ].join(" ")}
       style={{
-        top: top + 2,
+        top,
         height,
         borderColor: isPending ? "rgb(var(--border-strong))" : undefined,
         paddingLeft: 10,
@@ -256,11 +269,9 @@ function SessionBlock({
 function NowLineOverlay({
   todayIdx,
   firstHour,
-  hourPx,
 }: {
   todayIdx: number;
   firstHour: number;
-  hourPx: number;
 }) {
   const now = new Date();
   const hour = now.getHours();
@@ -268,7 +279,9 @@ function NowLineOverlay({
   const offsetHours = hour + min / 60 - firstHour;
   // Outside the visible 9-18 window? Hide.
   if (offsetHours < 0 || offsetHours > HOUR_END - firstHour + 1) return null;
-  const top = offsetHours * hourPx + 49; // 49px header offset per spec
+  // Top math expressed in CSS calc so the now-line stays glued to the
+  // correct minute as `--hour-px` shrinks/grows with the viewport.
+  const top = `calc(${String(offsetHours)} * ${HOUR_ROW_CSS} + ${String(HEADER_ROW_PX)}px)`;
   // todayIdx is 0..6 over the 7 day columns (each minmax(0,1fr)).
   const leftPct = `calc(46px + ${String(todayIdx)} * (100% - 46px) / 7)`;
   const widthPct = `calc((100% - 46px) / 7)`;
