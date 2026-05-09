@@ -69,9 +69,14 @@ export function AvailabilityPanel({
   settings,
 }: AvailabilityPanelProps) {
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <WorkingHoursCard blocks={initialBlocks} />
-      <div className="flex flex-col gap-4">
+    // Two columns share the viewport-locked panel; each scrolls
+    // independently if its content overflows so the page chrome stays
+    // anchored.
+    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="flex min-h-0 flex-col overflow-y-auto">
+        <WorkingHoursCard blocks={initialBlocks} />
+      </div>
+      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
         <BookingPrefsCard
           autoConfirm={settings.autoConfirmBookings}
           cancelHours={settings.cancellationPolicyHours}

@@ -71,7 +71,10 @@ export function SchedulePanel({
     ) / 10;
 
   return (
-    <div className="space-y-4">
+    // Flex column with min-h-0 so the grid+rail row below grows to
+    // fill the viewport-locked panel without the page itself
+    // scrolling.
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <ScheduleWeekNav
         week={week}
         weekOffset={weekOffset}
@@ -88,14 +91,18 @@ export function SchedulePanel({
         }}
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
         <ScheduleWeekGrid
           week={week}
           sessions={visible}
           todayIdx={tIdx}
           showNowLine={weekOffset === 0}
         />
-        <div className="flex flex-col gap-4">
+        {/* Right rail mirrors the grid's height (same grid row).
+            min-h-0 + overflow-hidden keeps content inside the rail
+            without a visible scrollbar — cards are sized for the
+            typical case (a few sessions, a few pending). */}
+        <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
           <ScheduleTodayAgenda
             sessions={todaySessions}
             weekOffset={weekOffset}

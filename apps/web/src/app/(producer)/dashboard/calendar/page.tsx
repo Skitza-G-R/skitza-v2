@@ -6,10 +6,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 import { AvailabilityPanel } from "./availability-panel";
 
 import { CalendarTabs } from "./calendar-tabs";
-import {
-  type CalendarTabKey,
-  resolveCalendarTab,
-} from "./calendar-tab-key";
+import { resolveCalendarTab } from "./calendar-tab-key";
 import { weekEyebrow } from "./calendar-week";
 import { SchedulePanel } from "./schedule-panel";
 import type { ScheduleSession } from "./schedule-week-grid";
@@ -17,18 +14,6 @@ import type { TodaySession } from "./schedule-today-agenda";
 import type { PendingRequest } from "./schedule-pending-card";
 import { SessionsPanel } from "./sessions-panel";
 import type { SessionListItem } from "./session-row";
-
-// Per-tab subline copy. The H1 is always "Calendar" — the tab in the
-// segmented control names the section, the eyebrow gives dynamic
-// context (week / total sessions / weekly hours).
-const SUBLINE: Record<CalendarTabKey, string> = {
-  schedule:
-    "Your week at a glance — confirmed sessions, pending requests, today's lineup.",
-  sessions:
-    "Every session you've booked — upcoming, past, and the actions you can take per row.",
-  availability:
-    "When you're open for bookings — weekly hours, blackouts, and session policies.",
-};
 
 export default async function CalendarPage({
   searchParams,
@@ -197,38 +182,39 @@ export default async function CalendarPage({
   }
 
   return (
-    <div className="mx-auto max-w-[1180px] px-4 py-6 sm:py-10">
-      {/* Calendar gets a generous canvas — sm+ surfaces the elevated
-          card; mobile drops the chrome to maximise usable width. */}
-      <div className="rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-2xl)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-6 sm:py-7">
-        {/* Header — eyebrow + Syne 800 "Calendar" H1 on the left,
-            segmented tabs top-right at sm+. The H1 is always
-            "Calendar" — the tab below names the section. */}
-        <header className="reveal-up mb-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-            <div className="min-w-0">
-              <p
-                key={`eyebrow-${active}`}
-                className="reveal-up font-mono text-[10px] tracking-[0.18em] text-[rgb(var(--fg-muted))]"
-                style={{ fontWeight: 700 }}
-              >
-                {eyebrow}
-              </p>
+    // Viewport-locked layout: the page is sized to exactly the visible
+    // viewport (minus the mobile bottom-nav reservation) and every
+    // descendant is flex-locked, so the page itself never scrolls.
+    // The Schedule grid measures its own height via ResizeObserver and
+    // sets `--hour-px` from that — no brittle viewport-math fallback
+    // needed at the page level.
+    <div className="mx-auto flex h-[calc(100dvh-5rem)] max-w-[1180px] flex-col px-4 py-2 sm:py-3 lg:h-[100dvh] lg:py-4">
+      {/* sm+ surfaces an elevated card; mobile drops the chrome to
+          maximise usable width. */}
+      <div className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-2xl)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-4 sm:py-3 lg:px-5 lg:py-4">
+        {/* One compact row: 800-weight "Calendar", a thin mono eyebrow
+            riding the H1's baseline for context, and the segmented
+            tabs to the right. The per-tab subline is gone — the
+            eyebrow + tab label already say which section we're in. */}
+        <header className="reveal-up mb-2 shrink-0 sm:mb-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+            <div className="flex min-w-0 items-baseline gap-3">
               <h1
-                className="reveal-up mt-1 font-display leading-[0.95]"
+                className="reveal-up font-display leading-[0.95]"
                 style={{
-                  fontSize: "clamp(34px, 4.5vw, 52px)",
+                  fontSize: "clamp(22px, 2.6vw, 30px)",
                   fontWeight: 800,
-                  letterSpacing: "-0.035em",
+                  letterSpacing: "-0.03em",
                 }}
               >
                 Calendar
               </h1>
               <p
-                key={`desc-${active}`}
-                className="reveal-up mt-2 max-w-xl text-[13.5px] text-[rgb(var(--fg-muted))]"
+                key={`eyebrow-${active}`}
+                className="reveal-up truncate font-mono text-[10px] tracking-[0.16em] text-[rgb(var(--fg-muted))]"
+                style={{ fontWeight: 700 }}
               >
-                {SUBLINE[active]}
+                {eyebrow}
               </p>
             </div>
             <CalendarTabs active={active} />
@@ -240,7 +226,7 @@ export default async function CalendarPage({
           id={`calendar-panel-${active}`}
           role="tabpanel"
           aria-labelledby={`calendar-tab-${active}`}
-          className="reveal-up pt-1"
+          className="reveal-up flex min-h-0 flex-1 flex-col"
         >
           {active === "schedule" && (
             <SchedulePanel
