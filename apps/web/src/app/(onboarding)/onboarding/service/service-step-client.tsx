@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Infinity as InfinityIcon, Minus, Plus } from "lucide-react";
+import { Check, Infinity as InfinityIcon, Minus, Plus, Sliders } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -40,9 +40,23 @@ export function ServiceStepClient({
 
   const [selectedId, setSelectedId] =
     useState<OnboardingServiceTemplateId>("mix");
+  // ONBOARDING_SERVICE_TEMPLATES is a 4-element const array, so the
+  // "mix" lookup never realistically fails — but TS can't prove that
+  // from the ReadonlyArray<T> type alone, so we ship a typed default.
+  const FALLBACK_TEMPLATE: OnboardingServiceTemplate = {
+    id: "mix",
+    icon: Sliders,
+    title: "Mix & Master — Single",
+    description: "A polished, release-ready single.",
+    defaultName: "Mix & Master — Single",
+    defaultPrice: 800,
+    defaultSessions: 1,
+    packageKind: "mixing",
+    defaultDurationMin: 180,
+  };
   const initialTemplate =
     ONBOARDING_SERVICE_TEMPLATES.find((t) => t.id === "mix") ??
-    ONBOARDING_SERVICE_TEMPLATES[0]!;
+    FALLBACK_TEMPLATE;
   const [name, setName] = useState(initialTemplate.defaultName);
   const [price, setPrice] = useState<number>(initialTemplate.defaultPrice);
   const [sessions, setSessions] = useState<number>(
@@ -117,7 +131,7 @@ export function ServiceStepClient({
       stepIndicator="Step 2 of 5"
       footer={
         <WizardFooter
-          onBack={() => router.push(routeOnBackFromService())}
+          onBack={() => { router.push(routeOnBackFromService()); }}
           onContinue={handleContinue}
           continueDisabled={!allowContinue}
           pending={pending}
@@ -147,7 +161,7 @@ export function ServiceStepClient({
               <button
                 key={t.id}
                 type="button"
-                onClick={() => selectTemplate(t)}
+                onClick={() => { selectTemplate(t); }}
                 aria-pressed={isSelected}
                 className={`ob-card-press relative flex items-start gap-2 rounded-xl border p-2.5 text-left ${
                   isSelected
@@ -200,7 +214,7 @@ export function ServiceStepClient({
             id="serviceName"
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => { setName(e.target.value); }}
             placeholder={selectedId === "custom" ? "e.g. Beat lease" : ""}
             maxLength={80}
             className="w-full rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] font-medium text-[rgb(var(--fg-default))] outline-none transition-shadow placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_3px_rgba(212,150,10,0.12)]"
@@ -222,13 +236,13 @@ export function ServiceStepClient({
               min={0}
               step={1}
               value={price}
-              onChange={(e) => setPrice(Number(e.target.value) || 0)}
+              onChange={(e) => { setPrice(Number(e.target.value) || 0); }}
               className="flex-1 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 font-mono text-[14px] font-semibold text-[rgb(var(--fg-default))] outline-none transition-shadow focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_3px_rgba(212,150,10,0.12)]"
             />
             <select
               value={currency}
               onChange={(e) =>
-                setCurrency(e.target.value as SupportedCurrency)
+                { setCurrency(e.target.value as SupportedCurrency); }
               }
               className="rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 py-2 font-mono text-[13px] font-semibold text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_3px_rgba(212,150,10,0.12)]"
             >
@@ -248,7 +262,7 @@ export function ServiceStepClient({
               <span>Sessions</span>
               <button
                 type="button"
-                onClick={() => setIsUnlimited(!isUnlimited)}
+                onClick={() => { setIsUnlimited(!isUnlimited); }}
                 className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em] transition-colors ${
                   isUnlimited
                     ? "bg-[rgb(var(--brand-primary)/0.18)] text-[rgb(var(--brand-primary-dark))]"
@@ -272,7 +286,7 @@ export function ServiceStepClient({
                 <>
                   <button
                     type="button"
-                    onClick={() => setSessions(Math.max(1, sessions - 1))}
+                    onClick={() => { setSessions(Math.max(1, sessions - 1)); }}
                     aria-label="Decrease sessions"
                     className="sk-pop flex h-6 w-6 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
                   >
@@ -283,7 +297,7 @@ export function ServiceStepClient({
                   </span>
                   <button
                     type="button"
-                    onClick={() => setSessions(sessions + 1)}
+                    onClick={() => { setSessions(sessions + 1); }}
                     aria-label="Increase sessions"
                     className="sk-pop flex h-6 w-6 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
                   >
@@ -302,7 +316,7 @@ export function ServiceStepClient({
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => setPlan(p.id)}
+                  onClick={() => { setPlan(p.id); }}
                   className={`flex-1 rounded-md px-1.5 py-1.5 text-[10.5px] font-semibold transition-colors ${
                     plan === p.id
                       ? "bg-[rgb(var(--bg-sidebar))] text-white"

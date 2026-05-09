@@ -41,7 +41,7 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
     try {
       await navigator.clipboard.writeText(fullUrl);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => { setCopied(false); }, 2000);
     } catch {
       // clipboard write can throw in non-secure contexts; the link is
       // selectable in the pill below as a fallback.

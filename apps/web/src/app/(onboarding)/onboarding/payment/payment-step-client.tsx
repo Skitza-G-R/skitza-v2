@@ -39,9 +39,9 @@ export function PaymentStepClient() {
       stepIndicator="Step 5 of 5"
       footer={
         <WizardFooter
-          onBack={() => router.push(routeOnBackFromPayment())}
-          onSkip={() => router.push(routeOnSkipFromPayment())}
-          onContinue={() => router.push(nextRouteAfterPayment())}
+          onBack={() => { router.push(routeOnBackFromPayment()); }}
+          onSkip={() => { router.push(routeOnSkipFromPayment()); }}
+          onContinue={() => { router.push(nextRouteAfterPayment()); }}
           continueLabel="Open the doors"
         />
       }
@@ -66,7 +66,7 @@ export function PaymentStepClient() {
           {/* Stripe card */}
           <button
             type="button"
-            onClick={() => setSelectedId("stripe")}
+            onClick={() => { setSelectedId("stripe"); }}
             aria-pressed={selectedId === "stripe"}
             className={`ob-card-press relative flex items-center gap-3.5 rounded-2xl border p-4 text-left ${
               selectedId === "stripe"
@@ -107,7 +107,7 @@ export function PaymentStepClient() {
           {/* Handle myself card */}
           <button
             type="button"
-            onClick={() => setSelectedId("self")}
+            onClick={() => { setSelectedId("self"); }}
             aria-pressed={selectedId === "self"}
             className={`sk-pop relative flex items-center gap-3.5 rounded-2xl border p-4 text-left transition-all ${
               selectedId === "self"

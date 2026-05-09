@@ -224,9 +224,9 @@ export function AvailabilityStepClient({
       stepIndicator="Step 3 of 5"
       footer={
         <WizardFooter
-          onBack={() => router.push(routeOnBackFromAvailability())}
-          onSkip={() => advance(routeOnSkipFromAvailability())}
-          onContinue={() => advance(nextRouteAfterAvailability())}
+          onBack={() => { router.push(routeOnBackFromAvailability()); }}
+          onSkip={() => { advance(routeOnSkipFromAvailability()); }}
+          onContinue={() => { advance(nextRouteAfterAvailability()); }}
           pending={pending}
         />
       }
@@ -261,7 +261,7 @@ export function AvailabilityStepClient({
                 type="button"
                 role="switch"
                 aria-checked={day.active}
-                onClick={() => updateDay(day.weekday, { active: !day.active })}
+                onClick={() => { updateDay(day.weekday, { active: !day.active }); }}
                 className={`relative flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
                   day.active
                     ? "bg-[rgb(var(--brand-primary))]"
@@ -292,9 +292,9 @@ export function AvailabilityStepClient({
                         value={minutesToTime(w.startMin)}
                         disabled={pending}
                         onChange={(e) =>
-                          updateWindow(day.weekday, idx, {
+                          { updateWindow(day.weekday, idx, {
                             startMin: timeToMinutes(e.target.value),
-                          })
+                          }); }
                         }
                         className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
                       />
@@ -304,16 +304,16 @@ export function AvailabilityStepClient({
                         value={minutesToTime(w.endMin)}
                         disabled={pending}
                         onChange={(e) =>
-                          updateWindow(day.weekday, idx, {
+                          { updateWindow(day.weekday, idx, {
                             endMin: timeToMinutes(e.target.value),
-                          })
+                          }); }
                         }
                         className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
                       />
                       {day.windows.length > 1 ? (
                         <button
                           type="button"
-                          onClick={() => removeWindow(day.weekday, idx)}
+                          onClick={() => { removeWindow(day.weekday, idx); }}
                           aria-label="Remove window"
                           className="flex h-7 w-7 items-center justify-center rounded text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))]"
                         >
@@ -325,7 +325,7 @@ export function AvailabilityStepClient({
                   {day.windows.length < 3 ? (
                     <button
                       type="button"
-                      onClick={() => addWindow(day.weekday)}
+                      onClick={() => { addWindow(day.weekday); }}
                       aria-label={`Add window to ${day.label}`}
                       className="flex h-7 w-7 items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
                     >
@@ -358,7 +358,7 @@ export function AvailabilityStepClient({
               type="button"
               role="switch"
               aria-checked={autoConfirm}
-              onClick={() => setAutoConfirm(!autoConfirm)}
+              onClick={() => { setAutoConfirm(!autoConfirm); }}
               className={`relative flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
                 autoConfirm
                   ? "bg-[rgb(var(--brand-primary))]"
@@ -385,7 +385,7 @@ export function AvailabilityStepClient({
             </span>
             <select
               value={bufferMin}
-              onChange={(e) => setBufferMin(Number(e.target.value))}
+              onChange={(e) => { setBufferMin(Number(e.target.value)); }}
               className="rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2 py-1 font-mono text-[11px] font-semibold text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))]"
             >
               {BUFFER_OPTIONS.map((opt) => (
@@ -408,7 +408,7 @@ export function AvailabilityStepClient({
             </span>
             <select
               value={cancellationHours}
-              onChange={(e) => setCancellationHours(Number(e.target.value))}
+              onChange={(e) => { setCancellationHours(Number(e.target.value)); }}
               className="rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2 py-1 font-mono text-[11px] font-semibold text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))]"
             >
               {CANCELLATION_OPTIONS.map((opt) => (

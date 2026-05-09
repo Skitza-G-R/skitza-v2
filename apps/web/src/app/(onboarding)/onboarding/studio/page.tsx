@@ -84,7 +84,7 @@ export default function StudioStepPage() {
       stepIndicator="Step 1 of 5"
       footer={
         <WizardFooter
-          onBack={() => router.push("/onboarding/welcome")}
+          onBack={() => { router.push("/onboarding/welcome"); }}
           onContinue={handleContinue}
           continueDisabled={!allowContinue}
           pending={pending}
@@ -122,7 +122,7 @@ export default function StudioStepPage() {
             id="displayName"
             type="text"
             value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            onChange={(e) => { setDisplayName(e.target.value); }}
             placeholder="e.g. Yael Naim Studio"
             required
             autoFocus

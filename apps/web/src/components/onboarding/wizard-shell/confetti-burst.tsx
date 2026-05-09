@@ -40,7 +40,7 @@ function generatePieces(): Piece[] {
       left: Math.random() * 100,
       delay: Math.random() * 0.4,
       duration: 1.4 + Math.random() * 0.6,
-      color: PALETTE[colorIndex] ?? PALETTE[0]!,
+      color: PALETTE[colorIndex] ?? PALETTE[0] ?? "rgb(212 150 10)",
       rotate: Math.random() * 720 - 360,
       size: 6 + Math.random() * 6,
     };
@@ -55,8 +55,8 @@ export function ConfettiBurst() {
   useEffect(() => {
     piecesRef.current = generatePieces();
     setMounted(true);
-    const t = setTimeout(() => setHidden(true), 1800);
-    return () => clearTimeout(t);
+    const t = setTimeout(() => { setHidden(true); }, 1800);
+    return () => { clearTimeout(t); };
   }, []);
 
   if (!mounted || hidden) return null;
@@ -71,13 +71,13 @@ export function ConfettiBurst() {
           key={i}
           className="confetti-piece absolute top-[-20px]"
           style={{
-            left: `${p.left}%`,
-            width: `${p.size}px`,
-            height: `${p.size * 0.4}px`,
+            left: `${String(p.left)}%`,
+            width: `${String(p.size)}px`,
+            height: `${String(p.size * 0.4)}px`,
             background: p.color,
-            animationDelay: `${p.delay}s`,
-            animationDuration: `${p.duration}s`,
-            ["--confetti-rotate" as string]: `${p.rotate}deg`,
+            animationDelay: `${String(p.delay)}s`,
+            animationDuration: `${String(p.duration)}s`,
+            ["--confetti-rotate" as string]: `${String(p.rotate)}deg`,
           }}
         />
       ))}

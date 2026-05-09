@@ -164,8 +164,8 @@ export function PortfolioStepClient() {
       stepIndicator="Step 4 of 5"
       footer={
         <WizardFooter
-          onBack={() => router.push(routeOnBackFromPortfolio())}
-          onSkip={() => router.push(routeOnSkipFromPortfolio())}
+          onBack={() => { router.push(routeOnBackFromPortfolio()); }}
+          onSkip={() => { router.push(routeOnSkipFromPortfolio()); }}
           onContinue={handleContinue}
           pending={pending}
         />
@@ -225,7 +225,7 @@ export function PortfolioStepClient() {
                 <span
                   aria-hidden
                   className="flex h-6 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.18)] px-2 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))]"
-                  title={`${customCount} custom link${customCount === 1 ? "" : "s"}`}
+                  title={`${String(customCount)} custom link${customCount === 1 ? "" : "s"}`}
                 >
                   +{customCount}
                 </span>
@@ -266,7 +266,7 @@ export function PortfolioStepClient() {
                   <select
                     value={row.type}
                     onChange={(e) =>
-                      updateRow(row.id, { type: e.target.value as LinkType })
+                      { updateRow(row.id, { type: e.target.value as LinkType }); }
                     }
                     className="absolute inset-0 cursor-pointer opacity-0"
                     disabled={pending}
@@ -282,7 +282,7 @@ export function PortfolioStepClient() {
                 <input
                   type="url"
                   value={row.url}
-                  onChange={(e) => updateRow(row.id, { url: e.target.value })}
+                  onChange={(e) => { updateRow(row.id, { url: e.target.value }); }}
                   placeholder={meta.placeholder}
                   className="flex-1 bg-transparent px-1 py-1 font-mono text-[13px] text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))]"
                   disabled={pending}
@@ -290,7 +290,7 @@ export function PortfolioStepClient() {
                 {rows.length > 1 ? (
                   <button
                     type="button"
-                    onClick={() => removeRow(row.id)}
+                    onClick={() => { removeRow(row.id); }}
                     aria-label="Remove link"
                     className="sk-pop flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))] hover:text-[rgb(var(--fg-default))]"
                   >
