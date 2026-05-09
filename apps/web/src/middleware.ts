@@ -1,6 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
+
 const isProtected = createRouteMatcher([
   "/dashboard(.*)",
   "/projects(.*)",
@@ -93,7 +95,16 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(url, 301);
   }
 
-  if (isProtected(req)) {
+  // Dev-only bypass for visual review of the onboarding wizard. Gated
+  // by NODE_ENV=development AND ?__preview=1 in the request's query
+  // string. Vercel sets NODE_ENV="production" on every deployed
+  // environment, so this branch is unreachable from any deployed URL.
+  // See lib/onboarding/dev-preview.ts for the gate logic + tests.
+  const isOnboardingPreview =
+    req.nextUrl.pathname.startsWith("/onboarding") &&
+    isDevPreviewBypass(req.nextUrl.searchParams);
+
+  if (isProtected(req) && !isOnboardingPreview) {
     const target = req.nextUrl.pathname + req.nextUrl.search;
     const signInUrl = new URL("/sign-in", req.url);
     signInUrl.searchParams.set("redirect_url", target);
@@ -123,6 +134,15 @@ export default clerkMiddleware(async (auth, req) => {
   if (req.nextUrl.pathname.startsWith("/onboarding")) {
     const requestHeaders = new Headers(req.headers);
     requestHeaders.set("x-pathname", req.nextUrl.pathname);
+    // Forward the dev-preview bypass signal so the (onboarding) layout
+    // can short-circuit its role gate (and skip the DB round-trip
+    // fetchUserRole would otherwise do). Server components can't read
+    // search params from the URL directly, so we hop the signal across
+    // the request/response boundary as a header. Same NODE_ENV +
+    // ?__preview=1 gate as above — see lib/onboarding/dev-preview.ts.
+    if (isOnboardingPreview) {
+      requestHeaders.set("x-onboarding-preview-bypass", "1");
+    }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
