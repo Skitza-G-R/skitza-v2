@@ -25,23 +25,19 @@ interface HeroLine {
   amberDotOnLastWord?: boolean;
 }
 
-// 4-line layout: "You're a" / "producer." / "Not an" / "assistant."
-// Each sentence-ending period gets the amber accent dot. Splitting
-// into 4 short lines (instead of 2 longer ones) lets the headline
-// fit comfortably in the narrow 30 % copy column without wrapping
-// mid-word.
+// 2-line layout: "You're a producer." / "Not an assistant."
+// Each sentence-ending period gets the amber accent dot. Lines wrap
+// naturally on narrow viewports (≤768 px) — at desktop+ they fit on
+// one line each, giving the headline a calmer 2-line cadence instead
+// of 4 micro-stops.
 const EN_LINES: HeroLine[] = [
-  { words: ["You’re", "a"] },
-  { words: ["producer."], amberDotOnLastWord: true },
-  { words: ["Not", "an"] },
-  { words: ["assistant."], amberDotOnLastWord: true },
+  { words: ["You’re", "a", "producer."], amberDotOnLastWord: true },
+  { words: ["Not", "an", "assistant."], amberDotOnLastWord: true },
 ];
 
 const HE_LINES: HeroLine[] = [
-  { words: ["אתה"] },
-  { words: ["מפיק."], amberDotOnLastWord: true },
-  { words: ["לא"] },
-  { words: ["מזכירה."], amberDotOnLastWord: true },
+  { words: ["אתה", "מפיק."], amberDotOnLastWord: true },
+  { words: ["לא", "מזכירה."], amberDotOnLastWord: true },
 ];
 
 export function HeroSection({ locale }: { locale: "en" | "he" }) {
@@ -99,7 +95,6 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
                 <span
                   key={lineIdx}
                   className="block"
-                  style={{ whiteSpace: "nowrap" }}
                 >
                   {line.words.map((word, wIdx) => {
                     const i = wordIndex++;
@@ -150,20 +145,17 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
               : "Skitza replaces Calendly, DocuSign, Stripe, Notion and WhatsApp with one link your clients remember. Sessions book themselves. Deposits land before the downbeat. The mix delivers itself the moment the invoice clears."}
           </p>
 
-          <div className="mt-8 max-w-xl">
-            <WaitlistForm locale={locale} thanksHref={thanksHref} />
-            <p
-              className="mt-3 text-[12.5px]"
-              style={{ color: "rgb(242 237 230 / 0.5)" }}
-            >
-              {isHe
-                ? "בלי ספאם. נשלח לך מייל ברגע שהמקום שלך מתפנה."
-                : "No spam. We’ll email you the moment your spot opens."}
-            </p>
-          </div>
-
-          {/* Social proof strip — same shape as the homepage hero */}
-          <div className="mt-10 flex flex-wrap items-center gap-5">
+          {/* Social proof strip — primes the visitor BEFORE the form,
+              not after. Visitors who only see the fold-zone now get
+              "340+ producers" before they're asked to commit. */}
+          <div
+            className="mt-7 flex flex-wrap items-center gap-5"
+            aria-label={
+              isHe
+                ? "מדורג 5 מתוך 5 כוכבים על ידי 340+ מפיקים"
+                : "Rated 5 out of 5 stars by 340+ producers"
+            }
+          >
             <div className="flex">
               {(["grad-amber", "grad-rose", "grad-violet", "grad-emerald"] as const).map(
                 (g, i) => (
@@ -189,6 +181,7 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
               <div
                 className="mb-0.5 flex gap-0.5"
                 style={{ color: "rgb(var(--brand-primary))" }}
+                aria-hidden
               >
                 ★★★★★
               </div>
@@ -197,6 +190,18 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
                 {isHe ? "מפיקים כבר ברשימה" : "producers booked early access"}
               </span>
             </div>
+          </div>
+
+          <div className="mt-7 max-w-xl">
+            <WaitlistForm locale={locale} thanksHref={thanksHref} />
+            <p
+              className="mt-3 text-[12.5px]"
+              style={{ color: "rgb(242 237 230 / 0.5)" }}
+            >
+              {isHe
+                ? "בלי ספאם. נשלח לך מייל ברגע שהמקום שלך מתפנה."
+                : "No spam. We’ll email you the moment your spot opens."}
+            </p>
           </div>
         </div>
 

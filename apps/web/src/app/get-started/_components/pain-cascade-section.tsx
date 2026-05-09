@@ -11,7 +11,7 @@ export function PainCascadeSection({ locale }: { locale: "en" | "he" }) {
     <div className="container">
       <div className="cascade">
         <span className="eyebrow">
-          {isHe ? "הזמן שלך" : "Your Tuesday"}
+          {isHe ? "הזמן שלך" : "Your week"}
         </span>
         {isHe ? (
           <>
