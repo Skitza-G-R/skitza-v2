@@ -1,7 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import { buildTranzilaIframeUrl } from "~/lib/tranzila";
+import {
+  buildTranzilaPostParams,
+  getTranzilaFormAction,
+} from "~/lib/tranzila";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { PaymentIframe } from "./payment-iframe";
 
@@ -41,11 +44,15 @@ export default async function PaymentPage({ params, searchParams }: PageProps) {
     redirect("/artist");
   }
 
-  const tranzilaUrl = buildTranzilaIframeUrl({
+  const tranzilaPostParams = buildTranzilaPostParams({
     amountCents: details.amountCents,
     currency: details.currency,
     bookingId,
+    artistEmail: details.booking.artistEmail,
+    artistName: details.booking.artistName,
+    productName: details.product.name,
   });
+  const tranzilaFormAction = getTranzilaFormAction();
 
   const isHalf = details.planKind === "split_50_50";
   const remaining = details.product.priceCents - details.amountCents;
@@ -104,7 +111,10 @@ export default async function PaymentPage({ params, searchParams }: PageProps) {
       ) : null}
 
       {/* Tranzila iframe — PCI scope stays with Tranzila. */}
-      <PaymentIframe iframeUrl={tranzilaUrl} />
+      <PaymentIframe
+        formAction={tranzilaFormAction}
+        postParams={tranzilaPostParams}
+      />
 
       <p className="px-1 text-center text-[11px] text-[rgb(var(--fg-muted))]">
         Secured by Tranzila · SSL encrypted

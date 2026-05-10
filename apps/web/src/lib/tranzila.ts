@@ -3,9 +3,11 @@ import { getSiteUrl } from "~/server/stripe/client";
 // Server-only — reads TRANZILA_TERMINAL_NAME from process.env. Don't
 // import this from a client component.
 //
-// Builds the URL for Tranzila's `iframenew.php` hosted-fields iframe.
-// PCI scope stays with Tranzila: card details are typed into their
-// iframe and never touch our origin.
+// Tranzila DirectNG (directng.tranzila.com) requires a POST form
+// submission, not a GET URL with query string. PCI scope stays with
+// Tranzila: card details are typed into their iframe and never touch
+// our origin. The payment page renders a hidden <form> that
+// auto-submits to the iframe target on page load.
 //
 // Tranzila redirects the top-level browser window:
 //   - on success → /artist/payment/success (server page confirms the booking)
@@ -13,45 +15,58 @@ import { getSiteUrl } from "~/server/stripe/client";
 // notify_url is the server-to-server confirmation, posted to
 // /api/tranzila/callback by Tranzila independently.
 
-const CURRENCY_CODES: Record<string, number> = {
-  ILS: 1,
-  USD: 2,
-  EUR: 3,
+// Tranzila currency codes — ILS/USD use Tranzila's internal 1/2 codes;
+// EUR/GBP use their ISO 4217 numeric codes per Tranzila's DirectNG docs.
+const CURRENCY_MAP: Record<string, string> = {
+  ILS: "1",
+  USD: "2",
+  EUR: "978",
+  GBP: "826",
 };
 
-export function buildTranzilaIframeUrl(params: {
+export function buildTranzilaPostParams(params: {
   amountCents: number;
   currency: string;
   bookingId: string;
+  artistEmail?: string;
+  artistName?: string;
+  productName?: string;
   lang?: "il" | "en";
-}): string {
-  const terminal = process.env.TRANZILA_TERMINAL_NAME;
-  if (!terminal) {
+}): Record<string, string> {
+  const terminalName = process.env.TRANZILA_TERMINAL_NAME;
+  if (!terminalName) {
     throw new Error("TRANZILA_TERMINAL_NAME is not configured");
   }
 
-  const sumMajor = (params.amountCents / 100).toFixed(2);
-  const currencyCode =
-    CURRENCY_CODES[params.currency.toUpperCase()] ?? CURRENCY_CODES.ILS;
-  const lang = params.lang ?? "il";
+  const siteUrl = getSiteUrl();
+  const amount = (params.amountCents / 100).toFixed(2);
+  const currencyCode = CURRENCY_MAP[params.currency] ?? "1";
 
-  const baseUrl = getSiteUrl();
-  const successUrl = `${baseUrl}/artist/payment/success?bookingId=${params.bookingId}`;
-  const failUrl = `${baseUrl}/artist/payment/${params.bookingId}?error=payment_failed`;
-  const notifyUrl = `${baseUrl}/api/tranzila/callback?bookingId=${params.bookingId}`;
-
-  const query = new URLSearchParams({
-    sum: sumMajor,
-    currency: String(currencyCode),
-    tranmode: "V",
+  return {
+    sum: amount,
+    currency: currencyCode,
+    tranmode: "A",
     cred_type: "1",
-    lang,
+    lang: params.lang ?? "il",
     nologo: "1",
-    trButtonId: "skitza-pay",
-    success_url: successUrl,
-    fail_url: failUrl,
-    notify_url: notifyUrl,
-  });
+    contact: params.artistName ?? "Artist",
+    company: "Skitza",
+    email: params.artistEmail ?? "",
+    country: "Israel",
+    zip: "0000",
+    address: "N/A",
+    city: "N/A",
+    pdesc: params.productName ?? "Studio Session",
+    success_url_address: `${siteUrl}/artist/payment/success?bookingId=${params.bookingId}`,
+    fail_url_address: `${siteUrl}/artist/payment/${params.bookingId}?error=payment_failed`,
+    notify_url_address: `${siteUrl}/api/tranzila/callback?bookingId=${params.bookingId}`,
+  };
+}
 
-  return `https://direct.tranzila.com/${encodeURIComponent(terminal)}/iframenew.php?${query.toString()}`;
+export function getTranzilaFormAction(): string {
+  const terminalName = process.env.TRANZILA_TERMINAL_NAME;
+  if (!terminalName) {
+    throw new Error("TRANZILA_TERMINAL_NAME is not configured");
+  }
+  return `https://directng.tranzila.com/${terminalName}/iframenew.php`;
 }

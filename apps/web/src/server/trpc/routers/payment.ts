@@ -63,6 +63,7 @@ export const paymentRouter = router({
           bookingId: bookings.id,
           status: bookings.status,
           artistEmail: bookings.artistEmail,
+          artistName: bookings.artistName,
           startsAt: bookings.startsAt,
           durationMin: bookings.durationMin,
           productId: bookings.productId,
@@ -117,6 +118,8 @@ export const paymentRouter = router({
           startsAt: row.startsAt,
           durationMin: row.durationMin,
           packageName: row.packageNameSnapshot,
+          artistEmail: row.artistEmail,
+          artistName: row.artistName,
         },
         product: {
           id: product.id,
