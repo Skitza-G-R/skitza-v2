@@ -43,7 +43,8 @@ export function buildTranzilaIframeUrl(params: {
   const query = new URLSearchParams({
     sum: sumMajor,
     currency: String(currencyCode),
-    tranmode: "A",
+    tranmode: "V",
+    cred_type: "1",
     lang,
     nologo: "1",
     trButtonId: "skitza-pay",
