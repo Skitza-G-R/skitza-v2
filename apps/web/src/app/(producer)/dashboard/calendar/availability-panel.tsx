@@ -175,13 +175,26 @@ function WorkingHoursCard({ blocks }: { blocks: readonly Block[] }) {
               });
             }}
             onAddWindow={() => {
-              setDraft((prev) => ({
-                ...prev,
-                [d.num]: [
-                  ...(prev[d.num] ?? []),
-                  { id: makeId(), startMin: 9 * 60, endMin: 17 * 60 },
-                ],
-              }));
+              setDraft((prev) => {
+                const existing = prev[d.num] ?? [];
+                const last = existing[existing.length - 1];
+                const lastEnd = last?.endMin ?? 17 * 60;
+                const DAY_END = 24 * 60;
+                // New window picks up where the previous one ended,
+                // defaulting to a 2-hour evening slot, capped at midnight.
+                let startMin = Math.min(lastEnd, DAY_END);
+                let endMin = Math.min(startMin + 2 * 60, DAY_END);
+                if (endMin - startMin < 30) {
+                  // Day is full — fall back to the last hour so the
+                  // selects render with sane, editable values.
+                  endMin = DAY_END;
+                  startMin = DAY_END - 60;
+                }
+                return {
+                  ...prev,
+                  [d.num]: [...existing, { id: makeId(), startMin, endMin }],
+                };
+              });
             }}
             onRemoveWindow={(id) => {
               setDraft((prev) => ({
