@@ -67,9 +67,11 @@ export function buildTranzilaRedirectUrl(params: {
     contact: params.artistName ?? "Artist",
     email: params.artistEmail ?? "",
     pdesc: params.productName ?? "Studio Session",
-    success_url_address: `${safeSiteUrl}/artist/payment/success?bookingId=${params.bookingId}`,
-    fail_url_address: `${safeSiteUrl}/artist/payment/${params.bookingId}?error=payment_failed`,
-    notify_url_address: `${safeSiteUrl}/api/tranzila/callback?bookingId=${params.bookingId}`,
+    // Use the legacy `*_url` parameter names — the newer `*_url_address`
+    // variants mangle `https://` into `https:/` in Tranzila's redirect.
+    success_url: `${safeSiteUrl}/artist/payment/success?bookingId=${params.bookingId}`,
+    fail_url: `${safeSiteUrl}/artist/payment/${params.bookingId}?error=payment_failed`,
+    notify_url: `${safeSiteUrl}/api/tranzila/callback?bookingId=${params.bookingId}`,
   });
 
   return `https://direct.tranzila.com/${terminalName}/iframenew.php?${urlParams.toString()}`;
