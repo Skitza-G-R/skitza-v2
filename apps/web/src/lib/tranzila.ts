@@ -23,10 +23,14 @@ export function buildTranzilaRedirectUrl(params: {
     throw new Error("TRANZILA_TERMINAL_NAME is not configured");
   }
 
-  const siteUrl =
+  // Trim because env values pasted in via the Vercel dashboard sometimes
+  // carry a trailing newline, which encodes to %0A in the redirect URL
+  // and breaks Tranzila's success/fail callbacks.
+  const siteUrl = (
     process.env.NEXT_PUBLIC_SITE_URL ??
     process.env.SITE_URL ??
-    "https://skitza.app";
+    "https://skitza.app"
+  ).trim();
   const amount = (params.amountCents / 100).toFixed(2);
 
   // ILS/USD use Tranzila's internal 1/2 codes; EUR/GBP use ISO 4217
