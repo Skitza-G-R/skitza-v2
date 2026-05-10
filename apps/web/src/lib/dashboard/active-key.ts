@@ -18,6 +18,7 @@ export type ActiveKey =
   | "clients-projects"
   | "calendar"
   | "profile"
+  | "portfolio"
   | "setup";
 
 // Order of checks matters. The longest-match-first principle keeps
@@ -29,6 +30,8 @@ export function getActiveKey(pathname: string): ActiveKey {
   if (pathname.startsWith("/dashboard/music")) return "music";
   if (pathname.startsWith("/dashboard/clients-projects")) return "clients-projects";
   if (pathname.startsWith("/dashboard/calendar")) return "calendar";
+  if (pathname.startsWith("/dashboard/portfolio")) return "portfolio";
+  if (pathname.startsWith("/dashboard/store")) return "profile";
   if (pathname.startsWith("/dashboard/profile")) return "profile";
   if (pathname.startsWith("/dashboard/settings")) return "setup";
   if (pathname.startsWith("/dashboard/onboarding")) return "setup";

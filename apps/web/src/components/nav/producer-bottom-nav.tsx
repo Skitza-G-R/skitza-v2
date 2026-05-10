@@ -42,7 +42,8 @@ const PROD_TABS: readonly ProducerMobileTab[] = [
   { id: "clients-projects", label: "Clients", href: "/dashboard/clients-projects", icon: "users" },
   { id: "music", label: "Library", href: "/dashboard/music", icon: "music" },
   { id: "calendar", label: "Calendar", href: "/dashboard/calendar", icon: "calendar" },
-  { id: "profile", label: "Store", href: "/dashboard/profile", icon: "store" },
+  { id: "profile", label: "Store", href: "/dashboard/store", icon: "store" },
+  { id: "portfolio", label: "Portfolio", href: "/dashboard/portfolio", icon: "book" },
 ] as const;
 
 export function ProducerBottomNav(): ReactNode {

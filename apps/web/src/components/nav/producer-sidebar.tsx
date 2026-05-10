@@ -77,7 +77,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { id: "clients-projects", label: "Clients & Projects", labelKey: "clients-projects", href: "/dashboard/clients-projects", icon: "users", shortcut: "G P" },
   { id: "music", label: "Music", labelKey: "music", href: "/dashboard/music", icon: "music", shortcut: "G M" },
   { id: "calendar", label: "Calendar", labelKey: "calendar", href: "/dashboard/calendar", icon: "calendar", shortcut: "G C" },
-  { id: "profile", label: "Store", labelKey: "profile", href: "/dashboard/profile", icon: "store", shortcut: "G S" },
+  { id: "profile", label: "Store", labelKey: "profile", href: "/dashboard/store", icon: "store", shortcut: "G S" },
+  { id: "portfolio", label: "Portfolio", labelKey: "portfolio", href: "/dashboard/portfolio", icon: "book", shortcut: "G B" },
   { id: "setup", label: "Settings", labelKey: "setup", href: "/dashboard/settings", icon: "settings", shortcut: "G T" },
 ] as const;
 
