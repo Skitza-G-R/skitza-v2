@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, Plus, X } from "lucide-react";
+import { Calendar, Copy, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -200,6 +200,29 @@ export function AvailabilityStepClient({
     );
   };
 
+  const copyToAllDays = (sourceWeekday: Weekday) => {
+    const source = days.find((d) => d.weekday === sourceWeekday);
+    if (!source || !source.active) return;
+    const targetCount = days.filter(
+      (d) => d.active && d.weekday !== sourceWeekday,
+    ).length;
+    if (targetCount === 0) return;
+    const cloneWindows = () => source.windows.map((w) => ({ ...w }));
+    setDays((prev) =>
+      prev.map((d) =>
+        d.weekday === sourceWeekday || !d.active
+          ? d
+          : { ...d, windows: cloneWindows() },
+      ),
+    );
+    toast(
+      `Copied ${source.label}'s hours to ${targetCount} other day${targetCount === 1 ? "" : "s"}`,
+      "success",
+    );
+  };
+
+  const activeDayCount = days.filter((d) => d.active).length;
+
   const collectBlocks = (): BlockInput[] =>
     days
       .filter((d) => d.active)
@@ -342,6 +365,18 @@ export function AvailabilityStepClient({
                       className="flex h-7 w-7 items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
                     >
                       <Plus size={12} />
+                    </button>
+                  ) : null}
+                  {activeDayCount > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => { copyToAllDays(day.weekday); }}
+                      disabled={pending}
+                      aria-label={`Copy ${day.label}'s hours to all other active days`}
+                      title="Copy to all days"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Copy size={12} />
                     </button>
                   ) : null}
                 </div>
