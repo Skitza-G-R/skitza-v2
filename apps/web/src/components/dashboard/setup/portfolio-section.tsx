@@ -25,7 +25,7 @@ import { useToast } from "~/components/ui/toast";
 import {
   deletePortfolioTrack,
   updatePortfolioTrack,
-} from "~/app/(producer)/dashboard/profile/actions";
+} from "~/app/(producer)/dashboard/portfolio/actions";
 
 export type PortfolioTrackRow = {
   id: string;

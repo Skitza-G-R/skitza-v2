@@ -17,7 +17,7 @@ import {
   PortfolioPanel,
   type ExternalLinkRow,
   type LibraryPickRow,
-} from "./portfolio-panel";
+} from "../portfolio/portfolio-panel";
 
 // Plan-label derivation kept local to the page so the StorefrontScreen
 // stays presentational. Mirrors the design intent: the chip on each

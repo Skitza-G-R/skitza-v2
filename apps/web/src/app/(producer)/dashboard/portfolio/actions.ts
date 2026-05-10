@@ -9,7 +9,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
-const PROFILE_PATH = "/dashboard/profile";
+const PORTFOLIO_PATH = "/dashboard/portfolio";
 
 async function callerOrError(): Promise<
   | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
@@ -59,7 +59,7 @@ export async function addPortfolioFromLibrary(input: {
       ...(input.artist ? { artist: input.artist } : {}),
       audioUrl: input.audioUrl,
     });
-    revalidatePath(PROFILE_PATH);
+    revalidatePath(PORTFOLIO_PATH);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -87,7 +87,7 @@ export async function updatePortfolioTrack(input: {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.artist !== undefined ? { artist: input.artist } : {}),
     });
-    revalidatePath(PROFILE_PATH);
+    revalidatePath(PORTFOLIO_PATH);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -101,7 +101,7 @@ export async function deletePortfolioTrack(input: {
   if (!c.ok) return c;
   try {
     await c.caller.portfolio.delete({ id: input.id });
-    revalidatePath(PROFILE_PATH);
+    revalidatePath(PORTFOLIO_PATH);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -130,7 +130,7 @@ export async function addExternalLink(input: {
       url: input.url,
       title: input.title,
     });
-    revalidatePath(PROFILE_PATH);
+    revalidatePath(PORTFOLIO_PATH);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -144,7 +144,7 @@ export async function removeExternalLink(input: {
   if (!c.ok) return c;
   try {
     await c.caller.producerExternalLinks.remove({ id: input.id });
-    revalidatePath(PROFILE_PATH);
+    revalidatePath(PORTFOLIO_PATH);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
