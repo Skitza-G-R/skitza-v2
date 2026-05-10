@@ -31,16 +31,20 @@ export function buildTranzilaRedirectUrl(params: {
     throw new Error("No Tranzila terminal configured");
   }
 
-  // Strip ALL whitespace (not just leading/trailing) — env values pasted
-  // via the Vercel dashboard sometimes carry newlines or other whitespace
-  // anywhere in the string, which encodes into the redirect URL and
-  // breaks Tranzila's success/fail callbacks. .trim() alone misses
-  // internal whitespace; \s+ catches it everywhere.
+  // Trim leading/trailing whitespace (env values pasted via the Vercel
+  // dashboard often carry a trailing newline). Then validate the URL
+  // starts with https:// — if internal whitespace or other corruption
+  // mangled the protocol, fall back to the hardcoded canonical origin
+  // rather than send Tranzila a malformed URL.
+  const FALLBACK_SITE_URL = "https://skitza.app";
   const rawSiteUrl =
     process.env.NEXT_PUBLIC_SITE_URL ??
     process.env.SITE_URL ??
-    "https://skitza.app";
-  const siteUrl = rawSiteUrl.replace(/\s+/g, "");
+    FALLBACK_SITE_URL;
+  const trimmedSiteUrl = rawSiteUrl.trim();
+  const safeSiteUrl = trimmedSiteUrl.startsWith("https://")
+    ? trimmedSiteUrl
+    : FALLBACK_SITE_URL;
   const amount = (params.amountCents / 100).toFixed(2);
 
   // ILS/USD use Tranzila's internal 1/2 codes; EUR/GBP use ISO 4217
@@ -63,9 +67,9 @@ export function buildTranzilaRedirectUrl(params: {
     contact: params.artistName ?? "Artist",
     email: params.artistEmail ?? "",
     pdesc: params.productName ?? "Studio Session",
-    success_url_address: `${siteUrl}/artist/payment/success?bookingId=${params.bookingId}`,
-    fail_url_address: `${siteUrl}/artist/payment/${params.bookingId}?error=payment_failed`,
-    notify_url_address: `${siteUrl}/api/tranzila/callback?bookingId=${params.bookingId}`,
+    success_url_address: `${safeSiteUrl}/artist/payment/success?bookingId=${params.bookingId}`,
+    fail_url_address: `${safeSiteUrl}/artist/payment/${params.bookingId}?error=payment_failed`,
+    notify_url_address: `${safeSiteUrl}/api/tranzila/callback?bookingId=${params.bookingId}`,
   });
 
   return `https://direct.tranzila.com/${terminalName}/iframenew.php?${urlParams.toString()}`;
