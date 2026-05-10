@@ -128,6 +128,28 @@ export async function updateMarketing(input: {
   }
 }
 
+// Producer requests a Tranzila terminal connection. The mutation logs
+// the request server-side; a Skitza admin watches the logs, provisions
+// a terminal at Tranzila, and writes the terminal name onto the
+// producer row out-of-band. The page revalidates so the next render
+// reflects the connected state without a manual refresh once admin
+// has provisioned.
+export async function requestPaymentConnection(input: {
+  businessName: string;
+  contactEmail: string;
+  phone: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.producer.requestPaymentConnection(input);
+    revalidatePath(SETTINGS_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Story 01 of /join flow — per-track public-sample flip. The tRPC
 // layer does the owner check and collapses "not yours" and "not
 // found" into the same NOT_FOUND (enumeration-proof, see

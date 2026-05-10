@@ -86,6 +86,12 @@ export const producers = pgTable("producers", {
   // options "Within 24h" / "Within 48h" / "Within 1 week"; null hides
   // the response stat block entirely (the producer chose "Hidden").
   responseHours: integer("response_hours"),
+  // Per-producer Tranzila terminal name. When set, payment redirects
+  // route to this terminal so funds flow directly to the producer.
+  // Null = use the master sandbox fallback (process.env.TRANZILA_TERMINAL_NAME).
+  // Provisioned manually by Skitza admin after the producer submits the
+  // connection-request form on Settings → Integrations → Payments.
+  tranzilaTerminalName: text("tranzila_terminal_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

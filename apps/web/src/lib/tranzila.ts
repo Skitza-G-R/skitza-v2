@@ -1,5 +1,6 @@
-// Server-only — reads TRANZILA_TERMINAL_NAME from process.env. Don't
-// import this from a client component.
+// Server-only — falls back to TRANZILA_TERMINAL_NAME from process.env
+// when no per-producer terminal is passed in. Don't import this from a
+// client component.
 //
 // Builds the URL for Tranzila's `iframenew.php` hosted page. The
 // payment page redirects the browser directly to this URL — the artist
@@ -8,6 +9,11 @@
 //   - on failure → /artist/payment/{bookingId}?error=payment_failed
 // notify_url_address is the server-to-server confirmation, posted to
 // /api/tranzila/callback by Tranzila independently.
+//
+// `terminalName` is the per-producer Tranzila terminal (producers.tranzila_terminal_name).
+// When provided, payments route to that terminal so funds flow directly
+// to the producer; when null/undefined, we fall back to the master
+// sandbox terminal in env so the flow keeps working pre-onboarding.
 
 export function buildTranzilaRedirectUrl(params: {
   amountCents: number;
@@ -17,10 +23,12 @@ export function buildTranzilaRedirectUrl(params: {
   artistName?: string;
   productName?: string;
   lang?: "il" | "en";
+  terminalName?: string;
 }): string {
-  const terminalName = process.env.TRANZILA_TERMINAL_NAME;
+  const terminalName =
+    params.terminalName ?? process.env.TRANZILA_TERMINAL_NAME;
   if (!terminalName) {
-    throw new Error("TRANZILA_TERMINAL_NAME is not configured");
+    throw new Error("No Tranzila terminal configured");
   }
 
   // Trim because env values pasted in via the Vercel dashboard sometimes

@@ -1394,6 +1394,48 @@ export const producerRouter = router({
     };
   }),
 
+  // ─── Payment connection (per-producer Tranzila terminal) ─────────
+  // Read the current connection status. `connected` flips true once a
+  // Skitza admin manually provisions a terminal name onto the producer
+  // row; the request itself is captured by `requestPaymentConnection`
+  // below (today: console.log; future: email Skitza admin via Resend).
+  paymentConnection: producerProcedure.query(async ({ ctx }) => {
+    const [row] = await ctx.db
+      .select({ tranzilaTerminalName: producers.tranzilaTerminalName })
+      .from(producers)
+      .where(eq(producers.id, ctx.producerId))
+      .limit(1);
+    return {
+      connected: Boolean(row?.tranzilaTerminalName),
+      terminalName: row?.tranzilaTerminalName ?? null,
+    };
+  }),
+
+  // Producer submits a "connect my Tranzila terminal" request from
+  // Settings → Integrations → Payments. We log it for now — a Skitza
+  // admin watches the logs, provisions the terminal at Tranzila, then
+  // writes the terminal name onto the producer row out-of-band. Future:
+  // wire a Resend notification to the admin inbox.
+  requestPaymentConnection: producerProcedure
+    .input(
+      z.object({
+        businessName: z.string().min(1).max(200),
+        contactEmail: z.string().email(),
+        phone: z.string().min(5).max(30),
+      }),
+    )
+    .mutation(({ ctx, input }) => {
+      console.log("[payment-connection-request]", {
+        producerId: ctx.producerId,
+        businessName: input.businessName,
+        contactEmail: input.contactEmail,
+        phone: input.phone,
+        timestamp: new Date().toISOString(),
+      });
+      // TODO: send email notification to Skitza admin.
+      return { ok: true as const };
+    }),
+
   // Edit profile. brand merges over the existing JSONB (we fetch → spread
   // → set) so a UI only touching `primary` doesn't wipe `logoUrl`.
   update: producerProcedure.input(UpdateInput).mutation(async ({ ctx, input }) => {

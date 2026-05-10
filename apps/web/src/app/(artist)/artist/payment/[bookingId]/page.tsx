@@ -54,6 +54,9 @@ export default async function PaymentPage({ params, searchParams }: PageProps) {
     redirect("/artist");
   }
 
+  // Per-producer Tranzila terminal — when set on the producer row, the
+  // redirect points the artist at the producer's own terminal. Null falls
+  // back to the master sandbox terminal in env (Phase 3 testing).
   const tranzilaUrl = buildTranzilaRedirectUrl({
     amountCents: details.amountCents,
     currency: details.currency,
@@ -61,6 +64,9 @@ export default async function PaymentPage({ params, searchParams }: PageProps) {
     artistEmail: details.booking.artistEmail,
     artistName: details.booking.artistName,
     productName: details.product.name,
+    ...(details.producerTranzilaTerminalName
+      ? { terminalName: details.producerTranzilaTerminalName }
+      : {}),
   });
 
   redirect(tranzilaUrl);

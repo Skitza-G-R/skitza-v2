@@ -17,6 +17,7 @@ import {
 import { SETTINGS_BRANCH_META } from "~/components/dashboard/setup/setup-headers";
 import { SettingsBranches } from "~/components/dashboard/setup/settings-branches";
 import { appRouter } from "~/server/trpc/routers/_app";
+import { PaymentCard } from "./payment-card";
 import { SettingsForm } from "./settings-form";
 import { StripeCard } from "./stripe-card";
 
@@ -100,6 +101,15 @@ export default async function SettingsPage({
   // automation switches and `profile.stripeConnected/.stripeChargesEnabled`
   // for the Stripe card. One query is cheaper than gating it.
   const profile = await caller.producer.me();
+
+  // Per-producer Tranzila terminal status (Integrations branch only).
+  // Reads producers.tranzila_terminal_name; null means "not yet
+  // provisioned by Skitza admin", which the PaymentCard renders as the
+  // request form.
+  const paymentConnection =
+    active === "integrations"
+      ? await caller.producer.paymentConnection()
+      : null;
 
   // Branch-scoped data fetches. Profile branch needs portfolio
   // tracks (one of the identity-image surfaces). The Integrations
@@ -187,13 +197,33 @@ export default async function SettingsPage({
 
         {active === "integrations" && (
           <div className="space-y-10">
-            {/* Stripe — PRD §4.6 "Payment Clearing System". The first
-                integration the producer touches because no money flows
-                without it. */}
+            {/* Tranzila — per-producer terminal. Producer fills in a
+                short request form; a Skitza admin provisions the
+                terminal at Tranzila and writes the terminal name onto
+                the producer row. Once set, payments route directly to
+                the producer. */}
+            <section aria-labelledby="settings-payments-heading">
+              <SectionHeading
+                id="settings-payments-heading"
+                title="Payments"
+                description="Connect your Tranzila terminal to receive artist payments directly. Once approved, every booking pays out straight to you."
+              />
+              <PaymentCard
+                connected={paymentConnection?.connected ?? false}
+                defaultBusinessName={profile.displayName ?? ""}
+                defaultContactEmail={profile.email}
+              />
+            </section>
+
+            {/* Stripe — legacy Payment Clearing System surface. Kept
+                for the producers already onboarded via Stripe Connect;
+                new producers should onboard via the Tranzila card
+                above. */}
+            <BranchDivider title="Stripe (legacy)" />
             <section aria-labelledby="settings-stripe-heading">
               <SectionHeading
                 id="settings-stripe-heading"
-                title="Payments"
+                title="Stripe"
                 description="Stripe takes deposits and final payments. Skitza adds no platform fee — you keep everything minus Stripe's standard rates."
               />
               <StripeCard
