@@ -34,9 +34,12 @@ export const STRIPE_PUBLIC_KEY = process.env.STRIPE_PUBLIC_KEY;
 // producer-facing share links (the `/join/<slug>` URL pasted in
 // IG bios) do NOT use this fn — see `lib/share/public-url` for those.
 export function getSiteUrl(): string {
+  // Trim because env values pasted in via the Vercel dashboard sometimes
+  // carry a trailing newline, which encodes to %0A and breaks redirects
+  // (Stripe Checkout, Tranzila, etc.).
   return (
     process.env.NEXT_PUBLIC_SITE_URL ??
     process.env.SITE_URL ??
     "https://skitza.app"
-  );
+  ).trim();
 }
