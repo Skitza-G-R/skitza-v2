@@ -1231,10 +1231,21 @@ export const bookingRouter = router({
         });
       }
 
-      await db
-        .update(bookings)
-        .set({ status: "confirmed", statusChangedAt: new Date() })
-        .where(eq(bookings.id, input.bookingId));
+      try {
+        await db
+          .update(bookings)
+          .set({ status: "confirmed", statusChangedAt: new Date() })
+          .where(eq(bookings.id, input.bookingId));
+      } catch (err) {
+        console.error("[payment] booking status update to confirmed failed", {
+          bookingId: existing.id,
+          producerId: existing.producerId,
+          artistEmail: existing.artistEmail,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
+        throw err;
+      }
 
       // Auto-provision a project — same shape as booking.confirm's
       // auto-project block. Idempotent on existing.projectId so a
@@ -1271,7 +1282,13 @@ export const bookingRouter = router({
               .where(eq(bookings.id, existing.id));
           }
         } catch (err) {
-          console.warn("[payment] auto-project insert failed", err);
+          console.error("[payment] auto-project insert failed", {
+            bookingId: existing.id,
+            producerId: existing.producerId,
+            artistEmail: existing.artistEmail,
+            error: err instanceof Error ? err.message : String(err),
+            stack: err instanceof Error ? err.stack : undefined,
+          });
         }
 
         try {
