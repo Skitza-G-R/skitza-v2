@@ -9,11 +9,15 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // refresh / duplicate-in-flight (with the notify_url POST) is fine.
 
 type PageProps = {
-  searchParams: Promise<{ bookingId?: string }>;
+  searchParams: Promise<{ bookingId?: string; pdesc?: string }>;
 };
 
 export default async function PaymentSuccessPage({ searchParams }: PageProps) {
-  const { bookingId } = await searchParams;
+  const params = await searchParams;
+  // Tranzila echoes `pdesc` back on the success redirect — we pass the
+  // bookingId through it as a backup in case the success_url querystring
+  // gets mangled. Prefer the explicit `bookingId` param when present.
+  const bookingId = params.bookingId ?? params.pdesc ?? null;
   if (!bookingId) {
     redirect("/artist?payment=failed");
   }

@@ -66,7 +66,10 @@ export function buildTranzilaRedirectUrl(params: {
     nologo: "1",
     contact: params.artistName ?? "Artist",
     email: params.artistEmail ?? "",
-    pdesc: params.productName ?? "Studio Session",
+    // Pass the bookingId via pdesc — Tranzila echoes pdesc back on the
+    // success redirect, so the success page can recover the bookingId
+    // even if the success_url query string gets mangled.
+    pdesc: params.bookingId,
     // Use the legacy `*_url` parameter names — the newer `*_url_address`
     // variants mangle `https://` into `https:/` in Tranzila's redirect.
     success_url: `${safeSiteUrl}/artist/payment/success?bookingId=${params.bookingId}`,
