@@ -170,11 +170,23 @@ export function AvailabilityStepClient({
 
   const addWindow = (weekday: Weekday) => {
     setDays((prev) =>
-      prev.map((d) =>
-        d.weekday === weekday && d.windows.length < 3
-          ? { ...d, windows: [...d.windows, { ...DEFAULT_WINDOW }] }
-          : d,
-      ),
+      prev.map((d) => {
+        if (d.weekday !== weekday || d.windows.length >= 3) return d;
+        const last = d.windows[d.windows.length - 1];
+        const lastEnd = last?.endMin ?? DEFAULT_WINDOW.endMin;
+        const DAY_END = 24 * 60;
+        // New window picks up where the previous one ended, defaulting
+        // to a 2-hour evening slot, capped at midnight.
+        let startMin = Math.min(lastEnd, DAY_END);
+        let endMin = Math.min(startMin + 2 * 60, DAY_END);
+        if (endMin - startMin < 30) {
+          // No usable room left in the day — fall back to the last hour
+          // so the inputs render with sane, editable values.
+          endMin = DAY_END;
+          startMin = DAY_END - 60;
+        }
+        return { ...d, windows: [...d.windows, { startMin, endMin }] };
+      }),
     );
   };
 
