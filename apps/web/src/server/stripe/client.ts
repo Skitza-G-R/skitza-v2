@@ -34,12 +34,14 @@ export const STRIPE_PUBLIC_KEY = process.env.STRIPE_PUBLIC_KEY;
 // producer-facing share links (the `/join/<slug>` URL pasted in
 // IG bios) do NOT use this fn — see `lib/share/public-url` for those.
 export function getSiteUrl(): string {
-  // Trim because env values pasted in via the Vercel dashboard sometimes
-  // carry a trailing newline, which encodes to %0A and breaks redirects
-  // (Stripe Checkout, Tranzila, etc.).
-  return (
+  // Strip ALL whitespace (not just leading/trailing) — env values pasted
+  // via the Vercel dashboard sometimes carry newlines or other whitespace
+  // anywhere in the string, which breaks redirects (Stripe Checkout,
+  // Tranzila, etc.). .trim() alone misses internal whitespace; \s+
+  // catches it everywhere.
+  const rawSiteUrl =
     process.env.NEXT_PUBLIC_SITE_URL ??
     process.env.SITE_URL ??
-    "https://skitza.app"
-  ).trim();
+    "https://skitza.app";
+  return rawSiteUrl.replace(/\s+/g, "");
 }

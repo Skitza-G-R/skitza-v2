@@ -31,14 +31,16 @@ export function buildTranzilaRedirectUrl(params: {
     throw new Error("No Tranzila terminal configured");
   }
 
-  // Trim because env values pasted in via the Vercel dashboard sometimes
-  // carry a trailing newline, which encodes to %0A in the redirect URL
-  // and breaks Tranzila's success/fail callbacks.
-  const siteUrl = (
+  // Strip ALL whitespace (not just leading/trailing) — env values pasted
+  // via the Vercel dashboard sometimes carry newlines or other whitespace
+  // anywhere in the string, which encodes into the redirect URL and
+  // breaks Tranzila's success/fail callbacks. .trim() alone misses
+  // internal whitespace; \s+ catches it everywhere.
+  const rawSiteUrl =
     process.env.NEXT_PUBLIC_SITE_URL ??
     process.env.SITE_URL ??
-    "https://skitza.app"
-  ).trim();
+    "https://skitza.app";
+  const siteUrl = rawSiteUrl.replace(/\s+/g, "");
   const amount = (params.amountCents / 100).toFixed(2);
 
   // ILS/USD use Tranzila's internal 1/2 codes; EUR/GBP use ISO 4217
