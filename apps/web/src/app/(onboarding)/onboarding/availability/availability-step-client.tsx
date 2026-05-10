@@ -216,7 +216,7 @@ export function AvailabilityStepClient({
       ),
     );
     toast(
-      `Copied ${source.label}'s hours to ${targetCount} other day${targetCount === 1 ? "" : "s"}`,
+      `Copied ${source.label}'s hours to ${String(targetCount)} other day${targetCount === 1 ? "" : "s"}`,
       "success",
     );
   };
