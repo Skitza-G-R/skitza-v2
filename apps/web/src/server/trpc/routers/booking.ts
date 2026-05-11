@@ -555,8 +555,19 @@ const productsRouter = router({
   // half-reordered. Producer ownership is verified by selecting all
   // row producerIds in one query and asserting equality before any
   // write. Idempotent: calling with the same order is a no-op.
+  // (Deliberately diverges from portfolio.reorder / producerExternalLinks.reorder,
+  // which use Promise.all + scoped UPDATEs without a transaction — products
+  // is the commerce surface, partial-reorder mid-failure isn't acceptable
+  // here, even though the optimistic client reverts.)
   reorder: producerProcedure
-    .input(z.object({ orderedIds: z.array(z.string().uuid()).min(1) }))
+    .input(
+      z.object({
+        orderedIds: z
+          .array(z.string().uuid())
+          .min(1)
+          .refine((arr) => new Set(arr).size === arr.length, "duplicate ids are not allowed"),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const rows = await ctx.db
         .select({ id: products.id, producerId: products.producerId })
