@@ -965,6 +965,19 @@
   .sk-shimmer-glow { animation: sk-shimmer-glow 2s ease-in-out 2; }
   .sk-row-in       { animation: sk-row-in 320ms cubic-bezier(.16,1,.3,1) both; }
 
+  /* Wizard step entry — subtle fade + 8px slide-up between Storefront
+     editor steps. Wrap the step body in `<div key={currentStep}
+     className="sk-step-enter">` so React remounts the wrapper on each
+     step change and the keyframe fires. Keeps the wizard feeling like
+     one continuous surface instead of a sequence of screens. */
+  @keyframes sk-step-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sk-step-enter {
+    animation: sk-step-enter 240ms var(--ease-out-strong) both;
+  }
+
   /* Drag handle is hidden on touch-only devices — producer is desktop-
      only per CLAUDE.md and native HTML5 DnD doesn't behave well on touch. */
   @media (hover: none) {
@@ -1000,7 +1013,8 @@
     .ob-breath,
     .sk-live-pulse,
     .sk-shimmer-glow,
-    .sk-row-in { animation: none !important; }
+    .sk-row-in,
+    .sk-step-enter { animation: none !important; }
     .ob-stagger > * { opacity: 1 !important; transform: none !important; }
     .ob-press,
     .ob-card-press,

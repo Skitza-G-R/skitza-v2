@@ -389,55 +389,57 @@ export function ProductEditor({
       isLastStep={isLastStep}
       pending={pending}
     >
-      {currentStep === "type" && (
-        <TypeStep picked={draft._picked} onPick={onPickPreset} />
-      )}
-      {currentStep === "includes" && (
-        <IncludesStep
-          pickedId={draft._picked}
-          name={draft.name}
-          onNameChange={(name) => {
-            setDraft((d) => ({ ...d, name }));
-          }}
-          includes={draft.includes}
-          onIncludesChange={(includes) => {
-            setDraft((d) => ({ ...d, includes }));
-          }}
-        />
-      )}
-      {currentStep === "pricing" && (
-        <PricingStep
-          price={draft.price}
-          currency={draft.currency}
-          sessions={draft.sessions}
-          unlimitedSessions={draft.unlimitedSessions}
-          paymentPlan={draft.paymentPlan}
-          installmentsCount={draft.installmentsCount}
-          onChange={(patch) => {
-            setDraft((d) => ({ ...d, ...patch }));
-          }}
-        />
-      )}
-      {currentStep === "logistics" && (
-        <LogisticsStep
-          duration={draft.duration}
-          revisions={draft.revisions}
-          unlimitedRevisions={draft.unlimitedRevisions}
-          onChange={(patch) => {
-            setDraft((d) => ({ ...d, ...patch }));
-          }}
-        />
-      )}
-      {currentStep === "agreement" && (
-        <ContractStep
-          mode={draft.contractMode}
-          contractUrl={draft.contractUrl}
-          contractText={draft.contractText}
-          onChange={(patch) => {
-            setDraft((d) => ({ ...d, ...patch }));
-          }}
-        />
-      )}
+      <div key={currentStep} className="sk-step-enter">
+        {currentStep === "type" && (
+          <TypeStep picked={draft._picked} onPick={onPickPreset} />
+        )}
+        {currentStep === "includes" && (
+          <IncludesStep
+            pickedId={draft._picked}
+            name={draft.name}
+            onNameChange={(name) => {
+              setDraft((d) => ({ ...d, name }));
+            }}
+            includes={draft.includes}
+            onIncludesChange={(includes) => {
+              setDraft((d) => ({ ...d, includes }));
+            }}
+          />
+        )}
+        {currentStep === "pricing" && (
+          <PricingStep
+            price={draft.price}
+            currency={draft.currency}
+            sessions={draft.sessions}
+            unlimitedSessions={draft.unlimitedSessions}
+            paymentPlan={draft.paymentPlan}
+            installmentsCount={draft.installmentsCount}
+            onChange={(patch) => {
+              setDraft((d) => ({ ...d, ...patch }));
+            }}
+          />
+        )}
+        {currentStep === "logistics" && (
+          <LogisticsStep
+            duration={draft.duration}
+            revisions={draft.revisions}
+            unlimitedRevisions={draft.unlimitedRevisions}
+            onChange={(patch) => {
+              setDraft((d) => ({ ...d, ...patch }));
+            }}
+          />
+        )}
+        {currentStep === "agreement" && (
+          <ContractStep
+            mode={draft.contractMode}
+            contractUrl={draft.contractUrl}
+            contractText={draft.contractText}
+            onChange={(patch) => {
+              setDraft((d) => ({ ...d, ...patch }));
+            }}
+          />
+        )}
+      </div>
     </EditorShell>
   );
 }
