@@ -28,9 +28,10 @@ describe("PricingStep shell", () => {
     expect(SRC).toMatch(/paymentPlan/);
   });
 
-  it("imports the Infinity lucide icon for the unlimited-sessions button", () => {
-    expect(SRC).toMatch(/Infinity\s+as\s+InfinityIcon|InfinityIcon|Infinity[^A-Za-z]/);
-    expect(SRC).toMatch(/from\s+["']lucide-react["']/);
+  it("renders an 'Unlimited' pill toggle for the sessions count", () => {
+    expect(SRC).toMatch(/Unlimited/);
+    expect(SRC).toMatch(/aria-label="Unlimited sessions"/);
+    expect(SRC).toMatch(/aria-pressed=\{unlimitedSessions\}/);
   });
 
   it("does not mention the dropped fields", () => {

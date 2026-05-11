@@ -2,8 +2,9 @@
 //
 // Stage 3 of the producer Store wizard — simplified to match the
 // reference design: price + currency, sessions count (with an
-// unlimited toggle rendered as an Infinity button), and three radio
-// cards for "How artists pay" (full / 50-50 split / installments).
+// "Unlimited" pill toggle that mirrors the Revisions control in
+// Logistics), and three radio cards for "How artists pay" (full /
+// 50-50 split / installments).
 //
 // The previous version surfaced extra fields that were dropped to
 // match the reference; the booking package form still exposes them
@@ -11,7 +12,7 @@
 
 "use client";
 
-import { Infinity as InfinityIcon, Minus, Plus } from "lucide-react";
+import { Minus, Plus } from "lucide-react";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
 type PaymentPlan = "full" | "split" | "installments";
@@ -192,13 +193,13 @@ export function PricingStep({
               aria-pressed={unlimitedSessions}
               aria-label="Unlimited sessions"
               className={[
-                "inline-flex h-10 w-10 items-center justify-center rounded-[10px] border transition-colors",
+                "sk-press inline-flex h-10 items-center justify-center rounded-full border px-4 text-[13px] font-semibold transition-colors",
                 unlimitedSessions
-                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]"
+                  ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
                   : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
               ].join(" ")}
             >
-              <InfinityIcon size={18} strokeWidth={2.2} aria-hidden />
+              Unlimited
             </button>
           </div>
         </div>
