@@ -42,7 +42,7 @@ export function DeleteConfirmModal({
                 id="delete-confirm-body"
                 className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]"
               >
-                This product will be removed permanently. Existing bookings will not be affected.
+                Removed from your storefront. You can undo for a few seconds. Existing bookings stay intact.
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild>
