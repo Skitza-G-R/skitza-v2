@@ -198,6 +198,27 @@ export async function restorePackage(input: { id: string }): Promise<ActionResul
   }
 }
 
+// Phase 3 store redesign — drag-to-reorder. Persists the new product
+// order via the booking.packages.reorder mutation. Caller is the
+// drag-reorder hook in <StoreScreen>; revalidates both legacy
+// /dashboard/profile and the new /dashboard/store so the next read
+// reflects the new order.
+export async function reorderProducts(input: {
+  orderedIds: string[];
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.packages.reorder(input);
+    revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // ─── Availability ───────────────────────────────────────────────────
 
 export async function setAvailabilityWeek(input: {
