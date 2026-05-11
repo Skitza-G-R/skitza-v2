@@ -1,4 +1,7 @@
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
+
+import { appRouter } from "~/server/trpc/routers/_app";
 
 // Tranzila redirects the top-level browser window here after a charge
 // (success_url in lib/tranzila.ts). The AUTHORITATIVE booking
@@ -6,39 +9,61 @@ import Link from "next/link";
 // /api/tranzila/callback (notify_url POST) — this page is purely a
 // celebration / "what happens next" surface for the artist.
 //
-// `pdesc` echoes the bookingId we sent; `ConfirmationCode` is Tranzila's
-// txn receipt. Both are best-effort — if Tranzila omits them, we render
-// a graceful generic success.
-//
-// Future: when there's a public `booking.getById` that the unauthenticated
-// caller can hit (Tranzila's success redirect runs without our session
-// cookies in some flows), enrich this surface with the actual booking
-// fields (producer name, session start, amount paid).
+// Tranzila strips arbitrary success_url params, so we don't have a
+// bookingId on the querystring. We resolve the booking via the
+// authenticated Clerk session instead: look up the artist's most
+// recently confirmed booking (within the last 10 minutes). If anything
+// goes wrong — no recent booking, no session, query throws — we fall
+// back to a graceful generic confirmation panel.
 
-export default async function PaymentSuccessPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | undefined>>;
-}) {
-  const params = await searchParams;
+function formatStartsAt(startsAt: Date): string {
+  // Server-side render; the booking time was authored in the producer's
+  // timezone. We display it in en-US short form on a single line. The
+  // home page's NextSessionCard surfaces the same time again with the
+  // producer's TZ for the artist to reference.
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(startsAt);
+}
 
-  // pdesc is the canonical transport (Tranzila echoes it back verbatim);
-  // explicit `bookingId` stays as a defensive fallback for future
-  // routing changes.
-  const bookingId = params.pdesc ?? params.bookingId ?? null;
-  const confirmationCode = params.ConfirmationCode ?? null;
+// Shape of the artist.recentConfirmedBooking result (non-null branch).
+// We extract it via two ReturnType peels — one through createCaller,
+// one through the procedure call — so the success page stays in lock-
+// step with the procedure's projection without a manual mirror type.
+type RecentBooking = NonNullable<
+  Awaited<
+    ReturnType<
+      ReturnType<typeof appRouter.createCaller>["artist"]["recentConfirmedBooking"]
+    >
+  >
+>;
 
-  console.log("[payment/success] render", {
-    bookingId,
-    confirmationCode,
-    pdesc: params.pdesc,
-    response: params.Response,
-  });
+export default async function PaymentSuccessPage() {
+  const { userId } = await auth();
 
-  // No bookingId in the URL → minimal centered confirmation. The booking
-  // is still confirmed by the notify_url POST; we just can't reference
-  // its id in the UI.
-  if (!bookingId) {
+  let booking: RecentBooking | null = null;
+  if (userId) {
+    try {
+      const caller = appRouter.createCaller({ userId });
+      booking = await caller.artist.recentConfirmedBooking();
+    } catch (err) {
+      // Don't let a lookup failure blank the page — log and fall through
+      // to the generic confirmation.
+      console.error("[payment/success] recentConfirmedBooking failed", {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Generic fallback — no Clerk session, no recent booking, or the
+  // lookup blew up. Booking is still confirmed by the notify_url POST;
+  // we just can't reference its details in the UI.
+  if (!booking) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
         <div className="text-5xl">🎉</div>
@@ -48,11 +73,6 @@ export default async function PaymentSuccessPage({
         <p className="text-sm text-[rgb(var(--fg-muted))]">
           Your session has been booked successfully.
         </p>
-        {confirmationCode ? (
-          <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
-            Confirmation: {confirmationCode}
-          </p>
-        ) : null}
         <Link
           href="/artist"
           className="rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-6 py-3 text-sm font-medium text-white"
@@ -63,9 +83,10 @@ export default async function PaymentSuccessPage({
     );
   }
 
-  // Carded confirmation — we have a bookingId reference, render a
-  // proper "receipt" card with the Tranzila confirmation number and
-  // a single CTA back to the dashboard.
+  const sessionLine = formatStartsAt(booking.startsAt);
+  const producerName = booking.producerName ?? "Your producer";
+  const packageName = booking.packageNameSnapshot ?? "Session";
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 p-8 bg-[rgb(var(--bg-background))]">
       <div className="w-full max-w-sm rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-8 shadow-[var(--shadow-md)]">
@@ -74,17 +95,55 @@ export default async function PaymentSuccessPage({
             <span className="text-3xl">✓</span>
           </div>
           <h1 className="font-syne text-xl font-bold text-[rgb(var(--fg-primary))]">
-            Payment confirmed!
+            🎉 Payment confirmed!
           </h1>
           <p className="text-center text-sm text-[rgb(var(--fg-muted))]">
             Your session has been booked successfully.
           </p>
         </div>
 
-        {confirmationCode ? (
+        {/* Booking detail rows. Each row is label (muted) → value
+            (primary). Kept dense so the whole card fits in one
+            viewport on a phone. */}
+        <dl className="mb-6 space-y-3 text-sm">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+              When
+            </dt>
+            <dd className="text-right font-medium text-[rgb(var(--fg-primary))]">
+              {sessionLine}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+              Producer
+            </dt>
+            <dd className="text-right font-medium text-[rgb(var(--fg-primary))]">
+              {producerName}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+              Package
+            </dt>
+            <dd className="text-right font-medium text-[rgb(var(--fg-primary))]">
+              {packageName}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+              Duration
+            </dt>
+            <dd className="text-right font-medium text-[rgb(var(--fg-primary))]">
+              {booking.durationMin} min
+            </dd>
+          </div>
+        </dl>
+
+        {booking.tranzilaConfirmationCode ? (
           <div className="mb-4 rounded-lg bg-[rgb(var(--bg-base))] p-3">
             <p className="text-center font-mono text-xs text-[rgb(var(--fg-muted))]">
-              Confirmation #{confirmationCode}
+              Confirmation #{booking.tranzilaConfirmationCode}
             </p>
           </div>
         ) : null}

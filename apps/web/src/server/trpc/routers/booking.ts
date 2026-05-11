@@ -1173,6 +1173,41 @@ export const bookingRouter = router({
       return { ok: true as const };
     }),
 
+  // Public read of a confirmed booking by id. Used by surfaces that
+  // can't rely on a Clerk session (Tranzila's success redirect, future
+  // share links) — returns null for any booking that isn't yet
+  // confirmed, so a guessed UUID can't leak booking metadata before
+  // the artist actually paid.
+  getConfirmedBooking: publicProcedure
+    .input(z.object({ bookingId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      const dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "missing DATABASE_URL",
+        });
+      }
+      const db = createDb(dbUrl);
+      const [row] = await db
+        .select({
+          id: bookings.id,
+          status: bookings.status,
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+          artistName: bookings.artistName,
+          packageNameSnapshot: bookings.packageNameSnapshot,
+          tranzilaConfirmationCode: bookings.tranzilaConfirmationCode,
+          producerName: producers.displayName,
+        })
+        .from(bookings)
+        .leftJoin(producers, eq(producers.id, bookings.producerId))
+        .where(eq(bookings.id, input.bookingId))
+        .limit(1);
+      if (!row || row.status !== "confirmed") return null;
+      return row;
+    }),
+
   // Public — called from the Tranzila callback handler at
   // /api/tranzila/callback. We can't gate on a signed-in artist because
   // Tranzila's server-to-server `notify_url` POST has no Clerk session.
@@ -1234,7 +1269,17 @@ export const bookingRouter = router({
       try {
         await db
           .update(bookings)
-          .set({ status: "confirmed", statusChangedAt: new Date() })
+          .set({
+            status: "confirmed",
+            statusChangedAt: new Date(),
+            // Only overwrite when the caller actually has a code in hand.
+            // The notify_url POST is the canonical confirmation path and
+            // will supply one; preserving the existing value on no-arg
+            // calls keeps idempotent retries safe.
+            ...(input.tranzilaConfirmationCode
+              ? { tranzilaConfirmationCode: input.tranzilaConfirmationCode }
+              : {}),
+          })
           .where(eq(bookings.id, input.bookingId));
       } catch (err) {
         console.error("[payment] booking status update to confirmed failed", {

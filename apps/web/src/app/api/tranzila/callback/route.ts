@@ -49,8 +49,18 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const caller = appRouter.createCaller({ userId: null });
-    await caller.booking.confirmAfterPayment({ bookingId });
-    console.log("[tranzila callback POST] confirmed booking", { bookingId });
+    await caller.booking.confirmAfterPayment({
+      bookingId,
+      // Thread Tranzila's confirmation number through so it lands on the
+      // booking row and the success page can echo it back to the artist.
+      ...(params.ConfirmationCode
+        ? { tranzilaConfirmationCode: params.ConfirmationCode }
+        : {}),
+    });
+    console.log("[tranzila callback POST] confirmed booking", {
+      bookingId,
+      confirmationCode: params.ConfirmationCode,
+    });
   } catch (err) {
     console.error("[tranzila callback POST] confirmAfterPayment failed", {
       bookingId,

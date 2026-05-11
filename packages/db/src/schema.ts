@@ -291,6 +291,11 @@ export const bookings = pgTable("bookings", {
   // but having it inline lets the booking detail page link straight to
   // the Stripe dashboard without a join.
   stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  // Tranzila's transaction confirmation number (the `ConfirmationCode`
+  // field from the notify_url POST body). Stored when the booking flips
+  // to confirmed so the success page can show "Confirmation #..." back
+  // to the artist. Nullable — Stripe-paid bookings won't have one.
+  tranzilaConfirmationCode: text("tranzila_confirmation_code"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Booking = typeof bookings.$inferSelect;
