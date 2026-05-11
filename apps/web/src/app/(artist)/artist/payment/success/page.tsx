@@ -1,19 +1,19 @@
 import { redirect } from "next/navigation";
 
-import { appRouter } from "~/server/trpc/routers/_app";
-
 // Tranzila redirects the top-level browser window here on a successful
-// charge (success_url in lib/tranzila.ts). We pass the bookingId
-// through Tranzila's `pdesc` field because Tranzila mangles arbitrary
-// querystring keys on the success redirect — `pdesc` is one of the
-// fields it always echoes back verbatim.
+// charge (success_url in lib/tranzila.ts). This page is PURE UI — it
+// does NOT call confirmAfterPayment. The authoritative confirmation
+// happens server-to-server via /api/tranzila/callback (notify_url POST)
+// so confirmAfterPayment runs at most once even if the artist refreshes
+// the success page or arrives ahead of the POST.
 //
-// We confirm the booking via the public tRPC mutation, then bounce to
-// /artist with a status flag. confirmAfterPayment is idempotent on
-// already-confirmed rows so a refresh / duplicate-in-flight (the
-// notify_url POST) is fine. The page is resilient: any failure logs
-// and redirects to /artist rather than crashing or trampolining
-// through another payment page.
+// If the artist lands here before the notify POST has been processed,
+// /artist will briefly still show the booking as pending — that's fine,
+// the POST will catch up within seconds and the next render is correct.
+//
+// We accept `pdesc` (canonical — Tranzila echoes it back verbatim) and
+// `bookingId` (defensive fallback) only for logging visibility; no DB
+// work happens here.
 
 type PageProps = {
   searchParams: Promise<{
@@ -25,38 +25,16 @@ type PageProps = {
 
 export default async function PaymentSuccessPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  // pdesc is the canonical transport (Tranzila echoes it back); the
-  // explicit `bookingId` param stays as a defensive fallback for
-  // future routing changes.
   const bookingId = params.pdesc ?? params.bookingId ?? null;
 
+  console.log("[payment/success]", {
+    bookingId,
+    pdesc: params.pdesc,
+    response: params.Response,
+  });
+
   if (!bookingId) {
-    console.error("[payment/success] missing bookingId", {
-      bookingId,
-      pdesc: params.pdesc,
-      response: params.Response,
-    });
     redirect("/artist?payment=failed");
   }
-
-  let success = false;
-  try {
-    const caller = appRouter.createCaller({ userId: null });
-    await caller.booking.confirmAfterPayment({ bookingId });
-    success = true;
-  } catch (err) {
-    // Don't let a confirmation failure crash the page — log everything
-    // useful for debugging and fall through to a safe redirect.
-    console.error("[payment/success] failed", {
-      bookingId,
-      pdesc: params.pdesc,
-      response: params.Response,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-
-  if (success) {
-    redirect("/artist?payment=success");
-  }
-  redirect("/artist");
+  redirect("/artist?payment=success");
 }

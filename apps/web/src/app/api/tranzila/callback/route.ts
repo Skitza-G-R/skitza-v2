@@ -1,57 +1,64 @@
 import { appRouter } from "~/server/trpc/routers/_app";
 
-// Tranzila's server-to-server confirmation (notify_url POST). The
-// browser flow now redirects directly to /artist/payment/success — this
-// route only handles the S2S confirmation. confirmAfterPayment is
-// idempotent so a duplicate (browser-side success page + this POST) is
-// fine.
+// Tranzila's server-to-server confirmation (notify_url POST). This is
+// the AUTHORITATIVE confirmation channel — the browser-side success
+// page is now pure UI and does NOT call confirmAfterPayment. Tranzila
+// retries non-2xx responses, so we always return 200 even on internal
+// errors (confirmAfterPayment is idempotent, so retries are safe).
 //
-// SECURITY: trusts the bookingId query/form param. See the SECURITY
-// note on booking.confirmAfterPayment for the follow-up that should
-// call Tranzila's confirm.php verification endpoint to harden this.
-
-async function handle(
-  bookingId: string | null,
-  confirmationCode: string | null,
-): Promise<{ ok: boolean }> {
-  if (!bookingId) return { ok: false };
-  try {
-    const caller = appRouter.createCaller({ userId: null });
-    await caller.booking.confirmAfterPayment({
-      bookingId,
-      ...(confirmationCode ? { tranzilaConfirmationCode: confirmationCode } : {}),
-    });
-    return { ok: true };
-  } catch (err) {
-    console.error("[tranzila] confirmAfterPayment failed", err);
-    return { ok: false };
-  }
-}
+// Tranzila posts the result as application/x-www-form-urlencoded in
+// the request BODY, not the querystring — earlier versions of this
+// handler read from URL.searchParams and logged empty params as a
+// result. We parse the body via URLSearchParams to recover every field.
+//
+// Field conventions:
+//   - `pdesc`     — bookingId (we set this in buildTranzilaRedirectUrl
+//                   because Tranzila echoes pdesc back verbatim).
+//   - `bookingId` — defensive fallback in case the routing changes.
+//   - `Response`  — "000" means success; anything else means decline /
+//                   error and we should NOT confirm the booking.
+//
+// SECURITY: trusts the bookingId field. See the SECURITY note on
+// booking.confirmAfterPayment for the follow-up that should call
+// Tranzila's confirm.php verification endpoint to harden this.
 
 export async function POST(request: Request): Promise<Response> {
+  const body = await request.text();
+  const params = Object.fromEntries(new URLSearchParams(body));
+
   console.log("[tranzila callback POST]", {
     url: request.url,
-    params: Object.fromEntries(new URL(request.url).searchParams),
+    params,
   });
-  // Tranzila's notify_url posts form-encoded fields. Parse what's
-  // available; either query string OR body may carry the params
-  // depending on the integration mode.
-  const { searchParams } = new URL(request.url);
-  let bookingId = searchParams.get("bookingId");
-  let confirmationCode = searchParams.get("ConfirmationCode");
+
+  const bookingId = params.pdesc ?? params.bookingId ?? null;
+  const response = params.Response;
 
   if (!bookingId) {
-    try {
-      const form = await request.formData();
-      bookingId = bookingId ?? (form.get("bookingId") as string | null);
-      confirmationCode =
-        confirmationCode ?? (form.get("ConfirmationCode") as string | null);
-    } catch {
-      // ignore — fall through with what we have
-    }
+    console.error("[tranzila callback POST] missing bookingId", { params });
+    return new Response("OK", { status: 200 });
   }
 
-  await handle(bookingId, confirmationCode);
-  // Always 200 — Tranzila retries non-2xx responses, and we're idempotent.
+  if (response !== "000") {
+    console.error("[tranzila callback POST] non-success response", {
+      response,
+      bookingId,
+    });
+    return new Response("OK", { status: 200 });
+  }
+
+  try {
+    const caller = appRouter.createCaller({ userId: null });
+    await caller.booking.confirmAfterPayment({ bookingId });
+    console.log("[tranzila callback POST] confirmed booking", { bookingId });
+  } catch (err) {
+    console.error("[tranzila callback POST] confirmAfterPayment failed", {
+      bookingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Always 200 — Tranzila retries non-2xx responses, and the underlying
+  // mutation is idempotent so retries are safe.
   return new Response("OK", { status: 200 });
 }
