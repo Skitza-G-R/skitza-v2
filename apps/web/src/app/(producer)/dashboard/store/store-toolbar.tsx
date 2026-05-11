@@ -20,11 +20,22 @@ interface StoreToolbarProps {
   onViewChange: (next: ViewMode) => void;
   search: string;
   onSearchChange: (next: string) => void;
+  /** When true, the Table option in <ViewToggle> renders interactive (Phase 3). */
+  enableTable?: boolean;
 }
 
 export const StoreToolbar = forwardRef<HTMLInputElement, StoreToolbarProps>(
   function StoreToolbar(
-    { filter, onFilterChange, counts, view, onViewChange, search, onSearchChange },
+    {
+      filter,
+      onFilterChange,
+      counts,
+      view,
+      onViewChange,
+      search,
+      onSearchChange,
+      enableTable = false,
+    },
     searchRef,
   ) {
     return (
@@ -40,7 +51,7 @@ export const StoreToolbar = forwardRef<HTMLInputElement, StoreToolbarProps>(
           ]}
         />
         <div className="flex items-center gap-3">
-          <ViewToggle value={view} onChange={onViewChange} enableTable={false} />
+          <ViewToggle value={view} onChange={onViewChange} enableTable={enableTable} />
           <SearchInput ref={searchRef} value={search} onChange={onSearchChange} />
         </div>
       </div>

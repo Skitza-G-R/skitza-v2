@@ -78,4 +78,20 @@ describe("StoreScreen shell", () => {
     expect(SRC).toMatch(/optimisticProducts/);
     expect(SRC).toMatch(/setOptimisticProducts/);
   });
+
+  it("mounts StoreTable when view is 'table'", () => {
+    expect(SRC).toMatch(/StoreTable/);
+  });
+
+  it("passes enableTable=true through to the toolbar / view toggle", () => {
+    // Accept either the prop on StoreToolbar (Path B) or directly on
+    // ViewToggle if StoreScreen passes it inline (rare).
+    expect(SRC).toMatch(/enableTable=\{true\}/);
+  });
+
+  it("renders the cards block only when view is not 'table'", () => {
+    // The branch `view === "table" ? <StoreTable ... /> : <div ...>` is
+    // the new render switch. Source-grep for the literal "table" view check.
+    expect(SRC).toMatch(/view\s*===\s*["']table["']/);
+  });
 });

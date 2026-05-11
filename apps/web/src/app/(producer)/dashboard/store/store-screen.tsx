@@ -22,6 +22,7 @@ import { NewProductButton } from "./new-product-button";
 import { ProductCard, type ProductCardData } from "./product-card";
 import { ProductEditor } from "./product-editor";
 import { StoreHeader } from "./store-header";
+import { StoreTable } from "./store-table";
 import { StoreToolbar } from "./store-toolbar";
 import { computeNewOrder, useDragReorder } from "./use-drag-reorder";
 import { useUndoableDelete } from "./use-undoable-delete";
@@ -188,6 +189,7 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
         onViewChange={setView}
         search={search}
         onSearchChange={setSearch}
+        enableTable={true}
       />
 
       {filtered.length === 0 ? (
@@ -209,6 +211,17 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
             body="Try clearing the filter or search."
           />
         )
+      ) : view === "table" ? (
+        <StoreTable
+          live={live}
+          hidden={hidden}
+          pending={pending}
+          showHiddenGroup={filter === "all" || filter === "hidden"}
+          onOpen={onEdit}
+          onToggleVisible={onToggleVisible}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
       ) : (
         <div className="flex flex-col gap-2">
           {live.map((p) => (

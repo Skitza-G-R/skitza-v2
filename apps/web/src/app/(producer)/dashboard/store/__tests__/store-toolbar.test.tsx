@@ -18,4 +18,8 @@ describe("StoreToolbar shell", () => {
     expect(SRC).toMatch(/FilterTab/);
     expect(SRC).toMatch(/ViewMode/);
   });
+
+  it("accepts an enableTable prop and forwards it to ViewToggle", () => {
+    expect(SRC).toMatch(/enableTable/);
+  });
 });
