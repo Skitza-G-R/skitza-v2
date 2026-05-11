@@ -118,7 +118,7 @@ function emptyDraft(currency: Currency): Draft {
     paymentPlan: "full",
     installmentsCount: 3,
     includes: [],
-    duration: "multi-session",
+    duration: "60 min",
     revisions: 0,
     contractMode: "link",
     contractUrl: "",
@@ -163,12 +163,14 @@ function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft
         ? "link"
         : "file";
   // duration: derive a readable string from durationMin. 0 minutes means
-  // the legacy product never set a duration — display as "multi-session"
-  // so the wizard's free-text input matches the placeholder convention.
+  // the legacy product never set a duration (or was the dropped
+  // multi-session option) — open the wizard in Custom mode with an
+  // empty minutes input so the producer must pick a chip or type a
+  // number before saving.
   const duration =
     typeof p.durationMin === "number" && p.durationMin > 0
       ? `${String(p.durationMin)} min`
-      : "multi-session";
+      : "";
   const deliverables = ((): string[] => {
     // ProductCardData carries no deliverables field; StoreProduct adds
     // it via the page.tsx loader. Fall back to [] when missing.
@@ -259,7 +261,11 @@ export function ProductEditor({
     if (currentStep === "type") return draft._picked != null;
     if (currentStep === "includes") return draft.name.trim() !== "";
     if (currentStep === "pricing") return draft.price >= 0;
-    if (currentStep === "logistics") return true; // both fields optional
+    if (currentStep === "logistics") {
+      // Duration must resolve to "{N} min" (any chip click or a typed
+      // custom value). Empty Custom (in transit) blocks Continue.
+      return /^\d+\s*min$/i.test(draft.duration);
+    }
     return true; // agreement is skippable
   })();
 
@@ -282,8 +288,9 @@ export function ProductEditor({
       revisions: draft.revisions,
       contractText: draft.contractMode === "text" ? draft.contractText : "",
     });
-    // Parse free-text duration ("60 min", "180 min", "multi-session")
-    // into an int. Anything without a number lands as 0.
+    // Parse the duration string ("60 min", "120 min", "180 min", or
+    // a custom "{N} min") into an int. canContinue already guarantees
+    // the format matches; the fallback to 0 is defensive only.
     const durationMatch = draft.duration.match(/(\d+)\s*min/i);
     const durationMin = durationMatch
       ? parseInt(durationMatch[1] ?? "0", 10)
