@@ -1303,6 +1303,7 @@ export const bookingRouter = router({
             .select({
               priceCents: products.priceCents,
               currency: products.currency,
+              sessionCount: products.sessionCount,
             })
             .from(products)
             .where(eq(products.id, existing.productId))
@@ -1381,6 +1382,7 @@ export const bookingRouter = router({
               chargesCompleted: 1,
               totalAmountCents: productRow?.priceCents ?? null,
               currency: productRow?.currency ?? "ILS",
+              sessionCount: productRow?.sessionCount ?? 1,
             })
             .returning();
           if (projectRow) {

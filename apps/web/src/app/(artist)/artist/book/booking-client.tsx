@@ -33,11 +33,20 @@ type Product = {
   currency: string;
   sessionCount: number | null;
 };
+type ActivePackage = {
+  projectId: string;
+  title: string;
+  packageName: string | null;
+  sessionCount: number;
+  sessionsUsed: number;
+  sessionsRemaining: number;
+};
 type Props = {
   activeStudioId: string;
   availability: Availability;
   products: Product[];
   studios: Studio[];
+  activePackages: ActivePackage[];
 };
 
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -69,6 +78,7 @@ export function BookingClient({
   availability,
   products,
   studios,
+  activePackages,
 }: Props) {
   const router = useRouter();
   const [selected, setSelected] = useState<{
@@ -78,8 +88,19 @@ export function BookingClient({
   } | null>(null);
   const [chosenStart, setChosenStart] = useState<number | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  // When set, the artist is consuming a prepaid session from an
+  // existing package — no product to pick, no payment required. Drives
+  // the credit-system flow (Step 5). Null = book a new package.
+  const [selectedPackageProjectId, setSelectedPackageProjectId] = useState<
+    string | null
+  >(null);
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<{ ok: true } | { ok: false; error: string } | null>(null);
+
+  const usingCredit = selectedPackageProjectId !== null;
+  const selectedPackage = activePackages.find(
+    (p) => p.projectId === selectedPackageProjectId,
+  ) ?? null;
 
   const activeStudio = studios.find((s) => s.producerId === activeStudioId);
 
@@ -108,6 +129,8 @@ export function BookingClient({
   const handleSwitchStudio = (id: string) => {
     setSelected(null);
     setChosenStart(null);
+    setSelectedProductId(null);
+    setSelectedPackageProjectId(null);
     setResult(null);
     router.push(`/artist/book?studio=${id}`);
   };
@@ -129,8 +152,11 @@ export function BookingClient({
         block: selected.block,
         startMin: chosenStart,
         durationMin: DEFAULT_DURATION_MIN,
-        projectId: availability.freeBookingProjectId,
-        productId: selectedProductId,
+        projectId: usingCredit ? null : availability.freeBookingProjectId,
+        productId: usingCredit ? null : selectedProductId,
+        ...(selectedPackageProjectId
+          ? { existingProjectId: selectedPackageProjectId }
+          : {}),
       });
       setResult(res);
       if (res.ok) {
@@ -146,6 +172,17 @@ export function BookingClient({
     setResult(null);
   };
 
+  const handlePickPackage = (projectId: string) => {
+    setSelectedPackageProjectId(projectId);
+    setSelectedProductId(null);
+    setResult(null);
+  };
+
+  const handleBookNewPackage = () => {
+    setSelectedPackageProjectId(null);
+    setResult(null);
+  };
+
   return (
     <div className="space-y-4">
       <ProducerPicker
@@ -154,25 +191,83 @@ export function BookingClient({
         onSelect={handleSwitchStudio}
       />
 
-      {availability.freeBookingProjectTitle ? (
-        <div
-          className="flex items-start gap-2 rounded-[var(--radius-md)] border p-3 text-sm"
+      {activePackages.length > 0 ? (
+        <section
+          aria-label="Your active packages"
+          className="space-y-2 rounded-[var(--radius-md)] border p-3"
           style={{
-            background: "rgb(var(--brand-primary) / 0.08)",
+            background: "rgb(var(--brand-primary) / 0.06)",
             borderColor: "rgb(var(--brand-primary) / 0.25)",
-            color: "rgb(var(--fg-default))",
           }}
         >
-          <span aria-hidden style={{ color: "rgb(var(--brand-primary))" }}>
-            ⚡
-          </span>
-          <span>
-            <strong style={{ color: "rgb(var(--brand-primary))" }}>
-              On the house —{" "}
-            </strong>
-            included in your {availability.freeBookingProjectTitle}
-          </span>
-        </div>
+          <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
+            <span aria-hidden style={{ color: "rgb(var(--brand-primary))" }}>
+              ⚡
+            </span>
+            <span style={{ color: "rgb(var(--brand-primary))" }}>
+              You have sessions remaining
+            </span>
+          </div>
+          <ul className="space-y-2">
+            {activePackages.map((pkg) => {
+              const active = pkg.projectId === selectedPackageProjectId;
+              return (
+                <li key={pkg.projectId}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handlePickPackage(pkg.projectId);
+                    }}
+                    className="sk-press flex w-full items-center justify-between gap-3 rounded-[var(--radius-md)] border p-3 text-left text-sm transition-colors"
+                    style={{
+                      background: active
+                        ? "rgb(var(--brand-primary))"
+                        : "rgb(var(--bg-elevated))",
+                      borderColor: active
+                        ? "rgb(var(--brand-primary))"
+                        : "rgb(var(--border-subtle))",
+                      color: active
+                        ? "rgb(var(--bg-sidebar))"
+                        : "rgb(var(--fg-default))",
+                    }}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium">
+                        {pkg.packageName ?? pkg.title}
+                      </div>
+                      <div
+                        className="text-xs"
+                        style={{
+                          color: active
+                            ? "rgb(var(--bg-sidebar) / 0.85)"
+                            : "rgb(var(--fg-muted))",
+                        }}
+                      >
+                        {pkg.sessionsUsed} of {pkg.sessionCount} sessions used
+                      </div>
+                    </div>
+                    <span className="text-xs font-mono uppercase tracking-wider">
+                      {active ? "Selected" : "Use this"}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            type="button"
+            onClick={handleBookNewPackage}
+            className="text-xs underline decoration-dotted underline-offset-2"
+            style={{
+              color:
+                selectedPackageProjectId === null
+                  ? "rgb(var(--brand-primary))"
+                  : "rgb(var(--fg-muted))",
+            }}
+          >
+            + Book with a new package
+          </button>
+        </section>
       ) : null}
 
       {/* 14-day horizontal strip. Each day shows up to two cards
@@ -287,7 +382,7 @@ export function BookingClient({
               ))}
             </div>
 
-            {chosenStart != null && !availability.freeBookingProjectId ? (
+            {chosenStart != null && !usingCredit && !availability.freeBookingProjectId ? (
               <div>
                 <p className="text-xs font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))] mb-2">
                   Select a service
@@ -357,7 +452,9 @@ export function BookingClient({
                 isPending ||
                 chosenStart == null ||
                 result?.ok ||
-                (!availability.freeBookingProjectId && !selectedProductId)
+                (!usingCredit &&
+                  !availability.freeBookingProjectId &&
+                  !selectedProductId)
               }
               className="sk-press w-full rounded-[var(--radius-md)] px-4 py-3 text-[13.5px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
               style={{
@@ -369,9 +466,11 @@ export function BookingClient({
                 ? "Sending…"
                 : result?.ok
                   ? "Sent"
-                  : availability.freeBookingProjectId
-                    ? "Confirm (free session)"
-                    : "Send booking request"}
+                  : usingCredit
+                    ? `Use credit (${selectedPackage?.sessionsRemaining ?? 0} left)`
+                    : availability.freeBookingProjectId
+                      ? "Confirm (free session)"
+                      : "Send booking request"}
             </button>
           </div>
         </section>

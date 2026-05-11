@@ -341,6 +341,14 @@ export const projects = pgTable("projects", {
   inviteToken: text("invite_token").unique(),
   depositPaid: boolean("deposit_paid").notNull().default(false),
   finalPaid: boolean("final_paid").notNull().default(false),
+  // Total sessions covered by the product the artist paid for. 1 for
+  // single-session products, >1 for multi-session packages. Snapshotted
+  // from products.sessionCount at project-creation time so a producer
+  // editing the product later can't retroactively change how many free
+  // sessions an artist gets. Drives the credit-system flow: future
+  // bookings within the same project skip payment as long as
+  // count(confirmed bookings) < sessionCount.
+  sessionCount: integer("session_count").default(1),
   // ─── Auto-installments (Stripe) execution state ───────────────────
   // One plan per project — we don't model a separate instance table
   // because the relationship is 1:1 and a join would be pure overhead.

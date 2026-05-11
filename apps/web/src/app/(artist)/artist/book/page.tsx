@@ -46,9 +46,10 @@ export default async function BookPage({ searchParams }: PageProps) {
     );
   }
 
-  const [availability, { products }] = await Promise.all([
+  const [availability, { products }, activePackages] = await Promise.all([
     caller.artist.book.availability({ producerId: activeStudioId }),
     caller.artist.store.products({ producerId: activeStudioId }),
+    caller.artist.book.activePackages({ producerId: activeStudioId }),
   ]);
 
   return (
@@ -69,6 +70,7 @@ export default async function BookPage({ searchParams }: PageProps) {
         availability={availability}
         products={products}
         studios={studios}
+        activePackages={activePackages}
       />
     </div>
   );

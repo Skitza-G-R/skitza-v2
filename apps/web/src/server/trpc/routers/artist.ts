@@ -16,6 +16,7 @@ import {
   products,
   projects,
   projectTracks,
+  sql,
   trackComments,
   trackVersions,
 } from "@skitza/db";
@@ -668,6 +669,94 @@ const bookSubrouter = router({
       };
     }),
 
+  // Multi-session credit ledger. For every deposit-paid project the
+  // artist owns with this producer, return how many of the prepaid
+  // sessions have been consumed by confirmed bookings — and surface
+  // only the ones with sessions still remaining. The booking UI uses
+  // this to let the artist book additional sessions from a paid
+  // package without going through Stripe again.
+  //
+  // Auth: every projects row scoped to (producerId, artistEmail IN
+  // myEmails) — same gate as the home/music procedures.
+  activePackages: artistProcedure
+    .input(z.object({ producerId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      // Resolve the artist's emails for this producer. Same auth-
+      // boundary pattern as other artist.book.* procedures: a missing
+      // clientContacts row means the artist has no relationship with
+      // this producer → empty result (NOT_FOUND would over-share the
+      // existence of unrelated producers).
+      const contacts = await ctx.db
+        .select({ email: clientContacts.email })
+        .from(clientContacts)
+        .where(
+          and(
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            eq(clientContacts.producerId, input.producerId),
+          ),
+        );
+      if (contacts.length === 0) return [];
+      const myEmails = [...new Set(contacts.map((c) => c.email.toLowerCase()))];
+
+      // One project per row, with the package label sourced from the
+      // most recent confirmed booking on that project. innerJoin scopes
+      // us to projects that have at least one confirmed booking — the
+      // signal that the artist actually committed to the package.
+      const projectRows = await ctx.db
+        .select({
+          id: projects.id,
+          title: projects.title,
+          sessionCount: projects.sessionCount,
+          packageName: bookings.packageNameSnapshot,
+          productId: bookings.productId,
+        })
+        .from(projects)
+        .innerJoin(
+          bookings,
+          and(
+            eq(bookings.projectId, projects.id),
+            eq(bookings.status, "confirmed"),
+          ),
+        )
+        .where(
+          and(
+            eq(projects.producerId, input.producerId),
+            inArray(projects.artistEmail, myEmails),
+            eq(projects.depositPaid, true),
+          ),
+        )
+        .groupBy(projects.id, bookings.packageNameSnapshot, bookings.productId);
+
+      // Per-project session usage. Cheap N+1 — an artist typically has
+      // a handful of active packages with a single producer at any time.
+      const projectsWithUsage = await Promise.all(
+        projectRows.map(async (project) => {
+          const rows = await ctx.db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(bookings)
+            .where(
+              and(
+                eq(bookings.projectId, project.id),
+                eq(bookings.status, "confirmed"),
+              ),
+            );
+          const sessionsUsed = rows[0]?.count ?? 0;
+          const sessionsRemaining = (project.sessionCount ?? 1) - sessionsUsed;
+          return {
+            projectId: project.id,
+            title: project.title,
+            packageName: project.packageName,
+            sessionCount: project.sessionCount ?? 1,
+            sessionsUsed,
+            sessionsRemaining,
+          };
+        }),
+      );
+
+      // Only surface packages with capacity left.
+      return projectsWithUsage.filter((p) => p.sessionsRemaining > 0);
+    }),
+
   confirm: artistProcedure
     .input(
       z.object({
@@ -678,6 +767,12 @@ const bookSubrouter = router({
         durationMin: z.number().int().min(15).max(720),
         projectId: z.string().uuid().nullable(),
         productId: z.string().uuid().nullable(),
+        // Multi-session credit path. When present, the booking is linked
+        // to an existing paid project, no productId required, and the
+        // producer's approval goes straight to `confirmed` (no
+        // pending_payment leg). Takes precedence over `projectId` when
+        // both are passed.
+        existingProjectId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -751,6 +846,14 @@ const bookSubrouter = router({
       //    booking.confirm is what flips it to `pending_payment` (when
       //    payment is still owed) or `confirmed` (returning artist with
       //    an existing project), and triggers auto-project creation.
+      // Resolve the project link. existingProjectId (multi-session
+      // credit flow) wins over legacy projectId. When linked to an
+      // existing paid project, productId is irrelevant — the artist
+      // is consuming a prepaid session and the producer's approval
+      // path skips pending_payment because projectId is set.
+      const linkedProjectId = input.existingProjectId ?? input.projectId;
+      const linkedProductId = input.existingProjectId ? null : input.productId;
+
       const [row] = await ctx.db
         .insert(bookings)
         .values({
@@ -761,8 +864,8 @@ const bookSubrouter = router({
           durationMin: input.durationMin,
           status: "pending_approval",
           statusChangedAt: new Date(),
-          projectId: input.projectId,
-          productId: input.productId,
+          projectId: linkedProjectId,
+          productId: linkedProductId,
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
