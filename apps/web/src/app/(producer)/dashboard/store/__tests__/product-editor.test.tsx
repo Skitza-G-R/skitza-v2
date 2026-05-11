@@ -24,14 +24,6 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/<EditorShell/);
   });
 
-  it("uses the description encoder for save", () => {
-    expect(SRC).toMatch(/encodeDescription/);
-  });
-
-  it("uses the description decoder when seeding from an existing product", () => {
-    expect(SRC).toMatch(/decodeDescription/);
-  });
-
   it("calls a packages.create or .update server action", () => {
     expect(SRC).toMatch(/createPackage|updatePackage|packages\.create|packages\.update/);
   });

@@ -17,23 +17,27 @@ describe("PricingStep shell", () => {
 
   it("renders the three payment-plan options", () => {
     expect(SRC).toMatch(/full|Pay in full/);
-    expect(SRC).toMatch(/split|50\/50/);
-    expect(SRC).toMatch(/installments|Monthly/);
+    expect(SRC).toMatch(/split|50%/);
+    expect(SRC).toMatch(/installments|Payment plan/);
   });
 
-  it("reads/writes price, currency, sessions, deposit, payment plan, duration, revisions, turnaround", () => {
+  it("reads/writes price, currency, sessions, and payment plan", () => {
     expect(SRC).toMatch(/price/);
     expect(SRC).toMatch(/currency/);
     expect(SRC).toMatch(/sessions/);
-    expect(SRC).toMatch(/depositPct/);
     expect(SRC).toMatch(/paymentPlan/);
-    expect(SRC).toMatch(/duration/);
-    expect(SRC).toMatch(/revisions/);
-    expect(SRC).toMatch(/turnaround/);
   });
 
-  it("imports the Toggle component for the unlimited-sessions switch", () => {
-    expect(SRC).toMatch(/from\s+["']\.\.\/toggle["']/);
+  it("imports the Infinity lucide icon for the unlimited-sessions button", () => {
+    expect(SRC).toMatch(/Infinity\s+as\s+InfinityIcon|InfinityIcon|Infinity[^A-Za-z]/);
+    expect(SRC).toMatch(/from\s+["']lucide-react["']/);
+  });
+
+  it("does not mention the dropped fields", () => {
+    expect(SRC).not.toMatch(/depositPct/);
+    expect(SRC).not.toMatch(/duration/);
+    expect(SRC).not.toMatch(/revisions/);
+    expect(SRC).not.toMatch(/turnaround/);
   });
 
   it("uses Syne for the price input (font-display)", () => {

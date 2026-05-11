@@ -7,10 +7,10 @@
 // 4 in NEW mode and 3 in EDIT mode (Type step is for new products
 // only — editing preserves the original kind exactly).
 //
-// `description` doubles as carrier for tagline + revisions + turnaround
-// via encodeDescription / decodeDescription. The wizard does not yet
-// surface a tagline editor — the tagline seeds from the existing
-// description's first line and otherwise stays empty.
+// `description` is the plain tagline shown on the public profile card.
+// Revisions / turnaround / deposit / duration used to be carried by an
+// encoded tail of the description string; that was dropped when
+// PricingStep was simplified to match the reference design.
 
 "use client";
 
@@ -29,7 +29,6 @@ import { ContractStep } from "./editor-steps/contract-step";
 import { IncludesStep } from "./editor-steps/includes-step";
 import { PricingStep } from "./editor-steps/pricing-step";
 import { TypeStep } from "./editor-steps/type-step";
-import { decodeDescription, encodeDescription } from "./description-encoding";
 import { EditorShell } from "./editor-shell";
 import { kindToTile } from "./kind-to-tile";
 import type { StoreProduct } from "./store-screen";
@@ -57,7 +56,7 @@ const STEP_TITLES: Record<StepId, string> = {
 const STEP_SUBTITLES: Record<StepId, string> = {
   type: "Pick the closest match. We'll prefill the rest.",
   includes: "Tap to add, drag to reorder. Artists see this list.",
-  pricing: "The numbers on the booking confirmation.",
+  pricing: "Price, how many sessions, and how they pay.",
   contract: "Optional. Attach a contract or write your terms.",
 };
 
@@ -70,12 +69,8 @@ interface Draft {
   currency: Currency;
   sessions: number;
   unlimitedSessions: boolean;
-  depositPct: number;
   paymentPlan: PaymentPlanChoice;
   installmentsCount: number;
-  duration: string;
-  revisions: number;
-  turnaround: string;
   includes: string[];
   contractUrl: string;
 }
@@ -101,12 +96,8 @@ function emptyDraft(currency: Currency): Draft {
     currency,
     sessions: 1,
     unlimitedSessions: false,
-    depositPct: 50,
     paymentPlan: "full",
     installmentsCount: 3,
-    duration: "",
-    revisions: 0,
-    turnaround: "",
     includes: [],
     contractUrl: "",
   };
@@ -134,7 +125,7 @@ function paymentPlanFromDb(plans: PaymentPlan[] | undefined): {
 }
 
 function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft {
-  const { tagline, revisions, turnaround } = decodeDescription(p.description);
+  const tagline = p.description ?? "";
   const currency = (VALID_CURRENCIES as readonly string[]).includes(p.currency)
     ? (p.currency as Currency)
     : defaultCurrency;
@@ -148,12 +139,8 @@ function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft
     currency,
     sessions: p.sessionCount === 0 ? 1 : p.sessionCount,
     unlimitedSessions: p.sessionCount === 0,
-    depositPct: p.depositPct,
     paymentPlan,
     installmentsCount,
-    duration: p.durationMin > 0 ? `${String(p.durationMin)} min` : "",
-    revisions,
-    turnaround,
     includes: [...(p.description ? [] : []), ...((): string[] => {
       // ProductCardData carries no deliverables field; we surface the
       // legacy `deliverables` column via the StoreProduct shape which
@@ -213,12 +200,9 @@ export function ProductEditor({
       type: preset.preset.type,
       name: d.name.trim().length > 0 ? d.name : preset.defaultName,
       price: preset.preset.price,
-      duration: preset.preset.duration,
       sessions: preset.preset.sessions,
       unlimitedSessions: preset.preset.unlimitedSessions,
       paymentPlan: preset.preset.paymentPlan,
-      revisions: preset.preset.revisions,
-      turnaround: preset.preset.turnaround,
       includes: [...preset.baseline],
     }));
     setCurrentStep("includes");
@@ -242,13 +226,10 @@ export function ProductEditor({
   }
 
   function save() {
-    const description = encodeDescription({
-      tagline: draft.tagline,
-      revisions: draft.revisions,
-      turnaround: draft.turnaround,
-    });
-    const durationMatch = draft.duration.match(/(\d+)\s*min/i);
-    const durationMin = durationMatch ? parseInt(durationMatch[1] ?? "0", 10) : 0;
+    const description = draft.tagline;
+    // Preserve existing durationMin on edit; new products store 0
+    // (the wizard no longer surfaces a duration field).
+    const durationMin = product?.durationMin ?? 0;
     const sessionCount = draft.unlimitedSessions ? 0 : Math.max(1, draft.sessions);
     const paymentPlans: PaymentPlan[] = (() => {
       if (draft.paymentPlan === "full") return [{ kind: "full" }];
@@ -280,7 +261,6 @@ export function ProductEditor({
       currency: draft.currency,
       durationMin,
       sessionCount,
-      depositPct: draft.depositPct,
       paymentPlans,
       contractUrl: trimmedContract.length > 0 ? trimmedContract : null,
     };
@@ -346,12 +326,8 @@ export function ProductEditor({
           currency={draft.currency}
           sessions={draft.sessions}
           unlimitedSessions={draft.unlimitedSessions}
-          depositPct={draft.depositPct}
           paymentPlan={draft.paymentPlan}
           installmentsCount={draft.installmentsCount}
-          duration={draft.duration}
-          revisions={draft.revisions}
-          turnaround={draft.turnaround}
           onChange={(patch) => {
             setDraft((d) => ({ ...d, ...patch }));
           }}
