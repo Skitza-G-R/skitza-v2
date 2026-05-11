@@ -10,12 +10,6 @@ const SRC = readFileSync(join(here, "..", "store-screen.tsx"), "utf8");
 describe("StoreScreen shell", () => {
   it("uses the existing tRPC server actions", () => {
     expect(SRC).toMatch(/setPackageActive/);
-    expect(SRC).toMatch(/duplicatePackage/);
-    expect(SRC).toMatch(/archivePackage/);
-  });
-
-  it("reuses NewPackageForm for create + edit (Phase 2 replaces)", () => {
-    expect(SRC).toMatch(/NewPackageForm/);
   });
 
   it("wires the / and N global keyboard shortcuts", () => {
@@ -38,5 +32,25 @@ describe("StoreScreen shell", () => {
 
   it("renders the HIDDEN section divider when filter is all", () => {
     expect(SRC).toMatch(/HIDDEN/);
+  });
+
+  it("no longer uses window.confirm anywhere", () => {
+    expect(SRC).not.toMatch(/window\.confirm/);
+  });
+
+  it("mounts the new ProductEditor", () => {
+    expect(SRC).toMatch(/<ProductEditor/);
+  });
+
+  it("mounts the DeleteConfirmModal", () => {
+    expect(SRC).toMatch(/<DeleteConfirmModal/);
+  });
+
+  it("no longer mounts NewPackageForm directly", () => {
+    expect(SRC).not.toMatch(/NewPackageForm/);
+  });
+
+  it("uses useUndoableDelete for the delete flow", () => {
+    expect(SRC).toMatch(/useUndoableDelete/);
   });
 });

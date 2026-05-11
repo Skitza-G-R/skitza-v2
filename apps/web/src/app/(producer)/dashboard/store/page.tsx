@@ -39,6 +39,7 @@ export default async function StorePage() {
     bufferMinutes: p.bufferMinutes,
     minLeadHours: p.minLeadHours,
     contractUrl: p.contractUrl,
+    deliverables: p.deliverables ?? [],
   }));
 
   const VALID = ["USD", "EUR", "GBP", "ILS"] as const;

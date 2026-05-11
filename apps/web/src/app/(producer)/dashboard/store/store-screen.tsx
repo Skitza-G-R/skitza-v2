@@ -1,46 +1,36 @@
 // store-screen.tsx
 //
 // Composes the producer Store catalog. State: filter / search / view /
-// editing. Keyboard: / focuses search, N opens new flow, Esc closes
-// modal, Enter on a focused card opens edit (Enter handler lives on
-// each card). Edit/Create open the existing NewPackageForm in Phase 1;
-// Phase 2 swaps in the new Editor.
+// creating / editing / deleting. Keyboard: / focuses search, N opens
+// the new-product wizard, Esc closes the open modal, Enter on a
+// focused card opens edit. Create + Edit mount the Phase-2
+// <ProductEditor>; delete uses <DeleteConfirmModal> with the
+// useUndoableDelete hook so producers get a 4.5s Undo toast.
 
 "use client";
 
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import {
-  archivePackage,
-  // Phase 2 wires this into the new Editor's kebab menu (Duplicate
-  // action). Kept imported here so the Phase-2 wiring is one line and
-  // the Phase-1 source-grep regression test stays green.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  duplicatePackage,
-  setPackageActive,
-  type PackageKind,
-  type PackageLocationType,
-} from "~/app/(producer)/dashboard/booking/actions";
-import {
-  NewPackageForm,
-  type Currency,
-  type InitialPackageValues,
-} from "~/app/(producer)/dashboard/booking/package-form";
+import { setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
 import { useToast } from "~/components/ui/toast";
 
+import { DeleteConfirmModal } from "./delete-confirm-modal";
 import { EmptyState } from "./empty-state";
 import { countByFilter, filterAndSearch, type FilterTab } from "./filter-search";
 import { NewProductButton } from "./new-product-button";
 import { ProductCard, type ProductCardData } from "./product-card";
+import { ProductEditor } from "./product-editor";
 import { StoreHeader } from "./store-header";
 import { StoreToolbar } from "./store-toolbar";
+import { useUndoableDelete } from "./use-undoable-delete";
 import type { ViewMode } from "./view-toggle";
 
+type Currency = "USD" | "EUR" | "GBP" | "ILS";
+
 export interface StoreProduct extends ProductCardData {
-  // The Phase 1 editor is the existing NewPackageForm; we need the
-  // form-typed columns to seed initialValues when "Edit" opens.
+  // The Phase-2 ProductEditor seeds its draft directly from these
+  // form-typed columns when the editor opens in edit mode.
   depositPct: number;
   durationMin: number;
   sessionCount: number;
@@ -49,43 +39,12 @@ export interface StoreProduct extends ProductCardData {
   bufferMinutes: number;
   minLeadHours: number;
   contractUrl: string | null;
+  deliverables: string[];
 }
 
 interface StoreScreenProps {
   products: StoreProduct[];
   defaultCurrency: Currency;
-}
-
-const VALID_CURRENCIES = ["USD", "EUR", "GBP", "ILS"] as const;
-const VALID_KINDS = ["session", "mixing", "mastering", "producing", "other"] as const;
-const VALID_LOCATIONS = ["studio", "remote", "client_space"] as const;
-
-function toInitialValues(p: StoreProduct): InitialPackageValues {
-  const currency = (VALID_CURRENCIES as readonly string[]).includes(p.currency)
-    ? (p.currency as Currency)
-    : "USD";
-  const kind = (VALID_KINDS as readonly string[]).includes(p.kind)
-    ? (p.kind as PackageKind)
-    : "session";
-  const locationType = (VALID_LOCATIONS as readonly string[]).includes(p.locationType)
-    ? (p.locationType as PackageLocationType)
-    : "studio";
-  return {
-    id: p.id,
-    name: p.name,
-    description: p.description,
-    durationMin: p.durationMin,
-    sessionCount: p.sessionCount,
-    priceCents: p.priceCents,
-    currency,
-    depositPct: p.depositPct,
-    kind,
-    locationType,
-    bufferMinutes: p.bufferMinutes,
-    minLeadHours: p.minLeadHours,
-    paymentPlans: p.paymentPlans,
-    contractUrl: p.contractUrl,
-  };
 }
 
 export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
@@ -95,11 +54,15 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
   const [filter, setFilter] = useState<FilterTab>("all");
   const [view, setView] = useState<ViewMode>("cards");
   const [search, setSearch] = useState("");
-  // Editor state. `creating` opens NewPackageForm in create mode;
-  // `editing` opens it in edit mode pre-filled.
+  // Editor state. `creating` opens <ProductEditor> in create mode;
+  // `editing` opens it in edit mode pre-filled. `deleting` opens the
+  // <DeleteConfirmModal> for a single product.
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<StoreProduct | null>(null);
+  const [deleting, setDeleting] = useState<StoreProduct | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const undoableDelete = useUndoableDelete();
 
   const counts = useMemo(() => countByFilter(products), [products]);
   const filtered = useMemo(
@@ -126,6 +89,7 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
       if (e.key === "Escape") {
         if (creating) setCreating(false);
         if (editing) setEditing(null);
+        if (deleting) setDeleting(null);
         return;
       }
       if (isTypingTarget(e.target)) return;
@@ -143,7 +107,7 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
     return () => {
       window.removeEventListener("keydown", onKey);
     };
-  }, [creating, editing]);
+  }, [creating, editing, deleting]);
 
   function onToggleVisible(p: StoreProduct) {
     const next = !p.active;
@@ -162,20 +126,8 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
     setEditing(p);
   }
 
-  // Phase 1 keeps Delete wired to the existing archivePackage server
-  // action without the confirm modal or undo toast (those land in
-  // Phase 2). We still toast and refresh so producers see feedback.
   function onDelete(p: StoreProduct) {
-    if (!window.confirm(`Delete "${p.name}"?`)) return;
-    startTransition(async () => {
-      const res = await archivePackage({ id: p.id });
-      if (res.ok) {
-        toast(`"${p.name}" deleted.`, "success");
-        router.refresh();
-      } else {
-        toast(res.error, "error");
-      }
-    });
+    setDeleting(p);
   }
 
   return (
@@ -270,77 +222,40 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
         </div>
       )}
 
-      {/* Create modal — wraps NewPackageForm in Radix Dialog so scroll/
-       * focus/scrim are owned by the primitive. Replaced in Phase 2
-       * with the new <ProductEditor>. */}
-      <DialogPrimitive.Root
+      {/* Create modal */}
+      <ProductEditor
         open={creating}
         onOpenChange={(o) => {
           setCreating(o);
         }}
-      >
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60" />
-          <DialogPrimitive.Content
-            onOpenAutoFocus={(e) => {
-              e.preventDefault();
-            }}
-            aria-label="New product"
-            className="fixed z-50 flex flex-col overflow-hidden shadow-2xl
-              inset-x-0 bottom-0 max-h-[90vh] rounded-t-[var(--radius-xl)]
-              sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2
-              sm:w-[calc(100vw-3rem)] sm:max-w-2xl sm:max-h-[calc(100vh-3rem)]
-              sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--radius-lg)]"
-          >
-            <DialogPrimitive.Title className="sr-only">New product</DialogPrimitive.Title>
-            <div className="flex-1 overflow-y-auto">
-              <NewPackageForm
-                initialCurrency={defaultCurrency}
-                onClose={() => {
-                  setCreating(false);
-                }}
-              />
-            </div>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </DialogPrimitive.Root>
+        product={null}
+        defaultCurrency={defaultCurrency}
+      />
 
       {/* Edit modal */}
-      <DialogPrimitive.Root
+      <ProductEditor
         open={editing !== null}
         onOpenChange={(o) => {
           if (!o) setEditing(null);
         }}
-      >
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60" />
-          <DialogPrimitive.Content
-            onOpenAutoFocus={(e) => {
-              e.preventDefault();
-            }}
-            aria-label={editing ? `Edit ${editing.name}` : "Edit product"}
-            className="fixed z-50 flex flex-col overflow-hidden shadow-2xl
-              inset-x-0 bottom-0 max-h-[90vh] rounded-t-[var(--radius-xl)]
-              sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2
-              sm:w-[calc(100vw-3rem)] sm:max-w-2xl sm:max-h-[calc(100vh-3rem)]
-              sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--radius-lg)]"
-          >
-            <DialogPrimitive.Title className="sr-only">
-              {editing ? `Edit ${editing.name}` : "Edit product"}
-            </DialogPrimitive.Title>
-            <div className="flex-1 overflow-y-auto">
-              {editing ? (
-                <NewPackageForm
-                  initialValues={toInitialValues(editing)}
-                  onClose={() => {
-                    setEditing(null);
-                  }}
-                />
-              ) : null}
-            </div>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </DialogPrimitive.Root>
+        product={editing}
+        defaultCurrency={defaultCurrency}
+      />
+
+      {/* Delete confirmation */}
+      <DeleteConfirmModal
+        open={deleting !== null}
+        onOpenChange={(o) => {
+          if (!o) setDeleting(null);
+        }}
+        productName={deleting?.name ?? ""}
+        onConfirm={() => {
+          if (deleting) {
+            void undoableDelete({ id: deleting.id, name: deleting.name });
+            setDeleting(null);
+          }
+        }}
+      />
     </div>
   );
 }
