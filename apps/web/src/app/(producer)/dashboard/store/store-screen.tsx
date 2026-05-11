@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
+import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
 import { useToast } from "~/components/ui/toast";
 
 import { DeleteConfirmModal } from "./delete-confirm-modal";
@@ -23,6 +23,7 @@ import { ProductCard, type ProductCardData } from "./product-card";
 import { ProductEditor } from "./product-editor";
 import { StoreHeader } from "./store-header";
 import { StoreToolbar } from "./store-toolbar";
+import { computeNewOrder, useDragReorder } from "./use-drag-reorder";
 import { useUndoableDelete } from "./use-undoable-delete";
 import type { ViewMode } from "./view-toggle";
 
@@ -64,11 +65,47 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
 
   const undoableDelete = useUndoableDelete();
 
-  const counts = useMemo(() => countByFilter(products), [products]);
+  // Optimistic mirror of the server-rendered products list. Drag-to-reorder
+  // updates this immediately; the server call comes second, and a revert
+  // snaps back to props on error.
+  const [optimisticProducts, setOptimisticProducts] = useState(products);
+
+  // Keep the optimistic state in sync if the server-rendered props change
+  // (e.g. after a router.refresh() following a toggle / create / delete).
+  useEffect(() => {
+    setOptimisticProducts(products);
+  }, [products]);
+
+  const counts = useMemo(() => countByFilter(optimisticProducts), [optimisticProducts]);
   const filtered = useMemo(
-    () => filterAndSearch(products, filter, search),
-    [products, filter, search],
+    () => filterAndSearch(optimisticProducts, filter, search),
+    [optimisticProducts, filter, search],
   );
+
+  const { getHandlersFor } = useDragReorder({
+    onReorder: (fromId, toId, position) => {
+      // Optimistic local reorder using the same pure helper the server
+      // mutation does. Snapshot the current order BEFORE mutating local
+      // state so the server call uses the same orderedIds the user sees.
+      const currentIds = optimisticProducts.map((p) => p.id);
+      const nextIds = computeNewOrder(currentIds, fromId, toId, position);
+      const byId = new Map(optimisticProducts.map((p) => [p.id, p]));
+      const nextProducts = nextIds
+        .map((id) => byId.get(id))
+        .filter((p): p is StoreProduct => p !== undefined);
+      setOptimisticProducts(nextProducts);
+      startTransition(async () => {
+        const res = await reorderProducts({ orderedIds: nextIds });
+        if (!res.ok) {
+          // Revert by snapping back to the server-rendered props.
+          setOptimisticProducts(products);
+          toast(res.error, "error");
+        } else {
+          router.refresh();
+        }
+      });
+    },
+  });
 
   // Group filtered list into live + hidden when filter is "all" so we
   // can render the "HIDDEN · N" divider between them.
@@ -178,6 +215,7 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
             <ProductCard
               key={p.id}
               product={p}
+              drag={getHandlersFor(p.id)}
               pending={pending}
               onOpen={() => {
                 onEdit(p);
@@ -204,6 +242,7 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
               <ProductCard
                 key={p.id}
                 product={p}
+                drag={getHandlersFor(p.id)}
                 pending={pending}
                 onOpen={() => {
                   onEdit(p);

@@ -53,4 +53,29 @@ describe("StoreScreen shell", () => {
   it("uses useUndoableDelete for the delete flow", () => {
     expect(SRC).toMatch(/useUndoableDelete/);
   });
+
+  it("uses the useDragReorder hook", () => {
+    expect(SRC).toMatch(/useDragReorder/);
+  });
+
+  it("uses computeNewOrder when applying drag-reorder updates", () => {
+    expect(SRC).toMatch(/computeNewOrder\(/);
+  });
+
+  it("calls reorderProducts with the new orderedIds on drop", () => {
+    expect(SRC).toMatch(/reorderProducts\(\s*\{\s*orderedIds/);
+  });
+
+  it("reverts the optimistic state to props on server error", () => {
+    expect(SRC).toMatch(/setOptimisticProducts\(products\)/);
+  });
+
+  it("passes drag handlers into each ProductCard", () => {
+    expect(SRC).toMatch(/drag=\{getHandlersFor\(p\.id\)\}/);
+  });
+
+  it("mirrors the products prop into local optimistic state", () => {
+    expect(SRC).toMatch(/optimisticProducts/);
+    expect(SRC).toMatch(/setOptimisticProducts/);
+  });
 });
