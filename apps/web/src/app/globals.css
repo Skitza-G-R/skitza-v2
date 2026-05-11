@@ -156,6 +156,14 @@
     --font-body: var(--font-outfit);
     --font-mono: var(--font-jetbrains-mono);
     --font-head: var(--font-syne);
+
+    /* Motion — Emil-style strong easings. Promoted to vars so the curves
+       stay consistent across primitives (and discoverable for future
+       motion work). Inline cubic-bezier(...) literals remain in the file
+       for historical primitives — those can migrate incrementally. */
+    --ease-out-strong: cubic-bezier(0.16, 1, 0.3, 1);          /* entries, hover lifts */
+    --ease-in-out-strong: cubic-bezier(0.2, 0.8, 0.2, 1);      /* on-screen movement */
+    --ease-press: cubic-bezier(0.34, 1.56, 0.64, 1);           /* press/release with subtle overshoot */
   }
 
   /* Dark mode — `chrome-dark` selector kept for compat; ThemeProvider in
@@ -600,12 +608,12 @@
    * Button primitive in apps/web/src/components/ui/button.tsx.
    * ---------------------------------------------------------------- */
   .sk-press {
-    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), filter 0.15s, background-color 0.2s;
+    transition: transform 160ms var(--ease-out-strong), filter 150ms ease, background-color 200ms ease;
   }
   @media (hover: hover) {
     .sk-press:hover { filter: brightness(1.05); }
   }
-  .sk-press:active { transform: scale(0.94); filter: brightness(0.92); }
+  .sk-press:active { transform: scale(0.97); filter: brightness(0.96); }
 
   /* ----------------------------------------------------------------
    * Page-enter + per-row stagger
@@ -937,6 +945,69 @@
     will-change: transform, opacity;
   }
 
+  /* Phase 3 store redesign — Live status pulse, shimmer-glow on new
+     products, table-row entry stagger. All three respect prefers-
+     reduced-motion via the existing block further down in @layer base. */
+  @keyframes sk-live-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--fg-success) / 0.45); }
+    50%      { box-shadow: 0 0 0 5px rgb(var(--fg-success) / 0); }
+  }
+  @keyframes sk-shimmer-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0.4); }
+    50%      { box-shadow: 0 0 0 6px rgb(var(--brand-primary) / 0); }
+  }
+  @keyframes sk-row-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .sk-live-pulse   { animation: sk-live-pulse 2.2s ease-in-out infinite; }
+  .sk-shimmer-glow { animation: sk-shimmer-glow 2s ease-in-out 2; }
+  .sk-row-in       { animation: sk-row-in 320ms cubic-bezier(.16,1,.3,1) both; }
+
+  /* Wizard step entry — subtle fade + 8px slide-up between Storefront
+     editor steps. Wrap the step body in `<div key={currentStep}
+     className="sk-step-enter">` so React remounts the wrapper on each
+     step change and the keyframe fires. Keeps the wizard feeling like
+     one continuous surface instead of a sequence of screens. */
+  @keyframes sk-step-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sk-step-enter {
+    animation: sk-step-enter 240ms var(--ease-out-strong) both;
+  }
+
+  /* Drag drop indicator — fades + grows from 60% width so the brand
+     line feels like it's tracking the drag, not switching on like a
+     light. 100ms is fast enough to keep up with the drag cursor. */
+  @keyframes sk-drop-fade {
+    from { opacity: 0; transform: scaleX(0.6); }
+    to   { opacity: 1; transform: scaleX(1); }
+  }
+  .sk-drop-fade {
+    animation: sk-drop-fade 100ms var(--ease-out-strong) both;
+    transform-origin: center;
+  }
+
+  /* TypeStep preset pick — single 220ms 1 -> 1.02 -> 1 pulse on the
+     just-picked card so the moment of choice gets a beat of delight
+     without becoming garish. Fires once when isPicked flips true. */
+  @keyframes sk-pick-pulse {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.02); }
+    100% { transform: scale(1); }
+  }
+  .sk-pick-pulse {
+    animation: sk-pick-pulse 220ms var(--ease-out-strong);
+  }
+
+  /* Drag handle is hidden on touch-only devices — producer is desktop-
+     only per CLAUDE.md and native HTML5 DnD doesn't behave well on touch. */
+  @media (hover: none) {
+    .sk-drag-handle { display: none; }
+  }
+
   /* ----------------------------------------------------------------
    * Reduced motion — covers every primitive that animates above.
    * The motion-primitives test extracts every reduce block and asserts
@@ -963,7 +1034,13 @@
     .confetti-piece,
     .ob-stagger > *,
     .ob-alive-dot,
-    .ob-breath { animation: none !important; }
+    .ob-breath,
+    .sk-live-pulse,
+    .sk-shimmer-glow,
+    .sk-row-in,
+    .sk-step-enter,
+    .sk-drop-fade,
+    .sk-pick-pulse { animation: none !important; }
     .ob-stagger > * { opacity: 1 !important; transform: none !important; }
     .ob-press,
     .ob-card-press,

@@ -72,13 +72,15 @@ export async function createPackage(input: {
   minLeadHours?: number;
   paymentPlans?: PaymentPlan[];
   contractUrl?: string | null;
-}): Promise<ActionResult> {
+}): Promise<ActionDataResult<{ id: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.booking.packages.create(input);
+    const row = await c.caller.booking.packages.create(input);
     revalidatePath(PATH);
-    return { ok: true };
+    revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
+    return { ok: true, data: { id: row.id } };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }
@@ -105,6 +107,8 @@ export async function updatePackage(input: {
   try {
     await c.caller.booking.packages.update(input);
     revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -169,6 +173,46 @@ export async function archivePackage(input: { id: string }): Promise<ActionResul
     await c.caller.booking.packages.archive(input);
     revalidatePath(PATH);
     revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// restorePackage — Undo for the Phase-2 delete flow. Resurrects a
+// soft-deleted product by clearing archivedAt and forcing active=false
+// (returns hidden so the producer reviews before re-publishing). Pair
+// with the 4.5s toast action surfaced from <StoreScreen>.
+export async function restorePackage(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.packages.restore(input);
+    revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Phase 3 store redesign — drag-to-reorder. Persists the new product
+// order via the booking.packages.reorder mutation. Caller is the
+// drag-reorder hook in <StoreScreen>; revalidates both legacy
+// /dashboard/profile and the new /dashboard/store so the next read
+// reflects the new order.
+export async function reorderProducts(input: {
+  orderedIds: string[];
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.packages.reorder(input);
+    revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

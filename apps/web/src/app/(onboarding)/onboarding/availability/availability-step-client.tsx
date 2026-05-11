@@ -313,10 +313,28 @@ export function AvailabilityStepClient({
                 {day.label}
               </span>
 
+              {/* Copy lives left-of-windows on purpose: dropping it
+                  into the windows row let it wrap to a second line as
+                  soon as a 2nd window appeared, so the bracket grew.
+                  Anchoring Copy to the day-label cluster keeps the
+                  row a constant height and reads as "this day's
+                  action" — same convention as the toggle. */}
+              {day.active ? (
+                <button
+                  type="button"
+                  onClick={() => { copyToAllDays(day.weekday); }}
+                  aria-label={`Copy ${day.label}'s hours to all days`}
+                  title="Copy to all days"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                >
+                  <Copy size={11} />
+                </button>
+              ) : null}
+
               {/* Windows — hidden when day is off (cleaner than dimmed
                   text that still suggests data). */}
               {day.active ? (
-                <div className="ml-auto flex flex-1 flex-wrap items-center justify-end gap-1.5">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                   {day.windows.map((w, idx) => (
                     <div
                       key={idx}

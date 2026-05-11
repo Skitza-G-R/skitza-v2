@@ -526,6 +526,70 @@ const productsRouter = router({
       return { ok: true as const };
     }),
 
+  // Phase 2 store redesign — Undo counterpart to `archive`. Surfaces
+  // the row again to the dashboard list (filters on archivedAt IS NULL)
+  // but keeps it hidden from the storefront until the producer
+  // re-publishes via the Show toggle. Idempotent: safe to call on a
+  // not-yet-archived product (clearing a null archivedAt is a no-op).
+  restore: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({ producerId: products.producerId })
+        .from(products)
+        .where(eq(products.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db
+        .update(products)
+        .set({ archivedAt: null, active: false })
+        .where(eq(products.id, input.id));
+      return { ok: true as const };
+    }),
+
+  // Phase 3 store redesign — drag-to-reorder. Writes the new ordinals
+  // in one transaction so a partial failure can't leave the list
+  // half-reordered. Producer ownership is verified by selecting all
+  // row producerIds in one query and asserting equality before any
+  // write. Idempotent: calling with the same order is a no-op.
+  // (Deliberately diverges from portfolio.reorder / producerExternalLinks.reorder,
+  // which use Promise.all + scoped UPDATEs without a transaction — products
+  // is the commerce surface, partial-reorder mid-failure isn't acceptable
+  // here, even though the optimistic client reverts.)
+  reorder: producerProcedure
+    .input(
+      z.object({
+        orderedIds: z
+          .array(z.string().uuid())
+          .min(1)
+          .refine((arr) => new Set(arr).size === arr.length, "duplicate ids are not allowed"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({ id: products.id, producerId: products.producerId })
+        .from(products)
+        .where(inArray(products.id, input.orderedIds));
+      if (rows.length !== input.orderedIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (rows.some((r) => r.producerId !== ctx.producerId)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db.transaction(async (tx) => {
+        for (const [idx, id] of input.orderedIds.entries()) {
+          await tx
+            .update(products)
+            .set({ position: idx })
+            .where(eq(products.id, id));
+        }
+      });
+      return { ok: true as const };
+    }),
+
   // Legacy alias — callers still using `deactivate` go through the
   // same code path as archive. Remove once all callers migrated.
   deactivate: producerProcedure
@@ -625,33 +689,6 @@ const productsRouter = router({
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       return row;
-    }),
-
-  // Reorder — atomic position swap. Accepts an ordered id array; each
-  // id gets its index as the new position.
-  reorder: producerProcedure
-    .input(z.object({ ids: z.array(z.string().uuid()).max(200) }))
-    .mutation(async ({ ctx, input }) => {
-      // Ownership check: every id must belong to this producer.
-      if (input.ids.length === 0) return { ok: true as const };
-      const rows = await ctx.db
-        .select({ id: products.id, producerId: products.producerId })
-        .from(products)
-        .where(inArray(products.id, input.ids));
-      for (const r of rows) {
-        if (r.producerId !== ctx.producerId) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-      }
-      for (let i = 0; i < input.ids.length; i++) {
-        const id = input.ids[i];
-        if (!id) continue;
-        await ctx.db
-          .update(products)
-          .set({ position: i })
-          .where(eq(products.id, id));
-      }
-      return { ok: true as const };
     }),
 });
 
