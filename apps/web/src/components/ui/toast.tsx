@@ -24,8 +24,17 @@ import { Toaster as SonnerToaster, toast as sonnerToast } from "sonner";
 
 type ToastVariant = "success" | "info" | "error";
 
+interface ToastOptions {
+  durationMs?: number;
+  action?: { label: string; onClick: () => void };
+}
+
 interface ToastContextValue {
-  toast: (message: string, variant?: ToastVariant) => void;
+  toast: (
+    message: string,
+    variant?: ToastVariant,
+    options?: ToastOptions,
+  ) => void;
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -73,13 +82,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 export function useToast(): ToastContextValue {
   return {
-    toast: (message, variant = "info") => {
+    toast: (message, variant = "info", options) => {
+      const sonnerOptions: Parameters<typeof sonnerToast>[1] = {};
+      if (options?.durationMs != null) {
+        sonnerOptions.duration = options.durationMs;
+      }
+      if (options?.action != null) {
+        sonnerOptions.action = {
+          label: options.action.label,
+          onClick: options.action.onClick,
+        };
+      }
       if (variant === "success") {
-        sonnerToast.success(message);
+        sonnerToast.success(message, sonnerOptions);
       } else if (variant === "error") {
-        sonnerToast.error(message);
+        sonnerToast.error(message, sonnerOptions);
       } else {
-        sonnerToast(message);
+        sonnerToast(message, sonnerOptions);
       }
     },
   };
