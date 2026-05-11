@@ -334,6 +334,15 @@ export function ProductEditor({
       durationMin,
       sessionCount,
       paymentPlans,
+      // The wizard dropped the Deposit field when PricingStep was
+      // simplified, but the server schema still defaults depositModel
+      // to "flat" and then requires depositPct to be set. Sending 0
+      // means "no upfront deposit — the paymentPlans schedule controls
+      // when money moves." Works for all three plan options:
+      //   * Pay in full    → no deposit, single payment per plan
+      //   * 50/50 split    → the split lives in paymentPlans, not here
+      //   * Installments   → installments live in paymentPlans, not here
+      depositPct: 0,
       contractUrl: contractUrlOut,
     };
     // EDIT mode: overwrite kind with the original DB value so legacy
