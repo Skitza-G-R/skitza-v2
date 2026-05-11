@@ -62,7 +62,23 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<StoreProduct | null>(null);
   const [deleting, setDeleting] = useState<StoreProduct | null>(null);
+  // Phase 3 P3-11 — flags the most-recently-created product id so its
+  // card gets the `sk-shimmer-glow` className for ~4s. Cleared by the
+  // setTimeout in handleCreated below. Holds at most one id at a time.
+  const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  function handleCreated(id: string) {
+    setRecentlyAdded(id);
+    // Animation runs 2 × 2s = 4s. Clear slightly after that so React
+    // removes the className and the box-shadow halo disappears cleanly.
+    // If a SECOND new product lands before this timer fires, the new
+    // setRecentlyAdded(id) overrides — but we keep the existing
+    // setTimeout running, which will then no-op via the equality check.
+    setTimeout(() => {
+      setRecentlyAdded((cur) => (cur === id ? null : cur));
+    }, 4500);
+  }
 
   const undoableDelete = useUndoableDelete();
 
@@ -230,6 +246,7 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
               product={p}
               drag={getHandlersFor(p.id)}
               pending={pending}
+              recentlyAdded={p.id === recentlyAdded}
               onOpen={() => {
                 onEdit(p);
               }}
@@ -257,6 +274,7 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
                 product={p}
                 drag={getHandlersFor(p.id)}
                 pending={pending}
+                recentlyAdded={p.id === recentlyAdded}
                 onOpen={() => {
                   onEdit(p);
                 }}
@@ -282,6 +300,7 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
         }}
         product={null}
         defaultCurrency={defaultCurrency}
+        onCreated={handleCreated}
       />
 
       {/* Edit modal */}

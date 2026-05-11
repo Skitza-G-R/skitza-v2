@@ -95,6 +95,12 @@ interface ProductEditorProps {
   product: StoreProduct | null;
   /** Producer's default currency, used to seed new products. */
   defaultCurrency: Currency;
+  /**
+   * Fires only on the CREATE path, with the newly-created product's id,
+   * BEFORE the modal closes / toast / router.refresh. Used by the parent
+   * to trigger a shimmer-glow on the new card for ~4s.
+   */
+  onCreated?: (id: string) => void;
 }
 
 const VALID_CURRENCIES: readonly Currency[] = ["USD", "EUR", "GBP", "ILS"];
@@ -194,6 +200,7 @@ export function ProductEditor({
   onOpenChange,
   product,
   defaultCurrency,
+  onCreated,
 }: ProductEditorProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -328,16 +335,29 @@ export function ProductEditor({
     }
 
     startTransition(async () => {
-      const res =
-        product != null
-          ? await updatePackage({ id: product.id, ...basePayload })
-          : await createPackage(basePayload);
-      if (res.ok) {
-        toast(`${draft.name.trim() || "Product"} saved.`, "success");
-        onOpenChange(false);
-        router.refresh();
+      if (product != null) {
+        const res = await updatePackage({ id: product.id, ...basePayload });
+        if (res.ok) {
+          toast(`${draft.name.trim() || "Product"} saved.`, "success");
+          onOpenChange(false);
+          router.refresh();
+        } else {
+          toast(res.error, "error");
+        }
       } else {
-        toast(res.error, "error");
+        // CREATE path: fire onCreated BEFORE the modal closes so the
+        // parent can flag the new card for the shimmer-glow. The
+        // server action returns { ok: true, data: { id } } in create
+        // mode; edit mode returns just { ok: true } and skips this.
+        const res = await createPackage(basePayload);
+        if (res.ok) {
+          onCreated?.(res.data.id);
+          toast(`${draft.name.trim() || "Product"} saved.`, "success");
+          onOpenChange(false);
+          router.refresh();
+        } else {
+          toast(res.error, "error");
+        }
       }
     });
   }

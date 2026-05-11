@@ -94,4 +94,21 @@ describe("StoreScreen shell", () => {
     // the new render switch. Source-grep for the literal "table" view check.
     expect(SRC).toMatch(/view\s*===\s*["']table["']/);
   });
+
+  it("tracks the most-recently-created product id in state", () => {
+    expect(SRC).toMatch(/recentlyAdded/);
+    expect(SRC).toMatch(/setRecentlyAdded/);
+  });
+
+  it("clears recentlyAdded after 4500ms via setTimeout", () => {
+    expect(SRC).toMatch(/setTimeout[\s\S]{0,300}4500|4500[\s\S]{0,300}setTimeout/);
+  });
+
+  it("passes recentlyAdded to each ProductCard via p.id equality", () => {
+    expect(SRC).toMatch(/recentlyAdded=\{p\.id\s*===\s*recentlyAdded\}/);
+  });
+
+  it("wires onCreated on the create-mode ProductEditor", () => {
+    expect(SRC).toMatch(/onCreated=\{handleCreated\}/);
+  });
 });

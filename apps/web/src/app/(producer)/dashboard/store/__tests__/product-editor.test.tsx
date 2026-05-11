@@ -51,4 +51,12 @@ describe("ProductEditor orchestrator", () => {
   it("does NOT use window.confirm anywhere", () => {
     expect(SRC).not.toMatch(/window\.confirm/);
   });
+
+  it("accepts an optional onCreated callback", () => {
+    expect(SRC).toMatch(/onCreated\?:\s*\(id:\s*string\)\s*=>\s*void/);
+  });
+
+  it("invokes onCreated on the create-mode save success path", () => {
+    expect(SRC).toMatch(/onCreated\?\.\(/);
+  });
 });

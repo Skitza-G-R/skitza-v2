@@ -72,15 +72,15 @@ export async function createPackage(input: {
   minLeadHours?: number;
   paymentPlans?: PaymentPlan[];
   contractUrl?: string | null;
-}): Promise<ActionResult> {
+}): Promise<ActionDataResult<{ id: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.booking.packages.create(input);
+    const row = await c.caller.booking.packages.create(input);
     revalidatePath(PATH);
     revalidatePath("/dashboard/profile");
     revalidatePath("/dashboard/store");
-    return { ok: true };
+    return { ok: true, data: { id: row.id } };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }
