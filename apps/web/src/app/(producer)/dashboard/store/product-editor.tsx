@@ -83,6 +83,7 @@ interface Draft {
   includes: string[];
   duration: string;
   revisions: number;
+  unlimitedRevisions: boolean;
   contractMode: ContractMode;
   contractUrl: string;
   contractText: string;
@@ -120,6 +121,7 @@ function emptyDraft(currency: Currency): Draft {
     includes: [],
     duration: "60 min",
     revisions: 0,
+    unlimitedRevisions: false,
     contractMode: "link",
     contractUrl: "",
     contractText: "",
@@ -191,6 +193,7 @@ function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft
     includes: deliverables,
     duration,
     revisions: decoded.revisions,
+    unlimitedRevisions: decoded.unlimitedRevisions,
     contractMode,
     contractUrl: p.contractUrl ?? "",
     contractText: decoded.contractText,
@@ -286,6 +289,7 @@ export function ProductEditor({
     const description = encodeDescription({
       tagline: draft.tagline,
       revisions: draft.revisions,
+      unlimitedRevisions: draft.unlimitedRevisions,
       contractText: draft.contractMode === "text" ? draft.contractText : "",
     });
     // Parse the duration string ("60 min", "120 min", "180 min", or
@@ -420,6 +424,7 @@ export function ProductEditor({
         <LogisticsStep
           duration={draft.duration}
           revisions={draft.revisions}
+          unlimitedRevisions={draft.unlimitedRevisions}
           onChange={(patch) => {
             setDraft((d) => ({ ...d, ...patch }));
           }}

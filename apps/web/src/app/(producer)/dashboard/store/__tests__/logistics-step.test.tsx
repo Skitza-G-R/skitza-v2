@@ -54,6 +54,24 @@ describe("LogisticsStep shell", () => {
   it("no longer mentions the dropped multi-session option", () => {
     expect(SRC).not.toMatch(/multi-session/);
   });
+
+  it("renders an Unlimited toggle button beside the revisions stepper", () => {
+    expect(SRC).toMatch(/Unlimited/);
+    expect(SRC).toMatch(/unlimitedRevisions/);
+    expect(SRC).toMatch(/aria-pressed=\{unlimitedRevisions\}/);
+  });
+
+  it("shows ∞ in the stepper when unlimitedRevisions is true", () => {
+    expect(SRC).toMatch(/display:\s*"∞"/);
+  });
+
+  it("disables the stepper when unlimitedRevisions is true", () => {
+    expect(SRC).toMatch(/disabled=\{unlimitedRevisions\}/);
+  });
+
+  it("toggles the unlimitedRevisions flag on click", () => {
+    expect(SRC).toMatch(/onChange\(\{\s*unlimitedRevisions:\s*!unlimitedRevisions/);
+  });
 });
 
 describe("parsePresetFromDuration", () => {

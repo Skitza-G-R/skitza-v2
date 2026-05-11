@@ -12,7 +12,10 @@
 // (or "" in transit) — that way the existing parser in product-editor
 // (/(\d+)\s*min/i) keeps working unchanged.
 //
-// Revisions is an integer stepper (0..20).
+// Revisions is an integer stepper (0..20) with an "Unlimited" chip
+// beside it. When Unlimited is active the stepper is disabled, shows
+// ∞ instead of the digit, and the unlimited flag rides up through
+// the encoded description meta block.
 
 "use client";
 
@@ -21,7 +24,14 @@ import { Minus, Plus } from "lucide-react";
 interface LogisticsStepProps {
   duration: string;
   revisions: number;
-  onChange: (patch: Partial<{ duration: string; revisions: number }>) => void;
+  unlimitedRevisions: boolean;
+  onChange: (
+    patch: Partial<{
+      duration: string;
+      revisions: number;
+      unlimitedRevisions: boolean;
+    }>,
+  ) => void;
 }
 
 type DurationPreset = "1hr" | "2hr" | "3hr" | "custom";
@@ -79,19 +89,28 @@ function Stepper({
   min = 0,
   max = 20,
   onChange,
+  disabled = false,
+  display,
   ariaLabel,
 }: {
   value: number;
   min?: number;
   max?: number;
   onChange: (next: number) => void;
+  disabled?: boolean;
+  display?: string;
   ariaLabel?: string;
 }) {
-  const canDec = value > min;
-  const canInc = value < max;
+  const canDec = !disabled && value > min;
+  const canInc = !disabled && value < max;
   return (
     <div
-      className="inline-flex h-10 items-center gap-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1"
+      className={[
+        "inline-flex h-10 items-center gap-1 rounded-[10px] border bg-[rgb(var(--bg-elevated))] p-1",
+        disabled
+          ? "border-[rgb(var(--border-subtle))] opacity-50"
+          : "border-[rgb(var(--border-subtle))]",
+      ].join(" ")}
       aria-label={ariaLabel}
     >
       <button
@@ -106,7 +125,7 @@ function Stepper({
         <Minus size={14} strokeWidth={2.4} aria-hidden />
       </button>
       <span className="min-w-[2.5ch] text-center font-display text-[16px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))]">
-        {value}
+        {display ?? value}
       </span>
       <button
         type="button"
@@ -123,7 +142,12 @@ function Stepper({
   );
 }
 
-export function LogisticsStep({ duration, revisions, onChange }: LogisticsStepProps) {
+export function LogisticsStep({
+  duration,
+  revisions,
+  unlimitedRevisions,
+  onChange,
+}: LogisticsStepProps) {
   const preset = parsePresetFromDuration(duration);
   const customMinutes = customMinutesFromDuration(duration);
 
@@ -200,15 +224,35 @@ export function LogisticsStep({ duration, revisions, onChange }: LogisticsStepPr
       {/* Revisions */}
       <div className="flex flex-col gap-2">
         <Eyebrow>Revisions</Eyebrow>
-        <Stepper
-          value={revisions}
-          min={0}
-          max={20}
-          onChange={(next) => {
-            onChange({ revisions: next });
-          }}
-          ariaLabel="Revisions count"
-        />
+        <div className="flex items-center gap-2">
+          <Stepper
+            value={revisions}
+            min={0}
+            max={20}
+            disabled={unlimitedRevisions}
+            {...(unlimitedRevisions ? { display: "∞" } : {})}
+            onChange={(next) => {
+              onChange({ revisions: next });
+            }}
+            ariaLabel="Revisions count"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              onChange({ unlimitedRevisions: !unlimitedRevisions });
+            }}
+            aria-pressed={unlimitedRevisions}
+            aria-label="Unlimited revisions"
+            className={[
+              "sk-press inline-flex h-10 items-center justify-center rounded-full border px-4 text-[13px] font-semibold transition-colors",
+              unlimitedRevisions
+                ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
+                : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
+            ].join(" ")}
+          >
+            Unlimited
+          </button>
+        </div>
         <div className="text-[11.5px] text-[rgb(var(--fg-faint))]">
           Optional. Number of revision rounds included.
         </div>
