@@ -74,7 +74,7 @@ function Stepper({
         }}
         disabled={!canDec}
         aria-label="Decrease"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--surface-hover))] disabled:cursor-not-allowed disabled:opacity-30"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30"
       >
         <Minus size={14} strokeWidth={2.4} aria-hidden />
       </button>
@@ -90,7 +90,7 @@ function Stepper({
         }}
         disabled={!canInc}
         aria-label="Increase"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--surface-hover))] disabled:cursor-not-allowed disabled:opacity-30"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30"
       >
         <Plus size={14} strokeWidth={2.4} aria-hidden />
       </button>
@@ -100,7 +100,7 @@ function Stepper({
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-2 font-[var(--font-outfit)] text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+    <div className="mb-1.5 font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
       {children}
     </div>
   );
@@ -130,16 +130,16 @@ export function PricingStep({
     installmentsCount > 0 ? Math.round(price / installmentsCount) : 0;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {/* Top row: Price + Currency / Sessions + Unlimited */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* Price + Currency */}
         <div>
           <Eyebrow>Price</Eyebrow>
-          <div className="flex items-center gap-2 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-white px-3.5 py-1.5 shadow-[0_1px_2px_rgba(17,16,9,0.03)] focus-within:border-[rgb(var(--brand-primary))] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.25)]">
+          <div className="flex items-center gap-2 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 shadow-[0_1px_2px_rgba(17,16,9,0.03)] focus-within:border-[rgb(var(--brand-primary))] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.25)]">
             <span
               aria-hidden
-              className="font-display text-[22px] font-bold text-[rgb(var(--fg-muted))]"
+              className="font-display text-[20px] font-bold text-[rgb(var(--fg-muted))]"
             >
               {curSym}
             </span>
@@ -152,7 +152,7 @@ export function PricingStep({
                 onChange({ price: Number(e.target.value) || 0 });
               }}
               aria-label="Price"
-              className="min-w-0 flex-1 border-none bg-transparent py-1 font-display text-[22px] font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))]"
+              className="min-w-0 flex-1 border-none bg-transparent py-1 font-display text-[20px] font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))]"
             />
             <select
               value={currency}
@@ -207,7 +207,7 @@ export function PricingStep({
       {/* How artists pay — three radio cards */}
       <div>
         <Eyebrow>How artists pay</Eyebrow>
-        <div className="flex flex-col gap-2.5">
+        <div className="flex flex-col gap-2">
           {PLAN_OPTIONS.map((opt) => {
             const picked = paymentPlan === opt.id;
             return (
@@ -220,7 +220,7 @@ export function PricingStep({
                 role="radio"
                 aria-checked={picked}
                 className={[
-                  "sk-press flex items-center gap-4 rounded-[12px] border px-4 py-[18px] text-left transition-colors",
+                  "sk-press flex items-center gap-3 rounded-[12px] border p-[14px] text-left transition-colors",
                   picked
                     ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.06)]"
                     : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] hover:border-[rgb(var(--border-strong))]",
@@ -230,23 +230,23 @@ export function PricingStep({
                 <span
                   aria-hidden
                   className={[
-                    "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                    "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
                     picked
                       ? "border-[rgb(var(--brand-primary))]"
                       : "border-[rgb(var(--border-strong))]",
                   ].join(" ")}
                 >
                   {picked ? (
-                    <span className="block h-3 w-3 rounded-full bg-[rgb(var(--brand-primary))]" />
+                    <span className="block h-2.5 w-2.5 rounded-full bg-[rgb(var(--brand-primary))]" />
                   ) : null}
                 </span>
 
                 {/* Title + subtitle */}
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="font-display text-[16px] font-bold leading-tight tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+                  <span className="font-display text-[15px] font-bold leading-tight tracking-[-0.01em] text-[rgb(var(--fg-default))]">
                     {opt.title}
                   </span>
-                  <span className="text-[12.5px] leading-snug text-[rgb(var(--fg-muted))]">
+                  <span className="text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
                     {opt.subtitle}
                   </span>
                 </span>
@@ -254,12 +254,12 @@ export function PricingStep({
                 {/* Right-side amount */}
                 <span className="shrink-0 text-right">
                   {opt.id === "full" ? (
-                    <span className="font-display text-[15px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
+                    <span className="font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
                       {formatCurrency(curSym, price)}
                     </span>
                   ) : null}
                   {opt.id === "split" ? (
-                    <span className="font-display text-[15px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
+                    <span className="font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
                       {formatCurrency(curSym, price / 2)} × 2
                     </span>
                   ) : null}
