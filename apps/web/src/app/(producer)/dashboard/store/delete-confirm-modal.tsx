@@ -68,7 +68,7 @@ export function DeleteConfirmModal({
               type="button"
               onClick={onConfirm}
               disabled={pending}
-              className="sk-press inline-flex items-center gap-1.5 rounded-[10px] px-3 py-2 text-[12.5px] font-semibold text-white shadow-[0_4px_14px_-2px_rgb(var(--fg-danger)/0.5)] disabled:opacity-50"
+              className="sk-press inline-flex items-center gap-1.5 rounded-[8px] px-3 py-2 text-[12.5px] font-semibold text-white shadow-[0_4px_14px_-2px_rgb(var(--fg-danger)/0.5)] disabled:opacity-50"
               style={{ background: "rgb(var(--fg-danger))" }}
             >
               <Trash2 size={12} strokeWidth={2.2} />
