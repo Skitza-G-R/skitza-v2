@@ -31,9 +31,20 @@ function formatAmount(amountCents: number, currency: string): string {
 // The `auth()` check is defense-in-depth: middleware → layout → page.
 // All three would have to silently pass through an unauthenticated
 // request for this to fall back to `null`.
-export default async function ArtistHomePage() {
+//
+// `?payment=success` lands here after Tranzila redirects through
+// /artist/payment/success — the success banner renders inline below
+// the hero. The booking itself is confirmed server-to-server via the
+// notify_url POST, so the banner is purely a UX acknowledgement.
+export default async function ArtistHomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ payment?: string }>;
+}) {
   const { userId } = await auth();
   if (!userId) return null;
+
+  const resolvedSearchParams = (await searchParams) ?? {};
 
   const caller = appRouter.createCaller({ userId });
   const [user, data, pendingPayments] = await Promise.all([
@@ -72,6 +83,16 @@ export default async function ArtistHomePage() {
         todayLabel={todayLabel}
         statusLine={statusLine}
       />
+      {resolvedSearchParams.payment === "success" ? (
+        <div className="rounded-[var(--radius-md)] border border-[rgb(var(--success)/0.4)] bg-[rgb(var(--success)/0.06)] p-4 mb-4">
+          <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
+            🎉 Payment confirmed — your session is booked!
+          </p>
+          <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
+            Your producer will be in touch soon.
+          </p>
+        </div>
+      ) : null}
       {pendingPayments.bookings.length > 0 ? (
         <div className="space-y-2">
           {pendingPayments.bookings.map((booking) => (
