@@ -15,6 +15,7 @@ import { kindToTile } from "./kind-to-tile";
 import { TILE_THEME } from "./tile-theme";
 import { Toggle } from "./toggle";
 import { TypeTile } from "./type-tile";
+import type { DragRowHandlers } from "./use-drag-reorder";
 
 export interface ProductCardData {
   id: string;
@@ -29,6 +30,8 @@ export interface ProductCardData {
 interface ProductCardProps {
   product: ProductCardData;
   pending?: boolean;
+  drag?: DragRowHandlers;
+  recentlyAdded?: boolean;
   onOpen: () => void;
   onToggleVisible: () => void;
   onEdit: () => void;
@@ -44,6 +47,8 @@ function deriveTagline(description: string | null): string {
 export function ProductCard({
   product,
   pending = false,
+  drag,
+  recentlyAdded = false,
   onOpen,
   onToggleVisible,
   onEdit,
@@ -57,15 +62,22 @@ export function ProductCard({
     <article
       role="button"
       tabIndex={0}
+      draggable={!!drag}
       onClick={onOpen}
       onKeyDown={(e) => {
         if (e.key === "Enter") onOpen();
       }}
+      onDragStart={drag?.onDragStart}
+      onDragOver={drag?.onDragOver}
+      onDragEnd={drag?.onDragEnd}
+      onDrop={drag?.onDrop}
       className={[
         "group relative grid items-center rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 transition-[border-color,transform,box-shadow] duration-200",
         "hover:border-[rgb(var(--border-strong))] hover:-translate-y-px hover:shadow-[0_14px_36px_-22px_rgba(17,16,9,0.28),0_2px_8px_-3px_rgba(17,16,9,0.05)]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2",
         product.active ? "" : "opacity-60",
+        drag?.isDragging ? "opacity-40 scale-[0.98]" : "",
+        recentlyAdded ? "sk-shimmer-glow" : "",
       ].join(" ")}
       style={{
         gridTemplateColumns: "20px 60px minmax(0,1fr) auto auto",
@@ -79,7 +91,27 @@ export function ProductCard({
         style={{ background: accent }}
       />
 
-      <span aria-hidden className="text-[rgb(var(--fg-muted))] opacity-30 transition-opacity group-hover:opacity-100" style={{ cursor: "grab" }}>
+      {/* Drop indicator: 3px brand-color line above or below the row */}
+      {drag?.dropPosition === "above" ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -top-[2px] left-2 right-2 h-[3px] rounded-full"
+          style={{ background: "rgb(var(--brand-primary))" }}
+        />
+      ) : null}
+      {drag?.dropPosition === "below" ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -bottom-[2px] left-2 right-2 h-[3px] rounded-full"
+          style={{ background: "rgb(var(--brand-primary))" }}
+        />
+      ) : null}
+
+      <span
+        aria-hidden
+        className="sk-drag-handle text-[rgb(var(--fg-muted))] opacity-30 transition-opacity group-hover:opacity-100"
+        style={{ cursor: drag ? "grab" : "default" }}
+      >
         <GripVertical size={16} strokeWidth={2.1} />
       </span>
 
