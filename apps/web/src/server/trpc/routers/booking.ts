@@ -1292,16 +1292,49 @@ export const bookingRouter = router({
         throw err;
       }
 
-      // Flip depositPaid on the already-linked project (returning-artist
-      // follow-up flow where the booking arrived with projectId already
-      // set). New projects created below in the auto-provision block
-      // start depositPaid=true directly — see that values() object.
-      // Best-effort: log on failure, don't unwind the status transition.
+      // Fetch the product's financial snapshot once — both the existing-
+      // project update path (below) and the new-project insert path
+      // (further below) want to land totalAmountCents + currency on the
+      // project row. Cheaper than two separate SELECTs and keeps the two
+      // branches in sync. Null when the booking has no productId (rare:
+      // bookings without a product can't have a price to snapshot).
+      const productRow = existing.productId
+        ? await db
+            .select({
+              priceCents: products.priceCents,
+              currency: products.currency,
+            })
+            .from(products)
+            .where(eq(products.id, existing.productId))
+            .limit(1)
+            .then((r) => r[0] ?? null)
+        : null;
+
+      // Flip depositPaid + populate financial snapshot on the already-
+      // linked project (returning-artist follow-up flow where the
+      // booking arrived with projectId already set). New projects
+      // created below in the auto-provision block land the same fields
+      // directly in their values() object. Best-effort: log on failure,
+      // don't unwind the status transition.
+      //
+      // Conditional spread on totalAmountCents/currency so a productRow
+      // miss leaves any existing values on the project untouched —
+      // overwriting a populated currency with NULL would be worse than
+      // doing nothing.
       if (existing.projectId) {
         try {
           await db
             .update(projects)
-            .set({ depositPaid: true })
+            .set({
+              depositPaid: true,
+              chargesCompleted: 1,
+              ...(productRow?.priceCents != null
+                ? { totalAmountCents: productRow.priceCents }
+                : {}),
+              ...(productRow?.currency
+                ? { currency: productRow.currency }
+                : {}),
+            })
             .where(eq(projects.id, existing.projectId));
         } catch (err) {
           console.warn("[payment] project depositPaid update failed", {
@@ -1337,10 +1370,17 @@ export const bookingRouter = router({
               stage: "booked",
               // confirmAfterPayment runs after the artist's deposit has
               // cleared at Tranzila — the project starts with
-              // depositPaid=true so the producer's dashboard reflects
-              // funds-in-hand from the first render.
+              // depositPaid=true and chargesCompleted=1 so the
+              // producer's dashboard reflects funds-in-hand from the
+              // first render. totalAmountCents + currency snapshot the
+              // product's price so later modals (final charge, etc.)
+              // can derive the second-half amount without re-reading
+              // the product (which the producer may have edited).
               depositPaid: true,
               finalPaid: false,
+              chargesCompleted: 1,
+              totalAmountCents: productRow?.priceCents ?? null,
+              currency: productRow?.currency ?? "ILS",
             })
             .returning();
           if (projectRow) {
