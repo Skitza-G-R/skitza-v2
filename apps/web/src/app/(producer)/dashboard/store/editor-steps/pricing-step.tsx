@@ -286,8 +286,8 @@ export function PricingStep({
                         </span>
                       </span>
                     ) : (
-                      <span className="text-[13px] font-semibold text-[rgb(var(--brand-primary-dark))]">
-                        Configure
+                      <span className="font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
+                        {formatCurrency(curSym, installmentAmt)} × {installmentsCount}
                       </span>
                     )
                   ) : null}
