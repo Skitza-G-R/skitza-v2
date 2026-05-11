@@ -22,9 +22,9 @@ export interface DescriptionFields {
 }
 
 export function encodeDescription({ tagline, revisions, turnaround }: DescriptionFields): string {
-  const hasMeta = (revisions != null && revisions > 0) || turnaround.trim().length > 0;
+  const hasMeta = revisions > 0 || turnaround.trim().length > 0;
   if (!hasMeta) return tagline;
-  return `${tagline}${SEPARATOR}revisions: ${String(revisions ?? 0)}\nturnaround: ${turnaround}`;
+  return `${tagline}${SEPARATOR}revisions: ${String(revisions)}\nturnaround: ${turnaround}`;
 }
 
 export function decodeDescription(description: string | null): DescriptionFields {
