@@ -26,6 +26,12 @@ describe("EditorShell shell", () => {
     expect(SRC).toContain("Save");
   });
 
+  it("renders mode-aware Save label (Create product on new, Save changes on edit)", () => {
+    expect(SRC).toMatch(/Create product/);
+    expect(SRC).toMatch(/Save changes/);
+    expect(SRC).toMatch(/mode === "new"/);
+  });
+
   it("has a close X button in the header", () => {
     expect(SRC).toMatch(/aria-label="Close"/);
   });

@@ -162,7 +162,7 @@ export function EditorShell({
                     disabled={!canContinue || pending}
                     className="inline-flex h-9 items-center rounded-full bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {pending ? "Saving…" : "Save"}
+                    {pending ? "Saving…" : mode === "new" ? "Create product" : "Save changes"}
                   </button>
                 ) : (
                   <button
