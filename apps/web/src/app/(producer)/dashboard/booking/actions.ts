@@ -169,6 +169,25 @@ export async function archivePackage(input: { id: string }): Promise<ActionResul
     await c.caller.booking.packages.archive(input);
     revalidatePath(PATH);
     revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// restorePackage — Undo for the Phase-2 delete flow. Resurrects a
+// soft-deleted product by clearing archivedAt and forcing active=false
+// (returns hidden so the producer reviews before re-publishing). Pair
+// with the 4.5s toast action surfaced from <StoreScreen>.
+export async function restorePackage(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.booking.packages.restore(input);
+    revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

@@ -526,6 +526,30 @@ const productsRouter = router({
       return { ok: true as const };
     }),
 
+  // Phase 2 store redesign — Undo counterpart to `archive`. Surfaces
+  // the row again to the dashboard list (filters on archivedAt IS NULL)
+  // but keeps it hidden from the storefront until the producer
+  // re-publishes via the Show toggle. Idempotent: safe to call on a
+  // not-yet-archived product (clearing a null archivedAt is a no-op).
+  restore: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({ producerId: products.producerId })
+        .from(products)
+        .where(eq(products.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db
+        .update(products)
+        .set({ archivedAt: null, active: false })
+        .where(eq(products.id, input.id));
+      return { ok: true as const };
+    }),
+
   // Legacy alias — callers still using `deactivate` go through the
   // same code path as archive. Remove once all callers migrated.
   deactivate: producerProcedure
