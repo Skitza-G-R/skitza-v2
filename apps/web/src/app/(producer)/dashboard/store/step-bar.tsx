@@ -1,7 +1,10 @@
 // step-bar.tsx
 //
-// Horizontal segmented progress bar for the editor wizard. Brand-amber
-// fills past + current steps; the rest are muted. Pure presentation.
+// Discrete-dash progress indicator for the editor wizard. Each step is a
+// fixed-width pill (~32px × 3px); brand-amber fills past + current steps,
+// the rest are muted. Pure presentation. Mirrors the reference design
+// (storefront.html prototype) which uses small dashes rather than a
+// continuous segmented bar.
 
 interface StepBarProps {
   steps: readonly string[];
@@ -16,7 +19,7 @@ export function StepBar({ steps, current }: StepBarProps) {
       aria-valuemin={1}
       aria-valuemax={steps.length}
       aria-valuenow={currentIdx + 1}
-      className="flex items-center gap-1"
+      className="flex items-center gap-1.5"
     >
       {steps.map((id, idx) => {
         const reached = idx <= currentIdx;
@@ -24,7 +27,7 @@ export function StepBar({ steps, current }: StepBarProps) {
           <span
             key={id}
             aria-hidden
-            className="h-[3px] flex-1 rounded-full transition-colors"
+            className="h-[3px] w-8 rounded-full transition-colors"
             style={{
               background: reached
                 ? "rgb(var(--brand-primary))"

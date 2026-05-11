@@ -1,9 +1,10 @@
 // editor-shell.tsx
 //
 // Modal chrome for the producer Store wizard (Phase 2). Wraps the active
-// step body with a sticky header (step label + title + subtitle + close X
-// + StepBar) and footer (Back · Cancel · Continue/Save). Uses Radix
-// Dialog for portal/scrim/focus so the shell stays a pure layout shell.
+// step body with a sticky header (close X on LEFT, then step label +
+// title + subtitle + StepBar stacked beside it) and footer (Back ·
+// Continue/Save). Uses Radix Dialog for portal/scrim/focus so the shell
+// stays a pure layout shell.
 //
 // Mirrors the Phase 1 store-screen modal sizing/positioning but adds the
 // design-brief popIn entrance (scale 0.97 → 1, translateY(12) → 0,
@@ -11,6 +12,11 @@
 // <style> element because the codebase has no `<style jsx global>`
 // pattern; the existing `skitza-pop-in` keyframe in globals.css uses
 // scale(0.96) without translateY so it doesn't match the brief.
+//
+// Layout matches the storefront.html prototype: X on the LEFT (circular
+// 32×32 ghost button), title row vertically centered with X. Step bar
+// renders as discrete dashes (see step-bar.tsx). Cancel button removed
+// from footer — the Close X handles cancel.
 
 "use client";
 
@@ -95,38 +101,43 @@ export function EditorShell({
             }
           }`}</style>
 
-          {/* Header */}
-          <div className="flex flex-col gap-3 border-b border-[rgb(var(--border-subtle))] px-6 pb-4 pt-5">
-            <div className="flex items-start justify-between gap-4">
-              <span
-                className="font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--text-muted))]"
-              >
-                {stepLabel}
-              </span>
+          {/* Header — X on LEFT, title block to its right (vertically centered with X). */}
+          <div className="border-b border-[rgb(var(--border-subtle))] px-6 pb-[18px] pt-[20px]">
+            <div className="flex items-center gap-3">
               <DialogPrimitive.Close
                 aria-label="Close"
-                className="-mr-1 -mt-1 inline-flex h-7 w-7 items-center justify-center rounded-full text-[rgb(var(--text-muted))] transition-colors hover:bg-[rgb(var(--surface-hover))] hover:text-[rgb(var(--text-strong))]"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[rgb(var(--text-muted))] transition-colors hover:bg-[rgb(var(--surface-hover))] hover:text-[rgb(var(--text-strong))]"
               >
                 <X className="h-4 w-4" aria-hidden />
               </DialogPrimitive.Close>
+              <div className="min-w-0 flex-1">
+                <span
+                  className="block font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--text-muted))]"
+                >
+                  {stepLabel}
+                </span>
+                <DialogPrimitive.Title
+                  className="mt-1 font-[var(--font-syne)] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--text-strong))]"
+                  style={{ fontSize: "clamp(22px, 4vw, 28px)" }}
+                >
+                  {title}
+                </DialogPrimitive.Title>
+                {subtitle ? (
+                  <DialogPrimitive.Description className="mt-1.5 truncate text-[13px] leading-snug text-[rgb(var(--text-muted))]">
+                    {subtitle}
+                  </DialogPrimitive.Description>
+                ) : null}
+              </div>
             </div>
-            <DialogPrimitive.Title
-              className="font-[var(--font-syne)] text-[20px] font-extrabold leading-tight text-[rgb(var(--text-strong))]"
-            >
-              {title}
-            </DialogPrimitive.Title>
-            {subtitle ? (
-              <DialogPrimitive.Description className="text-[12px] leading-snug text-[rgb(var(--text-muted))]">
-                {subtitle}
-              </DialogPrimitive.Description>
-            ) : null}
-            <StepBar steps={steps} current={current} />
+            <div className="mt-[18px]">
+              <StepBar steps={steps} current={current} />
+            </div>
           </div>
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
 
-          {/* Footer */}
+          {/* Footer — Back on left, Continue/Save on right. Cancel removed: Close X handles it. */}
           <div className="flex items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] px-6 py-4">
             <div>
               {isFirstStep ? null : (
@@ -140,15 +151,6 @@ export function EditorShell({
               )}
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenChange(false);
-                }}
-                className="inline-flex h-9 items-center rounded-full px-3 text-[13px] font-medium text-[rgb(var(--text-muted))] transition-colors hover:bg-[rgb(var(--surface-hover))] hover:text-[rgb(var(--text-strong))]"
-              >
-                Cancel
-              </button>
               {isLastStep ? (
                 <button
                   type="button"
