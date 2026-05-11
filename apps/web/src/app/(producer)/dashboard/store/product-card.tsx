@@ -139,6 +139,13 @@ export function ProductCard({
           e.stopPropagation();
         }}
       >
+        {product.active ? (
+          <span
+            aria-hidden
+            className="sk-live-pulse inline-block h-1.5 w-1.5 rounded-full"
+            style={{ background: "rgb(var(--fg-success))" }}
+          />
+        ) : null}
         <Toggle
           on={product.active}
           onChange={onToggleVisible}

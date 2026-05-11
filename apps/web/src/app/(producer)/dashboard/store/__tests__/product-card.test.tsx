@@ -64,4 +64,9 @@ describe("ProductCard shell", () => {
   it("marks the drag handle with sk-drag-handle for the touch-hide media query", () => {
     expect(SRC).toMatch(/sk-drag-handle/);
   });
+
+  it("renders a pulsing live dot when product.active is true", () => {
+    expect(SRC).toMatch(/sk-live-pulse/);
+    expect(SRC).toMatch(/--fg-success/);
+  });
 });
