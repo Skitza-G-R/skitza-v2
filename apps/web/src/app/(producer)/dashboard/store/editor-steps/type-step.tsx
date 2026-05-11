@@ -42,6 +42,7 @@ export function TypeStep({ picked, onPick }: TypeStepProps) {
               }}
               className={[
                 "sk-press flex items-start gap-3 rounded-[12px] border bg-[rgb(var(--bg-elevated))] p-4 text-left transition-colors",
+                p.id === "blank" ? "border-dashed" : "",
                 isPicked
                   ? "border-[rgb(var(--brand-primary))] shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)]"
                   : "border-[rgb(var(--border-subtle))] hover:border-[rgb(var(--border-strong))]",
