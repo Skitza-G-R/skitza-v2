@@ -1292,6 +1292,26 @@ export const bookingRouter = router({
         throw err;
       }
 
+      // Flip depositPaid on the already-linked project (returning-artist
+      // follow-up flow where the booking arrived with projectId already
+      // set). New projects created below in the auto-provision block
+      // start depositPaid=true directly — see that values() object.
+      // Best-effort: log on failure, don't unwind the status transition.
+      if (existing.projectId) {
+        try {
+          await db
+            .update(projects)
+            .set({ depositPaid: true })
+            .where(eq(projects.id, existing.projectId));
+        } catch (err) {
+          console.warn("[payment] project depositPaid update failed", {
+            projectId: existing.projectId,
+            bookingId: existing.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       // Auto-provision a project — same shape as booking.confirm's
       // auto-project block. Idempotent on existing.projectId so a
       // duplicate callback (browser redirect AND notify_url POST) only
@@ -1315,7 +1335,11 @@ export const bookingRouter = router({
               clientName: existing.artistName,
               clientEmail: lowerEmail,
               stage: "booked",
-              depositPaid: false,
+              // confirmAfterPayment runs after the artist's deposit has
+              // cleared at Tranzila — the project starts with
+              // depositPaid=true so the producer's dashboard reflects
+              // funds-in-hand from the first render.
+              depositPaid: true,
               finalPaid: false,
             })
             .returning();
