@@ -90,7 +90,7 @@ export function EditorShell({
             e.preventDefault();
           }}
           aria-label={mode === "new" ? "New product" : `Edit ${productName ?? "product"}`}
-          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 max-h-[calc(100vh-3rem)] w-[calc(100vw-3rem)] max-w-[640px] rounded-[18px] bg-[rgb(var(--bg-elevated))] shadow-2xl
+          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 max-h-[calc(100vh-3rem)] w-[calc(100vw-3rem)] max-w-[520px] rounded-[18px] bg-[rgb(var(--bg-elevated))] shadow-2xl
             max-sm:left-0 max-sm:right-0 max-sm:top-auto max-sm:bottom-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-h-[90vh] max-sm:w-full max-sm:rounded-t-[var(--radius-xl)] max-sm:rounded-b-none max-sm:max-w-none"
         >
           {/* Inline keyframe — see file-level comment for rationale. The
