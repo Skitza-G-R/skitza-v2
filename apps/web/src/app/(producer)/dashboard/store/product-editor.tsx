@@ -1,16 +1,21 @@
 // product-editor.tsx
 //
-// Phase 2 wizard orchestrator. Owns the draft state for a single
-// product, wires the 4 step components (Type, Includes, Pricing,
-// Contract) into <EditorShell>, and saves via the existing
+// Phase 2 wizard orchestrator. Owns the draft state for a single product
+// and wires the 5 step components (Type, Includes, Pricing, Logistics,
+// Agreement) into <EditorShell>, saving via the existing
 // `createPackage` / `updatePackage` server actions. The step list is
-// 4 in NEW mode and 3 in EDIT mode (Type step is for new products
-// only — editing preserves the original kind exactly).
+// 5 in NEW mode and 4 in EDIT mode (Type step is for new products only —
+// editing preserves the original kind exactly).
 //
-// `description` is the plain tagline shown on the public profile card.
-// Revisions / turnaround / deposit / duration used to be carried by an
-// encoded tail of the description string; that was dropped when
-// PricingStep was simplified to match the reference design.
+// description column encoding:
+//   * the visible tagline is plain text (first line)
+//   * revisions (int) and inline contract text live in an encoded suffix
+//     block — see description-encoding.ts. This is a temporary bridge
+//     until the schema gains dedicated columns.
+//
+// contractUrl column:
+//   * "file" or "link" modes write the trimmed URL (or null if empty)
+//   * "text" mode writes null — the terms live in the description meta
 
 "use client";
 
@@ -25,8 +30,10 @@ import {
 } from "~/app/(producer)/dashboard/booking/actions";
 import { useToast } from "~/components/ui/toast";
 
-import { ContractStep } from "./editor-steps/contract-step";
+import { decodeDescription, encodeDescription } from "./description-encoding";
+import { ContractStep, type ContractMode } from "./editor-steps/contract-step";
 import { IncludesStep } from "./editor-steps/includes-step";
+import { LogisticsStep } from "./editor-steps/logistics-step";
 import { PricingStep } from "./editor-steps/pricing-step";
 import { TypeStep } from "./editor-steps/type-step";
 import { EditorShell } from "./editor-shell";
@@ -40,24 +47,26 @@ import {
 } from "./type-presets";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
-type StepId = "type" | "includes" | "pricing" | "contract";
+type StepId = "type" | "includes" | "pricing" | "logistics" | "agreement";
 
-const NEW_STEPS = ["type", "includes", "pricing", "contract"] as const;
-const EDIT_STEPS = ["includes", "pricing", "contract"] as const;
+const NEW_STEPS = ["type", "includes", "pricing", "logistics", "agreement"] as const;
+const EDIT_STEPS = ["includes", "pricing", "logistics", "agreement"] as const;
 
 // Copy uses periods (no em dashes) per the impeccable copy rule.
 const STEP_TITLES: Record<StepId, string> = {
   type: "What are you offering?",
   includes: "What's included",
   pricing: "Pricing and terms",
-  contract: "Agreement",
+  logistics: "Logistics",
+  agreement: "Agreement",
 };
 
 const STEP_SUBTITLES: Record<StepId, string> = {
   type: "Pick the closest match. We'll prefill the rest.",
   includes: "Tap to add, drag to reorder. Artists see this list.",
   pricing: "Price, how many sessions, and how they pay.",
-  contract: "Optional. Attach a contract or write your terms.",
+  logistics: "Session length and how many revisions are included.",
+  agreement: "Optional. Attach a contract or write your terms.",
 };
 
 interface Draft {
@@ -72,7 +81,11 @@ interface Draft {
   paymentPlan: PaymentPlanChoice;
   installmentsCount: number;
   includes: string[];
+  duration: string;
+  revisions: number;
+  contractMode: ContractMode;
   contractUrl: string;
+  contractText: string;
 }
 
 interface ProductEditorProps {
@@ -99,7 +112,11 @@ function emptyDraft(currency: Currency): Draft {
     paymentPlan: "full",
     installmentsCount: 3,
     includes: [],
+    duration: "multi-session",
+    revisions: 0,
+    contractMode: "link",
     contractUrl: "",
+    contractText: "",
   };
 }
 
@@ -125,15 +142,37 @@ function paymentPlanFromDb(plans: PaymentPlan[] | undefined): {
 }
 
 function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft {
-  const tagline = p.description ?? "";
+  const decoded = decodeDescription(p.description);
   const currency = (VALID_CURRENCIES as readonly string[]).includes(p.currency)
     ? (p.currency as Currency)
     : defaultCurrency;
   const { paymentPlan, installmentsCount } = paymentPlanFromDb(p.paymentPlans);
+  // Pick the initial contract mode: prefer "text" if inline terms exist
+  // (round-tripping an edit shouldn't clobber them), otherwise "link"
+  // when a URL exists, otherwise default to "file" (the first tab).
+  const contractMode: ContractMode =
+    decoded.contractText.length > 0
+      ? "text"
+      : p.contractUrl
+        ? "link"
+        : "file";
+  // duration: derive a readable string from durationMin. 0 minutes means
+  // the legacy product never set a duration — display as "multi-session"
+  // so the wizard's free-text input matches the placeholder convention.
+  const duration =
+    typeof p.durationMin === "number" && p.durationMin > 0
+      ? `${String(p.durationMin)} min`
+      : "multi-session";
+  const deliverables = ((): string[] => {
+    // ProductCardData carries no deliverables field; StoreProduct adds
+    // it via the page.tsx loader. Fall back to [] when missing.
+    const maybe = (p as unknown as { deliverables?: string[] }).deliverables;
+    return Array.isArray(maybe) ? maybe : [];
+  })();
   return {
     _picked: null, // edit mode skips the type picker
     name: p.name,
-    tagline,
+    tagline: decoded.tagline,
     type: kindToPresetType(p.kind),
     price: p.priceCents / 100,
     currency,
@@ -141,14 +180,12 @@ function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft
     unlimitedSessions: p.sessionCount === 0,
     paymentPlan,
     installmentsCount,
-    includes: [...(p.description ? [] : []), ...((): string[] => {
-      // ProductCardData carries no deliverables field; we surface the
-      // legacy `deliverables` column via the StoreProduct shape which
-      // already has it threaded through page.tsx. Fall back to [].
-      const maybe = (p as unknown as { deliverables?: string[] }).deliverables;
-      return Array.isArray(maybe) ? maybe : [];
-    })()],
+    includes: deliverables,
+    duration,
+    revisions: decoded.revisions,
+    contractMode,
     contractUrl: p.contractUrl ?? "",
+    contractText: decoded.contractText,
   };
 }
 
@@ -204,6 +241,9 @@ export function ProductEditor({
       unlimitedSessions: preset.preset.unlimitedSessions,
       paymentPlan: preset.preset.paymentPlan,
       includes: [...preset.baseline],
+      duration: preset.preset.duration,
+      revisions: preset.preset.revisions,
+      contractMode: "link",
     }));
     setCurrentStep("includes");
   }
@@ -212,7 +252,8 @@ export function ProductEditor({
     if (currentStep === "type") return draft._picked != null;
     if (currentStep === "includes") return draft.name.trim() !== "";
     if (currentStep === "pricing") return draft.price >= 0;
-    return true; // contract is skippable
+    if (currentStep === "logistics") return true; // both fields optional
+    return true; // agreement is skippable
   })();
 
   function goBack() {
@@ -226,10 +267,20 @@ export function ProductEditor({
   }
 
   function save() {
-    const description = draft.tagline;
-    // Preserve existing durationMin on edit; new products store 0
-    // (the wizard no longer surfaces a duration field).
-    const durationMin = product?.durationMin ?? 0;
+    // Only round-trip contractText through the description meta when
+    // the producer actually chose the "text" mode. File/Link modes
+    // clear any prior inline text so a mode switch doesn't leak terms.
+    const description = encodeDescription({
+      tagline: draft.tagline,
+      revisions: draft.revisions,
+      contractText: draft.contractMode === "text" ? draft.contractText : "",
+    });
+    // Parse free-text duration ("60 min", "180 min", "multi-session")
+    // into an int. Anything without a number lands as 0.
+    const durationMatch = draft.duration.match(/(\d+)\s*min/i);
+    const durationMin = durationMatch
+      ? parseInt(durationMatch[1] ?? "0", 10)
+      : 0;
     const sessionCount = draft.unlimitedSessions ? 0 : Math.max(1, draft.sessions);
     const paymentPlans: PaymentPlan[] = (() => {
       if (draft.paymentPlan === "full") return [{ kind: "full" }];
@@ -246,11 +297,16 @@ export function ProductEditor({
     // "consult" routed to "custom" because the ProductKind enum has no
     // "consult" variant.
     const priceCents = Math.round(draft.price * 100);
-    const trimmedContract = draft.contractUrl.trim();
-    // In edit mode we preserve the existing kind (legacy values like
-    // "session" must survive a round-trip). In new mode, draft.type
-    // comes from the preset; "consult" has no ProductKind variant so
-    // it lands as "custom".
+    // contractUrl: file + link modes write the trimmed URL (or null
+    // when empty). text mode writes null — the terms are in the
+    // description meta block instead.
+    const trimmedUrl = draft.contractUrl.trim();
+    const contractUrlOut: string | null =
+      draft.contractMode === "text"
+        ? null
+        : trimmedUrl.length > 0
+          ? trimmedUrl
+          : null;
     const basePayload = {
       name: draft.name.trim(),
       description,
@@ -262,7 +318,7 @@ export function ProductEditor({
       durationMin,
       sessionCount,
       paymentPlans,
-      contractUrl: trimmedContract.length > 0 ? trimmedContract : null,
+      contractUrl: contractUrlOut,
     };
     // EDIT mode: overwrite kind with the original DB value so legacy
     // kinds (session/mixing/etc.) survive without our preset mapping
@@ -333,11 +389,22 @@ export function ProductEditor({
           }}
         />
       )}
-      {currentStep === "contract" && (
+      {currentStep === "logistics" && (
+        <LogisticsStep
+          duration={draft.duration}
+          revisions={draft.revisions}
+          onChange={(patch) => {
+            setDraft((d) => ({ ...d, ...patch }));
+          }}
+        />
+      )}
+      {currentStep === "agreement" && (
         <ContractStep
+          mode={draft.contractMode}
           contractUrl={draft.contractUrl}
-          onChange={(contractUrl) => {
-            setDraft((d) => ({ ...d, contractUrl }));
+          contractText={draft.contractText}
+          onChange={(patch) => {
+            setDraft((d) => ({ ...d, ...patch }));
           }}
         />
       )}

@@ -13,13 +13,29 @@ describe("ContractStep shell", () => {
     expect(SRC).toMatch(/3×|3x/);
   });
 
-  it("renders a URL input bound to contractUrl", () => {
+  it("exposes three modes: file / link / text", () => {
+    expect(SRC).toMatch(/"file"/);
+    expect(SRC).toMatch(/"link"/);
+    expect(SRC).toMatch(/"text"/);
+  });
+
+  it("renders a textarea for the inline-text mode", () => {
+    expect(SRC).toMatch(/<textarea/);
+    expect(SRC).toMatch(/contractText/);
+  });
+
+  it("renders a URL input for both file + link modes", () => {
     expect(SRC).toMatch(/<input/);
     expect(SRC).toMatch(/type="url"/);
     expect(SRC).toMatch(/contractUrl/);
   });
 
-  it("has a 'Skip' affordance hint (file upload and inline-text deferred)", () => {
+  it("hints that the file-upload pipeline is still coming", () => {
+    expect(SRC).toMatch(/Drop|PDF/);
+    expect(SRC).toMatch(/coming soon|Coming soon/);
+  });
+
+  it("has a 'Skip' affordance hint", () => {
     expect(SRC).toMatch(/Skip|skip/);
   });
 });

@@ -13,11 +13,27 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/EDIT_STEPS\s*=\s*\[/);
   });
 
-  it("renders all four step components", () => {
+  it("NEW_STEPS includes the new Logistics + Agreement steps", () => {
+    // We pin only the meaningful contents, not the literal string,
+    // so reordering inside the array can't sneak a regression past.
+    expect(SRC).toMatch(/NEW_STEPS[\s\S]*?"type"[\s\S]*?"includes"[\s\S]*?"pricing"[\s\S]*?"logistics"[\s\S]*?"agreement"/);
+  });
+
+  it("EDIT_STEPS includes logistics + agreement (no type)", () => {
+    expect(SRC).toMatch(/EDIT_STEPS[\s\S]*?"includes"[\s\S]*?"pricing"[\s\S]*?"logistics"[\s\S]*?"agreement"/);
+  });
+
+  it("renders all five step components", () => {
     expect(SRC).toMatch(/<TypeStep/);
     expect(SRC).toMatch(/<IncludesStep/);
     expect(SRC).toMatch(/<PricingStep/);
+    expect(SRC).toMatch(/<LogisticsStep/);
     expect(SRC).toMatch(/<ContractStep/);
+  });
+
+  it("imports encodeDescription + decodeDescription to round-trip the meta block", () => {
+    expect(SRC).toMatch(/encodeDescription/);
+    expect(SRC).toMatch(/decodeDescription/);
   });
 
   it("mounts the EditorShell", () => {
