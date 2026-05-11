@@ -937,6 +937,32 @@
     will-change: transform, opacity;
   }
 
+  /* Phase 3 store redesign — Live status pulse, shimmer-glow on new
+     products, table-row entry stagger. All three respect prefers-
+     reduced-motion via the existing block further down in @layer base. */
+  @keyframes sk-live-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--fg-success) / 0.45); }
+    50%      { box-shadow: 0 0 0 5px rgb(var(--fg-success) / 0); }
+  }
+  @keyframes sk-shimmer-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0.4); }
+    50%      { box-shadow: 0 0 0 6px rgb(var(--brand-primary) / 0); }
+  }
+  @keyframes sk-row-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .sk-live-pulse   { animation: sk-live-pulse 2.2s ease-in-out infinite; }
+  .sk-shimmer-glow { animation: sk-shimmer-glow 2s ease-in-out 2; }
+  .sk-row-in       { animation: sk-row-in 320ms cubic-bezier(.16,1,.3,1) both; }
+
+  /* Drag handle is hidden on touch-only devices — producer is desktop-
+     only per CLAUDE.md and native HTML5 DnD doesn't behave well on touch. */
+  @media (hover: none) {
+    .sk-drag-handle { display: none; }
+  }
+
   /* ----------------------------------------------------------------
    * Reduced motion — covers every primitive that animates above.
    * The motion-primitives test extracts every reduce block and asserts
@@ -963,7 +989,10 @@
     .confetti-piece,
     .ob-stagger > *,
     .ob-alive-dot,
-    .ob-breath { animation: none !important; }
+    .ob-breath,
+    .sk-live-pulse,
+    .sk-shimmer-glow,
+    .sk-row-in { animation: none !important; }
     .ob-stagger > * { opacity: 1 !important; transform: none !important; }
     .ob-press,
     .ob-card-press,
