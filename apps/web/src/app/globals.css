@@ -990,6 +990,18 @@
     transform-origin: center;
   }
 
+  /* TypeStep preset pick — single 220ms 1 -> 1.02 -> 1 pulse on the
+     just-picked card so the moment of choice gets a beat of delight
+     without becoming garish. Fires once when isPicked flips true. */
+  @keyframes sk-pick-pulse {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.02); }
+    100% { transform: scale(1); }
+  }
+  .sk-pick-pulse {
+    animation: sk-pick-pulse 220ms var(--ease-out-strong);
+  }
+
   /* Drag handle is hidden on touch-only devices — producer is desktop-
      only per CLAUDE.md and native HTML5 DnD doesn't behave well on touch. */
   @media (hover: none) {
@@ -1027,7 +1039,8 @@
     .sk-shimmer-glow,
     .sk-row-in,
     .sk-step-enter,
-    .sk-drop-fade { animation: none !important; }
+    .sk-drop-fade,
+    .sk-pick-pulse { animation: none !important; }
     .ob-stagger > * { opacity: 1 !important; transform: none !important; }
     .ob-press,
     .ob-card-press,
