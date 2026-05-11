@@ -78,6 +78,8 @@ export async function createPackage(input: {
   try {
     await c.caller.booking.packages.create(input);
     revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -105,6 +107,8 @@ export async function updatePackage(input: {
   try {
     await c.caller.booking.packages.update(input);
     revalidatePath(PATH);
+    revalidatePath("/dashboard/profile");
+    revalidatePath("/dashboard/store");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
