@@ -978,6 +978,18 @@
     animation: sk-step-enter 240ms var(--ease-out-strong) both;
   }
 
+  /* Drag drop indicator — fades + grows from 60% width so the brand
+     line feels like it's tracking the drag, not switching on like a
+     light. 100ms is fast enough to keep up with the drag cursor. */
+  @keyframes sk-drop-fade {
+    from { opacity: 0; transform: scaleX(0.6); }
+    to   { opacity: 1; transform: scaleX(1); }
+  }
+  .sk-drop-fade {
+    animation: sk-drop-fade 100ms var(--ease-out-strong) both;
+    transform-origin: center;
+  }
+
   /* Drag handle is hidden on touch-only devices — producer is desktop-
      only per CLAUDE.md and native HTML5 DnD doesn't behave well on touch. */
   @media (hover: none) {
@@ -1014,7 +1026,8 @@
     .sk-live-pulse,
     .sk-shimmer-glow,
     .sk-row-in,
-    .sk-step-enter { animation: none !important; }
+    .sk-step-enter,
+    .sk-drop-fade { animation: none !important; }
     .ob-stagger > * { opacity: 1 !important; transform: none !important; }
     .ob-press,
     .ob-card-press,

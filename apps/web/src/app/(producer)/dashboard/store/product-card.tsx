@@ -95,14 +95,14 @@ export function ProductCard({
       {drag?.dropPosition === "above" ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute -top-[2px] left-2 right-2 h-[3px] rounded-full"
+          className="sk-drop-fade pointer-events-none absolute -top-[2px] left-2 right-2 h-[3px] rounded-full"
           style={{ background: "rgb(var(--brand-primary))" }}
         />
       ) : null}
       {drag?.dropPosition === "below" ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute -bottom-[2px] left-2 right-2 h-[3px] rounded-full"
+          className="sk-drop-fade pointer-events-none absolute -bottom-[2px] left-2 right-2 h-[3px] rounded-full"
           style={{ background: "rgb(var(--brand-primary))" }}
         />
       ) : null}
