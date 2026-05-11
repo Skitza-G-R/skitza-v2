@@ -156,6 +156,14 @@
     --font-body: var(--font-outfit);
     --font-mono: var(--font-jetbrains-mono);
     --font-head: var(--font-syne);
+
+    /* Motion — Emil-style strong easings. Promoted to vars so the curves
+       stay consistent across primitives (and discoverable for future
+       motion work). Inline cubic-bezier(...) literals remain in the file
+       for historical primitives — those can migrate incrementally. */
+    --ease-out-strong: cubic-bezier(0.16, 1, 0.3, 1);          /* entries, hover lifts */
+    --ease-in-out-strong: cubic-bezier(0.2, 0.8, 0.2, 1);      /* on-screen movement */
+    --ease-press: cubic-bezier(0.34, 1.56, 0.64, 1);           /* press/release with subtle overshoot */
   }
 
   /* Dark mode — `chrome-dark` selector kept for compat; ThemeProvider in
@@ -600,12 +608,12 @@
    * Button primitive in apps/web/src/components/ui/button.tsx.
    * ---------------------------------------------------------------- */
   .sk-press {
-    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), filter 0.15s, background-color 0.2s;
+    transition: transform 160ms var(--ease-out-strong), filter 150ms ease, background-color 200ms ease;
   }
   @media (hover: hover) {
     .sk-press:hover { filter: brightness(1.05); }
   }
-  .sk-press:active { transform: scale(0.94); filter: brightness(0.92); }
+  .sk-press:active { transform: scale(0.97); filter: brightness(0.96); }
 
   /* ----------------------------------------------------------------
    * Page-enter + per-row stagger
