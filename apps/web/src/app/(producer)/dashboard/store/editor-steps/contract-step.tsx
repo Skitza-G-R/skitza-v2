@@ -2,24 +2,24 @@
 //
 // Stage 5 of the producer Store wizard — optional agreement.
 //
-// Three modes:
-//   * "file" — drop zone for a PDF (or click to browse). Phase 2 has no
-//     upload pipeline yet, so the panel falls back to a plain URL input
-//     and a "File upload coming soon" hint. The URL still writes to
-//     products.contractUrl on save.
+// Two modes:
 //   * "link" — paste a public URL to a contract PDF. Writes to
 //     products.contractUrl.
 //   * "text" — type inline terms. Writes to the encoded description
 //     meta block (see description-encoding.ts) because the schema has
 //     no dedicated column for inline contract text yet.
 //
-// canContinue stays true for all three modes — the step is skippable.
+// A "file" mode used to live here as well, but the dropzone was purely
+// cosmetic (no R2 upload pipeline yet) and shipped a bait-and-switch UX.
+// It's removed until the upload pipeline lands.
+//
+// canContinue stays true for both modes — the step is skippable.
 
 "use client";
 
-import { FileText, Link as LinkIcon, Upload } from "lucide-react";
+import { FileText, Link as LinkIcon } from "lucide-react";
 
-export type ContractMode = "file" | "link" | "text";
+export type ContractMode = "link" | "text";
 
 interface ContractStepProps {
   mode: ContractMode;
@@ -33,11 +33,10 @@ interface ContractStepProps {
 interface ModeOption {
   id: ContractMode;
   label: string;
-  icon: typeof Upload;
+  icon: typeof LinkIcon;
 }
 
 const MODE_OPTIONS: ModeOption[] = [
-  { id: "file", label: "File", icon: Upload },
   { id: "link", label: "Link", icon: LinkIcon },
   { id: "text", label: "Text", icon: FileText },
 ];
@@ -71,7 +70,7 @@ export function ContractStep({
       <div
         role="radiogroup"
         aria-label="Contract mode"
-        className="grid grid-cols-3 gap-2"
+        className="grid grid-cols-2 gap-2"
       >
         {MODE_OPTIONS.map((opt) => {
           const Icon = opt.icon;
@@ -98,49 +97,6 @@ export function ContractStep({
           );
         })}
       </div>
-
-      {/* File mode panel */}
-      {mode === "file" ? (
-        <div className="flex flex-col gap-3">
-          <div
-            className="flex min-h-[80px] flex-col items-center justify-center gap-1.5 rounded-[12px] border border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))] px-4 py-5 text-center"
-            aria-label="Contract file dropzone"
-          >
-            <Upload
-              size={20}
-              strokeWidth={2.1}
-              aria-hidden
-              className="text-[rgb(var(--fg-muted))]"
-            />
-            <div className="text-[12.5px] font-semibold text-[rgb(var(--fg-default))]">
-              Drop your PDF here, or click to browse
-            </div>
-          </div>
-          <div className="text-[11.5px] italic leading-snug text-[rgb(var(--fg-faint))]">
-            File upload coming soon. For now, paste a public link to your file below.
-          </div>
-          <div className="flex flex-col gap-2">
-            <label
-              htmlFor="contract-step-file-url"
-              className="font-[var(--font-outfit)] text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
-            >
-              Public file URL
-            </label>
-            <input
-              id="contract-step-file-url"
-              type="url"
-              inputMode="url"
-              value={contractUrl}
-              onChange={(e) => {
-                onChange({ contractUrl: e.target.value });
-              }}
-              placeholder="https://drive.google.com/... or https://dropbox.com/..."
-              aria-label="Contract PDF URL"
-              className="rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-[13px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)]"
-            />
-          </div>
-        </div>
-      ) : null}
 
       {/* Link mode panel */}
       {mode === "link" ? (

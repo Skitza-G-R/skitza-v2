@@ -14,7 +14,7 @@
 //     until the schema gains dedicated columns.
 //
 // contractUrl column:
-//   * "file" or "link" modes write the trimmed URL (or null if empty)
+//   * "link" mode writes the trimmed URL (or null if empty)
 //   * "text" mode writes null — the terms live in the description meta
 
 "use client";
@@ -156,14 +156,12 @@ function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft
     : defaultCurrency;
   const { paymentPlan, installmentsCount } = paymentPlanFromDb(p.paymentPlans);
   // Pick the initial contract mode: prefer "text" if inline terms exist
-  // (round-tripping an edit shouldn't clobber them), otherwise "link"
-  // when a URL exists, otherwise default to "file" (the first tab).
+  // (round-tripping an edit shouldn't clobber them), otherwise default
+  // to "link" — File mode is gone until the upload pipeline lands.
   const contractMode: ContractMode =
     decoded.contractText.length > 0
       ? "text"
-      : p.contractUrl
-        ? "link"
-        : "file";
+      : "link";
   // duration: derive a readable string from durationMin. 0 minutes means
   // the legacy product never set a duration (or was the dropped
   // multi-session option) — open the wizard in Custom mode with an
@@ -315,9 +313,9 @@ export function ProductEditor({
     // "consult" routed to "custom" because the ProductKind enum has no
     // "consult" variant.
     const priceCents = Math.round(draft.price * 100);
-    // contractUrl: file + link modes write the trimmed URL (or null
-    // when empty). text mode writes null — the terms are in the
-    // description meta block instead.
+    // contractUrl: link mode writes the trimmed URL (or null when
+    // empty). text mode writes null — the terms are in the description
+    // meta block instead.
     const trimmedUrl = draft.contractUrl.trim();
     const contractUrlOut: string | null =
       draft.contractMode === "text"
