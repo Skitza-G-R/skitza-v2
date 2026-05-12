@@ -57,7 +57,7 @@ Tailwind v4 + shadcn/ui, Vitest, Sentry, PostHog
 ## How to work here
 1. Read the task brief Raz wrote.
 2. Build only what's in the brief. Do not add unrequested features.
-3. Run pnpm typecheck and pnpm test before finishing.
+3. Before claiming "verified" or pushing, run the full gate: `pnpm typecheck && pnpm -F web lint && pnpm test`. All three must pass — Vercel's build runs ESLint with `--max-warnings 0` so lint failures break the deploy. Equivalent shortcut: `/skitza-verify`.
 4. No planning ceremonies. No stories. No epics. Just code.
 
 ## Auth + role guard
