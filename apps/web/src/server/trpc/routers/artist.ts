@@ -11,7 +11,6 @@ import {
   invoices,
   isNull,
   lte,
-  notInArray,
   producers,
   products,
   projects,
@@ -514,19 +513,19 @@ async function resolveClientContact(
 // unit — a single booking anywhere inside it flips the whole block
 // closed rather than tracking sub-slot occupancy.
 //
-// `freeBookingProjectId` is the carryover: if the artist has an
-// active, deposit-paid project with this producer that isn't final-
-// paid yet, we surface it so the UI can label the booking "On the
-// house" and skip the Stripe checkout step. The router's WHERE clause
-// excludes stages (paid/archived/cancelled) that wouldn't qualify, so
-// a null result here is the router saying "no carryover available".
+// Session-credit carryover lives in `activePackages` (sibling
+// procedure) — it's the single source of truth for "does this artist
+// have a paid session to spend on this producer?" `availability` is
+// now a pure calendar surface: weekly blocks + existing-booking
+// conflicts. No project-level state.
 const bookSubrouter = router({
   availability: artistProcedure
     .input(z.object({ producerId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       // 1. Access guard — the producer must be one of the artist's
-      //    studios. NOT_FOUND on miss.
-      const contact = await resolveClientContact(
+      //    studios. NOT_FOUND on miss. We don't bind the result; the
+      //    side-effect (throw) is the only thing we care about here.
+      await resolveClientContact(
         ctx.db,
         ctx.clerkUserId,
         input.producerId,
@@ -543,8 +542,8 @@ const bookSubrouter = router({
       );
       const horizon = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
 
-      // 3. Fan out the three SELECTs we need.
-      const [blockRows, bookingRows, projectRows] = await Promise.all([
+      // 3. Fan out the two SELECTs we need.
+      const [blockRows, bookingRows] = await Promise.all([
         // Weekly recurring config — 0..2 rows per weekday.
         ctx.db
           .select({
@@ -577,26 +576,6 @@ const bookSubrouter = router({
               lte(bookings.startsAt, horizon),
             ),
           ),
-
-        // Free-session carryover: deposit_paid AND final_paid=false,
-        // stage in an actively-working state. First match wins (the
-        // artist has one active project per producer in practice).
-        ctx.db
-          .select({
-            id: projects.id,
-            title: projects.title,
-          })
-          .from(projects)
-          .where(
-            and(
-              eq(projects.producerId, input.producerId),
-              eq(projects.artistEmail, contact.email),
-              eq(projects.depositPaid, true),
-              eq(projects.finalPaid, false),
-              notInArray(projects.stage, ["paid", "archived"]),
-            ),
-          )
-          .limit(1),
       ]);
 
       // 4. Index blocks by weekday → { morning?, evening? }. When a
@@ -661,12 +640,7 @@ const bookSubrouter = router({
         });
       }
 
-      const freeProject = projectRows[0];
-      return {
-        days,
-        freeBookingProjectId: freeProject?.id ?? null,
-        freeBookingProjectTitle: freeProject?.title ?? null,
-      };
+      return { days };
     }),
 
   // Multi-session credit ledger. For every deposit-paid project the

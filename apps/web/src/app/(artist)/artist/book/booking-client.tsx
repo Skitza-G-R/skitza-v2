@@ -16,8 +16,6 @@ type Day = {
 };
 type Availability = {
   days: Day[];
-  freeBookingProjectId: string | null;
-  freeBookingProjectTitle: string | null;
 };
 type Studio = {
   producerId: string;
@@ -152,7 +150,7 @@ export function BookingClient({
         block: selected.block,
         startMin: chosenStart,
         durationMin: DEFAULT_DURATION_MIN,
-        projectId: usingCredit ? null : availability.freeBookingProjectId,
+        projectId: null,
         productId: usingCredit ? null : selectedProductId,
         ...(selectedPackageProjectId
           ? { existingProjectId: selectedPackageProjectId }
@@ -382,7 +380,7 @@ export function BookingClient({
               ))}
             </div>
 
-            {chosenStart != null && !usingCredit && !availability.freeBookingProjectId ? (
+            {chosenStart != null && !usingCredit ? (
               <div>
                 <p className="text-xs font-mono uppercase tracking-wider text-[rgb(var(--fg-muted))] mb-2">
                   Select a service
@@ -452,9 +450,7 @@ export function BookingClient({
                 isPending ||
                 chosenStart == null ||
                 result?.ok ||
-                (!usingCredit &&
-                  !availability.freeBookingProjectId &&
-                  !selectedProductId)
+                (!usingCredit && !selectedProductId)
               }
               className="sk-press w-full rounded-[var(--radius-md)] px-4 py-3 text-[13.5px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
               style={{
@@ -468,9 +464,7 @@ export function BookingClient({
                   ? "Sent"
                   : usingCredit
                     ? `Use credit (${String(selectedPackage?.sessionsRemaining ?? 0)} left)`
-                    : availability.freeBookingProjectId
-                      ? "Confirm (free session)"
-                      : "Send booking request"}
+                    : "Send booking request"}
             </button>
           </div>
         </section>
