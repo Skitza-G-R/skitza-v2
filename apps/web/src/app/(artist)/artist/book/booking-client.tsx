@@ -467,7 +467,7 @@ export function BookingClient({
                 : result?.ok
                   ? "Sent"
                   : usingCredit
-                    ? `Use credit (${selectedPackage?.sessionsRemaining ?? 0} left)`
+                    ? `Use credit (${String(selectedPackage?.sessionsRemaining ?? 0)} left)`
                     : availability.freeBookingProjectId
                       ? "Confirm (free session)"
                       : "Send booking request"}
