@@ -497,6 +497,12 @@ export const clientContacts = pgTable("client_contacts", {
   // resolve all studios for this person via a single index lookup on
   // (clerkUserId).
   clerkUserId: text("clerk_user_id"),
+  // Soft-delete marker for artist-initiated disconnect (Settings →
+  // Disconnect). Set timestamp = "this artist removed the connection";
+  // null = active. Producer-side queries IGNORE this flag (CRM keeps
+  // history); artist-side queries filter `IS NULL` so a disconnected
+  // studio disappears from the switcher / music / store / book.
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
 }, (t) => ({
   uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
   clerkUserIdx: index("client_contacts_clerk_user_idx")

@@ -72,6 +72,7 @@ async function resolveProjectOwnership(
         eq(clientContacts.clerkUserId, clerkUserId),
         eq(clientContacts.producerId, project.producerId),
         eq(clientContacts.email, project.artistEmail.toLowerCase()),
+        isNull(clientContacts.archivedAt),
       ),
     )
     .limit(1);
@@ -105,7 +106,12 @@ const musicSubrouter = router({
         email: clientContacts.email,
       })
       .from(clientContacts)
-      .where(eq(clientContacts.clerkUserId, ctx.clerkUserId));
+      .where(
+        and(
+          eq(clientContacts.clerkUserId, ctx.clerkUserId),
+          isNull(clientContacts.archivedAt),
+        ),
+      );
 
     if (myContacts.length === 0) {
       return { projects: [] as MusicProjectRow[] };
@@ -495,6 +501,7 @@ async function resolveClientContact(
       and(
         eq(clientContacts.clerkUserId, clerkUserId),
         eq(clientContacts.producerId, producerId),
+        isNull(clientContacts.archivedAt),
       ),
     )
     .limit(1);
@@ -667,6 +674,7 @@ const bookSubrouter = router({
           and(
             eq(clientContacts.clerkUserId, ctx.clerkUserId),
             eq(clientContacts.producerId, input.producerId),
+            isNull(clientContacts.archivedAt),
           ),
         );
       if (contacts.length === 0) return [];
@@ -858,7 +866,12 @@ const bookSubrouter = router({
     const myContacts = await ctx.db
       .select({ email: clientContacts.email })
       .from(clientContacts)
-      .where(eq(clientContacts.clerkUserId, ctx.clerkUserId));
+      .where(
+        and(
+          eq(clientContacts.clerkUserId, ctx.clerkUserId),
+          isNull(clientContacts.archivedAt),
+        ),
+      );
     if (myContacts.length === 0) return { bookings: [] };
 
     const myEmails = [
@@ -949,7 +962,12 @@ const storeSubrouter = router({
           email: clientContacts.email,
         })
         .from(clientContacts)
-        .where(eq(clientContacts.clerkUserId, ctx.clerkUserId));
+        .where(
+          and(
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            isNull(clientContacts.archivedAt),
+          ),
+        );
 
       const myProducerIds = [
         ...new Set(myContacts.map((c) => c.producerId)),
@@ -1079,6 +1097,7 @@ const storeSubrouter = router({
           and(
             eq(clientContacts.clerkUserId, ctx.clerkUserId),
             eq(clientContacts.producerId, row.producerId),
+            isNull(clientContacts.archivedAt),
           ),
         )
         .limit(1);
@@ -1156,6 +1175,7 @@ const storeSubrouter = router({
           and(
             eq(clientContacts.clerkUserId, ctx.clerkUserId),
             eq(clientContacts.producerId, prod.producerId),
+            isNull(clientContacts.archivedAt),
           ),
         )
         .limit(1);
@@ -1296,7 +1316,12 @@ export const artistRouter = router({
       })
       .from(clientContacts)
       .innerJoin(producers, eq(producers.id, clientContacts.producerId))
-      .where(eq(clientContacts.clerkUserId, ctx.clerkUserId));
+      .where(
+        and(
+          eq(clientContacts.clerkUserId, ctx.clerkUserId),
+          isNull(clientContacts.archivedAt),
+        ),
+      );
 
     // brand is jsonb {logoUrl?: string, ...} — normalize to scalar
     const flat = rows.map((r) => ({
@@ -1333,7 +1358,12 @@ export const artistRouter = router({
         email: clientContacts.email,
       })
       .from(clientContacts)
-      .where(eq(clientContacts.clerkUserId, ctx.clerkUserId));
+      .where(
+        and(
+          eq(clientContacts.clerkUserId, ctx.clerkUserId),
+          isNull(clientContacts.archivedAt),
+        ),
+      );
 
     if (myContacts.length === 0) {
       return {
@@ -1657,7 +1687,12 @@ export const artistRouter = router({
     const myContacts = await ctx.db
       .select({ email: clientContacts.email })
       .from(clientContacts)
-      .where(eq(clientContacts.clerkUserId, ctx.clerkUserId));
+      .where(
+        and(
+          eq(clientContacts.clerkUserId, ctx.clerkUserId),
+          isNull(clientContacts.archivedAt),
+        ),
+      );
     if (myContacts.length === 0) return null;
     const myEmails = [
       ...new Set(myContacts.map((c) => c.email.toLowerCase())),
@@ -1686,6 +1721,71 @@ export const artistRouter = router({
       .limit(1);
     return rows[0] ?? null;
   }),
+
+  // Soft-disconnect the signed-in artist from one of their studios.
+  // Sets clientContacts.archivedAt so every artist-side read filters
+  // the row out (the row itself stays for the producer's CRM history).
+  //
+  // Blocked when the artist has any active booking (pending_approval,
+  // pending_payment, or confirmed) with this producer. The check
+  // filters bookings.artistEmail against the artist's own contact
+  // emails — joining bookings → clientContacts on producerId alone
+  // would surface OTHER artists' bookings and falsely block the
+  // disconnect.
+  disconnectProducer: artistProcedure
+    .input(z.object({ producerId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const myContacts = await ctx.db
+        .select({ email: clientContacts.email })
+        .from(clientContacts)
+        .where(
+          and(
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            eq(clientContacts.producerId, input.producerId),
+            isNull(clientContacts.archivedAt),
+          ),
+        );
+      if (myContacts.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      const myEmails = [...new Set(myContacts.map((c) => c.email.toLowerCase()))];
+
+      const activeBookings = await ctx.db
+        .select({ id: bookings.id })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.producerId, input.producerId),
+            inArray(bookings.artistEmail, myEmails),
+            inArray(bookings.status, [
+              "pending_approval",
+              "pending_payment",
+              "confirmed",
+            ]),
+          ),
+        )
+        .limit(1);
+      if (activeBookings.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Cannot disconnect — you have active bookings with this producer.",
+        });
+      }
+
+      await ctx.db
+        .update(clientContacts)
+        .set({ archivedAt: new Date() })
+        .where(
+          and(
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            eq(clientContacts.producerId, input.producerId),
+            isNull(clientContacts.archivedAt),
+          ),
+        );
+
+      return { ok: true as const };
+    }),
 
   // Nested sub-router so future siblings (project detail, addComment,
   // etc.) live under the same `artist.music.*` namespace.

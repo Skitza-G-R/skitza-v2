@@ -83,6 +83,12 @@ export default async function ArtistHomePage({
         todayLabel={todayLabel}
         statusLine={statusLine}
       />
+      <Link
+        href="/artist/book"
+        className="sk-press flex w-full items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-6 py-3.5 font-syne font-bold text-black transition-opacity hover:opacity-90"
+      >
+        + Book a session
+      </Link>
       {resolvedSearchParams.payment === "success" ? (
         <div className="rounded-[var(--radius-md)] border border-[rgb(var(--success)/0.4)] bg-[rgb(var(--success)/0.06)] p-4 mb-4">
           <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">

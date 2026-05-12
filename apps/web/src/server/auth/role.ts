@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { createDb, producers, clientContacts, eq } from "@skitza/db";
+import { createDb, producers, clientContacts, eq, and, isNull } from "@skitza/db";
 import { isAutoSlug } from "~/lib/slug";
 
 // Role resolution — the single source of truth for "what kind of user
@@ -101,7 +101,12 @@ export async function fetchUserRole(params: {
     const [contact] = await db
       .select({ id: clientContacts.id })
       .from(clientContacts)
-      .where(eq(clientContacts.clerkUserId, params.userId))
+      .where(
+        and(
+          eq(clientContacts.clerkUserId, params.userId),
+          isNull(clientContacts.archivedAt),
+        ),
+      )
       .limit(1);
     hasClientContacts = contact !== undefined;
   }

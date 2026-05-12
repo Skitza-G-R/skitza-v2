@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 import { Wordmark } from "~/components/nav/wordmark";
+import { DisconnectProducerButton } from "~/components/artist/disconnect-producer-button";
 
 // Polished Settings — mirrors the locked design's:
 //   - "Settings." hero
@@ -166,12 +167,10 @@ export default async function ArtistSettingsPage() {
                     {s.slug}
                   </p>
                 </div>
-                <span
-                  aria-hidden
-                  className="font-mono text-[10.5px] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
-                >
-                  →
-                </span>
+                <DisconnectProducerButton
+                  producerId={s.producerId}
+                  producerName={s.name}
+                />
               </li>
             ))}
           </ul>

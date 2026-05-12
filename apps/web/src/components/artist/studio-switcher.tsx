@@ -1,101 +1,143 @@
 "use client";
 
-import Link from "next/link";
-import { useState, useRef, useEffect } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import type { Studio } from "~/server/artist/identity";
 
-// Server-resolved initial list. When the artist has 2+ studios,
-// opens a dropdown that swaps the active studio via the ?studio=
-// URL param. Tabs read that param server-side to scope data.
+// Server-resolved studio list (artist.studios). When the artist has
+// 2+ studios, the trigger opens a centered modal — "Pick a studio" —
+// with backdrop blur. Picking a studio swaps ?studio=<id> on the
+// current path so every artist tab re-reads the selection on
+// navigation. The URL (not a cookie) remains the source of truth, so
+// deep-links from email / share copy / browser back work unchanged.
 //
-// When studios.length === 1, renders as a non-interactive chip —
-// no dropdown chevron, no click affordance.
+// Single-studio artists see a static chip — no modal, no chevron.
 export function StudioSwitcher({ studios }: { studios: Studio[] }) {
   const [open, setOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activeId = searchParams.get("studio") ?? studios[0]?.producerId;
   const active = studios.find((s) => s.producerId === activeId) ?? studios[0];
 
-  // Close on outside click
+  // Esc closes the modal — match the browser's mental model for any
+  // overlay surface. Click-outside is handled by the backdrop button.
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (!dropdownRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-      }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
     };
-    document.addEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
     };
   }, [open]);
 
   if (!active) return null;
 
-  // Build a URL preserving the current tab path but swapping ?studio=
   const urlFor = (producerId: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("studio", producerId);
     return `${pathname}?${params.toString()}`;
   };
 
-  // Single studio: static chip, no dropdown
+  const pick = (producerId: string) => {
+    setOpen(false);
+    if (producerId === active.producerId) return;
+    router.push(urlFor(producerId));
+  };
+
+  // Single studio: static chip, no overlay.
   if (studios.length <= 1) {
     return (
       <div className="flex items-center gap-2">
         <StudioAvatar studio={active} />
-        <span className="font-display text-sm tracking-tight">{active.name}</span>
+        <span className="font-display text-sm tracking-tight">
+          {active.name}
+        </span>
       </div>
     );
   }
 
-  // Multi-studio: clickable chip + dropdown
   return (
-    <div ref={dropdownRef} className="relative">
+    <>
       <button
         type="button"
         onClick={() => {
-          setOpen((v) => !v);
+          setOpen(true);
         }}
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[rgb(var(--bg-sunken))]"
+        className="sk-press flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[rgb(var(--bg-sunken))]"
       >
         <StudioAvatar studio={active} />
-        <span className="font-display text-sm tracking-tight">{active.name}</span>
-        <span aria-hidden className="text-xs text-[rgb(var(--fg-muted))]">▾</span>
+        <span className="font-display text-sm tracking-tight">
+          {active.name}
+        </span>
+        <span aria-hidden className="text-xs text-[rgb(var(--fg-muted))]">
+          ▾
+        </span>
       </button>
+
       {open ? (
-        <ul
-          role="listbox"
-          className="sk-pop absolute left-0 top-full z-40 mt-1 min-w-[220px] rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] py-1 shadow-lg"
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Pick a studio"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-8 backdrop-blur-sm"
         >
-          {studios.map((studio) => (
-            <li key={studio.producerId}>
-              <Link
-                href={urlFor(studio.producerId)}
-                onClick={() => {
-                  setOpen(false);
-                }}
-                role="option"
-                aria-selected={studio.producerId === active.producerId}
-                className={`flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-[rgb(var(--bg-sunken))] ${
-                  studio.producerId === active.producerId
-                    ? "text-[rgb(var(--brand-primary))]"
-                    : "text-[rgb(var(--fg-primary))]"
-                }`}
-              >
-                <StudioAvatar studio={studio} />
-                <span className="truncate">{studio.name}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+          {/* Backdrop click target — separate from the modal body so a
+              click outside dismisses without bubbling into the list. */}
+          <button
+            type="button"
+            aria-label="Close studio picker"
+            onClick={() => {
+              setOpen(false);
+            }}
+            className="absolute inset-0 cursor-default"
+            tabIndex={-1}
+          />
+          <div className="relative mt-20 w-full max-w-sm rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[var(--shadow-lg)]">
+            <h3 className="mb-3 font-mono text-[0.66rem] font-semibold uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+              Pick a studio
+            </h3>
+            <ul role="listbox" className="space-y-1">
+              {studios.map((studio) => {
+                const isActive = studio.producerId === active.producerId;
+                return (
+                  <li key={studio.producerId}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      onClick={() => {
+                        pick(studio.producerId);
+                      }}
+                      className={`sk-press flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-[rgb(var(--bg-sunken))] ${
+                        isActive
+                          ? "bg-[rgb(var(--brand-primary)/0.08)]"
+                          : ""
+                      }`}
+                    >
+                      <StudioAvatar studio={studio} />
+                      <span
+                        className={`min-w-0 flex-1 truncate font-display text-sm font-bold tracking-tight ${
+                          isActive
+                            ? "text-[rgb(var(--brand-primary))]"
+                            : "text-[rgb(var(--fg-primary))]"
+                        }`}
+                      >
+                        {studio.name}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -110,7 +152,6 @@ function StudioAvatar({ studio }: { studio: Studio }) {
       />
     );
   }
-  // Fallback: first initial in a brand-colored circle
   const initial = studio.name.charAt(0).toUpperCase();
   return (
     <div
