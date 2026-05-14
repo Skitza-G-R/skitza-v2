@@ -520,6 +520,10 @@ export const clientContacts = pgTable("client_contacts", {
   // from the Invite-to-App modal. Cleared when Clerk webhook resolves
   // `clerkUserId`. NULL means "no invite ever sent".
   invitedAt: timestamp("invited_at", { withTimezone: true }),
+  // Drag-to-reorder slot for the Clients list. NOT NULL with default 0
+  // so existing rows back-fill safely. Reorder mutations update many
+  // rows in a single transaction.
+  position: integer("position").notNull().default(0),
 }, (t) => ({
   uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
   clerkUserIdx: index("client_contacts_clerk_user_idx")

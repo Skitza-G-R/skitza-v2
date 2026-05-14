@@ -27,3 +27,13 @@ describe("Phase 0 — client_contacts.invited_at", () => {
     expect(col.notNull).toBe(false);
   });
 });
+
+describe("Phase 0 — client_contacts.position", () => {
+  it("exists as an integer with default 0 for drag-reorder", () => {
+    const col = clientContacts.position;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("position");
+    expect(col.notNull).toBe(true);
+    expect(col.default).toBe(0);
+  });
+});
