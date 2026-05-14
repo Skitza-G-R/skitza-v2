@@ -1,61 +1,43 @@
 import { auth } from "@clerk/nextjs/server";
 import { notFound, redirect } from "next/navigation";
 
-import { ClientDetailHeader } from "~/components/dashboard/clients/detail/client-detail-header";
-import { ClientDetailTabs } from "~/components/dashboard/clients/detail/client-detail-tabs";
-import { ClientNotesPanel } from "~/components/dashboard/clients/detail/client-notes-panel";
-import { ClientOverviewPanel } from "~/components/dashboard/clients/detail/client-overview-panel";
-import { ClientPaymentsPanel } from "~/components/dashboard/clients/detail/client-payments-panel";
-import { ClientProjectsPanel } from "~/components/dashboard/clients/detail/client-projects-panel";
-import { resolveClientDetailTab } from "~/lib/dashboard/client-detail-tab-key";
+import {
+  ClientSpaceHero,
+  type ClientSpaceHeroData,
+} from "~/components/dashboard/clients/client-space-hero";
+import {
+  ProjectRow,
+  type ProjectRowData,
+} from "~/components/dashboard/projects/project-row";
+import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // /dashboard/clients-projects/clients/[id] — Client Space.
 //
-// The Clients tab on the parent /dashboard/clients-projects page links
-// rows here (see ClientsListScreen line 123). Before this page existed
-// the link landed on a 404, which was the bug the founder hit. The
-// route is server-rendered with two parallel queries:
+// Phase 1 Task 17 — the page is a single-surface composition:
+//   • <ClientSpaceHero> — dark gradient band with the avatar, name,
+//     LinkPill, meta strip and 4-tile KPIs.
+//   • A vertical list of <ProjectRow> components for every project tied
+//     to this client.
 //
-//   • clientContacts.detail({ id }) — full payload (contact + stats +
-//     projects + comments). Producer-scoped via the procedure
-//     middleware, so a foreign UUID throws NOT_FOUND and the page
-//     calls notFound().
-//   • producer.me() — only consumed for `defaultCurrency` so the
-//     money strings honour ILS / EUR / GBP / USD per the producer's
-//     setting (per founder direction 2026-05-06).
-//
-// Tabs are URL-driven via `?tab=` so a refresh keeps the producer's
-// place. The pure resolver (~/lib/dashboard/client-detail-tab-key)
-// degrades to "overview" on anything unrecognised.
-//
-// Currency: the contact-level outstandingCents/lifetimeCents are
-// summed without per-project normalization. v1 displays in the
-// producer's defaultCurrency. Per-project currency mismatches will
-// look weird here — flagged on the PRD followups.
+// The old 4-tab structure (Overview / Projects / Payments / Notes) is
+// gone per the big-bang redesign. The detail tRPC payload still
+// surfaces tags / notes / referralSource for downstream consumers, but
+// no UI exposes them in Phase 1 (deferred to a future phase).
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function ClientDetailPage({
-  params,
-  searchParams,
-}: PageProps) {
+export default async function ClientDetailPage({ params }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const { id } = await params;
-  const sp = await searchParams;
-  const activeTab = resolveClientDetailTab(sp.tab);
-
   const caller = appRouter.createCaller({ userId });
 
-  // Two parallel calls — detail is the canonical data, me() is just
-  // for currency. If me() errors (e.g. a producer row hiccup), fall
-  // back to USD; the detail call's NOT_FOUND on a foreign id still
-  // funnels to the 404 page below.
+  // Parallel fetch — detail is the canonical client+projects payload,
+  // me() is consumed for slug (Invite modal URL) + defaultCurrency.
   let detail;
   try {
     detail = await caller.clientContacts.detail({ id });
@@ -63,127 +45,159 @@ export default async function ClientDetailPage({
     notFound();
   }
 
+  let producerSlug = "";
   let producerCurrency = "USD";
   try {
     const me = await caller.producer.me();
+    producerSlug = me.slug;
     producerCurrency = me.defaultCurrency;
   } catch (err) {
-    console.warn("[clients] producer.me failed for currency lookup", err);
+    console.warn("[clients/detail] producer.me failed", err);
   }
 
   // Pre-compute the next upcoming session across this client's
-  // projects. Header consumes a single { startsAt, projectTitle } so
-  // all the date-comparison logic stays here in the page rather than
-  // bloating the header component.
+  // projects — kept here (preserved helper) rather than inside the
+  // hero so the date-comparison logic stays presentational-free.
   const nextSession = pickNextSession(detail.projects);
 
-  // OUTSTANDING card sub-label data: how many of this client's
-  // projects have a non-zero unpaid balance. Same rollup the trpc
-  // detail() procedure already computed per-project; we just count
-  // the rows here rather than re-running the math. Pre-computed so
-  // the header stays presentational.
-  const unpaidProjectCount = detail.projects.filter(
-    (p) => p.outstandingCents > 0,
-  ).length;
+  // Build the hero payload. Phone is null in v1 (we don't store it on
+  // client_contacts yet); linkState defaults to "none" because detail
+  // doesn't currently surface invitedAt / clerkUserId — same limit as
+  // the list page (the Invite modal still stamps invited_at server-
+  // side; pill state will flip once the procedure surfaces those
+  // fields).
+  const heroData: ClientSpaceHeroData = {
+    id: detail.contact.id,
+    name: detail.contact.name,
+    email: detail.contact.email,
+    phone: null,
+    linkState: "none",
+    joinedAtIso: toIso(detail.contact.firstSeenAt),
+    lifetime: detail.stats.lifetimeCents,
+    outstanding: detail.stats.outstandingCents,
+    activeProjects: detail.stats.activeProjectCount,
+    currency: producerCurrency,
+    newProjectHref:
+      `/dashboard/clients-projects/new?clientEmail=${encodeURIComponent(
+        detail.contact.email,
+      )}&clientName=${encodeURIComponent(detail.contact.name)}`,
+  };
 
-  // "+ New project" — pre-fills the new-project form with the
-  // client's identity. Both fields are URI-encoded; the form reads
-  // them as defaults but the producer can edit before submit.
-  const newProjectHref =
-    `/dashboard/clients-projects/new?clientEmail=${encodeURIComponent(
-      detail.contact.email,
-    )}&clientName=${encodeURIComponent(detail.contact.name)}`;
+  // The hero needs to align its dark gradient band with the avatar
+  // identity — both derive from the contact's name via deriveGradient.
+  // Pre-resolving here keeps the page's intent explicit even though
+  // ClientSpaceHero also calls deriveGradient internally.
+  void deriveGradient(detail.contact.name);
+
+  // Map each detail project into the new ProjectRow shape. The list
+  // is intentionally read-only here — drag-to-reorder is a list-view
+  // affordance, not a single-client surface.
+  const projectRows: ProjectRowData[] = detail.projects.map((p) => {
+    const stage = p.stage;
+    const tone: ProjectRowData["statusTone"] =
+      stage === "archived"
+        ? "neutral"
+        : stage === "paid"
+          ? "ok"
+          : p.outstandingCents > 0 && !p.nextSessionAt
+            ? "danger"
+            : "warn";
+    return {
+      id: p.id,
+      title: p.title,
+      client: detail.contact.name,
+      meta: detail.contact.email,
+      progress: STAGE_PROGRESS[stage],
+      balance: p.outstandingCents,
+      deadline: formatDeadlineShort(p.nextSessionAt),
+      status: STAGE_LABEL[stage],
+      statusTone: tone,
+      currency: p.currency ?? producerCurrency,
+    };
+  });
 
   return (
     <main className="sk-page-enter">
-      {/* Hero band + KPI strip — both rendered by the header component
-          so the breadcrumb, identity slab, and KPI floats stay
-          composed as one editorial slab. Hero is full-bleed; KPI
-          strip sits in the standard 1400px container and overlaps
-          the band's bottom edge. */}
-      <ClientDetailHeader
-        contact={{
-          id: detail.contact.id,
-          name: detail.contact.name,
-          email: detail.contact.email,
-          firstSeenAt: toDate(detail.contact.firstSeenAt),
-        }}
-        stats={{
-          activeProjectCount: detail.stats.activeProjectCount,
-          totalProjectCount: detail.stats.totalProjectCount,
-          outstandingCents: detail.stats.outstandingCents,
-          unpaidProjectCount,
-        }}
-        nextSession={nextSession}
-        currency={producerCurrency}
-        newProjectHref={newProjectHref}
-      />
+      <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
+        <ClientSpaceHero client={heroData} producerSlug={producerSlug} />
 
-      <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-8 sm:px-6 sm:pt-10 lg:px-8">
-        <ClientDetailTabs
-          active={activeTab}
-          clientId={detail.contact.id}
-          projectCount={detail.projects.length}
-        />
+        {projectRows.length === 0 ? (
+          <div
+            role="status"
+            className="mt-6 rounded-[var(--radius-md)] border border-dashed p-8 text-center text-[13px]"
+            style={{
+              borderColor: "rgb(var(--border-subtle))",
+              background: "rgb(var(--bg-elevated))",
+              color: "rgb(var(--fg-muted))",
+            }}
+          >
+            No projects with this client yet.
+          </div>
+        ) : (
+          <div className="mt-6 flex flex-col gap-2">
+            {projectRows.map((row) => (
+              <ProjectRow key={row.id} row={row} />
+            ))}
+          </div>
+        )}
 
-        <div
-          key={activeTab}
-          id={`client-detail-panel-${activeTab}`}
-          aria-labelledby={`client-detail-tab-${activeTab}`}
-          className="pt-6"
-        >
-          {activeTab === "overview" ? (
-            <ClientOverviewPanel
-              clientId={detail.contact.id}
-              clientName={detail.contact.name}
-              projects={detail.projects}
-              comments={detail.comments}
-              stats={{
-                lifetimeCents: detail.stats.lifetimeCents,
-                outstandingCents: detail.stats.outstandingCents,
-              }}
-              currency={producerCurrency}
-            />
-          ) : null}
-          {activeTab === "projects" ? (
-            <ClientProjectsPanel
-              projects={detail.projects}
-              currency={producerCurrency}
-            />
-          ) : null}
-          {activeTab === "payments" ? (
-            <ClientPaymentsPanel
-              projects={detail.projects}
-              stats={{
-                lifetimeCents: detail.stats.lifetimeCents,
-                outstandingCents: detail.stats.outstandingCents,
-              }}
-              currency={producerCurrency}
-            />
-          ) : null}
-          {activeTab === "notes" ? (
-            <ClientNotesPanel
-              contact={{
-                notes: detail.contact.notes,
-                tags: detail.contact.tags,
-                referralSource: detail.contact.referralSource,
-              }}
-              projectCount={detail.projects.length}
-            />
-          ) : null}
-        </div>
+        {/* Next session preview — surfaced under the project list for
+            quick scan rhythm. Kept lightweight; the hero already shows
+            the KPI counts, this is a single-line schedule reminder. */}
+        {nextSession ? (
+          <p
+            className="mt-4 text-[12px]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            Next session:{" "}
+            <span style={{ color: "rgb(var(--fg-default))" }}>
+              {formatSessionAt(nextSession.startsAt)}
+            </span>{" "}
+            for {nextSession.projectTitle}
+          </p>
+        ) : null}
       </div>
     </main>
   );
 }
 
-// SQL `min(... case when ...)` returns Date | string | null depending
-// on the driver's adapter; coerce to Date for the header / panels.
-function toDate(raw: Date | string): Date {
-  return raw instanceof Date ? raw : new Date(raw);
+// ─────────────────────────────────────────────────────────────────────
+// helpers
+// ─────────────────────────────────────────────────────────────────────
+
+type DetailProjectStage =
+  | "lead"
+  | "booked"
+  | "in_production"
+  | "final_review"
+  | "paid"
+  | "archived";
+
+const STAGE_PROGRESS: Record<DetailProjectStage, number> = {
+  lead: 12,
+  booked: 30,
+  in_production: 55,
+  final_review: 80,
+  paid: 100,
+  archived: 100,
+};
+
+const STAGE_LABEL: Record<DetailProjectStage, string> = {
+  lead: "Lead",
+  booked: "Booked",
+  in_production: "In production",
+  final_review: "Review",
+  paid: "Done",
+  archived: "Archived",
+};
+
+function toIso(raw: Date | string): string {
+  return raw instanceof Date ? raw.toISOString() : new Date(raw).toISOString();
 }
 
-function pickNextSession(
+// SQL `min(... case when ...)` returns Date | string | null depending
+// on the driver; pickNextSession normalises to a single Date.
+export function pickNextSession(
   projects: readonly { title: string; nextSessionAt: Date | string | null }[],
 ): { startsAt: Date; projectTitle: string } | null {
   let best: { startsAt: Date; projectTitle: string } | null = null;
@@ -199,4 +213,36 @@ function pickNextSession(
     }
   }
   return best;
+}
+
+function formatDeadlineShort(at: Date | string | null): string {
+  if (at == null) return "—";
+  const date = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(date.getTime())) return "—";
+  const now = Date.now();
+  const diffMs = date.getTime() - now;
+  const diffDays = Math.round(diffMs / (24 * 60 * 60 * 1000));
+  if (diffDays < 0) return `${String(Math.abs(diffDays))}d ago`;
+  if (diffDays <= 14) return `${String(diffDays)}d`;
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+    }).format(date);
+  } catch {
+    return "—";
+  }
+}
+
+function formatSessionAt(at: Date): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(at);
+  } catch {
+    return at.toISOString();
+  }
 }

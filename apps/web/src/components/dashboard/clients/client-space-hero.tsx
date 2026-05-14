@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { Plus, Mail, Phone, FolderOpen, Calendar } from "lucide-react";
 
 import {
@@ -11,6 +12,7 @@ import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { heroBg } from "~/lib/clients/hero-bg";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 
+import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
 
 // The Client Space hero replaces the old 4-tab header. One big dark
@@ -18,6 +20,12 @@ import { LinkPill, type LinkPillState } from "./link-pill";
 // inline, meta strip (email · phone · projects · joined date), then a
 // 4-tile stats row (Lifetime · Outstanding · Active projects · Joined).
 // Right-side "+ New project" pill links to the new-project form.
+//
+// Phase 1 Task 17 — the hero owns the InviteToAppModal mount (same
+// pattern as WorkspaceListView). When LinkPill is in the "none" state
+// and producerSlug is provided, clicking the pill opens the modal. The
+// modal lives inside this component so the page doesn't have to weave
+// callbacks through.
 
 export interface ClientSpaceHeroData {
   id: string;
@@ -43,6 +51,11 @@ export interface ClientSpaceHeroData {
 
 interface ClientSpaceHeroProps {
   client: ClientSpaceHeroData;
+  /** Producer slug — needed by the inline InviteToAppModal to build the
+   *  public invite URL. When provided, the LinkPill's "none" state
+   *  opens the modal automatically; an explicit onInvite override still
+   *  takes precedence for callers that want to handle the click. */
+  producerSlug?: string;
   onInvite?: (client: ClientSpaceHeroData) => void;
 }
 
@@ -71,10 +84,11 @@ function formatJoinedFallback(iso: string): string {
 
 export function ClientSpaceHero({
   client,
+  producerSlug,
   onInvite,
 }: ClientSpaceHeroProps) {
   const {
-    id: _id,
+    id,
     name,
     email,
     phone,
@@ -87,7 +101,23 @@ export function ClientSpaceHero({
     currency = "USD",
     newProjectHref,
   } = client;
-  void _id; // captured for parent identification flows; not rendered
+
+  // Internal modal state — opens when the LinkPill's "none" state is
+  // clicked AND the parent didn't provide an `onInvite` override AND
+  // producerSlug is present. We don't open if producerSlug is missing
+  // because the invite URL would be malformed.
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const canMountInvite = !onInvite && producerSlug !== undefined && producerSlug.length > 0;
+  const handlePillInvite = () => {
+    if (onInvite) {
+      onInvite(client);
+    } else if (canMountInvite) {
+      setInviteOpen(true);
+    }
+  };
+  const closeInvite = () => {
+    setInviteOpen(false);
+  };
 
   const initials = producerInitials(name);
   const avatarBg = producerGradient(name);
@@ -118,11 +148,8 @@ export function ClientSpaceHero({
               <h1 className="truncate font-syne text-[28px] font-bold leading-tight text-white">
                 {name}
               </h1>
-              {onInvite ? (
-                <LinkPill
-                  state={linkState}
-                  onInvite={() => { onInvite(client); }}
-                />
+              {onInvite || canMountInvite ? (
+                <LinkPill state={linkState} onInvite={handlePillInvite} />
               ) : (
                 <LinkPill state={linkState} />
               )}
@@ -178,6 +205,20 @@ export function ClientSpaceHero({
         <StatTile label="Active projects" value={activeProjects} />
         <StatTile label="Joined" value={joined} />
       </div>
+
+      {!onInvite && producerSlug !== undefined && producerSlug.length > 0 ? (
+        <InviteToAppModal
+          open={inviteOpen}
+          onClose={closeInvite}
+          client={{
+            id,
+            name,
+            email,
+            gradient: avatarBg,
+          }}
+          producerSlug={producerSlug}
+        />
+      ) : null}
     </section>
   );
 }
