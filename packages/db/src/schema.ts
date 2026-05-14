@@ -416,6 +416,9 @@ export const projects = pgTable("projects", {
   // chars at the procedure layer; the column itself is `text` so we can
   // raise the cap later without a migration.
   notes: text("notes"),
+  // Drag-to-reorder slot for the Projects list. Same pattern as
+  // client_contacts.position.
+  position: integer("position").notNull().default(0),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
