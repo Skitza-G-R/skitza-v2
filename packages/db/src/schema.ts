@@ -319,6 +319,18 @@ export const projectStage = pgEnum("project_stage", [
   "archived",      // closed
 ]);
 
+// New workflow enum introduced by the Clients & Projects v3 redesign
+// (design doc: docs/plans/active/2026-05-14-clients-projects-redesign-design.md).
+// Drives the per-song stepper + the new Status stat tile on the Album hero.
+// Lives alongside `projectStage` — the old enum keeps running billing.
+export const workflowStage = pgEnum("workflow_stage", [
+  "brief",
+  "production",
+  "mixing",
+  "mastering",
+  "done",
+]);
+
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
   producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
