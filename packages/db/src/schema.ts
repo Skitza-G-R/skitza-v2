@@ -296,6 +296,16 @@ export const bookings = pgTable("bookings", {
   // to confirmed so the success page can show "Confirmation #..." back
   // to the artist. Nullable — Stripe-paid bookings won't have one.
   tranzilaConfirmationCode: text("tranzila_confirmation_code"),
+  // Phase 0 of Clients & Projects v3 — links a booking to a specific
+  // song so the Song Space's Sessions tab can scope to that song.
+  // Nullable to preserve existing booking rows (they pre-date this
+  // column and were never tied to a song). ON DELETE SET NULL so a
+  // song delete doesn't cascade-delete sessions. Forward reference to
+  // `projectTracks` (declared further down) handled via the lazy
+  // callback form, same pattern as `projectId` above.
+  songId: uuid("song_id").references((): AnyPgColumn => projectTracks.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Booking = typeof bookings.$inferSelect;

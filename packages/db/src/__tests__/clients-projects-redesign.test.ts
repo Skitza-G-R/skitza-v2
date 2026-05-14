@@ -67,3 +67,12 @@ describe("Phase 0 — project_tracks.workflow_stage", () => {
     expect(col.default).toBe("brief");
   });
 });
+
+describe("Phase 0 — bookings.song_id", () => {
+  it("exists as a nullable uuid FK to project_tracks", () => {
+    const col = bookings.songId;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("song_id");
+    expect(col.notNull).toBe(false);
+  });
+});
