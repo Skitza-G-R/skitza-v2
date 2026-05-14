@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
-import { Fraunces, Outfit, Syne, JetBrains_Mono } from "next/font/google";
+import { Outfit, Syne, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
 import { PostHogProvider } from "~/components/observability/posthog-provider";
@@ -9,55 +9,42 @@ import { SwRegister } from "~/components/shell/sw-register";
 import { ToastProvider } from "~/components/ui/toast";
 import "./globals.css";
 
-// Warm cream typography stack (Phase D).
-// - Fraunces: variable-axis display serif (SOFT + opsz + WONK) — replaces
-//   Syne. Used for all editorial headings via the `.font-display` utility.
-// - Outfit: clean modern sans body. Default via CSS var.
-// - JetBrains Mono: numerics + code — used via `.font-mono` utility.
+// Locked typography stack (v3-ui-design, 2026-05-05).
+// - Syne 600/700/800: ALL editorial headings + the "Skitza." wordmark.
+//   Surfaces the same `--font-syne` variable that globals.css aliases as
+//   `--font-display`, `--font-head`, and the Tailwind `font-syne` utility.
+// - Outfit 300-800: body, labels, descriptions. Surfaces `--font-outfit`
+//   which globals.css aliases as `--font-body`.
+// - JetBrains Mono 400/500/600/700: timestamps, prices, durations, IDs.
+//   Always tabular-nums (the `font-mono` @utility in globals.css enables
+//   `tnum` + `ss02` features).
 //
-// Each Next/font loader attaches a CSS variable on <html>. globals.css
-// aliases the semantic names (`--font-display` etc.) to these, so every
-// existing `var(--font-display)` / `var(--font-body)` consumer keeps
-// working without renames.
-//
-// Landing-restore (S1, 2026-04-26) adds two more font variables:
-// - `--font-body` → Outfit (weights 300/400/500/600) for landing body
-//   text. Lives alongside `--font-outfit` (which the authed app uses)
-//   so neither surface has to migrate.
-// - `--font-head` → Syne (weights 700/800) for landing editorial
-//   headings — the founder's signature display face. Used ONLY under
-//   `.landing-root` (apps/web/src/styles/landing.css).
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-fraunces",
-  display: "swap",
-  axes: ["SOFT", "opsz", "WONK"],
-});
+// Fraunces — retired. The prior Phase D stack used Fraunces as the
+// display serif; the locked spec replaces it with Syne (extrabold,
+// tight tracking) per `notes/design-system.md`. globals.css repoints
+// `--font-display` → `--font-syne` so existing `.font-display`
+// consumers continue rendering without a per-file migration.
 const outfit = Outfit({
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
   variable: "--font-outfit",
-  display: "swap",
-});
-const outfitBody = Outfit({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
-  variable: "--font-body",
   display: "swap",
 });
 const syne = Syne({
   subsets: ["latin"],
-  weight: ["700", "800"],
-  variable: "--font-head",
+  weight: ["600", "700", "800"],
+  variable: "--font-syne",
   display: "swap",
 });
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-jetbrains-mono",
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.SITE_URL ?? "https://skitza-v2-web.vercel.app"),
+  metadataBase: new URL(process.env.SITE_URL ?? "https://skitza.app"),
   title: {
     default: "Skitza — Business automation for music producers",
     template: "%s — Skitza",
@@ -90,8 +77,8 @@ export const metadata: Metadata = {
 };
 
 // Viewport + theme-color — matches the warm cream body so the browser
-// chrome blends in on mobile. :root is now light by default; dark mode
-// is an opt-in flip via next-themes (Phase D).
+// chrome blends in on mobile. :root is light by default; dark mode is
+// an opt-in flip via next-themes.
 //
 // `viewportFit: "cover"` is required for iOS safe-area insets to
 // resolve to non-zero values inside the notch / home-indicator zones;
@@ -104,7 +91,7 @@ export const metadata: Metadata = {
 // zooming to 200%+. We used to rely on the browser default, but being
 // explicit future-proofs against a Next.js viewport default change.
 export const viewport: Viewport = {
-  themeColor: "#F4EFE7",
+  themeColor: "#F2EDE6",
   colorScheme: "light",
   width: "device-width",
   initialScale: 1,
@@ -113,41 +100,79 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-// Clerk theming via `appearance.variables` so we don't add @clerk/themes.
-// Hex values match the new :root (warm cream + amber). Clerk doesn't
-// support rgb space-separated channel syntax in `variables`, so hex.
-// NOTE: Clerk's appearance is static here — it doesn't track the
-// next-themes toggle at runtime (Clerk initialises once). When dark
-// mode lands fully, a client-side ClerkProvider wrapper keyed off the
-// resolved theme would make these colours track. Minor; out of scope.
+// Clerk theming via `appearance.variables` — hex values mirror the
+// locked design system tokens (#D4960A amber on #FFFFFF cards over the
+// #F2EDE6 canvas). Clerk doesn't accept rgb space-separated channel
+// syntax in `variables`, so each value is duplicated in hex form here.
+// NOTE: Clerk initialises once with these values; a future client-side
+// ClerkProvider wrapper could swap on next-themes toggle. Out of scope.
+//
+// Phase 3 (v3) — `elements` extended for the split-screen auth shell
+// (`apps/web/src/app/(public)/(auth)/layout.tsx`). The locked design
+// (`/tmp/skitza-design/tabs/auth.jsx`) renders the form INLINE on the
+// FormColumn — no card border, no shadow, no Clerk-supplied header.
+// The hero copy ("Welcome back.", "Build your hall.") is provided by
+// `apps/web/src/components/auth/auth-hero.tsx`, which sits ABOVE the
+// `<SignIn>` / `<SignUp>` widget on each page. Therefore:
+// - `card` strips border/shadow/padding so Clerk's form blends into
+//   the column,
+// - `header` is hidden so Clerk's default "Sign in" / "Create your
+//   account" titles don't double up with the AuthHero,
+// - everything else (social buttons, divider, form fields, primary
+//   button, OTP, alerts) inherits the locked palette so the visible
+//   internals still match the design source.
 const clerkAppearance = {
   variables: {
-    colorPrimary: "#C98A0A",
-    colorBackground: "#FBF7F0",
-    colorInputBackground: "#FBF7F0",
-    colorInputText: "#1A1714",
-    colorText: "#1A1714",
+    colorPrimary: "#D4960A",
+    colorBackground: "#FFFFFF",
+    colorInputBackground: "#FFFFFF",
+    colorInputText: "#111009",
+    colorText: "#111009",
     colorTextSecondary: "#3D3730",
-    colorNeutral: "#6B6158",
-    colorDanger: "#B3321C",
-    colorSuccess: "#3F7D4E",
-    colorWarning: "#C98A0A",
-    borderRadius: "0.5rem",
+    colorNeutral: "#6B6359",
+    colorDanger: "#DC2626",
+    colorSuccess: "#22C55E",
+    colorWarning: "#F59E0B",
+    borderRadius: "0.625rem",
     fontFamily: "var(--font-body)",
     fontFamilyButtons: "var(--font-body)",
   },
   elements: {
-    card: "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] shadow-[var(--shadow-md)]",
-    headerTitle: "font-display text-[rgb(var(--fg-primary))]",
-    headerSubtitle: "text-[rgb(var(--fg-secondary))]",
+    rootBox: "w-full",
+    // Inline the form into the FormColumn — no card chrome.
+    card: "bg-transparent border-0 shadow-none rounded-none p-0",
+    // Hide Clerk's default header — AuthHero replaces it.
+    header: "hidden",
+    headerTitle: "hidden",
+    headerSubtitle: "hidden",
+    socialButtonsBlockButton:
+      "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-overlay))]",
+    socialButtonsBlockButtonText:
+      "text-[13px] font-semibold text-[rgb(var(--fg-primary))]",
+    socialButtonsProviderIcon: "h-4 w-4",
+    dividerLine: "bg-[rgb(var(--border-subtle))]",
+    dividerText:
+      "text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]",
+    formFieldLabel:
+      "text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]",
+    formFieldInput:
+      "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-primary))] focus:border-[rgb(var(--brand-primary))] focus:ring-[rgb(var(--brand-primary)/0.15)]",
+    formFieldErrorText: "text-[12px] text-[rgb(var(--fg-danger))]",
+    formFieldSuccessText: "text-[12px] text-[rgb(var(--fg-success))]",
     formButtonPrimary:
-      "bg-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.9)] text-[rgb(var(--fg-inverse))] normal-case font-medium",
-    footerActionText: "text-[rgb(var(--fg-secondary))]",
+      "bg-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.92)] text-white normal-case font-bold text-[13.5px] tracking-tight",
+    footerActionText: "text-[12.5px] text-[rgb(var(--fg-secondary))]",
     footerActionLink:
-      "text-[rgb(var(--brand-primary))] hover:text-[rgb(var(--brand-primary)/0.9)]",
-    formFieldLabel: "text-[rgb(var(--fg-primary))]",
-    identityPreviewText: "text-[rgb(var(--fg-primary))]",
-    identityPreviewEditButton: "text-[rgb(var(--brand-primary))]",
+      "text-[12.5px] font-bold text-[rgb(var(--brand-primary))] hover:text-[rgb(var(--brand-primary)/0.85)]",
+    identityPreviewText: "text-[13px] text-[rgb(var(--fg-primary))]",
+    identityPreviewEditButton:
+      "text-[12px] font-semibold text-[rgb(var(--brand-primary))]",
+    formResendCodeLink:
+      "text-[12px] font-bold text-[rgb(var(--brand-primary))]",
+    otpCodeFieldInput:
+      "font-mono text-[22px] font-extrabold border border-[rgb(var(--border-subtle))] focus:border-[rgb(var(--brand-primary))]",
+    alert:
+      "bg-[rgb(var(--fg-danger)/0.08)] border border-[rgb(var(--fg-danger)/0.2)] text-[rgb(var(--fg-danger))]",
   },
 } as const;
 
@@ -157,9 +182,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // (artist-welcome), (onboarding)) — each of those layouts mounts its
   // own <NextIntlClientProvider> and wraps its content in a <div
   // dir={...}> so RTL only fires where it's wanted. The landing,
-  // public storefront, sign-in/up, and the magic-link handler stay
-  // English/LTR regardless of the NEXT_LOCALE cookie, matching the
-  // "English is the universal default" product decision.
+  // public storefront, and sign-in/up stay English/LTR regardless of
+  // the NEXT_LOCALE cookie, matching the "English is the universal
+  // default" product decision.
   return (
     <ClerkProvider appearance={clerkAppearance}>
       {/* `suppressHydrationWarning` stays on <html>: next-themes sets
@@ -170,7 +195,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <html
         lang="en"
         dir="ltr"
-        className={`${fraunces.variable} ${outfit.variable} ${outfitBody.variable} ${syne.variable} ${jetbrainsMono.variable}`}
+        className={`${outfit.variable} ${syne.variable} ${jetbrainsMono.variable}`}
         suppressHydrationWarning
       >
         <body>

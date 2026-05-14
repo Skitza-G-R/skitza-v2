@@ -36,7 +36,15 @@ import { cn } from "~/lib/cn";
  */
 export type PortfolioPlatformKey = "spotify" | "youtube" | "instagram_reels";
 
-export type ExternalLinksFormState = Record<PortfolioPlatformKey, string>;
+/**
+ * Per-platform form row. T8 added the optional `title` field — when a
+ * producer wants to label a link beyond its platform (e.g. "Latest
+ * single", "Studio reel"). Persisted to producer_external_links.title.
+ * Empty string === no title (we still write the row when url is set).
+ */
+export type ExternalLinkFormRow = { url: string; title: string };
+
+export type ExternalLinksFormState = Record<PortfolioPlatformKey, ExternalLinkFormRow>;
 
 /**
  * Producer-facing metadata for each onboarding-exposed platform.
@@ -99,14 +107,19 @@ export function linkRowError(input: string): string | null {
  * input shape. Every platform gets an entry — empty URLs are passed
  * through so the action can DELETE the platform row. Whitespace is
  * trimmed; whitespace-only inputs collapse to "".
+ *
+ * T8 — title is forwarded too (empty string when the producer didn't
+ * fill the Link name input). Action writes it to the nullable
+ * producer_external_links.title column.
  */
 export function toLinksPayload(state: ExternalLinksFormState): {
-  links: Array<{ platform: PortfolioPlatformKey; url: string }>;
+  links: Array<{ platform: PortfolioPlatformKey; url: string; title: string }>;
 } {
   return {
     links: PORTFOLIO_PLATFORMS.map((p) => ({
       platform: p.key,
-      url: state[p.key].trim(),
+      url: state[p.key].url.trim(),
+      title: state[p.key].title.trim(),
     })),
   };
 }
@@ -125,57 +138,80 @@ export interface ExternalLinksEditorProps {
   value: ExternalLinksFormState;
   /** Update a single platform's URL. */
   onChange: (key: PortfolioPlatformKey, url: string) => void;
+  /** Update a single platform's title (Link name). T8. */
+  onTitleChange: (key: PortfolioPlatformKey, title: string) => void;
   /** When true, all inputs render disabled (e.g. while save is in flight). */
   disabled?: boolean;
 }
 
 /**
  * Empty initial state — useful for the parent step page on first
- * render. Each platform starts with an empty string, which the action
- * treats as "no row to write" (the empty-string DELETE branch is a
- * no-op when there's nothing to delete).
+ * render. Each platform starts with empty url + title; the action
+ * treats empty url as "no row to write" (the empty-string DELETE
+ * branch is a no-op when there's nothing to delete).
  */
 export function emptyExternalLinksState(): ExternalLinksFormState {
-  return { spotify: "", youtube: "", instagram_reels: "" };
+  return {
+    spotify: { url: "", title: "" },
+    youtube: { url: "", title: "" },
+    instagram_reels: { url: "", title: "" },
+  };
 }
 
 export function ExternalLinksEditor({
   value,
   onChange,
+  onTitleChange,
   disabled,
 }: ExternalLinksEditorProps) {
   return (
     <div className="flex flex-col gap-5">
       {PORTFOLIO_PLATFORMS.map((p) => {
-        const url = value[p.key];
-        const err = linkRowError(url);
-        const inputId = `onboarding-link-${p.key}`;
-        const errId = `${inputId}-error`;
+        const row = value[p.key];
+        const err = linkRowError(row.url);
+        const urlId = `onboarding-link-${p.key}`;
+        const titleId = `onboarding-link-${p.key}-title`;
+        const errId = `${urlId}-error`;
         return (
-          <div key={p.key} className="flex flex-col">
-            <Label htmlFor={inputId}>{p.label}</Label>
-            <Input
-              id={inputId}
-              type="url"
-              inputMode="url"
-              autoComplete="url"
-              spellCheck={false}
-              value={url}
-              placeholder={p.placeholder}
-              disabled={disabled}
-              onChange={(e) => { onChange(p.key, e.currentTarget.value); }}
-              aria-invalid={err ? true : undefined}
-              aria-describedby={err ? errId : undefined}
-              className={cn(EXTERNAL_LINK_INPUT_CLASS)}
-            />
-            {err ? (
-              <p
-                id={errId}
-                className="mt-1.5 text-xs text-[rgb(var(--fg-danger))]"
-              >
-                {err}
-              </p>
-            ) : null}
+          <div key={p.key} className="flex flex-col gap-3">
+            <div>
+              <Label htmlFor={urlId}>{p.label}</Label>
+              <Input
+                id={urlId}
+                type="url"
+                inputMode="url"
+                autoComplete="url"
+                spellCheck={false}
+                value={row.url}
+                placeholder={p.placeholder}
+                disabled={disabled}
+                onChange={(e) => { onChange(p.key, e.currentTarget.value); }}
+                aria-invalid={err ? true : undefined}
+                aria-describedby={err ? errId : undefined}
+                className={cn(EXTERNAL_LINK_INPUT_CLASS)}
+              />
+              {err ? (
+                <p
+                  id={errId}
+                  className="mt-1.5 text-xs text-[rgb(var(--fg-danger))]"
+                >
+                  {err}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <Label htmlFor={titleId}>Link name</Label>
+              <Input
+                id={titleId}
+                type="text"
+                value={row.title}
+                placeholder="Optional label"
+                disabled={disabled}
+                maxLength={120}
+                onChange={(e) => { onTitleChange(p.key, e.currentTarget.value); }}
+                className={cn(EXTERNAL_LINK_INPUT_CLASS)}
+              />
+            </div>
           </div>
         );
       })}

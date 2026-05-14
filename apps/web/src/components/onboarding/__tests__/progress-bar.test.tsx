@@ -7,17 +7,18 @@ import {
   segmentState,
 } from "../progress-bar";
 
-// Story 02 of the onboarding rebuild: the 4-segment progress bar at
-// the top of every step. The component stays presentational; the
-// data-shape that drives every segment's className + ARIA attrs is
-// exported so tests can assert behaviour without RTL (the repo
-// runs vitest in `node` env — no jsdom — so we mirror the
-// autopilot SWITCHES + Sidebar NAV_ITEMS conventions and pin the
-// pure helpers instead of the rendered DOM).
+// Story 02 of the onboarding rebuild: the multi-segment progress bar
+// at the top of every step. T8 bumped the wizard to 6 data-capture
+// steps (studio → services → service → availability → payment →
+// portfolio). The component stays presentational; the data-shape that
+// drives every segment's className + ARIA attrs is exported so tests
+// can assert behaviour without RTL (the repo runs vitest in `node` env
+// — no jsdom — so we mirror the autopilot SWITCHES + Sidebar NAV_ITEMS
+// conventions and pin the pure helpers instead of the rendered DOM).
 
-describe("Onboarding progress bar contract (Story 02)", () => {
-  it("expects exactly 4 segments per the architecture spec", () => {
-    expect(PROGRESS_TOTAL).toBe(4);
+describe("Onboarding progress bar contract (Story 02 / T8)", () => {
+  it("expects exactly 6 segments per the T8 architecture", () => {
+    expect(PROGRESS_TOTAL).toBe(6);
   });
 
   it("segmentState returns 'completed' for indices < current", () => {
@@ -59,13 +60,13 @@ describe("Onboarding progress bar contract (Story 02)", () => {
       role: "progressbar",
       "aria-valuenow": 2,
       "aria-valuemin": 1,
-      "aria-valuemax": 4,
+      "aria-valuemax": 6,
       "aria-label": "Onboarding progress",
     });
   });
 
   it("progressBarA11y mirrors current verbatim into aria-valuenow", () => {
     expect(progressBarA11y(1)["aria-valuenow"]).toBe(1);
-    expect(progressBarA11y(4)["aria-valuenow"]).toBe(4);
+    expect(progressBarA11y(6)["aria-valuenow"]).toBe(6);
   });
 });

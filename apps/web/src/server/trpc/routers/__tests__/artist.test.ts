@@ -23,6 +23,7 @@ const {
   const clientContactsMarker = {
     __table: "client_contacts",
     clerkUserId: { __column: "client_contacts.clerk_user_id" },
+    archivedAt: { __column: "client_contacts.archived_at" },
   };
   const producersMarker = {
     __table: "producers",
@@ -67,6 +68,8 @@ vi.mock("@skitza/db", () => ({
   clientContacts: clientContactsMarker,
   producers: producersMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
+  and: (...args: unknown[]) => ({ and: args }),
+  isNull: (col: unknown) => ({ isNull: col }),
 }));
 
 // Re-import the mocked symbol so the auth-boundary test asserts the
@@ -181,8 +184,8 @@ describe("artist.studios", () => {
     expect(result.studios[0]?.logoUrl).toBeNull();
   });
 
-  it("scopes WHERE to clientContacts.clerkUserId = ctx.userId (auth boundary)", async () => {
-    // Locks two invariants the data-shaping tests cannot:
+  it("scopes WHERE to clientContacts.clerkUserId = ctx.userId AND archivedAt IS NULL (auth boundary)", async () => {
+    // Locks three invariants the data-shaping tests cannot:
     //   1. The WHERE column is clientContacts.clerkUserId (the
     //      client_contacts table) — a regression to producers.clerkUserId
     //      would silently pass shape tests. We assert by object identity
@@ -190,13 +193,19 @@ describe("artist.studios", () => {
     //      which is mocked to clientContactsMarker — same reference here.
     //   2. The WHERE value is ctx.userId verbatim — no .toLowerCase(),
     //      no truncation, no hardcoded string.
+    //   3. Archived rows (artist disconnected from this studio) are
+    //      excluded — without the isNull guard, a disconnected studio
+    //      would still appear in the switcher.
     studiosSelectMock.mockResolvedValueOnce([]);
     const caller = await buildCaller("user_alice");
     await caller.artist.studios();
 
     const whereArg = whereSpy.mock.calls[0]?.[0];
     expect(whereArg).toEqual({
-      eq: [clientContacts.clerkUserId, "user_alice"],
+      and: [
+        { eq: [clientContacts.clerkUserId, "user_alice"] },
+        { isNull: clientContacts.archivedAt },
+      ],
     });
   });
 });

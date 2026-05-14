@@ -6,11 +6,19 @@ import type { ActivityItem } from "~/server/trpc/routers/artist";
 // The router did all the per-row message-building work, so this just
 // renders. When deepLink is null (e.g. session_confirmed has nowhere
 // useful to go), the row renders as a non-interactive `<div>`.
+//
+// Polished to mirror the locked design's "small avatar square + text
+// + timestamp" pattern, replacing emoji with a small kind-coloured
+// dot so the list feels of-a-piece with the rest of the artist app
+// (no other surface uses emoji glyphs).
 
-const KIND_ICON: Record<ActivityItem["kind"], string> = {
-  track_uploaded: "🎵",
-  session_confirmed: "✅",
-  invoice_paid: "💸",
+const KIND_DOT: Record<ActivityItem["kind"], string> = {
+  // brand-amber for new-music events
+  track_uploaded: "rgb(var(--brand-primary))",
+  // green for confirmed sessions
+  session_confirmed: "rgb(var(--fg-success))",
+  // copper for money-flow events
+  invoice_paid: "rgb(var(--brand-copper))",
 };
 
 export function ActivityFeed({ events }: { events: ActivityItem[] }) {
@@ -18,11 +26,11 @@ export function ActivityFeed({ events }: { events: ActivityItem[] }) {
     return (
       <section
         aria-labelledby="activity-heading"
-        className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-5"
+        className="reveal-up rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-5"
       >
         <h2
           id="activity-heading"
-          className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
+          className="font-mono text-[0.66rem] font-semibold uppercase tracking-wider text-[rgb(var(--fg-muted))]"
         >
           Activity
         </h2>
@@ -34,19 +42,18 @@ export function ActivityFeed({ events }: { events: ActivityItem[] }) {
   }
 
   return (
-    <section
-      aria-labelledby="activity-heading"
-      className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
-    >
+    <section aria-labelledby="activity-heading" className="reveal-up">
       <h2
         id="activity-heading"
-        className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
+        className="mb-2 font-mono text-[0.66rem] font-semibold uppercase tracking-wider text-[rgb(var(--fg-muted))]"
       >
         Activity
       </h2>
-      <ul className="mt-3 divide-y divide-[rgb(var(--border-subtle))]">
-        {events.map((event, idx) => (
-          <li key={`${event.kind}-${String(idx)}-${String(event.occurredAt.getTime())}`}>
+      <ul className="divide-y divide-[rgb(var(--border-subtle))]">
+        {events.slice(0, 4).map((event, idx) => (
+          <li
+            key={`${event.kind}-${String(idx)}-${String(event.occurredAt.getTime())}`}
+          >
             <ActivityRow event={event} />
           </li>
         ))}
@@ -57,30 +64,34 @@ export function ActivityFeed({ events }: { events: ActivityItem[] }) {
 
 function ActivityRow({ event }: { event: ActivityItem }) {
   const inner = (
-    <>
-      <span aria-hidden className="text-base">
-        {KIND_ICON[event.kind]}
-      </span>
+    <div className="flex items-start gap-3 py-3">
+      <span
+        aria-hidden
+        className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+        style={{ background: KIND_DOT[event.kind] }}
+      />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-[rgb(var(--fg-primary))]">{event.message}</p>
-        <p className="text-xs text-[rgb(var(--fg-muted))]">
+        <p className="text-[13px] leading-snug text-[rgb(var(--fg-default))]">
+          {event.message}
+        </p>
+        <p className="mt-0.5 font-mono text-[10.5px] text-[rgb(var(--fg-muted))]">
           {formatRelative(event.occurredAt)}
         </p>
       </div>
-    </>
+    </div>
   );
 
   if (event.deepLink) {
     return (
       <Link
         href={event.deepLink}
-        className="flex items-center gap-3 py-3 transition-opacity hover:opacity-80"
+        className="block transition-colors hover:bg-[rgb(var(--bg-overlay))]"
       >
         {inner}
       </Link>
     );
   }
-  return <div className="flex items-center gap-3 py-3">{inner}</div>;
+  return inner;
 }
 
 function formatRelative(d: Date): string {

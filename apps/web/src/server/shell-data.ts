@@ -31,7 +31,6 @@ export interface ShellNotificationItem {
   projectId: string | null;
   trackVersionId: string | null;
   commentId: string | null;
-  contractId: string | null;
   bookingId: string | null;
 }
 
@@ -65,7 +64,6 @@ export const getShellState = cache(async (): Promise<ShellState> => {
       projectId: notifications.projectId,
       trackVersionId: notifications.trackVersionId,
       commentId: notifications.commentId,
-      contractId: notifications.contractId,
       bookingId: notifications.bookingId,
     })
     .from(notifications)
@@ -88,7 +86,6 @@ export const getShellState = cache(async (): Promise<ShellState> => {
       projectId: r.projectId,
       trackVersionId: r.trackVersionId,
       commentId: r.commentId,
-      contractId: r.contractId,
       bookingId: r.bookingId,
     }));
   return { slug: row.slug, unreadCount: unreadRows.length, unreadItems };

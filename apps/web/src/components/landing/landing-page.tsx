@@ -3,1998 +3,1929 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { NoiseOverlay } from "~/components/landing/noise-overlay";
 import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
 
-// Verbatim port of the founder's source HTML
-// (`docs/plans/active/2026-04-26-landing-restore-source.html`, lines 1144-1846)
-// into a SINGLE client component. Pivoted to this shape after PR #50's
-// 17-component decomposition broke the hero word-fade animation: the
-// original script adds `.page-loaded` to the document body, but the
-// React port added it to `<html>` instead, so the
-// `.landing-root .page-loaded .hero-word` selector never matched and
-// every hero word stayed at opacity 0.
+// =============================================================================
+// Skitza Landing — v3 (Phase 3 — docs/qa/phase-3-handoff.md)
+// =============================================================================
 //
-// The single-file approach mirrors the source HTML one-to-one. JSX
-// structure follows the source line-for-line; the entire `<script>`
-// block (source lines 1894-2050) runs inside one `useEffect`. CTAs +
-// social proof copy + injected sections (TrustBar, Compare, Security,
-// FAQ, Founder, Download) are the only deltas vs the source.
+// Phase 3 wholesale-replaces the PR #50 verbatim port with the v3 marketing
+// surface from `~/Downloads/skitza (1)/tabs/landing.jsx`. Single-file shape
+// preserved (the PR #50 pivot from a 17-component decomposition was
+// motivated by animation reliability — see CLAUDE.md mistake-log
+// 2026-04-26 (landing-restore CSS scoping)). Every section's distinguishing
+// landmark is pinned by the test at apps/web/src/app/__tests__/landing-page.test.tsx.
 //
-// Mobile-menu behaviour is React-controlled via `menuOpen` so the JSX
-// stays idiomatic; everything else (hero word stagger, navbar
-// scroll-shadow, IntersectionObserver, feature-tabs indicator,
-// pain-card spotlight, pricing-card 3D tilt, flow-diagram sequence)
-// runs imperatively against the DOM exactly as the source script did.
+// Design fidelity vs PRD §3.5 reconciliation:
+// - The v3 design source uses a `WaitlistModal` triggered by every
+//   "Get demo access" CTA. PRD §3.5 explicitly retired the waitlist —
+//   every CTA must drive sign-up directly.
+// - Reconciliation: keep the v3 visual + the "Get demo access" copy, but
+//   wire every CTA at `/sign-up?redirect_url=/onboarding`. No modal.
+// - Logged in the handoff doc.
 //
-// `landing.css` is imported by `apps/web/src/app/page.tsx` (the server
-// component that wraps this) and stays unchanged.
+// CSS contract:
+// - Tokens (palette, typography, motion) come from `globals.css`.
+// - Reveal-on-scroll classes (`.sk-reveal*`, `.sk-d-*`) are observed by
+//   `RevealOnScroll` (mounted once at the top of the tree).
+// - Hero word-fade + 3D tilt + grid mask live in `landing.css` (imported
+//   by the server wrapper at `apps/web/src/app/page.tsx`).
+//
+// Inline SVGs: every icon is hand-written below. No `lucide-react` (see
+// Phase 1 + 2 precedent in CLAUDE.md).
+
+const SIGNUP_HREF = "/sign-up?redirect_url=%2Fonboarding";
+
 export function LandingPage() {
-  // FAQ accordion — single-active-item state. Carried over from the
-  // original FAQ component since its behaviour matches the source HTML
-  // gap (the source shipped no FAQ).
-  const [activeFaq, setActiveFaq] = useState<number | null>(null);
-  // Mobile-menu toggle — source HTML had a `mobile-menu-btn` with no JS
-  // wired up. We add a minimal toggle that flips an inline display on
-  // the `.nav-links` list so producers on phones can reach the anchor
-  // links without scrolling through the nav.
+  // FAQ accordion — single-active-row state.
+  const [activeFaq, setActiveFaq] = useState<number | null>(0);
+  // Mobile menu — navbar fold-out on <lg.
   const [menuOpen, setMenuOpen] = useState(false);
-
+  // Mounted flag drives `.is-loaded` on the root, which kicks off the
+  // hero word-fade. Set in a `useEffect` so SSR markup ships at
+  // opacity 0 (correct initial state for the transition).
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    // Source script lines 1894-2050. Reproduced as a single
-    // imperative block — keeping the mutation pattern identical to
-    // the source so any future tweak by the founder can be applied
-    // to both files without translation.
-
-    // 1. Hero word-fade stagger (source 1898-1909).
-    //
-    // The source uses `innerHTML` to inject the `.hero-word` spans.
-    // We use safe DOM methods (createElement + textContent) instead —
-    // same visual outcome, no XSS surface from `innerHTML`. The text
-    // content is a hard-coded constant so the risk is zero either way,
-    // but the explicit-DOM path is the codebase convention.
-    const titleParts: { text: string; lineBreakBefore: boolean }[] = [
-      { text: "Stop chasing payments.", lineBreakBefore: false },
-      { text: "Just make music.", lineBreakBefore: true },
-    ];
-    const titleEl = document.getElementById("hero-title");
-    if (titleEl) {
-      titleEl.replaceChildren();
-      titleParts.forEach((part, index) => {
-        if (part.lineBreakBefore) {
-          titleEl.appendChild(document.createElement("br"));
-        }
-        const span = document.createElement("span");
-        span.className = "hero-word";
-        span.style.transitionDelay = `${String(index * 0.15)}s`;
-        span.textContent = part.text;
-        titleEl.appendChild(span);
-      });
-    }
-
-    // Source script adds `.page-loaded` to the document body. Our
-    // landing.css uses the chained-class pattern `.landing-root.page-loaded`
-    // (S1 originally ported this with a stray space — descendant
-    // combinator — which left every fade-in element invisible; fixed
-    // by re-running the CSS port with chained class). Just add the
-    // class to `.landing-root` itself; no children-propagation hack.
-    const pageLoadedTimer = setTimeout(() => {
-      document.querySelector(".landing-root")?.classList.add("page-loaded");
-    }, 100);
-
-    // 2. Navbar scroll-shadow (source 1913-1918).
-    const navbar = document.getElementById("navbar");
-    const onScroll = () => {
-      if (!navbar) return;
-      if (window.scrollY > 50) navbar.classList.add("scrolled");
-      else navbar.classList.remove("scrolled");
-    };
-    window.addEventListener("scroll", onScroll);
-
-    // 3. Premium scroll-reveal (source 1920-1932).
-    //
-    // The repo's existing `<RevealOnScroll />` component already runs
-    // an IntersectionObserver against `.landing-root .reveal-up`. We
-    // run our own here too so the source script's flow-diagram
-    // sequencing (which fires `animateFlowDiagram()` when
-    // `#flow-diagram` first intersects) stays attached. Both observers
-    // adding `.is-revealed` is a no-op (idempotent) so there is no
-    // double-fire concern.
-    let observer: IntersectionObserver | undefined;
-    if (typeof IntersectionObserver !== "undefined") {
-      observer = new IntersectionObserver(
-        (entries, obs) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting) {
-              entry.target.classList.add("is-revealed");
-              if (entry.target.id === "flow-diagram") {
-                animateFlowDiagram();
-              }
-              obs.unobserve(entry.target);
-            }
-          });
-        },
-        { root: null, rootMargin: "0px", threshold: 0.15 },
-      );
-      document.querySelectorAll(".reveal-up").forEach((el) => {
-        observer?.observe(el);
-      });
-    }
-
-    // 4. Feature-tabs (source 1934-1964) — imperative, indicator-driven.
-    const tabs = document.querySelectorAll<HTMLElement>(".feature-tab");
-    const contents = document.querySelectorAll<HTMLElement>(".feature-content");
-    const indicator = document.getElementById("feature-indicator");
-
-    function updateIndicator(activeTab: HTMLElement) {
-      if (window.innerWidth <= 992) return;
-      const listEl = document.querySelector(".features-list");
-      if (!listEl || !indicator) return;
-      const listRect = listEl.getBoundingClientRect();
-      const tabRect = activeTab.getBoundingClientRect();
-      const offsetTop = tabRect.top - listRect.top;
-      indicator.style.transform = `translateY(${String(offsetTop)}px)`;
-      indicator.style.height = `${String(tabRect.height)}px`;
-    }
-
-    const tabClickHandlers: { tab: HTMLElement; handler: () => void }[] = [];
-    tabs.forEach((tab, index) => {
-      const handler = () => {
-        tabs.forEach((t) => {
-          t.classList.remove("active");
-        });
-        contents.forEach((c) => {
-          c.classList.remove("active");
-        });
-        tab.classList.add("active");
-        document.getElementById(`feat-${String(index)}`)?.classList.add("active");
-        updateIndicator(tab);
-      };
-      tab.addEventListener("click", handler);
-      tabClickHandlers.push({ tab, handler });
-    });
-
-    const indicatorTimer = setTimeout(() => {
-      const firstActive =
-        document.querySelector<HTMLElement>(".feature-tab.active");
-      if (firstActive) updateIndicator(firstActive);
-    }, 200);
-
-    // 5. Flow diagram sequential animation (source 1966-1974).
-    function animateFlowDiagram() {
-      const line = document.getElementById("flow-line-active");
-      const nodes = document.querySelectorAll<HTMLElement>(".flow-node");
-      if (line) line.style.width = "100%";
-      nodes.forEach((node, index) => {
-        setTimeout(() => {
-          node.classList.add("active");
-        }, index * 300 + 300);
-      });
-    }
-
-    // 6. Pain-card mouse spotlight (source 1976-1985).
-    const painCards = document.querySelectorAll<HTMLElement>(".pain-card");
-    const painMoveHandlers: {
-      card: HTMLElement;
-      handler: (e: MouseEvent) => void;
-    }[] = [];
-    painCards.forEach((card) => {
-      const handler = (e: MouseEvent) => {
-        const rect = card.getBoundingClientRect();
-        card.style.setProperty("--mouse-x", `${String(e.clientX - rect.left)}px`);
-        card.style.setProperty("--mouse-y", `${String(e.clientY - rect.top)}px`);
-      };
-      card.addEventListener("mousemove", handler);
-      painMoveHandlers.push({ card, handler });
-    });
-
-    // 7. Pricing-card 3D tilt (source 1987-2008). Desktop-only.
-    const pricingCard = document.getElementById("pricing-card-3d");
-    let pricingMoveHandler: ((e: MouseEvent) => void) | undefined;
-    let pricingLeaveHandler: (() => void) | undefined;
-    if (pricingCard && window.innerWidth > 768) {
-      pricingMoveHandler = (e: MouseEvent) => {
-        const rect = pricingCard.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
-        const rotateX = ((y - centerY) / centerY) * -6;
-        const rotateY = ((x - centerX) / centerX) * 6;
-        pricingCard.style.transition = "transform 0.1s ease-out";
-        pricingCard.style.transform = `perspective(1200px) rotateX(${String(rotateX)}deg) rotateY(${String(rotateY)}deg) scale3d(1.02, 1.02, 1.02)`;
-      };
-      pricingLeaveHandler = () => {
-        pricingCard.style.transition =
-          "transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)";
-        pricingCard.style.transform =
-          "perspective(1200px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)";
-      };
-      pricingCard.addEventListener("mousemove", pricingMoveHandler);
-      pricingCard.addEventListener("mouseleave", pricingLeaveHandler);
-    }
-
-    return () => {
-      clearTimeout(pageLoadedTimer);
-      clearTimeout(indicatorTimer);
-      window.removeEventListener("scroll", onScroll);
-      observer?.disconnect();
-      tabClickHandlers.forEach(({ tab, handler }) => {
-        tab.removeEventListener("click", handler);
-      });
-      painMoveHandlers.forEach(({ card, handler }) => {
-        card.removeEventListener("mousemove", handler);
-      });
-      if (pricingCard) {
-        if (pricingMoveHandler)
-          pricingCard.removeEventListener("mousemove", pricingMoveHandler);
-        if (pricingLeaveHandler)
-          pricingCard.removeEventListener("mouseleave", pricingLeaveHandler);
-      }
-    };
+    setLoaded(true);
   }, []);
 
   return (
-    <div className="landing-root">
-      <NoiseOverlay />
+    <div
+      id="landing-root"
+      className={`landing-v3-root scroll-host ${loaded ? "is-loaded" : ""}`}
+    >
       <RevealOnScroll />
 
-      {/* Navigation — source lines 1148-1187 */}
-      <nav id="navbar">
-        <div className="container nav-inner">
-          <a href="#" className="sk-brand-link">
-            <div className="sk-icon-wrap nav-scale">
-              <div className="sk-logo-icon">
-                <div className="sk-rings"></div>
-                <div className="sk-papers">
-                  <div className="sk-paper p1"></div>
-                  <div className="sk-paper p2"></div>
-                  <div className="sk-paper p3">
-                    <div className="sk-stamp">OVERDUE</div>
-                  </div>
-                </div>
-                <div className="sk-char">
-                  <div className="sk-headphone-band"></div>
-                  <div className="sk-head">
-                    <div className="sk-steam st1"></div>
-                    <div className="sk-steam st2"></div>
-                    <div className="sk-sweat"></div>
-                    <div className="sk-brow l"></div>
-                    <div className="sk-brow r"></div>
-                    <div className="sk-eye l"></div>
-                    <div className="sk-eye r"></div>
-                    <div className="sk-mouth"></div>
-                  </div>
-                  <div className="sk-earcup l"></div>
-                  <div className="sk-earcup r"></div>
-                </div>
-                <div className="sk-badge">9</div>
-              </div>
-            </div>
-            <div className="sk-wordmark-wrap">
-              <span className="sk-wordmark">Skitza</span>
-              <div className="sk-underline"></div>
-            </div>
-          </a>
-          <ul
-            className="nav-links"
-            style={menuOpen ? { display: "flex" } : undefined}
-          >
-            <li>
-              <a href="#features" className="nav-link">
-                Features
-              </a>
-            </li>
-            <li>
-              <a href="#how-it-works" className="nav-link">
-                How It Works
-              </a>
-            </li>
-            <li>
-              <a href="#pricing" className="nav-link">
-                Pricing
-              </a>
-            </li>
-            <li>
-              <Link href="/sign-in" className="nav-link">
-                Sign in
-              </Link>
-            </li>
-          </ul>
-          <Link
-            href="/sign-up?redirect_url=%2Fonboarding"
-            className="btn-primary small nav-btn"
-          >
-            Sign up now
+      <Nav menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+      <Hero />
+      <StackReplace />
+      <FeaturesSection />
+      <FeatureGrid />
+      <HowSection />
+      <Pricing />
+      <FAQ activeFaq={activeFaq} setActiveFaq={setActiveFaq} />
+      <FounderNote />
+      <FinalCTA />
+      <LandingFooter />
+    </div>
+  );
+}
+
+// =============================================================================
+// Wordmark + Icon set
+// =============================================================================
+
+function Wordmark({ size = 22, inverse = false }: { size?: number; inverse?: boolean }) {
+  return (
+    <span
+      className="font-syne inline-flex items-baseline gap-px font-extrabold leading-none"
+      style={{
+        fontSize: size,
+        letterSpacing: "-0.04em",
+        color: inverse ? "#F2EDE6" : "rgb(var(--fg-default))",
+      }}
+    >
+      Skitza
+      <span
+        className="inline-block transition-transform duration-300 group-hover:translate-y-[-2px] group-hover:rotate-12 group-hover:scale-125"
+        style={{ color: "rgb(var(--brand-primary))" }}
+      >
+        .
+      </span>
+    </span>
+  );
+}
+
+type IconName =
+  | "arrow-right"
+  | "play"
+  | "check"
+  | "check-check"
+  | "lock"
+  | "dollar-sign"
+  | "file-signature"
+  | "users"
+  | "inbox"
+  | "shield-check"
+  | "globe"
+  | "smartphone"
+  | "plus"
+  | "minus"
+  | "x"
+  | "menu"
+  | "chevron-right"
+  | "home"
+  | "disc-3"
+  | "calendar"
+  | "shopping-bag"
+  | "bar-chart-3";
+
+function Icon({
+  name,
+  size = 16,
+  strokeWidth = 2,
+  className,
+}: {
+  name: IconName;
+  size?: number;
+  strokeWidth?: number;
+  className?: string;
+}) {
+  const props = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none" as const,
+    stroke: "currentColor",
+    strokeWidth,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    className,
+    "aria-hidden": true,
+  };
+  switch (name) {
+    case "arrow-right":
+      return (
+        <svg {...props}>
+          <path d="M5 12h14M13 5l7 7-7 7" />
+        </svg>
+      );
+    case "play":
+      return (
+        <svg {...props}>
+          <polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "check":
+      return (
+        <svg {...props}>
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      );
+    case "check-check":
+      return (
+        <svg {...props}>
+          <path d="M18 6 7 17l-5-5" />
+          <path d="m22 10-7.5 7.5L13 16" />
+        </svg>
+      );
+    case "lock":
+      return (
+        <svg {...props}>
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+      );
+    case "dollar-sign":
+      return (
+        <svg {...props}>
+          <line x1="12" y1="2" x2="12" y2="22" />
+          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+        </svg>
+      );
+    case "file-signature":
+      return (
+        <svg {...props}>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <path d="M9 18h.01M13 18l4-4 2 2-4 4z" />
+        </svg>
+      );
+    case "users":
+      return (
+        <svg {...props}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      );
+    case "inbox":
+      return (
+        <svg {...props}>
+          <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+          <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+        </svg>
+      );
+    case "shield-check":
+      return (
+        <svg {...props}>
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <polyline points="9 12 11 14 15 10" />
+        </svg>
+      );
+    case "globe":
+      return (
+        <svg {...props}>
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
+      );
+    case "smartphone":
+      return (
+        <svg {...props}>
+          <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+          <line x1="12" y1="18" x2="12.01" y2="18" />
+        </svg>
+      );
+    case "plus":
+      return (
+        <svg {...props}>
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      );
+    case "minus":
+      return (
+        <svg {...props}>
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      );
+    case "x":
+      return (
+        <svg {...props}>
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      );
+    case "menu":
+      return (
+        <svg {...props}>
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+      );
+    case "chevron-right":
+      return (
+        <svg {...props}>
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      );
+    case "home":
+      return (
+        <svg {...props}>
+          <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <polyline points="9 22 9 12 15 12 15 22" />
+        </svg>
+      );
+    case "disc-3":
+      return (
+        <svg {...props}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M6 12c0-1.7.7-3.2 1.8-4.2" />
+          <circle cx="12" cy="12" r="2" />
+          <path d="M18 12c0 1.7-.7 3.2-1.8 4.2" />
+        </svg>
+      );
+    case "calendar":
+      return (
+        <svg {...props}>
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+      );
+    case "shopping-bag":
+      return (
+        <svg {...props}>
+          <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <path d="M16 10a4 4 0 0 1-8 0" />
+        </svg>
+      );
+    case "bar-chart-3":
+      return (
+        <svg {...props}>
+          <path d="M3 3v18h18" />
+          <path d="M18 17V9M13 17V5M8 17v-3" />
+        </svg>
+      );
+  }
+}
+
+// =============================================================================
+// 1. Sticky nav
+// =============================================================================
+
+function Nav({
+  menuOpen,
+  setMenuOpen,
+}: {
+  menuOpen: boolean;
+  setMenuOpen: (v: boolean) => void;
+}) {
+  return (
+    <nav
+      id="navbar"
+      className="sticky top-0 z-50 border-b backdrop-blur-md"
+      style={{
+        background: "rgb(17 16 9 / 0.78)",
+        borderColor: "rgb(255 255 255 / 0.06)",
+        color: "#F2EDE6",
+      }}
+    >
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5 sm:px-8">
+        <div className="flex items-center gap-4 sm:gap-9">
+          <Link href="/" className="group inline-flex items-center" aria-label="Skitza home">
+            <Wordmark size={22} inverse />
           </Link>
-          <button
-            type="button"
-            className="mobile-menu-btn"
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
-            aria-expanded={menuOpen}
-            onClick={() => {
-              setMenuOpen((open) => !open);
+          <span
+            className="font-mono hidden sm:inline text-[11px]"
+            style={{ color: "rgb(255 255 255 / 0.55)" }}
+          >
+            v1.0 — early access
+          </span>
+        </div>
+        {/* Desktop links */}
+        <div className="hidden items-center gap-7 text-[13px] font-medium lg:flex">
+          <a href="#features" style={{ color: "rgb(255 255 255 / 0.75)" }} className="hover:text-white">
+            Features
+          </a>
+          <a href="#how" style={{ color: "rgb(255 255 255 / 0.75)" }} className="hover:text-white">
+            How it works
+          </a>
+          <a href="#pricing" style={{ color: "rgb(255 255 255 / 0.75)" }} className="hover:text-white">
+            Pricing
+          </a>
+          <a href="#faq" style={{ color: "rgb(255 255 255 / 0.75)" }} className="hover:text-white">
+            FAQ
+          </a>
+          <Link
+            href="/sign-in"
+            className="text-[12.5px]"
+            style={{ color: "rgb(255 255 255 / 0.75)" }}
+          >
+            Sign in
+          </Link>
+          <Link
+            href={SIGNUP_HREF}
+            className="sk-pop rounded-[10px] px-4 py-2 text-[13px] font-bold tracking-tight"
+            style={{
+              background: "rgb(var(--brand-primary))",
+              color: "#111009",
+              boxShadow: "0 2px 12px rgba(212,150,10,0.3)",
             }}
           >
-            ☰
-          </button>
+            Start free trial →
+          </Link>
         </div>
-      </nav>
+        {/* Mobile toggle */}
+        <button
+          type="button"
+          onClick={() => { setMenuOpen(!menuOpen); }}
+          className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-md"
+          style={{ color: "#F2EDE6", background: "rgb(255 255 255 / 0.06)" }}
+          aria-label={menuOpen ? "Close menu" : "Open menu"}
+        >
+          <Icon name={menuOpen ? "x" : "menu"} size={18} />
+        </button>
+      </div>
+      {menuOpen && (
+        <div
+          className="lg:hidden border-t"
+          style={{ borderColor: "rgb(255 255 255 / 0.06)" }}
+        >
+          <div className="flex flex-col gap-1 px-5 py-3">
+            <a
+              href="#features"
+              onClick={() => { setMenuOpen(false); }}
+              className="rounded-md px-3 py-2 text-[14px]"
+              style={{ color: "rgb(255 255 255 / 0.85)" }}
+            >
+              Features
+            </a>
+            <a
+              href="#how"
+              onClick={() => { setMenuOpen(false); }}
+              className="rounded-md px-3 py-2 text-[14px]"
+              style={{ color: "rgb(255 255 255 / 0.85)" }}
+            >
+              How it works
+            </a>
+            <a
+              href="#pricing"
+              onClick={() => { setMenuOpen(false); }}
+              className="rounded-md px-3 py-2 text-[14px]"
+              style={{ color: "rgb(255 255 255 / 0.85)" }}
+            >
+              Pricing
+            </a>
+            <a
+              href="#faq"
+              onClick={() => { setMenuOpen(false); }}
+              className="rounded-md px-3 py-2 text-[14px]"
+              style={{ color: "rgb(255 255 255 / 0.85)" }}
+            >
+              FAQ
+            </a>
+            <Link
+              href="/sign-in"
+              className="rounded-md px-3 py-2 text-[14px]"
+              style={{ color: "rgb(255 255 255 / 0.85)" }}
+            >
+              Sign in
+            </Link>
+            <Link
+              href={SIGNUP_HREF}
+              className="mt-2 rounded-[10px] px-4 py-3 text-center text-[14px] font-bold"
+              style={{
+                background: "rgb(var(--brand-primary))",
+                color: "#111009",
+              }}
+            >
+              Start free trial →
+            </Link>
+          </div>
+        </div>
+      )}
+    </nav>
+  );
+}
 
-      {/* SECTION 1: HERO (LIGHT OFF-WHITE) — source 1189-1269 */}
-      <header className="hero" id="hero">
-        <div className="blob-amber ambient-blob"></div>
-        <div className="blob-copper ambient-blob"></div>
+// =============================================================================
+// 2. Hero (with floating product peek)
+// =============================================================================
 
-        <div className="container">
-          <div className="sk-brand-link hero-mode">
-            <div className="sk-icon-wrap hero-scale">
-              <div className="sk-logo-icon">
-                <div className="sk-rings"></div>
-                <div className="sk-papers">
-                  <div className="sk-paper p1"></div>
-                  <div className="sk-paper p2"></div>
-                  <div className="sk-paper p3">
-                    <div className="sk-stamp">OVERDUE</div>
-                  </div>
-                </div>
-                <div className="sk-char">
-                  <div className="sk-headphone-band"></div>
-                  <div className="sk-head">
-                    <div className="sk-steam st1"></div>
-                    <div className="sk-steam st2"></div>
-                    <div className="sk-sweat"></div>
-                    <div className="sk-brow l"></div>
-                    <div className="sk-brow r"></div>
-                    <div className="sk-eye l"></div>
-                    <div className="sk-eye r"></div>
-                    <div className="sk-mouth"></div>
-                  </div>
-                  <div className="sk-earcup l"></div>
-                  <div className="sk-earcup r"></div>
-                </div>
-                <div className="sk-badge">9</div>
-              </div>
-            </div>
-            <div className="sk-wordmark-wrap">
-              <span className="sk-wordmark">Skitza</span>
-            </div>
+function Hero() {
+  // The headline splits on whitespace so each word can stagger via
+  // `--w-i`. Words inherit the line-aware structure from the template
+  // string below; the period at the tail of "studio." becomes the
+  // accent character, the only colored glyph in the H1.
+  const heroLines = [["One", "app."], ["Your", "whole", "studio."]];
+  let wordIndex = 0;
+
+  return (
+    <section
+      className="relative overflow-hidden"
+      style={{ background: "#111009", color: "#F2EDE6", padding: "64px 20px 80px" }}
+    >
+      <div className="animate-shine" />
+      <div className="hero-grid-bg is-dark absolute inset-0 pointer-events-none opacity-100" />
+
+      <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-2 lg:gap-16">
+        {/* Left — copy + CTAs */}
+        <div className="sk-reveal-left">
+          <div
+            className="mb-5 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em]"
+            style={{
+              background: "rgba(212,150,10,0.12)",
+              borderColor: "rgba(212,150,10,0.3)",
+              color: "rgb(var(--brand-primary))",
+            }}
+          >
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{
+                background: "rgb(var(--brand-primary))",
+                boxShadow: "0 0 10px rgb(var(--brand-primary))",
+              }}
+            />
+            Now booking · early access
           </div>
 
-          <span
-            className="label"
+          <h1
+            className="font-syne m-0 font-extrabold"
             style={{
-              opacity: 0,
-              transform: "translateY(10px)",
-              animation: "fadeUp 1s forwards 0.3s",
-              marginTop: 24,
-              marginBottom: 24,
+              fontSize: "clamp(44px, 5.4vw, 76px)",
+              letterSpacing: "-0.038em",
+              lineHeight: 0.95,
             }}
           >
-            The all-in-one business tool for music producers
-          </span>
-          <style>{`@keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }`}</style>
-
-          <h1 id="hero-title" className="syne">
-            Stop chasing payments. Just make music.
+            {heroLines.map((line, lineIdx) => {
+              const isLast = lineIdx === heroLines.length - 1;
+              return (
+                <span key={lineIdx} className="block">
+                  {line.map((word, wIdx) => {
+                    const i = wordIndex++;
+                    const isLastWord = isLast && wIdx === line.length - 1;
+                    if (isLastWord) {
+                      const stripped = word.replace(/\.$/, "");
+                      return (
+                        <span
+                          key={wIdx}
+                          className="hero-word"
+                          style={{ ["--w-i" as string]: i } as React.CSSProperties}
+                        >
+                          {stripped}
+                          <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+                          {wIdx < line.length - 1 ? " " : ""}
+                        </span>
+                      );
+                    }
+                    return (
+                      <span
+                        key={wIdx}
+                        className="hero-word"
+                        style={{ ["--w-i" as string]: i } as React.CSSProperties}
+                      >
+                        {word}
+                        {wIdx < line.length - 1 ? " " : ""}
+                      </span>
+                    );
+                  })}
+                </span>
+              );
+            })}
           </h1>
 
-          <p className="sub-copy body-text">
-            Skitza is the only link you need.<br />
-            Clients book sessions, sign contracts, and pay automatically<br />
-            and your final mixes stay locked until the invoice is cleared.
+          <p
+            className="mt-7 max-w-xl text-[17px] leading-[1.55]"
+            style={{
+              color: "rgb(242 237 230 / 0.6)",
+              letterSpacing: "-0.005em",
+            }}
+          >
+            The producer dashboard that replaces Calendly, DocuSign, Stripe, Notion &amp;
+            WhatsApp. One link, one inbox, one bill — sessions book themselves and the
+            mix delivers itself the moment the invoice clears.
           </p>
 
-          <div className="hero-ctas">
+          <div className="mt-8 flex flex-wrap gap-3">
             <Link
-              href="/sign-up?redirect_url=%2Fonboarding"
-              className="btn-primary"
+              href={SIGNUP_HREF}
+              className="sk-pop inline-flex items-center gap-2 rounded-[12px] px-[22px] py-[14px] text-[14.5px] font-bold tracking-tight"
+              style={{
+                background: "rgb(var(--brand-primary))",
+                color: "#111009",
+                boxShadow: "0 8px 24px rgba(212,150,10,0.35)",
+              }}
             >
-              Sign up now
+              Start free trial
+              <Icon name="arrow-right" size={16} strokeWidth={2.6} />
             </Link>
-            <a className="btn-ghost" href="#pain">
-              See how it works ↓
+            <a
+              href="#how"
+              className="sk-pop inline-flex items-center gap-2 rounded-[12px] border px-[22px] py-[14px] text-[14.5px] font-bold"
+              style={{
+                background: "transparent",
+                color: "#F2EDE6",
+                borderColor: "rgb(255 255 255 / 0.18)",
+              }}
+            >
+              <Icon name="play" size={14} strokeWidth={2.6} />
+              See how it works
             </a>
           </div>
 
-          <p
+          {/* Trial-terms strip — pre-launch, no fabricated social proof. */}
+          <div
+            className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px]"
+            style={{ color: "rgb(242 237 230 / 0.65)" }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: "rgb(var(--brand-primary))",
+                  boxShadow: "0 0 8px rgb(var(--brand-primary))",
+                }}
+                aria-hidden
+              />
+              <strong className="font-bold text-white">5 founding producers</strong>{" "}
+              · onboarding now
+            </span>
+            <span style={{ color: "rgb(242 237 230 / 0.35)" }}>·</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="check" size={13} strokeWidth={3} />
+              14-day free trial
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="check" size={13} strokeWidth={3} />
+              No credit card
+            </span>
+          </div>
+        </div>
+
+        {/* Right — product peek */}
+        <HeroProductPeek />
+      </div>
+    </section>
+  );
+}
+
+function HeroProductPeek() {
+  return (
+    <div className="sk-reveal-right sk-d-1 sk-float-slow relative">
+      <div
+        className="hero-peek-frame relative overflow-hidden rounded-2xl"
+        style={{
+          background: "#fff",
+          boxShadow:
+            "0 40px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06), 0 0 60px rgba(212,150,10,0.15)",
+        }}
+      >
+        {/* chrome */}
+        <div
+          className="flex h-8 items-center gap-2 px-3"
+          style={{ background: "#f2ede6", borderBottom: "1px solid #e3dac6" }}
+        >
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#ff5f57" }} />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#febc2e" }} />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#28c840" }} />
+          <div className="flex flex-1 justify-center">
+            <div
+              className="font-mono rounded-md border bg-white px-2.5 py-1 text-[10px]"
+              style={{ borderColor: "#e3dac6", color: "#6b6359" }}
+            >
+              app.skitza.com / overview
+            </div>
+          </div>
+        </div>
+        {/* body */}
+        <div className="flex" style={{ minHeight: 420, background: "#F2EDE6" }}>
+          <div
+            className="flex flex-col gap-1"
             style={{
-              fontSize: 13,
-              color: "var(--light-body)",
-              marginBottom: 20,
-              opacity: 0,
-              animation: "fadeUp 1s forwards 1s",
+              width: 156,
+              background: "#111009",
+              color: "#fff",
+              padding: "14px 10px",
             }}
           >
-            Share one link. Your clients handle everything else.
-          </p>
-          <div className="trust-bar">
-            ★★★★★ Built for solo producers.
-          </div>
-
-          {/* UI Mockup Cards with Floating Anim — source 1247-1267 */}
-          <div className="hero-mockup">
-            <div className="mockup-glow"></div>
-            <div className="mockup-wrapper">
-              <div className="mockup-card">
-                <span>Session booked · Tuesday 3pm — Marcus T.</span>
-                <span className="check">✓</span>
-              </div>
+            <div className="flex items-center gap-2 px-1.5 pb-3 pt-1">
+              <Wordmark size={14} inverse />
             </div>
-            <div className="mockup-wrapper">
-              <div className="mockup-card">
-                <span>Invoice paid · $450 received automatically</span>
-                <span className="check">✓</span>
-              </div>
-            </div>
-            <div className="mockup-wrapper">
-              <div className="mockup-card">
-                <span>Files delivered · Final mix + stems</span>
-                <span className="check">✓</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* INJECTED SECTION (S3): TrustBar — light strip after Hero, before
-          theme-transition. Was a separate component pre-pivot. */}
-      <section
-        className="trust-strip"
-        aria-label="Press and publication mentions"
-      >
-        <div className="container">
-          <div className="trust-strip-inner">
-            <span className="label">As featured in</span>
-            <div className="trust-logos syne">
-              {["Pitchfork", "Resident Advisor", "Bandcamp Daily", "MusicTech", "Production Expert"].map(
-                (name, i, arr) => (
-                  <span
-                    key={name}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 32 }}
-                  >
-                    <span className="trust-logo">{name}</span>
-                    {i < arr.length - 1 ? (
-                      <span className="trust-divider" aria-hidden>
-                        ·
-                      </span>
-                    ) : null}
-                  </span>
-                ),
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* THE CINEMATIC DISSOLVE (Pulled behind hero) — source 1271-1272 */}
-      <section className="theme-transition"></section>
-
-      {/* DARK TERRITORY — source 1274 */}
-      <main className="dark-world">
-        {/* SECTION 2: PAIN — source 1277-1410 */}
-        <section className="section" id="pain">
-          <div className="container">
-            <div className="section-header no-cta reveal-up">
-              <span className="watermark">01</span>
-              <span className="label" style={{ color: "var(--copper)" }}>
-                Sound familiar?
-              </span>
-              <h2 className="syne">
-                You became a producer.<br />
-                Not a secretary.
-              </h2>
-              <p className="body-text" style={{ marginLeft: 0 }}>
-                Yet here you are — scheduling, invoicing, chasing,<br />
-                reminding, resending, following up.<br />
-                Every day. Before you&apos;ve played a single note.
-              </p>
-            </div>
-
-            <div className="pain-grid">
-              <div className="card pain-card reveal-up delay-1">
-                <div className="pain-ill">
-                  <div className="meme-face face-1">
-                    <div className="f1-acc">...same answer</div>
-                    <div className="m-brow l"></div>
-                    <div className="m-brow r"></div>
-                    <div className="m-eye l"></div>
-                    <div className="m-eye r"></div>
-                    <div className="m-mouth"></div>
-                  </div>
-                  <div className="ill-chat-wrap">
-                    <div className="ill-bubble">
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                    </div>
-                    <div className="ill-bubble-2">
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                    </div>
-                  </div>
-                </div>
-                <h3>&quot;What are your rates?&quot;</h3>
-                <p>
-                  You&apos;ve copy-pasted that answer so many times<br />
-                  you could send it in your sleep.
-                </p>
-              </div>
-
-              <div className="card pain-card reveal-up delay-2">
-                <div className="pain-ill">
-                  <div className="meme-face face-2">
-                    <div className="f2-acc"></div>
-                    <div className="m-brow l"></div>
-                    <div className="m-brow r"></div>
-                    <div className="m-eye l"></div>
-                    <div className="m-eye r"></div>
-                    <div className="m-mouth"></div>
-                  </div>
-                  <div className="ill-calendar">
-                    <div className="ill-cal-cell">×</div>
-                    <div className="ill-cal-cell">×</div>
-                    <div className="ill-cal-cell amber-q">?</div>
-                    <div className="ill-cal-cell">×</div>
-                    <div className="ill-cal-cell">×</div>
-                    <div className="ill-cal-cell amber-q">?</div>
-                    <div className="ill-cal-cell">×</div>
-                    <div className="ill-cal-cell">×</div>
-                  </div>
-                </div>
-                <h3>The scheduling nightmare</h3>
-                <p>
-                  6 messages to confirm one session.<br />
-                  &quot;Does Tuesday work? Actually Thursday?&quot;
-                </p>
-              </div>
-
-              <div className="card pain-card reveal-up delay-3">
-                <div className="pain-ill">
-                  <div className="meme-face face-3">
-                    <div className="f3-acc"></div>
-                    <div className="m-brow l"></div>
-                    <div className="m-brow r"></div>
-                    <div className="m-eye l"></div>
-                    <div className="m-eye r"></div>
-                    <div className="m-mouth"></div>
-                  </div>
-                  <div className="ill-stack-wrap">
-                    <div className="ill-inv-card ill-inv-1"></div>
-                    <div className="ill-inv-card ill-inv-2"></div>
-                    <div className="ill-inv-card ill-inv-3">
-                      <div className="ill-stamp">OVERDUE</div>
-                    </div>
-                  </div>
-                </div>
-                <h3>Unpaid invoices stacking up</h3>
-                <p>
-                  Chasing clients for money is the worst part<br />
-                  of the job. Somehow it&apos;s also your job.
-                </p>
-              </div>
-
-              <div className="card pain-card reveal-up delay-4">
-                <div className="pain-ill">
-                  <div className="meme-face face-4">
-                    <div className="f4-acc">3</div>
-                    <div className="m-brow l"></div>
-                    <div className="m-brow r"></div>
-                    <div className="m-eye l"></div>
-                    <div className="m-eye r"></div>
-                    <div className="m-mouth"></div>
-                  </div>
-                  <div className="ill-resend-wrap">
-                    <div className="ill-resend-arrow"></div>
-                    <div className="ill-file-icon"></div>
-                    <div className="ill-resend-num">3</div>
-                  </div>
-                </div>
-                <h3>&quot;Can you resend the files?&quot;</h3>
-                <p>
-                  For the third time.<br />
-                  On WhatsApp. At midnight.
-                </p>
-              </div>
-
-              <div className="card pain-card reveal-up delay-5">
-                <div className="pain-ill">
-                  <div className="meme-face face-5">
-                    <div className="f5-acc">
-                      <span className="f5-z1">z</span>
-                      <span className="f5-z2">z</span>
-                      <span className="f5-z3">z</span>
-                    </div>
-                    <div className="m-brow l"></div>
-                    <div className="m-brow r"></div>
-                    <div className="m-eye l"></div>
-                    <div className="m-eye r"></div>
-                    <div className="m-mouth"></div>
-                  </div>
-                  <div className="ill-loop-wrap">
-                    <div className="ill-loop-border"></div>
-                    <div className="ill-loop-content">
-                      <span>DMs</span>{" "}
-                      <span className="ill-loop-arrow-right">→</span>{" "}
-                      <span>Session</span>{" "}
-                      <span className="ill-loop-arrow-right">→</span>{" "}
-                      <span>Invoice</span>{" "}
-                      <span className="ill-loop-arrow-right">→</span>{" "}
-                      <span>Chase</span>
-                    </div>
-                  </div>
-                </div>
-                <h3>Doing it all again tomorrow</h3>
-                <p>
-                  Wake up. Answer DMs. Make a beat.<br />
-                  Chase payment. Repeat until you hate this.
-                </p>
-              </div>
-
-              <div className="card pain-card reveal-up delay-6">
-                <div className="pain-ill">
-                  <div className="meme-face face-6">
-                    <div className="f6-acc">
-                      <div className="f6-arc f6-a1"></div>
-                      <div className="f6-arc f6-a2"></div>
-                      <div className="f6-arc f6-a3"></div>
-                    </div>
-                    <div className="m-brow l"></div>
-                    <div className="m-brow r"></div>
-                    <div className="m-eye l"></div>
-                    <div className="m-eye r"></div>
-                    <div className="m-mouth"></div>
-                  </div>
-                  <div className="ill-mental-wrap">
-                    <div className="ill-batt">
-                      <div className="ill-batt-level"></div>
-                    </div>
-                    <div className="ill-drain-bolt"></div>
-                  </div>
-                </div>
-                <h3>Mental bandwidth, gone</h3>
-                <p>
-                  By the time you open your DAW,<br />
-                  you&apos;re already running on empty.
-                </p>
-              </div>
-            </div>
-
-            <h3
-              className="syne reveal-up"
-              style={{
-                textAlign: "center",
-                color: "var(--amber)",
-                marginTop: 56,
-                fontSize: "clamp(20px, 3vw, 28px)",
-                letterSpacing: "-0.01em",
-              }}
-            >
-              Every one of these problems disappears with Skitza. ↓
-            </h3>
-          </div>
-        </section>
-
-        {/* SECTION 3: SOLUTION — source 1412-1441 */}
-        <section className="section" id="solution">
-          <div
-            className="blob-amber ambient-blob"
-            style={{ top: "50%", right: -200 }}
-          ></div>
-          <div className="container">
-            <div className="section-header no-cta reveal-up">
-              <span className="watermark">02</span>
-              <span className="label">Enter Skitza</span>
-              <h2 className="syne">
-                One platform.<br />
-                Everything automated.<br />
-                Nothing missed.
-              </h2>
-              <p
-                className="body-text"
-                style={{ marginLeft: 0, marginBottom: 12 }}
-              >
-                Skitza connects to your calendar, payments, and messaging — and
-                runs your entire client workflow automatically.
-              </p>
-              <p
-                className="body-text"
+            {(
+              [
+                { i: "home", n: "Overview", a: true },
+                { i: "users", n: "Clients", a: false },
+                { i: "disc-3", n: "Music", a: false },
+                { i: "calendar", n: "Calendar", a: false },
+                { i: "shopping-bag", n: "Storefront", a: false },
+                { i: "bar-chart-3", n: "Insights", a: false },
+              ] satisfies Array<{ i: IconName; n: string; a: boolean }>
+            ).map((it) => (
+              <div
+                key={it.n}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[11px]"
                 style={{
-                  marginLeft: 0,
-                  color: "var(--dark-body)",
-                  lineHeight: 2.2,
-                  fontSize: 15,
+                  fontWeight: it.a ? 700 : 500,
+                  color: it.a ? "rgb(var(--brand-primary))" : "rgb(255 255 255 / 0.55)",
+                  background: it.a ? "rgba(212,150,10,0.13)" : "transparent",
                 }}
               >
-                📅 Clients book themselves — you just show up<br />
-                💸 Invoices sent and chased automatically<br />
-                📁 Files delivered securely — no WhatsApp links<br />
-                💬 Follow-ups and reminders — done for you
-              </p>
-            </div>
-
-            <div className="solution-flow reveal-up delay-2" id="flow-diagram">
-              <div className="flow-line"></div>
-              <div className="flow-line-active" id="flow-line-active"></div>
-
-              <div className="flow-node">
-                Lead <span className="check">✓</span>
+                <Icon name={it.i} size={12} strokeWidth={2.2} />
+                {it.n}
               </div>
-              <div className="flow-node">
-                Booking <span className="check">✓</span>
-              </div>
-              <div className="flow-node">
-                Session <span className="check">✓</span>
-              </div>
-              <div className="flow-node">
-                Invoice <span className="check">✓</span>
-              </div>
-              <div className="flow-node">
-                Delivery <span className="check">✓</span>
-              </div>
-              <div className="flow-node">
-                Follow-up <span className="check">✓</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* INJECTED SECTION (S3): Compare — 2-column dark grid. Was a
-            separate component pre-pivot. */}
-        <section className="section" id="compare">
-          <div className="container">
-            <div className="section-header no-cta reveal-up">
-              <span className="watermark">02</span>
-              <span className="label">Why Skitza</span>
-              <h2 className="syne">
-                One tool replaces<br />the whole stack.
-              </h2>
-              <p className="body-text" style={{ marginLeft: 0 }}>
-                The math on the unbundled producer setup: 6 logins, 6 monthly
-                fees, 4 contexts to switch between, and a client who has to
-                remember which app you sent the link in.
-              </p>
-            </div>
-
-            <div className="compare-grid">
-              <div className="compare-card reveal-up">
-                <span className="compare-eyebrow">Without Skitza</span>
-                <h3>The unbundled stack</h3>
-                <ul className="compare-list">
-                  {[
-                    { tool: "Calendly", role: "Booking" },
-                    { tool: "Samply", role: "File review" },
-                    { tool: "Notion", role: "Project notes" },
-                    { tool: "DocuSign", role: "Contracts" },
-                    { tool: "Stripe (manual)", role: "Invoicing" },
-                    { tool: "WhatsApp", role: "Everything else" },
-                  ].map((item) => (
-                    <li key={item.tool} className="compare-row">
-                      <span className="compare-mark bad" aria-hidden>
-                        ×
-                      </span>
-                      <span>
-                        <strong style={{ color: "var(--dark-text)", fontWeight: 500 }}>
-                          {item.tool}
-                        </strong>
-                        {" — "}
-                        {item.role}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="compare-cost">
-                  ≈ 6 tools · 6 monthly fees · 47 emails per session
-                </div>
-              </div>
-
-              <div className="compare-card is-skitza reveal-up delay-1">
-                <span className="compare-eyebrow">With Skitza</span>
-                <h3>One unified studio</h3>
-                <ul className="compare-list">
-                  {[
-                    "Booking, contracts, audio, payments, CRM",
-                    "One URL per producer",
-                    "Clients sign + pay + review without an account",
-                    "Master files gated until the invoice clears",
-                    "Desktop app + mobile companion",
-                    "Single subscription. Single login.",
-                  ].map((row) => (
-                    <li key={row} className="compare-row">
-                      <span className="compare-mark good" aria-hidden>
-                        ✓
-                      </span>
-                      <span>{row}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="compare-cost">
-                  1 tool · 1 subscription · 1 link your clients remember
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* SECTION 4: FEATURES — source 1443-1660 */}
-        <section className="section" id="features">
-          <div className="container">
-            <div className="section-header no-cta reveal-up">
-              <span className="watermark">03</span>
-              <span className="label">What Skitza does</span>
-              <h2 className="syne">
-                Your studio.<br />
-                On autopilot.
-              </h2>
-            </div>
-
-            <div className="features-layout reveal-up delay-1">
-              <div className="features-list">
-                <div className="feature-indicator" id="feature-indicator"></div>
-                <button className="feature-tab active" data-index="0" type="button">
-                  Storefront &amp; Booking
-                </button>
-                <button className="feature-tab" data-index="1" type="button">
-                  Payments on autopilot
-                </button>
-                <button className="feature-tab" data-index="2" type="button">
-                  Files &amp; Feedback
-                </button>
-                <button className="feature-tab" data-index="3" type="button">
-                  Client history
-                </button>
-                <button className="feature-tab" data-index="4" type="button">
-                  Follow-up on autopilot
-                </button>
-                <button className="feature-tab" data-index="5" type="button">
-                  Lead Management
-                </button>
-                <button className="feature-tab" data-index="6" type="button">
-                  Contracts &amp; Protection
-                </button>
-              </div>
-
-              <div className="features-views">
-                {/* 0. Booking */}
-                <div className="feature-content active" id="feat-0">
-                  <h3>Sell packages, not just time.</h3>
-                  <p>
-                    Share your Skitza link as your personal storefront. Clients
-                    select a service (e.g. &quot;Full Production&quot;), pick a
-                    date, and pay the deposit — all in one flow.<br />
-                    No more &quot;does Thursday at 4 work?&quot;
-                  </p>
-                  <div
-                    className="feature-mockup"
-                    style={{ justifyContent: "center" }}
-                  >
-                    <div
-                      style={{
-                        background: "var(--dark-surface)",
-                        border: "1px solid rgba(212,150,10,0.5)",
-                        borderRadius: 6,
-                        padding: 12,
-                        marginBottom: 16,
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        textAlign: "left",
-                      }}
-                    >
-                      <div>
-                        <div
-                          style={{
-                            fontWeight: 600,
-                            fontSize: 13,
-                            color: "var(--amber)",
-                          }}
-                        >
-                          Full Production Package
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: "var(--dark-body)",
-                            marginTop: 2,
-                          }}
-                        >
-                          Includes beat, tracking, and mix
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: "var(--font-head)",
-                          fontWeight: 700,
-                          color: "var(--dark-text)",
-                        }}
-                      >
-                        $1,500
-                      </div>
-                    </div>
-                    <div className="mu-booking-grid">
-                      <div className="mu-day">Mon</div>
-                      <div className="mu-day">Tue</div>
-                      <div className="mu-day">Wed</div>
-                      <div className="mu-day">Thu</div>
-                      <div className="mu-day">Fri</div>
-                      <div className="mu-slot">10am</div>
-                      <div className="mu-slot">10am</div>
-                      <div className="mu-slot">10am</div>
-                      <div className="mu-slot">10am</div>
-                      <div className="mu-slot">10am</div>
-                      <div className="mu-slot">1pm</div>
-                      <div className="mu-slot">1pm</div>
-                      <div className="mu-slot">1pm</div>
-                      <div className="mu-slot">1pm</div>
-                      <div className="mu-slot">1pm</div>
-                      <div className="mu-slot">4pm</div>
-                      <div className="mu-slot active">3pm</div>
-                      <div className="mu-slot">4pm</div>
-                      <div className="mu-slot">4pm</div>
-                      <div className="mu-slot">4pm</div>
-                    </div>
-                    <div className="mu-confirm-card">
-                      <div>Marcus T. · 2hr session · $150 deposit paid</div>
-                      <div style={{ color: "var(--amber)", fontWeight: "bold" }}>
-                        ✓
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 1. Payments */}
-                <div className="feature-content" id="feat-1">
-                  <h3>Payments on autopilot</h3>
-                  <p>
-                    Clients pay the deposit when they book — no invoice needed.
-                    <br />
-                    A contract is sent automatically and signed before the
-                    session.<br />
-                    After the session, the balance is collected without you
-                    asking.<br />
-                    Money in. No chasing. No awkward follow-ups.
-                  </p>
-                  <div className="feature-mockup" style={{ padding: 16 }}>
-                    <div className="mu-inv-main">
-                      <div className="mu-inv-head">
-                        <span>Invoice #0042 · Marcus T.</span>
-                        <span className="mu-badge">Paid ✓</span>
-                      </div>
-                      <div className="mu-inv-row">
-                        <span>Recording session 2hr</span>
-                        <span>$300</span>
-                      </div>
-                      <div className="mu-inv-row">
-                        <span>Mix revision</span>
-                        <span>$150</span>
-                      </div>
-                      <div className="mu-inv-total">
-                        <span>Total</span>
-                        <span>$450</span>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="mu-inv-mini">
-                        <span>#0043 · Alex D.</span>
-                        <span
-                          className="mu-badge ghost"
-                          style={{
-                            color: "var(--amber)",
-                            borderColor: "rgba(212,150,10,0.3)",
-                          }}
-                        >
-                          Pending
-                        </span>
-                      </div>
-                      <div className="mu-inv-mini">
-                        <span>#0041 · Jordan S.</span>
-                        <span className="mu-badge copper">Overdue</span>
-                      </div>
-                      <div className="mu-inv-mini">
-                        <span>#0040 · Marcus T.</span>
-                        <span className="mu-badge">Paid ✓</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Music (Merged Delivery/Studio) */}
-                <div className="feature-content" id="feat-2">
-                  <h3>
-                    Stream freely.<br />
-                    Download when paid.
-                  </h3>
-                  <p>
-                    Clients can listen to the latest mix and leave timestamped
-                    feedback. &quot;Fix the snare at 1:42&quot; stays at 1:42.
-                  </p>
-                  <p>
-                    But the high-res download button?{" "}
-                    <strong>
-                      That stays securely locked until the final invoice is
-                      paid.
-                    </strong>
-                    <br />
-                    Deliver files via a clean, branded page. No more chasing
-                    money after sending the final WAV.
-                  </p>
-                  <div className="feature-mockup waveform-mockup">
-                    <div className="mu-panel">
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          marginBottom: 16,
-                          overflowX: "auto",
-                          paddingBottom: 4,
-                        }}
-                      >
-                        <div
-                          style={{
-                            background: "rgba(212,150,10,0.15)",
-                            color: "var(--amber)",
-                            border: "1px solid var(--amber)",
-                            borderRadius: 4,
-                            padding: "4px 8px",
-                            fontSize: 10,
-                            fontWeight: 600,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Mix V3 (Current)
-                        </div>
-                        <div
-                          style={{
-                            background: "var(--dark-elevated)",
-                            color: "var(--dark-body)",
-                            border: "1px solid var(--dark-border)",
-                            borderRadius: 4,
-                            padding: "4px 8px",
-                            fontSize: 10,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Mix V2 (Approved)
-                        </div>
-                        <div
-                          style={{
-                            background: "var(--dark-elevated)",
-                            color: "var(--dark-body)",
-                            border: "1px solid var(--dark-border)",
-                            borderRadius: 4,
-                            padding: "4px 8px",
-                            fontSize: 10,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Mix V1
-                        </div>
-                      </div>
-                      <div className="track-title">Draft_v3_unreleased.wav</div>
-                      <div className="player-bar-container">
-                        <div className="player-progress"></div>
-                        <div className="player-pin pin-1"></div>
-                        <div className="player-pin pin-2"></div>
-                      </div>
-                      <div className="comment-bubble">
-                        <div className="comment-header">
-                          <span className="comment-time">1:42</span>
-                          <span
-                            style={{
-                              color: "var(--amber)",
-                              fontSize: 10,
-                              textTransform: "uppercase",
-                              fontWeight: "bold",
-                            }}
-                          >
-                            ✓ Resolved
-                          </span>
-                        </div>
-                        &quot;Snare too loud here&quot;
-                      </div>
-                    </div>
-                    <div className="mu-panel mu-delivery-flex">
-                      <div>
-                        <div className="track-title" style={{ marginBottom: 2 }}>
-                          Final Mix + Stems.zip
-                        </div>
-                        <div
-                          style={{ fontSize: 11, color: "var(--dark-body)" }}
-                        >
-                          Ready for download · 450MB
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div
-                          className="mu-dl-btn"
-                          style={{
-                            background: "rgba(212,150,10,0.1)",
-                            color: "rgba(255,255,255,0.4)",
-                            border: "1px solid rgba(212,150,10,0.3)",
-                            cursor: "not-allowed",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 6,
-                          }}
-                        >
-                          🔒 Download
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 9,
-                            color: "var(--copper)",
-                            marginTop: 6,
-                            fontWeight: 700,
-                            letterSpacing: "0.05em",
-                            textTransform: "uppercase",
-                          }}
-                        >
-                          Unlocks after $150 payment
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. CRM */}
-                <div className="feature-content" id="feat-3">
-                  <h3>Client Management</h3>
-                  <p>
-                    Every client&apos;s history, sessions, payments, notes,
-                    <br />
-                    and files in one place. Know who&apos;s coming back,<br />
-                    who owes you, and who sent you three referrals.
-                  </p>
-                  <div className="feature-mockup" style={{ padding: 24 }}>
-                    <div className="mu-crm-head">
-                      <div className="mu-avatar">MT</div>
-                      <div className="mu-crm-name">Marcus T.</div>
-                    </div>
-                    <div className="mu-crm-stats">
-                      <div className="mu-stat-chip">8 sessions</div>
-                      <div className="mu-stat-chip">$3,200 total</div>
-                      <div className="mu-stat-chip">2 referrals</div>
-                    </div>
-                    <div>
-                      <div className="mu-feed-item">
-                        <div className="mu-dot"></div>
-                        <div>Session booked · 2 days ago</div>
-                      </div>
-                      <div className="mu-feed-item">
-                        <div className="mu-dot"></div>
-                        <div>Invoice paid · 5 days ago</div>
-                      </div>
-                      <div className="mu-feed-item">
-                        <div className="mu-dot"></div>
-                        <div>Files delivered · 1 week ago</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 4. Comms */}
-                <div className="feature-content" id="feat-4">
-                  <h3>Follow-up on autopilot</h3>
-                  <p>
-                    Booking confirmations, session reminders, post-session
-                    thank-yous,<br />
-                    payment nudges — sent via WhatsApp or email, in your voice.
-                    <br />
-                    Clients feel taken care of. You didn&apos;t lift a finger.
-                  </p>
-                  <div className="feature-mockup">
-                    <div className="mu-chat">
-                      <div className="mu-bubble left">
-                        Hey Marcus, your session is confirmed for Tuesday at
-                        3pm 🎛
-                      </div>
-                      <div className="mu-bubble left">
-                        Your files are ready — click here to download
-                      </div>
-                      <div className="mu-bubble right">Perfect, thanks!</div>
-                      <div className="mu-chat-note">
-                        Sent automatically by Skitza
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 5. Leads */}
-                <div className="feature-content" id="feat-5">
-                  <h3>Lead Management</h3>
-                  <p>
-                    Someone DMs and goes quiet?<br />
-                    Skitza tracks the lead, sends automated follow-ups,<br />
-                    and tells you exactly when to reach back out.<br />
-                    Your pipeline, managed.
-                  </p>
-                  <div className="feature-mockup" style={{ padding: 16 }}>
-                    <div className="mu-board">
-                      <div className="mu-col">
-                        <div className="mu-col-title">New</div>
-                        <div className="mu-l-card">
-                          <div className="mu-l-name">Sarah J.</div>
-                          <div className="mu-l-sub">DM inquiry · Today</div>
-                        </div>
-                        <div className="mu-l-card" style={{ opacity: 0.5 }}>
-                          <div className="mu-l-name">Jay K.</div>
-                          <div className="mu-l-sub">Instagram DM</div>
-                        </div>
-                      </div>
-                      <div
-                        className="mu-col"
-                        style={{
-                          border: "1px dashed rgba(255,255,255,0.05)",
-                        }}
-                      >
-                        <div className="mu-col-title">Following Up</div>
-                        <div className="mu-l-card active">
-                          <div className="mu-l-name">Marcus T.</div>
-                          <div className="mu-l-sub">Rates sent</div>
-                          <div className="mu-l-action">
-                            <div className="mu-pulse-dot"></div> Auto-follow-up
-                            sent
-                          </div>
-                        </div>
-                        <div className="mu-l-card" style={{ opacity: 0.5 }}>
-                          <div className="mu-l-name">Dana R.</div>
-                          <div className="mu-l-sub">No reply · 3 days</div>
-                        </div>
-                      </div>
-                      <div className="mu-col">
-                        <div className="mu-col-title">Booked</div>
-                        <div className="mu-l-card" style={{ opacity: 0.6 }}>
-                          <div className="mu-l-name">Alex D.</div>
-                          <div className="mu-l-sub">Deposit paid</div>
-                        </div>
-                        <div className="mu-l-card" style={{ opacity: 0.4 }}>
-                          <div className="mu-l-name">Mia L.</div>
-                          <div className="mu-l-sub">Session confirmed</div>
-                        </div>
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 10,
-                        paddingTop: 10,
-                        borderTop: "1px solid var(--dark-border)",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        fontSize: 11,
-                        color: "var(--dark-body)",
-                      }}
-                    >
-                      <span>6 active leads</span>
-                      <span style={{ color: "var(--amber)" }}>
-                        2 need follow-up
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 6. Contracts (NEW) */}
-                <div className="feature-content" id="feat-6">
-                  <h3>Zero disputes. Guaranteed.</h3>
-                  <p>
-                    Don&apos;t start a session without a signature. Skitza
-                    generates custom copyright agreements and split sheets that
-                    clients digitally sign right from their phone. Your final
-                    files remain securely locked until the balance is completely
-                    cleared.
-                  </p>
-                  <div
-                    className="feature-mockup mu-contract-split"
-                    style={{
-                      padding: 24,
-                      background:
-                        "repeating-linear-gradient(45deg, var(--dark-elevated), var(--dark-elevated) 10px, var(--dark-surface) 10px, var(--dark-surface) 20px)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        flex: 1,
-                        background: "var(--light-bg)",
-                        color: "var(--light-text)",
-                        padding: 16,
-                        borderRadius: 6,
-                        boxShadow: "0 15px 40px rgba(0,0,0,0.4)",
-                        transform: "rotate(-2deg)",
-                        display: "flex",
-                        flexDirection: "column",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <div>
-                        <div
-                          style={{
-                            fontFamily: "'Times New Roman', serif",
-                            fontSize: 14,
-                            fontWeight: "bold",
-                            borderBottom: "2px solid #000",
-                            paddingBottom: 4,
-                            marginBottom: 8,
-                            textAlign: "center",
-                          }}
-                        >
-                          Master Agreement
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 9,
-                            color: "#444",
-                            lineHeight: 1.5,
-                          }}
-                        >
-                          Artist agrees to the 50% publishing split and
-                          acknowledges files remain securely locked until the
-                          balance is cleared.
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          borderTop: "1px dashed #ccc",
-                          paddingTop: 8,
-                          marginTop: 12,
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "flex-end",
-                        }}
-                      >
-                        <div>
-                          <div
-                            style={{
-                              fontSize: 8,
-                              color: "#666",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.1em",
-                              marginBottom: 2,
-                            }}
-                          >
-                            Artist Signature
-                          </div>
-                          <div
-                            style={{
-                              fontFamily: "cursive",
-                              fontSize: 20,
-                              color: "#0015ff",
-                              transform: "rotate(-5deg)",
-                              display: "inline-block",
-                            }}
-                          >
-                            Marcus T.
-                          </div>
-                        </div>
-                        <div
-                          style={{
-                            background: "#27ae60",
-                            color: "white",
-                            fontSize: 8,
-                            padding: "3px 6px",
-                            borderRadius: 4,
-                            fontWeight: "bold",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.05em",
-                          }}
-                        >
-                          Verified
-                        </div>
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        flex: 1,
-                        background: "var(--dark-surface)",
-                        border: "1px solid var(--dark-border)",
-                        borderRadius: 6,
-                        padding: 16,
-                        display: "flex",
-                        flexDirection: "column",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        textAlign: "center",
-                        boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
-                        transform: "rotate(1deg)",
-                      }}
-                    >
-                      <div style={{ fontSize: 28, marginBottom: 8 }}>📁</div>
-                      <div
-                        style={{
-                          fontWeight: 500,
-                          fontSize: 13,
-                          marginBottom: 4,
-                        }}
-                      >
-                        Final_Master.wav
-                      </div>
-                      <div
-                        style={{
-                          background: "rgba(212,150,10,0.05)",
-                          border: "1px solid rgba(212,150,10,0.3)",
-                          color: "rgba(255,255,255,0.4)",
-                          padding: "8px 16px",
-                          borderRadius: 6,
-                          fontSize: 12,
-                          fontWeight: 500,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 8,
-                          marginTop: 12,
-                          cursor: "not-allowed",
-                        }}
-                      >
-                        🔒 Download
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 9,
-                          color: "var(--amber)",
-                          marginTop: 10,
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.05em",
-                        }}
-                      >
-                        Unlocks after $150 final payment
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* SECTION 4.5: Consolidation Section — source 1662-1704 */}
-        <section className="section" id="consolidation">
-          <div className="container">
+            ))}
+            <div className="flex-1" />
             <div
-              className="section-header reveal-up"
-              style={{ maxWidth: 700, margin: "0 auto 32px", textAlign: "center" }}
+              className="flex items-center gap-1.5 rounded-md p-1.5"
+              style={{ background: "rgb(255 255 255 / 0.04)" }}
             >
-              <span
-                className="watermark"
-                style={{
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  opacity: 0.3,
-                }}
+              <div
+                className="grad-amber flex h-[22px] w-[22px] items-center justify-center rounded-full text-[9px] font-extrabold"
+                style={{ color: "#111009" }}
+                aria-hidden
               >
-                —
-              </span>
-              <span className="label">One tool. Full stop.</span>
-              <h2 className="syne" style={{ color: "var(--light-bg)" }}>
-                Cancel the rest.<br />
-                Skitza is the only<br />
-                tab you need open.
-              </h2>
-              <p className="body-text">
-                Most producers juggle multiple tools that barely talk to each
-                other. Skitza replaces all of them — one subscription, one
-                login, one place where everything just works.
-              </p>
-            </div>
-
-            <div className="stats-grid reveal-up delay-1">
-              <div className="stat-card">
-                <div className="stat-num">9+</div>
-                <div className="stat-label">tools replaced</div>
+                GA
               </div>
-              <div className="stat-card">
-                <div className="stat-num">1</div>
-                <div className="stat-label">subscription</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-num">0</div>
-                <div className="stat-label">new apps to learn</div>
-              </div>
-            </div>
-
-            <div className="consolidation-footer reveal-up delay-2">
-              <div className="tools-replaced">
-                <div className="tool-chip replaced">
-                  <span className="tool-icon">💬</span> WhatsApp
-                </div>
-                <div className="tool-chip replaced">
-                  <span className="tool-icon">🔗</span> Linktree
-                </div>
-                <div className="tool-chip replaced">
-                  <span className="tool-icon">✍️</span> DocuSign
-                </div>
-                <div className="tool-chip replaced">
-                  <span className="tool-icon">📤</span> WeTransfer
-                </div>
-                <div className="tool-chip replaced">
-                  <span className="tool-icon">📊</span> Google Sheets
-                </div>
-                <div className="tool-chip replaced">
-                  <span className="tool-icon">💸</span> PayPal / Wave
-                </div>
-                <div className="tool-chip replaced">
-                  <span className="tool-icon">📁</span> Google Drive
-                </div>
-                <div className="tool-chip replaced">
-                  <span className="tool-icon">📧</span> Gmail drafts
-                </div>
-                <div className="tool-chip replaced">
-                  <span className="tool-icon">📅</span> Calendly
-                </div>
-                <div className="tool-chip skitza">
-                  <span className="tool-icon">⚡</span> Skitza
-                </div>
-              </div>
-              <p
-                style={{
-                  color: "var(--dark-body)",
-                  fontSize: 13,
-                  marginBottom: 24,
-                }}
+              <div
+                className="text-[9.5px] font-semibold"
+                style={{ color: "rgb(255 255 255 / 0.75)" }}
               >
-                One subscription. One login. Zero context-switching.
-              </p>
-              <a className="btn-ghost dark-ghost" href="#features">
-                See Everything Skitza Does →
-              </a>
-            </div>
-          </div>
-        </section>
-
-        {/* SECTION 5: HOW IT WORKS — source 1706-1734 */}
-        <section className="section" id="how-it-works">
-          <div className="container">
-            <div className="section-header no-cta reveal-up">
-              <span className="watermark">04</span>
-              <span className="label">Setup</span>
-              <h2 className="syne">
-                Set it up once.<br />
-                Let it run forever.
-              </h2>
-            </div>
-
-            <div className="steps-layout">
-              <div className="steps-line"></div>
-              <div className="step-card reveal-up delay-1">
-                <div className="step-num">01</div>
-                <h3>Connect your studio</h3>
-                <p>
-                  Link your calendar, WhatsApp, payment method,<br />
-                  and file storage in under 10 minutes.
-                </p>
-              </div>
-              <div className="step-card reveal-up delay-2">
-                <div className="step-num">02</div>
-                <h3>Set your rules</h3>
-                <p>
-                  Your rates, your availability, your workflow.<br />
-                  Skitza learns how you work and automates it exactly.
-                </p>
-              </div>
-              <div className="step-card reveal-up delay-3">
-                <div className="step-num">03</div>
-                <h3>Focus on music</h3>
-                <p>
-                  New session? Handled.<br />
-                  Payment due? Handled.<br />
-                  File delivered? Handled.<br />
-                  You just open your DAW.
-                </p>
+                Gili Avraham
               </div>
             </div>
           </div>
-        </section>
-
-        {/* INJECTED SECTION (S3): Security — 3-card pillar grid. Was a
-            separate component pre-pivot. */}
-        <section className="section" id="security">
-          <div className="container">
-            <div className="section-header no-cta reveal-up">
-              <span className="watermark">08</span>
-              <span className="label">Enterprise-grade by default</span>
-              <h2 className="syne">
-                Your masters never<br />leave the building.
-              </h2>
-              <p className="body-text" style={{ marginLeft: 0 }}>
-                Audio and contracts move across the internet every day.
-                Here&apos;s what happens to yours when they pass through Skitza.
-              </p>
-            </div>
-
-            <div className="security-grid">
-              {[
-                {
-                  icon: "🔒",
-                  title: "Privacy",
-                  body:
-                    "GDPR-ready architecture. Single-tenant audit log per producer. Row-level isolation enforced at the query layer — no silent cross-tenant leaks, ever.",
-                },
-                {
-                  icon: "☁️",
-                  title: "Storage",
-                  body:
-                    "Cloudflare R2 with AES-256 at rest. Every audio playback uses a short-lived signed URL scoped to the client. 90-day rolling backup of all metadata.",
-                },
-                {
-                  icon: "🛡️",
-                  title: "Auth",
-                  body:
-                    "Clerk-backed sessions with MFA-ready accounts. Client access rides on single-use magic links — no standing credentials. SOC 2 Type II in progress.",
-                },
-              ].map((pillar, i) => (
-                <article
-                  key={pillar.title}
-                  className={`security-card reveal-up delay-${String(i + 1)}`}
+          <div className="flex-1 overflow-hidden p-4">
+            <div className="mb-2.5 flex items-center justify-between">
+              <div>
+                <div
+                  className="font-syne text-[17px] font-extrabold"
+                  style={{ letterSpacing: "-0.02em" }}
                 >
-                  <span className="security-icon" aria-hidden>
-                    {pillar.icon}
-                  </span>
-                  <h3 className="syne">{pillar.title}</h3>
-                  <p>{pillar.body}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* SECTION 6: TESTIMONIALS — source 1736-1760 */}
-        <section className="section" id="testimonials">
-          <div className="container">
-            <div className="section-header no-cta reveal-up">
-              <span className="watermark">05</span>
-              <span className="label">
-                Producers who got their time back
-              </span>
-              <h2 className="syne">
-                Real results.<br />
-                No fluff.
-              </h2>
-            </div>
-
-            <div className="test-grid">
-              <div className="test-card reveal-up delay-1">
-                <p className="test-quote">
-                  &quot;I used to spend 2 hours a day just managing bookings
-                  and chasing invoices. Now I check Skitza once a week.&quot;
-                </p>
-                <p className="test-author">— Jordan M., Mixing Engineer</p>
+                  Good evening, Gili.
+                </div>
+                <div className="font-mono text-[9.5px]" style={{ color: "#6b6359" }}>
+                  Tuesday · 3 sessions today
+                </div>
               </div>
-              <div className="test-card reveal-up delay-2">
-                <p className="test-quote">
-                  &quot;My clients think I have a whole team behind me.
-                  It&apos;s just me and Skitza.&quot;
-                </p>
-                <p className="test-author">— Davi R., Music Producer</p>
-              </div>
-              <div className="test-card reveal-up delay-3">
-                <p className="test-quote">
-                  &quot;First month in, I recovered 3 unpaid invoices I&apos;d
-                  completely forgotten about.&quot;
-                </p>
-                <p className="test-author">— Kai T., Beatmaker</p>
+              <div
+                className="sk-soft-pulse flex items-center gap-1 rounded-full px-2.5 py-1 text-[9.5px] font-bold"
+                style={{
+                  background: "rgba(34,197,94,0.12)",
+                  border: "1px solid rgba(34,197,94,0.22)",
+                  color: "#15803d",
+                }}
+              >
+                <span className="h-1 w-1 rounded-full" style={{ background: "#22c55e" }} />
+                Public link live
               </div>
             </div>
-          </div>
-        </section>
 
-        {/* SECTION 7: PRICING — source 1762-1795 */}
-        <section className="section" id="pricing">
-          <div
-            className="blob-copper ambient-blob"
-            style={{ top: 0, left: -200 }}
-          ></div>
-          <div className="container">
+            {/* Public link strip */}
             <div
-              className="section-header reveal-up"
-              style={{ margin: "0 auto 40px", textAlign: "center" }}
+              className="relative mb-3 flex items-center justify-between overflow-hidden rounded-md px-3 py-2"
+              style={{ background: "#111009", color: "#fff" }}
             >
-              <span
-                className="watermark"
-                style={{ left: "50%", transform: "translateX(-50%)" }}
-              >
-                06
-              </span>
-              <span className="label">Pricing</span>
-              <h2 className="syne">
-                One plan.<br />
-                No surprises.
-              </h2>
-            </div>
-
-            <div className="pricing-wrap reveal-up delay-1">
-              <div className="pricing-card" id="pricing-card-3d">
-                <span className="price-plan">Early Access</span>
-                <div className="price-amount">$29</div>
-                <span className="price-period">/month</span>
-                <span className="price-strike">$79 after launch</span>
-                <span className="price-sub">Lock in this price forever</span>
-
-                <ul className="pricing-features">
-                  <li>Unlimited sessions &amp; bookings</li>
-                  <li>Automated invoicing &amp; payments</li>
-                  <li>Branded file delivery</li>
-                  <li>Full client CRM</li>
-                  <li>WhatsApp &amp; email automation</li>
-                  <li>Lead management &amp; follow-ups</li>
-                  <li>Priority support</li>
-                </ul>
-
-                <Link
-                  href="/sign-up?redirect_url=%2Fonboarding"
-                  className="btn-primary full"
+              <div className="animate-shine" />
+              <div className="relative">
+                <div className="font-mono text-[10px]" style={{ color: "rgb(255 255 255 / 0.5)" }}>
+                  your link
+                </div>
+                <div
+                  className="font-mono text-[11.5px] font-semibold"
+                  style={{ color: "#fff" }}
                 >
-                  Sign up now →
-                </Link>
-                <span className="price-footer">
-                  14-day free trial · Cancel anytime · No credit card required
+                  skitza.app/join/gili
+                </div>
+              </div>
+              <div className="relative flex gap-1.5">
+                <span
+                  className="rounded px-1.5 py-0.5 text-[9px]"
+                  style={{
+                    background: "rgb(255 255 255 / 0.08)",
+                    color: "rgb(255 255 255 / 0.7)",
+                  }}
+                >
+                  248 visits / 7d
+                </span>
+                <span
+                  className="rounded px-1.5 py-0.5 text-[9px] font-bold"
+                  style={{ background: "rgb(var(--brand-primary))", color: "#111009" }}
+                >
+                  Copy
                 </span>
               </div>
             </div>
-          </div>
-        </section>
 
-        {/* INJECTED SECTION (S3): FAQ — accordion. Was a separate
-            component pre-pivot. Inlined here so the verbatim port keeps
-            its single-component shape. */}
-        <section className="section" id="faq">
-          <div className="container">
-            <div className="section-header no-cta reveal-up">
-              <span className="watermark">07</span>
-              <span className="label">FAQ</span>
-              <h2 className="syne">
-                Things people<br />ask before they sign up.
-              </h2>
+            {/* Finance pulse — 3 cols */}
+            <div className="mb-3 grid grid-cols-3 gap-2">
+              {[
+                { label: "Earned · Nov", value: "$8,420", note: "+ 22% vs Oct", noteColor: "#15803d", dot: false },
+                { label: "Outstanding", value: "$1,200", note: "2 invoices", noteColor: "#6b6359", dot: false },
+                {
+                  label: "Follow up",
+                  value: "Marcus T.",
+                  note: "$450 · 9d overdue",
+                  noteColor: "#dc2626",
+                  dot: true,
+                },
+              ].map((c) => (
+                <div
+                  key={c.label}
+                  className="relative rounded-md p-2.5"
+                  style={{ background: "#fff", border: "1px solid #e8e1d4" }}
+                >
+                  {c.dot && (
+                    <div
+                      className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full"
+                      style={{
+                        background: "#dc2626",
+                        boxShadow: "0 0 0 3px rgba(220,38,38,0.18)",
+                      }}
+                    />
+                  )}
+                  <div
+                    className="font-mono mb-1 text-[9px] uppercase"
+                    style={{ color: "#6b6359", letterSpacing: "0.05em" }}
+                  >
+                    {c.label}
+                  </div>
+                  <div
+                    className="font-mono text-[18px] font-extrabold"
+                    style={{ color: "#111009", letterSpacing: "-0.02em" }}
+                  >
+                    {c.value}
+                  </div>
+                  <div className="mt-0.5 text-[9px] font-semibold" style={{ color: c.noteColor }}>
+                    {c.note}
+                  </div>
+                </div>
+              ))}
             </div>
 
-            <div className="faq-list reveal-up delay-1">
+            {/* Urgent projects card */}
+            <div className="rounded-md p-2.5" style={{ background: "#fff", border: "1px solid #e8e1d4" }}>
+              <div className="mb-2 flex items-center justify-between">
+                <div
+                  className="font-syne text-[11.5px] font-bold"
+                  style={{ letterSpacing: "-0.01em" }}
+                >
+                  Needs attention
+                </div>
+                <div className="font-mono text-[9px]" style={{ color: "#6b6359" }}>
+                  3
+                </div>
+              </div>
               {[
-                {
-                  q: "Do you store my master files?",
-                  a: "All files stay in your Cloudflare R2 bucket — Skitza never reads them. We hold metadata and signed URLs only, so the moment you cancel, your audio is still 100% yours and accessible.",
-                },
-                {
-                  q: "What if my client doesn't pay?",
-                  a: "Stripe handles the payment plans and late-fee logic automatically. The high-resolution download stays locked behind a paid status — your client can preview the watermarked mix, but the deliverable is gated until the invoice clears.",
-                },
-                {
-                  q: "Can I use my own domain?",
-                  a: "Not at launch. You get skitza.app/<your-name> — clean, instantly memorable, zero DNS configuration. Custom domains are on the Studio-tier roadmap once we know what 80% of producers actually need.",
-                },
-                {
-                  q: "Does it work offline?",
-                  a: "The Tauri desktop app caches your last 7 days of projects, so you can open sessions, view contracts, and queue file deliveries without a connection. Everything syncs the next time you're online.",
-                },
-                {
-                  q: "Is there a free tier?",
-                  a: "14-day free trial, no credit card required. Cancel anytime — your client links keep working for 30 days post-cancel, so an in-flight session never breaks because you decided Skitza wasn't for you.",
-                },
-                {
-                  q: "Can I import from Calendly, Samply, or Notion?",
-                  a: "CSV imports for clients and invoices ship at launch. Sample uploads via drag-and-drop. Notion import is on the roadmap — most producers find the migration painless because the new home for everything is one URL anyway.",
-                },
-              ].map((item, i) => {
-                const open = activeFaq === i;
-                const panelId = `faq-panel-${String(i)}`;
-                const buttonId = `faq-button-${String(i)}`;
-                return (
-                  <div
-                    key={item.q}
-                    className={open ? "faq-item is-open" : "faq-item"}
-                  >
-                    <button
-                      type="button"
-                      id={buttonId}
-                      className="faq-question"
-                      aria-expanded={open}
-                      aria-controls={panelId}
-                      onClick={() => {
-                        setActiveFaq(open ? null : i);
-                      }}
-                    >
-                      <span>{item.q}</span>
-                      <span className="faq-icon" aria-hidden>
-                        ⌄
-                      </span>
-                    </button>
-                    <div
-                      id={panelId}
-                      role="region"
-                      aria-labelledby={buttonId}
-                      className="faq-answer"
-                    >
-                      <p>{item.a}</p>
+                { c: "Yael N.", p: "Album · 4 tracks", s: "Mix v3 awaiting feedback", color: "#d4960a" },
+                { c: "Tom R.", p: "Single", s: "Final approval pending", color: "#15803d" },
+                { c: "Marcus T.", p: "EP · 3 tracks", s: "Invoice 9d overdue", color: "#dc2626" },
+              ].map((r, i) => (
+                <div
+                  key={r.c}
+                  className="flex items-center gap-2 py-1.5"
+                  style={i ? { borderTop: "1px solid #f0eadf" } : undefined}
+                >
+                  <div className="h-[22px] w-1 rounded" style={{ background: r.color }} />
+                  <div className="flex-1">
+                    <div className="text-[10.5px] font-bold" style={{ color: "#111009" }}>
+                      {r.c}
+                      <span style={{ color: "#6b6359", fontWeight: 500 }}> · {r.p}</span>
+                    </div>
+                    <div className="font-mono mt-px text-[9px]" style={{ color: r.color }}>
+                      {r.s}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        {/* INJECTED SECTION (S3): Founder — single-column editorial.
-            Was a separate component pre-pivot. */}
-        <section className="section" id="founder">
-          <div className="container">
-            <div className="founder-wrap">
-              <span className="label reveal-up">From the founder</span>
-
-              <div className="founder-portrait reveal-up delay-1" aria-hidden>
-                GA
-              </div>
-
-              <div className="founder-body">
-                <p className="reveal-up delay-2">
-                  I built Skitza after losing a $4k mix. No signed contract, no
-                  proof of delivery — the artist ghosted, and I had nothing to
-                  point at. The tools to prevent it existed; they were just
-                  scattered across six different apps.
-                </p>
-                <p className="reveal-up delay-3">
-                  Calendly for booking. Samply for files. Notion for project
-                  notes. DocuSign for the contract. Stripe for the deposit.
-                  WhatsApp for everything else. The friction <em>was</em> the
-                  product, and every solo producer I knew lived inside it.
-                </p>
-                <p className="reveal-up delay-4">
-                  Skitza is the tool I wish I&apos;d had that night. One link.
-                  Every client. Every session. Every dollar tracked. Built so
-                  you can spend Friday night mixing instead of resending a WAV
-                  for the third time.
-                </p>
-              </div>
-
-              <div className="founder-signoff reveal-up delay-5">
-                — Gili Asraf, founder
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* INJECTED SECTION (S3): Download — 2-card platform grid. Was
-            a separate component pre-pivot. */}
-        <section className="section" id="download">
-          <div className="container">
-            <div className="section-header no-cta reveal-up">
-              <span className="watermark">09</span>
-              <span className="label">Anywhere you work</span>
-              <h2 className="syne">
-                Studio. Sofa.<br />Subway.
-              </h2>
-              <p className="body-text" style={{ marginLeft: 0 }}>
-                The web app is live today. Native desktop and mobile builds
-                land the moment the signed-binary pipeline is in place — same
-                account, same data, same one URL.
-              </p>
-            </div>
-
-            <div className="download-grid">
-              {[
-                {
-                  icon: "💻",
-                  title: "Desktop",
-                  sub:
-                    "Native app for macOS, Windows, and Linux. Drag-and-drop files straight from Finder, get global keyboard shortcuts, and keep working offline.",
-                },
-                {
-                  icon: "📱",
-                  title: "Mobile",
-                  sub:
-                    "Add to Home Screen on iOS or Android — works offline, ships push notifications, and keeps your client booking link one tap away.",
-                },
-              ].map((p, i) => (
-                <article
-                  key={p.title}
-                  className={`download-card reveal-up delay-${String(i + 1)}`}
-                >
-                  <span className="download-icon" aria-hidden>
-                    {p.icon}
-                  </span>
-                  <h3 className="syne">{p.title}</h3>
-                  <p className="download-sub">{p.sub}</p>
-                  <button
-                    type="button"
-                    className="download-disabled"
-                    disabled
-                    aria-disabled="true"
-                  >
-                    <span aria-hidden>🔒</span> Coming soon
-                  </button>
-                </article>
+                  <Icon
+                    name="chevron-right"
+                    size={11}
+                    strokeWidth={2.4}
+                    className="text-[#6b6359]"
+                  />
+                </div>
               ))}
             </div>
           </div>
-        </section>
+        </div>
+      </div>
 
-        {/* SECTION 8: FINAL CTA — source 1797-1809 */}
-        <section className="final-cta">
-          <div className="final-glow"></div>
-          <div className="container">
-            <span
-              className="label"
-              style={{ position: "relative", zIndex: 1 }}
-            >
-              Ready?
-            </span>
-            <h2 className="syne">
-              The studio that<br />
-              runs itself is here.
-            </h2>
-            <p
-              className="body-text"
-              style={{ position: "relative", zIndex: 1 }}
-            >
-              Stop spending hours on admin.<br />
-              Make the music you actually want to make.
-            </p>
-            <div className="final-ctas">
-              <Link
-                href="/sign-up?redirect_url=%2Fonboarding"
-                className="btn-primary"
-              >
-                Sign up now
-              </Link>
-            </div>
+      {/* Floating "session booked" toast — desktop only */}
+      <div
+        className="reveal-up absolute hidden lg:flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[11.5px] shadow-2xl"
+        style={{
+          top: "12%",
+          right: "-32px",
+          background: "#111009",
+          color: "#fff",
+          border: "1px solid rgba(255,255,255,0.08)",
+          animationDelay: "0.18s",
+        }}
+      >
+        <div
+          className="flex h-7 w-7 items-center justify-center rounded-md"
+          style={{ background: "rgba(34,197,94,0.16)", color: "#22c55e" }}
+        >
+          <Icon name="check" size={14} strokeWidth={3} />
+        </div>
+        <div>
+          <div className="font-bold">Session booked</div>
+          <div className="font-mono text-[10px]" style={{ color: "rgb(255 255 255 / 0.6)" }}>
+            Marcus T · Tue 15:00
           </div>
-        </section>
+        </div>
+      </div>
 
-        {/* FOOTER — source 1811-1848 */}
-        <footer>
-          <div className="container">
-            <div className="footer-grid">
-              <div>
-                <a href="#" className="footer-logo">
-                  Skitza
-                </a>
-                <p className="footer-tag">Your studio runs itself.</p>
-              </div>
-              <div className="footer-col">
-                <h4>Product</h4>
-                <ul>
-                  <li>
-                    <a href="#features">Features</a>
-                  </li>
-                  <li>
-                    <a href="#pricing">Pricing</a>
-                  </li>
-                  <li>
-                    <a href="#">Blog</a>
-                  </li>
-                  <li>
-                    <a href="#">Contact</a>
-                  </li>
-                </ul>
-              </div>
-              <div className="footer-col">
-                <h4>Socials</h4>
-                <ul>
-                  <li>
-                    <a href="#">Instagram</a>
-                  </li>
-                  <li>
-                    <a href="#">Twitter/X</a>
-                  </li>
-                  <li>
-                    <a href="#">YouTube</a>
-                  </li>
-                </ul>
-              </div>
-              <div className="footer-col">
-                <h4>Legal</h4>
-                <ul>
-                  <li>
-                    <a href="#">Privacy Policy</a>
-                  </li>
-                  <li>
-                    <a href="#">Terms of Service</a>
-                  </li>
-                </ul>
-              </div>
-            </div>
-            <div className="footer-bottom">
-              © 2026 Skitza. Built for producers, by producers.
-            </div>
+      {/* Floating "paid" toast — desktop only */}
+      <div
+        className="reveal-up absolute hidden lg:flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[11.5px]"
+        style={{
+          bottom: "8%",
+          left: "-28px",
+          background: "#fff",
+          color: "#111009",
+          border: "1px solid rgb(var(--border-subtle))",
+          boxShadow: "0 14px 30px rgba(17,16,9,0.18)",
+          animationDelay: "0.26s",
+        }}
+      >
+        <div
+          className="flex h-7 w-7 items-center justify-center rounded-md"
+          style={{ background: "rgba(212,150,10,0.18)", color: "rgb(var(--brand-primary))" }}
+        >
+          <Icon name="dollar-sign" size={14} strokeWidth={2.8} />
+        </div>
+        <div>
+          <div className="font-bold">Invoice paid · auto</div>
+          <div className="font-mono text-[10px]" style={{ color: "#6b6359" }}>
+            $450 received
           </div>
-        </footer>
-      </main>
+        </div>
+      </div>
     </div>
+  );
+}
+
+// =============================================================================
+// 3. Stack Replace ("Six tabs. Six logins.")
+// =============================================================================
+
+function StackReplace() {
+  const tools = ["Calendly", "Notion", "DocuSign", "Stripe", "Samply", "WhatsApp"];
+  return (
+    <section
+      id="stack-replace"
+      className="border-b border-t"
+      style={{
+        background: "rgb(var(--bg-background))",
+        borderColor: "rgb(var(--border-subtle))",
+        padding: "80px 20px",
+      }}
+    >
+      <div className="mx-auto max-w-6xl text-center">
+        <div className="label-tiny sk-reveal mb-5">01 · The unbundled tax</div>
+        <h2
+          className="font-syne sk-reveal sk-d-1 m-0 font-extrabold"
+          style={{
+            fontSize: "clamp(32px, 4vw, 52px)",
+            letterSpacing: "-0.035em",
+            lineHeight: 1,
+            color: "rgb(var(--fg-default))",
+          }}
+        >
+          Six tabs. Six logins.
+          <br />
+          Forty-seven emails per session.
+        </h2>
+
+        <div className="mx-auto mt-14 grid max-w-4xl items-center gap-8 md:grid-cols-2">
+          {/* Without */}
+          <div
+            className="sk-reveal-left sk-d-2 relative rounded-2xl border p-6"
+            style={{
+              background: "#fff",
+              borderColor: "rgb(var(--border-subtle))",
+            }}
+          >
+            <div
+              className="absolute left-6 -top-2.5 rounded-md border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+              style={{
+                background: "rgba(220,38,38,0.1)",
+                borderColor: "rgba(220,38,38,0.2)",
+                color: "#dc2626",
+              }}
+            >
+              Without Skitza
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {tools.map((t) => (
+                <div
+                  key={t}
+                  className="relative rounded-[10px] border px-2 py-3.5 text-center"
+                  style={{
+                    background: "rgb(var(--bg-background))",
+                    borderColor: "rgb(var(--border-subtle))",
+                    filter: "grayscale(0.7)",
+                    opacity: 0.7,
+                  }}
+                >
+                  <div
+                    className="mx-auto mb-1.5 flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-extrabold"
+                    style={{ background: "#111009", color: "#fff" }}
+                  >
+                    {t.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="text-[10.5px] font-semibold" style={{ color: "#6b6359" }}>
+                    {t}
+                  </div>
+                  <div
+                    className="absolute right-1 top-1 text-xs font-extrabold"
+                    style={{ color: "#dc2626" }}
+                  >
+                    ×
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div
+              className="font-mono mt-3.5 text-center text-[11px]"
+              style={{ color: "#6b6359", letterSpacing: "-0.01em" }}
+            >
+              ≈ 6 fees · 4 contexts · 1 confused client
+            </div>
+          </div>
+
+          {/* With */}
+          <div
+            className="sk-reveal-right sk-d-3 relative overflow-hidden rounded-2xl p-6 text-white"
+            style={{ background: "#111009" }}
+          >
+            <div className="animate-shine" />
+            <div
+              className="absolute left-6 -top-2.5 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+              style={{ background: "rgb(var(--brand-primary))", color: "#111009" }}
+            >
+              With Skitza
+            </div>
+            <div
+              className="relative flex flex-col items-center justify-center gap-3"
+              style={{ minHeight: 144 }}
+            >
+              <span className="font-syne flex items-baseline gap-px text-[56px] font-extrabold leading-none">
+                Skitza
+                <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+              </span>
+              <div
+                className="font-mono text-center text-[12px]"
+                style={{ color: "rgb(255 255 255 / 0.6)" }}
+              >
+                skitza.app/join/<span style={{ color: "rgb(var(--brand-primary))" }}>gili</span>
+              </div>
+            </div>
+            <div
+              className="font-mono mt-3.5 text-center text-[11px]"
+              style={{ color: "rgb(255 255 255 / 0.7)" }}
+            >
+              1 link · 1 fee · 1 inbox
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// =============================================================================
+// 4. Features section — 3 alternating heroes with mocks
+// =============================================================================
+
+function FeaturesSection() {
+  return (
+    <section
+      id="features"
+      className="border-b"
+      style={{
+        background: "rgb(var(--bg-background))",
+        borderColor: "rgb(var(--border-subtle))",
+        padding: "40px 20px",
+      }}
+    >
+      <div className="mx-auto max-w-7xl">
+        <div className="sk-reveal py-8 text-center">
+          <div className="label-tiny">02 · What Skitza does</div>
+          <h2
+            className="font-syne mx-auto mt-3.5 max-w-3xl font-extrabold"
+            style={{
+              fontSize: "clamp(32px, 4vw, 52px)",
+              letterSpacing: "-0.035em",
+              lineHeight: 1,
+            }}
+          >
+            Your studio. On autopilot.
+          </h2>
+        </div>
+
+        <FeatureHero
+          index="01"
+          label="Storefront & booking"
+          title="Stop running your studio out of WhatsApp."
+          body="Right now: a lead asks about rates in DMs, you send a Calendly link, they pick a slot, you message back to confirm, you draft a contract in Notion, paste it into DocuSign, send a Stripe invoice, follow up three times. Skitza collapses all of it into one tap on your link. Slot picked, contract signed, deposit paid — confirmed before you even reply."
+        >
+          <FeatureStorefrontMock />
+        </FeatureHero>
+
+        <FeatureHero
+          index="02"
+          label="Files & feedback"
+          title="Stream freely. Download when paid."
+          body="Clients leave timestamped feedback right on the waveform. The high-res download stays locked until the final invoice clears. Feedback in. Money in. Files out."
+          reverse
+        >
+          <FeatureLockedMock />
+        </FeatureHero>
+
+        <FeatureHero
+          index="03"
+          label="Follow-ups"
+          title="The reminders you'd never send."
+          body="Booking confirmations, session reminders, post-session thank-yous, payment nudges — sent over WhatsApp or email, in your voice. You don't lift a finger. Clients feel taken care of."
+        >
+          <FeatureAutomationMock />
+        </FeatureHero>
+      </div>
+    </section>
+  );
+}
+
+function FeatureHero({
+  index,
+  label,
+  title,
+  body,
+  children,
+  reverse,
+}: {
+  index: string;
+  label: string;
+  title: string;
+  body: string;
+  children: React.ReactNode;
+  reverse?: boolean;
+}) {
+  return (
+    <div className="grid items-center gap-10 py-16 lg:grid-cols-2 lg:gap-16">
+      <div
+        className={reverse ? "sk-reveal-right" : "sk-reveal-left"}
+        style={{ order: reverse ? 2 : 1 }}
+      >
+        <div
+          className="font-mono mb-4 text-[11px]"
+          style={{ color: "rgb(var(--brand-primary))", letterSpacing: "-0.01em" }}
+        >
+          {index} / {label}
+        </div>
+        <h3
+          className="font-syne m-0 font-extrabold"
+          style={{
+            fontSize: "clamp(26px, 3.5vw, 38px)",
+            letterSpacing: "-0.035em",
+            lineHeight: 1.05,
+          }}
+        >
+          {title}
+        </h3>
+        <p
+          className="mt-4 text-[15px] leading-[1.55] sm:text-base"
+          style={{ color: "rgb(var(--fg-muted))" }}
+        >
+          {body}
+        </p>
+      </div>
+      <div
+        className={(reverse ? "sk-reveal-left" : "sk-reveal-right") + " sk-d-2"}
+        style={{ order: reverse ? 1 : 2 }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FeatureStorefrontMock() {
+  return (
+    <div
+      className="rounded-2xl border p-4"
+      style={{
+        background: "#fff",
+        borderColor: "rgb(var(--border-subtle))",
+        boxShadow: "0 20px 50px rgba(17,16,9,0.1)",
+      }}
+    >
+      <div className="mb-3.5 flex items-center justify-between">
+        <span className="font-mono text-[10px]" style={{ color: "#6b6359" }}>
+          skitza.app/join/gili
+        </span>
+        <span
+          className="rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
+          style={{
+            background: "rgba(34,197,94,0.10)",
+            color: "rgb(var(--fg-success))",
+            border: "1px solid rgba(34,197,94,0.22)",
+          }}
+        >
+          ● Live
+        </span>
+      </div>
+      <div
+        className="font-syne mb-3 text-[22px] font-extrabold"
+        style={{ letterSpacing: "-0.035em" }}
+      >
+        Services
+      </div>
+      <div className="flex flex-col gap-2.5">
+        {[
+          { n: "Full Production Package", d: "Beat + tracking + mix", p: "$1,500", g: "grad-rose" },
+          { n: "3-hour Mixing Session", d: "One song, one room", p: "$150", g: "grad-amber" },
+          { n: "Mastering Pass", d: "Streaming-ready", p: "$200", g: "grad-violet" },
+        ].map((s) => (
+          <div
+            key={s.n}
+            className="sk-lift flex items-center gap-3 rounded-xl border bg-white p-3"
+            style={{ borderColor: "rgb(var(--border-subtle))" }}
+          >
+            <div className={`${s.g} h-9 w-9 shrink-0 rounded-[10px]`} aria-hidden />
+            <div className="flex-1">
+              <div className="text-[13px] font-bold">{s.n}</div>
+              <div className="text-[11px]" style={{ color: "#6b6359" }}>
+                {s.d}
+              </div>
+            </div>
+            <div className="font-mono text-[14px] font-bold">{s.p}</div>
+            <div
+              className="rounded-md px-3 py-1.5 text-[11px] font-bold text-white"
+              style={{ background: "#111009" }}
+            >
+              Book →
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* Calendar peek */}
+      <div
+        className="mt-3.5 rounded-xl border p-3"
+        style={{
+          background: "rgb(var(--bg-background))",
+          borderColor: "rgb(var(--border-subtle))",
+        }}
+      >
+        <div className="label-tiny mb-2">Pick a slot</div>
+        <div className="grid grid-cols-5 gap-1.5">
+          {["Mon", "Tue", "Wed", "Thu", "Fri"].map((d, i) => (
+            <div
+              key={d}
+              className="rounded-md border p-2 text-center text-[10px] font-bold"
+              style={{
+                background: i === 1 ? "rgb(var(--brand-primary))" : "#fff",
+                borderColor: "rgb(var(--border-subtle))",
+                color: "#111009",
+              }}
+            >
+              <div>{d}</div>
+              <div className="font-mono mt-1 text-[13px]">{6 + i}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeatureLockedMock() {
+  return (
+    <div
+      className="rounded-2xl p-5"
+      style={{
+        background: "#111009",
+        color: "#fff",
+        boxShadow: "0 20px 50px rgba(17,16,9,0.25)",
+        border: "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      <div className="mb-3.5 flex gap-2">
+        {["v3", "v2", "v1"].map((v, i) => (
+          <span
+            key={v}
+            className="font-mono rounded-md border px-2.5 py-1 text-[11px] font-bold"
+            style={{
+              background: i === 0 ? "rgba(212,150,10,0.18)" : "rgb(255 255 255 / 0.04)",
+              color:
+                i === 0 ? "rgb(var(--brand-primary))" : "rgb(255 255 255 / 0.5)",
+              borderColor:
+                i === 0 ? "rgba(212,150,10,0.3)" : "rgb(255 255 255 / 0.06)",
+            }}
+          >
+            Mix · {v}
+          </span>
+        ))}
+      </div>
+      <div
+        className="relative mb-4 flex items-center gap-0.5"
+        style={{ height: 72 }}
+      >
+        {Array.from({ length: 48 }).map((_, i) => {
+          const v = 0.3 + Math.abs(Math.sin(i * 0.7) * Math.cos(i * 0.3)) * 0.6;
+          const played = i < 24;
+          return (
+            <div
+              key={i}
+              className="flex-1"
+              style={{
+                height: `${String(v * 100)}%`,
+                borderRadius: 1,
+                background: played ? "rgb(var(--brand-primary))" : "rgb(255 255 255 / 0.18)",
+              }}
+            />
+          );
+        })}
+        <div className="absolute top-0 bottom-0 w-0.5 bg-white" style={{ left: "50%" }} />
+        <div
+          className="absolute flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-extrabold"
+          style={{
+            left: "36%",
+            top: -4,
+            background: "rgb(var(--brand-primary))",
+            border: "2px solid #111009",
+            color: "#111009",
+          }}
+        >
+          R
+        </div>
+      </div>
+      <div
+        className="mb-4 rounded-[10px] border p-3"
+        style={{
+          background: "rgb(255 255 255 / 0.04)",
+          borderColor: "rgb(255 255 255 / 0.06)",
+        }}
+      >
+        <div className="mb-1 flex items-center gap-2">
+          <span
+            className="font-mono text-[10px] font-bold"
+            style={{ color: "rgb(var(--brand-primary))" }}
+          >
+            01:42
+          </span>
+          <span className="text-[11px] font-bold">Marcus T.</span>
+        </div>
+        <div
+          className="text-[12px] leading-[1.4]"
+          style={{ color: "rgb(255 255 255 / 0.7)" }}
+        >
+          &ldquo;Snare&apos;s a touch loud here — can we drop 2dB?&rdquo;
+        </div>
+      </div>
+      <div
+        className="flex items-center gap-3 rounded-[10px] border p-3.5"
+        style={{
+          background: "rgba(220,38,38,0.08)",
+          borderColor: "rgba(220,38,38,0.2)",
+        }}
+      >
+        <div
+          className="flex h-9 w-9 items-center justify-center rounded-md"
+          style={{ background: "rgba(220,38,38,0.18)", color: "#fca5a5" }}
+        >
+          <Icon name="lock" size={16} strokeWidth={2.4} />
+        </div>
+        <div className="flex-1">
+          <div className="text-[12.5px] font-bold">Final_Master.wav · 24/48</div>
+          <div className="font-mono mt-0.5 text-[10.5px]" style={{ color: "rgba(252,165,165,0.85)" }}>
+            Unlocks after $150 final payment
+          </div>
+        </div>
+        <span
+          className="font-mono text-[10px] font-bold uppercase tracking-[0.08em]"
+          style={{ color: "#fca5a5" }}
+        >
+          Locked
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function FeatureAutomationMock() {
+  return (
+    <div
+      className="rounded-2xl border p-4"
+      style={{
+        background: "#fff",
+        borderColor: "rgb(var(--border-subtle))",
+        boxShadow: "0 20px 50px rgba(17,16,9,0.08)",
+      }}
+    >
+      <div className="label-tiny mb-3">Auto-sent today · 0 lifted fingers</div>
+      <div className="flex flex-col gap-2.5">
+        {[
+          {
+            who: "Marcus T.",
+            when: "09:14",
+            msg: "Hey Marcus, your session is confirmed for Tue 15:00 🎛",
+            kind: "WhatsApp",
+            g: "grad-rose",
+          },
+          {
+            who: "Yael N.",
+            when: "11:42",
+            msg: "Just a heads up — final balance ($150) is due tomorrow.",
+            kind: "Email",
+            g: "grad-violet",
+          },
+          {
+            who: "The Halflights",
+            when: "14:08",
+            msg: "Your stems are ready. Tap to download — 450MB.",
+            kind: "WhatsApp",
+            g: "grad-emerald",
+          },
+          {
+            who: "Dana R.",
+            when: "16:55",
+            msg: "3 days since you asked about rates — still good to chat?",
+            kind: "Email",
+            g: "grad-amber",
+          },
+        ].map((m) => (
+          <div
+            key={m.who}
+            className="flex gap-2.5 rounded-[10px] border p-2.5"
+            style={{
+              background: "rgb(var(--bg-background))",
+              borderColor: "rgb(var(--border-subtle))",
+            }}
+          >
+            <div
+              className={`${m.g} flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-extrabold`}
+              style={{ color: "#111009" }}
+              aria-hidden
+            >
+              {m.who.split(" ").map((s) => s[0]).join("")}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="mb-0.5 flex items-baseline gap-2">
+                <span className="text-[12px] font-bold">{m.who}</span>
+                <span className="font-mono text-[9.5px]" style={{ color: "#6b6359" }}>
+                  {m.when} · {m.kind}
+                </span>
+              </div>
+              <div className="text-[12px] leading-[1.4]" style={{ color: "#111009" }}>
+                {m.msg}
+              </div>
+            </div>
+            <Icon
+              name="check-check"
+              size={14}
+              strokeWidth={2.4}
+              className="shrink-0"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// 5. Feature grid (6 cards)
+// =============================================================================
+
+function FeatureGrid() {
+  const items: Array<{ i: IconName; t: string; b: string }> = [
+    {
+      i: "file-signature",
+      t: "Contracts that sign themselves",
+      b: "Custom copyright + split sheets, signed from a phone before the session starts.",
+    },
+    {
+      i: "users",
+      t: "Client history, all in one place",
+      b: "Every session, payment, and file. Know who's a repeat, who owes you, who referred you.",
+    },
+    {
+      i: "inbox",
+      t: "Lead pipeline that doesn't ghost",
+      b: "Someone goes quiet on Instagram? Skitza tracks the lead and follows up automatically.",
+    },
+    {
+      i: "shield-check",
+      t: "Files stay yours",
+      b: "Cloudflare R2, AES-256, single-tenant audit log. Cancel anytime — your audio is still 100% yours.",
+    },
+    {
+      i: "globe",
+      t: "One link, every channel",
+      b: "Drops cleanly into IG bio, Spotify, WhatsApp status. Clients remember one URL.",
+    },
+    {
+      i: "smartphone",
+      t: "Works on every device",
+      b: "Your link opens beautifully on iPhone, Android, or laptop. No app to install — just one URL your clients tap.",
+    },
+  ];
+  return (
+    <section
+      id="feature-grid"
+      style={{ background: "rgb(var(--bg-background))", padding: "40px 20px 88px" }}
+    >
+      <div className="mx-auto max-w-6xl">
+        <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((it, i) => (
+            <div
+              key={it.t}
+              className={`sk-lift sk-reveal sk-d-${String((i % 3) + 1)} rounded-2xl border`}
+              style={{
+                background: "#fff",
+                borderColor: "rgb(var(--border-subtle))",
+                padding: 22,
+              }}
+            >
+              <div
+                className="mb-3.5 flex h-9 w-9 items-center justify-center rounded-[10px] border"
+                style={{
+                  background: "rgba(212,150,10,0.12)",
+                  borderColor: "rgba(212,150,10,0.2)",
+                  color: "rgb(var(--brand-primary))",
+                }}
+              >
+                <Icon name={it.i} size={17} strokeWidth={2.2} />
+              </div>
+              <div
+                className="font-syne mb-1.5 text-[17px] font-bold"
+                style={{ letterSpacing: "-0.02em" }}
+              >
+                {it.t}
+              </div>
+              <div
+                className="text-[13px] leading-[1.5]"
+                style={{ color: "rgb(var(--fg-muted))" }}
+              >
+                {it.b}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// =============================================================================
+// 6. How it works (dark, 3 steps)
+// =============================================================================
+
+function HowSection() {
+  const steps = [
+    { n: "01", t: "Connect your studio", b: "Link calendar, payments, and storage. ~10 minutes." },
+    { n: "02", t: "Set your rules", b: "Rates, availability, deposit %, contract template. Skitza handles the rest." },
+    { n: "03", t: "Share one link", b: "IG bio, business card, Spotify. Every client now flows through it." },
+  ];
+  return (
+    <section
+      id="how"
+      className="relative overflow-hidden"
+      style={{ background: "#111009", color: "#fff", padding: "88px 20px" }}
+    >
+      <div className="animate-shine" />
+      <div className="relative mx-auto max-w-6xl">
+        <div className="sk-reveal mb-14 text-center">
+          <div className="label-tiny" style={{ color: "rgba(212,150,10,0.7)" }}>
+            03 · Setup
+          </div>
+          <h2
+            className="font-syne mt-3.5 font-extrabold"
+            style={{
+              fontSize: "clamp(32px, 4vw, 52px)",
+              letterSpacing: "-0.035em",
+              lineHeight: 1,
+            }}
+          >
+            Set it up once. Let it run forever.
+          </h2>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {steps.map((s, i) => (
+            <div
+              key={s.n}
+              className={`sk-reveal sk-d-${String(i + 1)} rounded-2xl border p-7`}
+              style={{
+                background: "rgb(255 255 255 / 0.04)",
+                borderColor: "rgb(255 255 255 / 0.08)",
+              }}
+            >
+              <div
+                className="font-mono mb-4 text-[38px] font-extrabold"
+                style={{
+                  color: "rgb(var(--brand-primary))",
+                  letterSpacing: "-0.02em",
+                  lineHeight: 1,
+                }}
+              >
+                {s.n}
+              </div>
+              <div
+                className="font-syne mb-2 text-[20px] font-bold"
+                style={{ letterSpacing: "-0.025em" }}
+              >
+                {s.t}
+              </div>
+              <div
+                className="text-[13.5px] leading-[1.5]"
+                style={{ color: "rgb(255 255 255 / 0.6)" }}
+              >
+                {s.b}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// =============================================================================
+// 7. Founder note
+// =============================================================================
+
+function FounderNote() {
+  return (
+    <section
+      id="founder"
+      className="border-t"
+      style={{
+        background: "rgb(var(--bg-background))",
+        borderColor: "rgb(var(--border-subtle))",
+        padding: "88px 20px",
+      }}
+    >
+      <div className="sk-reveal mx-auto flex max-w-3xl gap-6 sm:gap-8">
+        <div
+          className="grad-amber flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-[18px] font-extrabold"
+          style={{ color: "#111009" }}
+          aria-hidden
+        >
+          GA
+        </div>
+        <div>
+          <div className="label-tiny mb-3.5">From the founder</div>
+          <p
+            className="m-0 text-[17px] leading-[1.6]"
+            style={{ color: "rgb(var(--fg-default))", fontWeight: 500 }}
+          >
+            I built Skitza after losing a $4k mix. No signed contract, no proof of
+            delivery — the artist ghosted, and I had nothing to point at. The tools to
+            prevent it existed; they were just scattered across six different apps.
+          </p>
+          <p
+            className="mt-4 text-[15px] leading-[1.6]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            Calendly for booking. Samply for files. Notion for notes. DocuSign for the
+            contract. Stripe for the deposit. WhatsApp for everything else. The friction{" "}
+            <em>was</em> the product. Skitza is what I wish I&apos;d had that night —
+            one link, every client, every dollar tracked. Built so you can spend Friday
+            night mixing instead of resending a WAV for the third time.
+          </p>
+          <div className="mt-5 text-[13px]" style={{ color: "rgb(var(--fg-muted))" }}>
+            — <strong style={{ color: "rgb(var(--fg-default))" }}>Gili Asraf</strong>,
+            founder
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// =============================================================================
+// 8. Pricing
+// =============================================================================
+
+function Pricing() {
+  return (
+    <section
+      id="pricing"
+      style={{ background: "rgb(var(--bg-background))", padding: "0 20px 88px" }}
+    >
+      <div className="mx-auto max-w-3xl">
+        <div className="sk-reveal mb-10 text-center">
+          <div className="label-tiny">04 · Pricing</div>
+          <h2
+            className="font-syne mt-3.5 font-extrabold"
+            style={{
+              fontSize: "clamp(32px, 4vw, 52px)",
+              letterSpacing: "-0.035em",
+              lineHeight: 1,
+            }}
+          >
+            One plan. No surprises.
+          </h2>
+        </div>
+
+        <div
+          className="sk-reveal-scale sk-d-1 relative overflow-hidden rounded-3xl border p-8"
+          style={{
+            background: "#fff",
+            borderColor: "rgb(var(--border-subtle))",
+            boxShadow: "0 20px 50px rgba(17,16,9,0.08)",
+          }}
+        >
+          <div
+            className="absolute right-0 top-0 rounded-bl-xl px-4 py-2 text-[10.5px] font-bold uppercase tracking-[0.1em]"
+            style={{ background: "rgb(var(--brand-primary))", color: "#111009" }}
+          >
+            Early access
+          </div>
+
+          <div className="mb-2 mt-2.5 flex items-baseline gap-3.5">
+            <span
+              className="font-syne text-[64px] font-extrabold"
+              style={{ letterSpacing: "-0.04em", lineHeight: 1 }}
+            >
+              $29
+            </span>
+            <span className="text-[14px]" style={{ color: "rgb(var(--fg-muted))" }}>
+              /month
+            </span>
+            <span
+              className="font-mono text-[12px] line-through"
+              style={{ color: "rgb(var(--fg-muted))" }}
+            >
+              $79 after launch
+            </span>
+          </div>
+          <div
+            className="font-mono mb-6 text-[11.5px]"
+            style={{ color: "rgb(var(--brand-primary))" }}
+          >
+            · Lock in this rate forever ·
+          </div>
+
+          <div className="mb-7 grid gap-y-2 sm:grid-cols-2 sm:gap-x-5">
+            {[
+              "Unlimited sessions & bookings",
+              "Automated invoicing & Stripe payments",
+              "Branded gated file delivery",
+              "Full client CRM",
+              "WhatsApp + email automation",
+              "Lead pipeline + auto follow-ups",
+              "Encrypted cloud storage included",
+              "Priority support",
+            ].map((f) => (
+              <div key={f} className="flex items-center gap-2 text-[13.5px]">
+                <Icon
+                  name="check"
+                  size={14}
+                  strokeWidth={3}
+                  className="shrink-0"
+                />
+                {f}
+              </div>
+            ))}
+          </div>
+
+          <Link
+            href={SIGNUP_HREF}
+            className="sk-pop block w-full rounded-xl px-5 py-4 text-center text-[15px] font-bold"
+            style={{ background: "#111009", color: "#fff" }}
+          >
+            Start free trial →
+          </Link>
+          <div
+            className="font-mono mt-3 text-center text-[11.5px]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            14-day free trial · No credit card · Cancel anytime
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// =============================================================================
+// 9. FAQ
+// =============================================================================
+
+function FAQ({
+  activeFaq,
+  setActiveFaq,
+}: {
+  activeFaq: number | null;
+  setActiveFaq: (n: number | null) => void;
+}) {
+  const items = [
+    {
+      q: "Do you store my master files?",
+      a: "All files stay in encrypted cloud storage — Skitza holds metadata and signed URLs only. Cancel and your audio is still 100% yours.",
+    },
+    {
+      q: "What if my client doesn't pay?",
+      a: "Stripe handles payment plans + late-fee logic. The high-res download stays locked behind paid status. The watermarked preview is always streamable; the deliverable is gated.",
+    },
+    {
+      q: "Can I use my own domain?",
+      a: "Not at launch. You get skitza.app/<your-name> — clean, memorable, zero DNS. Custom domains are on the Studio-tier roadmap.",
+    },
+    {
+      q: "How is this different from Samply?",
+      a: "Samply does file delivery — that's what it does. Skitza does the rest of the studio: booking, contracts, invoices, follow-ups, the link. If Samply replaced Dropbox for you, Skitza replaces the other five tabs.",
+    },
+    {
+      q: "Can I import my existing clients and audio?",
+      a: "Audio uploads work day one — drag-and-drop into any project. CSV client import and Samply migration are on the post-launch roadmap.",
+    },
+  ];
+  return (
+    <section
+      id="faq"
+      style={{ background: "rgb(var(--bg-background))", padding: "0 20px 88px" }}
+    >
+      <div className="mx-auto max-w-3xl">
+        <div className="sk-reveal mb-8">
+          <div className="label-tiny">05 · FAQ</div>
+          <h2
+            className="font-syne mt-3.5 font-extrabold"
+            style={{
+              fontSize: "clamp(32px, 4vw, 44px)",
+              letterSpacing: "-0.035em",
+              lineHeight: 1,
+            }}
+          >
+            Things people ask before signing up.
+          </h2>
+        </div>
+        <div style={{ borderTop: "1px solid rgb(var(--border-subtle))" }}>
+          {items.map((it, i) => {
+            const open = activeFaq === i;
+            return (
+              <div
+                key={it.q}
+                style={{ borderBottom: "1px solid rgb(var(--border-subtle))" }}
+              >
+                <button
+                  type="button"
+                  onClick={() => { setActiveFaq(open ? null : i); }}
+                  className="sk-row flex w-full items-center justify-between px-1 py-5 text-left"
+                  aria-expanded={open}
+                  aria-controls={`faq-panel-${String(i)}`}
+                >
+                  <span
+                    className="text-[15.5px] font-semibold"
+                    style={{ letterSpacing: "-0.01em" }}
+                  >
+                    {it.q}
+                  </span>
+                  <Icon
+                    name={open ? "minus" : "plus"}
+                    size={18}
+                    strokeWidth={2.4}
+                    className="shrink-0"
+                  />
+                </button>
+                {open && (
+                  <div
+                    id={`faq-panel-${String(i)}`}
+                    className="px-1 pb-6 text-[14px] leading-[1.6]"
+                    style={{ color: "rgb(var(--fg-muted))" }}
+                  >
+                    {it.a}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// =============================================================================
+// 10. Final CTA
+// =============================================================================
+
+function FinalCTA() {
+  return (
+    <section
+      id="final-cta"
+      className="final-cta relative overflow-hidden text-center"
+      style={{ background: "#111009", color: "#fff", padding: "120px 20px" }}
+    >
+      <div className="animate-shine" />
+      <div className="sk-reveal-scale relative mx-auto max-w-3xl">
+        <h2
+          className="font-syne m-0 font-extrabold"
+          style={{
+            fontSize: "clamp(40px, 5vw, 72px)",
+            letterSpacing: "-0.038em",
+            lineHeight: 0.98,
+          }}
+        >
+          The studio that runs itself is here
+          <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+        </h2>
+        <p
+          className="mt-5 text-[16px] leading-[1.5]"
+          style={{ color: "rgb(255 255 255 / 0.6)" }}
+        >
+          Stop spending hours on admin. Make the music you actually want to make.
+        </p>
+        <Link
+          href={SIGNUP_HREF}
+          className="sk-pop mt-8 inline-flex items-center gap-2.5 rounded-xl px-7 py-4 text-[15px] font-bold"
+          style={{
+            background: "rgb(var(--brand-primary))",
+            color: "#111009",
+            boxShadow: "0 12px 30px rgba(212,150,10,0.4)",
+          }}
+        >
+          Start free trial
+          <Icon name="arrow-right" size={16} strokeWidth={2.6} />
+        </Link>
+        <div
+          className="font-mono mt-3.5 text-[11.5px]"
+          style={{ color: "rgb(255 255 255 / 0.55)" }}
+        >
+          14-day trial · no card · cancel anytime
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// =============================================================================
+// 11. Footer
+// =============================================================================
+
+function LandingFooter() {
+  return (
+    <footer
+      style={{
+        background: "#0a0905",
+        color: "rgb(255 255 255 / 0.5)",
+        padding: "36px 20px",
+        borderTop: "1px solid rgb(255 255 255 / 0.06)",
+        fontSize: 12,
+      }}
+    >
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
+        <Wordmark size={16} inverse />
+        <span className="font-mono">© 2026 · Built for producers, by producers</span>
+        <div className="flex gap-5">
+          <Link href="/privacy" style={{ color: "inherit" }} className="hover:text-white">
+            Privacy
+          </Link>
+          <Link href="/terms" style={{ color: "inherit" }} className="hover:text-white">
+            Terms
+          </Link>
+          <Link href="/about" style={{ color: "inherit" }} className="hover:text-white">
+            About
+          </Link>
+        </div>
+      </div>
+    </footer>
   );
 }

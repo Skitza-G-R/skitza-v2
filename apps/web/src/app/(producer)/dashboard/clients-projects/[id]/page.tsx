@@ -1,0 +1,366 @@
+import { notFound, redirect } from "next/navigation";
+import { auth } from "@clerk/nextjs/server";
+import { createDb, desc, eq, invoices, producers } from "@skitza/db";
+
+import { ProjectHeader } from "~/components/dashboard/project/project-header";
+import { ProjectRoomHero } from "~/components/dashboard/project/project-room-hero";
+import { ProjectStatStrip } from "~/components/dashboard/project/project-stat-strip";
+// Server-safe imports (pure types + type-guard) come from the
+// shared module; the UI-only `ProjectSubTabs` component stays in
+// the `"use client"` file. Importing the guard from the client
+// module crashes RSC — that was the 2026-04-23 "Something buzzed"
+// bug on every project page.
+import {
+  resolveProjectSubTab,
+  type VisibleProjectSubTabId,
+} from "~/components/dashboard/project/project-sub-tab-shared";
+import { ProjectSubTabs } from "~/components/dashboard/project/project-sub-tabs";
+import { FilesSubTab } from "~/components/dashboard/project/sub-tabs/files-sub-tab";
+import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
+import { NotesSubTab } from "~/components/dashboard/project/sub-tabs/notes-sub-tab";
+import { OverviewSubTab } from "~/components/dashboard/project/sub-tabs/overview-sub-tab";
+import {
+  SessionsSubTab,
+  type SessionBooking,
+} from "~/components/dashboard/project/sub-tabs/sessions-sub-tab";
+import { appRouter } from "~/server/trpc/routers/_app";
+import { getStripe } from "~/server/stripe/client";
+
+type PageProps = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function ProjectDetail({ params, searchParams }: PageProps) {
+  const { userId } = await auth();
+  if (!userId) redirect("/sign-in");
+  const { id } = await params;
+  const sp = await searchParams;
+  // Resolve to one of the 5 visible PRD-spec tabs (Overview / Music /
+  // Sessions / Files / Notes). Legacy `?tab=money` deep-links from
+  // pre-PRD-v3 builds resolve to `overview` since the money strip
+  // moved there.
+  const activeTab: VisibleProjectSubTabId = resolveProjectSubTab(sp.tab);
+
+  const caller = appRouter.createCaller({ userId });
+  let data;
+  try {
+    data = await caller.project.detail({ id });
+  } catch {
+    notFound();
+  }
+
+  // Batch G Task 4 — money summary for the Money sub-tab's 3-metric
+  // strip (Paid / Outstanding / Next charge). Degrade gracefully:
+  // zero everywhere if the router errors, matching the "no invoices"
+  // render path.
+  let moneyForProject: {
+    paidCents: number;
+    outstandingCents: number;
+    currency: string;
+    nextChargeAt: Date | null;
+  } = {
+    paidCents: 0,
+    outstandingCents: 0,
+    currency: "USD",
+    nextChargeAt: null,
+  };
+  try {
+    moneyForProject = await caller.project.money({ projectId: id });
+  } catch (err) {
+    console.warn("[projects] project.money failed", err);
+  }
+
+  // Task 7 — Sessions sub-tab needs the single booking linked to this
+  // project (projects.bookingId is a 1:1 FK). Reuse the producer-scoped
+  // booking.list and filter in JS: producers typically have a small
+  // number of bookings and list is already cached by this render tree.
+  // Degrade silently if the router errors — the sub-tab will render its
+  // empty state, which is the right UX for "we can't resolve a booking".
+  let sessionBooking: SessionBooking | null = null;
+  if (data.project.bookingId) {
+    try {
+      const all = await caller.booking.list();
+      const match = all.find((b) => b.id === data.project.bookingId);
+      if (match) {
+        sessionBooking = {
+          id: match.id,
+          status: match.status,
+          startsAt: match.startsAt,
+          durationMin: match.durationMin,
+          packageName: match.packageNameSnapshot,
+          artistName: match.artistName,
+          artistEmail: match.artistEmail,
+        };
+      }
+    } catch (err) {
+      console.warn("[projects] booking.list failed for sessions tab", err);
+    }
+  }
+
+  // For split_50_50 projects with a saved PM, fetch the card's last-4
+  // from Stripe so the confirm-charge modal can show "card ending 4242"
+  // before the producer fires the off-session charge. Degrade silently
+  // on Stripe outage — the modal just omits the tail, no functional
+  // loss. Only fetched when actually relevant (plan + PM present).
+  let cardLast4: string | null = null;
+  if (
+    data.project.paymentPlanKind === "split_50_50" &&
+    data.project.stripePaymentMethodId
+  ) {
+    try {
+      const stripe = getStripe();
+      const pm = await stripe.paymentMethods.retrieve(
+        data.project.stripePaymentMethodId,
+      );
+      cardLast4 = pm.card?.last4 ?? null;
+    } catch (err) {
+      console.warn("[projects] paymentMethods.retrieve failed", err);
+    }
+  }
+
+  // Important 3: currency is now snapshotted on the project row at
+  // booking time, so the modal + chargeFinal both read from the same
+  // source. For legacy projects without a persisted currency, fall back
+  // to the most recent invoice; failing that, the producer's default.
+  // The fallback chain protects pre-migration-0023 rows; new rows hit
+  // the project field directly.
+  let projectCurrency = data.project.currency ?? "USD";
+  if (!data.project.currency) {
+    const dbUrl = process.env.DATABASE_URL;
+    if (dbUrl) {
+      try {
+        const db = createDb(dbUrl);
+        const [inv] = await db
+          .select({ currency: invoices.currency })
+          .from(invoices)
+          .where(eq(invoices.projectId, id))
+          .orderBy(desc(invoices.createdAt))
+          .limit(1);
+        if (inv?.currency) {
+          projectCurrency = inv.currency;
+        } else {
+          const [producer] = await db
+            .select({ defaultCurrency: producers.defaultCurrency })
+            .from(producers)
+            .where(eq(producers.id, data.project.producerId))
+            .limit(1);
+          if (producer?.defaultCurrency) {
+            projectCurrency = producer.defaultCurrency;
+          }
+        }
+      } catch (err) {
+        console.warn("[projects] currency lookup failed", err);
+      }
+    }
+  }
+
+  // Batch D — look up the client contact linked to this project so
+  // the header can render per-client tags + the inline tag editor.
+  // Matches on project.artistEmail; for legacy rows with clientEmail
+  // but no artistEmail the clientContacts.listWithProjects fallback
+  // would catch them, but this path is simpler and covers 99% of
+  // projects. Failure degrades to `null` (header omits the tag strip).
+  let clientContact: {
+    id: string;
+    tags: string[];
+  } | null = null;
+  let tagVocabulary: string[] = [];
+  try {
+    const [contact, vocab] = await Promise.all([
+      caller.clientContacts.list({ q: data.project.artistEmail }),
+      caller.clientContacts.listTags(),
+    ]);
+    const match = contact.find(
+      (c) => c.email.toLowerCase() === data.project.artistEmail.toLowerCase(),
+    );
+    if (match) {
+      // The list query projects a slim row; fetch the full record for
+      // tags since autocomplete values aren't exposed on the list shape.
+      const detail = await caller.clientContacts.detail({ id: match.id });
+      clientContact = {
+        id: detail.contact.id,
+        tags: detail.contact.tags,
+      };
+    }
+    tagVocabulary = vocab;
+  } catch (err) {
+    console.warn("[projects] client contact lookup failed", err);
+  }
+
+  // Shared header props — consumed by ProjectHeader's top row, payment
+  // strip, timeline, and 3-dot action handlers. finalDelivered mirrors
+  // finalPaid for now (pre-Task-6 there's no dedicated "delivered"
+  // column).
+  const headerProject = {
+    id: data.project.id,
+    title: data.project.title,
+    stage: data.project.stage,
+    artistName: data.project.artistName,
+    artistEmail: data.project.artistEmail,
+    clientName: data.project.clientName,
+    depositPaid: data.project.depositPaid,
+    finalPaid: data.project.finalPaid,
+    paymentPlanKind: data.project.paymentPlanKind,
+    installments: data.project.installments,
+    nextChargeAt: data.project.nextChargeAt,
+    chargesCompleted: data.project.chargesCompleted,
+    chargesTotal: data.project.chargesTotal,
+    totalAmountCents: data.project.totalAmountCents,
+    cardLast4,
+    currency: projectCurrency,
+    finalDelivered: data.project.finalPaid,
+  };
+
+  // 2026-05-06 redesign — slim hero shape sits above the existing
+  // ProjectHeader. The hero is purely cosmetic (back link, gradient,
+  // title, info row, "Play latest"); ProjectHeader keeps owning the
+  // stage select, action menu, tag editor, payment strip, and timeline
+  // so existing tests + flows aren't disturbed.
+  const heroProject = {
+    id: data.project.id,
+    title: data.project.title,
+    stage: data.project.stage,
+    artistName: data.project.clientName ?? data.project.artistName,
+    trackCount: data.tracks.length,
+    sessionCount: sessionBooking ? 1 : 0,
+    totalAmountCents: data.project.totalAmountCents,
+    currency: projectCurrency,
+    firstTrackId: data.tracks[0]?.id ?? null,
+  };
+
+  return (
+    <>
+      {/* Full-bleed gradient hero — title, info row, Play latest */}
+      <ProjectRoomHero project={heroProject} />
+
+      {/* Centered body — stat strip + ProjectHeader (controls) + tabs */}
+      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+        <ProjectStatStrip
+          stage={data.project.stage}
+          nextSessionAt={sessionBooking?.startsAt ?? null}
+          outstandingCents={moneyForProject.outstandingCents}
+          currency={projectCurrency}
+        />
+
+        <div className="mt-5">
+          <ProjectHeader
+            project={headerProject}
+            clientContact={clientContact}
+            tagVocabulary={tagVocabulary}
+          />
+        </div>
+
+        <div className="mt-6">
+          <ProjectSubTabs activeTab={activeTab}>
+            {activeTab === "overview" ? (
+              <OverviewSubTab
+                project={{
+                  title: data.project.title,
+                  createdAt: data.project.createdAt,
+                  updatedAt: data.project.updatedAt,
+                  finalPaid: data.project.finalPaid,
+                  paidAt: data.project.paidAt,
+                }}
+                money={moneyForProject}
+                session={
+                  sessionBooking
+                    ? {
+                        id: sessionBooking.id,
+                        status: sessionBooking.status,
+                        startsAt: sessionBooking.startsAt,
+                      }
+                    : null
+                }
+                tracks={data.tracks.map((t) => ({
+                  id: t.id,
+                  title: t.title,
+                  createdAt: t.createdAt,
+                }))}
+                versions={data.versions.map((v) => ({
+                  id: v.id,
+                  trackId: v.trackId,
+                  label: v.label,
+                  uploadedAt: v.uploadedAt,
+                  approvedAt: v.approvedAt,
+                }))}
+                comments={data.comments.map((c) => ({
+                  id: c.id,
+                  versionId: c.versionId,
+                  authorName: c.authorName,
+                  body: c.body,
+                  fromProducer: c.fromProducer,
+                  createdAt: c.createdAt,
+                }))}
+              />
+            ) : null}
+            {activeTab === "music" ? (
+              <MusicSubTab
+                project={{ id: data.project.id }}
+                tracks={data.tracks.map((t) => ({
+                  id: t.id,
+                  title: t.title,
+                  artist: t.artist,
+                  position: t.position,
+                }))}
+                versions={data.versions.map((v) => ({
+                  id: v.id,
+                  trackId: v.trackId,
+                  label: v.label,
+                  audioUrl: v.audioUrl,
+                  uploadedAt: v.uploadedAt,
+                  approvedAt: v.approvedAt,
+                }))}
+                comments={data.comments.map((c) => ({
+                  id: c.id,
+                  versionId: c.versionId,
+                  authorName: c.authorName,
+                  body: c.body,
+                  timestampMs: c.timestampMs,
+                  resolvedAt: c.resolvedAt,
+                  fromProducer: c.fromProducer,
+                  createdAt: c.createdAt,
+                }))}
+              />
+            ) : null}
+            {activeTab === "sessions" ? (
+              <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
+            ) : null}
+            {activeTab === "files" ? (
+              <FilesSubTab projectId={data.project.id} />
+            ) : null}
+            {activeTab === "notes" ? (
+              <NotesSubTab
+                project={{
+                  id: data.project.id,
+                  clientName: data.project.clientName,
+                  clientEmail: data.project.clientEmail,
+                  artistName: data.project.artistName,
+                  artistEmail: data.project.artistEmail,
+                  createdAt: data.project.createdAt,
+                  updatedAt: data.project.updatedAt,
+                  notes: data.project.notes,
+                }}
+                trackCount={data.tracks.length}
+                versionCount={data.versions.length}
+                tracks={data.tracks.map((t) => ({ id: t.id, title: t.title }))}
+                versions={data.versions.map((v) => ({
+                  trackId: v.trackId,
+                  label: v.label,
+                  uploadedAt: v.uploadedAt,
+                }))}
+                comments={data.comments.map((c) => ({
+                  authorName: c.authorName,
+                  body: c.body,
+                  timestampMs: c.timestampMs,
+                  fromProducer: c.fromProducer,
+                  createdAt: c.createdAt,
+                }))}
+              />
+            ) : null}
+          </ProjectSubTabs>
+        </div>
+      </div>
+    </>
+  );
+}

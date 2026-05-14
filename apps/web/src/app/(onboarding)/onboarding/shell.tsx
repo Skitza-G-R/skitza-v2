@@ -19,8 +19,8 @@ import { PROGRESS_TOTAL, ProgressBar } from "~/components/onboarding/progress-ba
 // vitest already pins the a11y guarantee — no new keyframes needed.
 
 export interface OnboardingShellProps {
-  /** 1-indexed current step. Must satisfy 1 ≤ currentStep ≤ 4. */
-  currentStep: 1 | 2 | 3 | 4;
+  /** 1-indexed current step. Must satisfy 1 ≤ currentStep ≤ 6. */
+  currentStep: 1 | 2 | 3 | 4 | 5 | 6;
   /** Display H1 text for this step (e.g. "Name your studio."). */
   title: string;
   /** Subtitle line under the H1. Optional but recommended. */

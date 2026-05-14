@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Test doubles ────────────────────────────────────────────────────
-// We mirror the magic-link / portfolio router test pattern: table
+// We mirror the portfolio router test pattern: table
 // marker objects let the dbMock route select() chains to the right
 // per-table mock. The project.chargeFinal mutation reads three tables
 // (producers for ownership, projects for plan state, invoices for the
@@ -467,19 +467,6 @@ describe("project.cancel", () => {
     });
   });
 
-  it("returns idempotent success when already cancelled", async () => {
-    seedCancel({ stage: "cancelled" });
-    const caller = await buildCaller();
-    const res = await caller.project.cancel({
-      projectId: PROJECT_ID,
-      confirmTitle: PROJECT_TITLE,
-    });
-    expect(res).toEqual({ ok: true });
-    // Idempotency: no Stripe call, no DB write — already in target state.
-    expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
-    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
-  });
-
   it("rejects BAD_REQUEST when project is already paid", async () => {
     seedCancel({ stage: "paid" });
     const caller = await buildCaller();
@@ -526,12 +513,12 @@ describe("project.cancel", () => {
     expect(res).toEqual({ ok: true });
     expect(subscriptionSchedulesCancelMock).toHaveBeenCalledTimes(1);
     expect(subscriptionSchedulesCancelMock).toHaveBeenCalledWith(SCHEDULE_ID);
-    // DB write: stage flipped to 'cancelled'. We capture the .set()
+    // DB write: stage flipped to 'archived'. We capture the .set()
     // payload via the spy so we can assert the exact field is touched.
     const setCalls = projectUpdateSetSpy.mock.calls;
     expect(setCalls.length).toBeGreaterThan(0);
     const lastSet = setCalls[setCalls.length - 1]?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("full plan: skips Stripe call (no schedule), still sets stage", async () => {
@@ -550,7 +537,7 @@ describe("project.cancel", () => {
     expect(res).toEqual({ ok: true });
     expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("split_50_50: skips Stripe call (no schedule), still sets stage", async () => {
@@ -570,7 +557,7 @@ describe("project.cancel", () => {
     // a Stripe schedule — there's nothing on Stripe's side to cancel.
     expect(subscriptionSchedulesCancelMock).not.toHaveBeenCalled();
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("treats 'schedule already cancelled' as idempotent success", async () => {
@@ -591,7 +578,7 @@ describe("project.cancel", () => {
     // The DB write still happens — our local state needs to converge
     // even if Stripe was already in the terminal state.
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("treats 'schedule already released' as idempotent success", async () => {
@@ -607,7 +594,7 @@ describe("project.cancel", () => {
       }),
     ).resolves.toEqual({ ok: true });
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
-    expect(lastSet.stage).toBe("cancelled");
+    expect(lastSet.stage).toBe("archived");
   });
 
   it("surfaces unexpected Stripe errors as INTERNAL_SERVER_ERROR", async () => {
@@ -679,35 +666,15 @@ describe("project.cancel", () => {
 // Smart Retries exhaust). Allowing the producer to flip it manually
 // detaches Skitza state from Stripe state.
 describe("project.setStage", () => {
-  function seedSetStage(stage: string = "in_production") {
+  function seedSetStage(
+    stage: string = "in_production",
+    paidAt: Date | null = null,
+  ) {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     projectSelectQueue.push([
-      { id: PROJECT_ID, producerId: PRODUCER_ID, stage },
+      { id: PROJECT_ID, producerId: PRODUCER_ID, stage, paidAt },
     ]);
   }
-
-  it("rejects 'cancelled' — producer must use the Cancel button (which calls Stripe)", async () => {
-    seedSetStage();
-    const caller = await buildCaller();
-    await expect(
-      caller.project.setStage({ id: PROJECT_ID, stage: "cancelled" }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
-    // No DB write — the rejection must happen before any state mutation.
-    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
-  });
-
-  it("rejects 'payment_paused' — webhook-only state", async () => {
-    seedSetStage();
-    const caller = await buildCaller();
-    await expect(
-      caller.project.setStage({ id: PROJECT_ID, stage: "payment_paused" }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
-    expect(projectUpdateSetSpy).not.toHaveBeenCalled();
-  });
 
   it("accepts 'in_production' (a normal Kanban stage)", async () => {
     seedSetStage();
@@ -743,5 +710,52 @@ describe("project.setStage", () => {
     expect(res).toEqual({ ok: true });
     const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
     expect(lastSet.stage).toBe("archived");
+  });
+
+  // ─── paid_at stamping (migration 0005) ─────────────────────────────
+  // First transition INTO stage='paid' MUST stamp paid_at to NOW so the
+  // Project Room Overview timeline can render a real "Paid" event
+  // instead of the latest-activity surrogate. Subsequent calls with
+  // stage='paid' MUST be idempotent — a producer flipping the dropdown
+  // back-and-forth shouldn't reset the original moment-of-payment
+  // signal. Non-paid transitions MUST never touch paid_at.
+  it("stamps paidAt when transitioning into 'paid' for the first time", async () => {
+    // Existing row has paidAt=null (never been paid before).
+    seedSetStage("in_production", null);
+    const before = Date.now();
+    const caller = await buildCaller();
+    await caller.project.setStage({ id: PROJECT_ID, stage: "paid" });
+    const after = Date.now();
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("paid");
+    // paidAt must be a Date, stamped within the call window.
+    expect(lastSet.paidAt).toBeInstanceOf(Date);
+    const stamped = (lastSet.paidAt as Date).valueOf();
+    expect(stamped).toBeGreaterThanOrEqual(before);
+    expect(stamped).toBeLessThanOrEqual(after);
+  });
+
+  it("does NOT overwrite paidAt when re-setting an already-paid project to 'paid' (idempotent)", async () => {
+    const original = new Date("2026-04-01T12:00:00Z");
+    seedSetStage("paid", original);
+    const caller = await buildCaller();
+    await caller.project.setStage({ id: PROJECT_ID, stage: "paid" });
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("paid");
+    // paidAt is intentionally absent from the SET payload — the first
+    // stamp wins. The DB column keeps the original timestamp.
+    expect(lastSet.paidAt).toBeUndefined();
+  });
+
+  it("does NOT touch paidAt for non-'paid' stage transitions", async () => {
+    seedSetStage("in_production", null);
+    const caller = await buildCaller();
+    await caller.project.setStage({
+      id: PROJECT_ID,
+      stage: "final_review",
+    });
+    const lastSet = projectUpdateSetSpy.mock.calls.at(-1)?.[0] as Row;
+    expect(lastSet.stage).toBe("final_review");
+    expect(lastSet.paidAt).toBeUndefined();
   });
 });

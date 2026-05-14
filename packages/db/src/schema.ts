@@ -71,25 +71,33 @@ export const producers = pgTable("producers", {
   autopilotRequestTestimonial: boolean("autopilot_request_testimonial").notNull().default(false),
   autopilotCommentNotify: boolean("autopilot_comment_notify").notNull().default(true),
   autopilotAutoArchive: boolean("autopilot_auto_archive").notNull().default(false),
+  serviceRoles: text("service_roles").array().default([]),
+  // ─── Marketing-grade meta fields ─────────────────────────────────
+  // Surfaced by the 4-stat band on /join/<slug> ("Genres / Released /
+  // Streams / Response"). Curated freeform strings — NOT computed from
+  // real bookings/streams data (Phase H owns that). Nullable so a
+  // producer who never opens Settings keeps the static React defaults
+  // in place; the meta-strip hides any block whose value is null.
+  // Migration 0006.
+  genres: text("genres").array(),
+  releasedSummary: text("released_summary"),
+  streamsSummary: text("streams_summary"),
+  // Hours of typical response time. 24/48/168 cover the dropdown
+  // options "Within 24h" / "Within 48h" / "Within 1 week"; null hides
+  // the response stat block entirely (the producer chose "Hidden").
+  responseHours: integer("response_hours"),
+  // Per-producer Tranzila terminal name. When set, payment redirects
+  // route to this terminal so funds flow directly to the producer.
+  // Null = use the master sandbox fallback (process.env.TRANZILA_TERMINAL_NAME).
+  // Provisioned manually by Skitza admin after the producer submits the
+  // connection-request form on Settings → Integrations → Payments.
+  tranzilaTerminalName: text("tranzila_terminal_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type Producer = typeof producers.$inferSelect;
 export type NewProducer = typeof producers.$inferInsert;
-
-export const leads = pgTable("leads", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  name: text("name"),
-  email: text("email"),
-  phone: text("phone"),
-  source: text("source"), // free-text for v1: "instagram dm", "referral from X", etc.
-  notes: text("notes"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-export type Lead = typeof leads.$inferSelect;
-export type NewLead = typeof leads.$inferInsert;
 
 export const portfolioTracks = pgTable("portfolio_tracks", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -113,42 +121,6 @@ export const portfolioTracks = pgTable("portfolio_tracks", {
 });
 export type PortfolioTrack = typeof portfolioTracks.$inferSelect;
 export type NewPortfolioTrack = typeof portfolioTracks.$inferInsert;
-
-export const magicLinks = pgTable("magic_links", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
-  target: text("target").notNull(),     // "portfolio" | "booking" | "project:<uuid>" — string-typed for forward compat
-  tokenHash: text("token_hash").notNull().unique(), // SHA-256 of the issued token; never store the token itself
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-export type MagicLink = typeof magicLinks.$inferSelect;
-export type NewMagicLink = typeof magicLinks.$inferInsert;
-
-export const magicLinkViews = pgTable("magic_link_views", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  magicLinkId: uuid("magic_link_id").notNull().references(() => magicLinks.id, { onDelete: "cascade" }),
-  ip: text("ip"),               // captured from x-forwarded-for; nullable for tests
-  userAgent: text("user_agent"),
-  referer: text("referer"),
-  dwellMs: integer("dwell_ms"), // populated by client-side beacon on unload; nullable
-  viewedAt: timestamp("viewed_at", { withTimezone: true }).notNull().defaultNow(),
-});
-export type MagicLinkView = typeof magicLinkViews.$inferSelect;
-export type NewMagicLinkView = typeof magicLinkViews.$inferInsert;
-
-export const waitlist = pgTable("waitlist", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  email: text("email").notNull().unique(),
-  source: text("source"),          // e.g. "landing-hero", "landing-final-cta"
-  userAgent: text("user_agent"),
-  ipHash: text("ip_hash"),         // sha256(ip); raw IPs never stored
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-export type WaitlistEntry = typeof waitlist.$inferSelect;
-export type NewWaitlistEntry = typeof waitlist.$inferInsert;
 
 // ─── Products (formerly packages — Phase H.3 rebuild) ──────────────
 // A producer's offerings — anything they sell, not just time-bound
@@ -226,6 +198,10 @@ export const products = pgTable("products", {
     .$type<PaymentPlan[]>()
     .notNull()
     .default([{ kind: "full" }]),
+  // Optional URL to a contract PDF the producer hosts elsewhere
+  // (Dropbox, Drive, their own site). Mirrors the brand.logoUrl
+  // pattern — producers paste a link, no file upload.
+  contractUrl: text("contract_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Product = typeof products.$inferSelect;
@@ -273,7 +249,8 @@ export type NewBlackout = typeof availabilityBlackouts.$inferInsert;
 // all statuses in one table (vs. a separate `booking_requests`) keeps
 // the audit trail + producer dashboard single-source-of-truth.
 export const bookingStatus = pgEnum("booking_status", [
-  "pending",
+  "pending_approval",
+  "pending_payment",
   "confirmed",
   "rejected",
   "cancelled",
@@ -300,7 +277,7 @@ export const bookings = pgTable("bookings", {
   notes: text("notes"),
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
   durationMin: integer("duration_min").notNull(),
-  status: bookingStatus("status").notNull().default("pending"),
+  status: bookingStatus("status").notNull().default("pending_approval"),
   statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
   // Phase H.4c — reminder dispatch markers. Nullable timestamp = "not
   // sent yet"; the cron at /api/cron/session-reminders stamps the
@@ -314,6 +291,21 @@ export const bookings = pgTable("bookings", {
   // but having it inline lets the booking detail page link straight to
   // the Stripe dashboard without a join.
   stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  // Tranzila's transaction confirmation number (the `ConfirmationCode`
+  // field from the notify_url POST body). Stored when the booking flips
+  // to confirmed so the success page can show "Confirmation #..." back
+  // to the artist. Nullable — Stripe-paid bookings won't have one.
+  tranzilaConfirmationCode: text("tranzila_confirmation_code"),
+  // Phase 0 of Clients & Projects v3 — links a booking to a specific
+  // song so the Song Space's Sessions tab can scope to that song.
+  // Nullable to preserve existing booking rows (they pre-date this
+  // column and were never tied to a song). ON DELETE SET NULL so a
+  // song delete doesn't cascade-delete sessions. Forward reference to
+  // `projectTracks` (declared further down) handled via the lazy
+  // callback form, same pattern as `projectId` above.
+  songId: uuid("song_id").references((): AnyPgColumn => projectTracks.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Booking = typeof bookings.$inferSelect;
@@ -331,13 +323,22 @@ export type NewBooking = typeof bookings.$inferInsert;
 export const projectStage = pgEnum("project_stage", [
   "lead",          // potential, not yet booked
   "booked",        // booking created
-  "contract_sent", // contract sent to artist
   "in_production", // actively working
   "final_review",  // final mix sent, awaiting approval
   "paid",          // final invoice paid
   "archived",      // closed
-  "payment_paused", // monthly retries exhausted — locks self-booking until PM updated
-  "cancelled",     // producer cancelled mid-plan
+]);
+
+// New workflow enum introduced by the Clients & Projects v3 redesign
+// (design doc: docs/plans/active/2026-05-14-clients-projects-redesign-design.md).
+// Drives the per-song stepper + the new Status stat tile on the Album hero.
+// Lives alongside `projectStage` — the old enum keeps running billing.
+export const workflowStage = pgEnum("workflow_stage", [
+  "brief",
+  "production",
+  "mixing",
+  "mastering",
+  "done",
 ]);
 
 export const projects = pgTable("projects", {
@@ -351,13 +352,25 @@ export const projects = pgTable("projects", {
   // still renders a sensible row after a booking row is purged.
   clientName: text("client_name"),
   clientEmail: text("client_email"),
-  shareTokenHash: text("share_token_hash").notNull().unique(),
   // Legacy artistName/artistEmail kept for now — the share-page render
   // path still reads them and we avoid churning that here.
   artistName: text("artist_name").notNull(),
   artistEmail: text("artist_email").notNull(),
+  // Project-room invite token. Minted at create time; embedded in the
+  // share URL the producer copies (`/join/[slug]?invite=<token>`).
+  // Unique so a guess collision can't land an artist in someone
+  // else's room. Nullable so legacy rows pre-migration stay valid.
+  inviteToken: text("invite_token").unique(),
   depositPaid: boolean("deposit_paid").notNull().default(false),
   finalPaid: boolean("final_paid").notNull().default(false),
+  // Total sessions covered by the product the artist paid for. 1 for
+  // single-session products, >1 for multi-session packages. Snapshotted
+  // from products.sessionCount at project-creation time so a producer
+  // editing the product later can't retroactively change how many free
+  // sessions an artist gets. Drives the credit-system flow: future
+  // bookings within the same project skip payment as long as
+  // count(confirmed bookings) < sessionCount.
+  sessionCount: integer("session_count").default(1),
   // ─── Auto-installments (Stripe) execution state ───────────────────
   // One plan per project — we don't model a separate instance table
   // because the relationship is 1:1 and a join would be pure overhead.
@@ -400,6 +413,26 @@ export const projects = pgTable("projects", {
   testimonialRequestedAt: timestamp("testimonial_requested_at", {
     withTimezone: true,
   }),
+  // Stamped by project.setStage the first time this row transitions
+  // INTO stage='paid'. Idempotent — once set, subsequent setStage
+  // calls don't overwrite it. Drives the "Paid" event in the Project
+  // Room → Overview "key activity" timeline (replaces the old
+  // surrogate-from-latest-activity hint). Stripe-webhook auto-paid
+  // flip is left to Phase H. Migration 0005.
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  // Producer-only private notes for this project. Free-text, nullable
+  // (a project with no notes is the default). Surface: Project Room →
+  // Notes tab; producer types and we autosave debounced. Capped at 5000
+  // chars at the procedure layer; the column itself is `text` so we can
+  // raise the cap later without a migration.
+  notes: text("notes"),
+  // Drag-to-reorder slot for the Projects list. Same pattern as
+  // client_contacts.position.
+  position: integer("position").notNull().default(0),
+  // Creative workflow stage for the new redesign hero + Status stat
+  // tile. Decoupled from the legacy `stage` (lifecycle) column — both
+  // co-exist; the new UI only ever shows this one.
+  workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
@@ -413,6 +446,11 @@ export const projectTracks = pgTable("project_tracks", {
   artist: text("artist"),
   position: integer("position").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Per-song workflow stage. Drives the WorkflowStepper on Song Space
+  // and the stage pill on Album tracklist rows. Advances when a new
+  // version is uploaded with a higher stage; manual override available
+  // from the Song Space.
+  workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
 });
 export type ProjectTrack = typeof projectTracks.$inferSelect;
 export type NewProjectTrack = typeof projectTracks.$inferInsert;
@@ -460,115 +498,6 @@ export const trackComments = pgTable("track_comments", {
 export type TrackComment = typeof trackComments.$inferSelect;
 export type NewTrackComment = typeof trackComments.$inferInsert;
 
-// ─── Contracts (PandaDoc-equivalent) ────────────────────────────────
-// A two-table model:
-// 1. contract_templates — reusable producer templates (markdown body
-//    with {{placeholder}} tokens).
-// 2. contracts — each "sent for signing" instance. Template snapshot
-//    on send so edits to the template don't mutate sent contracts.
-// 3. contract_events — audit trail (sent, viewed, signed) with IP hash.
-//
-// Contract state: draft → sent → viewed → signed → expired|cancelled.
-// Stored as text instead of enum for looser forward-compat.
-export const contractStatus = pgEnum("contract_status", [
-  "draft",
-  "sent",
-  "viewed",
-  "signed",
-  "completed",
-  "cancelled",
-  "expired",
-]);
-
-export const contractFieldType = pgEnum("contract_field_type", [
-  "signature",
-  "initial",
-  "date",
-  "text",
-  "checkbox",
-  "dropdown",
-  "number",
-]);
-
-export const contractEventKind = pgEnum("contract_event_kind", [
-  "created",
-  "sent",
-  "viewed",
-  "field_filled",
-  "signed",
-  "completed",
-  "cancelled",
-  "downloaded",
-]);
-
-export const contracts = pgTable("contracts", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
-  title: text("title").notNull(),
-  pdfR2Key: text("pdf_r2_key").notNull(),
-  finalPdfR2Key: text("final_pdf_r2_key"),
-  status: contractStatus("status").notNull().default("draft"),
-  shareTokenHash: text("share_token_hash").unique(),
-  sentAt: timestamp("sent_at", { withTimezone: true }),
-  viewedAt: timestamp("viewed_at", { withTimezone: true }),
-  signedAt: timestamp("signed_at", { withTimezone: true }),
-  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const contractRecipients = pgTable("contract_recipients", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  contractId: uuid("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
-  email: text("email").notNull(),
-  name: text("name").notNull(),
-  role: text("role").notNull().default("signer"),
-  routingOrder: integer("routing_order").notNull().default(1),
-  signingTokenHash: text("signing_token_hash").unique().notNull(),
-  viewedAt: timestamp("viewed_at", { withTimezone: true }),
-  signedAt: timestamp("signed_at", { withTimezone: true }),
-  ipHash: text("ip_hash"),
-  userAgent: text("user_agent"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const contractFields = pgTable("contract_fields", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  contractId: uuid("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
-  recipientId: uuid("recipient_id").references(() => contractRecipients.id, { onDelete: "set null" }),
-  page: integer("page").notNull(),
-  x: numeric("x", { precision: 5, scale: 2 }).notNull(),
-  y: numeric("y", { precision: 5, scale: 2 }).notNull(),
-  w: numeric("w", { precision: 5, scale: 2 }).notNull(),
-  h: numeric("h", { precision: 5, scale: 2 }).notNull(),
-  type: contractFieldType("type").notNull(),
-  required: boolean("required").notNull().default(true),
-  prefilledValue: text("prefilled_value"),
-  signedValue: text("signed_value"),
-  signedAt: timestamp("signed_at", { withTimezone: true }),
-  options: jsonb("options"),
-});
-
-export const contractEvents = pgTable("contract_events", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  contractId: uuid("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
-  recipientId: uuid("recipient_id").references(() => contractRecipients.id, { onDelete: "set null" }),
-  event: contractEventKind("event").notNull(),
-  ipHash: text("ip_hash"),
-  userAgent: text("user_agent"),
-  metadata: jsonb("metadata"),
-  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export type Contract = typeof contracts.$inferSelect;
-export type NewContract = typeof contracts.$inferInsert;
-export type ContractRecipient = typeof contractRecipients.$inferSelect;
-export type NewContractRecipient = typeof contractRecipients.$inferInsert;
-export type ContractField = typeof contractFields.$inferSelect;
-export type NewContractField = typeof contractFields.$inferInsert;
-export type ContractEvent = typeof contractEvents.$inferSelect;
-export type NewContractEvent = typeof contractEvents.$inferInsert;
 // ─── Client contacts cache ──────────────────────────────────────────
 // When an artist signs a contract, submits a booking request, or the
 // producer creates a project, we upsert an entry here so send-forms can
@@ -598,10 +527,25 @@ export const clientContacts = pgTable("client_contacts", {
   notes: text("notes"),
   referralSource: text("referral_source"),
   // Stamped by the Clerk user.created webhook on first artist sign-in.
-  // Null = client has never signed in (still uses magic links). Once
-  // stamped, the artist app can resolve all studios for this person via
-  // a single index lookup on (clerkUserId).
+  // Null = client has never signed in. Once stamped, the artist app can
+  // resolve all studios for this person via a single index lookup on
+  // (clerkUserId).
   clerkUserId: text("clerk_user_id"),
+  // Soft-delete marker for artist-initiated disconnect (Settings →
+  // Disconnect). Set timestamp = "this artist removed the connection";
+  // null = active. Producer-side queries IGNORE this flag (CRM keeps
+  // history); artist-side queries filter `IS NULL` so a disconnected
+  // studio disappears from the switcher / music / store / book.
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  // Linkpill "Invited" state for the Clients & Projects v3 redesign.
+  // Stamped when the producer triggers Send Invite (email or copy-link)
+  // from the Invite-to-App modal. Cleared when Clerk webhook resolves
+  // `clerkUserId`. NULL means "no invite ever sent".
+  invitedAt: timestamp("invited_at", { withTimezone: true }),
+  // Drag-to-reorder slot for the Clients list. NOT NULL with default 0
+  // so existing rows back-fill safely. Reorder mutations update many
+  // rows in a single transaction.
+  position: integer("position").notNull().default(0),
 }, (t) => ({
   uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
   clerkUserIdx: index("client_contacts_clerk_user_idx")
@@ -622,9 +566,7 @@ export type NewClientContact = typeof clientContacts.$inferInsert;
 // forget so a notify failure can never block the primary flow.
 export const notificationKind = pgEnum("notification_kind", [
   "comment_created",     // visitor commented on a track version
-  "contract_signed",     // all-signers-complete OR an individual signer
   "booking_requested",   // visitor submitted a booking
-  "contract_viewed",     // signer opened the contract link (optional; could be noisy)
   "track_approved",      // (future) artist marked a version approved
 ]);
 
@@ -640,7 +582,6 @@ export const notifications = pgTable("notifications", {
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
   trackVersionId: uuid("track_version_id").references(() => trackVersions.id, { onDelete: "cascade" }),
   commentId: uuid("comment_id").references(() => trackComments.id, { onDelete: "cascade" }),
-  contractId: uuid("contract_id").references(() => contracts.id, { onDelete: "cascade" }),
   bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "cascade" }),
   readAt: timestamp("read_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),

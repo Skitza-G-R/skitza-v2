@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { RecentUploadCard } from "./recent-upload-card";
 import type { PlayerTrack } from "../../audio/persistent-player";
 import type { RecentUpload } from "../../../server/trpc/routers/producer";
@@ -56,7 +58,7 @@ export function shelfRenderModel(uploads: RecentUpload[]): ShelfRenderModel {
 // keeps the project room on its Music sub-tab; `?versionId=` lets
 // the music tab pre-select that version on mount.
 export function cardHref(u: RecentUpload): string {
-  return `/dashboard/projects/${u.projectId}?tab=music&versionId=${u.versionId}`;
+  return `/dashboard/clients-projects/${u.projectId}?tab=music&versionId=${u.versionId}`;
 }
 
 // CustomEvent payload dispatched on play-button click. Shape matches
@@ -127,7 +129,7 @@ export function RecentUploadsShelf({ uploads }: RecentUploadsShelfProps) {
 // all uploads with filters + a richer waveform list.
 function ViewAllCard() {
   return (
-    <a
+    <Link
       href="/dashboard/music"
       className="group flex w-36 shrink-0 flex-col gap-2"
     >
@@ -142,6 +144,6 @@ function ViewAllCard() {
         <span className="px-3 text-center leading-tight">View all in Music →</span>
       </div>
       <span className="sr-only">View all uploads in Music</span>
-    </a>
+    </Link>
   );
 }

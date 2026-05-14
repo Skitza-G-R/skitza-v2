@@ -5,204 +5,43 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1776347920686,
-      "tag": "0000_first_jack_power",
+      "when": 1777562277853,
+      "tag": "0000_v3_init",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1776354289024,
-      "tag": "0001_cloudy_black_bolt",
+      "when": 1777633810733,
+      "tag": "0001_lyrical_doctor_strange",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1776405174939,
-      "tag": "0002_skinny_eternals",
+      "when": 1777810640334,
+      "tag": "0002_crazy_norman_osborn",
       "breakpoints": true
     },
     {
       "idx": 3,
       "version": "7",
-      "when": 1776410352598,
-      "tag": "0003_nosy_vision",
+      "when": 1777920957306,
+      "tag": "0003_amusing_doctor_spectrum",
       "breakpoints": true
     },
     {
       "idx": 4,
       "version": "7",
-      "when": 1776412261571,
-      "tag": "0004_dashing_piledriver",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1776412858907,
-      "tag": "0005_strange_mephistopheles",
+      "when": 1778000000000,
+      "tag": "0004_project_notes",
       "breakpoints": true
     },
     {
       "idx": 6,
       "version": "7",
-      "when": 1776434206638,
-      "tag": "0006_nebulous_wild_pack",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1776435728527,
-      "tag": "0007_bizarre_leper_queen",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1776440438470,
-      "tag": "0008_nervous_blockbuster",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1776443165388,
-      "tag": "0009_odd_king_bedlam",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1776445136166,
-      "tag": "0010_handy_aqueduct",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1776449836166,
-      "tag": "0011_curved_tinkerer",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1776470400000,
-      "tag": "0012_silent_lunatics",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1776556800000,
-      "tag": "0013_tough_maria_hill",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1776643200000,
-      "tag": "0014_sleepy_moondragon",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "7",
-      "when": 1776729600000,
-      "tag": "0015_curious_mockingbird",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "7",
-      "when": 1776816000000,
-      "tag": "0016_products_rebuild",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "7",
-      "when": 1776902400000,
-      "tag": "0017_session_reminders",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "7",
-      "when": 1776988800000,
-      "tag": "0018_stripe_integration",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "7",
-      "when": 1776988860000,
-      "tag": "0019_payment_plans",
-      "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "7",
-      "when": 1776988920000,
-      "tag": "0020_stripe_customers_index",
-      "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "7",
-      "when": 1776988980000,
-      "tag": "0021_invoices_pi_unique",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "7",
-      "when": 1776989040000,
-      "tag": "0022_projects_total_amount",
-      "breakpoints": true
-    },
-    {
-      "idx": 23,
-      "version": "7",
-      "when": 1776989100000,
-      "tag": "0023_projects_currency",
-      "breakpoints": true
-    },
-    {
-      "idx": 24,
-      "version": "7",
-      "when": 1776989160000,
-      "tag": "0024_client_contacts_clerk_user",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "7",
-      "when": 1776989220000,
-      "tag": "0025_default_session_min",
-      "breakpoints": true
-    },
-    {
-      "idx": 26,
-      "version": "7",
-      "when": 1776989280000,
-      "tag": "0026_booking_policies",
-      "breakpoints": true
-    },
-    {
-      "idx": 27,
-      "version": "7",
-      "when": 1776989340000,
-      "tag": "0027_producer_autopilot",
-      "breakpoints": true
-    },
-    {
-      "idx": 28,
-      "version": "7",
-      "when": 1776989400000,
-      "tag": "0028_client_contacts_tags",
+      "when": 1778100000000,
+      "tag": "0006_producer_meta",
       "breakpoints": true
     }
   ]

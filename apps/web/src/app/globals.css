@@ -1,110 +1,210 @@
 @import "tailwindcss";
 
 /*
- * Skitza — Warm Cream + Amber theme (Phase D, 2026-04-17)
+ * Skitza — locked design system (v3-ui-design, 2026-05-05)
  * --------------------------------------------------------
- * The producer's workspace + landing default to LIGHT (warm cream).
- * Public content pages opt into [data-theme="chrome-dark"] so the
- * /join/<slug> artist funnel reads like a record sleeve. A global
- * dark mode is also available — next-themes owns the attribute on
- * <html> and flips to the same "chrome-dark" token set on user
- * preference.
+ * Reverts the WCAG-sharpened Phase D amber back to the original landing
+ * palette (#D4960A on #F2EDE6 + pure white cards), drops Fraunces, and
+ * standardises Syne as the global display face per
+ * `notes/design-system.md` from the design canvas.
  *
- * Token resolution order (lowest → highest precedence):
- *   1. :root (LIGHT warm-cream default, WCAG AA sharpened)
- *   2. [data-theme="chrome-dark"] (DARK — warm charcoal, not pure)
- *   3. inline style on the workspace root (per-producer brand overrides)
+ * Token resolution:
+ *   1. @theme — Tailwind v4 utility namespace (`bg-bg-background` etc.)
+ *   2. :root — channel-form CSS vars for `rgb(var(--token) / alpha)`
+ *      arbitrary-value call-sites already in the codebase.
+ *   3. [data-theme="chrome-dark"] — dark mode (next-themes flips this).
  *
- * Token *names* are identical to the prior dark-first scheme so every
- * `bg-[rgb(var(--bg-elevated))]` call-site keeps working — only the
- * values flipped. Retired entirely: [data-theme="room-paper"] and
- * [data-theme="chrome-light"] (light is :root now).
+ * Backward compatibility: every prior token name (--bg-base, --fg-primary,
+ * --brand-accent, --border-subtle, etc.) is preserved as an alias of its
+ * new-spec counterpart so existing `bg-[rgb(var(--bg-base))]` consumers
+ * keep rendering. Phase 2 will normalise screens onto the canonical names.
  */
+
+/* --------------------------------------------------------------
+ * 1. Tailwind v4 @theme — exposes design tokens as utilities.
+ *    Each --color-* yields `bg-*` / `text-*` / `border-*` classes.
+ *    Each --radius-* yields `rounded-*`. Fonts wire up `font-*`.
+ * -------------------------------------------------------------- */
+@theme {
+  /* Surfaces */
+  --color-bg-background: rgb(242 237 230);   /* #F2EDE6 — main canvas */
+  --color-bg-elevated: rgb(255 255 255);     /* card / input surface */
+  --color-bg-sidebar: rgb(17 16 9);          /* #111009 — dark chrome */
+  --color-bg-overlay: rgb(247 243 235);      /* hover layer */
+  --color-bg-sunken: rgb(232 225 212);       /* sunken surface */
+
+  /* Text */
+  --color-fg-default: rgb(17 16 9);
+  --color-fg-secondary: rgb(61 55 48);
+  --color-fg-muted: rgb(107 99 89);
+  --color-fg-faint: rgb(156 148 138);
+  --color-fg-inverse: rgb(242 237 230);
+
+  /* Status */
+  --color-fg-success: rgb(34 197 94);        /* #22C55E */
+  --color-fg-danger: rgb(220 38 38);         /* #DC2626 */
+  --color-fg-warning: rgb(245 158 11);       /* #F59E0B */
+
+  /* Brand */
+  --color-brand-primary: rgb(212 150 10);    /* #D4960A — locked amber */
+  --color-brand-copper: rgb(176 104 48);     /* #B06830 — secondary */
+
+  /* Borders */
+  --color-border-subtle: rgb(232 225 212);   /* #E8E1D4 */
+  --color-border-strong: rgb(200 192 178);
+  --color-border-sidebar: rgb(40 38 35);     /* #282623 */
+
+  /* Radius scale (locked: 8 / 12 / 16 / 20 / 28) */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+
+  /* Fonts — `next/font/google` injects --font-syne / --font-outfit /
+     --font-jetbrains-mono on <html>; @theme rebroadcasts them as
+     `font-syne`, `font-outfit`, `font-mono` Tailwind utilities. */
+  --font-syne: var(--font-syne, ui-sans-serif), system-ui, sans-serif;
+  --font-outfit: var(--font-outfit, ui-sans-serif), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono, ui-monospace), SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-display: var(--font-syne, ui-sans-serif), system-ui, sans-serif;
+  --font-body: var(--font-outfit, ui-sans-serif), system-ui, sans-serif;
+}
+
+/* --------------------------------------------------------------
+ * 2. Channel-form variables for `rgb(var(--token) / alpha)`.
+ *    Every consumer that uses arbitrary-value Tailwind classes
+ *    (`bg-[rgb(var(--bg-base))]`) reads these.
+ * -------------------------------------------------------------- */
 @layer base {
   :root {
-    /* Warm cream — slightly warmer than #F2EDE6, avoids gray-cast on OLED */
-    --bg-base: 244 239 231;           /* #F4EFE7 */
-    --bg-elevated: 251 247 240;       /* #FBF7F0 */
-    --bg-overlay: 246 240 231;
-    --bg-sunken: 232 226 217;
+    /* Canonical names (match design-system.md) */
+    --bg-background: 242 237 230;
+    --bg-elevated: 255 255 255;
+    --bg-sidebar: 17 16 9;
+    --bg-overlay: 247 243 235;
+    --bg-sunken: 232 225 212;
 
-    --fg-primary: 26 23 20;           /* #1A1714 — warm near-black, not pure */
+    --fg-default: 17 16 9;
     --fg-secondary: 61 55 48;
-    --fg-muted: 107 97 88;
-    --fg-inverse: 251 247 240;
+    --fg-muted: 107 99 89;
+    --fg-faint: 156 148 138;
+    --fg-inverse: 242 237 230;
 
-    --fg-success: 63 125 78;          /* warm sage */
-    --fg-danger: 179 50 28;
-    --fg-warning: 201 138 10;
+    --fg-success: 34 197 94;
+    --fg-danger: 220 38 38;
+    --fg-warning: 245 158 11;
 
-    --brand-primary: 201 138 10;      /* #C98A0A — WCAG AA on cream at 14px */
-    --brand-primary-soft: 201 138 10;
-    --brand-accent: 162 90 40;        /* #A25A28 — deeper copper, reads 'serious' */
-    --brand-accent-soft: 162 90 40;
+    --brand-primary: 212 150 10;
+    --brand-primary-soft: 212 150 10;
+    --brand-primary-dark: 161 113 6;
+    --brand-copper: 176 104 48;
 
-    /* Borders carry their own alpha so `rgb(var(--border-subtle))` at
-       existing call-sites stays valid (`rgb(0 0 0 / 0.08)` is legal
-       CSS). Keeps a token-swap from cascading into every consumer. */
-    --border-subtle: 0 0 0 / 0.08;
-    --border-strong: 0 0 0 / 0.14;
+    /* Session-kind accents for the producer Calendar.
+       Used as: `rgb(var(--kind-mix))` for solid stripes and dots,
+       `rgb(var(--kind-mix) / 0.15)` for soft fills. Channel form
+       (no rgb() wrapper) so the alpha syntax works. */
+    --kind-tracking:    212 150 10;   /* #D4960A — amber, also brand */
+    --kind-mix:         124  58 237;  /* #7C3AED — violet */
+    --kind-master:       14 165 233;  /* #0EA5E9 — sky */
+    --kind-intro:        16 185 129;  /* #10B981 — emerald */
+    --kind-songwriting: 236  72 153;  /* #EC4899 — pink */
+    --kind-meeting:     100 116 139;  /* #64748B — slate */
 
-    --radius-sm: 4px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-    --radius-xl: 1rem;
+    --border-subtle: 232 225 212;
+    --border-strong: 200 192 178;
+    --border-sidebar: 40 38 35;
 
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08);
-    --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.12);
-    --shadow-glow: 0 0 0 1px rgb(var(--brand-primary) / 0.35), 0 8px 24px -4px rgb(var(--brand-primary) / 0.25);
+    /* Backward-compat aliases — Phase D + zip-prototype names. CSS
+       `var()` is recursive, so `rgb(var(--bg-base))` resolves through
+       the alias to the same channel triple. */
+    --bg-base: var(--bg-background);
+    --bg-default: var(--bg-elevated);
+    --fg-primary: var(--fg-default);
+    --brand-accent: var(--brand-copper);
+    --brand-accent-soft: var(--brand-copper);
+    --border-default: var(--border-strong);
+    --accent: var(--brand-primary);
+    /* Phase 2 shell-port — semantic alias for "foreground on dark
+       sidebar surfaces". Maps to --fg-inverse so consumers can write
+       `rgb(var(--fg-onsidebar) / 0.55)` for muted-on-dark text without
+       hard-coding white. The alias keeps the chrome JSX semantically
+       readable: `--fg-default` = "default text on warm canvas",
+       `--fg-onsidebar` = "default text on dark sidebar". */
+    --fg-onsidebar: var(--fg-inverse);
 
-    /* Font-family aliases: --font-display resolves to Fraunces (variable
-       axes SOFT + opsz + WONK), --font-body to Outfit, --font-mono to
-       JetBrains Mono. The Next.js `next/font/google` helper injects the
-       per-font CSS variables `--font-fraunces`, `--font-outfit`,
-       `--font-jetbrains-mono` on <html>, and we alias here so consumers
-       keep using the semantic names. */
-    --font-display: var(--font-fraunces);
+    /* Radius scale (mirrors @theme) */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --radius-2xl: 28px;
+
+    /* Shadows — recalibrated to the new palette. The "warm near-black"
+       cast (#111009) makes shadows read warmer than pure-black RGB. */
+    --shadow-sm: 0 1px 2px 0 rgb(17 16 9 / 0.05);
+    --shadow-md: 0 4px 12px -2px rgb(17 16 9 / 0.08);
+    --shadow-lg: 0 16px 40px -8px rgb(17 16 9 / 0.12);
+    --shadow-glow:
+      0 0 0 1px rgb(var(--brand-primary) / 0.35),
+      0 8px 24px -4px rgb(var(--brand-primary) / 0.25);
+
+    /* Font-family aliases for legacy `var(--font-display)` / `var(--font-body)`
+       consumers. Re-pointed at Syne (display) and Outfit (body) per the
+       new design — Fraunces is retired. */
+    --font-display: var(--font-syne);
     --font-body: var(--font-outfit);
     --font-mono: var(--font-jetbrains-mono);
+    --font-head: var(--font-syne);
+
+    /* Motion — Emil-style strong easings. Promoted to vars so the curves
+       stay consistent across primitives (and discoverable for future
+       motion work). Inline cubic-bezier(...) literals remain in the file
+       for historical primitives — those can migrate incrementally. */
+    --ease-out-strong: cubic-bezier(0.16, 1, 0.3, 1);          /* entries, hover lifts */
+    --ease-in-out-strong: cubic-bezier(0.2, 0.8, 0.2, 1);      /* on-screen movement */
+    --ease-press: cubic-bezier(0.34, 1.56, 0.64, 1);           /* press/release with subtle overshoot */
   }
 
-  [data-theme="chrome-dark"] {
-    /* Warm charcoal — NOT pure black. Nobody in music-SaaS owns warm-dark. */
-    --bg-base: 20 17 14;              /* #14110E */
-    --bg-elevated: 31 26 21;          /* #1F1A15 */
+  /* Dark mode — `chrome-dark` selector kept for compat; ThemeProvider in
+     layout.tsx still flips this. Aliased as `dark` for new code. */
+  [data-theme="chrome-dark"],
+  [data-theme="dark"] {
+    --bg-background: 17 16 9;        /* #111009 */
+    --bg-elevated: 28 26 20;
+    --bg-sidebar: 9 8 4;
     --bg-overlay: 42 36 32;
     --bg-sunken: 13 11 9;
 
-    --fg-primary: 242 237 230;        /* cream stays for text */
+    --fg-default: 242 237 230;
     --fg-secondary: 215 206 194;
     --fg-muted: 168 154 139;
-    --fg-inverse: 31 26 21;
+    --fg-faint: 107 99 89;
+    --fg-inverse: 17 16 9;
 
-    --fg-success: 120 180 130;
+    --fg-success: 120 200 140;
     --fg-danger: 230 110 90;
-    --fg-warning: 229 163 36;
+    --fg-warning: 245 180 60;
 
-    --brand-primary: 229 163 36;      /* #E5A324 — amber brightens on dark */
+    --brand-primary: 229 163 36;     /* amber brightens on dark */
     --brand-primary-soft: 229 163 36;
-    --brand-accent: 201 122 66;       /* #C97A42 */
-    --brand-accent-soft: 201 122 66;
+    --brand-copper: 201 122 66;
 
-    --border-subtle: 255 255 255 / 0.09;
-    --border-strong: 255 255 255 / 0.17;
+    --border-subtle: 40 38 32;
+    --border-strong: 60 56 48;
+    --border-sidebar: 28 26 20;
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
     --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
     --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.6);
-    --shadow-glow: 0 0 0 1px rgb(var(--brand-primary) / 0.4), 0 8px 24px -4px rgb(var(--brand-primary) / 0.25);
   }
 
   html { color-scheme: light; }
-  [data-theme="chrome-dark"] { color-scheme: dark; }
+  [data-theme="chrome-dark"], [data-theme="dark"] { color-scheme: dark; }
 
   body {
-    background: rgb(var(--bg-base));
-    color: rgb(var(--fg-primary));
+    background: rgb(var(--bg-background));
+    color: rgb(var(--fg-default));
     font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -113,7 +213,7 @@
   /* Selection with brand tint instead of browser default. */
   ::selection {
     background: rgb(var(--brand-primary) / 0.35);
-    color: rgb(var(--fg-primary));
+    color: rgb(var(--fg-default));
   }
 
   /* Screen-reader-only text. */
@@ -129,9 +229,7 @@
     border: 0;
   }
 
-  /* Skip-to-content anchor — visible on keyboard focus. Uses the
-     logical `inset-inline-start` so it anchors to the reading edge
-     (left under LTR, right under RTL) without a duplicate rule. */
+  /* Skip-to-content anchor — visible on keyboard focus. */
   .skip-to-content {
     position: fixed;
     top: 0.5rem;
@@ -152,7 +250,7 @@
     outline: none;
   }
 
-  /* Ambient tactile noise — very subtle, matches landing. Applies site-wide. */
+  /* Ambient tactile noise — very subtle, matches landing. */
   body::before {
     content: "";
     position: fixed;
@@ -166,7 +264,6 @@
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
   }
 
-  /* Utility: the signature hairline rule between editorial sections. */
   .hairline {
     height: 1px;
     background: linear-gradient(
@@ -189,38 +286,20 @@
     font-family: inherit;
   }
 
-  /* Focus ring — amber, crisp. Uses :focus-visible (not :focus) so the
-     ring only appears on keyboard navigation, not on mouse clicks. */
+  /* Focus ring — amber, crisp. Keyboard-only via :focus-visible. */
   :focus-visible {
     outline: 2px solid rgb(var(--brand-primary));
     outline-offset: 2px;
     border-radius: var(--radius-sm);
   }
 
-  /* -------------------------------------------------------------------
-   * Responsive polish primitives (Phase A — Mobile/Desktop optimisation)
-   * -------------------------------------------------------------------
-   * .sk-safe-bottom — pad-bottom by the iOS home-indicator inset so
-   *                   fixed bottom bars (artist BottomNav, PersistentPlayer)
-   *                   never sit under the home-indicator on iPhone PWAs.
-   * .sk-safe-top    — same for the notch / Dynamic Island on top-sticky
-   *                   surfaces rendered in PWA standalone mode.
-   * .sk-safe-x      — left/right insets for landscape notched devices.
-   * .sk-scroll-x    — momentum scroll on horizontal scrollers (chip
-   *                   bars, tab rails, waveform trays) so swipes feel
-   *                   native on iOS. Also hides the scrollbar visually
-   *                   on WebKit while keeping wheel/keyboard scroll.
-   * .sk-tap         — enforces the 44×44 Apple/Google minimum tap
-   *                   target on small glyph buttons (the theme toggle,
-   *                   notification bell, mobile menu icon). */
-  .sk-safe-bottom {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  .sk-safe-top {
-    padding-top: env(safe-area-inset-top, 0px);
-  }
+  /* ----------------------------------------------------------------
+   * Safe-area + scroll polish
+   * ---------------------------------------------------------------- */
+  .sk-safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .sk-safe-top    { padding-top:    env(safe-area-inset-top,    0px); }
   .sk-safe-x {
-    padding-left: env(safe-area-inset-left, 0px);
+    padding-left:  env(safe-area-inset-left,  0px);
     padding-right: env(safe-area-inset-right, 0px);
   }
   .sk-scroll-x {
@@ -228,9 +307,7 @@
     overscroll-behavior-x: contain;
     scrollbar-width: thin;
   }
-  .sk-scroll-x::-webkit-scrollbar {
-    height: 4px;
-  }
+  .sk-scroll-x::-webkit-scrollbar { height: 4px; }
   .sk-scroll-x::-webkit-scrollbar-thumb {
     background: rgb(var(--border-strong));
     border-radius: 9999px;
@@ -240,7 +317,52 @@
     min-height: 44px;
   }
 
-  /* Keyframes used across the app + landing. */
+  /* PersistentPlayer dock — stacks above the producer bottom nav on
+   * mobile (<1024px) so the audio dock + tab row never overlap.
+   * The bottom nav measures 56px tab row + 6px top padding + iOS
+   * safe-area inset; we layer 62px + the same inset under the dock.
+   * On lg+ the desktop sidebar replaces the bottom nav, so the dock
+   * sits flush at the viewport bottom (Tailwind's `lg:bottom-0`
+   * + `lg:sk-safe-bottom` take over via cascade). */
+  .persistent-player-dock {
+    bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+  }
+  @media (min-width: 1024px) {
+    .persistent-player-dock {
+      bottom: 0;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+  }
+
+  /* When PersistentPlayer mounts a track it sets `data-skitza-dock="1"`
+   * on <body>. Reserve enough padding-bottom on the dashboard's main
+   * scroll container so long pages (notably the L3 song-page comment
+   * thread) can scroll past the fixed dock instead of disappearing
+   * underneath it. 88px on mobile (62px dock + 16px gap + safe-area
+   * already added by the dock itself), 110px on desktop (~94px dock
+   * pill + 16px gap). */
+  body[data-skitza-dock="1"] main#main-content {
+    padding-bottom: 110px;
+  }
+  @media (max-width: 1023px) {
+    body[data-skitza-dock="1"] main#main-content {
+      padding-bottom: 168px; /* 62px nav + 88px dock + buffer */
+    }
+  }
+
+  /* Custom 4px scrollbars per design-system.md. */
+  .custom-scrollbar { -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: rgb(var(--fg-muted) / 0.25) transparent; }
+  .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: rgb(var(--fg-muted) / 0.18); border-radius: 999px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgb(var(--fg-muted) / 0.35); }
+
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  /* ----------------------------------------------------------------
+   * Keyframes — one source of truth for animation primitives.
+   * ---------------------------------------------------------------- */
   @keyframes skitza-reveal-up {
     from { opacity: 0; transform: translateY(12px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -250,7 +372,6 @@
     50%      { box-shadow: 0 0 25px 6px rgb(var(--brand-primary) / 0.2); }
   }
   @keyframes skitza-pulse-green {
-    /* Kept under old name for existing consumers (toast pulse on success). */
     0%, 100% { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0.5); }
     50%      { box-shadow: 0 0 0 8px rgb(var(--brand-primary) / 0); }
   }
@@ -264,40 +385,84 @@
     66%  { transform: translate(-30px, 30px) scale(0.9); }
     100% { transform: translate(0px, 0px) scale(1); }
   }
-  /* Signer "signed" seal: single expressive motion moment — a soft
-     over-shoot pop. Reduced-motion users get fade only (see @media
-     below). */
   @keyframes skitza-seal-in {
     from { opacity: 0; transform: scale(0.8); }
     to   { opacity: 1; transform: scale(1); }
   }
+  @keyframes skitza-pop-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  @keyframes skitza-cta-shine {
+    0%   { transform: translateX(-140%) skewX(-14deg); }
+    100% { transform: translateX(240%) skewX(-14deg); }
+  }
+  @keyframes skitza-page-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  /* New (locked design system) — slide-up modal for bottom sheets. */
+  @keyframes skitza-slide-up-modal {
+    from { transform: translateY(100%); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
+  /* Side-anchored sheet (right drawer) — paired with the
+     bottom-sheet keyframe above; selected per data-side on the
+     <SheetContent> element. */
+  @keyframes skitza-slide-in-right {
+    from { transform: translateX(100%); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+  /* New — equalizer bars on the playing track. */
+  @keyframes skitza-eq {
+    0%   { height: 20%; }
+    50%  { height: 100%; }
+    100% { height: 20%; }
+  }
+  /* New — diagonal shimmer overlay for dark hero CTA strips. */
+  @keyframes skitza-shine {
+    0%   { background-position: -200% center; }
+    100% { background-position:  200% center; }
+  }
+  /* New — soft ping for live status dots (Accepting Sessions). */
+  @keyframes skitza-ping {
+    75%, 100% { transform: scale(2); opacity: 0; }
+  }
+  /* New — toast entrance per `notes/feedback.jsx`. */
+  @keyframes skitza-toast-in {
+    from { opacity: 0; transform: translateY(12px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+  }
+  /* Legacy alias — kept for the dashboard setup card glow. */
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0.4); }
+    50%      { box-shadow: 0 0 0 8px rgb(var(--brand-primary) / 0); }
+  }
 
-  .seal-enter { animation: skitza-seal-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
-
+  /* ----------------------------------------------------------------
+   * Reveal + entrance utilities
+   * ---------------------------------------------------------------- */
   .reveal-up { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
   .reveal-up-delay-1 { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both; }
   .reveal-up-delay-2 { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.16s both; }
   .reveal-up-delay-3 { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.24s both; }
   .reveal-up-delay-4 { animation: skitza-reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.32s both; }
 
+  /* Stagger classes (60ms steps per design-system.md) — used by lists
+     that hand-author the sequence rather than the indexed sk-stagger. */
+  .stagger-1 { animation-delay: 0.06s; }
+  .stagger-2 { animation-delay: 0.12s; }
+  .stagger-3 { animation-delay: 0.18s; }
+  .stagger-4 { animation-delay: 0.24s; }
+  .stagger-5 { animation-delay: 0.30s; }
+
+  .seal-enter { animation: skitza-seal-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
   .pulse-green { animation: skitza-pulse-green 1.4s cubic-bezier(0.4, 0, 0.6, 1) 1; }
   .pulse-glow  { animation: skitza-pulse-glow 3s ease-in-out infinite; }
 
-  /*
-   * .sk-card-glow — a static, brand-tinted glow that sits inside the
-   * card's bounding box (no animation, no extra DOM). Used by the
-   * Setup container card so the surface reads as "elevated" without
-   * shouting. Three layers, outside-in:
-   *   1. Soft brand glow (large blur, mid alpha) — warm copper bloom
-   *      that wraps the edge in light mode and reads bright in dark.
-   *   2. Tight elevation drop-shadow (small blur, neutral) — lifts
-   *      the card off the page bg, especially noticeable when bg-
-   *      elevated is only ~3% lighter than bg-base (light theme).
-   *   3. (border lives on the element itself, not in box-shadow, so
-   *      the radius behaves cleanly with focus-within rings.)
-   * Alphas are tuned to match Skitza's editorial-but-grounded feel —
-   * the card should be obviously a surface, not an overlay panel.
-   */
+  /* ----------------------------------------------------------------
+   * Card / surface glow — kept for the onboarding setup card.
+   * ---------------------------------------------------------------- */
   .sk-card-glow {
     box-shadow:
       0 0 36px -2px rgb(var(--brand-primary) / 0.22),
@@ -305,42 +470,11 @@
       0 2px 4px -1px rgb(0 0 0 / 0.04);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .reveal-up,
-    .reveal-up-delay-1,
-    .reveal-up-delay-2,
-    .reveal-up-delay-3,
-    .reveal-up-delay-4,
-    .pulse-green,
-    .pulse-glow { animation: none; }
-    .seal-enter { animation: none; opacity: 1; transform: none; }
-  }
-
-  /*
-   * D.7 — Dense Linear-grade list primitives.
-   *
-   * These utilities standardise the visual rhythm of every list/table in
-   * the dashboard. Ref: Linear issue rows, Spotify-for-Artists stats.
-   *
-   *   .sk-table  — flex column container; strips the last row's divider.
-   *   .sk-row    — 44px tap-target-friendly row; subtle hover tint, no
-   *                layout jitter (background only, never borders).
-   *   .sk-row-active — inset 2px copper left-border for the focused row.
-   *   .sk-num    — tabular-nums without switching fonts; use on prices,
-   *                durations, counts, dates.
-   *   .sk-chip-bar / .sk-chip — sticky filter bar with pill toggles; set
-   *                aria-pressed="true" on the active chip.
-   *
-   * Colour tokens come from :root + [data-theme="chrome-dark"], so these
-   * degrade gracefully on dark mode without further tweaks.
-   */
-  .sk-table {
-    display: flex;
-    flex-direction: column;
-  }
-  .sk-table .sk-row:last-child {
-    border-bottom: none;
-  }
+  /* ----------------------------------------------------------------
+   * Phase D list rhythm primitives (Linear-grade rows + chip bar)
+   * ---------------------------------------------------------------- */
+  .sk-table { display: flex; flex-direction: column; }
+  .sk-table .sk-row:last-child { border-bottom: none; }
   .sk-row {
     min-height: 44px;
     padding: 0 0.75rem;
@@ -349,19 +483,18 @@
     gap: 0.75rem;
     font-size: 13px;
     line-height: 1.3;
-    color: rgb(var(--fg-primary));
+    color: rgb(var(--fg-default));
     border-bottom: 1px solid rgb(var(--border-subtle));
-    transition: background-color 140ms ease-out;
+    transition: background-color 140ms ease-out, transform 0.1s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  .sk-row:hover {
-    background: rgb(var(--bg-overlay));
+  @media (hover: hover) {
+    .sk-row:hover { background: rgb(var(--bg-overlay)); }
   }
+  .sk-row:active { transform: scale(0.985); background: rgb(var(--bg-overlay)); }
   .sk-row-active {
     background: rgb(var(--bg-overlay));
     box-shadow: inset 2px 0 0 rgb(var(--brand-primary));
   }
-  /* RTL — flip the inset accent bar to the right edge so the
-     leading-edge highlight stays at the reading edge. */
   [dir="rtl"] .sk-row-active {
     box-shadow: inset -2px 0 0 rgb(var(--brand-primary));
   }
@@ -376,7 +509,7 @@
     display: flex;
     gap: 0.375rem;
     padding: 0.75rem 0;
-    background: rgb(var(--bg-base));
+    background: rgb(var(--bg-background));
     border-bottom: 1px solid rgb(var(--border-subtle));
   }
   .sk-chip {
@@ -388,18 +521,13 @@
     background: transparent;
     cursor: pointer;
     transition: color 140ms ease-out, border-color 140ms ease-out, background-color 140ms ease-out;
-    /* 44px tap target on mobile — bumped down on desktop where mouse
-       precision is higher and dense chip bars (7+ stages) would otherwise
-       wrap prematurely. */
     min-height: 44px;
   }
   @media (min-width: 768px) {
-    .sk-chip {
-      min-height: 32px;
-    }
+    .sk-chip { min-height: 32px; }
   }
   .sk-chip:hover {
-    color: rgb(var(--fg-primary));
+    color: rgb(var(--fg-default));
     border-color: rgb(var(--border-strong));
   }
   .sk-chip[aria-pressed="true"] {
@@ -408,17 +536,9 @@
     border-color: transparent;
   }
 
-  /*
-   * D.8 — Motion polish primitives.
-   *
-   * Subtle by default: 140ms ease-out with a gentle asymmetric curve.
-   * Use .sk-trans on anything that already has a `hover:` or state
-   * transition tailwind class; use .sk-trans-slow for larger movements
-   * (panel slides, sidebar width). Everything degrades to 0ms under
-   * prefers-reduced-motion, same as .reveal-up above. The single
-   * expressive moment — the copper seal on contract sign — lives in
-   * B.7 and is not managed here.
-   */
+  /* ----------------------------------------------------------------
+   * Motion polish primitives (transitions for stateful components)
+   * ---------------------------------------------------------------- */
   .sk-trans {
     transition-duration: 140ms;
     transition-timing-function: cubic-bezier(0.2, 0, 0.1, 1);
@@ -428,35 +548,16 @@
     transition-timing-function: cubic-bezier(0.2, 0, 0.1, 1);
   }
 
-  /*
-   * Phase C — Animation & "liveliness" primitives.
+  /* ----------------------------------------------------------------
+   * Mount-enter primitives (popovers, modals, coachmarks)
    *
-   * .sk-lift       — card hover lift (-1px + soft shadow). Apply to any
-   *                  container that behaves like an interactive tile
-   *                  (pricing cards, pain cards, testimonials). Pairs
-   *                  with a `transition-[transform,box-shadow]` utility
-   *                  already on the element, OR use .sk-trans alongside.
-   * .sk-pop        — dropdown/popover enter: fade + scale-in from 96%
-   *                  with origin-top-left. 160ms. Mount-time only.
-   * .sk-pop-center — modal enter: fade + scale-in from 96% with
-   *                  origin-center. 180ms. Matches the modal overlay.
-   * .sk-cta-shine  — CTA shimmer: a diagonal highlight sweeps across
-   *                  the button on hover. Pure ::after — no extra DOM.
-   *                  Element must be `position: relative` + `overflow:
-   *                  hidden` for the sweep to clip correctly.
-   * .sk-pulse-hover — subtle breathing glow on hover (waveform play btn).
-   *                  The pulse itself is the existing skitza-pulse-glow
-   *                  keyframe; this class wires it only while :hover.
-   * All respect prefers-reduced-motion (see @media block below).
-   */
-  @keyframes skitza-pop-in {
-    from { opacity: 0; transform: scale(0.96); }
-    to   { opacity: 1; transform: scale(1); }
-  }
-  @keyframes skitza-cta-shine {
-    0%   { transform: translateX(-140%) skewX(-14deg); }
-    100% { transform: translateX(240%) skewX(-14deg); }
-  }
+   * .sk-pop / .sk-pop-center predate the locked design system — they
+   * fade-and-scale a popover on first paint. The new design's "tactile
+   * press" feedback is `.sk-press` below. Naming-wise the locked spec
+   * calls the press effect `sk-pop`, but renaming would silently strip
+   * the entrance animation from ~16 popover/modal call-sites; cheaper
+   * to give the new effect its own class and document the divergence.
+   * ---------------------------------------------------------------- */
   .sk-lift {
     transition-property: transform, box-shadow, border-color, background-color, color;
     transition-duration: 160ms;
@@ -501,28 +602,45 @@
     animation: skitza-pulse-glow 2s ease-in-out infinite;
   }
 
-  /*
-   * Batch C — Premium motion polish.
-   *
-   * .sk-page-enter — route-transition entrance for the page-level root
-   *                  of a dashboard route. Content fades + slides up 8px
-   *                  over 240ms (ease-out). Uses motion-safe gating so
-   *                  reduced-motion users see no transform at all. Drop
-   *                  it on the outermost <div> of a route-level client
-   *                  subtree so the whole surface animates as one.
-   *
-   * .sk-stagger    — opt-in staggered reveal for list first-renders. The
-   *                  container gets `.sk-stagger`, each child gets
-   *                  `.sk-stagger-item`. Items inherit a CSS variable
-   *                  --i set inline (react: `style={{ "--i": String(i) }}`);
-   *                  each inherits `calc(var(--i) * 30ms)` as its delay.
-   *                  We cap at index 12 below (= 360ms) so long lists
-   *                  don't animate for 10+ seconds.
-   */
-  @keyframes skitza-page-enter {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+  /* ----------------------------------------------------------------
+   * Tactile press feedback — locked-design-system "sk-pop". Applies to
+   * buttons and interactive chips. Layered onto components via the
+   * Button primitive in apps/web/src/components/ui/button.tsx.
+   * ---------------------------------------------------------------- */
+  .sk-press {
+    transition: transform 160ms var(--ease-out-strong), filter 150ms ease, background-color 200ms ease;
   }
+  @media (hover: hover) {
+    .sk-press:hover { filter: brightness(1.05); }
+  }
+  .sk-press:active { transform: scale(0.97); filter: brightness(0.96); }
+
+  /* ----------------------------------------------------------------
+   * Sidebar motion — drawer-curve width transition + chevron rotation
+   * + active-bar fade. Three primitives, all motion-safe and disabled
+   * inside the reduced-motion block below (mirrors sk-press pattern).
+   * ---------------------------------------------------------------- */
+  .sk-sidebar-shell {
+    /* iOS-style drawer curve — slow start, snappy finish. Width is the
+       only animatable property here so we avoid `all`. */
+    transition: width 280ms var(--ease-in-out-strong);
+  }
+  .sk-sidebar-chevron {
+    /* The chevron is a single icon that rotates 180° between expanded
+       and collapsed states — reads as the same arrow reversing
+       direction rather than two different icons swapping. */
+    transition: transform 240ms var(--ease-in-out-strong);
+  }
+  .sk-sidebar-active-bar {
+    /* 3px amber leading-edge bar fades in/out on route change instead
+       of popping. The old item's bar fades out as the new one fades
+       in — smooth handoff. */
+    transition: opacity 220ms var(--ease-out-strong);
+  }
+
+  /* ----------------------------------------------------------------
+   * Page-enter + per-row stagger
+   * ---------------------------------------------------------------- */
   .sk-page-enter {
     animation: skitza-page-enter 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
@@ -532,11 +650,7 @@
     animation-delay: calc(min(var(--i, 0), 12) * 30ms);
   }
 
-  /* Revenue trend line draw-in. The component sets
-   * `--sk-trend-length` inline from the polyline's pythagorean
-   * length so the dash math works for any viewport/data shape.
-   * Reduced-motion branch below kills the keyframes and leaves
-   * the line fully drawn on mount. */
+  /* SVG line draw-in (revenue trend). */
   @keyframes skitza-trend-draw {
     from { stroke-dashoffset: var(--sk-trend-length, 1000); }
     to   { stroke-dashoffset: 0; }
@@ -547,54 +661,459 @@
     animation: skitza-trend-draw 700ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards;
   }
 
+  /* ----------------------------------------------------------------
+   * Locked-design-system additions — straight from notes/styles.css
+   * ---------------------------------------------------------------- */
+
+  /* Diagonal shine on dark hero CTA strips (Overview public-link). */
+  .animate-shine {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(110deg, transparent 30%, rgb(var(--brand-primary) / 0.08) 50%, transparent 70%);
+    background-size: 200% auto;
+    animation: skitza-shine 5s linear infinite;
+  }
+
+  /* Live-status ping (e.g. "Accepting Sessions"). */
+  .ping-dot { animation: skitza-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite; }
+
+  /* Equalizer bars on the playing track. */
+  .eq-bar { animation: skitza-eq 0.9s ease-in-out infinite; transform-origin: bottom; }
+  .eq-paused .eq-bar { animation-play-state: paused; height: 22% !important; }
+
+  /* Slide-up modal (mobile bottom sheets). */
+  .slide-up-modal { animation: skitza-slide-up-modal 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+  /* Toast entrance (used by sonner via toastOptions). */
+  .sk-toast-in { animation: skitza-toast-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+  /* Dialog entrance — slide-up from the bottom on mobile, scale-in
+     centered on desktop. Used by the <Dialog> primitive in
+     apps/web/src/components/ui/dialog.tsx via Radix's
+     `data-[state=open]` attribute on DialogContent. The single class
+     keeps the JSX clean — the breakpoint logic lives here in CSS. */
+  .sk-dialog-enter {
+    animation: skitza-slide-up-modal 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    transform-origin: bottom;
+  }
+  @media (min-width: 640px) {
+    .sk-dialog-enter {
+      animation: skitza-pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      transform-origin: center;
+    }
+  }
+
+  /* Sheet entrance — used by the <Sheet> primitive in
+     apps/web/src/components/ui/sheet.tsx. The component sets
+     `data-side` on SheetContent and CSS picks the matching keyframe
+     per side. Bottom is the design-locked default (mobile bottom
+     sheet); right is the desktop drawer variant. Add `data-side`
+     selectors here when extending to left/top. Reduce-motion gated
+     in the block below. */
+  .sk-sheet-enter[data-side="bottom"] {
+    animation: skitza-slide-up-modal 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    transform-origin: bottom;
+  }
+  .sk-sheet-enter[data-side="right"] {
+    animation: skitza-slide-in-right 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    transform-origin: right;
+  }
+
+  /* ----------------------------------------------------------------
+   * Pill / status / kbd / wordmark
+   * ---------------------------------------------------------------- */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .pill-danger  { background: rgb(var(--fg-danger)  / 0.10); color: rgb(var(--fg-danger));  border: 1px solid rgb(var(--fg-danger)  / 0.20); }
+  .pill-warning { background: rgb(var(--fg-warning) / 0.10); color: rgb(var(--fg-warning)); border: 1px solid rgb(var(--fg-warning) / 0.20); }
+  .pill-success { background: rgb(var(--fg-success) / 0.10); color: rgb(var(--fg-success)); border: 1px solid rgb(var(--fg-success) / 0.22); }
+  .pill-neutral { background: rgb(var(--fg-muted)   / 0.10); color: rgb(var(--fg-muted));   border: 1px solid rgb(var(--fg-muted)   / 0.18); }
+  .pill-brand   { background: rgb(var(--brand-primary) / 0.12); color: rgb(var(--brand-primary)); border: 1px solid rgb(var(--brand-primary) / 0.25); }
+
+  .surface-card {
+    background: rgb(var(--bg-elevated));
+    border: 1px solid rgb(var(--border-subtle));
+    border-radius: var(--radius-lg);
+  }
+  .surface-sunken {
+    background: rgb(var(--bg-background));
+    border: 1px solid rgb(var(--border-subtle));
+  }
+  .surface-dark {
+    background: rgb(var(--bg-sidebar));
+    color: rgb(var(--fg-inverse));
+    border: 1px solid rgb(var(--border-sidebar));
+  }
+
+  /* The "Skitza." wordmark — Syne 800, amber period that lifts on hover. */
+  .skitza-wordmark {
+    font-family: var(--font-syne), system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 1px;
+  }
+  .skitza-wordmark .dot {
+    color: rgb(var(--brand-primary));
+    display: inline-block;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .skitza-wordmark:hover .dot {
+    transform: translateY(-2px) rotate(12deg) scale(1.3);
+  }
+
+  .label-tiny {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgb(var(--fg-muted));
+  }
+
+  .kbd {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: rgb(var(--bg-background));
+    border: 1px solid rgb(var(--border-subtle));
+    color: rgb(var(--fg-muted));
+  }
+
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* ----------------------------------------------------------------
+   * v3 landing — scroll-reveal + ambient motion primitives.
+   *
+   * Phase 3 (`docs/qa/phase-3-handoff.md`) ports the v3 marketing
+   * surface from `~/Downloads/skitza (1)/`. The landing uses a
+   * transition-based reveal (toggled by JS adding `.is-in`) rather
+   * than the auto-firing `.reveal-up` keyframe — both stay in
+   * `globals.css` as named primitives so other surfaces can opt in.
+   *
+   * `.sk-reveal*` / `.sk-d-*` are the scroll-reveal contract for
+   * `apps/web/src/components/landing/reveal-on-scroll.tsx`.
+   * `.sk-soft-pulse` is the live-status dot pulse on "public link
+   * live" / "Accepting Sessions" badges. `.sk-float*` is the slow
+   * vertical float for the floating product peek in the hero.
+   * ---------------------------------------------------------------- */
+  .sk-reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .sk-reveal.is-in { opacity: 1; transform: translateY(0); }
+  .sk-reveal-left {
+    opacity: 0;
+    transform: translateX(-22px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .sk-reveal-left.is-in { opacity: 1; transform: translateX(0); }
+  .sk-reveal-right {
+    opacity: 0;
+    transform: translateX(22px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .sk-reveal-right.is-in { opacity: 1; transform: translateX(0); }
+  .sk-reveal-scale {
+    opacity: 0;
+    transform: scale(0.94);
+    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .sk-reveal-scale.is-in { opacity: 1; transform: scale(1); }
+  .sk-d-1 { transition-delay: 0.05s; }
+  .sk-d-2 { transition-delay: 0.12s; }
+  .sk-d-3 { transition-delay: 0.20s; }
+  .sk-d-4 { transition-delay: 0.28s; }
+  .sk-d-5 { transition-delay: 0.36s; }
+  .sk-d-6 { transition-delay: 0.44s; }
+
+  @keyframes sk-soft-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--fg-success) / 0.5); }
+    50%      { box-shadow: 0 0 0 6px rgb(var(--fg-success) / 0); }
+  }
+  .sk-soft-pulse { animation: sk-soft-pulse 2s ease-in-out infinite; }
+
+  @keyframes sk-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-8px); }
+  }
+  .sk-float      { animation: sk-float 5.5s ease-in-out infinite; }
+  .sk-float-slow { animation: sk-float 8s ease-in-out infinite; }
+
+  /* ────────────────────────────────────────────────────────────────
+   * Onboarding redesign — premium polish primitives (May 2026).
+   * Apply via class names with the `ob-` prefix; pair with the
+   * existing `--ease-*` curves where useful. Each primitive has a
+   * matching reduced-motion override below.
+   * ──────────────────────────────────────────────────────────────── */
+
+  /* Stagger entrance — wrap the children of a step's main column in
+     `.ob-stagger`. Each child fades up with a 60ms cascading delay
+     (caps at 9 for safety; deeper trees should be flattened). */
+  @keyframes ob-stagger-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .ob-stagger > * {
+    animation: ob-stagger-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .ob-stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .ob-stagger > *:nth-child(2) { animation-delay: 60ms; }
+  .ob-stagger > *:nth-child(3) { animation-delay: 120ms; }
+  .ob-stagger > *:nth-child(4) { animation-delay: 180ms; }
+  .ob-stagger > *:nth-child(5) { animation-delay: 240ms; }
+  .ob-stagger > *:nth-child(6) { animation-delay: 300ms; }
+  .ob-stagger > *:nth-child(7) { animation-delay: 360ms; }
+  .ob-stagger > *:nth-child(8) { animation-delay: 420ms; }
+  .ob-stagger > *:nth-child(9) { animation-delay: 480ms; }
+
+  /* Press feedback for buttons + cards. 0.97 is the sweet spot —
+     subtle enough to not disrupt layout, firm enough to feel tactile.
+     Pair with hover states that don't compete with the press. */
+  .ob-press {
+    transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1),
+                box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .ob-press:active {
+    transform: scale(0.97);
+  }
+  .ob-card-press {
+    transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1),
+                box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1),
+                border-color 200ms ease;
+  }
+  .ob-card-press:active {
+    transform: scale(0.985);
+  }
+
+  /* Combined "alive" indicator — gold dot that pulses both in glow
+     AND scale, so it reads as a heartbeat rather than a flashing
+     light. Used by Welcome + Done's LIVE pill. */
+  @keyframes ob-alive-dot {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(212, 150, 10, 0.45);
+    }
+    50% {
+      transform: scale(1.18);
+      box-shadow: 0 0 0 5px rgba(212, 150, 10, 0);
+    }
+  }
+  .ob-alive-dot {
+    animation: ob-alive-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* Breathing — preview cards that should feel "running". Scale stays
+     within 1.005 so it never breaks layout but the eye registers it
+     as alive when looking directly at the card. */
+  @keyframes ob-breath {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.005); }
+  }
+  .ob-breath {
+    animation: ob-breath 5.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    will-change: transform;
+  }
+
+  /* Step-rail circle state change — slight overshoot when the active
+     step advances. Apply via inline transition on the circle element
+     (or wrap in this class). */
+  .ob-rail-circle {
+    transition: background-color 220ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                color 220ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* Strip native chrome from <input type="time"> so the time text fits
+     in tight onboarding cells (the WebKit clock indicator + spin
+     buttons would otherwise eat ~25px of horizontal space and clip the
+     "00" in "10:00"). */
+  input.time-input-naked::-webkit-calendar-picker-indicator { display: none; }
+  input.time-input-naked::-webkit-inner-spin-button { display: none; }
+  input.time-input-naked::-webkit-clear-button { display: none; }
+  input.time-input-naked {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Confetti burst — onboarding Done celebration. Each piece falls
+     from the top of the viewport while spinning by a per-piece random
+     rotation set as --confetti-rotate. */
+  @keyframes confetti-fall {
+    0%   { transform: translateY(-12vh) rotate(0deg); opacity: 0; }
+    8%   { opacity: 1; }
+    100% { transform: translateY(110vh) rotate(var(--confetti-rotate, 360deg)); opacity: 1; }
+  }
+  .confetti-piece {
+    border-radius: 1px;
+    animation: confetti-fall linear forwards;
+    will-change: transform, opacity;
+  }
+
+  /* Phase 3 store redesign — Live status pulse, shimmer-glow on new
+     products, table-row entry stagger. All three respect prefers-
+     reduced-motion via the existing block further down in @layer base. */
+  @keyframes sk-live-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--fg-success) / 0.45); }
+    50%      { box-shadow: 0 0 0 5px rgb(var(--fg-success) / 0); }
+  }
+  @keyframes sk-shimmer-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0.4); }
+    50%      { box-shadow: 0 0 0 6px rgb(var(--brand-primary) / 0); }
+  }
+  @keyframes sk-row-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .sk-live-pulse   { animation: sk-live-pulse 2.2s ease-in-out infinite; }
+  .sk-shimmer-glow { animation: sk-shimmer-glow 2s ease-in-out 2; }
+  .sk-row-in       { animation: sk-row-in 320ms cubic-bezier(.16,1,.3,1) both; }
+
+  /* Wizard step entry — subtle fade + 8px slide-up between Storefront
+     editor steps. Wrap the step body in `<div key={currentStep}
+     className="sk-step-enter">` so React remounts the wrapper on each
+     step change and the keyframe fires. Keeps the wizard feeling like
+     one continuous surface instead of a sequence of screens. */
+  @keyframes sk-step-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sk-step-enter {
+    animation: sk-step-enter 240ms var(--ease-out-strong) both;
+  }
+
+  /* Drag drop indicator — fades + grows from 60% width so the brand
+     line feels like it's tracking the drag, not switching on like a
+     light. 100ms is fast enough to keep up with the drag cursor. */
+  @keyframes sk-drop-fade {
+    from { opacity: 0; transform: scaleX(0.6); }
+    to   { opacity: 1; transform: scaleX(1); }
+  }
+  .sk-drop-fade {
+    animation: sk-drop-fade 100ms var(--ease-out-strong) both;
+    transform-origin: center;
+  }
+
+  /* TypeStep preset pick — single 220ms 1 -> 1.02 -> 1 pulse on the
+     just-picked card so the moment of choice gets a beat of delight
+     without becoming garish. Fires once when isPicked flips true. */
+  @keyframes sk-pick-pulse {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.02); }
+    100% { transform: scale(1); }
+  }
+  .sk-pick-pulse {
+    animation: sk-pick-pulse 220ms var(--ease-out-strong);
+  }
+
+  /* Drag handle is hidden on touch-only devices — producer is desktop-
+     only per CLAUDE.md and native HTML5 DnD doesn't behave well on touch. */
+  @media (hover: none) {
+    .sk-drag-handle { display: none; }
+  }
+
+  /* ----------------------------------------------------------------
+   * Reduced motion — covers every primitive that animates above.
+   * The motion-primitives test extracts every reduce block and asserts
+   * each primitive name appears at least once.
+   * ---------------------------------------------------------------- */
   @media (prefers-reduced-motion: reduce) {
-    .sk-trans,
-    .sk-trans-slow {
-      transition-duration: 0ms !important;
-    }
-    .sk-row {
-      transition-duration: 0ms !important;
-    }
-    .sk-chip {
-      transition-duration: 0ms !important;
-    }
-    .sk-lift {
-      transition-duration: 0ms !important;
-    }
-    .sk-lift:hover {
-      transform: none !important;
-      box-shadow: var(--shadow-sm) !important;
-    }
-    .sk-pop,
-    .sk-pop-center {
-      animation: none !important;
-    }
-    .sk-cta-shine:hover::after {
-      animation: none !important;
-    }
-    .sk-pulse-hover:hover {
-      animation: none !important;
-    }
-    .sk-page-enter {
-      animation: none !important;
-    }
-    .sk-stagger-item {
-      animation: none !important;
+    .reveal-up,
+    .reveal-up-delay-1,
+    .reveal-up-delay-2,
+    .reveal-up-delay-3,
+    .reveal-up-delay-4,
+    .pulse-green,
+    .pulse-glow,
+    .animate-shine,
+    .ping-dot,
+    .eq-bar,
+    .slide-up-modal,
+    .sk-dialog-enter,
+    .sk-sheet-enter,
+    .sk-toast-in,
+    .sk-soft-pulse,
+    .sk-float,
+    .sk-float-slow,
+    .confetti-piece,
+    .ob-stagger > *,
+    .ob-alive-dot,
+    .ob-breath,
+    .sk-live-pulse,
+    .sk-shimmer-glow,
+    .sk-row-in,
+    .sk-step-enter,
+    .sk-drop-fade,
+    .sk-pick-pulse { animation: none !important; }
+    .ob-stagger > * { opacity: 1 !important; transform: none !important; }
+    .ob-press,
+    .ob-card-press,
+    .ob-rail-circle { transition: none !important; }
+    .seal-enter { animation: none; opacity: 1; transform: none; }
+
+    .sk-reveal,
+    .sk-reveal-left,
+    .sk-reveal-right,
+    .sk-reveal-scale {
       opacity: 1 !important;
+      transform: none !important;
+      transition: none !important;
     }
-    .sk-trend-line {
-      animation: none !important;
-      stroke-dashoffset: 0 !important;
-    }
+
+    .sk-trans,
+    .sk-trans-slow { transition-duration: 0ms !important; }
+    .sk-row { transition-duration: 0ms !important; }
+    .sk-row:active { transform: none !important; }
+    .sk-chip { transition-duration: 0ms !important; }
+    .sk-lift { transition-duration: 0ms !important; }
+    .sk-lift:hover { transform: none !important; box-shadow: var(--shadow-sm) !important; }
+    .sk-press { transition-duration: 0ms !important; }
+    .sk-press:active { transform: none !important; filter: none !important; }
+    .sk-sidebar-shell { transition-duration: 0ms !important; }
+    .sk-sidebar-chevron { transition-duration: 0ms !important; }
+    .sk-sidebar-active-bar { transition-duration: 0ms !important; }
+    .sk-pop,
+    .sk-pop-center { animation: none !important; }
+    .sk-cta-shine:hover::after { animation: none !important; }
+    .sk-pulse-hover:hover { animation: none !important; }
+    .sk-page-enter { animation: none !important; }
+    .sk-stagger-item { animation: none !important; opacity: 1 !important; }
+    .sk-trend-line { animation: none !important; stroke-dashoffset: 0 !important; }
   }
 }
 
+/* --------------------------------------------------------------
+ * 3. Tailwind utility overrides — semantic font helpers.
+ *    These work in Tailwind v4 via @utility and complement the
+ *    @theme-generated `font-syne` / `font-outfit` / `font-mono`
+ *    classes (those are auto-derived from --font-* tokens).
+ * -------------------------------------------------------------- */
 @utility font-display {
-  font-family: var(--font-display), ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -0.02em;
 }
 
 @utility font-mono {
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
-  font-feature-settings: "ss02", "zero";
+  font-feature-settings: "ss02", "zero", "tnum";
+  font-variant-numeric: tabular-nums;
 }

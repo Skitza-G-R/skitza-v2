@@ -11,7 +11,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   2. invoices      — revenue-this-month sum + unpaid count + rows
 //   3. bookings      — upcoming-7d count + upcoming session rows
 //   4. trackComments — open-comments count + open comment rows
-// Plus a leads query feeds the items list (no KPI contribution).
 // The producers table is hit once by producer-procedure to resolve
 // ctx.producerId from ctx.userId.
 
@@ -25,7 +24,6 @@ const {
   trackCommentsMarker,
   trackVersionsMarker,
   projectTracksMarker,
-  leadsMarker,
   projectsCountMock,
   projectsListMock,
   revenueMock,
@@ -34,7 +32,6 @@ const {
   upcomingSessionsMock,
   openCommentsMock,
   openCommentsRowsMock,
-  leadsRowsMock,
   projectsCountWhereSpy,
   projectsListWhereSpy,
   revenueWhereSpy,
@@ -43,7 +40,6 @@ const {
   upcomingSessionsWhereSpy,
   openCommentsWhereSpy,
   openCommentsRowsWhereSpy,
-  leadsRowsWhereSpy,
   resetCallCounts,
   dbMock,
 } = vi.hoisted(() => {
@@ -55,7 +51,6 @@ const {
   const upcomingSessionsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const openCommentsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const openCommentsRowsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const leadsRowsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
 
   const projectsCountWhereSpy = vi.fn<(arg: unknown) => void>();
   const projectsListWhereSpy = vi.fn<(arg: unknown) => void>();
@@ -65,7 +60,6 @@ const {
   const upcomingSessionsWhereSpy = vi.fn<(arg: unknown) => void>();
   const openCommentsWhereSpy = vi.fn<(arg: unknown) => void>();
   const openCommentsRowsWhereSpy = vi.fn<(arg: unknown) => void>();
-  const leadsRowsWhereSpy = vi.fn<(arg: unknown) => void>();
 
   const producersMarker = {
     __table: "producers",
@@ -105,6 +99,7 @@ const {
     artistName: { __column: "bookings.artist_name" },
     durationMin: { __column: "bookings.duration_min" },
     packageNameSnapshot: { __column: "bookings.package_name_snapshot" },
+    projectId: { __column: "bookings.project_id" },
   };
   const trackCommentsMarker = {
     __table: "track_comments",
@@ -127,15 +122,6 @@ const {
     projectId: { __column: "project_tracks.project_id" },
     title: { __column: "project_tracks.title" },
   };
-  const leadsMarker = {
-    __table: "leads",
-    id: { __column: "leads.id" },
-    producerId: { __column: "leads.producer_id" },
-    name: { __column: "leads.name" },
-    email: { __column: "leads.email" },
-    source: { __column: "leads.source" },
-    createdAt: { __column: "leads.created_at" },
-  };
 
   // Per-table + per-projection counters so the first hit on a table
   // goes to the "primary" mock (count/sum) and subsequent hits route
@@ -149,14 +135,12 @@ const {
     invoices: 0,
     bookings: 0,
     track_comments: 0,
-    leads: 0,
   };
   const resetCallCounts = () => {
     callCounts.projects = 0;
     callCounts.invoices = 0;
     callCounts.bookings = 0;
     callCounts.track_comments = 0;
-    callCounts.leads = 0;
   };
 
   // Chain handler — every terminal (.where, .orderBy, .limit, .then)
@@ -269,10 +253,6 @@ const {
             Promise.resolve<Record<string, unknown>[]>([]),
           );
         }
-        if (table === leadsMarker) {
-          callCounts.leads += 1;
-          return chain(() => leadsRowsMock(), leadsRowsWhereSpy);
-        }
         throw new Error(`unexpected from(${String(table)})`);
       },
     }),
@@ -286,7 +266,6 @@ const {
     trackCommentsMarker,
     trackVersionsMarker,
     projectTracksMarker,
-    leadsMarker,
     projectsCountMock,
     projectsListMock,
     revenueMock,
@@ -295,7 +274,6 @@ const {
     upcomingSessionsMock,
     openCommentsMock,
     openCommentsRowsMock,
-    leadsRowsMock,
     projectsCountWhereSpy,
     projectsListWhereSpy,
     revenueWhereSpy,
@@ -304,7 +282,6 @@ const {
     upcomingSessionsWhereSpy,
     openCommentsWhereSpy,
     openCommentsRowsWhereSpy,
-    leadsRowsWhereSpy,
     resetCallCounts,
     dbMock,
   };
@@ -322,12 +299,9 @@ vi.mock("@skitza/db", () => ({
   trackComments: trackCommentsMarker,
   trackVersions: trackVersionsMarker,
   projectTracks: projectTracksMarker,
-  leads: leadsMarker,
   // Tables referenced elsewhere in the producer router module — opaque
   // markers so the router loads inside the test.
   portfolioTracks: { __table: "portfolio_tracks" },
-  magicLinks: { __table: "magic_links" },
-  magicLinkViews: { __table: "magic_link_views" },
   clientContacts: { __table: "client_contacts" },
   notifications: { __table: "notifications" },
   stripeCustomers: { __table: "stripe_customers" },
@@ -357,7 +331,6 @@ vi.mock("@skitza/db", () => ({
 import {
   bookings,
   invoices,
-  leads,
   projects,
   trackComments,
 } from "@skitza/db";
@@ -371,7 +344,6 @@ beforeEach(() => {
   upcomingSessionsMock.mockReset().mockResolvedValue([]);
   openCommentsMock.mockReset().mockResolvedValue([]);
   openCommentsRowsMock.mockReset().mockResolvedValue([]);
-  leadsRowsMock.mockReset().mockResolvedValue([]);
   projectsCountWhereSpy.mockReset();
   projectsListWhereSpy.mockReset();
   revenueWhereSpy.mockReset();
@@ -380,7 +352,6 @@ beforeEach(() => {
   upcomingSessionsWhereSpy.mockReset();
   openCommentsWhereSpy.mockReset();
   openCommentsRowsWhereSpy.mockReset();
-  leadsRowsWhereSpy.mockReset();
   resetCallCounts();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
@@ -465,6 +436,46 @@ describe("producer.today", () => {
     expect(sessionItems).toHaveLength(2);
   });
 
+  // Pinned 2026-05-07 — the "Open client room" button on the Overview
+  // screen reads from `today.items[*].href`. Pre-fix, every session item
+  // hard-coded `/dashboard/booking?id=...` which the v3-clean middleware
+  // 301'd to `/dashboard/calendar`, so the button silently navigated to
+  // the calendar instead of the project room. Fix routes through
+  // bookings.projectId, falling back to /dashboard/calendar only when no
+  // project is attached. This test pins both branches.
+  it("session items deep-link to the project room when bookings.projectId is set", async () => {
+    const now = new Date();
+    const in1hour = new Date(now.getTime() + 60 * 60 * 1000);
+    const in2hours = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    upcomingSessionsMock.mockResolvedValueOnce([
+      {
+        id: "b-with-project",
+        startsAt: in1hour,
+        durationMin: 60,
+        artistName: "Alice",
+        packageNameSnapshot: "1h Mix",
+        projectId: "proj-123",
+      },
+      {
+        id: "b-orphan",
+        startsAt: in2hours,
+        durationMin: 30,
+        artistName: "Bob",
+        packageNameSnapshot: "Consult",
+        projectId: null,
+      },
+    ]);
+
+    const caller = await buildCaller();
+    const result = await caller.producer.today();
+    const sessions = result.items.filter((i) => i.kind === "session");
+    const withProject = sessions.find((s) => s.id === "session:b-with-project");
+    const orphan = sessions.find((s) => s.id === "session:b-orphan");
+
+    expect(withProject?.href).toBe("/dashboard/clients-projects/proj-123");
+    expect(orphan?.href).toBe("/dashboard/calendar");
+  });
+
   it("sums unpaid invoices + open comments into unresolvedItems", async () => {
     // 3 unpaid invoices.
     unpaidMock.mockResolvedValueOnce([
@@ -481,12 +492,11 @@ describe("producer.today", () => {
     expect(result.kpis.unresolvedItems).toBe(5);
   });
 
-  it("sorts items by urgency: session > unread comment > invoice > lead", async () => {
+  it("sorts items by urgency: session > unread comment > invoice", async () => {
     const now = new Date();
     const in1hour = new Date(now.getTime() + 60 * 60 * 1000);
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
-    const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
 
     upcomingSessionsMock.mockResolvedValueOnce([
       {
@@ -518,25 +528,15 @@ describe("producer.today", () => {
         stripeCheckoutSessionId: null,
       },
     ]);
-    leadsRowsMock.mockResolvedValueOnce([
-      {
-        id: "l1",
-        name: "New lead",
-        email: "lead@x.com",
-        source: "instagram",
-        createdAt: threeDaysAgo,
-      },
-    ]);
 
     const caller = await buildCaller();
     const result = await caller.producer.today();
 
-    // Strict type ordering across the 4 kinds.
-    expect(result.items).toHaveLength(4);
+    // Strict type ordering across the 3 kinds.
+    expect(result.items).toHaveLength(3);
     expect(result.items[0]?.kind).toBe("session");
     expect(result.items[1]?.kind).toBe("comment");
     expect(result.items[2]?.kind).toBe("invoice");
-    expect(result.items[3]?.kind).toBe("lead");
   });
 
   it("caps items at 50", async () => {
@@ -591,16 +591,6 @@ describe("producer.today", () => {
     expect(unpaidPred).not.toBeNull();
     if (Array.isArray(unpaidPred)) {
       expect(unpaidPred[1]).toBe(PRODUCER_ID);
-    }
-
-    // Leads rows (when queried) must also be producer-scoped.
-    const leadsArg = leadsRowsWhereSpy.mock.calls[0]?.[0];
-    if (leadsArg) {
-      const leadsPred = findPredicate(leadsArg, "eq", leads.producerId);
-      expect(leadsPred).not.toBeNull();
-      if (Array.isArray(leadsPred)) {
-        expect(leadsPred[1]).toBe(PRODUCER_ID);
-      }
     }
 
     // Open comments route through trackComments but the auth scope

@@ -23,7 +23,7 @@ import { useRouter } from "next/navigation";
 
 import { SaveIndicator, useSaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
-import { updateAutopilot } from "~/app/(app)/dashboard/settings/actions";
+import { updateAutopilot } from "~/app/(producer)/dashboard/settings/actions";
 
 export interface AutopilotSettings {
   welcomeEmail: boolean;

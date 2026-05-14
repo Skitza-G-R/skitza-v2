@@ -2,17 +2,20 @@ import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes, type
 
 import { cn } from "~/lib/cn";
 
-// Shared input surface. Hairline border; signal-green focus ring via
-// :focus-visible (consistent with buttons). Placeholder is muted, not
-// super-dim — producers skim.
+// Field surface — locked design system (v3-ui-design).
+//
+// `bg-elevated` (#FFFFFF) field on the warm-cream canvas. `border-subtle`
+// hairline that strengthens on hover. Focus paints an amber ring — same
+// `--brand-primary` token as the keyboard `:focus-visible` outline so
+// click-focus and tab-focus look consistent.
 const fieldBase = [
   "block w-full rounded-[var(--radius-md)]",
   "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]",
-  "px-3 py-2 text-sm text-[rgb(var(--fg-primary))]",
+  "px-3 py-2 text-[13px] text-[rgb(var(--fg-default))]",
   "placeholder:text-[rgb(var(--fg-muted))]",
   "transition-colors duration-150",
   "hover:border-[rgb(var(--border-strong))]",
-  "focus:outline-none focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)]",
+  "focus:outline-none focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.15)]",
   "disabled:opacity-50 disabled:cursor-not-allowed",
 ].join(" ");
 
@@ -38,15 +41,13 @@ const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElem
         className={cn(
           fieldBase,
           "h-10 appearance-none pr-9",
-          // Native select inside rgb bg doesn't inherit bg in all browsers
-          "[&>option]:bg-[rgb(var(--bg-elevated))] [&>option]:text-[rgb(var(--fg-primary))]",
+          "[&>option]:bg-[rgb(var(--bg-elevated))] [&>option]:text-[rgb(var(--fg-default))]",
           className,
         )}
         {...props}
       >
         {children}
       </select>
-      {/* Caret — drawn in CSS, green on hover to hint interactivity. */}
       <svg
         aria-hidden
         viewBox="0 0 20 20"
@@ -60,13 +61,15 @@ const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElem
 );
 Select.displayName = "Select";
 
-// Label — used above fields. Uppercase micro-label for the "console" feel.
+// Label — uppercase micro-label per `.label-tiny` in globals.css. The
+// `--fg-muted` colour matches the design-system.md "section labels"
+// spec (10–11px, bold, tracking-widest).
 const Label = forwardRef<HTMLLabelElement, React.LabelHTMLAttributes<HTMLLabelElement>>(
   ({ className, ...props }, ref) => (
     <label
       ref={ref}
       className={cn(
-        "mb-1.5 block text-[0.68rem] font-medium uppercase tracking-[0.12em] text-[rgb(var(--fg-secondary))]",
+        "mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]",
         className,
       )}
       {...props}

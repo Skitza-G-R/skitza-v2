@@ -20,7 +20,7 @@ import type { PaymentPlan } from "@skitza/db";
 import type {
   PackageKind,
   PackageLocationType,
-} from "~/app/(app)/dashboard/booking/actions";
+} from "~/app/(producer)/dashboard/booking/actions";
 
 export type TemplateCurrency = "USD" | "EUR" | "GBP" | "ILS";
 
@@ -60,7 +60,7 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
     id: "mix-3h",
     icon: "mix",
     title: "3-hour mixing session",
-    tagline: "Single sitting · $150",
+    tagline: "Single sitting · 1 session",
     defaults: {
       name: "3-hour mixing session",
       description:
@@ -103,7 +103,7 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
     id: "weekend-intensive",
     icon: "weekend",
     title: "Weekend intensive",
-    tagline: "2× 4h days · flat $600",
+    tagline: "2× 4h days · flat rate",
     defaults: {
       name: "Weekend intensive",
       description:
@@ -124,7 +124,7 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
     id: "remote-feedback",
     icon: "remote",
     title: "Remote feedback round",
-    tagline: "Async · $75 / hour",
+    tagline: "Async · remote feedback",
     defaults: {
       name: "Remote feedback round",
       description:
@@ -145,7 +145,7 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
     id: "mastering-pass",
     icon: "master",
     title: "Mastering pass",
-    tagline: "Single track · $200",
+    tagline: "Single track · 1 revision",
     defaults: {
       name: "Mastering pass",
       description:

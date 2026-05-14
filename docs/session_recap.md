@@ -1,90 +1,136 @@
-# Session Recap — Live Handoff State
+# Session Recap — Clients & Projects v3 Redesign
 
-> **READ THIS FIRST at the start of every session.** This file is a rolling snapshot of the current project state. It's overwritten at every checkpoint so it always reflects "right now." If you need history, `git log` this file.
+> **For the next Claude session:** READ THIS FIRST. The work is mid-stream. Branch `clients-projects-redesign` is pushed to origin with 10 commits ahead of `origin/v3-clean`. PR #113 is open and **waiting on Raz's review** of the schema. Phase 0 is complete; Phases 1-4 are planned but not yet implemented.
 
----
-
-## 🕐 Last checkpoint
-
-**2026-04-26 — Landing page restoration shipped (PR #50, squash `eeced00`).** Founder restored the original warm-aesthetic landing design (Outfit + Syne, amber/copper palette, tactile noise, CSS-only animations) over the prior decomposed-component landing. Branch deleted, docs archived, mistake-log updated.
-
----
-
-## ✅ What this session shipped (PR #50 → main)
-
-| Phase | Commit (squashed into `eeced00`) | Content |
-|---|---|---|
-| **PM** | `0244454` | `docs(prd): §3.5 landing page restoration` — locked aesthetic, 17-section composition, CTAs, no modal, no fabricated social proof |
-| **Architect** | `ca2b1b9` | `docs(plans): architecture + source HTML reference` — full technical plan with file structure, CSS strategy, story breakdown |
-| **Dev S1** | `4ce5644` | `feat(landing): S1 — CSS foundation, fonts, noise overlay` (later partly fixed by `c1f454f`) |
-| **Dev S2** | `e6d209e` | `feat(landing): S2 — port 11 original sections from founder design` |
-| **Dev S3** | `3d7138d` | `feat(landing): S3 — TrustBar, Compare, Security, FAQ, Founder, Download` |
-| **Dev S4** | `52f8f41` | `feat(landing): S4 — page test + CTA verification + full gate` |
-| **Hotfix P0** | `222dcfe` | `fix(landing): wire IntersectionObserver for .reveal-up — UX critic P0` |
-| **Refactor** | `879d578` | `refactor(landing): pivot to verbatim single-file port per founder feedback` |
-| **Hotfix P0** | `c1f454f` | `fix(landing): correct .page-loaded scoping — descendant combinator → chained class` |
+**Last updated:** 2026-05-14
+**Branch:** `clients-projects-redesign` (pushed to origin)
+**Last commit:** `ed32a5e` — `feat(db): SQL migration 0011 for Clients & Projects v3`
+**PR:** [#113](https://github.com/Skitza-G-R/skitza-v2/pull/113) — Phase 0 (schema)
+**Status:** Pipeline green (typecheck + lint + 1617 tests). Waiting on Raz to review the migration.
 
 ---
 
-## 📍 Current state
+## TL;DR
 
-| Thing | State |
+Started a 5-phase faithful port of the Clients Projects Room prototype into the producer app. New IA: List → Client Space → Album Page → Song Space, with a Single-Space rule that collapses 1-song projects directly into the Song Space. Phase 0 (schema migrations) is in PR #113; subsequent phases will replace the current 5-sub-tab Project Room with the new structure. **Reuses the existing PersistentPlayer** — no new audio infrastructure. TDD throughout; extra-cautious execution per Gili's brief.
+
+## Design and plan documents (source of truth)
+
+| File | Purpose |
 |---|---|
-| **`main` HEAD** | `eeced00` (PR #50 squash merge) |
-| **Working tree** | clean at `/Users/giliasraf/Skitza 16.4` |
-| **Branches in flight** | `feat/today-redesign` (Today screen redesign — UI work in progress), `feat/onboarding-rebuild` (10-story producer onboarding wizard rebuild — see prior recap commit) |
-| **Worktrees** | `/Users/giliasraf/skitza-landing-restore` should be removed (`git worktree remove`) — landing-restore branch is deleted from origin |
-| **Tests on main** | locally green (typecheck + lint + 720 tests + build) |
-| **CI on main** | the GitHub Actions `test` job has been failing on every push since `222dcfe` — likely environmental (billing block per 2026-04-23 mistake-log pattern), not a real code issue. Vercel deploys independently and is green. Worth confirming next session whether the GH Actions billing/secrets need attention. |
+| [`docs/plans/active/2026-05-14-clients-projects-redesign-design.md`](plans/active/2026-05-14-clients-projects-redesign-design.md) | Master design brief. Decisions log, routing/IA, schema, components, the 4 modals, phasing, testing strategy, safety rules. Approved by Gili 2026-05-14. |
+| [`docs/plans/active/2026-05-14-clients-projects-redesign-phase-0.md`](plans/active/2026-05-14-clients-projects-redesign-phase-0.md) | Phase 0 plan: 12 bite-sized TDD tasks for the schema migrations. Executed via subagent-driven development. All shipped on branch. |
+| `/Volumes/KINGSTON/Downloads/Clients Projects Room.html` | The HTML prototype — source of truth for visuals when the design doc is ambiguous. |
+| `/Volumes/KINGSTON/Downloads/DESIGN.md` | Design tokens + component spec from the prototype. |
+| `/Volumes/KINGSTON/Downloads/BUILD-NOTES.md` | Engineering handoff with data shapes + routing rules. |
 
----
+## What's done (on branch, awaiting Raz)
 
-## 🛠 Deferred polish (UX critic flagged, not blocking)
+### Phase 0 — schema migrations (PR #113)
 
-1. **Replace emoji icons with SVG/CSS shapes** in the dark-world sections — `🔒 ☁️ 🛡️ 💻 📱` render inconsistently across platforms (color on macOS, monochrome on Windows). Affects Security, Download, Consolidation tool-chips, SolutionFlow bullets. The source's `pain-grid` does this right with hand-drawn CSS faces — apply the same discipline.
-2. **Real founder photo** at `apps/web/public/founder/gili.jpg` (240×240+) to replace the GA-initials placeholder in the Founder section. Wire-up is one `<Image>` swap.
+8 schema commits + 2 docs commits on `clients-projects-redesign`:
 
-Both deferrable to a future PR — landing aesthetic is at 8.5/10 today; these take it to 9/10.
+- New enum `workflow_stage` (brief / production / mixing / mastering / done) — 5 values, NOT the prototype's 6 (Gili dropped Review and Delivery).
+- `client_contacts.invited_at` (timestamptz, nullable) — linkpill "Invited" state
+- `client_contacts.position` (int, NOT NULL, default 0) — drag-reorder
+- `projects.position` (int, NOT NULL, default 0) — drag-reorder
+- `projects.workflow_stage` (workflow_stage, NOT NULL, default 'brief') — parallel to legacy `stage`
+- `project_tracks.workflow_stage` (same enum) — per-song stepper
+- `bookings.song_id` (uuid, nullable, FK → project_tracks ON DELETE SET NULL) — per-song Sessions tab
+- SQL migration `packages/db/drizzle/0011_clients_projects_redesign.sql` — idempotent
 
----
+7 new tests in `packages/db/src/__tests__/clients-projects-redesign.test.ts` — pure-runtime Drizzle column metadata assertions; no DB required.
 
-## 🎯 What's next (founder's choice)
+Spec compliance: ✅ verified line-by-line by a spec-reviewer subagent.
+Code quality: ✅ "ship it" from code-reviewer subagent. Two minor follow-ups noted (FK `onDelete` and `withTimezone` not asserted by tests — non-blocking).
 
-1. **Resume `feat/today-redesign`** — there was uncommitted WIP (`app-shell.tsx`, `sidebar.tsx`, new `sidebar-share-chip.tsx`) at session start. Verify whether that's still in-progress or already landed.
-2. **Resume `feat/onboarding-rebuild`** — per prior recap, 10 stories queued, Story 01 was about to be dispatched. Re-read [`docs/plans/active/2026-04-25-onboarding-rebuild-architecture.md`](plans/active/2026-04-25-onboarding-rebuild-architecture.md) to resume.
-3. **Polish the landing** (P1+P2 above) — small follow-up PR to take the aesthetic to 9/10.
-4. **Investigate the GH Actions test job** — RED across all branches recently. If it's billing, the user needs to top up the GH org credit (Claude can't do that).
+## What's NOT done
 
----
+### Phases 1 – 4 (planned, not yet started)
 
-## 🗂 Where the landing-restore docs live now
+| Phase | What ships | Risk |
+|---|---|---|
+| **1** | List view + Client Space polish + drag reorder + linkpill + Invite modal | Low |
+| **2** | New Album page (replaces current Project Room) + Studio Log + Payments tab | Medium |
+| **3** | Song Space (NEW route) + Single-rule routing + workflow stepper + wire VersionRow play to existing PersistentPlayer | Medium |
+| **4** | Upload Track modal with stage picker + manual stage edit | Low |
+| **(later, optional)** | PersistentPlayer visual polish to match prototype's `#player` spec | High |
 
-- **Brief**: `docs/plans/archive/2026-04-26-landing-restore-brief.md`
-- **Architecture**: `docs/plans/archive/2026-04-26-landing-restore-architecture.md`
-- **Source HTML reference**: `docs/plans/archive/2026-04-26-landing-restore-source.html` (the founder's original static HTML, 2,051 lines — kept for future reference)
-- **PRD section**: §3.5 in [`docs/product/PRD.md`](product/PRD.md)
+Each phase: TDD-first, `/skitza-verify` green, Incognito preview verified, separate PR.
 
----
+### To ship Phase 0 to production
 
-## 🔑 How to resume from cold
+1. **Raz reviews PR #113.** Schema is his territory per CLAUDE.md, but Gili authorized me to write these migrations directly for this redesign (recorded in memory `feedback_schema_authorized_clients_projects.md`). The 6 column adds + 1 new enum are all additive and idempotent.
+2. On Raz's approval: merge PR #113. Vercel deploy hook applies the migration to prod DB automatically.
+3. No need for Gili to apply locally — Task 10 of the Phase 0 plan was deliberately skipped after `apply-migrations.mjs` failed twice on quoted DATABASE_URL handling.
+4. Once merged: pull `v3-clean` locally, then start Phase 1 by writing `docs/plans/active/2026-05-14-clients-projects-redesign-phase-1.md`.
 
-1. Read this file.
-2. Read [CLAUDE.md](../CLAUDE.md) — auto-loaded; check the running mistake log (especially the new 2026-04-26 CSS-scoping entry).
-3. `git status` to see whether you're on `main` or one of the in-flight branches.
-4. Ask the founder: "what's the priority — resume Today / resume Onboarding / polish landing / investigate CI?"
+## Decisions log (chronological, all 2026-05-14)
 
----
+1. **Q1 Scope** — option A: full faithful port (replace current Project Room IA; add Song Space; add Single-Space rule).
+2. **Q2 Schema work** — option A: Gili authorized Claude to write the migrations directly. Raz reviews PR before merge. Scoped to this redesign only.
+3. **Q3 Notes tab** — drop entirely. `projects.notes` column stays in DB but no UI exposes it.
+4. **Q4a Project stage** — option A: ADD a new `workflow_stage` column rather than replace the legacy `stage` enum. Legacy enum keeps running billing; new column drives only the new UI.
+5. **Q4b Stage advancement** — option B: upload-driven + manual override. Upload Track modal has a stage picker; song page has a small "change stage" affordance.
+6. **5-stage workflow vs prototype's 6** — Gili dropped Review and Delivery. Final list: Brief → Production → Mixing → Mastering → Done.
+7. **Q5 Floating player** — reuse existing `PersistentPlayer` (mounted globally in `app-shell.tsx`). Comment at `app-shell.tsx:82-89` says Phase 4 will swap it; for now we wire VersionRow's play button to `playerPlay()` and use `useNowPlaying()` for the amber highlight. No new audio infrastructure.
+8. **Q6 Phasing** — 5 separate PRs (Phase 0 schema, 1 list+client, 2 album, 3 song space, 4 upload modal). Optional Phase 5: player visual polish.
 
-## 🟠 Known bugs still on main (quarantine list — unchanged from previous session)
+## How to resume in a new session
 
-Diagnosable now with Sentry + PostHog live. No touching these files until ~1 week of real-user data:
+1. **Read this recap first.** It points to everything.
+2. **Read the design brief.** `docs/plans/active/2026-05-14-clients-projects-redesign-design.md` is the source of truth for every decision.
+3. **Confirm branch state.** `git rev-parse --abbrev-ref HEAD` should be on `clients-projects-redesign` until PR #113 merges. After merge, `git checkout v3-clean && git pull` and start Phase 1 on a new branch off v3-clean.
+4. **Confirm pipeline.** `pnpm typecheck && pnpm -F web lint && pnpm test` should be green.
+5. **Ask Gili what's next.** Options on the table: (a) Phase 1 plan, (b) wait on PR #113 merge before starting any new phase work.
 
-1. `/sign-in` line 8: `forceRedirectUrl="/dashboard"` — ignores `redirect_url` query param **(this affects the new landing's Sign Up flow — every "Sign up now" CTA passes `redirect_url=%2Fonboarding`, so check that Clerk honors it post-sign-up; if not, this bug just got more visible)**
-2. `/artist-welcome` (no slug): no role guard for authed users with real studios
-3. Webhook race on `/artist-welcome/<slug>` — fast-clickers land on `/artist` before `client_contacts` row exists
+## Token reality check (carry this forward)
 
----
+Same as storefront recap. The Skitza app uses ONLY these CSS custom properties:
 
-## 🧹 Update discipline
+```
+--brand-primary       (212 150 10 — amber)
+--bg-background       (242 237 230 — warm off-white page bg)
+--bg-elevated         (255 255 255 — white, USE FOR MODAL/CARD BG)
+--bg-sidebar          (17 16 9 — near-black; dark surface AND dark text on amber)
+--fg-default          (17 16 9 — body text, USE INSTEAD OF --text-strong)
+--fg-muted            (107 99 89 — secondary text, USE INSTEAD OF --text-muted)
+--fg-faint            (165 158 145 — placeholder/empty)
+--fg-success / --fg-danger / --fg-warning
+--border-subtle / --border-strong
+```
 
-**This file is overwritten, never appended.** Update at every natural checkpoint per `CLAUDE.md` § Session handoff protocol.
+**Forbidden (do not exist):** `--surface-card`, `--surface-hover`, `--text-muted`, `--text-strong`, `--brand-primary-on`. Using them = invisible text + transparent backgrounds. Always grep `apps/web/src/styles/tokens.css` for the canonical list when in doubt.
+
+## Testing convention (carry forward)
+
+Vitest in `node` env, no jsdom, no `@testing-library/react`. Two patterns:
+
+1. **Pure-function unit tests** — standard `expect(...)` on helpers (e.g. the Phase 0 column-metadata tests).
+2. **Source-grep tests on JSX shells** — `readFileSync` the `.tsx` file, assert it contains key imports / class names / attributes.
+
+No DOM interactions. Behavior is exercised by real consumers + manual preview verification.
+
+## Auxiliary stashes (recoverable)
+
+- `stash@{0}: On clients-projects-redesign: pre-clients-projects-redesign: dashboard simplification WIP` — 4 files (page.tsx, page-helpers.ts, page-rebuild.test.ts, empty-onboarding.tsx). These were carried over from before our session; landed on `fix/dashboard-overview-after-onboarding` instead. Gili can `git stash pop` if useful; otherwise drop.
+
+## Branch state details
+
+```
+clients-projects-redesign
+├── 10 commits ahead of origin/v3-clean
+├── 8 schema commits + 2 docs commits
+├── Includes:
+│   ├── fcd4a7a  docs: design brief for v3 redesign
+│   ├── 96551a9  docs: Phase 0 implementation plan
+│   ├── eb332d9  feat(db): workflow_stage enum
+│   ├── 1c65ebf  feat(db): client_contacts.invited_at
+│   ├── 56484a2  feat(db): client_contacts.position
+│   ├── ae0e8ba  feat(db): projects.position
+│   ├── af917c4  feat(db): projects.workflow_stage
+│   ├── 53f3748  feat(db): project_tracks.workflow_stage
+│   ├── 01a7cb2  feat(db): bookings.song_id FK
+│   └── ed32a5e  feat(db): SQL migration 0011
+└── PR #113 open against v3-clean, awaiting Raz review
+```

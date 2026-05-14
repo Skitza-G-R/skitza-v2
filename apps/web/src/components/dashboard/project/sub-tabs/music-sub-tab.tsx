@@ -1,17 +1,20 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type SyntheticEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { type SyntheticEvent, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
 import { useHotkey } from "~/lib/keyboard/use-shortcuts";
 
 import { AudioUploader } from "~/components/audio/audio-uploader";
-import { WaveformPlayer } from "~/components/audio/waveform-player";
+import {
+  WaveformPlayer,
+  type WaveformPlayerHandle,
+} from "~/components/audio/waveform-player";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
-import { Input, Label } from "~/components/ui/input";
+import { Input, Label, Textarea } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import { fmtDateTime } from "~/lib/time/relative";
 import {
@@ -20,7 +23,11 @@ import {
   addTrackVersion,
   approveVersionAction,
   resolveVersionComment,
-} from "~/app/(app)/dashboard/projects/actions";
+  updateTrackTitle,
+  updateVersionLabel,
+} from "~/app/(producer)/dashboard/clients-projects/actions";
+
+import { pickInitialVersions } from "./music-version-helpers";
 
 // MusicSubTab only needs the project ID to scope its queries and
 // action calls — version/track/comment data comes in via the `tracks`
@@ -67,6 +74,29 @@ function formatMs(ms: number): string {
   return `${String(m)}:${String(ss).padStart(2, "0")}`;
 }
 
+function formatSec(sec: number): string {
+  return formatMs(Math.max(0, Math.floor(sec)) * 1000);
+}
+
+// Forgiving parser for the producer reply form's timestamp input. Accepts
+// the live-display "m:ss" format ("0:34", "1:23"), a colonless "ss"
+// shorthand ("34"), and pads against junk input by clamping to ≥0. We
+// don't reject malformed strings — the field is a soft hint, not a
+// validated submission boundary.
+function parseTimestampSec(str: string): number {
+  const trimmed = str.trim();
+  if (!trimmed) return 0;
+  if (trimmed.includes(":")) {
+    const parts = trimmed.split(":");
+    const last = parts.pop() ?? "0";
+    const ss = Number(last) || 0;
+    const mm = Number(parts.pop() ?? "0") || 0;
+    const hh = Number(parts.pop() ?? "0") || 0;
+    return Math.max(0, hh * 3600 + mm * 60 + ss);
+  }
+  return Math.max(0, Number(trimmed) || 0);
+}
+
 // Rough "x ago" string for the approved badge. We only care about this
 // at coarse resolution (the user's sense of "is this recent?"), so
 // rounding to the nearest unit is fine.
@@ -106,11 +136,16 @@ export function MusicSubTab({
   tracks,
   versions,
   comments,
+  initialVersionId,
 }: {
   project: ProjectRef;
   tracks: Track[];
   versions: Version[];
   comments: CommentRow[];
+  // F4 — when set (via the Project Room's ?version= search param),
+  // the matching track pre-selects this exact version instead of
+  // defaulting to "latest". Used by the Music Library deep-link.
+  initialVersionId?: string;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -123,17 +158,46 @@ export function MusicSubTab({
   const [versionFor, setVersionFor] = useState<string | null>(null);
   const [newVersionLabel, setNewVersionLabel] = useState("");
 
+  // F8 — per-comment producer reply. Single `string | null` (the open
+  // comment id), per brief: only one inline reply form open at a time
+  // keeps UX clean and avoids stale-state bugs from a Record<id, bool>.
+  // Threading is visual via timestamp proximity (track_comments has no
+  // parentCommentId column) — replies share the parent's timestampMs
+  // so the time-sorted comment list places them adjacent.
+  const [replyOpenFor, setReplyOpenFor] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+
+  // Inline-edit affordance for track titles + version labels. Single-
+  // open semantics (one editing target at a time) match the per-comment
+  // reply form pattern above and keep stale-state bugs at bay.
+  const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
+
   const initialSelected = useMemo(
-    () =>
-      Object.fromEntries(
-        tracks.map((t) => {
-          const latest = versions.find((v) => v.trackId === t.id);
-          return [t.id, latest?.id ?? null];
-        }),
-      ),
-    [tracks, versions],
+    () => pickInitialVersions(tracks, versions, initialVersionId),
+    [tracks, versions, initialVersionId],
   );
   const [selected, setSelected] = useState<Record<string, string | null>>(initialSelected);
+
+  // Per-track imperative refs into each WaveformPlayer. Lets the
+  // ProducerReplyForm pause its track's waveform on focus and resume
+  // on submit (mirrors F7 on the artist Song page). A Map keyed by
+  // trackId because tracks render in a loop — useRef can't be called
+  // per iteration.
+  const wavesurferRefs = useRef(new Map<string, WaveformPlayerHandle | null>());
+
+  // F4 — re-sync the deep-linked version when the URL changes after
+  // mount (e.g. producer goes back to Music Library and clicks another
+  // song in the same project). `useState`'s initial value is read once,
+  // so without this effect the second navigation would silently fall
+  // back to "latest". We only touch the affected track's selection so
+  // any manual chip-row picks on other tracks are preserved.
+  useEffect(() => {
+    if (!initialVersionId) return;
+    const pinned = versions.find((v) => v.id === initialVersionId);
+    if (!pinned) return;
+    setSelected((s) => ({ ...s, [pinned.trackId]: pinned.id }));
+  }, [initialVersionId, versions]);
 
   // Batch C — responsive hero waveform height. 320px reads as the
   // Samply "tall scrubbing surface" on desktop; 200px keeps a phone
@@ -212,6 +276,28 @@ export function MusicSubTab({
     });
   }
 
+  function onReplySubmit(e: SyntheticEvent<HTMLFormElement>, c: CommentRow) {
+    e.preventDefault();
+    const text = replyDraft.trim();
+    if (!text) return;
+    startTransition(async () => {
+      const res = await addProducerComment({
+        projectId: project.id,
+        versionId: c.versionId,
+        body: text,
+        timestampMs: c.timestampMs,
+      });
+      if (res.ok) {
+        toast("Reply sent. The artist will see it on their timeline.", "success");
+        setReplyOpenFor(null);
+        setReplyDraft("");
+        router.refresh();
+      } else {
+        toast(res.error, "error");
+      }
+    });
+  }
+
   return (
     <section
       role="tabpanel"
@@ -243,12 +329,49 @@ export function MusicSubTab({
                 <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
                   Track {String(idx + 1).padStart(2, "0")}
                 </p>
-                <h3
-                  className="mt-1 font-display text-xl tracking-tight"
-                  style={{ fontWeight: 700 }}
-                >
-                  {t.title}
-                </h3>
+                {editingTrackId === t.id ? (
+                  <input
+                    autoFocus
+                    defaultValue={t.title}
+                    maxLength={120}
+                    aria-label="Track title"
+                    className="mt-1 block rounded border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-0.5 font-display text-xl tracking-tight text-[rgb(var(--fg-primary))] focus:outline-none focus:ring-1 focus:ring-[rgb(var(--brand-primary))]"
+                    style={{ fontWeight: 700 }}
+                    onBlur={(e) => {
+                      const newTitle = e.target.value.trim();
+                      if (newTitle && newTitle !== t.title) {
+                        startTransition(async () => {
+                          const res = await updateTrackTitle({
+                            projectId: project.id,
+                            trackId: t.id,
+                            title: newTitle,
+                          });
+                          if (res.ok) {
+                            router.refresh();
+                          } else {
+                            toast(res.error, "error");
+                          }
+                        });
+                      }
+                      setEditingTrackId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      if (e.key === "Escape") setEditingTrackId(null);
+                    }}
+                  />
+                ) : (
+                  <h3
+                    className="mt-1 cursor-pointer font-display text-xl tracking-tight hover:underline"
+                    style={{ fontWeight: 700 }}
+                    title="Click to edit title"
+                    onClick={() => {
+                      setEditingTrackId(t.id);
+                    }}
+                  >
+                    {t.title}
+                  </h3>
+                )}
                 {t.artist ? (
                   <p className="mt-0.5 text-sm text-[rgb(var(--fg-secondary))]">{t.artist}</p>
                 ) : null}
@@ -271,24 +394,89 @@ export function MusicSubTab({
                 {tVersions.map((v, vi) => {
                   const isSelected = v.id === selectedId;
                   const isLatest = vi === 0;
+                  const isEditing = editingVersionId === v.id;
                   return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => {
-                        setSelected((s) => ({ ...s, [t.id]: v.id }));
-                      }}
-                      className={[
-                        "inline-flex min-h-[44px] items-center whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors sm:min-h-0",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
-                        isSelected
-                          ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
-                          : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
-                      ].join(" ")}
-                    >
-                      {v.label}
-                      {isLatest ? " · latest" : ""}
-                    </button>
+                    <div key={v.id} className="inline-flex items-center gap-1">
+                      {isEditing ? (
+                        // Render as an unwrapped input while editing
+                        // — nesting an <input> inside the chip's
+                        // <button> is invalid HTML and bubbles every
+                        // keystroke into the version-select handler.
+                        <input
+                          autoFocus
+                          defaultValue={v.label}
+                          maxLength={40}
+                          aria-label="Version label"
+                          className="inline-flex min-h-[44px] w-24 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--brand-primary))] bg-[rgb(var(--bg-base))] px-2 py-1 font-mono text-xs text-[rgb(var(--fg-primary))] focus:outline-none focus:ring-1 focus:ring-[rgb(var(--brand-primary))] sm:min-h-0"
+                          onBlur={(e) => {
+                            const newLabel = e.target.value.trim();
+                            if (newLabel && newLabel !== v.label) {
+                              startTransition(async () => {
+                                const res = await updateVersionLabel({
+                                  projectId: project.id,
+                                  versionId: v.id,
+                                  label: newLabel,
+                                });
+                                if (res.ok) {
+                                  router.refresh();
+                                } else {
+                                  toast(res.error, "error");
+                                }
+                              });
+                            }
+                            setEditingVersionId(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                            if (e.key === "Escape") setEditingVersionId(null);
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelected((s) => ({ ...s, [t.id]: v.id }));
+                          }}
+                          className={[
+                            "inline-flex min-h-[44px] items-center whitespace-nowrap rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-xs transition-colors sm:min-h-0",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
+                            isSelected
+                              ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))] font-semibold"
+                              : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--fg-primary))]",
+                          ].join(" ")}
+                        >
+                          {/* Click the label text to edit; click
+                              elsewhere on the chip (padding, " · latest")
+                              to select the version. stopPropagation
+                              keeps the button's onClick from firing
+                              when the producer means to edit. */}
+                          <span
+                            className="cursor-text underline-offset-2 hover:underline"
+                            title="Click to edit label"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingVersionId(v.id);
+                            }}
+                          >
+                            {v.label}
+                          </span>
+                          {isLatest ? " · latest" : ""}
+                        </button>
+                      )}
+                      {v.audioUrl ? (
+                        <a
+                          href={v.audioUrl}
+                          download
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
+                          className="inline-flex h-7 items-center rounded px-2 text-xs text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-primary))]"
+                          aria-label={`Download ${v.label}`}
+                        >
+                          ↓
+                        </a>
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>
@@ -308,6 +496,9 @@ export function MusicSubTab({
               <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-4 sm:p-6">
                 {selectedVersion.audioUrl ? (
                   <WaveformPlayer
+                    ref={(handle) => {
+                      wavesurferRefs.current.set(t.id, handle);
+                    }}
                     src={selectedVersion.audioUrl}
                     label={t.title}
                     height={heroHeight}
@@ -410,38 +601,100 @@ export function MusicSubTab({
                           </Badge>
                         ) : null}
                       </div>
-                      {c.resolvedAt ? (
+                      <div className="flex items-center gap-1">
+                        {c.resolvedAt ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              onResolve(c.id, false);
+                            }}
+                            disabled={pending}
+                          >
+                            Re-open
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              onResolve(c.id, true);
+                            }}
+                            disabled={pending}
+                          >
+                            Resolve
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           size="sm"
                           variant="ghost"
                           onClick={() => {
-                            onResolve(c.id, false);
+                            // Toggle: open this row's reply form, or
+                            // close it if it's already the open one.
+                            // Reset draft on every toggle so text from
+                            // a previously-open row can't leak in.
+                            setReplyOpenFor(replyOpenFor === c.id ? null : c.id);
+                            setReplyDraft("");
                           }}
                           disabled={pending}
+                          aria-expanded={replyOpenFor === c.id}
                         >
-                          Re-open
+                          Reply
                         </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            onResolve(c.id, true);
-                          }}
-                          disabled={pending}
-                        >
-                          Resolve
-                        </Button>
-                      )}
+                      </div>
                     </div>
                     <p className="mt-2 text-sm text-[rgb(var(--fg-primary))]">{c.body}</p>
+                    {replyOpenFor === c.id ? (
+                      <form
+                        onSubmit={(e) => {
+                          onReplySubmit(e, c);
+                        }}
+                        className="mt-3 grid gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3"
+                      >
+                        <Textarea
+                          value={replyDraft}
+                          onChange={(e) => {
+                            setReplyDraft(e.target.value);
+                          }}
+                          placeholder="Write a reply…"
+                          autoFocus
+                          required
+                          maxLength={2000}
+                          rows={2}
+                          aria-label={`Reply to ${c.authorName}`}
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={pending || !replyDraft.trim()}
+                          >
+                            {pending ? "…" : "Send"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setReplyOpenFor(null);
+                              setReplyDraft("");
+                            }}
+                            disabled={pending}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </form>
+                    ) : null}
                   </div>
                 ))}
                 <ProducerReplyForm
                   projectId={project.id}
                   versionId={selectedVersion.id}
+                  getWaveform={() => wavesurferRefs.current.get(t.id) ?? null}
                   onDone={() => {
                     router.refresh();
                   }}
@@ -528,22 +781,68 @@ export function MusicSubTab({
 function ProducerReplyForm({
   projectId,
   versionId,
+  getWaveform,
   onDone,
 }: {
   projectId: string;
   versionId: string;
+  getWaveform: () => WaveformPlayerHandle | null;
   onDone: () => void;
 }) {
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [body, setBody] = useState("");
-  const [timestampSec, setTimestampSec] = useState("0");
+  // Stored as the m:ss display string so the input can show "0:34"
+  // directly. Parsed to seconds via parseTimestampSec at submit time.
+  const [timestampDisplay, setTimestampDisplay] = useState("0:00");
+  // Tracks whether the waveform was playing at the moment we paused it
+  // on focus, so submit only resumes audio that was actually playing.
+  const wasPlayingRef = useRef(false);
+  // Pins the timestamp so the live-sync interval stops overwriting it.
+  // Set when the producer focuses the body input or manually edits the
+  // timestamp; cleared after submit so the next reply tracks live again.
+  const pinnedRef = useRef(false);
+
+  // Live-sync the timestamp display to the waveform's current playhead.
+  // Polls every 250ms (smooth-enough for human perception, far cheaper
+  // than per-frame rAF) and only commits when the integer-second value
+  // changes — keeps re-renders to ≤4/sec per track at most.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (pinnedRef.current) return;
+      const ws = getWaveform();
+      if (!ws) return;
+      const next = formatSec(ws.getCurrentTime());
+      setTimestampDisplay((prev) => (prev === next ? prev : next));
+    }, 250);
+    return () => {
+      clearInterval(id);
+    };
+  }, [getWaveform]);
+
+  function handleBodyFocus() {
+    // Pin the live sync so the timestamp freezes at the current value
+    // while the producer is composing — they're commenting on *this*
+    // moment, not "always now".
+    pinnedRef.current = true;
+    const ws = getWaveform();
+    if (ws?.isPlaying()) {
+      wasPlayingRef.current = true;
+      ws.pause();
+    }
+  }
+
+  function handleTimestampChange(e: SyntheticEvent<HTMLInputElement>) {
+    // Manual edit — stop live-syncing so we don't overwrite their typing.
+    pinnedRef.current = true;
+    setTimestampDisplay(e.currentTarget.value);
+  }
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const text = body.trim();
     if (!text) return;
-    const secs = Math.max(0, Number(timestampSec) || 0);
+    const secs = parseTimestampSec(timestampDisplay);
     startTransition(async () => {
       const res = await addProducerComment({
         projectId,
@@ -554,8 +853,14 @@ function ProducerReplyForm({
       if (res.ok) {
         toast("Reply sent. The artist will see it on their timeline.", "success");
         setBody("");
-        setTimestampSec("0");
+        setTimestampDisplay("0:00");
+        // Re-arm live sync for the next reply.
+        pinnedRef.current = false;
         onDone();
+        if (wasPlayingRef.current) {
+          getWaveform()?.play();
+          wasPlayingRef.current = false;
+        }
       } else {
         toast(res.error, "error");
       }
@@ -568,14 +873,15 @@ function ProducerReplyForm({
       className="grid gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3 sm:grid-cols-[6rem_1fr_auto]"
     >
       <Input
-        type="number"
-        step={1}
-        min={0}
-        value={timestampSec}
-        onChange={(e) => {
-          setTimestampSec(e.target.value);
+        type="text"
+        inputMode="numeric"
+        value={timestampDisplay}
+        onChange={handleTimestampChange}
+        onFocus={() => {
+          pinnedRef.current = true;
         }}
-        aria-label="Timestamp seconds"
+        aria-label="Timestamp (m:ss)"
+        placeholder="0:00"
         className="text-right font-mono"
       />
       <Input
@@ -584,6 +890,7 @@ function ProducerReplyForm({
         onChange={(e) => {
           setBody(e.target.value);
         }}
+        onFocus={handleBodyFocus}
         placeholder="Reply at that moment in the track…"
         required
         maxLength={2000}

@@ -1,40 +1,56 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { updateProjectNotes } from "~/app/(producer)/dashboard/clients-projects/actions";
 import { Badge } from "~/components/ui/badge";
 import { EmptyState } from "~/components/ui/empty-state";
-import { fmtDateTime } from "~/lib/time/relative";
+import { Textarea } from "~/components/ui/input";
+import { fmtDateTime, formatRelativeTime } from "~/lib/time/relative";
 
-// Task 9 — Project Room Notes sub-tab.
+// Project Room → Notes tab.
 //
-// Last of the four Project Room sub-tabs. Lifts the old "Overview" and
-// "Activity" inner tabs out of project-view.tsx (Tasks 6/7/8 already
-// lifted Music / Sessions / Contract+Invoices). With this extraction
-// project-view.tsx is fully gutted and gets deleted in the same commit.
+// PRD §3.2 (May 2026 polish): the Project Room has 5 tabs — Overview /
+// Music / Sessions / Files / Notes. The Notes tab now hosts a writable
+// **private notes** field for the producer (top of the panel), with the
+// project's activity feed underneath for context.
 //
-// Composition:
-//   1. OverviewSection — read-only client + timeline metadata + 3 stat
-//      blocks (Tracks / Versions / Contracts). All mutating stage /
-//      payment / cancel controls now live on the new ProjectHeader
-//      (Task 5); Overview is pure display here.
-//   2. ActivitySection — reverse-chronological feed of version uploads
-//      and comments. Contract events will slot in once the
-//      project_events table lands.
+// What used to live here:
+//   • The 3-stat block (Tracks / Versions / Contracts) — moved to the
+//     Overview tab where it belongs as a top-of-page summary.
+//   • The mutating stage / payment / cancel controls — already on
+//     ProjectHeader's 3-dot menu since Batch G.
+//
+// What lives here now:
+//   1. NotesEditor — producer-only free-text notes (this PR). Auto-
+//      saves debounced 600ms after typing stops. Empty by default;
+//      placeholder reads "Private notes for this project. Only you see
+//      these." Capped at 5000 chars (soft warning at 4500).
+//   2. OverviewSection — read-only client + timeline metadata. Kept
+//      because the producer often opens Notes after a notification and
+//      wants the "who is this with?" context next to the activity feed
+//      without bouncing back to Overview.
+//   3. ActivitySection — reverse-chronological feed of version uploads
+//      and comments. Project events (contract signed, invoice paid)
+//      will slot in here once the project_events table lands.
 //
 // ProjectSubTabs still owns the tab button that controls this panel, so
 // the ARIA ids are `panel-notes` / `tab-notes` to match project-sub-tabs.
 
-// Narrow view of a project — only the fields the two sections read. No
-// stage / payment / booking fields because the header + other sub-tabs
-// own those.
+// Narrow view of a project — only the fields the three sections read.
+// No stage / payment / booking fields because the header + other sub-
+// tabs own those.
 export interface NotesProject {
+  id: string;
   clientName: string | null;
   clientEmail: string | null;
   artistName: string;
   artistEmail: string;
   createdAt: Date;
   updatedAt: Date;
+  // Producer-only private notes. `null` = never set; empty string is
+  // also valid (cleared). Capped at 5000 chars at the procedure layer.
+  notes: string | null;
 }
 
 // Activity items come from the same tracks / versions / comments arrays
@@ -63,7 +79,6 @@ export function NotesSubTab({
   project,
   trackCount,
   versionCount,
-  contractCount,
   tracks,
   versions,
   comments,
@@ -71,7 +86,6 @@ export function NotesSubTab({
   project: NotesProject;
   trackCount: number;
   versionCount: number;
-  contractCount: number;
   tracks: NotesTrack[];
   versions: NotesVersion[];
   comments: NotesComment[];
@@ -83,14 +97,184 @@ export function NotesSubTab({
       aria-labelledby="tab-notes"
       className="space-y-10"
     >
+      <NotesEditor projectId={project.id} initialNotes={project.notes ?? ""} />
       <OverviewSection
         project={project}
         trackCount={trackCount}
         versionCount={versionCount}
-        contractCount={contractCount}
       />
       <ActivitySection tracks={tracks} versions={versions} comments={comments} />
     </section>
+  );
+}
+
+// ─── Notes editor ────────────────────────────────────────────────────
+// Producer-only free-text notes. Autosaves debounced 600ms after the
+// last keystroke. Status indicator cycles through three visible states:
+//   • Idle      — "Saved <relative>" (e.g. "Saved just now") or empty
+//   • Saving    — "Saving…" while a server action is in flight
+//   • Error     — "Save failed — retrying" with an aria-live alert
+//
+// 5000 char limit (procedure-level Zod cap). Soft warning surfaces at
+// 4500 chars so the producer has 500 chars of head-room to wrap up.
+//
+// Reduced-motion: the only animation is the textarea autoresize, which
+// is a layout calculation (not a transition) so it isn't gated on
+// `prefers-reduced-motion`. The status text changes instantly.
+const NOTES_MAX = 5000;
+const NOTES_SOFT_WARN = 4500;
+const AUTOSAVE_DEBOUNCE_MS = 600;
+
+type SaveState =
+  | { kind: "idle"; lastSavedAt: Date | null }
+  | { kind: "saving" }
+  | { kind: "error"; message: string };
+
+function NotesEditor({
+  projectId,
+  initialNotes,
+}: {
+  projectId: string;
+  initialNotes: string;
+}) {
+  const [value, setValue] = useState(initialNotes);
+  const [state, setState] = useState<SaveState>({
+    kind: "idle",
+    lastSavedAt: null,
+  });
+  // Tick every 10s so the relative-time string ("Saved 2s ago") stays
+  // accurate without an explicit user interaction. The interval is a
+  // monotonic counter — its value isn't read directly, but its update
+  // forces a re-render that re-evaluates `formatRelativeTime`.
+  const [, setRelativeTick] = useState(0);
+
+  // Debounce timer + the latest in-flight save's id so a response that
+  // arrives AFTER a newer keystroke can't clobber the displayed status.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedRef = useRef<string>(initialNotes);
+  const saveCounter = useRef(0);
+
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Autoresize on value change. min ~10 visible rows; lets the
+  // textarea grow upward without an outer scroller.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${String(el.scrollHeight)}px`;
+  }, [value]);
+
+  // Relative-time tick. Cheap (1 setState every 10s) and only mounted
+  // while the editor is in the DOM.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setRelativeTick((t) => t + 1);
+    }, 10_000);
+    return () => {
+      clearInterval(id);
+    };
+  }, []);
+
+  // Save logic — debounced, cancellable, and race-safe via saveCounter.
+  useEffect(() => {
+    // No-op when the value matches the last successfully-saved text.
+    if (value === lastSavedRef.current) return;
+    if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const myId = ++saveCounter.current;
+      const snapshot = value;
+      setState({ kind: "saving" });
+      void updateProjectNotes({ projectId, notes: snapshot }).then((res) => {
+        // Drop stale responses — only the most recent save can update UI.
+        if (myId !== saveCounter.current) return;
+        if (res.ok) {
+          lastSavedRef.current = snapshot;
+          setState({ kind: "idle", lastSavedAt: res.data.updatedAt });
+        } else {
+          setState({ kind: "error", message: res.error });
+        }
+      });
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => {
+      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+    };
+  }, [value, projectId]);
+
+  const charCount = value.length;
+  const overSoft = charCount >= NOTES_SOFT_WARN;
+  const overHard = charCount > NOTES_MAX;
+
+  let statusText: string;
+  let statusTone: "muted" | "danger";
+  if (state.kind === "saving") {
+    statusText = "Saving…";
+    statusTone = "muted";
+  } else if (state.kind === "error") {
+    statusText = `Save failed — ${state.message}`;
+    statusTone = "danger";
+  } else if (state.lastSavedAt) {
+    statusText = `Saved ${formatRelativeTime(state.lastSavedAt)}`;
+    statusTone = "muted";
+  } else {
+    statusText = "";
+    statusTone = "muted";
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <h2 className="font-display text-xl tracking-tight" style={{ fontWeight: 700 }}>
+            Notes
+          </h2>
+          <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
+            Private — only you see these. Saves automatically.
+          </p>
+        </div>
+        <p
+          aria-live="polite"
+          className={
+            "font-mono text-[0.66rem] " +
+            (statusTone === "danger"
+              ? "text-[rgb(var(--fg-danger))]"
+              : "text-[rgb(var(--fg-muted))]")
+          }
+        >
+          {statusText}
+        </p>
+      </div>
+      <Textarea
+        ref={textareaRef}
+        rows={10}
+        value={value}
+        maxLength={NOTES_MAX}
+        onChange={(e) => {
+          setValue(e.currentTarget.value);
+        }}
+        placeholder="Private notes for this project. Only you see these."
+        aria-label="Project notes"
+        className="resize-none"
+      />
+      <div className="flex items-center justify-between text-[0.66rem] font-mono text-[rgb(var(--fg-muted))]">
+        <span>
+          {overHard
+            ? `${String(charCount)} / ${String(NOTES_MAX)} — too long`
+            : overSoft
+              ? `${String(charCount)} / ${String(NOTES_MAX)} — approaching limit`
+              : ""}
+        </span>
+        <span
+          className={
+            overSoft
+              ? "text-[rgb(var(--fg-warning))]"
+              : "text-[rgb(var(--fg-muted))]"
+          }
+        >
+          {String(charCount)} / {String(NOTES_MAX)}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -108,21 +292,20 @@ function OverviewSection({
   project,
   trackCount,
   versionCount,
-  contractCount,
 }: {
   project: NotesProject;
   trackCount: number;
   versionCount: number;
-  contractCount: number;
 }) {
+  // The 3-stat strip lives on the Overview tab now. We only keep the
+  // numbers around because future "private notes" copy may want to
+  // render "X tracks, Y versions" inline as context. For now, ignore
+  // them so the lint doesn't fire — the props stay so the page-level
+  // call site doesn't need changing yet.
+  void trackCount;
+  void versionCount;
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatBlock label="Tracks" value={String(trackCount)} />
-        <StatBlock label="Versions" value={String(versionCount)} />
-        <StatBlock label="Contracts" value={String(contractCount)} />
-      </div>
-
       <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
         <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
           Client
@@ -174,22 +357,6 @@ function OverviewSection({
           </div>
         </dl>
       </div>
-    </div>
-  );
-}
-
-function StatBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
-      <p className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-        {label}
-      </p>
-      <p
-        className="mt-1 font-display text-3xl tracking-tight text-[rgb(var(--fg-primary))]"
-        style={{ fontWeight: 800 }}
-      >
-        {value}
-      </p>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import {
   formatGreetingDate,
   formatGreetingSummary,
-} from "../../../app/(app)/dashboard/page-helpers";
+} from "../../../app/(producer)/dashboard/page-helpers";
 
 // DashboardGreeting — the editorial header above the inbox on the
 // redesigned Today dashboard (Story 06).

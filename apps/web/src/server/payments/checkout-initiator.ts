@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {
   clientContacts,
@@ -155,7 +154,6 @@ export async function initiatePaidPlanCheckout(args: {
   // 4. Project row up front (stage=`lead`). Snapshot plan + total +
   //    currency so post-checkout surfaces (chargeFinal, page.tsx modal)
   //    read the same values the Stripe session was created with.
-  const token = mintShareToken();
   const [projectRow] = await args.db
     .insert(projects)
     .values({
@@ -166,7 +164,6 @@ export async function initiatePaidPlanCheckout(args: {
       artistEmail: lowerEmail,
       clientName: args.clientName,
       clientEmail: lowerEmail,
-      shareTokenHash: token.hash,
       paymentPlanKind: plan.kind,
       installments: plan.kind === "monthly" ? plan.installments : null,
       chargesTotal: charges.length,
@@ -246,12 +243,4 @@ export async function initiatePaidPlanCheckout(args: {
     clientContactId,
     stripeCustomerId: customerId,
   };
-}
-
-// Mint a share-token for project rooms. Copied from booking.ts to
-// avoid a cross-router import cycle.
-function mintShareToken(): { raw: string; hash: string } {
-  const raw = randomBytes(32).toString("base64url");
-  const hash = createHash("sha256").update(raw).digest("hex");
-  return { raw, hash };
 }

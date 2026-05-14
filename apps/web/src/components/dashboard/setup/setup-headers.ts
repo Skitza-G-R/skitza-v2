@@ -1,36 +1,47 @@
-// Per-section page-level header copy for /dashboard/settings.
+// Per-branch page-level header copy for /dashboard/settings.
 //
-// Pre-flatten the page rendered a single static H1 ("Your studio,
-// dialed in.") with a generic description below. After the flatten
-// every tab is its own focused surface, so the H1 + description swap
-// per active tab — the eyebrow stays "SETUP" so the page identity
-// is constant. This map is the source of truth for that per-tab
-// copy; settings/page.tsx looks it up by SetupSectionKey.
+// PRD v3 §4.6 collapsed Settings from 7 tabs into 2 branches: Profile
+// and Integrations. The page header swaps title + description per
+// active branch — same pattern as the 7-tab era, just two entries
+// instead of seven. The page hero ("Settings.") stays constant; this
+// data is the per-branch subtitle below it.
 //
 // PURE DATA MODULE — no `"use client"` directive. The settings page
 // is a server component and reads these strings during render; the
 // 2026-04-23 RSC-boundary mistake (page importing a function from a
 // client module) means we keep this strictly server-and-test-importable.
-//
-// Profile keeps the editorial "Your studio, dialed in." copy because
-// that's the default landing tab — first impression on the page is
-// still a brand moment. The other six tabs use focused-task copy
-// that mirrors what the per-section cards used to display before
-// the flatten.
 
-import type { SetupSectionKey } from "./setup-deeplink";
+import type { SettingsBranchKey, LegacySectionKey } from "./setup-deeplink";
 
+export interface SettingsBranchMeta {
+  title: string;
+  description: string;
+}
+
+export const SETTINGS_BRANCH_META: Record<SettingsBranchKey, SettingsBranchMeta> = {
+  profile: {
+    title: "Your studio, dialed in.",
+    description:
+      "Account identity — display name, public URL, currency, brand colors, account data. Every detail clients see when your name shows up.",
+  },
+  integrations: {
+    title: "Your tools, connected.",
+    description:
+      "Services, availability, automations, and payment processing — every system Skitza coordinates on your behalf.",
+  },
+};
+
+// Legacy 7-tab meta — preserved as a flat lookup so any caller that
+// imported `SETUP_SECTION_META` still resolves. Internal page render
+// uses SETTINGS_BRANCH_META; the legacy export only exists to keep
+// any older test or unrelated component compiling during transition.
 export interface SetupSectionMeta {
   title: string;
   description: string;
 }
 
-export const SETUP_SECTION_META: Record<SetupSectionKey, SetupSectionMeta> = {
-  profile: {
-    title: "Your studio, dialed in.",
-    description:
-      "Everything that’s not day-to-day client work — your identity, services, portfolio, hours, and payments — lives on one page.",
-  },
+export const SETUP_SECTION_META: Record<LegacySectionKey, SetupSectionMeta> = {
+  profile: SETTINGS_BRANCH_META.profile,
   services: {
     title: "What you sell.",
     description:
@@ -51,11 +62,7 @@ export const SETUP_SECTION_META: Record<SetupSectionKey, SetupSectionMeta> = {
     description:
       "Flip a switch and it’s automatic. Flip it back whenever you want — nothing here is locked in.",
   },
-  connections: {
-    title: "Your tools, connected.",
-    description:
-      "Stripe takes deposits and final payments. Skitza adds no platform fee — you keep everything minus Stripe’s standard rates.",
-  },
+  connections: SETTINGS_BRANCH_META.integrations,
   account: {
     title: "Your account.",
     description:

@@ -39,6 +39,7 @@ const {
     producerId: { __column: "client_contacts.producer_id" },
     email: { __column: "client_contacts.email" },
     id: { __column: "client_contacts.id" },
+    archivedAt: { __column: "client_contacts.archived_at" },
   };
   const projectsMarker = {
     __table: "projects",
@@ -429,10 +430,14 @@ describe("artist.music.projects", () => {
     const caller = await buildCaller("user_alice");
     await caller.artist.music.projects();
 
-    // 1. The gating contacts SELECT is filtered by clerkUserId.
+    // 1. The gating contacts SELECT is filtered by clerkUserId AND
+    //    archivedAt IS NULL (so a disconnected studio doesn't leak in).
     const contactsArg = contactsWhereSpy.mock.calls[0]?.[0];
     expect(contactsArg).toEqual({
-      eq: [clientContacts.clerkUserId, "user_alice"],
+      and: [
+        { eq: [clientContacts.clerkUserId, "user_alice"] },
+        { isNull: clientContacts.archivedAt },
+      ],
     });
 
     // 2. The projects sub-query scopes by both producerId AND artistEmail.

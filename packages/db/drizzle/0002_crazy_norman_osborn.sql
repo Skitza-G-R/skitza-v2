@@ -1,0 +1,1 @@
+ALTER TABLE "producers" ADD COLUMN "service_roles" text[] DEFAULT '{}';

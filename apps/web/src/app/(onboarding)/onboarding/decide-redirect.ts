@@ -51,15 +51,25 @@ export type OnboardingRedirect =
 
 export type OnboardingStep =
   | "studio"
+  | "services"
   | "service"
   | "availability"
-  | "portfolio";
+  | "payment"
+  | "portfolio"
+  | "complete";
 
+// T8 — order matters for stepFromPath. "services" must come before
+// "service" because /onboarding/services starts with /onboarding/service
+// — without this ordering the prefix match would resolve "services" to
+// "service" and the step-aware redirect would mis-classify the page.
 const STEP_NAMES: readonly OnboardingStep[] = [
   "studio",
+  "services",
   "service",
   "availability",
+  "payment",
   "portfolio",
+  "complete",
 ];
 
 /**

@@ -1,0 +1,333 @@
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+
+import { ReplayTourButton } from "~/components/shell/replay-tour-button";
+import { AutopilotSection } from "~/components/dashboard/setup/autopilot-section";
+import {
+  PortfolioSection,
+  type PortfolioTrackRow,
+} from "~/components/dashboard/setup/portfolio-section";
+import { MarketingSection } from "~/components/dashboard/setup/marketing-section";
+import {
+  isSettingsBranchKey,
+  isLegacySectionKey,
+  LEGACY_SECTION_TO_BRANCH,
+  type SettingsBranchKey,
+} from "~/components/dashboard/setup/setup-deeplink";
+import { SETTINGS_BRANCH_META } from "~/components/dashboard/setup/setup-headers";
+import { SettingsBranches } from "~/components/dashboard/setup/settings-branches";
+import { appRouter } from "~/server/trpc/routers/_app";
+import { PaymentCard } from "./payment-card";
+import { SettingsForm } from "./settings-form";
+import { StripeCard } from "./stripe-card";
+
+// /dashboard/settings — collapsed from 7 tabs into 2 branches per PRD
+// v3 §4.6 ("Settings has 2 branches only: Profile and Integrations"),
+// then further trimmed on 2026-05-06 when Services + Availability
+// moved out of Integrations into their canonical homes:
+//   - Services CRUD → Storefront (`/dashboard/profile?tab=store`).
+//     PRD v3 §4.5 places product management on the same surface the
+//     producer curates the public storefront.
+//   - Availability  → Calendar (`/dashboard/calendar?tab=availability`).
+//     PRD v3 §4.4 nests hours + blackouts + booking policies next to
+//     the schedule grid.
+//
+// What's left in each branch:
+//   PROFILE branch       — account identity (display name, slug,
+//                          currency, timezone, brand colors/logo,
+//                          portfolio image picks, marketing copy,
+//                          account/data export).
+//   INTEGRATIONS branch  — Stripe (Payments) + Autopilot (automation
+//                          rules). Both are *cross-screen* concerns
+//                          that don't belong on a single domain
+//                          surface.
+//
+// LEGACY URL HANDLING. The 7-tab era used `?section=<key>`. Most keys
+// still map to one of the 2 branches via LEGACY_SECTION_TO_BRANCH;
+// `services` and `availability` are special-cased BEFORE that lookup
+// so they redirect to the NEW external homes (not back into Settings).
+//
+// Stays a Server Component so we can await Clerk + the tRPC caller
+// once per render. Branch-specific data fetches are gated so each
+// branch pays only for its own queries.
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ branch?: string; section?: string }>;
+}) {
+  const { userId } = await auth();
+  if (!userId) redirect("/sign-in");
+
+  const resolvedSearchParams = await searchParams;
+
+  // Resolve the active branch in this priority order:
+  //   1. New `?branch=<key>` param (canonical)
+  //   2. Legacy `?section=<key>` param → mapped via LEGACY_SECTION_TO_BRANCH
+  //   3. Default to "profile" (the entry-point branch)
+  //
+  // When a legacy `?section=*` arrives we issue a server-side
+  // redirect to the canonical `?branch=*` URL so the browser address
+  // bar updates and any future shares carry the new key. This keeps
+  // the 7-tab era bookmarks working without forking the URL space
+  // long-term.
+  const rawBranch = resolvedSearchParams.branch;
+  const rawSection = resolvedSearchParams.section;
+
+  if (rawBranch === undefined && isLegacySectionKey(rawSection)) {
+    // 2026-05-06 — services + availability migrated out of Settings.
+    // Bookmarks pointing at the old `?section=<key>` form must reach
+    // the new homes, not bounce back into Integrations (which no
+    // longer renders either section). Branch-internal keys
+    // (profile / portfolio / autopilot / connections / account)
+    // still map via LEGACY_SECTION_TO_BRANCH below.
+    if (rawSection === "services") {
+      redirect("/dashboard/profile?tab=store");
+    }
+    if (rawSection === "availability") {
+      redirect("/dashboard/calendar?tab=availability");
+    }
+    const target = LEGACY_SECTION_TO_BRANCH[rawSection];
+    redirect(`/dashboard/settings?branch=${target}`);
+  }
+
+  const active: SettingsBranchKey = isSettingsBranchKey(rawBranch)
+    ? rawBranch
+    : "profile";
+
+  const caller = appRouter.createCaller({ userId });
+
+  // Profile data is always needed — the Profile branch reads it and
+  // the Integrations branch reads `profile.autopilot` for the
+  // automation switches and `profile.stripeConnected/.stripeChargesEnabled`
+  // for the Stripe card. One query is cheaper than gating it.
+  const profile = await caller.producer.me();
+
+  // Per-producer Tranzila terminal status (Integrations branch only).
+  // Reads producers.tranzila_terminal_name; null means "not yet
+  // provisioned by Skitza admin", which the PaymentCard renders as the
+  // request form.
+  const paymentConnection =
+    active === "integrations"
+      ? await caller.producer.paymentConnection()
+      : null;
+
+  // Branch-scoped data fetches. Profile branch needs portfolio
+  // tracks (one of the identity-image surfaces). The Integrations
+  // branch only needs the producer profile (already fetched above)
+  // for Stripe-connection state + Autopilot defaults — no extra
+  // round-trip required. Services + availability data left this
+  // page when those sections moved to Storefront + Calendar.
+  let portfolioTracks: PortfolioTrackRow[] = [];
+
+  if (active === "profile") {
+    const tracks = await caller.portfolio.list();
+    portfolioTracks = tracks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      artist: t.artist,
+      isPublicSample: t.isPublicSample,
+    }));
+  }
+
+  const headerMeta = SETTINGS_BRANCH_META[active];
+
+  return (
+    <div className="sk-page-enter mx-auto max-w-[1920px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8">
+      {/* Mobile-first chrome — Settings. with amber period (Syne 800),
+          per-branch subtitle below. Mirrors Overview/Clients/Storefront
+          hero pattern in the design system. */}
+      <header className="mb-5">
+        <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[34px]">
+          Settings
+          <span className="text-[rgb(var(--brand-primary))]">.</span>
+        </h1>
+        <p
+          key={`desc-${active}`}
+          className="reveal-up mt-1.5 max-w-2xl text-[12.5px] text-[rgb(var(--fg-muted))]"
+        >
+          {headerMeta.title} · {headerMeta.description}
+        </p>
+      </header>
+
+      <SettingsBranches active={active} />
+
+      <div
+        key={active}
+        id={`settings-panel-${active}`}
+        aria-labelledby={`settings-branch-${active}`}
+        className="reveal-up pt-5"
+      >
+        {active === "profile" && (
+          <div className="space-y-10">
+            <SettingsForm
+              profile={{
+                displayName: profile.displayName ?? "",
+                slug: profile.slug,
+                defaultCurrency: profile.defaultCurrency as
+                  | "USD"
+                  | "EUR"
+                  | "GBP"
+                  | "ILS",
+                timezone: profile.timezone,
+                brand: profile.brand,
+              }}
+            />
+
+            {/* Portfolio image picks — PRD §4.6 places "image" inside
+                Profile (account identity). Showcased tracks on the
+                public join page render here so the producer manages
+                them next to brand colors + logo. */}
+            <BranchDivider title="Tracklist on your join page" />
+            <PortfolioSection tracks={portfolioTracks} />
+
+            {/* Marketing meta — the 4 stats under the hero on
+                /join/<slug>. Curated freeform copy (genres tags,
+                released/streams summaries, response-time picker).
+                Each stat hides on the public page when blank. */}
+            <BranchDivider title="Public profile copy" />
+            <MarketingSection profile={profile.marketing} />
+
+            {/* Account — data export, email/password hint, replay tour.
+                Last block on the Profile branch because it's the
+                least-frequent surface. */}
+            <BranchDivider title="Account" />
+            <AccountSection />
+          </div>
+        )}
+
+        {active === "integrations" && (
+          <div className="space-y-10">
+            {/* Tranzila — per-producer terminal. Producer fills in a
+                short request form; a Skitza admin provisions the
+                terminal at Tranzila and writes the terminal name onto
+                the producer row. Once set, payments route directly to
+                the producer. */}
+            <section aria-labelledby="settings-payments-heading">
+              <SectionHeading
+                id="settings-payments-heading"
+                title="Payments"
+                description="Connect your Tranzila terminal to receive artist payments directly. Once approved, every booking pays out straight to you."
+              />
+              <PaymentCard
+                connected={paymentConnection?.connected ?? false}
+                defaultBusinessName={profile.displayName ?? ""}
+                defaultContactEmail={profile.email}
+              />
+            </section>
+
+            {/* Stripe — legacy Payment Clearing System surface. Kept
+                for the producers already onboarded via Stripe Connect;
+                new producers should onboard via the Tranzila card
+                above. */}
+            <BranchDivider title="Stripe (legacy)" />
+            <section aria-labelledby="settings-stripe-heading">
+              <SectionHeading
+                id="settings-stripe-heading"
+                title="Stripe"
+                description="Stripe takes deposits and final payments. Skitza adds no platform fee — you keep everything minus Stripe's standard rates."
+              />
+              <StripeCard
+                connected={profile.stripeConnected}
+                chargesEnabled={profile.stripeChargesEnabled}
+              />
+            </section>
+
+            {/* Autopilot — automation rules Skitza runs on the
+                producer's behalf (welcome emails, unpaid reminders,
+                etc.). Cross-screen concern, not domain-specific, so
+                it lives next to Stripe instead of being attached to
+                a single surface. */}
+            <BranchDivider title="Autopilot" />
+            <AutopilotSection initial={profile.autopilot} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Compact mono-eyebrow + thin separator. Used to carve the long
+// inline-scroll branches into readable chunks without nesting tabs.
+function BranchDivider({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+        {title}
+      </span>
+      <span className="h-px flex-1 bg-[rgb(var(--border-subtle))]" />
+    </div>
+  );
+}
+
+// Section heading used by inline blocks (e.g. Stripe Payments) that
+// need a heading + supporting copy of their own.
+function SectionHeading({
+  id,
+  title,
+  description,
+}: {
+  id: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <header className="mb-3">
+      <h2
+        id={id}
+        className="font-display text-base tracking-tight"
+        style={{ fontWeight: 700 }}
+      >
+        {title}
+      </h2>
+      <p className="mt-0.5 text-xs text-[rgb(var(--fg-secondary))]">
+        {description}
+      </p>
+    </header>
+  );
+}
+
+// Account panel — data export + a hint about Clerk-managed email
+// /password + replay tour. Renders flat inside the Profile branch.
+function AccountSection() {
+  return (
+    <section aria-labelledby="settings-account-heading">
+      <header className="mb-3">
+        <h2
+          id="settings-account-heading"
+          className="font-display text-base tracking-tight"
+          style={{ fontWeight: 700 }}
+        >
+          Your data
+        </h2>
+        <p className="mt-0.5 text-xs text-[rgb(var(--fg-secondary))]">
+          Export everything we have on you in a single JSON file.
+        </p>
+      </header>
+      <a
+        href="/api/export"
+        className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 text-xs font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
+      >
+        Download my data
+      </a>
+      <p className="mt-2 text-[0.66rem] text-[rgb(var(--fg-muted))]">
+        Secret token hashes are excluded — they&apos;re one-way and useless to you.
+      </p>
+      <p className="mt-4 text-[0.66rem] text-[rgb(var(--fg-muted))]">
+        Change email, password, or 2FA from the avatar menu (top-right) → Manage
+        account.
+      </p>
+      <hr className="my-4 border-t border-[rgb(var(--border-subtle))]" />
+      <div className="flex flex-col gap-1.5">
+        <h3 className="font-display text-sm tracking-tight" style={{ fontWeight: 700 }}>
+          Tour
+        </h3>
+        <p className="text-xs text-[rgb(var(--fg-secondary))]">
+          Forgot where things live? Walk through the 4-screen orientation again.
+        </p>
+        <div className="mt-1">
+          <ReplayTourButton />
+        </div>
+      </div>
+    </section>
+  );
+}

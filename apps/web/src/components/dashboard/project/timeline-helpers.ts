@@ -1,7 +1,7 @@
-// Pure helpers for the 5-step Project Room timeline. The project's
-// overall state collapses into a progress bar of five well-known steps
+// Pure helpers for the 4-step Project Room timeline. The project's
+// overall state collapses into a progress bar of four well-known steps
 // that match the producer's mental model for moving a project from
-// lead through delivery: Trial → Contract → In Progress → Final → Paid.
+// lead through delivery: Trial → In Progress → Final → Paid.
 //
 // Every step's state is a deterministic function of the inputs — no
 // hidden side-effects, no async — so we cover it entirely with unit
@@ -18,7 +18,6 @@ export interface TimelineStep {
 
 export interface ProjectTimelineInput {
   stage: Stage;
-  contractSigned: boolean;
   chargesCompleted: number;
   // `null` means "plan not yet configured" (e.g. legacy rows or
   // trial-only bookings). When null, the Paid step can never advance
@@ -28,12 +27,11 @@ export interface ProjectTimelineInput {
   finalDelivered: boolean;
 }
 
-// 5-step timeline: Trial → Contract → In Progress → Final → Paid.
+// 4-step timeline: Trial → In Progress → Final → Paid.
 // Each step's state is deterministic from the input fields.
 //
 //   Trial       — "done" if stage !== "lead"
-//   Contract    — "done" if contractSigned; "current" if stage === "contract_sent" (and !signed); otherwise "pending"
-//   In Progress — "done" if finalDelivered; "current" if contractSigned && !finalDelivered; otherwise "pending"
+//   In Progress — "done" if finalDelivered; "current" if stage is past "lead" && !finalDelivered; otherwise "pending"
 //   Final       — "done" if finalDelivered && chargesTotal > 0 && chargesCompleted === chargesTotal; "current" if finalDelivered && not-fully-paid; otherwise "pending"
 //   Paid        — "done" if chargesTotal > 0 && chargesCompleted === chargesTotal; otherwise "pending"
 //
@@ -42,7 +40,7 @@ export interface ProjectTimelineInput {
 // becomes "pending" so the timeline reads as frozen at its last real
 // milestone.
 export function computeTimeline(p: ProjectTimelineInput): TimelineStep[] {
-  const { stage, contractSigned, chargesCompleted, chargesTotal, finalDelivered } = p;
+  const { stage, chargesCompleted, chargesTotal, finalDelivered } = p;
   // >= not === to survive webhook races (two successful PaymentIntents
   // for the same invoice in rapid succession) and overpayment edge cases.
   const fullyPaid =
@@ -54,26 +52,16 @@ export function computeTimeline(p: ProjectTimelineInput): TimelineStep[] {
     state: stage === "lead" ? "pending" : "done",
   };
 
-  // Contract — done once signed; current while the producer is waiting
-  // on a signature (stage === "contract_sent" and not yet signed).
-  const contract: TimelineStep = {
-    label: "Contract",
-    state: contractSigned
-      ? "done"
-      : stage === "contract_sent"
-        ? "current"
-        : "pending",
-  };
-
   // In Progress — done once the producer marks the final delivered.
-  // Current once the contract is signed but delivery hasn't happened.
+  // Current once the project has moved past "lead" but delivery hasn't
+  // happened.
   const inProgress: TimelineStep = {
     label: "In Progress",
     state: finalDelivered
       ? "done"
-      : contractSigned
-        ? "current"
-        : "pending",
+      : stage === "lead"
+        ? "pending"
+        : "current",
   };
 
   // Final — done once delivered AND fully paid. Current once delivered
@@ -94,7 +82,7 @@ export function computeTimeline(p: ProjectTimelineInput): TimelineStep[] {
     state: fullyPaid ? "done" : "pending",
   };
 
-  const steps: TimelineStep[] = [trial, contract, inProgress, final, paid];
+  const steps: TimelineStep[] = [trial, inProgress, final, paid];
 
   // Terminal states: no step should read "current" — the project has
   // frozen at whatever state it was in when the producer cancelled / the

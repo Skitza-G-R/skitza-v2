@@ -1,0 +1,995 @@
+/* ============================================================
+ * /get-started — ad-funnel landing styles
+ *
+ * Brand language inherited from the homepage (see
+ * docs/design/homepage.md): warm cream (--light-bg) above the fold,
+ * near-black brown (--dark-bg) below; amber + copper as the only
+ * accent colors; Syne for headlines, Outfit for body. Two corner
+ * radii (6px small, 16px large). Two breakpoints (≤768px, >992px).
+ *
+ * Scoped under .get-started-root so the marketing tokens never leak
+ * into the authenticated app's :root system. Same firewall logic as
+ * landing.css ADR-4.
+ * ============================================================ */
+
+/* Body's default background is cream (--bg-background from globals.css).
+ * The funnel needs the body itself dark, otherwise a thin cream stripe
+ * peeks out below the page wrapper if the content's height doesn't
+ * exactly match the viewport. :has() lets us scope this to pages
+ * actually rendering the funnel — no impact on the rest of the app. */
+html:has(.get-started-root),
+body:has(.get-started-root) {
+  background: #111009 !important;
+}
+
+.get-started-root {
+  /* Marketing tokens (mirror landing.css; see homepage.md §4) */
+  --light-bg: #F2EDE6;
+  --light-text: #1A1714;
+  --light-body: #6B6560;
+  --light-border: rgba(0, 0, 0, 0.08);
+  --light-watermark: rgba(0, 0, 0, 0.04);
+
+  --dark-bg: #111009;
+  --dark-surface: #1A1814;
+  --dark-elevated: #222018;
+  --dark-text: #EDE8E2;
+  --dark-body: #B5ABA0;
+  --dark-border: rgba(255, 255, 255, 0.07);
+
+  --amber: #D4960A;
+  --copper: #B06830;
+  --amber-glow: rgba(212, 150, 10, 0.15);
+
+  --gs-font-head: var(--font-syne, "Syne"), system-ui, sans-serif;
+  --gs-font-body: var(--font-outfit, "Outfit"), system-ui, sans-serif;
+
+  position: relative;
+  background: var(--dark-bg);
+  color: var(--dark-text);
+  font-family: var(--gs-font-body);
+  font-weight: 300;
+  -webkit-font-smoothing: antialiased;
+  /* No min-height — funnel content fills the viewport on its own.
+   * min-height: 100svh would leave dead space below the final CTA on
+   * tall viewports.
+   *
+   * overflow-x: CLIP (not hidden) — `hidden` on one axis implicitly
+   * promotes the other axis to `auto`, turning the wrapper into a
+   * scroll container and producing a SECOND scrollbar next to the
+   * page-level one. `clip` does the same clipping (kills any pixel
+   * pushed past the viewport edge by the ambient glows / cursor
+   * spotlight / grid drift) WITHOUT becoming a scroll container.
+   * Browser support: Chrome 90+, Safari 16+, Firefox 81+. */
+  overflow-x: clip;
+}
+
+/* Note: we deliberately do NOT set overflow-x on html/body. Setting
+ * overflow-x to a non-default value implicitly flips the other axis
+ * to `auto`, creating a NESTED scroll container — html scrolls
+ * vertically AND the wrapper inside body scrolls vertically, so the
+ * user sees two side-by-side scrollbars. The wrapper's own
+ * overflow-x: hidden above is sufficient to clip any escaping pixel
+ * from the ambient glow / cursor spotlight / grid drift. */
+
+/* Full-page grid pattern — drawn as a repeating linear-gradient
+ * pseudo-element on the page root, fixed in viewport so it stays
+ * visible as the user scrolls. Lower opacity than the hero's
+ * masked grid since it shows under every section.
+ *
+ * The grid SLOWLY drifts diagonally on a 90s loop. One full cycle
+ * shifts by exactly one tile (60×60 px) so the pattern wraps
+ * seamlessly — the background looks alive without pulling the eye. */
+.get-started-root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  pointer-events: none;
+  z-index: 0;
+  animation: gs-grid-drift 90s linear infinite;
+}
+
+@keyframes gs-grid-drift {
+  from { background-position: 0 0, 0 0; }
+  to   { background-position: 60px 60px, 60px 60px; }
+}
+
+/* Ambient amber glows — two soft radial gradients that drift slowly
+ * across the page, giving depth + warmth without distracting from
+ * the content. Sits ABOVE the grid (z-index:0 too, but later in DOM)
+ * but below all sections (z-index:1).
+ *
+ * Each glow has its own rhythm — different durations + delays — so
+ * they never line up the same way twice. */
+.get-started-root::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(
+      ellipse 50% 40% at 20% 30%,
+      rgba(212, 150, 10, 0.10),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 40% 30% at 75% 65%,
+      rgba(176, 104, 48, 0.10),
+      transparent 60%
+    );
+  pointer-events: none;
+  z-index: 0;
+  animation: gs-ambient-drift 24s ease-in-out infinite alternate;
+}
+
+/* Drift animates only opacity now — no transform on translate axes,
+ * which would push the element past the viewport edge and trigger
+ * horizontal scroll on narrow mobile viewports. The radial gradient
+ * positions inside the element shift in their own keyframe via
+ * background-position. */
+@keyframes gs-ambient-drift {
+  0%   { background-position: 0% 0%, 100% 100%; opacity: 0.7; }
+  50%  { background-position: 5% -3%, 95% 102%; opacity: 1; }
+  100% { background-position: -3% 4%, 103% 97%; opacity: 0.8; }
+}
+
+/* Sections sit above the fixed grid + glows */
+.get-started-root > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Cursor spotlight — a soft amber radial gradient that tracks the
+ * mouse across the viewport. The CursorSpotlight client component
+ * (cursor-spotlight.tsx) updates --gs-mx / --gs-my on every
+ * requestAnimationFrame as the cursor moves; this gradient reads
+ * those vars to position the highlight.
+ *
+ * Hidden on touch devices (no cursor to follow). Sits ABOVE the
+ * grid + ambient glows but BELOW any content (z-index:0, positioned
+ * fixed). pointer-events:none so it never blocks clicks. */
+@media (pointer: fine) {
+  .get-started-root > .gs-spotlight {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(
+      450px circle at var(--gs-mx, 50vw) var(--gs-my, 30vh),
+      rgba(212, 150, 10, 0.10),
+      rgba(212, 150, 10, 0.03) 35%,
+      transparent 65%
+    );
+    transition: background 60ms linear;
+    mix-blend-mode: screen;
+  }
+}
+
+/* Container — single 1200 px max-width, used by every section. */
+.get-started-root .container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Section padding — tight. The funnel is one continuous scroll, not
+ * a series of standalone marketing slabs, so it reads better with
+ * less air between sections than the homepage's 80-140px range. */
+.get-started-root .section {
+  padding: clamp(24px, 3vw, 48px) 0;
+}
+
+/* Last section: no bottom padding — keeps the page from showing a
+ * dead-air slab below the final CTA card. */
+.get-started-root .section:last-child {
+  padding-bottom: 0;
+}
+
+/* Eyebrow / label — ALL CAPS, 11px, letter-spacing 0.1em. Default
+ * to amber since the funnel is dark-from-top. */
+.get-started-root .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--amber);
+}
+
+.get-started-root .eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(212, 150, 10, 0.5);
+}
+
+/* Headlines — Syne. Hero H1 is huge; section H2s are smaller. */
+.get-started-root h1,
+.get-started-root h2,
+.get-started-root h3 {
+  font-family: var(--gs-font-head);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.get-started-root .h1 {
+  /* Sized to fit "You're a producer." on one line in a 50% hero
+   * column at 1280 px viewport (~600 px container). Larger than the
+   * homepage's full-width hero would not fit cleanly. */
+  font-size: clamp(40px, 5.5vw, 68px);
+  line-height: 1.05;
+  margin-bottom: 24px;
+}
+
+.get-started-root .h2 {
+  font-size: clamp(28px, 4.5vw, 56px);
+  line-height: 1.05;
+  margin-bottom: 16px;
+}
+
+.get-started-root .h3 {
+  font-size: clamp(18px, 2vw, 22px);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.get-started-root .body-lg {
+  font-size: clamp(16px, 1.6vw, 19px);
+  line-height: 1.55;
+  color: var(--dark-body);
+  font-weight: 300;
+}
+
+.get-started-root .body {
+  font-size: clamp(15px, 1.5vw, 17px);
+  line-height: 1.6;
+  color: var(--dark-body);
+  font-weight: 300;
+}
+
+/* Period accent — amber dot at the end of headline phrases. */
+.get-started-root .accent-dot {
+  color: var(--amber);
+}
+
+/* ---------------------------------------------------------------- *
+ * Header — the static logo, top-left. No nav, no CTA in header.
+ * ---------------------------------------------------------------- */
+.get-started-root .gs-header {
+  padding: 28px 0 0;
+}
+
+/* ---------------------------------------------------------------- *
+ * Dark sections (everything below the hero). The hero itself sets
+ * its own dark BG inline (matching homepage Hero pattern).
+ * ---------------------------------------------------------------- */
+.get-started-root .section-dark {
+  background: var(--dark-bg);
+  color: var(--dark-text);
+}
+
+.get-started-root .section-dark .body,
+.get-started-root .section-dark .body-lg {
+  color: var(--dark-body);
+}
+
+/* On dark sections, the eyebrow uses amber instead of copper. */
+.get-started-root .section-dark .eyebrow {
+  color: var(--amber);
+}
+.get-started-root .section-dark .eyebrow::before {
+  background: var(--amber);
+}
+
+/* ---------------------------------------------------------------- *
+ * Buttons — primary amber, secondary outlined. Match the homepage's
+ * .sk-pop motion + amber glow shadow.
+ * ---------------------------------------------------------------- */
+.get-started-root .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 26px;
+  font-family: var(--gs-font-body);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  border-radius: 12px;
+  background: var(--amber);
+  color: #111009;
+  border: 0;
+  cursor: pointer;
+  transition:
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 12px rgba(212, 150, 10, 0.30);
+}
+/* Hover-only on real pointer devices — prevents sticky pressed state
+ * on touch where :hover persists until the user taps elsewhere. */
+@media (hover: hover) and (pointer: fine) {
+  .get-started-root .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 6px 20px rgba(212, 150, 10, 0.40),
+      0 0 0 4px var(--amber-glow);
+  }
+}
+/* Press feedback — instant scale-down using iOS-drawer curve. Engages
+ * fast (160ms) since the user is watching for response; release uses
+ * the slower base transition so it springs back, not snaps. */
+.get-started-root .btn-primary:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 80ms;
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+.get-started-root .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ---------------------------------------------------------------- *
+ * Form — flex row on desktop, stack on mobile. Amber focus ring.
+ * Inputs use Outfit, 16px on mobile (no iOS zoom).
+ * ---------------------------------------------------------------- */
+.get-started-root .gs-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 540px;
+}
+@media (min-width: 769px) {
+  .get-started-root .gs-form {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+/* Default form is dark since the entire funnel is dark-from-top.
+ *
+ * Sizing rules differ between column (mobile) and row (desktop) flex:
+ *   - Mobile: form is column-direction → flex-basis would set the
+ *     element's HEIGHT (main axis is vertical), so we MUST NOT use
+ *     `flex: 1 1 200px`. Use width:100% + fixed height.
+ *   - Desktop: form flips to row-direction → flex-basis becomes width
+ *     and we want the inputs to share horizontal space. The desktop
+ *     override below sets `flex: 1 1 200px`. */
+.get-started-root .gs-input {
+  width: 100%;
+  height: 56px;
+  min-width: 0;
+  padding: 0 18px;
+  font-family: var(--gs-font-body);
+  font-size: 16px;
+  color: var(--dark-text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  /* Explicit ease-out — focus is an entry state, default `ease` feels
+   * mushy because it starts slow at the exact moment the user is
+   * watching for response. */
+  transition:
+    border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (min-width: 769px) {
+  .get-started-root .gs-input {
+    flex: 1 1 200px;
+    width: auto;
+  }
+}
+.get-started-root .gs-input::placeholder {
+  color: rgba(237, 232, 226, 0.4);
+}
+.get-started-root .gs-input:focus-visible {
+  outline: none;
+  border-color: var(--amber);
+  background: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 0 0 4px var(--amber-glow);
+}
+
+.get-started-root .gs-form-meta {
+  margin-top: 12px;
+  font-size: 13px;
+  color: rgba(237, 232, 226, 0.5);
+}
+
+.get-started-root .gs-form-error {
+  flex-basis: 100%;
+  margin-top: 4px;
+  font-size: 14px;
+  color: #b04545;
+}
+
+/* ---------------------------------------------------------------- *
+ * Hero — split layout: copy on left, animated split-screen mockup
+ * on right (desktop). Stacks on tablet/phone.
+ * ---------------------------------------------------------------- */
+.get-started-root .hero {
+  display: grid;
+  gap: 56px;
+  align-items: center;
+  padding: clamp(40px, 6vw, 80px) 0 clamp(80px, 10vw, 140px);
+}
+@media (min-width: 992px) {
+  .get-started-root .hero {
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(48px, 6vw, 96px);
+  }
+}
+
+/* Hero word-fade — fires once on .page-loaded. Same pattern as
+ * landing.css (ADR-2: chained class, not descendant). */
+.get-started-root .hero-word {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(0.4em);
+  transition:
+    opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.get-started-root.is-loaded .hero-word {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: calc(var(--w-i, 0) * 90ms);
+}
+
+/* ---------------------------------------------------------------- *
+ * Hero split-screen mockup. Chaos (red-tinted) cycles 4 messages on
+ * an 8s loop; calm (amber-tinted) shows a single confirmed-session
+ * card that fades in. NOTE: no rotateY on the calm card — that
+ * mirrored the text on screenshot review (looked like reversed
+ * Hebrew). Plain fade-in is cleaner.
+ * ---------------------------------------------------------------- */
+.get-started-root .hero-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  height: 360px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid var(--light-border);
+}
+@media (max-width: 768px) {
+  .get-started-root .hero-split {
+    grid-template-columns: 1fr;
+    height: 460px;
+  }
+}
+
+.get-started-root .hero-split__chaos,
+.get-started-root .hero-split__calm {
+  position: relative;
+  overflow: hidden;
+}
+
+.get-started-root .hero-split__chaos {
+  background:
+    radial-gradient(ellipse at center, rgba(176, 104, 48, 0.10), transparent 70%),
+    rgba(176, 104, 48, 0.04);
+}
+
+.get-started-root .hero-split__calm {
+  background:
+    radial-gradient(ellipse at center, rgba(212, 150, 10, 0.12), transparent 70%),
+    rgba(212, 150, 10, 0.04);
+  border-left: 1px solid var(--light-border);
+}
+@media (max-width: 768px) {
+  .get-started-root .hero-split__calm {
+    border-left: 0;
+    border-top: 1px solid var(--light-border);
+  }
+}
+
+.get-started-root .hero-split__msg {
+  position: absolute;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(6px);
+  border-radius: 10px;
+  font-family: var(--gs-font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--light-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+  opacity: 0;
+  animation: gs-chaos-fade 8s infinite;
+}
+
+.get-started-root .hero-split__msg--1 { top: 14%; left: 8%;  animation-delay: 0s; }
+.get-started-root .hero-split__msg--2 { top: 32%; left: 28%; animation-delay: 1s; }
+.get-started-root .hero-split__msg--3 { top: 52%; left: 12%; animation-delay: 2s; font-family: ui-monospace, monospace; }
+.get-started-root .hero-split__msg--4 {
+  top: 72%;
+  left: 30%;
+  animation-delay: 3s;
+  color: #b04545;
+  font-weight: 700;
+}
+
+@keyframes gs-chaos-fade {
+  0%,  60% { opacity: 0; transform: translateY(8px); }
+  10%, 50% { opacity: 1; transform: translateY(0); }
+  100%     { opacity: 0; }
+}
+
+/* Calm card — single source of truth for the "this is what Skitza
+ * looks like" moment. Plain fade-in (no flip, no rotate). */
+.get-started-root .hero-split__card {
+  position: absolute;
+  inset: 50% 24px auto 24px;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 22px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 28px rgba(0, 0, 0, 0.08);
+  animation: gs-card-fade 8s infinite cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.get-started-root .hero-split__card-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--copper);
+}
+.get-started-root .hero-split__card-title {
+  font-family: var(--gs-font-head);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--light-text);
+}
+.get-started-root .hero-split__card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--light-body);
+}
+.get-started-root .hero-split__card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--amber);
+}
+
+@keyframes gs-card-fade {
+  0%, 25%   { opacity: 0; transform: translateY(calc(-50% + 8px)); }
+  35%, 90%  { opacity: 1; transform: translateY(-50%); }
+  100%      { opacity: 0; transform: translateY(calc(-50% - 8px)); }
+}
+
+/* ---------------------------------------------------------------- *
+ * Hero demo peek — iframe inside a browser-chrome frame. The
+ * .hero-peek-frame 3D tilt comes from landing.css (we re-use the
+ * homepage's primitive). The iframe body crops the demo's outer
+ * page padding so only the actual UI is visible.
+ *
+ * "Crop the background" implementation: the wrapper has a fixed
+ * height + overflow:hidden; the iframe is sized larger and shifted
+ * up via translate so the demo's outer dark padding sits outside
+ * the visible window. Adjust .get-started-demo-iframe transform if
+ * the demo's content moves.
+ * ---------------------------------------------------------------- */
+
+.get-started-root .get-started-demo-body {
+  /* Aspect ratio matches /landing/demo.mp4 EXACTLY (1488×806).
+   * Setting aspect-ratio + object-fit: cover means the video fills
+   * the body with no cropping AND no letterbox — width and height
+   * scale together as the right column resizes. */
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1488 / 806;
+  background: #111009;
+  overflow: hidden;
+}
+
+/* Demo column shift — small left nudge on desktop only. Pulls the
+ * demo slightly toward the copy column for a tighter pairing. */
+@media (min-width: 1024px) {
+  .get-started-root .gs-demo-shift {
+    margin-left: -4%;
+  }
+}
+
+/* Disable scroll-reveal opacity-0 default inside the funnel.
+ * The homepage uses .sk-reveal-* with opacity:0 + IntersectionObserver
+ * → opacity:1 once visible. On a focused funnel this just means
+ * elements look "missing" if the IO callback hasn't fired yet
+ * (Playwright screenshots, slow scrolling, prefers-reduced-motion).
+ * Force everything visible from the start; transforms still apply
+ * if the IO does fire later — no jump because we're at rest already. */
+.get-started-root .sk-reveal,
+.get-started-root .sk-reveal-left,
+.get-started-root .sk-reveal-right,
+.get-started-root .sk-reveal-scale {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* Override the homepage's 3-D tilt + perspective on the peek frame.
+ * The tilt looks great on the marketing-mock peek (which is HTML
+ * cards with no detail) but anti-aliases video edges into blur. The
+ * funnel needs the video crisp; flat axis-aligned rendering avoids
+ * subpixel softness. */
+.get-started-root .hero-peek-frame {
+  transform: none;
+  perspective: none;
+  transform-style: flat;
+}
+
+.get-started-root .get-started-demo-iframe {
+  /* Native <video> playing /landing/demo.mp4. object-fit: contain
+   * shows the ENTIRE video frame — no crop on any edge. The body's
+   * aspect-ratio is already matched to the video (1488/806) so any
+   * letterbox in practice is sub-pixel. */
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  object-fit: contain;
+  background: #111009;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- *
+ * Section watermark numerals — huge, low-opacity, in the corner.
+ * Visual rhythm device. (See homepage ADR-6.)
+ * ---------------------------------------------------------------- */
+.get-started-root .watermark {
+  position: absolute;
+  top: 10%;
+  right: 6%;
+  font-family: var(--gs-font-head);
+  font-size: clamp(120px, 24vw, 320px);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  color: var(--light-watermark);
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+.get-started-root .section-dark .watermark {
+  color: rgba(255, 255, 255, 0.025);
+}
+
+/* ---------------------------------------------------------------- *
+ * Stack-reveal — 5 chips merge into 1 amber Skitza chip on 8s loop.
+ * ---------------------------------------------------------------- */
+.get-started-root .stack-reveal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 140px;
+  margin: 32px auto 0;
+}
+.get-started-root .stack-reveal__logos {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.get-started-root .stack-reveal__logo {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--gs-font-head);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--dark-body);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--dark-border);
+  border-radius: 16px;
+  /* Stronger ease-in-out — the merge is the section's hero gesture,
+   * deserves a curve with more punch than the generic 0.4,0,0.2,1. */
+  animation: gs-stack-merge 8s infinite cubic-bezier(0.77, 0, 0.175, 1);
+}
+.get-started-root .stack-reveal__skitza {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  font-family: var(--gs-font-head);
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  background: var(--amber);
+  color: #111009;
+  border-radius: 16px;
+  box-shadow:
+    0 0 32px var(--amber-glow),
+    0 8px 24px rgba(212, 150, 10, 0.25);
+  opacity: 0;
+  animation: gs-stack-skitza 8s infinite cubic-bezier(0.16, 1, 0.3, 1);
+}
+.get-started-root .stack-reveal__skitza::after {
+  content: ".";
+  color: #111009;
+}
+
+/* Chips shrink to 0.85 (not 0) — Emil's principle: nothing in the
+ * real world disappears completely. They feel absorbed, not vanished. */
+@keyframes gs-stack-merge {
+  0%,  30% { transform: scale(1); opacity: 1; }
+  50%, 70% { transform: scale(0.85); opacity: 0; }
+  100%     { transform: scale(1); opacity: 1; }
+}
+
+@keyframes gs-stack-skitza {
+  0%,  40% { opacity: 0; transform: scale(0.4); }
+  55%, 80% { opacity: 1; transform: scale(1); }
+  100%     { opacity: 0; transform: scale(0.4); }
+}
+
+/* ---------------------------------------------------------------- *
+ * Founder section — editorial single-column on dark, with portrait
+ * + 3 paragraphs + signoff.
+ * ---------------------------------------------------------------- */
+.get-started-root .founder {
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
+}
+.get-started-root .founder__portrait {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  margin: 0 auto 28px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--amber), var(--copper));
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 16px 32px rgba(0, 0, 0, 0.4);
+}
+.get-started-root .founder__portrait-initials {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--gs-font-head);
+  font-size: 38px;
+  font-weight: 800;
+  color: #111009;
+  letter-spacing: -0.04em;
+}
+.get-started-root .founder__portrait-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.get-started-root .founder__paragraph {
+  font-size: clamp(16px, 1.6vw, 19px);
+  line-height: 1.65;
+  color: var(--dark-text);
+  margin: 0 0 18px;
+  font-weight: 300;
+}
+.get-started-root .founder__paragraph:last-of-type {
+  margin-bottom: 28px;
+}
+.get-started-root .founder__signoff {
+  font-family: var(--gs-font-body);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--amber);
+}
+
+/* ---------------------------------------------------------------- *
+ * Final CTA — centered card on dark, amber radial glow behind.
+ * ---------------------------------------------------------------- */
+.get-started-root .final-cta {
+  position: relative;
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: clamp(40px, 5vw, 64px) clamp(24px, 4vw, 56px);
+  background: var(--dark-surface);
+  border: 1px solid var(--dark-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+.get-started-root .final-cta::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(circle at center, var(--amber-glow), transparent 60%);
+  pointer-events: none;
+  z-index: -1;
+}
+.get-started-root .final-cta .gs-form {
+  margin: 0 auto;
+}
+.get-started-root .final-cta .gs-form-meta {
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- *
+ * Pain cascade — dark theme, big H2, body, then stack-reveal.
+ * ---------------------------------------------------------------- */
+.get-started-root .cascade {
+  position: relative;
+  text-align: center;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.get-started-root .cascade__hook {
+  font-family: var(--gs-font-head);
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--amber);
+  margin: 24px 0 16px;
+}
+.get-started-root .cascade__close {
+  font-family: var(--gs-font-body);
+  font-size: clamp(15px, 1.5vw, 17px);
+  color: var(--dark-text);
+  margin-top: 24px;
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------------- *
+ * Scroll-driven section reveal — modern animation-timeline: view().
+ * Each section's children fade + slide up as they enter the viewport.
+ * Browsers without view() support (Safari ≤17.4, older Firefox) fall
+ * back to no animation — the section is visible by default, not
+ * stuck at opacity:0 like the older sk-reveal-* primitives.
+ * ---------------------------------------------------------------- */
+@supports (animation-timeline: view()) {
+  .get-started-root .section > * {
+    animation: gs-section-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 30%;
+  }
+}
+
+@keyframes gs-section-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Eyebrow pulse — the amber dot gets a subtle breathing pulse so the
+ * "NOW BOOKING · EARLY ACCESS" pill (and other eyebrows) feel alive
+ * without competing for attention with the headline. */
+.get-started-root .eyebrow::before {
+  animation: gs-eyebrow-pulse 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes gs-eyebrow-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 8px rgba(212, 150, 10, 0.5),
+      0 0 0 0 rgba(212, 150, 10, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 12px rgba(212, 150, 10, 0.7),
+      0 0 0 6px rgba(212, 150, 10, 0);
+  }
+}
+
+/* Form button shine — light sweep on hover. The pseudo-element
+ * sits over the button at 0% opacity until hover, then animates
+ * across with a soft white gradient. */
+.get-started-root .btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+.get-started-root .btn-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    transparent 35%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 65%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+/* Shine only on hover-capable devices — sweeping shine on every
+ * mobile tap was reading as a glitch. */
+@media (hover: hover) and (pointer: fine) {
+  .get-started-root .btn-primary:hover::after {
+    animation: gs-btn-shine 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+@keyframes gs-btn-shine {
+  to { transform: translateX(100%); }
+}
+
+/* Demo frame idle float — very subtle vertical bob so the browser-
+ * chrome window feels alive while the page sits open. Stronger custom
+ * curve (vs generic ease-in-out) — gives the bob intentional weight
+ * instead of mechanical sine-wave timing.
+ *
+ * Starts at opacity 0 and fades in with a 1.5s delay — gives the H1
+ * word-fade time to land before the video's looping motion competes
+ * for the visitor's eye on the right column. */
+.get-started-root .hero-peek-frame {
+  opacity: 0;
+  animation:
+    gs-peek-float 6s cubic-bezier(0.77, 0, 0.175, 1) infinite,
+    gs-peek-fadein 0.9s 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes gs-peek-fadein {
+  to { opacity: 1; }
+}
+
+@keyframes gs-peek-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+/* ---------------------------------------------------------------- *
+ * Reduce-motion gate — neutralises every animation + transition
+ * inside .get-started-root. Pinned by motion-primitives test.
+ * ---------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .get-started-root *,
+  .get-started-root *::before,
+  .get-started-root *::after {
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+  }
+  .get-started-root .hero-word,
+  .get-started-root .hero-split__msg,
+  .get-started-root .hero-split__card,
+  .get-started-root .stack-reveal__logo,
+  .get-started-root .stack-reveal__skitza,
+  .get-started-root .hero-peek-frame,
+  .get-started-root .section > * {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .get-started-root .stack-reveal__skitza {
+    display: none !important;
+  }
+  /* Background ambient — kill the drift + glow pulse, keep the
+   * static grid + tints visible (zero motion). */
+  .get-started-root::before,
+  .get-started-root::after {
+    animation: none !important;
+  }
+}

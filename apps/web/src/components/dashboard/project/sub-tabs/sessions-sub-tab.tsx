@@ -57,8 +57,10 @@ function statusPill(status: string): { variant: "active" | "warning" | "danger" 
   switch (status) {
     case "confirmed":
       return { variant: "active", label: "Confirmed" };
-    case "pending":
+    case "pending_approval":
       return { variant: "warning", label: "Pending" };
+    case "pending_payment":
+      return { variant: "warning", label: "Awaiting Payment" };
     case "rejected":
     case "cancelled":
       return { variant: "danger", label: status === "rejected" ? "Rejected" : "Cancelled" };

@@ -7,8 +7,7 @@ import { publicProcedure } from "./init";
 // Clerk user has no Producer row yet (webhook race — see onboarding).
 //
 // Lives in its own module (rather than inside `routers/portfolio.ts`)
-// because every producer-scoped router needs the same middleware:
-// portfolio, magicLink, and future routers will all import from here.
+// because every producer-scoped router needs the same middleware.
 export const producerProcedure = publicProcedure.use(async ({ ctx, next }) => {
   if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
   const dbUrl = process.env.DATABASE_URL;

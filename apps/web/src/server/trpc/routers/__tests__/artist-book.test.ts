@@ -318,11 +318,10 @@ describe("artist.book.availability (query)", () => {
 
   it("returns 14 days starting from today", async () => {
     seedValidContact();
-    // Empty weekly schedule + no bookings + no free project — the
-    // minimal "you have access, but there's nothing to book" shape.
+    // Empty weekly schedule + no bookings — the minimal
+    // "you have access, but there's nothing to book" shape.
     availabilityBlocksSelectQueue.push([]);
     bookingsSelectQueue.push([]);
-    projectsSelectQueue.push([]);
 
     const caller = await buildCaller();
     const result = await caller.artist.book.availability({
@@ -349,7 +348,6 @@ describe("artist.book.availability (query)", () => {
       { producerId: PRODUCER_ID, weekday: 0, startMin: 1080, endMin: 1320 },
     ]);
     bookingsSelectQueue.push([]);
-    projectsSelectQueue.push([]);
 
     const caller = await buildCaller();
     const result = await caller.artist.book.availability({
@@ -393,7 +391,6 @@ describe("artist.book.availability (query)", () => {
         producerId: PRODUCER_ID,
       },
     ]);
-    projectsSelectQueue.push([]);
 
     const caller = await buildCaller();
     const result = await caller.artist.book.availability({
@@ -409,56 +406,10 @@ describe("artist.book.availability (query)", () => {
     expect(nextSunday?.morning?.available).toBe(true);
   });
 
-  it("returns freeBookingProjectId when artist has an active paid project with this producer", async () => {
-    seedValidContact();
-    availabilityBlocksSelectQueue.push([]);
-    bookingsSelectQueue.push([]);
-    // Artist has a deposit-paid project that is NOT fully paid and
-    // still in active production — the "free session included" case.
-    projectsSelectQueue.push([
-      {
-        id: PROJECT_ID,
-        producerId: PRODUCER_ID,
-        artistEmail: "dan@x.com",
-        title: "Summer EP",
-        stage: "in_production",
-        depositPaid: true,
-        finalPaid: false,
-      },
-    ]);
-
-    const caller = await buildCaller();
-    const result = await caller.artist.book.availability({
-      producerId: PRODUCER_ID,
-    });
-
-    expect(result.freeBookingProjectId).toBe(PROJECT_ID);
-    expect(result.freeBookingProjectTitle).toBe("Summer EP");
-  });
-
-  it("returns null freeBookingProjectId when project is already fully paid", async () => {
-    seedValidContact();
-    availabilityBlocksSelectQueue.push([]);
-    bookingsSelectQueue.push([]);
-    // Router's WHERE excludes finalPaid=true rows at the DB layer, so
-    // the empty result here mirrors the production SQL — the fully-
-    // paid project simply doesn't come back.
-    projectsSelectQueue.push([]);
-
-    const caller = await buildCaller();
-    const result = await caller.artist.book.availability({
-      producerId: PRODUCER_ID,
-    });
-
-    expect(result.freeBookingProjectId).toBeNull();
-    expect(result.freeBookingProjectTitle).toBeNull();
-  });
-
   it("clientContacts WHERE is scoped by clerkUserId + producerId (auth boundary)", async () => {
     seedValidContact();
     availabilityBlocksSelectQueue.push([]);
     bookingsSelectQueue.push([]);
-    projectsSelectQueue.push([]);
 
     const caller = await buildCaller("user_alice");
     // user_alice won't find a contact because contactsSelectQueue was
@@ -513,6 +464,7 @@ describe("artist.book.confirm (mutation)", () => {
     startMin: 540, // 09:00
     durationMin: 120,
     projectId: null as string | null,
+    productId: null as string | null,
   };
 
   it("throws NOT_FOUND when producer isn't one of the artist's studios", async () => {
@@ -529,7 +481,7 @@ describe("artist.book.confirm (mutation)", () => {
     expect(contactsWhereSpy).toHaveBeenCalled();
   });
 
-  it("inserts booking with status=confirmed + artistEmail + artistName from clientContacts", async () => {
+  it("inserts booking with status=pending_approval + artistEmail + artistName from clientContacts", async () => {
     seedValidContact();
     // No conflicting bookings.
     bookingsSelectQueue.push([]);
@@ -541,7 +493,7 @@ describe("artist.book.confirm (mutation)", () => {
         artistName: "Dan The Artist",
         startsAt: new Date("2026-04-19T09:00:00Z"),
         durationMin: 120,
-        status: "confirmed",
+        status: "pending_approval",
       },
     ]);
 
@@ -554,7 +506,7 @@ describe("artist.book.confirm (mutation)", () => {
     expect(payload.artistEmail).toBe("dan@x.com");
     expect(payload.artistName).toBe("Dan The Artist");
     expect(payload.durationMin).toBe(120);
-    expect(payload.status).toBe("confirmed");
+    expect(payload.status).toBe("pending_approval");
     expect(payload.startsAt).toBeInstanceOf(Date);
 
     expect(result.id).toBe("bk-new");
@@ -571,7 +523,7 @@ describe("artist.book.confirm (mutation)", () => {
         artistName: "Dan The Artist",
         startsAt: new Date("2026-04-19T09:00:00Z"),
         durationMin: 120,
-        status: "confirmed",
+        status: "pending_approval",
         projectId: PROJECT_ID,
       },
     ]);
@@ -602,7 +554,7 @@ describe("artist.book.confirm (mutation)", () => {
         artistName: "Alice",
         startsAt: new Date("2026-04-19T09:00:00Z"),
         durationMin: 120,
-        status: "confirmed",
+        status: "pending_approval",
       },
     ]);
 

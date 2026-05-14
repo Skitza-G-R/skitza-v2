@@ -1,11 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
-import { headers } from "next/headers";
+import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
 import {
   and,
   asc,
   bookings,
-  createDb,
   inArray,
   invoices,
   projectTracks,
@@ -16,82 +15,48 @@ import {
   producers,
   trackComments,
   trackVersions,
-  type Db,
 } from "@skitza/db";
 import { z } from "zod";
 
-import { publicProcedure, router } from "../init";
+import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { recordContact } from "~/server/contacts/record";
-import { emitCommentCreated } from "~/server/notifications/emit";
-import { checkRateLimit } from "~/lib/rate-limit/in-memory";
+import {
+  SITE_URL,
+  sendPaymentReceivedEmail,
+  sendProducerRepliedToCommentEmail,
+  sendTrackVersionUploadedEmail,
+} from "~/server/email/send";
 import { calculateCharges } from "~/server/payments/plan";
 import { getStripe } from "~/server/stripe/client";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
-async function publicCtx(): Promise<{ db: Db; ipHash: string }> {
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "missing DATABASE_URL" });
-  }
-  const hdrs = await headers();
-  const ipRaw = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  return { db: createDb(dbUrl), ipHash: createHash("sha256").update(ipRaw).digest("hex") };
-}
 
 // Generate a fresh share token for project rooms. 32 bytes → 43
 // base64url chars. Raw token shown to producer ONCE when created;
-// only sha256(token) persisted. Mirrors magicLinks token discipline.
+// only sha256(token) persisted.
 function mintShareToken(): { raw: string; hash: string } {
   const raw = randomBytes(32).toString("base64url");
   const hash = createHash("sha256").update(raw).digest("hex");
   return { raw, hash };
 }
 
-// Shape we expose publicly. Strips shareTokenHash from the wire — the
-// artist already holds the raw token in their URL; exposing the hash
-// gives no benefit and lets an attacker correlate DB leaks.
-type ProjectPublic = Omit<typeof projects.$inferSelect, "shareTokenHash">;
+type ProjectPublic = typeof projects.$inferSelect;
 function stripHash(row: typeof projects.$inferSelect): ProjectPublic {
-  // Destructure to drop shareTokenHash; spreading the rest keeps us in
-  // sync as new columns land on the projects table without having to
-  // re-list every field here.
-  const { shareTokenHash: _hash, ...rest } = row;
-  void _hash;
-  return rest;
+  return row;
 }
 
 // Project stages mirror the project_stage pg enum. Kept here as a
 // const so the Zod input and listByStage grouped init stay in sync.
-// Note: `payment_paused` and `cancelled` are valid DB stages but are
-// NOT included in the Kanban view — they're terminal/paused states
-// handled separately in the CRM. `ALL_STAGES` enumerates every enum
-// value so Zod accepts them on setStage; `STAGES` is the Kanban-only
-// subset used by listByStage grouping.
 const ALL_STAGES = [
   "lead",
   "booked",
-  "contract_sent",
   "in_production",
   "final_review",
   "paid",
   "archived",
-  "payment_paused",
-  "cancelled",
 ] as const;
-// Kanban-visible subset of ALL_STAGES. Kept as a type-only alias
-// since the runtime guard in listByStage excludes the two terminal
-// stages directly rather than iterating this list.
-type Stage = Exclude<
-  (typeof ALL_STAGES)[number],
-  "payment_paused" | "cancelled"
->;
-
-// Rate limits for public endpoints
-const COMMENT_LIMIT = 20;
-const COMMENT_WINDOW_MS = 60_000;
-const VIEW_LIMIT = 60;
-const VIEW_WINDOW_MS = 60_000;
+type Stage = (typeof ALL_STAGES)[number];
 
 // ─── Inputs ──────────────────────────────────────────────────────────
 const CreateProjectInput = z.object({
@@ -99,6 +64,26 @@ const CreateProjectInput = z.object({
   artistName: z.string().min(1).max(80),
   artistEmail: z.string().email(),
   bookingId: z.string().uuid().optional(),
+});
+
+// Edit-project modal payload. All fields optional so the modal can
+// PATCH only what the producer changed; at least one must be present
+// for the procedure to do anything (no-op return otherwise).
+const UpdateProjectInput = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1).max(120).optional(),
+  artistName: z.string().min(1).max(80).optional(),
+  artistEmail: z.string().email().optional(),
+});
+
+// Manual line-item charge inserted from the Money sub-tab. Skips
+// Stripe entirely — the row exists for record-keeping; producer
+// reconciles payment outside the app and flips status later.
+const AddInvoiceInput = z.object({
+  projectId: z.string().uuid(),
+  amountCents: z.number().int().positive().max(100_000_000),
+  currency: z.string().length(3),
+  description: z.string().min(1).max(280),
 });
 
 const AddTrackInput = z.object({
@@ -139,16 +124,6 @@ const SetStageInput = z.object({
   stage: z.enum(ALL_STAGES),
 });
 
-// Artist-side: submit a timestamped comment.
-const SubmitCommentInput = z.object({
-  token: z.string().min(16).max(128),
-  versionId: z.string().uuid(),
-  authorName: z.string().min(1).max(80),
-  authorEmail: z.string().email(),
-  body: z.string().min(1).max(2000),
-  timestampMs: z.number().int().min(0).max(1000 * 60 * 60 * 3),
-});
-
 const ResolveCommentInput = z.object({
   id: z.string().uuid(),
   resolved: z.boolean(),
@@ -183,30 +158,12 @@ export const projectRouter = router({
     const grouped: Record<Stage, KanbanRow[]> = {
       lead: [],
       booked: [],
-      contract_sent: [],
       in_production: [],
       final_review: [],
       paid: [],
       archived: [],
     };
     for (const r of rows) {
-      // Batch G — the UI now groups by a 3-state display layer (Live
-      // / Done / Archived) ON TOP of the stage enum. `payment_paused`
-      // folds into Live (it's recoverable, not terminal); `cancelled`
-      // folds into Archived. The server return shape stays on the
-      // Kanban-visible 7-stage dictionary, so the client can still
-      // pick from it by state; the two formerly-excluded stages ride
-      // along inside `archived` (cancelled) and `lead` (paused — the
-      // projects list treats paused as pre-booked state so the
-      // producer can resume).
-      if (r.stage === "payment_paused") {
-        grouped.lead.push({ ...r, stage: "lead" });
-        continue;
-      }
-      if (r.stage === "cancelled") {
-        grouped.archived.push({ ...r, stage: "archived" });
-        continue;
-      }
       const stage: Stage = r.stage;
       grouped[stage].push({ ...r, stage });
     }
@@ -280,7 +237,6 @@ export const projectRouter = router({
     }),
 
   // Returns the project + its full tracks/versions/comments tree.
-  // Producer-side read; artist-side uses publicByToken below.
   detail: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -337,7 +293,10 @@ export const projectRouter = router({
         title: input.title,
         artistName: input.artistName,
         artistEmail: input.artistEmail.toLowerCase(),
-        shareTokenHash: token.hash,
+        // Persist the raw token so the project-room landing page can
+        // verify the URL the artist clicked. Unique constraint at the
+        // schema level guards against guess collisions.
+        inviteToken: token.raw,
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -352,7 +311,99 @@ export const projectRouter = router({
       console.warn("[contacts] recordContact failed in project.create", err);
     }
 
-    return { project: stripHash(row), shareToken: token.raw };
+    return { project: stripHash(row), inviteToken: token.raw };
+  }),
+
+  // Producer-only private notes for the Project Room → Notes tab.
+  // Free-text body, capped at 5000 chars; empty string is allowed
+  // (acts as "clear the notes"). Ownership-scoped — the project must
+  // belong to the calling producer or we return NOT_FOUND (no
+  // enumeration leak). Bumps `updatedAt` and returns it so the UI
+  // can render "Saved <relative>" without a refetch.
+  updateNotes: producerProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        // Empty string is valid (clearing notes). Cap at 5000 chars —
+        // soft warning at 4500 lives in the UI; hard reject here.
+        notes: z.string().max(5000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ producerId: projects.producerId })
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1);
+      if (!row || row.producerId !== ctx.producerId) {
+        // NOT_FOUND for both "missing" and "owned by someone else" so
+        // a tampered id can't enumerate the project space.
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      const updatedAt = new Date();
+      await ctx.db
+        .update(projects)
+        .set({ notes: input.notes, updatedAt })
+        .where(eq(projects.id, input.projectId));
+      return { updatedAt };
+    }),
+
+  // Edit-project modal handler. Ownership-checked; only the fields
+  // present in the input are written, so the modal can PATCH a single
+  // field without nulling the others. No-op when nothing changed.
+  update: producerProcedure.input(UpdateProjectInput).mutation(async ({ ctx, input }) => {
+    const [row] = await ctx.db
+      .select({ producerId: projects.producerId })
+      .from(projects)
+      .where(eq(projects.id, input.id))
+      .limit(1);
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+    if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
+
+    const updates: Partial<typeof projects.$inferInsert> = {};
+    if (input.title !== undefined) updates.title = input.title;
+    if (input.artistName !== undefined) updates.artistName = input.artistName;
+    if (input.artistEmail !== undefined) {
+      updates.artistEmail = input.artistEmail.toLowerCase();
+    }
+    if (Object.keys(updates).length === 0) {
+      return { ok: true as const };
+    }
+    updates.updatedAt = new Date();
+    await ctx.db.update(projects).set(updates).where(eq(projects.id, input.id));
+    return { ok: true as const };
+  }),
+
+  // Manual charge inserted from the Money sub-tab. Status defaults to
+  // 'sent' so the row counts toward Outstanding in the money strip
+  // until the producer marks it paid out-of-band.
+  addInvoice: producerProcedure.input(AddInvoiceInput).mutation(async ({ ctx, input }) => {
+    const [row] = await ctx.db
+      .select({ producerId: projects.producerId })
+      .from(projects)
+      .where(eq(projects.id, input.projectId))
+      .limit(1);
+    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+    if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
+
+    const [inserted] = await ctx.db
+      .insert(invoices)
+      .values({
+        producerId: ctx.producerId,
+        projectId: input.projectId,
+        amountCents: input.amountCents,
+        currency: input.currency.toUpperCase(),
+        description: input.description,
+        // Free-text role: 'manual' for entries the producer punches in
+        // by hand from the Money sub-tab. Distinct from 'deposit' /
+        // 'final' / 'milestone' which are wired to Stripe lifecycle
+        // events.
+        kind: "manual",
+        status: "sent",
+      })
+      .returning();
+    if (!inserted) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    return { ok: true as const, id: inserted.id };
   }),
 
   // Moves a project between kanban columns. Ownership-checked; bumps
@@ -371,38 +422,42 @@ export const projectRouter = router({
   // stages — just not via this dropdown), so the dropdown UI also drops
   // them as selectable options.
   setStage: producerProcedure.input(SetStageInput).mutation(async ({ ctx, input }) => {
-    if (input.stage === "cancelled" || input.stage === "payment_paused") {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message:
-          input.stage === "cancelled"
-            ? "Use the Cancel project button — it stops Stripe charges before transitioning."
-            : "payment_paused is set automatically by webhook handlers when payments fail.",
-      });
-    }
     const [row] = await ctx.db
-      .select({ producerId: projects.producerId })
+      .select({
+        producerId: projects.producerId,
+        paidAt: projects.paidAt,
+      })
       .from(projects)
       .where(eq(projects.id, input.id))
       .limit(1);
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
     const now = new Date();
+    // Stamp paid_at on FIRST transition into stage='paid'. Idempotent:
+    // re-calling setStage with stage='paid' on a row that already has
+    // paid_at set leaves the original timestamp untouched. This keeps
+    // the "first time the producer marked this paid" signal stable for
+    // the Overview timeline. Stripe-webhook auto-flip is intentionally
+    // not wired here — that's Phase H's surface.
+    // Loose nullish check covers both `null` (canonical never-paid) and
+    // `undefined` (column missing from a partial select projection).
+    const setPaidAt = input.stage === "paid" && row.paidAt == null;
     await ctx.db
       .update(projects)
-      .set({ stage: input.stage, updatedAt: now })
+      .set({
+        stage: input.stage,
+        updatedAt: now,
+        ...(setPaidAt ? { paidAt: now } : {}),
+      })
       .where(eq(projects.id, input.id));
     return { ok: true as const };
   }),
 
   // Bulk variant of setStage for the Projects-list multi-select.
-  // Same guardrails as the single-id version:
-  //   - cancelled / payment_paused refused (they're owned by other
-  //     code paths that coordinate Stripe + DB transitions)
-  //   - UPDATE scoped to producer_id so a tampered id array can't
-  //     mutate another producer's projects
-  // The producer-id WHERE clause on the UPDATE itself is the auth
-  // boundary — cheaper than N round-trips to verify each id first.
+  // UPDATE is scoped to producer_id so a tampered id array can't mutate
+  // another producer's projects — the WHERE clause on the UPDATE itself
+  // is the auth boundary, cheaper than N round-trips to verify each id
+  // first.
   setStageBulk: producerProcedure
     .input(
       z.object({
@@ -411,15 +466,6 @@ export const projectRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      if (input.stage === "cancelled" || input.stage === "payment_paused") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            input.stage === "cancelled"
-              ? "Use the Cancel project button — it stops Stripe charges before transitioning."
-              : "payment_paused is set automatically by webhook handlers when payments fail.",
-        });
-      }
       const now = new Date();
       await ctx.db
         .update(projects)
@@ -466,6 +512,89 @@ export const projectRouter = router({
     return row;
   }),
 
+  // Inline-edit a track title from the Project Room music sub-tab.
+  // Ownership-scoped via the UPDATE's WHERE clause (id + projectId +
+  // producerId chain) so a tampered trackId from another project
+  // cannot land here.
+  updateTrackTitle: producerProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        trackId: z.string().uuid(),
+        title: z.string().min(1).max(120),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [proj] = await ctx.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(
+          and(
+            eq(projects.id, input.projectId),
+            eq(projects.producerId, ctx.producerId),
+          ),
+        )
+        .limit(1);
+      if (!proj) throw new TRPCError({ code: "NOT_FOUND" });
+      await ctx.db
+        .update(projectTracks)
+        .set({ title: input.title })
+        .where(
+          and(
+            eq(projectTracks.id, input.trackId),
+            eq(projectTracks.projectId, input.projectId),
+          ),
+        );
+      await ctx.db
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(eq(projects.id, input.projectId));
+      return { ok: true as const };
+    }),
+
+  // Inline-edit a version label. Ownership chain: version → track →
+  // project → producer. We verify all three links so neither a foreign
+  // versionId nor a foreign projectId can route through this mutation.
+  updateVersionLabel: producerProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        versionId: z.string().uuid(),
+        label: z.string().min(1).max(40),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({
+          projectId: projectTracks.projectId,
+          producerId: projects.producerId,
+        })
+        .from(trackVersions)
+        .innerJoin(
+          projectTracks,
+          eq(projectTracks.id, trackVersions.trackId),
+        )
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(eq(trackVersions.id, input.versionId))
+        .limit(1);
+      if (
+        !row ||
+        row.producerId !== ctx.producerId ||
+        row.projectId !== input.projectId
+      ) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      await ctx.db
+        .update(trackVersions)
+        .set({ label: input.label })
+        .where(eq(trackVersions.id, input.versionId));
+      await ctx.db
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(eq(projects.id, input.projectId));
+      return { ok: true as const };
+    }),
+
   addVersion: producerProcedure.input(AddVersionInput).mutation(async ({ ctx, input }) => {
     const [track] = await ctx.db
       .select({ id: projectTracks.id, projectId: projectTracks.projectId })
@@ -474,7 +603,12 @@ export const projectRouter = router({
       .limit(1);
     if (!track) throw new TRPCError({ code: "NOT_FOUND" });
     const [project] = await ctx.db
-      .select({ producerId: projects.producerId })
+      .select({
+        producerId: projects.producerId,
+        title: projects.title,
+        artistName: projects.artistName,
+        artistEmail: projects.artistEmail,
+      })
       .from(projects)
       .where(eq(projects.id, track.projectId))
       .limit(1);
@@ -495,12 +629,39 @@ export const projectRouter = router({
       .update(projects)
       .set({ updatedAt: new Date() })
       .where(eq(projects.id, track.projectId));
+
+    const [producerRow] = await ctx.db
+      .select({ displayName: producers.displayName })
+      .from(producers)
+      .where(eq(producers.id, ctx.producerId))
+      .limit(1);
+    after(async () => {
+      try {
+        await sendTrackVersionUploadedEmail(project.artistEmail, {
+          artistName: project.artistName,
+          producerName: producerRow?.displayName ?? "Your producer",
+          projectName: project.title,
+          versionLabel: input.label,
+          reviewUrl: `${SITE_URL}/artist/music`,
+        });
+      } catch (err) {
+        console.error("[email] track-version-uploaded failed", err);
+      }
+    });
+
     return row;
   }),
 
   setPaid: producerProcedure.input(SetPaidInput).mutation(async ({ ctx, input }) => {
     const [project] = await ctx.db
-      .select({ producerId: projects.producerId })
+      .select({
+        producerId: projects.producerId,
+        title: projects.title,
+        artistName: projects.artistName,
+        artistEmail: projects.artistEmail,
+        totalAmountCents: projects.totalAmountCents,
+        currency: projects.currency,
+      })
       .from(projects)
       .where(eq(projects.id, input.projectId))
       .limit(1);
@@ -515,6 +676,33 @@ export const projectRouter = router({
           : { finalPaid: input.value, updatedAt: new Date() },
       )
       .where(eq(projects.id, input.projectId));
+
+    if (input.value) {
+      const [producerRow] = await ctx.db
+        .select({ displayName: producers.displayName })
+        .from(producers)
+        .where(eq(producers.id, ctx.producerId))
+        .limit(1);
+      const total = project.totalAmountCents ?? 0;
+      const amountCents =
+        input.kind === "deposit" ? Math.floor(total / 2) : total - Math.floor(total / 2);
+      after(async () => {
+        try {
+          await sendPaymentReceivedEmail(project.artistEmail, {
+            producerName: producerRow?.displayName ?? "Your producer",
+            artistName: project.artistName,
+            projectName: project.title,
+            amountCents,
+            platformFeeCents: 0,
+            currency: project.currency ?? "USD",
+            viewUrl: `${SITE_URL}/artist`,
+          });
+        } catch (err) {
+          console.error("[email] payment-received failed", err);
+        }
+      });
+    }
+
     return { ok: true as const };
   }),
 
@@ -712,12 +900,7 @@ export const projectRouter = router({
         });
       }
 
-      // 3. Already-cancelled is idempotent success — webhook + this
-      //    mutation can race, and a re-click after success is a no-op.
-      if (project.stage === "cancelled") {
-        return { ok: true as const };
-      }
-      // 4. Already-finalized projects can't be cancelled; the engagement
+      // 3. Already-finalized projects can't be cancelled; the engagement
       //    is over. Refund flows through Stripe Dashboard.
       if (project.stage === "paid" || project.stage === "archived") {
         throw new TRPCError({
@@ -726,7 +909,7 @@ export const projectRouter = router({
         });
       }
 
-      // 5. If a monthly schedule is in flight, stop it. Schedule lives
+      // 4. If a monthly schedule is in flight, stop it. Schedule lives
       //    on the platform account (we use destination charges for the
       //    Connect split), so the call is a plain platform API call —
       //    no `{ stripeAccount }` header.
@@ -753,13 +936,11 @@ export const projectRouter = router({
         }
       }
 
-      // 6. Set stage immediately so the producer sees the result without
-      //    waiting for the webhook roundtrip. The webhook handler is
-      //    idempotent — it re-applies stage='cancelled' which is a no-op
-      //    if we've already written it.
+      // 5. Set stage to archived so the producer sees the result without
+      //    waiting for the webhook roundtrip.
       await ctx.db
         .update(projects)
-        .set({ stage: "cancelled", updatedAt: new Date() })
+        .set({ stage: "archived", updatedAt: new Date() })
         .where(eq(projects.id, project.id));
 
       return { ok: true as const };
@@ -883,7 +1064,7 @@ export const projectRouter = router({
         .limit(1);
       if (!v) throw new TRPCError({ code: "NOT_FOUND" });
       const [t] = await ctx.db
-        .select({ projectId: projectTracks.projectId })
+        .select({ projectId: projectTracks.projectId, title: projectTracks.title })
         .from(projectTracks)
         .where(eq(projectTracks.id, v.trackId))
         .limit(1);
@@ -913,6 +1094,21 @@ export const projectRouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      after(async () => {
+        try {
+          await sendProducerRepliedToCommentEmail(p.artistEmail, {
+            artistName: p.artistName,
+            producerName: producerRow?.displayName ?? "Your producer",
+            trackTitle: t.title,
+            replyBody: input.body,
+            threadUrl: `${SITE_URL}/artist/music`,
+          });
+        } catch (err) {
+          console.error("[email] producer-replied-to-comment failed", err);
+        }
+      });
+
       return row;
     }),
 
@@ -951,167 +1147,10 @@ export const projectRouter = router({
           title,
           artistName: booking.artistName,
           artistEmail: booking.artistEmail,
-          shareTokenHash: token.hash,
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       return { project: stripHash(row), shareToken: token.raw, existing: false };
     }),
 
-  // ── Artist-side (public via token) ─────────────────────────────
-  publicByToken: publicProcedure
-    .input(z.object({ token: z.string().min(16).max(128) }))
-    .query(async ({ input }) => {
-      const { db, ipHash } = await publicCtx();
-      const rl = checkRateLimit(`project-view:${ipHash}`, VIEW_LIMIT, VIEW_WINDOW_MS);
-      if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
-
-      const tokenHash = createHash("sha256").update(input.token).digest("hex");
-      const [project] = await db
-        .select()
-        .from(projects)
-        .where(eq(projects.shareTokenHash, tokenHash))
-        .limit(1);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-
-      const tracksList = await db
-        .select()
-        .from(projectTracks)
-        .where(eq(projectTracks.projectId, project.id))
-        .orderBy(asc(projectTracks.position), asc(projectTracks.createdAt));
-
-      const trackIds = tracksList.map((t) => t.id);
-      const allVersions = trackIds.length
-        ? (
-            await db.select().from(trackVersions).orderBy(desc(trackVersions.uploadedAt))
-          ).filter((v) => trackIds.includes(v.trackId))
-        : [];
-
-      const versionIds = allVersions.map((v) => v.id);
-      const allComments = versionIds.length
-        ? (
-            await db
-              .select()
-              .from(trackComments)
-              .orderBy(asc(trackComments.timestampMs))
-          ).filter((c) => versionIds.includes(c.versionId))
-        : [];
-
-      const [producer] = await db
-        .select({ displayName: producers.displayName, slug: producers.slug })
-        .from(producers)
-        .where(eq(producers.id, project.producerId))
-        .limit(1);
-
-      return {
-        project: {
-          id: project.id,
-          title: project.title,
-          artistName: project.artistName,
-          depositPaid: project.depositPaid,
-          finalPaid: project.finalPaid,
-          // Task 10 — exposed so the share-page can render the
-          // payment-paused banner. We send the raw enum string; the UI
-          // string-compares to "payment_paused" rather than thread an
-          // enum through the wire.
-          stage: project.stage,
-          createdAt: project.createdAt,
-          // Task 13 — surfaces the producer's UUID to the share page so
-          // it can check whether the signed-in viewer has a
-          // clientContacts row for this producer (→ "in-app" banner).
-          producerId: project.producerId,
-          producerName: producer?.displayName ?? "Producer",
-          producerSlug: producer?.slug ?? "",
-        },
-        tracks: tracksList,
-        versions: allVersions,
-        comments: allComments,
-      };
-    }),
-
-  publicComment: publicProcedure
-    .input(SubmitCommentInput)
-    .mutation(async ({ input }) => {
-      const { db, ipHash } = await publicCtx();
-      const rl = checkRateLimit(`project-comment:${ipHash}`, COMMENT_LIMIT, COMMENT_WINDOW_MS);
-      if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
-
-      const tokenHash = createHash("sha256").update(input.token).digest("hex");
-      const [project] = await db
-        .select({ id: projects.id, producerId: projects.producerId })
-        .from(projects)
-        .where(eq(projects.shareTokenHash, tokenHash))
-        .limit(1);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-
-      const [version] = await db
-        .select({ trackId: trackVersions.trackId })
-        .from(trackVersions)
-        .where(eq(trackVersions.id, input.versionId))
-        .limit(1);
-      if (!version) throw new TRPCError({ code: "NOT_FOUND" });
-      const [track] = await db
-        .select({ projectId: projectTracks.projectId })
-        .from(projectTracks)
-        .where(eq(projectTracks.id, version.trackId))
-        .limit(1);
-      if (!track || track.projectId !== project.id) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-
-      const [row] = await db
-        .insert(trackComments)
-        .values({
-          versionId: input.versionId,
-          authorName: input.authorName,
-          authorEmail: input.authorEmail.toLowerCase(),
-          body: input.body,
-          timestampMs: input.timestampMs,
-          fromProducer: false,
-        })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db
-        .update(projects)
-        .set({ updatedAt: new Date() })
-        .where(eq(projects.id, project.id));
-
-      try {
-        await recordContact(db, {
-          producerId: project.producerId,
-          email: input.authorEmail,
-          name: input.authorName,
-        });
-      } catch (err) {
-        console.warn("[contacts] recordContact failed in project.publicComment", err);
-      }
-
-      // Batch G — Autopilot gate. `autopilot_comment_notify` defaults
-      // to ON, so the existing (always-notify) behavior is preserved
-      // for producers who never touch the setting. Only the explicit
-      // opt-OUT path skips the notifications insert. Fetched lazily
-      // inside the try so a missing producer row falls back to "send"
-      // — the same no-row-safe behavior the rest of this block has.
-      try {
-        const [producer] = await db
-          .select({ autopilotCommentNotify: producers.autopilotCommentNotify })
-          .from(producers)
-          .where(eq(producers.id, project.producerId))
-          .limit(1);
-        if (producer?.autopilotCommentNotify !== false) {
-          await emitCommentCreated(db, {
-            producerId: project.producerId,
-            commentId: row.id,
-            trackVersionId: input.versionId,
-            projectId: project.id,
-            authorName: input.authorName,
-            preview: input.body,
-          });
-        }
-      } catch (err) {
-        console.warn("[notify] emitCommentCreated failed in project.publicComment", err);
-      }
-
-      return { id: row.id };
-    }),
 });

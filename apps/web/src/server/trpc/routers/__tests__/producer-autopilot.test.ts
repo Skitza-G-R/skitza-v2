@@ -76,8 +76,6 @@ vi.mock("@skitza/db", () => ({
   bookings: { __table: "bookings" },
   invoices: { __table: "invoices" },
   leads: { __table: "leads" },
-  magicLinks: { __table: "magic_links" },
-  magicLinkViews: { __table: "magic_link_views" },
   portfolioTracks: { __table: "portfolio_tracks" },
   projectTracks: { __table: "project_tracks" },
   projects: { __table: "projects" },

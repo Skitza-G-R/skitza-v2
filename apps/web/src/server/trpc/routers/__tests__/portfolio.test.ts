@@ -119,6 +119,39 @@ describe("portfolio.create", () => {
     });
     expect(trackInsertReturningMock).not.toHaveBeenCalled();
   });
+
+  // F9 — `Add from music library` flow: server-side dedup pairs with
+  // the picker's "Already added" disabled rows so the public playlist
+  // can't accumulate the same R2 object twice.
+  it("rejects when an existing portfolio row already has the same audioUrl", async () => {
+    // The dedup lookup hits the same select-from-portfolio_tracks chain
+    // the dbMock routes to `trackSelectByIdMock` — return a hit so the
+    // create mutation throws before insert. Field shape mirrors the
+    // mock's declared return type; the create code only branches on
+    // whether the array has a row (truthy = dup found).
+    trackSelectByIdMock.mockResolvedValueOnce([{ producerId: PRODUCER_ID }]);
+    const caller = await buildCaller();
+    await expect(
+      caller.portfolio.create({
+        title: "Already-added track",
+        audioUrl: "https://example.com/a.mp3",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(trackInsertReturningMock).not.toHaveBeenCalled();
+  });
+
+  it("skips the dedup check when audioUrl is null (pre-upload placeholder)", async () => {
+    // Even with a primed dup-hit mock, a null audioUrl input must
+    // bypass the dedup query entirely — the audio.completeMultipart
+    // flow patches in the URL after creating the placeholder row.
+    trackSelectByIdMock.mockResolvedValueOnce([{ producerId: PRODUCER_ID }]);
+    const caller = await buildCaller();
+    await caller.portfolio.create({
+      title: "Pending upload",
+      audioUrl: null,
+    });
+    expect(trackInsertReturningMock).toHaveBeenCalledOnce();
+  });
 });
 
 describe("portfolio.update", () => {

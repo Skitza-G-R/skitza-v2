@@ -107,10 +107,10 @@ export function MusicLibraryEmpty() {
       description="Drop a WAV into any project to kick things off. Uploads land here once your first track has a version."
       action={
         <Link
-          href="/dashboard/projects"
+          href="/dashboard/clients-projects"
           className="inline-flex h-10 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-medium text-[rgb(var(--fg-inverse))] hover:brightness-110"
         >
-          Open Projects
+          Open Clients & Projects
         </Link>
       }
     />
@@ -125,7 +125,7 @@ function MusicCard({ row, index }: { row: MusicRow; index: number }) {
   // searchParams — our Music sub-tab pre-selects the version via that
   // URL param, so deep-linking here lands the producer on the exact
   // waveform they tapped.
-  const href = `/dashboard/projects/${row.projectId}?tab=music&version=${row.id}`;
+  const href = `/dashboard/clients-projects/${row.projectId}?tab=music&version=${row.id}`;
 
   // "Artist EP · Alice Records" — fall back to just the title when the
   // project has no client name (legacy rows + producer-as-artist setups).

@@ -1,84 +1,127 @@
 "use client";
 
-// Story 01 of /join flow — Setup → Portfolio tab inline UI.
+// Producer's public portfolio list — Profile → Portfolio tab and the
+// legacy Setup page consume this same component.
 //
-// Per PRD §6.2, the producer flags up to 3 tracks as "public samples"
-// for unsigned-in visitors on `/join/<slug>`. This section renders
-// the producer's tracklist with a per-track toggle; flipping the
-// toggle is optimistic (switch flips instantly, rolls back on error)
-// and calls the `portfolio.togglePublicSample` mutation via a server
-// action.
+// Behavior contract (post-F9 iteration):
+//   * Every track in the portfolio is publicly visible on /join/<slug>.
+//     The legacy "Public sample" per-track toggle is gone — the public
+//     profile IS the public surface, no opt-in step.
+//   * Each row has inline Edit (title + artist) and Remove buttons.
+//   * Title is required; artist is free-text and may be cleared.
 //
-// Empty state is intentional — it tells the producer upload happens
-// elsewhere (the public portfolio workflow). This is Wave 1 scope;
-// the full upload + reorder UI is tracked in the Setup rehost
-// follow-up noted on `settings/page.tsx`.
+// State model:
+//   * `rows`: optimistic copy of `tracks` prop. Synced via useEffect
+//     when the parent re-fetches (F9 picker -> router.refresh ->
+//     fresh tracks prop). Sibling ExternalLinksSection follows the
+//     same pattern.
+//   * `editingId`: the row currently in inline edit mode, or null.
+//   * `removingId`: the row in the middle of a delete round-trip.
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
-import { SaveIndicator, useSaveStatus } from "~/components/ui/save-indicator";
 import { useToast } from "~/components/ui/toast";
-import { togglePublicSample } from "~/app/(app)/dashboard/settings/actions";
+import {
+  deletePortfolioTrack,
+  updatePortfolioTrack,
+} from "~/app/(producer)/dashboard/portfolio/actions";
 
 export type PortfolioTrackRow = {
   id: string;
   title: string;
   artist: string | null;
+  // Vestigial — kept on the type so producer/page.tsx + settings/page.tsx
+  // mappings don't need to churn while we deprecate the column.
   isPublicSample: boolean;
 };
 
 export function PortfolioSection({ tracks }: { tracks: PortfolioTrackRow[] }) {
-  // Local optimistic copy of the server state. `useState` (not
-  // `useOptimistic`) because the mutation is fire-and-forget server
-  // action — no pending UI, just instant-flip + rollback-on-error.
   const [rows, setRows] = useState<PortfolioTrackRow[]>(tracks);
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [lastSavedId, setLastSavedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftArtist, setDraftArtist] = useState("");
+  const [pendingEditId, setPendingEditId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const router = useRouter();
   const { toast } = useToast();
 
-  // Count flagged tracks so the producer sees live progress against
-  // the cap. The PRD says "up to 3" but enforcement happens at query
-  // time on `/join/<slug>` (sort DESC, limit 3). Here we just show
-  // the count — no hard cap at UI level, producers can flag more
-  // and the teaser shows the 3 most recent.
-  const flaggedCount = rows.filter((r) => r.isPublicSample).length;
+  // Sync rows when the parent re-fetches tracks (F9 "Add from music
+  // library" picker calls router.refresh on success → server re-runs
+  // the page query → fresh tracks array via props). Without this,
+  // useState's initial value freezes the list and new tracks (or
+  // edits/removes from another tab) wouldn't appear until a hard
+  // browser refresh remounts the component.
+  useEffect(() => {
+    setRows(tracks);
+  }, [tracks]);
 
-  function flip(id: string) {
-    const prev = rows.find((r) => r.id === id);
-    if (!prev) return;
-    const next = !prev.isPublicSample;
-    setRows((all) => all.map((r) => (r.id === id ? { ...r, isPublicSample: next } : r)));
-    setPendingId(id);
-    setLastSavedId(id);
+  function startEdit(t: PortfolioTrackRow) {
+    setEditingId(t.id);
+    setDraftTitle(t.title);
+    setDraftArtist(t.artist ?? "");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setDraftTitle("");
+    setDraftArtist("");
+  }
+
+  function saveEdit(id: string) {
+    const title = draftTitle.trim();
+    const artist = draftArtist.trim();
+    if (title.length === 0) {
+      toast("Title is required.", "error");
+      return;
+    }
+    // Optimistic — the row updates instantly; if the server call fails,
+    // we fall back to the server-truth `tracks` prop.
+    setRows((all) =>
+      all.map((r) =>
+        r.id === id
+          ? { ...r, title, artist: artist.length > 0 ? artist : null }
+          : r,
+      ),
+    );
+    setEditingId(null);
+    setPendingEditId(id);
     startTransition(async () => {
-      const res = await togglePublicSample({ trackId: id, enabled: next });
-      setPendingId(null);
+      const res = await updatePortfolioTrack({ id, title, artist });
+      setPendingEditId(null);
       if (!res.ok) {
-        // Roll back the optimistic flip — producer sees the switch
-        // snap back to its server-truth position, paired with the
-        // toast below.
-        setRows((all) =>
-          all.map((r) => (r.id === id ? { ...r, isPublicSample: prev.isPublicSample } : r)),
-        );
-        setLastSavedId(null);
         toast(res.error, "error");
+        setRows(tracks);
+        return;
       }
+      router.refresh();
+    });
+  }
+
+  function remove(t: PortfolioTrackRow) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Remove "${t.title}" from your public portfolio?`,
+      );
+      if (!confirmed) return;
+    }
+    setRemovingId(t.id);
+    setRows((all) => all.filter((r) => r.id !== t.id));
+    startTransition(async () => {
+      const res = await deletePortfolioTrack({ id: t.id });
+      setRemovingId(null);
+      if (!res.ok) {
+        toast(res.error, "error");
+        setRows(tracks);
+        return;
+      }
+      router.refresh();
     });
   }
 
   return (
     <section>
-      {/* Page-level header (settings/page.tsx) hosts the section title
-          + description; this section sits flat inside the outer Setup
-          container card. We keep the live "% public" counter — it's
-          data, not header. */}
-      {rows.length > 0 ? (
-        <p className="mb-3 font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
-          {flaggedCount} / {rows.length} public
-        </p>
-      ) : null}
-
       {rows.length === 0 ? (
         <PortfolioEmpty />
       ) : (
@@ -86,14 +129,23 @@ export function PortfolioSection({ tracks }: { tracks: PortfolioTrackRow[] }) {
           {rows.map((t) => (
             <TrackRow
               key={t.id}
-              id={t.id}
-              title={t.title}
-              artist={t.artist}
-              enabled={t.isPublicSample}
-              pending={pendingId === t.id}
-              recentlySaved={lastSavedId === t.id}
-              onToggle={() => {
-                flip(t.id);
+              track={t}
+              isEditing={editingId === t.id}
+              draftTitle={draftTitle}
+              draftArtist={draftArtist}
+              pendingEdit={pendingEditId === t.id}
+              pendingRemove={removingId === t.id}
+              onStartEdit={() => {
+                startEdit(t);
+              }}
+              onCancelEdit={cancelEdit}
+              onChangeDraftTitle={setDraftTitle}
+              onChangeDraftArtist={setDraftArtist}
+              onSave={() => {
+                saveEdit(t.id);
+              }}
+              onRemove={() => {
+                remove(t);
               }}
             />
           ))}
@@ -114,78 +166,139 @@ function PortfolioEmpty() {
   );
 }
 
-// Per-track row. Mirrors ToggleRow in autopilot-section — same min-
-// height, same switch geometry, same recently-saved chip behavior —
-// so the two Setup tabs feel like siblings. Focus ring uses brand
-// primary with a bg-elevated offset so the switch is always
-// visible on the card surface.
 function TrackRow({
-  id,
-  title,
-  artist,
-  enabled,
-  pending,
-  recentlySaved,
-  onToggle,
+  track,
+  isEditing,
+  draftTitle,
+  draftArtist,
+  pendingEdit,
+  pendingRemove,
+  onStartEdit,
+  onCancelEdit,
+  onChangeDraftTitle,
+  onChangeDraftArtist,
+  onSave,
+  onRemove,
 }: {
-  id: string;
-  title: string;
-  artist: string | null;
-  enabled: boolean;
-  pending: boolean;
-  recentlySaved: boolean;
-  onToggle: () => void;
+  track: PortfolioTrackRow;
+  isEditing: boolean;
+  draftTitle: string;
+  draftArtist: string;
+  pendingEdit: boolean;
+  pendingRemove: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onChangeDraftTitle: (v: string) => void;
+  onChangeDraftArtist: (v: string) => void;
+  onSave: () => void;
+  onRemove: () => void;
 }) {
-  const saveStatus = useSaveStatus({ saving: pending, error: null });
+  const disabled = pendingEdit || pendingRemove;
+
+  if (isEditing) {
+    return (
+      <li className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-end sm:gap-3">
+        <label className="flex flex-1 flex-col gap-1">
+          <span className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            Title
+          </span>
+          <input
+            type="text"
+            value={draftTitle}
+            onChange={(e) => {
+              onChangeDraftTitle(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onSave();
+              } else if (e.key === "Escape") {
+                onCancelEdit();
+              }
+            }}
+            maxLength={200}
+            required
+            autoFocus
+            className="h-9 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 text-sm text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+          />
+        </label>
+        <label className="flex flex-1 flex-col gap-1">
+          <span className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            Artist (optional)
+          </span>
+          <input
+            type="text"
+            value={draftArtist}
+            onChange={(e) => {
+              onChangeDraftArtist(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onSave();
+              } else if (e.key === "Escape") {
+                onCancelEdit();
+              }
+            }}
+            maxLength={200}
+            className="h-9 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 text-sm text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+          />
+        </label>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={disabled || draftTitle.trim().length === 0}
+            className="inline-flex h-9 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-medium text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {pendingEdit ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            disabled={disabled}
+            className="inline-flex h-9 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </li>
+    );
+  }
+
   return (
     <li className="flex flex-wrap items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-3">
-          <p
-            className="truncate text-sm text-[rgb(var(--fg-primary))]"
-            style={{ fontWeight: 600 }}
-          >
-            {title}
-          </p>
-          {recentlySaved ? <SaveIndicator status={saveStatus} /> : null}
-        </div>
-        {artist ? (
+        <p
+          className="truncate text-sm text-[rgb(var(--fg-primary))]"
+          style={{ fontWeight: 600 }}
+        >
+          {track.title}
+        </p>
+        {track.artist ? (
           <p className="mt-1 truncate text-xs text-[rgb(var(--fg-secondary))]">
-            {artist}
+            {track.artist}
           </p>
         ) : null}
       </div>
-      <label
-        htmlFor={`portfolio-public-${id}`}
-        className="flex shrink-0 items-center gap-3 text-xs font-mono uppercase tracking-[0.14em] text-[rgb(var(--fg-secondary))]"
-      >
-        Public sample
+      <div className="flex shrink-0 items-center gap-2">
         <button
-          id={`portfolio-public-${id}`}
           type="button"
-          role="switch"
-          aria-checked={enabled}
-          aria-label={`Public sample for ${title}`}
-          disabled={pending}
-          onClick={onToggle}
-          className={[
-            "relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:ring-[rgb(var(--brand-primary))]",
-            enabled
-              ? "bg-[rgb(var(--brand-primary))]"
-              : "bg-[rgb(var(--fg-muted)/0.3)]",
-            pending ? "opacity-60" : "",
-          ].join(" ")}
+          onClick={onStartEdit}
+          disabled={disabled}
+          className="inline-flex h-8 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 text-xs font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <span
-            aria-hidden
-            className={[
-              "inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform",
-              enabled ? "translate-x-6" : "translate-x-1",
-            ].join(" ")}
-          />
+          Edit
         </button>
-      </label>
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={disabled}
+          className="inline-flex h-8 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-3 text-xs font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {pendingRemove ? "Removing…" : "Remove"}
+        </button>
+      </div>
     </li>
   );
 }

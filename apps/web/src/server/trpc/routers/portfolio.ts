@@ -27,6 +27,32 @@ export const portfolioRouter = router({
   create: producerProcedure
     .input(TrackInput)
     .mutation(async ({ ctx, input }) => {
+      // F9 dedup — when the caller provides an audioUrl, refuse to
+      // insert a second portfolio row pointing at the same R2 object
+      // for this producer. Matches the "Add from music library" picker
+      // contract: the same library track shouldn't appear twice in the
+      // public playlist. audioUrl is the stable identity (R2 keys are
+      // unique per upload). Skipped when audioUrl is null so pre-upload
+      // placeholder rows from the audio.completeMultipart flow can
+      // still be created.
+      if (input.audioUrl) {
+        const [dup] = await ctx.db
+          .select({ id: portfolioTracks.id })
+          .from(portfolioTracks)
+          .where(
+            and(
+              eq(portfolioTracks.producerId, ctx.producerId),
+              eq(portfolioTracks.audioUrl, input.audioUrl),
+            ),
+          )
+          .limit(1);
+        if (dup) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This track is already in your portfolio.",
+          });
+        }
+      }
       const [row] = await ctx.db
         .insert(portfolioTracks)
         .values({ ...stripUndefined(input), producerId: ctx.producerId })

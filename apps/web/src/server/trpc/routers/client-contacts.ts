@@ -1,18 +1,14 @@
-import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {
   and,
   bookings,
   clientContacts,
-  contractRecipients,
-  contracts,
   products,
   projectTracks,
   projects,
   desc,
   eq,
   inArray,
-  magicLinks,
   or,
   sql,
   trackComments,
@@ -24,7 +20,6 @@ import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { emailHashFor } from "~/server/artist/identity";
-import { issueMagicToken } from "~/lib/magic-links/token";
 
 // Producer-scoped client CRM.
 //
@@ -34,8 +29,6 @@ import { issueMagicToken } from "~/lib/magic-links/token";
 // (when only artistEmail was set) still attach to their contact. If a
 // producer later renames a client's email, the older projects continue
 // to show up because we compare on email strings, not contact IDs.
-
-const TargetEnum = z.enum(["portfolio", "booking"]);
 
 function emailMatchesProject(email: string) {
   return or(eq(projects.clientEmail, email), eq(projects.artistEmail, email));
@@ -736,25 +729,6 @@ export const clientContactsRouter = router({
         trackCount = row?.n ?? 0;
       }
 
-      const contractRows = await ctx.db
-        .select({
-          id: contracts.id,
-          title: contracts.title,
-          status: contracts.status,
-          createdAt: contracts.createdAt,
-          sentAt: contracts.sentAt,
-          signedAt: contracts.signedAt,
-        })
-        .from(contracts)
-        .innerJoin(contractRecipients, eq(contractRecipients.contractId, contracts.id))
-        .where(
-          and(
-            eq(contracts.producerId, ctx.producerId),
-            sql`lower(${contractRecipients.email}) = ${lower}`,
-          ),
-        )
-        .orderBy(desc(contracts.createdAt));
-
       const commentRows =
         projectIds.length > 0
           ? await ctx.db
@@ -829,60 +803,7 @@ export const clientContactsRouter = router({
           lifetimeCents,
         },
         projects: enrichedProjects,
-        contracts: contractRows,
         comments: commentRows,
-      };
-    }),
-
-  sendMagicLink: producerProcedure
-    .input(
-      z.object({
-        id: z.string().uuid(),
-        target: TargetEnum.default("booking"),
-        ttlHours: z.number().int().min(1).max(720).default(168),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const [contact] = await ctx.db
-        .select({ id: clientContacts.id, producerId: clientContacts.producerId })
-        .from(clientContacts)
-        .where(eq(clientContacts.id, input.id))
-        .limit(1);
-      if (!contact || contact.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-
-      const siteUrlRaw = process.env.SITE_URL;
-      if (!siteUrlRaw) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "missing SITE_URL" });
-      }
-      const siteUrl = siteUrlRaw.endsWith("/") ? siteUrlRaw.slice(0, -1) : siteUrlRaw;
-
-      const ttlSeconds = input.ttlHours * 3600;
-      const token = issueMagicToken({
-        producerId: ctx.producerId,
-        target: input.target,
-        ttlSeconds,
-      });
-      const tokenHash = createHash("sha256").update(token).digest("hex");
-      const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-
-      const [row] = await ctx.db
-        .insert(magicLinks)
-        .values({
-          producerId: ctx.producerId,
-          target: input.target,
-          tokenHash,
-          expiresAt,
-        })
-        .returning({ id: magicLinks.id, expiresAt: magicLinks.expiresAt });
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-      return {
-        url: `${siteUrl}/m/${token}`,
-        linkId: row.id,
-        target: input.target,
-        expiresAt: row.expiresAt,
       };
     }),
 });

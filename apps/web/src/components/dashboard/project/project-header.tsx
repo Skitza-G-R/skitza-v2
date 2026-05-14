@@ -24,6 +24,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { CancelConfirmModal } from "~/components/project/cancel-confirm-modal";
 import { ConfirmChargeModal } from "~/components/project/confirm-charge-modal";
 import { PaymentStatusStrip } from "~/components/project/payment-status-strip";
+import { EditProjectModal } from "./edit-project-modal";
 import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/input";
 import { KeyboardHint } from "~/components/ui/keyboard-hint";
@@ -41,7 +42,7 @@ import {
   chargeFinalAction,
   setProjectPaid,
   setStageAction,
-} from "~/app/(app)/dashboard/projects/actions";
+} from "~/app/(producer)/dashboard/clients-projects/actions";
 
 import { ProjectTimeline } from "./project-timeline";
 import { TagEditor } from "./tag-editor";
@@ -63,10 +64,6 @@ export interface ProjectHeaderProject {
   totalAmountCents: number | null;
   cardLast4: string | null;
   currency: string;
-  // Task 5 timeline signals. contractSigned is true when the producer
-  // has a contract on this project with status === "signed". Surfaced
-  // by the page loader.
-  contractSigned: boolean;
   // finalDelivered mirrors the legacy finalPaid flag for now — until a
   // dedicated "final delivered" column lands, delivery and final
   // payment collapse to the same thing.
@@ -96,6 +93,7 @@ export function ProjectHeader({
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [chargeOpen, setChargeOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -193,7 +191,7 @@ export function ProjectHeader({
     setMenuOpen(false);
     // Deep-link to the music sub-tab with an action hint. The music
     // sub-tab handles the ?action=upload param (landing Task 6).
-    router.push(`/dashboard/projects/${project.id}?tab=music&action=upload`);
+    router.push(`/dashboard/clients-projects/${project.id}?tab=music&action=upload`);
   }
 
   // Batch D — Project Room keyboard shortcuts. Scoped to the header's
@@ -218,11 +216,16 @@ export function ProjectHeader({
     setCancelOpen(true);
   }
 
+  function onEditClick() {
+    setMenuOpen(false);
+    setEditOpen(true);
+  }
+
   async function onConfirmCancel(confirmTitle: string) {
     const res = await cancelProjectAction({ projectId: project.id, confirmTitle });
     if (!res.ok) throw new Error(res.error);
     setCancelOpen(false);
-    setStage("cancelled");
+    setStage("archived");
     toast("Project cancelled. Future charges stopped automatically.", "success");
     router.refresh();
   }
@@ -343,6 +346,7 @@ export function ProjectHeader({
             pending={pending}
             onMarkFinal={onMarkFinalClick}
             onUploadTrack={onUploadTrackClick}
+            onEditProject={onEditClick}
             onCancelProject={onCancelClick}
           />
         </div>
@@ -369,7 +373,6 @@ export function ProjectHeader({
       {/* 5-step progress rail. */}
       <ProjectTimeline
         stage={stage}
-        contractSigned={project.contractSigned}
         chargesCompleted={project.chargesCompleted}
         chargesTotal={project.chargesTotal}
         finalDelivered={project.finalDelivered}
@@ -402,6 +405,17 @@ export function ProjectHeader({
           }}
         />
       ) : null}
+
+      <EditProjectModal
+        open={editOpen}
+        projectId={project.id}
+        initialTitle={project.title}
+        initialArtistName={project.artistName}
+        initialArtistEmail={project.artistEmail}
+        onClose={() => {
+          setEditOpen(false);
+        }}
+      />
     </header>
   );
 }
@@ -430,6 +444,7 @@ interface ActionsMenuProps {
   pending: boolean;
   onMarkFinal: () => void;
   onUploadTrack: () => void;
+  onEditProject: () => void;
   onCancelProject: () => void;
 }
 
@@ -442,6 +457,7 @@ function ActionsMenu({
   pending,
   onMarkFinal,
   onUploadTrack,
+  onEditProject,
   onCancelProject,
 }: ActionsMenuProps) {
   return (
@@ -484,6 +500,11 @@ function ActionsMenu({
             disabled={pending}
             label="Upload a new track"
             shortcut="U"
+          />
+          <MenuItem
+            onClick={onEditProject}
+            disabled={pending}
+            label="Edit project"
           />
           {!isTerminal ? (
             <MenuItem

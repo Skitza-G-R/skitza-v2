@@ -7,9 +7,9 @@ import { isRtl } from "./config";
 // Authenticated-app i18n wrapper.
 //
 // The root <html> is pinned to lang="en" / dir="ltr" so the landing
-// page, public storefront, sign-in/up, and magic-link handler are
-// never affected by the NEXT_LOCALE cookie. This helper is the single
-// mount point that opts a route group INTO i18n: it resolves the
+// page, public storefront, and sign-in/up are never affected by the
+// NEXT_LOCALE cookie. This helper is the single mount point that opts
+// a route group INTO i18n: it resolves the
 // active locale + messages, hands them to NextIntlClientProvider, and
 // wraps the children in a `<div dir="…" lang="…">` so Tailwind's
 // `rtl:` variants + CSS logical properties fire only inside the

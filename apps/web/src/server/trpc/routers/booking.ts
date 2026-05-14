@@ -1,5 +1,5 @@
-import { createHash, randomBytes } from "node:crypto";
-import { headers } from "next/headers";
+import { createHash } from "node:crypto";
+import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
 import {
   and,
@@ -8,45 +8,28 @@ import {
   availabilityBlocks,
   bookings,
   clientContacts,
-  createDb,
+  desc,
   eq,
   gte,
   inArray,
-  invoices,
   isNull,
   lte,
   products,
   producers,
   projects,
-  type Db,
+  sql,
   type Product,
 } from "@skitza/db";
+import { createDb } from "@skitza/db";
 import { z } from "zod";
 
 import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
-import { recordContact } from "~/server/contacts/record";
 import {
+  sendBookingCancelledOrRescheduledEmail,
   sendBookingConfirmedEmail,
-  sendBookingRequestEmail,
 } from "~/server/email/send";
-import { emitBookingRequested } from "~/server/notifications/emit";
-import { checkRateLimit } from "~/lib/rate-limit/in-memory";
-
-// Public procedures need their own `db` handle + an ipHash for
-// rate-limiting. producerProcedure adds these already (for authed
-// callers); publicProcedure doesn't. Small helper keeps each public
-// endpoint's body focused on what it actually does.
-async function publicCtx(): Promise<{ db: Db; ipHash: string }> {
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "missing DATABASE_URL" });
-  }
-  const hdrs = await headers();
-  const ipRaw = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  return { db: createDb(dbUrl), ipHash: createHash("sha256").update(ipRaw).digest("hex") };
-}
 
 // ─── Product schemas ─────────────────────────────────────────────────
 // Phase H.3 rebuild — producers don't sell time, they sell deliverables.
@@ -114,7 +97,12 @@ const ProductInputShape = {
   // column is NOT NULL for legacy reasons; we store 0 when the
   // producer leaves it blank.
   durationMin: z.number().int().min(0).max(24 * 60).optional(),
-  sessionCount: z.number().int().min(1).max(100).optional(),
+  // 0 is the canonical "unlimited sessions" marker — see
+  // storefront-screen.tsx's read-side: `unlimitedSessions: p.sessionCount === 0`.
+  // The wizard's Unlimited toggle saves 0; the prior min(1) made that
+  // round-trip silently fail, so the Save button errored on any
+  // product the producer marked as unlimited.
+  sessionCount: z.number().int().min(0).max(100).optional(),
   deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
   depositModel: DepositModel.default("flat"),
   depositPct: z.number().int().min(0).max(100).optional(),
@@ -123,6 +111,10 @@ const ProductInputShape = {
   bufferMinutes: z.number().int().min(0).max(240).default(0),
   minLeadHours: z.number().int().min(0).max(30 * 24).default(12),
   paymentPlans: PaymentPlanInput.optional(),
+  // B7 — optional URL to a contract PDF the producer hosts elsewhere
+  // (Dropbox, Drive, their own site). Same paste-a-link pattern as
+  // brand.logoUrl. Nullable so producers can clear an existing link.
+  contractUrl: z.string().url().max(2048).nullable().optional(),
 };
 
 const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
@@ -200,7 +192,8 @@ const ProductUpdateInput = z
     volumeTiers: z.array(VolumeTier).max(10).optional(),
     hourlyRateCents: z.number().int().min(0).max(100_000_000).optional(),
     durationMin: z.number().int().min(0).max(24 * 60).optional(),
-    sessionCount: z.number().int().min(1).max(100).optional(),
+    // 0 = unlimited sessions (see create-input comment above).
+    sessionCount: z.number().int().min(0).max(100).optional(),
     deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
     depositModel: DepositModel.optional(),
     depositPct: z.number().int().min(0).max(100).optional(),
@@ -209,6 +202,8 @@ const ProductUpdateInput = z
     bufferMinutes: z.number().int().min(0).max(240).optional(),
     minLeadHours: z.number().int().min(0).max(30 * 24).optional(),
     paymentPlans: PaymentPlanInput.optional(),
+    // B7 — see ProductInputShape comment.
+    contractUrl: z.string().url().max(2048).nullable().optional(),
   });
 
 // Weekly availability replaces the entire week atomically — easier UX
@@ -266,50 +261,6 @@ const AvailabilityWeekInput = z
       }
     }
   });
-
-// Shared schema used for a single plan choice. Matches the on-disk
-// `PaymentPlan` union (full / 50-50 / monthly with 2..12 installments).
-const PaymentPlanChoice = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("full") }),
-  z.object({ kind: z.literal("split_50_50") }),
-  z.object({
-    kind: z.literal("monthly"),
-    installments: z.number().int().min(2).max(12),
-  }),
-]);
-
-// Visitor booking-request input. `quantity` defaults to 1 for per-song
-// products; ignored for flat/bundle/hourly. `hours` similarly optional
-// for hourly. `paymentPlan` is the picker's selection — when the
-// product offers multiple plans the client picks one before submitting.
-// Absent means "legacy deposit/full flow" (no new project row, no
-// Stripe Customer lookup). Validated against the product's
-// `paymentPlans` at runtime.
-const BookingRequestInput = z.object({
-  productId: z.string().uuid(),
-  artistName: z.string().min(1).max(80),
-  artistEmail: z.string().email(),
-  artistPhone: z.string().max(40).optional(),
-  notes: z.string().max(1000).optional(),
-  startsAtIso: z.string().datetime().optional(), // optional: pure-delivery products have no slot
-  quantity: z.number().int().min(1).max(100).optional(),
-  hours: z.number().int().min(1).max(24 * 7).optional(),
-  paymentPlan: PaymentPlanChoice.optional(),
-});
-
-// Slot-compute input. `startDate` is an ISO date (YYYY-MM-DD) in the
-// producer's TZ; we look forward from that date.
-const SlotsInput = z.object({
-  slug: z.string().min(3).max(48),
-  productId: z.string().uuid(),
-  days: z.number().int().min(1).max(60).default(14),
-});
-
-// Public rate-limit.
-const BOOKING_REQUEST_LIMIT = 5;
-const BOOKING_REQUEST_WINDOW_MS = 60_000;
-const SLOTS_LIMIT = 30;
-const SLOTS_WINDOW_MS = 60_000;
 
 const SLOT_INCREMENT_MIN = 15;
 const DEFAULT_MIN_LEAD_HOURS = 12;
@@ -408,11 +359,6 @@ function calendarDayInTz(
     day: Number(lookup.day),
     weekday: weekdayMap[lookup.weekday ?? "Sun"] ?? 0,
   };
-}
-
-function dayKeyInTz(instant: Date, tz: string): string {
-  const { year, month, day } = calendarDayInTz(instant, tz);
-  return `${String(year)}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 export function isBlackedOut(
@@ -586,6 +532,70 @@ const productsRouter = router({
       return { ok: true as const };
     }),
 
+  // Phase 2 store redesign — Undo counterpart to `archive`. Surfaces
+  // the row again to the dashboard list (filters on archivedAt IS NULL)
+  // but keeps it hidden from the storefront until the producer
+  // re-publishes via the Show toggle. Idempotent: safe to call on a
+  // not-yet-archived product (clearing a null archivedAt is a no-op).
+  restore: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({ producerId: products.producerId })
+        .from(products)
+        .where(eq(products.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db
+        .update(products)
+        .set({ archivedAt: null, active: false })
+        .where(eq(products.id, input.id));
+      return { ok: true as const };
+    }),
+
+  // Phase 3 store redesign — drag-to-reorder. Writes the new ordinals
+  // in one transaction so a partial failure can't leave the list
+  // half-reordered. Producer ownership is verified by selecting all
+  // row producerIds in one query and asserting equality before any
+  // write. Idempotent: calling with the same order is a no-op.
+  // (Deliberately diverges from portfolio.reorder / producerExternalLinks.reorder,
+  // which use Promise.all + scoped UPDATEs without a transaction — products
+  // is the commerce surface, partial-reorder mid-failure isn't acceptable
+  // here, even though the optimistic client reverts.)
+  reorder: producerProcedure
+    .input(
+      z.object({
+        orderedIds: z
+          .array(z.string().uuid())
+          .min(1)
+          .refine((arr) => new Set(arr).size === arr.length, "duplicate ids are not allowed"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({ id: products.id, producerId: products.producerId })
+        .from(products)
+        .where(inArray(products.id, input.orderedIds));
+      if (rows.length !== input.orderedIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (rows.some((r) => r.producerId !== ctx.producerId)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db.transaction(async (tx) => {
+        for (const [idx, id] of input.orderedIds.entries()) {
+          await tx
+            .update(products)
+            .set({ position: idx })
+            .where(eq(products.id, id));
+        }
+      });
+      return { ok: true as const };
+    }),
+
   // Legacy alias — callers still using `deactivate` go through the
   // same code path as archive. Remove once all callers migrated.
   deactivate: producerProcedure
@@ -607,31 +617,84 @@ const productsRouter = router({
       return { ok: true as const };
     }),
 
-  // Reorder — atomic position swap. Accepts an ordered id array; each
-  // id gets its index as the new position.
-  reorder: producerProcedure
-    .input(z.object({ ids: z.array(z.string().uuid()).max(200) }))
+  // Storefront visibility toggle. Flips `active` without archiving the
+  // row, so the producer can hide a product from their public page
+  // (publicPackages query filters on active=true) and still show it in
+  // the dashboard list. Distinct from `archive`, which moves the row
+  // to a soft-deleted state and removes it from the dashboard list.
+  setActive: producerProcedure
+    .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      // Ownership check: every id must belong to this producer.
-      if (input.ids.length === 0) return { ok: true as const };
-      const rows = await ctx.db
-        .select({ id: products.id, producerId: products.producerId })
+      const [existing] = await ctx.db
+        .select({ producerId: products.producerId })
         .from(products)
-        .where(inArray(products.id, input.ids));
-      for (const r of rows) {
-        if (r.producerId !== ctx.producerId) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        .where(eq(products.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
       }
-      for (let i = 0; i < input.ids.length; i++) {
-        const id = input.ids[i];
-        if (!id) continue;
-        await ctx.db
-          .update(products)
-          .set({ position: i })
-          .where(eq(products.id, id));
-      }
+      await ctx.db
+        .update(products)
+        .set({ active: input.active })
+        .where(eq(products.id, input.id));
       return { ok: true as const };
+    }),
+
+  // Duplicate — clone an existing product into a new row. The copy
+  // starts hidden (active=false) so the producer can edit before
+  // exposing it. Name gets " (copy)" appended; position is appended
+  // to the end of the producer's list.
+  duplicate: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select()
+        .from(products)
+        .where(eq(products.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      // Compute next position at the tail of this producer's list.
+      const all = await ctx.db
+        .select({ position: products.position })
+        .from(products)
+        .where(eq(products.producerId, ctx.producerId))
+        .orderBy(asc(products.position));
+      const nextPos = all.length === 0
+        ? 0
+        : (all[all.length - 1]?.position ?? 0) + 1;
+      const [row] = await ctx.db
+        .insert(products)
+        .values({
+          producerId: existing.producerId,
+          name: `${existing.name} (copy)`,
+          description: existing.description,
+          durationMin: existing.durationMin,
+          sessionCount: existing.sessionCount,
+          priceCents: existing.priceCents,
+          currency: existing.currency,
+          depositPct: existing.depositPct,
+          active: false,
+          position: nextPos,
+          kind: existing.kind,
+          locationType: existing.locationType,
+          bufferMinutes: existing.bufferMinutes,
+          minLeadHours: existing.minLeadHours,
+          pricingModel: existing.pricingModel,
+          volumeTiers: existing.volumeTiers,
+          hourlyRateCents: existing.hourlyRateCents,
+          deliverables: existing.deliverables,
+          depositModel: existing.depositModel,
+          milestones: existing.milestones,
+          paymentPlans: existing.paymentPlans,
+          contractUrl: existing.contractUrl,
+        })
+        .returning();
+      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      return row;
     }),
 });
 
@@ -832,7 +895,7 @@ export const bookingRouter = router({
       .where(
         and(
           eq(bookings.producerId, ctx.producerId),
-          inArray(bookings.status, ["pending", "confirmed"]),
+          inArray(bookings.status, ["pending_approval", "pending_payment", "confirmed"]),
         ),
       );
     if (bookingRows.length === 0) {
@@ -887,11 +950,61 @@ export const bookingRouter = router({
     return { mtdCents, outstandingCents, next7DaysCents, currency };
   }),
 
+  // Producer dashboard banner — confirmed sessions whose end time has
+  // passed while the linked project is still `booked` or `in_production`.
+  // The producer hasn't moved the project forward (uploaded files, marked
+  // delivered) so we surface a nudge to follow up. Capped at 5 to keep
+  // the dashboard from turning into a stale-session graveyard.
+  needsFollowUp: producerProcedure.query(async ({ ctx }) => {
+    const now = new Date();
+    const rows = await ctx.db
+      .select({
+        id: bookings.id,
+        artistName: bookings.artistName,
+        startsAt: bookings.startsAt,
+        durationMin: bookings.durationMin,
+        projectId: bookings.projectId,
+        projectStage: projects.stage,
+        projectTitle: projects.title,
+      })
+      .from(bookings)
+      .leftJoin(projects, eq(projects.id, bookings.projectId))
+      .where(
+        and(
+          eq(bookings.producerId, ctx.producerId),
+          eq(bookings.status, "confirmed"),
+          lte(
+            sql`${bookings.startsAt} + ${bookings.durationMin} * interval '1 minute'`,
+            now,
+          ),
+          inArray(projects.stage, ["booked", "in_production"]),
+        ),
+      )
+      .orderBy(desc(bookings.startsAt))
+      .limit(5);
+    return rows.map((r) => ({
+      id: r.id,
+      artistName: r.artistName,
+      startsAt: r.startsAt,
+      durationMin: r.durationMin,
+      projectId: r.projectId,
+      projectTitle: r.projectTitle ?? r.artistName,
+    }));
+  }),
+
   list: producerProcedure
     .input(
       z
         .object({
-          status: z.enum(["pending", "confirmed", "rejected", "cancelled"]).optional(),
+          status: z
+            .enum([
+              "pending_approval",
+              "pending_payment",
+              "confirmed",
+              "rejected",
+              "cancelled",
+            ])
+            .optional(),
         })
         .optional(),
     )
@@ -933,13 +1046,32 @@ export const bookingRouter = router({
       if (existing.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      if (existing.status !== "pending") {
+      if (existing.status !== "pending_approval") {
         if (existing.status === "confirmed") return { ok: true as const };
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `Cannot confirm a ${existing.status} booking`,
         });
       }
+
+      // Producer "Approve" branches on whether the booking still owes
+      // money. A booking with a productId AND no project yet is a fresh,
+      // unpaid engagement — approval moves it to `pending_payment` and we
+      // skip auto-project creation + the confirmation email until the
+      // artist actually pays. A booking that already has a linked project
+      // is a returning-artist follow-up (already paid for the engagement),
+      // so we go straight to `confirmed` and run the auto-project +
+      // welcome-email side effects as before.
+      const needsPayment =
+        existing.productId !== null && existing.projectId === null;
+      if (needsPayment) {
+        await ctx.db
+          .update(bookings)
+          .set({ status: "pending_payment", statusChangedAt: new Date() })
+          .where(eq(bookings.id, input.id));
+        return { ok: true as const };
+      }
+
       await ctx.db
         .update(bookings)
         .set({ status: "confirmed", statusChangedAt: new Date() })
@@ -966,10 +1098,6 @@ export const bookingRouter = router({
       // booking with no project yet, recoverable via
       // project.createFromBooking.
       if (!existing.projectId) {
-        // Share-token mint mirrors project.ts's mintShareToken — 32
-        // bytes → 43 base64url chars, store only sha256(raw).
-        const rawToken = randomBytes(32).toString("base64url");
-        const shareTokenHash = createHash("sha256").update(rawToken).digest("hex");
         const title =
           existing.packageNameSnapshot && existing.packageNameSnapshot.length > 0
             ? existing.packageNameSnapshot
@@ -990,7 +1118,6 @@ export const bookingRouter = router({
               stage: "booked",
               depositPaid: false,
               finalPaid: false,
-              shareTokenHash,
             })
             .returning();
           if (projectRow) {
@@ -1089,19 +1216,335 @@ export const bookingRouter = router({
       return { ok: true as const };
     }),
 
+  // Public read of a confirmed booking by id. Used by surfaces that
+  // can't rely on a Clerk session (Tranzila's success redirect, future
+  // share links) — returns null for any booking that isn't yet
+  // confirmed, so a guessed UUID can't leak booking metadata before
+  // the artist actually paid.
+  getConfirmedBooking: publicProcedure
+    .input(z.object({ bookingId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      const dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "missing DATABASE_URL",
+        });
+      }
+      const db = createDb(dbUrl);
+      const [row] = await db
+        .select({
+          id: bookings.id,
+          status: bookings.status,
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+          artistName: bookings.artistName,
+          packageNameSnapshot: bookings.packageNameSnapshot,
+          tranzilaConfirmationCode: bookings.tranzilaConfirmationCode,
+          producerName: producers.displayName,
+        })
+        .from(bookings)
+        .leftJoin(producers, eq(producers.id, bookings.producerId))
+        .where(eq(bookings.id, input.bookingId))
+        .limit(1);
+      if (!row || row.status !== "confirmed") return null;
+      return row;
+    }),
+
+  // Public — called from the Tranzila callback handler at
+  // /api/tranzila/callback. We can't gate on a signed-in artist because
+  // Tranzila's server-to-server `notify_url` POST has no Clerk session.
+  //
+  // SECURITY: The current shape trusts that anyone hitting this with a
+  // valid `bookingId + status=success` actually paid. Real Tranzila
+  // integrations call Tranzila's `confirm.php` verification endpoint
+  // with the txn id to confirm the charge cleared. For MVP we accept the
+  // bookingId at face value; a follow-up should verify against
+  // tranzila so a guessed UUID can't flip a booking to confirmed.
+  // TODO(payments): verify with Tranzila's confirm.php API.
+  confirmAfterPayment: publicProcedure
+    .input(
+      z.object({
+        bookingId: z.string().uuid(),
+        tranzilaConfirmationCode: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "missing DATABASE_URL",
+        });
+      }
+      const db = createDb(dbUrl);
+
+      const [existing] = await db
+        .select({
+          id: bookings.id,
+          producerId: bookings.producerId,
+          status: bookings.status,
+          artistName: bookings.artistName,
+          artistEmail: bookings.artistEmail,
+          startsAt: bookings.startsAt,
+          durationMin: bookings.durationMin,
+          productId: bookings.productId,
+          packageNameSnapshot: bookings.packageNameSnapshot,
+          projectId: bookings.projectId,
+        })
+        .from(bookings)
+        .where(eq(bookings.id, input.bookingId))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // Idempotent — if the artist re-hits the success URL after the
+      // booking already flipped, just return the existing project id.
+      if (existing.status === "confirmed") {
+        return { ok: true as const, projectId: existing.projectId };
+      }
+      if (existing.status !== "pending_payment") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Cannot confirm payment on ${existing.status} booking`,
+        });
+      }
+
+      try {
+        await db
+          .update(bookings)
+          .set({
+            status: "confirmed",
+            statusChangedAt: new Date(),
+            // Only overwrite when the caller actually has a code in hand.
+            // The notify_url POST is the canonical confirmation path and
+            // will supply one; preserving the existing value on no-arg
+            // calls keeps idempotent retries safe.
+            ...(input.tranzilaConfirmationCode
+              ? { tranzilaConfirmationCode: input.tranzilaConfirmationCode }
+              : {}),
+          })
+          .where(eq(bookings.id, input.bookingId));
+      } catch (err) {
+        console.error("[payment] booking status update to confirmed failed", {
+          bookingId: existing.id,
+          producerId: existing.producerId,
+          artistEmail: existing.artistEmail,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
+        throw err;
+      }
+
+      // Fetch the product's financial snapshot once — both the existing-
+      // project update path (below) and the new-project insert path
+      // (further below) want to land totalAmountCents + currency on the
+      // project row. Cheaper than two separate SELECTs and keeps the two
+      // branches in sync. Null when the booking has no productId (rare:
+      // bookings without a product can't have a price to snapshot).
+      const productRow = existing.productId
+        ? await db
+            .select({
+              priceCents: products.priceCents,
+              currency: products.currency,
+              sessionCount: products.sessionCount,
+            })
+            .from(products)
+            .where(eq(products.id, existing.productId))
+            .limit(1)
+            .then((r) => r[0] ?? null)
+        : null;
+
+      // Flip depositPaid + populate financial snapshot on the already-
+      // linked project (returning-artist follow-up flow where the
+      // booking arrived with projectId already set). New projects
+      // created below in the auto-provision block land the same fields
+      // directly in their values() object. Best-effort: log on failure,
+      // don't unwind the status transition.
+      //
+      // Conditional spread on totalAmountCents/currency so a productRow
+      // miss leaves any existing values on the project untouched —
+      // overwriting a populated currency with NULL would be worse than
+      // doing nothing.
+      if (existing.projectId) {
+        try {
+          await db
+            .update(projects)
+            .set({
+              depositPaid: true,
+              chargesCompleted: 1,
+              ...(productRow?.priceCents != null
+                ? { totalAmountCents: productRow.priceCents }
+                : {}),
+              ...(productRow?.currency
+                ? { currency: productRow.currency }
+                : {}),
+            })
+            .where(eq(projects.id, existing.projectId));
+        } catch (err) {
+          console.warn("[payment] project depositPaid update failed", {
+            projectId: existing.projectId,
+            bookingId: existing.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      // Auto-provision a project — same shape as booking.confirm's
+      // auto-project block. Idempotent on existing.projectId so a
+      // duplicate callback (browser redirect AND notify_url POST) only
+      // inserts once.
+      let projectId = existing.projectId;
+      if (!projectId) {
+        const title =
+          existing.packageNameSnapshot && existing.packageNameSnapshot.length > 0
+            ? existing.packageNameSnapshot
+            : `Session with ${existing.artistName}`;
+        const lowerEmail = existing.artistEmail.trim().toLowerCase();
+        try {
+          const [projectRow] = await db
+            .insert(projects)
+            .values({
+              producerId: existing.producerId,
+              bookingId: existing.id,
+              title,
+              artistName: existing.artistName,
+              artistEmail: lowerEmail,
+              clientName: existing.artistName,
+              clientEmail: lowerEmail,
+              stage: "booked",
+              // confirmAfterPayment runs after the artist's deposit has
+              // cleared at Tranzila — the project starts with
+              // depositPaid=true and chargesCompleted=1 so the
+              // producer's dashboard reflects funds-in-hand from the
+              // first render. totalAmountCents + currency snapshot the
+              // product's price so later modals (final charge, etc.)
+              // can derive the second-half amount without re-reading
+              // the product (which the producer may have edited).
+              depositPaid: true,
+              finalPaid: false,
+              chargesCompleted: 1,
+              totalAmountCents: productRow?.priceCents ?? null,
+              currency: productRow?.currency ?? "ILS",
+              sessionCount: productRow?.sessionCount ?? 1,
+            })
+            .returning();
+          if (projectRow) {
+            projectId = projectRow.id;
+            await db
+              .update(bookings)
+              .set({ projectId: projectRow.id })
+              .where(eq(bookings.id, existing.id));
+          }
+        } catch (err) {
+          console.error("[payment] auto-project insert failed", {
+            bookingId: existing.id,
+            producerId: existing.producerId,
+            artistEmail: existing.artistEmail,
+            error: err instanceof Error ? err.message : String(err),
+            stack: err instanceof Error ? err.stack : undefined,
+          });
+        }
+
+        try {
+          const emailHash = createHash("sha256")
+            .update(lowerEmail)
+            .digest("hex");
+          const now = new Date();
+          await db
+            .insert(clientContacts)
+            .values({
+              producerId: existing.producerId,
+              emailHash,
+              email: lowerEmail,
+              name: existing.artistName,
+              firstSeenAt: now,
+              lastSeenAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [clientContacts.producerId, clientContacts.emailHash],
+              set: { name: existing.artistName, lastSeenAt: now },
+            });
+        } catch (err) {
+          console.warn("[payment] client_contacts upsert failed", err);
+        }
+      }
+
+      // Confirmation email — best-effort, gated on autopilot toggle to
+      // match booking.confirm's semantics.
+      try {
+        const [producer] = await db
+          .select({
+            displayName: producers.displayName,
+            timezone: producers.timezone,
+            defaultCurrency: producers.defaultCurrency,
+            autopilotWelcomeEmail: producers.autopilotWelcomeEmail,
+          })
+          .from(producers)
+          .where(eq(producers.id, existing.producerId))
+          .limit(1);
+        if (producer && producer.autopilotWelcomeEmail) {
+          const product = existing.productId
+            ? (
+                await db
+                  .select({
+                    name: products.name,
+                    priceCents: products.priceCents,
+                    currency: products.currency,
+                    depositPct: products.depositPct,
+                  })
+                  .from(products)
+                  .where(eq(products.id, existing.productId))
+                  .limit(1)
+              )[0]
+            : undefined;
+          const priceCents = product?.priceCents ?? 0;
+          const depositPct = product?.depositPct ?? 0;
+          const depositCents = Math.round((priceCents * depositPct) / 100);
+          await sendBookingConfirmedEmail(existing.artistEmail, {
+            artistName: existing.artistName,
+            producerName: producer.displayName ?? "Your producer",
+            productName:
+              product?.name ?? existing.packageNameSnapshot ?? "Session",
+            startsAt: existing.durationMin > 0 ? existing.startsAt : null,
+            producerTimezone: producer.timezone,
+            currency: product?.currency ?? producer.defaultCurrency,
+            priceCents,
+            depositCents,
+          });
+        }
+      } catch (err) {
+        console.warn(
+          "[email] sendBookingConfirmedEmail failed in confirmAfterPayment",
+          err,
+        );
+      }
+
+      return { ok: true as const, projectId };
+    }),
+
   reject: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const [existing] = await ctx.db
-        .select({ producerId: bookings.producerId, status: bookings.status })
+        .select({
+          producerId: bookings.producerId,
+          status: bookings.status,
+          artistEmail: bookings.artistEmail,
+          artistName: bookings.artistName,
+          startsAt: bookings.startsAt,
+          packageNameSnapshot: bookings.packageNameSnapshot,
+          producerDisplayName: producers.displayName,
+          producerTimezone: producers.timezone,
+        })
         .from(bookings)
+        .innerJoin(producers, eq(producers.id, bookings.producerId))
         .where(eq(bookings.id, input.id))
         .limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
       if (existing.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      if (existing.status !== "pending") {
+      if (existing.status !== "pending_approval") {
         if (existing.status === "rejected") return { ok: true as const };
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -1112,568 +1555,24 @@ export const bookingRouter = router({
         .update(bookings)
         .set({ status: "rejected", statusChangedAt: new Date() })
         .where(eq(bookings.id, input.id));
-      return { ok: true as const };
-    }),
 
-  // ── Public procedures ────────────────────────────────────────────
-
-  /**
-   * Public: list active products for a producer.
-   *
-   * Historically surfaced on `/p/<slug>/book` (deleted in Story 03 per
-   * PRD §6.6). The procedure is retained because the new `/join/<slug>`
-   * flow and the signed-in artist Book tab both need this shape.
-   */
-  publicProducts: publicProcedure
-    .input(z.object({ slug: z.string().min(3).max(48) }))
-    .query(async ({ input }) => {
-      const { db } = await publicCtx();
-      const [producer] = await db
-        .select({ id: producers.id, displayName: producers.displayName })
-        .from(producers)
-        .where(eq(producers.slug, input.slug))
-        .limit(1);
-      if (!producer || producer.displayName === null) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-      const rows = await db
-        .select()
-        .from(products)
-        .where(
-          and(
-            eq(products.producerId, producer.id),
-            eq(products.active, true),
-            isNull(products.archivedAt),
-          ),
-        )
-        .orderBy(asc(products.position), asc(products.createdAt));
-      return { producer: { displayName: producer.displayName }, products: rows };
-    }),
-
-  /**
-   * Legacy alias for `publicProducts` — the old call-site names this
-   * procedure `publicPackages` and expects `.packages` on the result.
-   * Keep both until every caller migrates.
-   */
-  publicPackages: publicProcedure
-    .input(z.object({ slug: z.string().min(3).max(48) }))
-    .query(async ({ input }) => {
-      const { db } = await publicCtx();
-      const [producer] = await db
-        .select({ id: producers.id, displayName: producers.displayName })
-        .from(producers)
-        .where(eq(producers.slug, input.slug))
-        .limit(1);
-      if (!producer || producer.displayName === null) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-      const rows = await db
-        .select()
-        .from(products)
-        .where(
-          and(
-            eq(products.producerId, producer.id),
-            eq(products.active, true),
-            isNull(products.archivedAt),
-          ),
-        )
-        .orderBy(asc(products.position), asc(products.createdAt));
-      return { producer: { displayName: producer.displayName }, packages: rows };
-    }),
-
-  /** Public: available slots for a product over the next N days. */
-  publicSlots: publicProcedure
-    .input(SlotsInput)
-    .query(async ({ input }) => {
-      const { db, ipHash } = await publicCtx();
-      const rl = checkRateLimit(`booking-slots:${ipHash}`, SLOTS_LIMIT, SLOTS_WINDOW_MS);
-      if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
-
-      const [producer] = await db
-        .select({ id: producers.id, timezone: producers.timezone })
-        .from(producers)
-        .where(eq(producers.slug, input.slug))
-        .limit(1);
-      if (!producer) throw new TRPCError({ code: "NOT_FOUND" });
-
-      const [prod] = await db
-        .select()
-        .from(products)
-        .where(
-          and(
-            eq(products.id, input.productId),
-            eq(products.producerId, producer.id),
-            eq(products.active, true),
-            isNull(products.archivedAt),
-          ),
-        )
-        .limit(1);
-      if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
-
-      // Pure-delivery products (durationMin = 0) have no slot grid.
-      if (prod.durationMin <= 0) {
-        return { durationMin: 0, slots: [] as string[] };
-      }
-
-      const weekBlocks = await db
-        .select({
-          weekday: availabilityBlocks.weekday,
-          startMin: availabilityBlocks.startMin,
-          endMin: availabilityBlocks.endMin,
-        })
-        .from(availabilityBlocks)
-        .where(eq(availabilityBlocks.producerId, producer.id));
-
-      const now = new Date();
-      const horizon = new Date(now.getTime() + input.days * 24 * 60 * 60 * 1000);
-      const existing = await db
-        .select({ startsAt: bookings.startsAt, durationMin: bookings.durationMin })
-        .from(bookings)
-        .where(
-          and(
-            eq(bookings.producerId, producer.id),
-            inArray(bookings.status, ["pending", "confirmed"]),
-            gte(bookings.startsAt, now),
-            lte(bookings.startsAt, horizon),
-          ),
-        );
-
-      const blackoutRows = await db
-        .select({
-          startDate: availabilityBlackouts.startDate,
-          endDate: availabilityBlackouts.endDate,
-        })
-        .from(availabilityBlackouts)
-        .where(eq(availabilityBlackouts.producerId, producer.id));
-
-      return {
-        durationMin: prod.durationMin,
-        slots: computeSlots(
-          weekBlocks,
-          existing,
-          prod.durationMin,
-          input.days,
-          producer.timezone,
-          {
-            minLeadHours: prod.minLeadHours,
-            bufferMinutes: prod.bufferMinutes,
-            blackouts: blackoutRows,
-            now,
-          },
-        ),
-      };
-    }),
-
-  /** Public: submit a booking request. Rate-limited per IP. */
-  publicRequest: publicProcedure
-    .input(z.object({ slug: z.string().min(3).max(48) }).merge(BookingRequestInput))
-    .mutation(async ({ input }) => {
-      const { db, ipHash } = await publicCtx();
-      const rl = checkRateLimit(
-        `booking-request:${ipHash}`,
-        BOOKING_REQUEST_LIMIT,
-        BOOKING_REQUEST_WINDOW_MS,
-      );
-      if (!rl.ok) throw new TRPCError({ code: "TOO_MANY_REQUESTS" });
-
-      const [producer] = await db
-        .select({
-          id: producers.id,
-          // Batch B — producer-level auto-confirm toggle. Fetched here
-          // alongside the id so we don't add a round-trip later. When
-          // on, the booking insert lands in `confirmed` directly.
-          autoConfirmBookings: producers.autoConfirmBookings,
-          // Batch G — welcome-email autopilot. Read alongside the
-          // auto-confirm flag so the same row resolve covers the
-          // auto-confirm → welcome-email path without a second query.
-          autopilotWelcomeEmail: producers.autopilotWelcomeEmail,
-          displayName: producers.displayName,
-          timezone: producers.timezone,
-          defaultCurrency: producers.defaultCurrency,
-        })
-        .from(producers)
-        .where(eq(producers.slug, input.slug))
-        .limit(1);
-      if (!producer) throw new TRPCError({ code: "NOT_FOUND" });
-
-      const [prod] = await db
-        .select()
-        .from(products)
-        .where(
-          and(
-            eq(products.id, input.productId),
-            eq(products.producerId, producer.id),
-            eq(products.active, true),
-            isNull(products.archivedAt),
-          ),
-        )
-        .limit(1);
-      if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
-
-      // Task 10 — Paused-project guard.
-      // If this client (matched by lowercased email) already has a
-      // `payment_paused` project with the same producer, refuse to take
-      // a new booking. The pause is a real money problem; queueing more
-      // work behind it just hides the fact that retries failed. Once
-      // they update their card via the Stripe Portal banner, the webhook
-      // flips the stage back to `in_production` and bookings resume.
-      //
-      // Greenfield bookers (no existing project with this producer) are
-      // unaffected — the paused state is per-(producer,client) so a
-      // first-time visitor's booking is never blocked.
-      {
-        const lowerEmail = input.artistEmail.trim().toLowerCase();
-        const [paused] = await db
-          .select({ id: projects.id })
-          .from(projects)
-          .where(
-            and(
-              eq(projects.producerId, producer.id),
-              eq(projects.clientEmail, lowerEmail),
-              eq(projects.stage, "payment_paused"),
-            ),
-          )
-          .limit(1);
-        if (paused) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message:
-              "Your payment method needs to be updated before you can book a new session.",
-          });
-        }
-      }
-
-      // Products without a duration (pure-deliverable) skip the slot
-      // check entirely. We still record a booking row for history +
-      // notifications, using `now` as a placeholder startsAt so the
-      // NOT NULL constraint is satisfied.
-      const isSessionless = prod.durationMin <= 0;
-      const startsAt = isSessionless
-        ? new Date()
-        : input.startsAtIso
-          ? new Date(input.startsAtIso)
-          : null;
-      if (!isSessionless && !startsAt) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "A slot is required for this product.",
-        });
-      }
-
-      if (!isSessionless && startsAt) {
-        const minLeadMs = prod.minLeadHours * 60 * 60 * 1000;
-        if (startsAt.getTime() - Date.now() < minLeadMs) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Booking starts too soon — needs at least ${String(prod.minLeadHours)}h notice`,
-          });
-        }
-        const endsAt = new Date(startsAt.getTime() + prod.durationMin * 60 * 1000);
-
-        const [producerTz] = await db
-          .select({ timezone: producers.timezone })
-          .from(producers)
-          .where(eq(producers.id, producer.id))
-          .limit(1);
-        const tz = producerTz?.timezone ?? "UTC";
-
-        const blackoutRows = await db
-          .select({
-            startDate: availabilityBlackouts.startDate,
-            endDate: availabilityBlackouts.endDate,
-          })
-          .from(availabilityBlackouts)
-          .where(eq(availabilityBlackouts.producerId, producer.id));
-        const slotDayKey = dayKeyInTz(startsAt, tz);
-        if (isBlackedOut(slotDayKey, blackoutRows)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "That day isn't available — please pick another.",
-          });
-        }
-
-        const bufferMs = prod.bufferMinutes * 60 * 1000;
-        const candidates = await db
-          .select({ startsAt: bookings.startsAt, durationMin: bookings.durationMin })
-          .from(bookings)
-          .where(
-            and(
-              eq(bookings.producerId, producer.id),
-              inArray(bookings.status, ["pending", "confirmed"]),
-            ),
-          );
-        const hits = candidates.some((c) => {
-          const cEnd = new Date(c.startsAt.getTime() + c.durationMin * 60 * 1000 + bufferMs);
-          return startsAt < cEnd && c.startsAt < endsAt;
-        });
-        if (hits) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "That slot was just taken — please pick another.",
-          });
-        }
-      }
-
-      // Batch B — auto-confirm toggle: when the producer has opted in,
-      // new public booking requests land directly in `confirmed` state
-      // instead of the default `pending`. The flag was fetched on the
-      // initial slug→id lookup above so we don't add a round-trip here.
-      const initialStatus = producer.autoConfirmBookings ? "confirmed" : "pending";
-
-      const [row] = await db
-        .insert(bookings)
-        .values({
-          producerId: producer.id,
-          productId: prod.id,
-          packageNameSnapshot: prod.name,
-          artistName: input.artistName,
-          artistEmail: input.artistEmail.toLowerCase(),
-          ...(input.artistPhone ? { artistPhone: input.artistPhone } : {}),
-          ...(input.notes ? { notes: input.notes } : {}),
-          startsAt: startsAt ?? new Date(),
-          durationMin: prod.durationMin,
-          status: initialStatus,
-          // TODO(cancellation-policy): enforce cancellationPolicyHours
-          // at the cancel-by-artist mutation when that flow ships.
-          // For now the value is stored on the producer row so it's
-          // available to the (future) cancel handler + the artist
-          // confirmation email copy.
-        })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-      try {
-        await recordContact(db, {
-          producerId: producer.id,
-          email: input.artistEmail,
-          name: input.artistName,
-        });
-      } catch (err) {
-        console.warn("[contacts] recordContact failed in booking.publicRequest", err);
-      }
-
-      try {
-        await emitBookingRequested(db, {
-          producerId: producer.id,
-          bookingId: row.id,
-          artistName: input.artistName,
-          artistEmail: input.artistEmail.toLowerCase(),
-          when: startsAt ?? new Date(),
-        });
-      } catch (err) {
-        console.warn("[notify] emitBookingRequested failed in booking.publicRequest", err);
-      }
-
-      // Fire the producer's "new request" email. Best-effort: a Resend
-      // outage must not roll back the booking insert — the producer
-      // can still see the request in /dashboard/booking?tab=upcoming.
-      try {
-        const [producerRow] = await db
-          .select({
-            email: producers.email,
-            displayName: producers.displayName,
-            timezone: producers.timezone,
-          })
-          .from(producers)
-          .where(eq(producers.id, producer.id))
-          .limit(1);
-        if (producerRow?.email) {
-          const depositCents = Math.round((prod.priceCents * prod.depositPct) / 100);
-          await sendBookingRequestEmail(producerRow.email, {
-            producerName: producerRow.displayName ?? "there",
-            artistName: input.artistName,
-            productName: prod.name,
-            startsAt: prod.durationMin > 0 ? (startsAt ?? null) : null,
-            producerTimezone: producerRow.timezone,
-            currency: prod.currency,
-            priceCents: prod.priceCents,
-            depositCents,
-            notes: input.notes,
-          });
-        }
-      } catch (err) {
-        console.warn("[email] sendBookingRequestEmail failed in booking.publicRequest", err);
-      }
-
-      // Batch G — Autopilot "welcome email when a booking lands".
-      // Only fires on the auto-confirm path (the manual confirm in
-      // booking.confirm already gates on the same flag). If auto-
-      // confirm is off, the producer has to click Approve anyway —
-      // the confirm handler will send the welcome email at that
-      // point. Gating here keeps artist-facing emails from firing
-      // before the producer signals acceptance.
-      if (initialStatus === "confirmed" && producer.autopilotWelcomeEmail) {
+      after(async () => {
         try {
-          const depositCents = Math.round((prod.priceCents * prod.depositPct) / 100);
-          await sendBookingConfirmedEmail(input.artistEmail.toLowerCase(), {
-            artistName: input.artistName,
-            producerName: producer.displayName ?? "Your producer",
-            productName: prod.name,
-            startsAt: prod.durationMin > 0 ? (startsAt ?? null) : null,
-            producerTimezone: producer.timezone,
-            currency: prod.currency,
-            priceCents: prod.priceCents,
-            depositCents,
+          await sendBookingCancelledOrRescheduledEmail(existing.artistEmail, {
+            recipientName: existing.artistName,
+            counterpartName: existing.producerDisplayName ?? "Your producer",
+            productName: existing.packageNameSnapshot ?? "Session",
+            status: "cancelled",
+            oldStartsAt: existing.startsAt,
+            newStartsAt: null,
+            producerTimezone: existing.producerTimezone,
+            reason: null,
           });
         } catch (err) {
-          console.warn(
-            "[email] sendBookingConfirmedEmail failed on auto-confirm path in booking.publicRequest",
-            err,
-          );
+          console.error("[email] booking-cancelled-or-rescheduled failed", err);
         }
-      }
+      });
 
-      // Phase H.5 — when the producer has Stripe Connect on and the
-      // product carries a deposit (or is paid-in-full), mint a Stripe
-      // Checkout Session and return the URL so the visitor can pay
-      // immediately. Best-effort: a Stripe outage falls back to the
-      // pending-approval flow — the booking row is still saved, the
-      // producer still gets notified, the artist gets the request
-      // email — only the in-flow checkout is skipped.
-      //
-      // Two branches:
-      //   (a) `paymentPlan` selected (Phase I auto-installments): run
-      //       the 3-shape dispatch via buildCheckoutSessionParams. We
-      //       upsert a client_contact, reuse/create a Stripe Customer,
-      //       create a project row in `lead` stage with the plan
-      //       snapshot, and persist the invoice linked to that project.
-      //       The webhook (Task 6) advances the project to `active` on
-      //       checkout.session.completed and installs the Subscription
-      //       Schedule for monthly plans.
-      //   (b) No `paymentPlan` — legacy deposit/full path for producers
-      //       still on the Phase H.5 flow. Unchanged behavior.
-      let checkoutUrl: string | null = null;
-      try {
-        const [producerRow] = await db
-          .select({
-            stripeAccountId: producers.stripeAccountId,
-            stripeChargesEnabled: producers.stripeChargesEnabled,
-            slug: producers.slug,
-          })
-          .from(producers)
-          .where(eq(producers.id, producer.id))
-          .limit(1);
-
-        if (producerRow?.stripeAccountId && producerRow.stripeChargesEnabled) {
-          const fullPriceCents = calculatePriceCents(prod, {
-            ...(input.quantity ? { quantity: input.quantity } : {}),
-            ...(input.hours ? { hours: input.hours } : {}),
-          });
-          const { getSiteUrl, getStripe } = await import("~/server/stripe/client");
-          const base = getSiteUrl();
-
-          if (input.paymentPlan && fullPriceCents > 0) {
-            // ── Branch (a): plan-driven 3-shape checkout ────────────
-            // Delegated to the shared `initiatePaidPlanCheckout` helper
-            // (apps/web/src/server/payments/checkout-initiator.ts) so
-            // the artist Store tab and this public booking flow share
-            // the plan-validation + project insert + Stripe Customer +
-            // Checkout Session + invoice ledger pipeline. The helper
-            // returns sessionId so we can still patch the booking row
-            // with the checkout session id below.
-            const { initiatePaidPlanCheckout } = await import(
-              "~/server/payments/checkout-initiator"
-            );
-            const result = await initiatePaidPlanCheckout({
-              db,
-              producer: {
-                id: producer.id,
-                slug: producerRow.slug,
-                stripeAccountId: producerRow.stripeAccountId,
-              },
-              product: prod,
-              paymentPlan: input.paymentPlan,
-              clientName: input.artistName,
-              clientEmail: input.artistEmail,
-              bookingId: row.id,
-              priceCents: fullPriceCents,
-              idempotencyKey: `booking-${row.id}-checkout`,
-              metadata: {
-                bookingId: row.id,
-              },
-              // Post-Story-03 (PRD §6.6): the legacy `/p/<slug>/book`
-              // URLs are gone. Return URLs now point at the new
-              // `/join/<slug>` entry — the signed-in artist lands
-              // back in the funnel and we surface checkout outcome
-              // there. Story 02 wires the ?booked=1/?cancelled=1
-              // params into a toast on /join/<slug>.
-              successUrl: `${base}/join/${producerRow.slug}?session_id={CHECKOUT_SESSION_ID}&booked=1`,
-              cancelUrl: `${base}/join/${producerRow.slug}?cancelled=1`,
-            });
-            checkoutUrl = result.checkoutUrl;
-
-            await db
-              .update(bookings)
-              .set({ stripeCheckoutSessionId: result.sessionId })
-              .where(eq(bookings.id, row.id));
-          } else if (prod.depositPct > 0 || prod.depositModel === "paid_in_full") {
-            // ── Branch (b): legacy deposit/paid-in-full path ───────
-            const isFull = prod.depositModel === "paid_in_full";
-            const amountCents = isFull
-              ? fullPriceCents
-              : Math.round((fullPriceCents * prod.depositPct) / 100);
-
-            if (amountCents > 0) {
-              const stripe = getStripe();
-              const session = await stripe.checkout.sessions.create({
-                mode: "payment",
-                line_items: [
-                  {
-                    price_data: {
-                      currency: prod.currency.toLowerCase(),
-                      product_data: {
-                        name: `${prod.name} — ${isFull ? "full" : "deposit"}`,
-                      },
-                      unit_amount: amountCents,
-                    },
-                    quantity: 1,
-                  },
-                ],
-                customer_email: input.artistEmail.toLowerCase(),
-                // Post-Story-03 (PRD §6.6): the legacy `/p/<slug>/book`
-                // URLs are gone. Return URLs now point at the new
-                // `/join/<slug>` entry.
-                success_url: `${base}/join/${producerRow.slug}?session_id={CHECKOUT_SESSION_ID}&booked=1`,
-                cancel_url: `${base}/join/${producerRow.slug}?cancelled=1`,
-                payment_intent_data: {
-                  transfer_data: { destination: producerRow.stripeAccountId },
-                },
-                metadata: {
-                  producerId: producer.id,
-                  bookingId: row.id,
-                  kind: isFull ? "full" : "deposit",
-                },
-              });
-              checkoutUrl = session.url;
-
-              await db.insert(invoices).values({
-                producerId: producer.id,
-                bookingId: row.id,
-                stripeCheckoutSessionId: session.id,
-                amountCents,
-                currency: prod.currency,
-                description: `${prod.name} — ${isFull ? "full" : "deposit"}`,
-                kind: isFull ? "full" : "deposit",
-                status: "sent",
-                customerEmail: input.artistEmail.toLowerCase(),
-                customerName: input.artistName,
-              });
-              await db
-                .update(bookings)
-                .set({ stripeCheckoutSessionId: session.id })
-                .where(eq(bookings.id, row.id));
-            }
-          }
-        }
-      } catch (err) {
-        // TRPCError subclasses (BAD_REQUEST for invalid plan choice)
-        // must bubble up so the visitor sees the specific message. All
-        // other failures (Stripe outage, DB hiccup) degrade gracefully
-        // to the pending-approval flow.
-        if (err instanceof TRPCError) throw err;
-        console.warn("[stripe] checkout creation failed in booking.publicRequest", err);
-      }
-
-      return { id: row.id, checkoutUrl };
+      return { ok: true as const };
     }),
 });

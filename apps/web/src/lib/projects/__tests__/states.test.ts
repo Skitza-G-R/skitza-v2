@@ -21,33 +21,27 @@ describe("stageToState", () => {
     const matrix: Record<Stage, (typeof PROJECT_STATES)[number]> = {
       lead: "live",
       booked: "live",
-      contract_sent: "live",
       in_production: "live",
       final_review: "live",
-      payment_paused: "live",
       paid: "done",
       archived: "archived",
-      cancelled: "archived",
     };
     for (const stage of ALL_STAGES) {
       expect(stageToState(stage), `stageToState(${stage})`).toBe(matrix[stage]);
     }
   });
 
-  it("collapses paid → done and archived+cancelled → archived", () => {
+  it("collapses paid → done and archived → archived", () => {
     expect(stageToState("paid")).toBe("done");
     expect(stageToState("archived")).toBe("archived");
-    expect(stageToState("cancelled")).toBe("archived");
   });
 
-  it("collapses all in-flight + paused stages → live", () => {
+  it("collapses all in-flight stages → live", () => {
     const live: Stage[] = [
       "lead",
       "booked",
-      "contract_sent",
       "in_production",
       "final_review",
-      "payment_paused",
     ];
     for (const s of live) {
       expect(stageToState(s), s).toBe("live");

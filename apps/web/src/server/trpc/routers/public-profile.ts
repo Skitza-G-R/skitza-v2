@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {
-  and,
   asc,
   createDb,
   desc,
@@ -71,12 +70,21 @@ export const publicProfileRouter = router({
       // then destructuring would work but risks a future schema addition
       // accidentally landing on the wire; projecting here keeps the
       // contract explicit.
+      //
+      // Marketing meta fields (genres / releasedSummary / streamsSummary
+      // / responseHours) are part of the public surface — the producer
+      // explicitly authors them for their /join page and they're meant
+      // to ride out to anonymous visitors. Migration 0006.
       const [producerRow] = await db
         .select({
           id: producers.id,
           slug: producers.slug,
           displayName: producers.displayName,
           brand: producers.brand,
+          genres: producers.genres,
+          releasedSummary: producers.releasedSummary,
+          streamsSummary: producers.streamsSummary,
+          responseHours: producers.responseHours,
         })
         .from(producers)
         .where(eq(producers.slug, input.slug))
@@ -91,11 +99,14 @@ export const publicProfileRouter = router({
       // leave accent / font unused for Wave 1.
       const brand = producerRow.brand ?? {};
 
-      // Step 2: fetch the 3 most-recent public-sample tracks. The
-      // `AND producer_id = ? AND is_public_sample = true` predicate
-      // hits the partial index added in migration 0030. Order by
-      // `created_at desc` so producers see the track they most
-      // recently flagged rise to the top of the teaser.
+      // Step 2: fetch the 3 most-recent portfolio tracks. The original
+      // shape filtered by `is_public_sample = true` (per-track opt-in
+      // for unsigned-in visitors), but the producer surface no longer
+      // exposes that toggle — every track in the portfolio is the
+      // public profile, full stop. We left the column on the schema
+      // (migration cost vs. rollback safety) but stopped reading it.
+      // Order by `created_at desc` so the producer's newest portfolio
+      // additions surface at the top of the teaser.
       const sampleRows = await db
         .select({
           id: portfolioTracks.id,
@@ -106,12 +117,7 @@ export const publicProfileRouter = router({
           peaksR2Key: portfolioTracks.peaksR2Key,
         })
         .from(portfolioTracks)
-        .where(
-          and(
-            eq(portfolioTracks.producerId, producerRow.id),
-            eq(portfolioTracks.isPublicSample, true),
-          ),
-        )
+        .where(eq(portfolioTracks.producerId, producerRow.id))
         .orderBy(desc(portfolioTracks.createdAt))
         .limit(3);
 
@@ -171,6 +177,16 @@ export const publicProfileRouter = router({
           bio: null as string | null,
           logoUrl: brand.logoUrl ?? null,
           brandColor: brand.primary ?? null,
+        },
+        // Marketing meta — null on freshly-created producer rows; the
+        // /join meta-strip hides a stat block whose value is null. We
+        // pass these straight through so the component doesn't have
+        // to re-derive shape from a default-laden producer payload.
+        meta: {
+          genres: producerRow.genres ?? null,
+          releasedSummary: producerRow.releasedSummary,
+          streamsSummary: producerRow.streamsSummary,
+          responseHours: producerRow.responseHours,
         },
         publicSamples: sampleRows.map((row) => ({
           id: row.id,

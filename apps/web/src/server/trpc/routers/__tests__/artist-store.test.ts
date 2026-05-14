@@ -65,6 +65,7 @@ const {
     producerId: { __column: "client_contacts.producer_id" },
     email: { __column: "client_contacts.email" },
     name: { __column: "client_contacts.name" },
+    archivedAt: { __column: "client_contacts.archived_at" },
   };
   const productsMarker = {
     __table: "products",
@@ -580,7 +581,10 @@ describe("artist.store.products (query)", () => {
 
     const contactsArg = contactsWhereSpy.mock.calls[0]?.[0];
     expect(contactsArg).toEqual({
-      eq: [clientContacts.clerkUserId, "user_alice"],
+      and: [
+        { eq: [clientContacts.clerkUserId, "user_alice"] },
+        { isNull: clientContacts.archivedAt },
+      ],
     });
   });
 });

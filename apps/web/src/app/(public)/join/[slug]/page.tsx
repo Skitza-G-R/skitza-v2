@@ -5,17 +5,23 @@ import { TRPCError } from "@trpc/server";
 import { createDb, eq, portfolioTracks } from "@skitza/db";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { JoinHero } from "~/components/join/join-hero";
+import { JoinNav } from "~/components/join/join-nav";
+import { JoinMetaStrip } from "~/components/join/join-meta-strip";
 import { PublicSamplesPlayer } from "~/components/join/public-samples-player";
 import { SignupCta } from "~/components/join/signup-cta";
 
 // Story 02 of the /join flow (PRD §6.1-6.2). The URL every producer
 // pastes into their IG bio — `skitza.app/join/<slug>` — lands here for
-// unsigned-in visitors. Public teaser: hero + up to 3 sample tracks +
-// signup CTA. No auth; no AppShell; its own dark-themed landing layout.
+// unsigned-in visitors. Public teaser: sticky nav → hero (with portrait
+// card) → meta strip → recent work (3 sample tracks) → dark CTA with
+// social links + signup. No auth; no AppShell; its own layout.
 //
-// Wave 1 scope: no external streaming links, no locked-track
-// placeholders, no engagement approval. Just enough surface area that
-// a cold visitor can hear samples and sign up.
+// Polish pass (2026-05-06, design context 2026): adds sticky nav, meta
+// strip, dark CTA section. Booking is still gated on signup — the
+// producer-side product catalog + real Stripe checkout is Phase H.
+//
+// English-only, LTR-only per CLAUDE.md i18n scope. No `t()` calls, no
+// NextIntlClientProvider — public route.
 
 type PageProps = { params: Promise<{ slug: string }> };
 
@@ -57,14 +63,8 @@ export default async function JoinPage({ params }: PageProps) {
   }
 
   // Separate count query for the locked-tracks teaser. Kept OUT of the
-  // `forJoin` tRPC contract to keep that payload minimal + stable —
-  // adding a field is cheap but means versioning the contract. This
-  // count is render-only, no persistence or client-state.
-  //
-  // Runs in parallel-shape but we already awaited forJoin above; the
-  // cost of a second round-trip is small (~ms) and only happens once
-  // per request (no React Suspense retry). If this becomes a hot path
-  // we can merge it back into `forJoin` behind an opt-in flag.
+  // `forJoin` tRPC contract to keep that payload minimal + stable.
+  // Render-only, no persistence or client-state.
   const dbUrl = process.env.DATABASE_URL;
   let totalCount = 0;
   if (dbUrl) {
@@ -79,29 +79,31 @@ export default async function JoinPage({ params }: PageProps) {
 
   return (
     <div className="relative min-h-dvh">
-      {/* Page-level container — no AppShell. Public routes don't need
-          the producer sidebar / command palette. The (public) route
-          group's PublicLayout has already set data-theme="chrome-dark"
-          on a wrapper, so the background + text tokens are bound. */}
-      <main className="relative z-10 flex min-h-dvh flex-col pb-20">
-        {/* Accessible page title — the visible display font is h1, but
-            we also want a plain-text, screen-reader-friendly label that
-            ends with "· Skitza" so the document title + hero are
-            consistent when an AT scrubs the landmark list. */}
+      <JoinNav slug={slug} />
+
+      <main className="relative z-0 flex min-h-dvh flex-col">
+        {/* Accessible page title — the visible display font is h1 on
+            JoinHero, but we also want a plain-text, screen-reader-friendly
+            label that ends with "· Skitza" so the document title + hero
+            are consistent when an AT scrubs the landmark list. */}
         <h1 className="sr-only">
           Join {data.producer.displayName ?? "this producer"}&apos;s studio on Skitza
         </h1>
 
-        <JoinHero producer={data.producer} />
+        <JoinHero
+          producer={data.producer}
+          slug={slug}
+          externalLinks={data.externalLinks}
+        />
+
+        <JoinMetaStrip meta={data.meta} />
 
         <PublicSamplesPlayer samples={data.publicSamples} />
 
         {/* Locked-tracks teaser — just a text line for Wave 1. Only
             renders when there are actually more tracks the producer
             hasn't opted in; skipping the visual noise when the catalog
-            is empty or fully-public keeps the page honest. The lock
-            emoji is decorative; the copy conveys the meaning on its own
-            for screen readers. */}
+            is empty or fully-public keeps the page honest. */}
         {lockedCount > 0 ? (
           <p
             aria-label={`${String(lockedCount)} more tracks available after sign up`}
@@ -114,10 +116,10 @@ export default async function JoinPage({ params }: PageProps) {
           </p>
         ) : null}
 
-        <SignupCta slug={slug} />
+        <SignupCta slug={slug} socialLinks={data.externalLinks} />
 
-        <footer className="mt-auto pb-10 pt-16 text-center">
-          <p className="font-mono text-xs text-[rgb(var(--fg-muted))]">
+        <footer className="bg-[rgb(var(--fg-primary))] pb-10 text-center">
+          <p className="font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--bg-base)/0.4)]">
             Powered by Skitza
           </p>
         </footer>

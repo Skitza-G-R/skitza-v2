@@ -9,10 +9,7 @@ export default function PrivacyPage() {
       <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
         Privacy
       </p>
-      <h1
-        className="mt-3 font-display text-5xl leading-tight tracking-tight"
-        style={{ fontVariationSettings: '"opsz" 144' }}
-      >
+      <h1 className="font-syne mt-3 text-5xl font-extrabold leading-tight tracking-tight">
         What we collect.
       </h1>
       <p className="mt-2 font-mono text-sm text-[rgb(var(--fg-muted))]">
@@ -70,7 +67,7 @@ export default function PrivacyPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]">
+      <h2 className="font-syne text-2xl font-bold tracking-tight text-[rgb(var(--fg-primary))]">
         {title}
       </h2>
       <div className="mt-3 leading-relaxed">{children}</div>
