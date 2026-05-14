@@ -1,24 +1,32 @@
 "use client";
 
-import { Check, Infinity as InfinityIcon, Minus, Plus, Sliders } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import type { PaymentPlan } from "@skitza/db";
 
+import {
+  createPackage,
+  type PackageKind,
+} from "~/app/(producer)/dashboard/booking/actions";
+import {
+  ContractStep,
+  type ContractMode,
+} from "~/app/(producer)/dashboard/store/editor-steps/contract-step";
+import { IncludesStep } from "~/app/(producer)/dashboard/store/editor-steps/includes-step";
+import { LogisticsStep } from "~/app/(producer)/dashboard/store/editor-steps/logistics-step";
+import { PricingStep } from "~/app/(producer)/dashboard/store/editor-steps/pricing-step";
+import { TypeStep } from "~/app/(producer)/dashboard/store/editor-steps/type-step";
+import { encodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
+import { StepBar } from "~/app/(producer)/dashboard/store/step-bar";
+import {
+  getPreset,
+  type PaymentPlanChoice,
+  type PresetId,
+  type PresetType,
+} from "~/app/(producer)/dashboard/store/type-presets";
+import { useToast } from "~/components/ui/toast";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
-import {
-  ONBOARDING_SERVICE_TEMPLATES,
-  PAYMENT_PLANS,
-  SUPPORTED_CURRENCIES,
-  type OnboardingServiceTemplate,
-  type OnboardingServiceTemplateId,
-  type PaymentPlanId,
-  type SupportedCurrency,
-  depositPctForPlan,
-  isServiceContinueAllowed,
-} from "~/lib/onboarding/service-templates-onboarding";
-
-import { createOnboardingPackage } from "../actions";
 
 import {
   SERVICE_STEP_INDEX,
@@ -26,104 +34,247 @@ import {
   routeOnBackFromService,
 } from "./constants";
 
-// Step 2 — First service. Compact 2x2 grid + inline name/price/sessions/
-// payment all visible in viewport at 1280×840.
+// Step 2 — First service. Path B (May 2026 redesign, take 2): the
+// producer goes through the same 5 inner sub-steps that
+// /dashboard/store's ProductEditor uses (Type / Includes / Pricing /
+// Logistics / Agreement), but rendered inline inside WizardChrome
+// instead of in a Radix Dialog. Same step components, same Draft
+// shape, same createPackage save path — so the producer learns the
+// flow once and meets it again when they add product #2 later.
+//
+// What's different from the store's ProductEditor:
+//   - No modal chrome (EditorShell). The wizard's WizardChrome
+//     already owns the page, so a modal-on-page nested feel is
+//     avoided.
+//   - The wizard's sticky WizardFooter owns Back / Continue / Save.
+//     Inner-step routing happens here; outer-step routing happens
+//     on first-step Back and last-step Save.
+//   - No `onCreated` shimmer-glow callback. There's no card to
+//     animate on — the next screen is /onboarding/availability.
+
+type Currency = "USD" | "EUR" | "GBP" | "ILS";
+type StepId = "type" | "includes" | "pricing" | "logistics" | "agreement";
+
+const STEPS: readonly StepId[] = [
+  "type",
+  "includes",
+  "pricing",
+  "logistics",
+  "agreement",
+] as const;
+
+const STEP_TITLES: Record<StepId, string> = {
+  type: "What are you offering?",
+  includes: "What's included",
+  pricing: "Pricing and terms",
+  logistics: "Logistics",
+  agreement: "Agreement",
+};
+
+const STEP_SUBTITLES: Record<StepId, string> = {
+  type: "Pick the closest match. We'll prefill the rest.",
+  includes: "Tap to add. Artists see this list before they book.",
+  pricing: "Price, how many sessions, and how they pay.",
+  logistics: "Session length and how many revisions are included.",
+  agreement: "Optional. Attach a contract or write your terms.",
+};
+
+interface Draft {
+  _picked: PresetId | null;
+  name: string;
+  tagline: string;
+  type: PresetType;
+  price: number;
+  currency: Currency;
+  sessions: number;
+  unlimitedSessions: boolean;
+  paymentPlan: PaymentPlanChoice;
+  installmentsCount: number;
+  includes: string[];
+  duration: string;
+  revisions: number;
+  unlimitedRevisions: boolean;
+  contractMode: ContractMode;
+  contractUrl: string;
+  contractText: string;
+}
+
+function emptyDraft(currency: Currency): Draft {
+  return {
+    _picked: null,
+    name: "",
+    tagline: "",
+    type: "consult",
+    price: 0,
+    currency,
+    sessions: 1,
+    unlimitedSessions: false,
+    paymentPlan: "full",
+    installmentsCount: 3,
+    includes: [],
+    duration: "60 min",
+    revisions: 0,
+    unlimitedRevisions: false,
+    contractMode: "link",
+    contractUrl: "",
+    contractText: "",
+  };
+}
+
+// Currency-narrowed default — onboarding's page reads
+// producers.default_currency and forwards it. Anything outside the
+// 4-enum slips back to USD via this guard.
+const VALID_CURRENCIES: readonly Currency[] = ["USD", "EUR", "GBP", "ILS"];
+
+function narrowCurrency(c: string): Currency {
+  return (VALID_CURRENCIES as readonly string[]).includes(c)
+    ? (c as Currency)
+    : "USD";
+}
 
 export function ServiceStepClient({
   defaultCurrency,
 }: {
-  defaultCurrency: SupportedCurrency;
+  defaultCurrency: Currency;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
-  const [selectedId, setSelectedId] =
-    useState<OnboardingServiceTemplateId>("mix");
-  // ONBOARDING_SERVICE_TEMPLATES is a 4-element const array, so the
-  // "mix" lookup never realistically fails — but TS can't prove that
-  // from the ReadonlyArray<T> type alone, so we ship a typed default.
-  const FALLBACK_TEMPLATE: OnboardingServiceTemplate = {
-    id: "mix",
-    icon: Sliders,
-    title: "Mix & Master — Single",
-    description: "A polished, release-ready single.",
-    defaultName: "Mix & Master — Single",
-    defaultPrice: 800,
-    defaultSessions: 1,
-    packageKind: "mixing",
-    defaultDurationMin: 180,
-  };
-  const initialTemplate =
-    ONBOARDING_SERVICE_TEMPLATES.find((t) => t.id === "mix") ??
-    FALLBACK_TEMPLATE;
-  const [name, setName] = useState(initialTemplate.defaultName);
-  const [price, setPrice] = useState<number>(initialTemplate.defaultPrice);
-  const [sessions, setSessions] = useState<number>(
-    initialTemplate.defaultSessions,
+  const [draft, setDraft] = useState<Draft>(() =>
+    emptyDraft(narrowCurrency(defaultCurrency)),
   );
-  // Toggle for "this service has no session cap" (e.g. monthly retainer,
-  // ongoing collaboration). On save we encode unlimited as a high
-  // sentinel value (UNLIMITED_SESSION_SENTINEL) since the products
-  // schema column is NOT NULL int with default 1; a proper boolean
-  // column is the cleaner long-term shape — see TODO in the action.
-  const [isUnlimited, setIsUnlimited] = useState(false);
-  const [currency, setCurrency] = useState<SupportedCurrency>(defaultCurrency);
-  const [plan, setPlan] = useState<PaymentPlanId>("full");
+  const [currentStep, setCurrentStep] = useState<StepId>("type");
 
-  // When unlimited is on, sessions count is effectively ignored — but
-  // we still need the Continue gate to pass on the live (non-unlimited)
-  // count so the producer can switch back cleanly.
-  const allowContinue =
-    isServiceContinueAllowed(name, price, isUnlimited ? 1 : sessions);
+  const currentIdx = Math.max(0, STEPS.indexOf(currentStep));
+  const isFirstInner = currentIdx === 0;
+  const isLastInner = currentIdx === STEPS.length - 1;
 
-  function selectTemplate(template: OnboardingServiceTemplate) {
-    setSelectedId(template.id);
-    setName(template.defaultName);
-    setPrice(template.defaultPrice);
-    setSessions(template.defaultSessions);
-    setIsUnlimited(false);
+  function onPickPreset(id: PresetId) {
+    const preset = getPreset(id);
+    if (!preset) return;
+    setDraft((d) => ({
+      ...d,
+      _picked: id,
+      type: preset.preset.type,
+      name: d.name.trim().length > 0 ? d.name : preset.defaultName,
+      price: preset.preset.price,
+      sessions: preset.preset.sessions,
+      unlimitedSessions: preset.preset.unlimitedSessions,
+      paymentPlan: preset.preset.paymentPlan,
+      includes: [...preset.baseline],
+      duration: preset.preset.duration === "multi-session" ? "60 min" : preset.preset.duration,
+      revisions: preset.preset.revisions,
+      contractMode: "link",
+    }));
+    // Auto-advance like the store wizard does — picking a preset is
+    // the answer to step 1, so the producer shouldn't have to hit
+    // Continue separately.
+    setCurrentStep("includes");
   }
 
-  // Sentinel sent to the action when isUnlimited is on. 999 is high
-  // enough that no real producer's session count would conflict, but
-  // small enough that any downstream "sessions remaining" math doesn't
-  // overflow. The /join store + booking flow should treat any value
-  // >= 100 as "unlimited" until a proper boolean column lands.
-  const UNLIMITED_SESSION_SENTINEL = 999;
+  // Gating mirrors ProductEditor.canContinue exactly so onboarding
+  // and the store agree on what "ready to advance" means.
+  const canContinue: boolean = (() => {
+    if (currentStep === "type") return draft._picked != null;
+    if (currentStep === "includes") return draft.name.trim() !== "";
+    if (currentStep === "pricing") return draft.price >= 0;
+    if (currentStep === "logistics") {
+      return /^\d+\s*min$/i.test(draft.duration);
+    }
+    return true; // agreement is skippable
+  })();
 
-  function handleContinue() {
-    if (!allowContinue) return;
-    setError(null);
-    const tpl = ONBOARDING_SERVICE_TEMPLATES.find((t) => t.id === selectedId);
-    if (!tpl) {
-      setError("Pick a template first.");
+  function goBack() {
+    if (isFirstInner) {
+      // First inner step: exit outwards to the previous outer step.
+      router.push(routeOnBackFromService());
       return;
     }
+    const prev = STEPS[currentIdx - 1];
+    if (prev) setCurrentStep(prev);
+  }
+
+  function goNext() {
+    if (isLastInner) {
+      save();
+      return;
+    }
+    const next = STEPS[currentIdx + 1];
+    if (next) setCurrentStep(next);
+  }
+
+  function save() {
+    const description = encodeDescription({
+      tagline: draft.tagline,
+      revisions: draft.revisions,
+      unlimitedRevisions: draft.unlimitedRevisions,
+      contractText: draft.contractMode === "text" ? draft.contractText : "",
+    });
+    const durationMatch = draft.duration.match(/(\d+)\s*min/i);
+    const durationMin = durationMatch
+      ? parseInt(durationMatch[1] ?? "0", 10)
+      : 0;
+    const sessionCount = draft.unlimitedSessions
+      ? 0
+      : Math.max(1, draft.sessions);
+    const paymentPlans: PaymentPlan[] = (() => {
+      if (draft.paymentPlan === "full") return [{ kind: "full" }];
+      if (draft.paymentPlan === "split") return [{ kind: "split_50_50" }];
+      return [
+        {
+          kind: "monthly",
+          installments: Math.max(2, draft.installmentsCount),
+        },
+      ];
+    })();
+    const priceCents = Math.round(draft.price * 100);
+    const trimmedUrl = draft.contractUrl.trim();
+    const contractUrlOut: string | null =
+      draft.contractMode === "text"
+        ? null
+        : trimmedUrl.length > 0
+          ? trimmedUrl
+          : null;
+
+    const payload = {
+      name: draft.name.trim(),
+      description,
+      // "consult" is the wizard's blank-preset internal type; the DB
+      // PackageKind enum has no "consult" variant, so it routes to
+      // "other" the same way the store wizard does for new products.
+      kind:
+        draft.type === "consult"
+          ? ("other" as PackageKind)
+          : (draft.type as PackageKind),
+      priceCents,
+      currency: draft.currency,
+      durationMin,
+      sessionCount,
+      paymentPlans,
+      depositPct: 0,
+      contractUrl: contractUrlOut,
+    };
+
     startTransition(async () => {
-      // TODO(unlimited-sessions): the action signature doesn't yet
-      // expose a sessions count, so this commit just routes forward.
-      // When the action accepts sessionCount, pass
-      //   isUnlimited ? UNLIMITED_SESSION_SENTINEL : sessions
-      // and the storefront / booking surfaces will need to render
-      //   "Unlimited" when sessionCount >= 100.
-      void UNLIMITED_SESSION_SENTINEL;
-      const result = await createOnboardingPackage({
-        name: name.trim(),
-        kind: tpl.packageKind,
-        priceCents: Math.round(price * 100),
-        durationMin: tpl.defaultDurationMin,
-        depositPct: depositPctForPlan(plan),
-        locationType: "studio",
-        currency,
-      });
-      if (!result.ok) {
-        setError(result.error);
-        return;
+      const res = await createPackage(payload);
+      if (res.ok) {
+        toast(
+          `${draft.name.trim() || "Service"} saved.`,
+          "success",
+        );
+        router.push(nextRouteAfterService());
+      } else {
+        toast(res.error, "error");
       }
-      router.push(nextRouteAfterService());
     });
   }
+
+  // Continue copy:
+  //   - Last inner step + pending → "Saving…"
+  //   - Last inner step → "Save and continue"
+  //   - Earlier inner step → "Continue"
+  const continueLabel = isLastInner ? "Save and continue" : "Continue";
 
   return (
     <WizardChrome
@@ -131,213 +282,93 @@ export function ServiceStepClient({
       stepIndicator="Step 2 of 5"
       footer={
         <WizardFooter
-          onBack={() => { router.push(routeOnBackFromService()); }}
-          onContinue={handleContinue}
-          continueDisabled={!allowContinue}
+          onBack={goBack}
+          onContinue={goNext}
+          continueLabel={continueLabel}
+          continueDisabled={!canContinue}
           pending={pending}
         />
       }
     >
       <div className="ob-stagger">
+        {/* "NEW SERVICE" eyebrow + dashed StepBar. The outer step
+            rail (left sidebar) + WizardChrome header already render
+            the outer "Step 2 of 5" position; adding a second numeric
+            step indicator here would compete with it. The eyebrow
+            stays purely thematic, and the dashed StepBar carries the
+            inner sub-step progress on its own. Same StepBar component
+            the store wizard uses so the affordance is identical
+            across surfaces. */}
         <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
-          Step 2 of 5 · Required
+          New service
         </p>
         <h1
           className="mt-2 font-display text-[26px] font-extrabold leading-[1.05] tracking-[-0.03em] text-balance"
           style={{ fontVariationSettings: '"opsz" 96' }}
         >
-          Pick your first service.
+          {STEP_TITLES[currentStep]}
         </h1>
         <p className="mt-1.5 text-[13.5px] leading-snug text-[rgb(var(--fg-muted))]">
-          Pick a starter, tweak the price. Add more later.
+          {STEP_SUBTITLES[currentStep]}
         </p>
-
-        {/* Compact 2x2 template grid */}
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          {ONBOARDING_SERVICE_TEMPLATES.map((t) => {
-            const isSelected = t.id === selectedId;
-            const Icon = t.icon;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => { selectTemplate(t); }}
-                aria-pressed={isSelected}
-                className={`ob-card-press relative flex items-start gap-2 rounded-xl border p-2.5 text-left ${
-                  isSelected
-                    ? "border-transparent bg-[rgb(var(--bg-sidebar))] text-white shadow-[0_6px_20px_rgba(17,16,9,0.22)]"
-                    : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_4px_14px_rgba(17,16,9,0.08)]"
-                }`}
-              >
-                <span
-                  className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md ${
-                    isSelected
-                      ? "bg-[rgb(var(--brand-primary)/0.22)] text-[rgb(var(--brand-primary))]"
-                      : "bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]"
-                  }`}
-                  aria-hidden
-                >
-                  <Icon size={12} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[12.5px] font-bold leading-tight">
-                    {t.title}
-                  </div>
-                  <div
-                    className={`mt-0.5 text-[10.5px] leading-snug ${isSelected ? "text-white/75" : "text-[rgb(var(--fg-muted))]"}`}
-                  >
-                    {t.description}
-                  </div>
-                </div>
-                {isSelected ? (
-                  <span
-                    aria-hidden
-                    className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[rgb(var(--bg-sidebar))]"
-                  >
-                    <Check size={9} strokeWidth={3} />
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Service name */}
         <div className="mt-4">
-          <label
-            htmlFor="serviceName"
-            className="mb-1 block text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
-          >
-            Service name
-          </label>
-          <input
-            id="serviceName"
-            type="text"
-            value={name}
-            onChange={(e) => { setName(e.target.value); }}
-            placeholder={selectedId === "custom" ? "e.g. Beat lease" : ""}
-            maxLength={80}
-            className="w-full rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] font-medium text-[rgb(var(--fg-default))] outline-none transition-shadow placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_3px_rgba(212,150,10,0.12)]"
-          />
+          <StepBar steps={STEPS} current={currentStep} />
         </div>
 
-        {/* Price + currency */}
-        <div className="mt-3">
-          <label
-            htmlFor="servicePrice"
-            className="mb-1 block text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
-          >
-            Price
-          </label>
-          <div className="flex gap-2">
-            <input
-              id="servicePrice"
-              type="number"
-              min={0}
-              step={1}
-              value={price}
-              onChange={(e) => { setPrice(Number(e.target.value) || 0); }}
-              className="flex-1 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 font-mono text-[14px] font-semibold text-[rgb(var(--fg-default))] outline-none transition-shadow focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_3px_rgba(212,150,10,0.12)]"
+        {/* Active sub-step body. Keyed on currentStep so each sub-step
+            replays the ob-stagger entrance — small motion cue that the
+            page is fresh, never jarring. */}
+        <div key={currentStep} className="mt-5 sk-step-enter">
+          {currentStep === "type" && (
+            <TypeStep picked={draft._picked} onPick={onPickPreset} />
+          )}
+          {currentStep === "includes" && (
+            <IncludesStep
+              pickedId={draft._picked}
+              name={draft.name}
+              onNameChange={(name) => {
+                setDraft((d) => ({ ...d, name }));
+              }}
+              includes={draft.includes}
+              onIncludesChange={(includes) => {
+                setDraft((d) => ({ ...d, includes }));
+              }}
             />
-            <select
-              value={currency}
-              onChange={(e) =>
-                { setCurrency(e.target.value as SupportedCurrency); }
-              }
-              className="rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 py-2 font-mono text-[13px] font-semibold text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_3px_rgba(212,150,10,0.12)]"
-            >
-              {SUPPORTED_CURRENCIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
+          )}
+          {currentStep === "pricing" && (
+            <PricingStep
+              price={draft.price}
+              currency={draft.currency}
+              sessions={draft.sessions}
+              unlimitedSessions={draft.unlimitedSessions}
+              paymentPlan={draft.paymentPlan}
+              installmentsCount={draft.installmentsCount}
+              onChange={(patch) => {
+                setDraft((d) => ({ ...d, ...patch }));
+              }}
+            />
+          )}
+          {currentStep === "logistics" && (
+            <LogisticsStep
+              duration={draft.duration}
+              revisions={draft.revisions}
+              unlimitedRevisions={draft.unlimitedRevisions}
+              onChange={(patch) => {
+                setDraft((d) => ({ ...d, ...patch }));
+              }}
+            />
+          )}
+          {currentStep === "agreement" && (
+            <ContractStep
+              mode={draft.contractMode}
+              contractUrl={draft.contractUrl}
+              contractText={draft.contractText}
+              onChange={(patch) => {
+                setDraft((d) => ({ ...d, ...patch }));
+              }}
+            />
+          )}
         </div>
-
-        {/* Sessions stepper + Payment plan */}
-        <div className="mt-3 grid grid-cols-2 gap-2.5">
-          <div>
-            <label className="mb-1 flex items-center justify-between text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
-              <span>Sessions</span>
-              <button
-                type="button"
-                onClick={() => { setIsUnlimited(!isUnlimited); }}
-                className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em] transition-colors ${
-                  isUnlimited
-                    ? "bg-[rgb(var(--brand-primary)/0.18)] text-[rgb(var(--brand-primary-dark))]"
-                    : "bg-transparent text-[rgb(var(--fg-faint))] hover:bg-[rgb(var(--bg-background))] hover:text-[rgb(var(--fg-muted))]"
-                }`}
-                aria-pressed={isUnlimited}
-              >
-                <InfinityIcon size={10} aria-hidden />
-                Unlimited
-              </button>
-            </label>
-            <div className="flex items-center justify-between rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1.5 py-1">
-              {isUnlimited ? (
-                <div className="flex w-full items-center justify-center gap-1.5 py-0.5 text-[rgb(var(--brand-primary-dark))]">
-                  <InfinityIcon size={16} strokeWidth={2.5} />
-                  <span className="font-mono text-[12px] font-bold uppercase tracking-[0.06em]">
-                    Unlimited
-                  </span>
-                </div>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => { setSessions(Math.max(1, sessions - 1)); }}
-                    aria-label="Decrease sessions"
-                    className="sk-pop flex h-6 w-6 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
-                  >
-                    <Minus size={12} />
-                  </button>
-                  <span className="font-mono text-[14px] font-bold text-[rgb(var(--fg-default))]">
-                    {sessions}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => { setSessions(sessions + 1); }}
-                    aria-label="Increase sessions"
-                    className="sk-pop flex h-6 w-6 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-background))]"
-                  >
-                    <Plus size={12} />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
-              Payment
-            </label>
-            <div className="flex rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-0.5">
-              {PAYMENT_PLANS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => { setPlan(p.id); }}
-                  className={`flex-1 rounded-md px-1.5 py-1.5 text-[10.5px] font-semibold transition-colors ${
-                    plan === p.id
-                      ? "bg-[rgb(var(--bg-sidebar))] text-white"
-                      : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {error ? (
-          <p
-            role="alert"
-            className="mt-3 text-[12.5px] text-[rgb(var(--fg-danger))]"
-          >
-            {error}
-          </p>
-        ) : null}
       </div>
     </WizardChrome>
   );
