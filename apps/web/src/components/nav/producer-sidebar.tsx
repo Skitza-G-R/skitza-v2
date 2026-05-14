@@ -184,9 +184,14 @@ function SidebarBody({
   const t = useTranslations("sidebar");
   return (
     <div className="flex h-full flex-col">
-      {/* Wordmark + collapse toggle */}
+      {/* Wordmark + collapse/expand toggle.
+          Expanded: wordmark + chevron-left side-by-side.
+          Collapsed (64px): "S" logo above a chevron-right toggle, both
+          centered. The toggle stays mounted in both states so users
+          can always reverse the action — the `[` shortcut is a bonus,
+          not the only way back. */}
       <div
-        className="flex items-center justify-between gap-2"
+        className={`flex gap-2 ${collapsed ? "flex-col items-center" : "items-center justify-between"}`}
         style={{ padding: collapsed ? "20px 8px 14px" : "20px 18px 14px" }}
       >
         <Link
@@ -211,20 +216,23 @@ function SidebarBody({
             <Wordmark size={22} inverse />
           )}
         </Link>
-        {!collapsed && (
-          <button
-            type="button"
-            aria-label={t("collapse")}
-            onClick={onToggle}
-            className="sk-press flex h-7 w-7 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-            style={{
-              color: "rgb(var(--fg-onsidebar) / 0.55)",
-              background: "transparent",
-            }}
-          >
-            <Icon name="chevron-left" size={14} strokeWidth={2.2} />
-          </button>
-        )}
+        <button
+          type="button"
+          aria-label={collapsed ? t("expand") : t("collapse")}
+          aria-expanded={!collapsed}
+          onClick={onToggle}
+          className="sk-press flex h-7 w-7 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+          style={{
+            color: "rgb(var(--fg-onsidebar) / 0.55)",
+            background: "transparent",
+          }}
+        >
+          <Icon
+            name={collapsed ? "chevron-right" : "chevron-left"}
+            size={14}
+            strokeWidth={2.2}
+          />
+        </button>
       </div>
 
       {/* Nav rail */}

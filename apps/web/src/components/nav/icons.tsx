@@ -26,6 +26,7 @@ export type IconName =
   | "chevron-up"
   | "chevron-down"
   | "chevron-left"
+  | "chevron-right"
   | "arrow-left"
   | "plus"
   | "tag"
@@ -143,6 +144,12 @@ export function Icon({
       return (
         <svg {...common}>
           <path d="m15 18-6-6 6-6" />
+        </svg>
+      );
+    case "chevron-right":
+      return (
+        <svg {...common}>
+          <path d="m9 18 6-6-6-6" />
         </svg>
       );
     case "arrow-left":
