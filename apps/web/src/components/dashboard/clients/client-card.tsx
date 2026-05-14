@@ -68,9 +68,9 @@ export function ClientCard({
     <div
       draggable="true"
       data-id={id}
-      onDragStart={onDragStart ? (e) => onDragStart(e, id) : undefined}
-      onDragOver={onDragOver ? (e) => onDragOver(e, id) : undefined}
-      onDrop={onDrop ? (e) => onDrop(e, id) : undefined}
+      onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
+      onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
+      onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
       className="group relative flex flex-col gap-3.5 rounded-[var(--radius-md)] border p-4 transition-colors hover:border-[rgb(var(--border-strong))]"
       style={{
         background: "rgb(var(--bg-elevated))",
@@ -113,7 +113,7 @@ export function ClientCard({
           {onInvite ? (
             <LinkPill
               state={linkState}
-              onInvite={() => onInvite(client)}
+              onInvite={() => { onInvite(client); }}
             />
           ) : (
             <LinkPill state={linkState} />

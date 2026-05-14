@@ -180,7 +180,9 @@ describe("clientContacts.sendInvite", () => {
     expect(to).toBe("noa@example.com");
     expect(props?.clientName).toBe("Noa Kirel");
     // The invite URL must include the producer slug + contact id.
-    expect(String(props?.inviteUrl ?? "")).toContain("test-slug");
+    const inviteUrl = props?.inviteUrl;
+    expect(typeof inviteUrl).toBe("string");
+    expect(inviteUrl as string).toContain("test-slug");
     expect(updateMock).toHaveBeenCalledTimes(1);
   });
 

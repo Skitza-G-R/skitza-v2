@@ -121,7 +121,7 @@ export function ClientSpaceHero({
               {onInvite ? (
                 <LinkPill
                   state={linkState}
-                  onInvite={() => onInvite(client)}
+                  onInvite={() => { onInvite(client); }}
                 />
               ) : (
                 <LinkPill state={linkState} />

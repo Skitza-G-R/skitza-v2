@@ -137,9 +137,9 @@ export function ProjectRow({
     <div
       draggable="true"
       data-id={id}
-      onDragStart={onDragStart ? (e) => onDragStart(e, id) : undefined}
-      onDragOver={onDragOver ? (e) => onDragOver(e, id) : undefined}
-      onDrop={onDrop ? (e) => onDrop(e, id) : undefined}
+      onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
+      onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
+      onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
       className="group grid items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 transition-colors hover:border-[rgb(var(--border-strong))]"
       style={{
         background: "rgb(var(--bg-elevated))",
