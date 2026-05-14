@@ -47,3 +47,13 @@ describe("Phase 0 — projects.position", () => {
     expect(col.default).toBe(0);
   });
 });
+
+describe("Phase 0 — projects.workflow_stage", () => {
+  it("exists as a non-null workflow_stage enum with default 'brief'", () => {
+    const col = projects.workflowStage;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("workflow_stage");
+    expect(col.notNull).toBe(true);
+    expect(col.default).toBe("brief");
+  });
+});

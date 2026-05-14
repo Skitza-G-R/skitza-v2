@@ -419,6 +419,10 @@ export const projects = pgTable("projects", {
   // Drag-to-reorder slot for the Projects list. Same pattern as
   // client_contacts.position.
   position: integer("position").notNull().default(0),
+  // Creative workflow stage for the new redesign hero + Status stat
+  // tile. Decoupled from the legacy `stage` (lifecycle) column — both
+  // co-exist; the new UI only ever shows this one.
+  workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
