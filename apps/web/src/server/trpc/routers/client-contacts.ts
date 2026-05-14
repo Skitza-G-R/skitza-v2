@@ -682,6 +682,52 @@ export const clientContactsRouter = router({
       return { ok: true as const };
     }),
 
+  // Clients & Projects v3 redesign — Phase 1 Task 14. Drag-to-reorder
+  // for the CRM list. Writes the new ordinals (position == index in
+  // orderedIds) inside a single ctx.db.transaction so a partial failure
+  // can't leave the list half-reordered. Ownership is verified by
+  // selecting all matching row producerIds in one query and asserting
+  // equality before any write. Idempotent: calling with the same order
+  // is a no-op DB write (setting position to its current value).
+  //
+  // Mirrors the precedent in booking.products.reorder.
+  reorder: producerProcedure
+    .input(
+      z.object({
+        orderedIds: z
+          .array(z.string().uuid())
+          .min(1)
+          .refine(
+            (arr) => new Set(arr).size === arr.length,
+            "duplicate ids are not allowed",
+          ),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({
+          id: clientContacts.id,
+          producerId: clientContacts.producerId,
+        })
+        .from(clientContacts)
+        .where(inArray(clientContacts.id, input.orderedIds));
+      if (rows.length !== input.orderedIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (rows.some((r) => r.producerId !== ctx.producerId)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db.transaction(async (tx) => {
+        for (const [idx, id] of input.orderedIds.entries()) {
+          await tx
+            .update(clientContacts)
+            .set({ position: idx })
+            .where(eq(clientContacts.id, id));
+        }
+      });
+      return { count: input.orderedIds.length };
+    }),
+
   // Clients & Projects v3 redesign — Phase 1 Task 13. Stamps invited_at
   // on the contact and (when via='email') dispatches the invite email
   // via Resend. The link path is a no-op send — the producer copied the
