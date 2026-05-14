@@ -110,10 +110,14 @@ export function ClientCard({
           ) : null}
         </div>
         <div className="relative z-20 pointer-events-auto">
-          <LinkPill
-            state={linkState}
-            onInvite={onInvite ? () => onInvite(client) : undefined}
-          />
+          {onInvite ? (
+            <LinkPill
+              state={linkState}
+              onInvite={() => onInvite(client)}
+            />
+          ) : (
+            <LinkPill state={linkState} />
+          )}
         </div>
       </div>
 
