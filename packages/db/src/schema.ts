@@ -92,6 +92,28 @@ export const producers = pgTable("producers", {
   // Provisioned manually by Skitza admin after the producer submits the
   // connection-request form on Settings → Integrations → Payments.
   tranzilaTerminalName: text("tranzila_terminal_name"),
+  // Settings redesign — plan tier for the Plan & billing section.
+  // UI-only for v1 (no Stripe subscription wiring yet): the section
+  // renders a hard-coded 'free' / 'pro' hero + usage meters but does
+  // not gate features. Real billing follows in a separate task.
+  plan: text("plan").notNull().default("free"),
+  // Calendar week-grid orientation. Used by the Calendar's week view
+  // to decide whether columns start Sunday or Monday. Default 'sun'
+  // matches the design's default; producers in MON-first locales flip
+  // it on Settings → Language & region.
+  weekStart: text("week_start").notNull().default("sun"),
+  // Per-event notification preferences. Shape:
+  //   { booking: { email: bool, app: bool }, approval: {...}, ... }
+  // Six known event keys (booking, approval, payment, overdue, comment,
+  // weekly) — see NOTIFICATION_EVENTS in the settings client. Empty
+  // object means "use defaults" (the UI fills in the design's defaults
+  // when a key is missing). Wiring each event to a real email/in-app
+  // dispatch follows in a separate task; for v1 the toggles just
+  // persist.
+  notificationPrefs: jsonb("notification_prefs")
+    .$type<Record<string, { email: boolean; app: boolean }>>()
+    .notNull()
+    .default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

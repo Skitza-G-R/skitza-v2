@@ -57,6 +57,12 @@ export async function updateProducer(input: {
     accent?: string;
     logoUrl?: string;
   };
+  // Settings redesign — calendar week orientation. UI flips between
+  // Sunday-first ('sun') and Monday-first ('mon').
+  weekStart?: "sun" | "mon";
+  // Settings redesign — per-event notification preferences. Partial
+  // map: keys not in the patch keep their existing values server-side.
+  notificationPrefs?: Record<string, { email: boolean; app: boolean }>;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
