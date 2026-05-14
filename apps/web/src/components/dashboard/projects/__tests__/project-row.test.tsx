@@ -21,9 +21,15 @@ describe("ProjectRow source — grid + drag + gradient + status pills", () => {
     expect(SRC).toMatch(/draggable=("|\{)["']?true["']?("|\})/);
   });
 
-  it("imports deriveGradient from ~/lib/clients/derive-gradient", () => {
-    expect(SRC).toContain("deriveGradient");
-    expect(SRC).toContain("~/lib/clients/derive-gradient");
+  // Note: ProjectRow doesn't import deriveGradient — the avatar/badge
+  // gradient comes from producerGradient (asserted below) which is the
+  // continuous OKLCH system, not the 6-token discrete system. The hero
+  // surfaces use deriveGradient because they need the dark-band map;
+  // a row badge is small enough that the OKLCH look-up is the right
+  // call. Test kept as a sanity assertion that the file does NOT
+  // pull in deriveGradient unintentionally.
+  it("does not import deriveGradient (badge uses producerGradient only)", () => {
+    expect(SRC).not.toContain("deriveGradient");
   });
 
   it("imports producerInitials from ~/lib/_phase4-stubs/producer-color", () => {

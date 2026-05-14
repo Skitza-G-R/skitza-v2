@@ -23,9 +23,12 @@ describe("clients/[id]/page.tsx — Phase 1 rewrite", () => {
     expect(SRC).toContain("~/components/dashboard/projects/project-row");
   });
 
-  it("imports deriveGradient for the hero's gradient token", () => {
-    expect(SRC).toContain("deriveGradient");
-    expect(SRC).toContain("~/lib/clients/derive-gradient");
+  // ClientSpaceHero owns the gradient derivation internally (it calls
+  // deriveGradient + heroBg itself). The page passes the contact name
+  // through; the hero hashes it. Asserting the page doesn't pull
+  // deriveGradient in keeps the layering clean.
+  it("does not re-import deriveGradient (hero derives gradient internally)", () => {
+    expect(SRC).not.toContain("deriveGradient");
   });
 
   it("renders <ClientSpaceHero ... /> at the top of the page", () => {

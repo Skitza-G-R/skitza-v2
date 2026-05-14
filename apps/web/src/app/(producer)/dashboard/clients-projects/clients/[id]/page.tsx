@@ -9,7 +9,6 @@ import {
   ProjectRow,
   type ProjectRowData,
 } from "~/components/dashboard/projects/project-row";
-import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // /dashboard/clients-projects/clients/[id] — Client Space.
@@ -87,12 +86,6 @@ export default async function ClientDetailPage({ params }: PageProps) {
         detail.contact.email,
       )}&clientName=${encodeURIComponent(detail.contact.name)}`,
   };
-
-  // The hero needs to align its dark gradient band with the avatar
-  // identity — both derive from the contact's name via deriveGradient.
-  // Pre-resolving here keeps the page's intent explicit even though
-  // ClientSpaceHero also calls deriveGradient internally.
-  void deriveGradient(detail.contact.name);
 
   // Map each detail project into the new ProjectRow shape. The list
   // is intentionally read-only here — drag-to-reorder is a list-view
