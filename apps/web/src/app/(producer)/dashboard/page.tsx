@@ -42,11 +42,16 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const skipOnboarding = sp.skip === "1" || sp.skip === "true";
 
-  // First-run redirect — preserved from Story 06.
+  // Why no auto-redirect to /dashboard/onboarding here:
+  // requireRole("producer") in (producer)/layout.tsx already routes
+  // genuinely-new producers (no displayName) to /onboarding/welcome —
+  // the canonical May-2026 flow. A second derived-state gate on
+  // /dashboard (the previous `firstRun = no packages && empty brand`
+  // check) re-fired on every visit because there's no persistent
+  // "onboarding seen" flag, trapping producers who finished the real
+  // wizard but hadn't yet added a package or brand. detectOnboardingState
+  // still runs below to power the skipper banner.
   const onboarding = await detectOnboardingState(userId);
-  if (onboarding.firstRun && !skipOnboarding) {
-    redirect("/dashboard/onboarding");
-  }
 
   const caller = appRouter.createCaller({ userId });
 
