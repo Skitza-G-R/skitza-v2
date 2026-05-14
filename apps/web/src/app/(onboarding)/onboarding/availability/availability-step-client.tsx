@@ -2,12 +2,13 @@
 
 import { Calendar, Copy, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 
 import { setAvailabilityWeek } from "~/app/(producer)/dashboard/booking/actions";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
 import { useToast } from "~/components/ui/toast";
+import { orderByWeekStart, useWeekStartPref } from "~/lib/time/week-start";
 
 import {
   AVAILABILITY_STEP_INDEX,
@@ -45,18 +46,22 @@ interface DayConfig {
   windows: WindowConfig[];
 }
 
+// Canonical Sunday-first ordering — matches JavaScript's getDay()
+// convention (0=Sun..6=Sat). The visible order in the rendered grid
+// is computed via orderByWeekStart() so producers who prefer
+// Monday-first see the row list rotated without changing the state shape.
 const ROW_TEMPLATE: ReadonlyArray<{
   weekday: Weekday;
   label: string;
   defaultActive: boolean;
 }> = [
+  { weekday: 0, label: "Sun", defaultActive: false },
   { weekday: 1, label: "Mon", defaultActive: true },
   { weekday: 2, label: "Tue", defaultActive: true },
   { weekday: 3, label: "Wed", defaultActive: true },
   { weekday: 4, label: "Thu", defaultActive: true },
   { weekday: 5, label: "Fri", defaultActive: true },
   { weekday: 6, label: "Sat", defaultActive: false },
-  { weekday: 0, label: "Sun", defaultActive: false },
 ];
 
 const DEFAULT_WINDOW: WindowConfig = { startMin: 10 * 60, endMin: 18 * 60 };
@@ -142,6 +147,16 @@ export function AvailabilityStepClient({
   const [bufferMin, setBufferMin] = useState(15);
   const [cancellationHours, setCancellationHours] = useState(24);
   const [gcalConnected] = useState(false);
+
+  // Shared week-start preference — same localStorage key as the Calendar
+  // page, so flipping it here carries over once the producer reaches
+  // the dashboard. `days` stays canonically Sun-first; we only rotate
+  // the rendered slice.
+  const [weekStart, setWeekStart] = useWeekStartPref();
+  const orderedDays = useMemo(
+    () => orderByWeekStart(days, weekStart),
+    [days, weekStart],
+  );
 
   const updateDay = (weekday: Weekday, patch: Partial<DayConfig>) => {
     setDays((prev) =>
@@ -280,9 +295,46 @@ export function AvailabilityStepClient({
           Set your hours and rules. Edit anything from Calendar later.
         </p>
 
+        {/* Week-start preference — shared with the Calendar page via
+            localStorage. Producers who think in Mon-first weeks can
+            flip it once here and the dashboard remembers. */}
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2">
+          <span className="flex flex-col">
+            <span className="text-[11.5px] font-bold text-[rgb(var(--fg-default))]">
+              Week starts on
+            </span>
+            <span className="text-[10px] text-[rgb(var(--fg-muted))]">
+              Used by the calendar week grid.
+            </span>
+          </span>
+          <div className="flex shrink-0 gap-1">
+            {(["sunday", "monday"] as const).map((opt) => {
+              const isActive = opt === weekStart;
+              const label = opt === "sunday" ? "Sunday" : "Monday";
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => { setWeekStart(opt); }}
+                  className={[
+                    "inline-flex h-6 items-center justify-center rounded-full border px-2.5 font-mono text-[10.5px] transition-colors",
+                    isActive
+                      ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
+                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+                  ].join(" ")}
+                  style={{ fontWeight: 700 }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Days grid (compact, with per-day multi-window) */}
-        <ul className="mt-4 flex flex-col gap-1.5">
-          {days.map((day) => (
+        <ul className="mt-3 flex flex-col gap-1.5">
+          {orderedDays.map((day) => (
             <li
               key={day.weekday}
               className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-opacity ${

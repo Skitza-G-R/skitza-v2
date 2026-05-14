@@ -20,6 +20,11 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
+import {
+  orderByWeekStart,
+  useWeekStartPref,
+  type WeekStart,
+} from "~/lib/time/week-start";
 
 import {
   addBlackout,
@@ -48,6 +53,8 @@ const DAYS = [
   { num: 6, full: "Saturday", short: "S" },
 ] as const;
 
+type DayInfo = (typeof DAYS)[number];
+
 const CANCEL_HOURS = [12, 24, 48, 72] as const;
 const BUFFER_MIN = [0, 15, 30, 60] as const;
 
@@ -68,19 +75,27 @@ export function AvailabilityPanel({
   blackouts: initialBlackouts,
   settings,
 }: AvailabilityPanelProps) {
+  const [weekStart, setWeekStart] = useWeekStartPref();
+  const orderedDays = useMemo(
+    () => orderByWeekStart(DAYS, weekStart),
+    [weekStart],
+  );
+
   return (
     // Two columns share the viewport-locked panel; each scrolls
     // independently if its content overflows so the page chrome stays
     // anchored.
     <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex min-h-0 flex-col overflow-y-auto">
-        <WorkingHoursCard blocks={initialBlocks} />
+        <WorkingHoursCard blocks={initialBlocks} orderedDays={orderedDays} />
       </div>
       <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
         <BookingPrefsCard
           autoConfirm={settings.autoConfirmBookings}
           cancelHours={settings.cancellationPolicyHours}
           bufferMin={settings.bufferMin ?? 0}
+          weekStart={weekStart}
+          onWeekStartChange={setWeekStart}
         />
         <BlockedDatesCard blackouts={initialBlackouts} />
       </div>
@@ -90,7 +105,13 @@ export function AvailabilityPanel({
 
 // ── Working hours card ──────────────────────────────────────────────
 
-function WorkingHoursCard({ blocks }: { blocks: readonly Block[] }) {
+function WorkingHoursCard({
+  blocks,
+  orderedDays,
+}: {
+  blocks: readonly Block[];
+  orderedDays: readonly DayInfo[];
+}) {
   // Local draft keyed by weekday number; each day has 0+ windows.
   const [draft, setDraft] = useState(() => buildDraft(blocks));
   const [isPending, startTransition] = useTransition();
@@ -151,17 +172,17 @@ function WorkingHoursCard({ blocks }: { blocks: readonly Block[] }) {
       </header>
 
       <div className="px-5 pt-4">
-        <MiniChart totals={totals} />
+        <MiniChart totals={totals} days={orderedDays} />
       </div>
 
       <ol className="px-5">
-        {DAYS.map((d, idx) => (
+        {orderedDays.map((d, idx) => (
           <DayRow
             key={d.num}
             dayNum={d.num}
             dayLabel={d.full}
             windows={draft[d.num] ?? []}
-            isLast={idx === DAYS.length - 1}
+            isLast={idx === orderedDays.length - 1}
             totalH={totals[d.num] ?? 0}
             onToggle={(on) => {
               setDraft((prev) => {
@@ -232,12 +253,18 @@ function WorkingHoursCard({ blocks }: { blocks: readonly Block[] }) {
   );
 }
 
-function MiniChart({ totals }: { totals: Record<number, number> }) {
+function MiniChart({
+  totals,
+  days,
+}: {
+  totals: Record<number, number>;
+  days: readonly DayInfo[];
+}) {
   const max = 12; // 12h cap for the bar height; covers most schedules.
   return (
     <div className="rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay)/0.4)] px-3 py-3">
       <div className="flex h-[64px] items-end justify-between gap-1.5 px-2">
-        {DAYS.map((d) => {
+        {days.map((d) => {
           const hours = totals[d.num] ?? 0;
           const isOn = hours > 0;
           const heightPct = Math.max(8, Math.min(100, (hours / max) * 100));
@@ -423,10 +450,14 @@ function BookingPrefsCard({
   autoConfirm,
   cancelHours,
   bufferMin,
+  weekStart,
+  onWeekStartChange,
 }: {
   autoConfirm: boolean;
   cancelHours: number;
   bufferMin: number;
+  weekStart: WeekStart;
+  onWeekStartChange: (next: WeekStart) => void;
 }) {
   const [draftAuto, setDraftAuto] = useState(autoConfirm);
   const [draftCancel, setDraftCancel] = useState(cancelHours);
@@ -485,6 +516,48 @@ function BookingPrefsCard({
               persist({ autoConfirmBookings: next });
             }}
           />
+        </div>
+
+        {/* Week starts on — display-only preference (client localStorage).
+            Reorders the working-hours grid + mini-chart so Mon-first
+            producers see their week the way they think about it. */}
+        <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3">
+          <div className="min-w-0">
+            <p
+              className="text-[12.5px] text-[rgb(var(--fg-default))]"
+              style={{ fontWeight: 700 }}
+            >
+              Week starts on
+            </p>
+            <p className="mt-0.5 text-[10.5px] text-[rgb(var(--fg-muted))]">
+              Used by the calendar week grid.
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-1.5">
+            {(["sunday", "monday"] as const).map((opt) => {
+              const isActive = opt === weekStart;
+              const label = opt === "sunday" ? "Sunday" : "Monday";
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    onWeekStartChange(opt);
+                  }}
+                  className={[
+                    "sk-press inline-flex h-7 items-center justify-center rounded-full border px-2.5 font-mono text-[11.5px] transition-colors",
+                    isActive
+                      ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
+                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+                  ].join(" ")}
+                  style={{ fontWeight: 700 }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Cancellation window */}
