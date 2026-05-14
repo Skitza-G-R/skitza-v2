@@ -22,6 +22,8 @@ export interface ClientCardData {
   owed: number;
   /** Optional currency code — defaults to USD. */
   currency?: string;
+  /** Last activity timestamp (ISO) — drives "recent" sort. */
+  lastActivityIso?: string;
 }
 
 interface ClientCardProps {

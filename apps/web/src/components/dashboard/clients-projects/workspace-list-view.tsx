@@ -48,6 +48,22 @@ const CLIENT_FILTERS = [
   { value: "balance", label: "Balance" },
 ] as const;
 
+// Returns the row's ISO timestamp as ms, or 0 if missing/invalid. Used
+// to sort newer-first; rows with no timestamp sink to the bottom.
+function isoMs(value: string | null | undefined): number {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+// Same as isoMs but returns +Infinity for missing values so rows
+// without a deadline sink to the BOTTOM of an ascending sort.
+function isoMsOrPosInf(value: string | null | undefined): number {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+}
+
 type ClientFilter = (typeof CLIENT_FILTERS)[number]["value"];
 
 type Tab = "projects" | "clients";
@@ -72,9 +88,11 @@ export interface WorkspaceListViewProps {
   kpis: WorkspaceKPIs;
   /** Producer slug — used to build the invite URL inside the modal. */
   producerSlug: string;
-  /** Optional callback fired when the user drags rows into a new order. */
-  onReorderProjects?: (orderedIds: string[]) => void;
-  onReorderClients?: (orderedIds: string[]) => void;
+  /** Optional callback fired when the user drags rows into a new order.
+   *  Returning a Promise lets the page wire a Server Action — the
+   *  component never awaits the result (drag is optimistic). */
+  onReorderProjects?: (orderedIds: string[]) => unknown;
+  onReorderClients?: (orderedIds: string[]) => unknown;
 }
 
 function formatMoney(cents: number, currency: string): string {
@@ -125,25 +143,89 @@ export function WorkspaceListView({
   const currency = kpis.currency ?? "USD";
 
   const filteredProjects = useMemo(() => {
-    if (projectFilter === "all") return orderedProjects;
-    return orderedProjects.filter((p) => {
-      if (projectFilter === "urgent") return p.statusTone === "danger";
-      if (projectFilter === "active") {
-        return p.statusTone === "warn" || p.statusTone === "ok";
-      }
-      // done
-      return p.statusTone === "neutral";
-    });
-  }, [orderedProjects, projectFilter]);
+    const base =
+      projectFilter === "all"
+        ? orderedProjects
+        : orderedProjects.filter((p) => {
+            if (projectFilter === "urgent") return p.statusTone === "danger";
+            if (projectFilter === "active") {
+              return p.statusTone === "warn" || p.statusTone === "ok";
+            }
+            // done
+            return p.statusTone === "neutral";
+          });
+
+    if (sort === "custom") return base;
+    // Sort is non-mutating — return a fresh sorted copy so React sees
+    // the change and re-renders. The base list above is already a new
+    // array from filter() (or the orderedProjects reference when
+    // unfiltered, which we copy here).
+    const sorted = base.slice();
+    switch (sort) {
+      case "name":
+        sorted.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case "balance":
+        // Highest owed first.
+        sorted.sort((a, b) => b.balance - a.balance);
+        break;
+      case "progress":
+        // Most progressed first.
+        sorted.sort((a, b) => b.progress - a.progress);
+        break;
+      case "recent":
+        // Most recently updated first. Rows without a timestamp sink
+        // to the bottom of the list.
+        sorted.sort((a, b) => isoMs(b.updatedAtIso) - isoMs(a.updatedAtIso));
+        break;
+      case "deadline":
+        // Soonest deadline first. Rows without a deadline sink to the
+        // bottom (Number.POSITIVE_INFINITY).
+        sorted.sort(
+          (a, b) =>
+            isoMsOrPosInf(a.deadlineAtIso) - isoMsOrPosInf(b.deadlineAtIso),
+        );
+        break;
+    }
+    return sorted;
+  }, [orderedProjects, projectFilter, sort]);
 
   const filteredClients = useMemo(() => {
-    if (clientFilter === "all") return orderedClients;
-    return orderedClients.filter((c) => {
-      if (clientFilter === "active") return c.projects > 0;
-      // balance
-      return c.owed > 0;
-    });
-  }, [orderedClients, clientFilter]);
+    const base =
+      clientFilter === "all"
+        ? orderedClients
+        : orderedClients.filter((c) => {
+            if (clientFilter === "active") return c.projects > 0;
+            // balance
+            return c.owed > 0;
+          });
+
+    if (sort === "custom") return base;
+    const sorted = base.slice();
+    switch (sort) {
+      case "name":
+        sorted.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case "balance":
+        // Highest owed first.
+        sorted.sort((a, b) => b.owed - a.owed);
+        break;
+      case "progress":
+        // No per-client progress signal; fall back to "most active
+        // projects" as a reasonable proxy so the dropdown stays useful
+        // on the Clients tab.
+        sorted.sort((a, b) => b.projects - a.projects);
+        break;
+      case "recent":
+        sorted.sort((a, b) => isoMs(b.lastActivityIso) - isoMs(a.lastActivityIso));
+        break;
+      case "deadline":
+        // Clients have no individual deadline. Keep current order
+        // (matching the upstream listWithProjects ordering).
+        break;
+    }
+    return sorted;
+  }, [orderedClients, clientFilter, sort]);
 
   const handleProjectDragStart = (
     _e: DragEvent<HTMLDivElement>,
@@ -176,7 +258,9 @@ export function WorkspaceListView({
     // Drag flips sort back to "custom" — that's how the user signals
     // "this is the order I want, don't auto-sort over it".
     setSort("custom");
-    onReorderProjects?.(next.map((p) => p.id));
+    // Fire-and-forget: the server persists the new order, but we
+    // already updated local state optimistically above.
+    void onReorderProjects?.(next.map((p) => p.id));
   };
 
   const handleClientDragStart = (
@@ -208,7 +292,8 @@ export function WorkspaceListView({
     setOrderedClients(next);
     setDraggingId(null);
     setSort("custom");
-    onReorderClients?.(next.map((c) => c.id));
+    // Fire-and-forget — local state has the new order already.
+    void onReorderClients?.(next.map((c) => c.id));
   };
 
   return (

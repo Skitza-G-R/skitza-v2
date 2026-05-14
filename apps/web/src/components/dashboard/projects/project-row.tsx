@@ -4,7 +4,6 @@ import Link from "next/link";
 import type { DragEvent } from "react";
 import { ChevronRight, GripVertical } from "lucide-react";
 
-import { deriveGradient } from "~/lib/clients/derive-gradient";
 import {
   producerGradient,
   producerInitials,
@@ -39,6 +38,10 @@ export interface ProjectRowData {
   statusTone: ProjectRowStatusTone;
   /** Optional currency code to format balance with. */
   currency?: string;
+  /** Last-updated timestamp (ISO) — drives "recent" sort. */
+  updatedAtIso?: string;
+  /** Deadline timestamp (ISO, null when no upcoming session) — drives "deadline" sort. */
+  deadlineAtIso?: string | null;
 }
 
 interface ProjectRowProps {
@@ -122,13 +125,6 @@ export function ProjectRow({
   } = row;
   const initials = producerInitials(client || title);
   const badgeBg = producerGradient(client || title);
-  // deriveGradient is used to align this row's identity color across
-  // the avatar system (above) AND the hero-bg system. We don't need
-  // the value here for visual rendering, but referencing the helper
-  // keeps the import in this file so the gradient token derivation
-  // stays consistent between row + hero. Future Tasks 9-10 use the
-  // returned token directly.
-  void deriveGradient(client || title);
 
   const tone = toneStyle(statusTone);
   const toneCls = toneClass(statusTone);
