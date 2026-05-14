@@ -9,6 +9,11 @@ import type { ProjectRowData } from "~/components/dashboard/projects/project-row
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
 import { appRouter } from "~/server/trpc/routers/_app";
 
+import {
+  reorderClientsAction,
+  reorderProjectsAction,
+} from "./clients-actions";
+
 // /dashboard/clients-projects — producer's "Clients & Projects"
 // workspace. Phase 1 redesign (Task 16) — the page now renders a single
 // <WorkspaceListView> which owns the KPI strip, tab switcher, filter
@@ -73,6 +78,10 @@ export default async function ProjectsPage() {
           // Per-client currency isn't tracked in v1; the project rows'
           // dominant currency is the anchor (see header below).
           currency: producerCurrency,
+          lastActivityIso:
+            c.lastActivity instanceof Date
+              ? c.lastActivity.toISOString()
+              : new Date(c.lastActivity).toISOString(),
         }))
       : [];
 
@@ -131,6 +140,8 @@ export default async function ProjectsPage() {
           clients={clientRows}
           kpis={kpis}
           producerSlug={producerSlug}
+          onReorderProjects={reorderProjectsAction}
+          onReorderClients={reorderClientsAction}
         />
       </div>
     </div>
@@ -171,6 +182,7 @@ type EnrichedProject = {
   nextSessionAt: Date | null;
   unresolvedComments: number;
   isActive: boolean;
+  updatedAt: Date | string;
 };
 
 // stage → progress %. Same heuristic the previous list view used so
@@ -218,6 +230,11 @@ function toProjectRowData(p: EnrichedProject): ProjectRowData {
     status: STAGE_LABEL[p.stage],
     statusTone: tone,
     currency: p.currency,
+    updatedAtIso:
+      p.updatedAt instanceof Date
+        ? p.updatedAt.toISOString()
+        : new Date(p.updatedAt).toISOString(),
+    deadlineAtIso: p.nextSessionAt ? p.nextSessionAt.toISOString() : null,
   };
 }
 

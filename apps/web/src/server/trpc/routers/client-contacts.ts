@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import {
   and,
+  asc,
   bookings,
   clientContacts,
   producers,
@@ -111,7 +112,10 @@ export const clientContactsRouter = router({
         .leftJoin(products, eq(products.id, bookings.productId))
         .where(eq(projects.producerId, ctx.producerId))
         .groupBy(projects.id)
-        .orderBy(desc(projects.updatedAt));
+        // Custom drag-to-reorder takes precedence (`position` asc).
+        // For un-dragged rows (all default to position=0), fall back
+        // to most-recently-updated so existing behavior is preserved.
+        .orderBy(asc(projects.position), desc(projects.updatedAt));
 
       // Pre-compute last-comment timestamp + unresolved count per
       // project email (artistEmail/clientEmail) via a single aggregate.
@@ -266,7 +270,9 @@ export const clientContactsRouter = router({
         })
         .from(clientContacts)
         .where(eq(clientContacts.producerId, ctx.producerId))
-        .orderBy(desc(clientContacts.lastSeenAt));
+        // Custom drag order first, then most-recently-seen for the
+        // un-dragged (position=0) tail.
+        .orderBy(asc(clientContacts.position), desc(clientContacts.lastSeenAt));
 
       type Agg = {
         active: number;

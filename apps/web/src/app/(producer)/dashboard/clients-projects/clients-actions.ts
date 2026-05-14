@@ -83,3 +83,38 @@ export async function sendClientInviteAction(input: {
     return { ok: false, error: toMessage(err) };
   }
 }
+
+// Reorder wrappers for the drag-to-reorder UX on the Clients & Projects
+// list view. The tRPC mutations (clientContacts.reorder, projects.reorder)
+// verify ownership + atomically rewrite the `position` column.
+// revalidatePath fires after success so the next read returns rows in
+// the new order. Ownership re-check lives inside the tRPC procedures
+// — do not remove it there.
+
+export async function reorderClientsAction(
+  orderedIds: string[],
+): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.clientContacts.reorder({ orderedIds });
+    revalidatePath(CLIENTS_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function reorderProjectsAction(
+  orderedIds: string[],
+): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.reorder({ orderedIds });
+    revalidatePath(CLIENTS_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
