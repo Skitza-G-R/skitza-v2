@@ -2,36 +2,19 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { DashboardEmptyOnboarding } from "~/components/dashboard/today/empty-onboarding";
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
-import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
-import { isDayOneEmpty } from "./page-helpers";
 
-// Phase 4 — Overview rebuild.
+// Overview page — always renders <OverviewScreen>. Each section owns
+// its own empty state (PublicLinkStrip when slug set, "Nothing urgent"
+// row, "All quiet" activity message, $0 financial pulse), so a fresh
+// producer who just finished onboarding sees the full dashboard
+// scaffold with their public link front-and-centre.
 //
-// Replaces the Story 06 layout (DashboardGreeting → InboxSection →
-// RecentUploadsShelf → PulseCard → ContextualActions) with the locked
-// design's mobile-first hierarchy (per `notes/producer-screens.jsx`):
-//   1. Hero — date eyebrow + name with amber period + status line
-//   2. Pending Approvals card (conditional on booking.list pending count)
-//   3. Today's Session card (conditional on first session item being today)
-//   4. Money split row — Earned + open-items count
-//   5. Activity feed — first 5 today.items
-//
-// The auth + skipper-nudge + day-1 empty-state flow is preserved
-// (auth-fix is in flight on PR #60 — Phase 4 keeps its hands off
-// role/auth logic). FinishSetupNudge + DashboardEmptyOnboarding
-// branches still render above the populated layout when applicable.
-//
-// All page-level data is server-fetched via the tRPC server caller —
-// no new procedures, no schema changes. Outstanding-balance
-// aggregation is currently surfaced as `pulseStats.unresolvedItems`
-// (count of unpaid invoices + open comments); a real
-// `outstandingCents` aggregation is deferred to a follow-up that can
-// touch producer.today safely.
+// FinishSetupNudge (skipper-specific) and the post-session follow-up
+// banner render above the layout when applicable.
 
 type PageProps = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -74,26 +57,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     (s): s is typeof s & { projectId: string } => s.projectId !== null,
   );
 
-  // Public origin used by DashboardEmptyOnboarding to render the
-  // /join/<slug> URL. Always the canonical brand origin — share links
-  // land in producer bios + socials, so they must always read as
-  // `skitza.app/join/<slug>`. See `lib/share/public-url`.
-  const publicBaseUrl = PUBLIC_BRAND_ORIGIN;
-
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
   // is completely empty with no next step to take.
   const showSetupNudge =
     skipOnboarding && !onboarding.hasPackages && today.items.length === 0;
-
-  // Day-1 empty-state predicate. When ALL three counts are zero the
-  // populated layout collapses to the empty-onboarding card. Same
-  // signature as Story 06.
-  const empty = isDayOneEmpty({
-    recentUploadsCount: today.recentUploads.length,
-    activeProjectsCount: today.pulseStats.activeProjects,
-    itemsCount: today.items.length,
-  });
 
   // Today's session = first session item whose occurredAt is today.
   // Producer.today fans the items list across sessions/comments/
@@ -142,9 +110,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <div className="sk-page-enter mx-auto max-w-[1920px]">
           <h1 className="sr-only">Today</h1>
 
-          {/* FinishSetupNudge fires above the day-1 empty state when
-              both apply. Catching skippers before they bounce stays
-              the highest-priority CTA. */}
+          {/* FinishSetupNudge fires for producers who used `?skip=1`
+              from onboarding and haven't added packages yet. Top of
+              the page so it stays the highest-priority CTA. */}
           {showSetupNudge ? <FinishSetupNudge /> : null}
 
           {/* Post-session follow-up nudges. Confirmed sessions whose
@@ -184,47 +152,39 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </div>
           ) : null}
 
-          {/* Day-1 empty state */}
-          {empty && !showSetupNudge ? (
-            <div className="px-4 pt-6 pb-10 sm:px-6">
-              <DashboardEmptyOnboarding
-                slug={me.slug}
-                publicBaseUrl={publicBaseUrl}
-              />
-            </div>
-          ) : null}
-
-          {/* Populated layout — Phase 4 OverviewScreen (Overview Polish) */}
-          {!empty ? (
-            <OverviewScreen
-              displayName={me.displayName}
-              slug={me.slug}
-              pulseStats={today.pulseStats}
-              pendingApprovals={pendingApprovals}
-              todaySession={todaySession}
-              urgentProjects={urgent.items}
-              recentUploads={today.recentUploads.map((u) => ({
-                versionId: u.versionId,
-                trackId: u.trackId,
-                title: u.title,
-                versionLabel: u.versionLabel,
-                uploadedAt: u.uploadedAt,
-                durationMs: u.durationMs,
-                projectId: u.projectId,
-                projectClientName: u.projectClientName,
-              }))}
-              activity={today.items.map((it) => ({
-                id: it.id,
-                kind: it.kind,
-                title: it.title,
-                subtitle: it.subtitle,
-                occurredAt: it.occurredAt,
-                href: it.href,
-                unread: it.unread,
-              }))}
-              now={now}
-            />
-          ) : null}
+          {/* Overview — always renders. Each section handles its own
+              empty state. The PublicLinkStrip inside OverviewScreen
+              gives a fresh producer the same share-your-link CTA the
+              old day-1 takeover card was built for, but inline with
+              the full dashboard scaffold around it. */}
+          <OverviewScreen
+            displayName={me.displayName}
+            slug={me.slug}
+            pulseStats={today.pulseStats}
+            pendingApprovals={pendingApprovals}
+            todaySession={todaySession}
+            urgentProjects={urgent.items}
+            recentUploads={today.recentUploads.map((u) => ({
+              versionId: u.versionId,
+              trackId: u.trackId,
+              title: u.title,
+              versionLabel: u.versionLabel,
+              uploadedAt: u.uploadedAt,
+              durationMs: u.durationMs,
+              projectId: u.projectId,
+              projectClientName: u.projectClientName,
+            }))}
+            activity={today.items.map((it) => ({
+              id: it.id,
+              kind: it.kind,
+              title: it.title,
+              subtitle: it.subtitle,
+              occurredAt: it.occurredAt,
+              href: it.href,
+              unread: it.unread,
+            }))}
+            now={now}
+          />
         </div>
       </div>
     </>
