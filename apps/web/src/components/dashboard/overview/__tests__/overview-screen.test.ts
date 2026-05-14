@@ -242,6 +242,21 @@ describe("OverviewScreen — design-aligned hierarchy", () => {
     expect(overviewSource).toMatch(/recentTop\.length\s*>\s*0/);
   });
 
+  it("does not render a top-right date chip (OS chrome shows the date)", () => {
+    // Audit 2026-05-14: the right-side "May 14, 2026" chip duplicated
+    // info already visible in the producer's browser/OS clock. It
+    // competed with the "Accepting Sessions" pill for visual weight
+    // in the hero row. Dropping it tightens the greeting block.
+    //
+    // We pin both the call site and the now-unused helper definitions
+    // to make sure a future refactor doesn't accidentally bring it
+    // back. If a date stamp is needed again, embed it in the Activity
+    // or Financial Pulse section header, not the hero row.
+    expect(overviewSource).not.toContain("formatTopDate(now)");
+    expect(overviewSource).not.toMatch(/function formatTopDate\b/);
+    expect(overviewSource).not.toMatch(/function ClockIcon\b/);
+  });
+
   it("does NOT use Tailwind color literals (bg-blue-500, text-red-600, etc)", () => {
     // CSS-variable discipline — design tokens only.
     expect(overviewSource).not.toMatch(/bg-(red|blue|green|yellow|orange|purple)-\d{2,3}/);

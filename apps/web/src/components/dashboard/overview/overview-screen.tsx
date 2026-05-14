@@ -143,24 +143,21 @@ export function OverviewScreen({
     // vertical rhythm but with a wider max-width and per-section
     // grids (the urgent + recent pair becomes 2-up).
     <div className="sk-page-enter mx-auto flex w-full max-w-[1180px] flex-col gap-5 px-4 pt-6 pb-24 sm:gap-6 sm:px-6 lg:px-8 lg:pt-10">
-      {/* GREETING */}
-      <header className="reveal-up flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <span className="pill pill-success inline-flex items-center gap-1.5">
-            <PingDot color="rgb(var(--fg-success))" />
-            Accepting Sessions
-          </span>
-          <h1 className="font-syne mt-3 text-[clamp(28px,4vw,44px)] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--fg-default))]">
-            {greetingSalutation}, {greetingName}.
-          </h1>
-          <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
-            Here is the pulse of your studio today.
-          </p>
-        </div>
-        <div className="inline-flex shrink-0 items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-muted))]">
-          <ClockIcon />
-          {formatTopDate(now)}
-        </div>
+      {/* GREETING — the redundant top-right "May 14, 2026" date chip
+          was removed 2026-05-14 (audit): it duplicated info already
+          visible in the producer's OS clock and competed with the
+          "Accepting Sessions" pill for visual weight. */}
+      <header className="reveal-up min-w-0">
+        <span className="pill pill-success inline-flex items-center gap-1.5">
+          <PingDot color="rgb(var(--fg-success))" />
+          Accepting Sessions
+        </span>
+        <h1 className="font-syne mt-3 text-[clamp(28px,4vw,44px)] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--fg-default))]">
+          {greetingSalutation}, {greetingName}.
+        </h1>
+        <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
+          Here is the pulse of your studio today.
+        </p>
       </header>
 
       {/* PUBLIC LINK HERO — only when slug is set. The Day-1 empty
@@ -861,15 +858,6 @@ function greetingFor(now: Date): string {
   return "Good evening";
 }
 
-function formatTopDate(d: Date): string {
-  // "May 1, 2026"
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function formatDateTime(d: Date): string {
   return `${formatDayLabel(d)} · ${formatTimeShort(d)}`;
 }
@@ -1065,25 +1053,6 @@ function ChevronRightIcon() {
       strokeLinejoin="round"
     >
       <path d="m6 4 4 4-4 4" />
-    </svg>
-  );
-}
-
-function ClockIcon() {
-  return (
-    <svg
-      aria-hidden
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="rgb(var(--brand-primary))"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="8" cy="8" r="6" />
-      <path d="M8 4.5V8l2.5 1.5" />
     </svg>
   );
 }
