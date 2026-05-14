@@ -296,6 +296,16 @@ export const bookings = pgTable("bookings", {
   // to confirmed so the success page can show "Confirmation #..." back
   // to the artist. Nullable — Stripe-paid bookings won't have one.
   tranzilaConfirmationCode: text("tranzila_confirmation_code"),
+  // Phase 0 of Clients & Projects v3 — links a booking to a specific
+  // song so the Song Space's Sessions tab can scope to that song.
+  // Nullable to preserve existing booking rows (they pre-date this
+  // column and were never tied to a song). ON DELETE SET NULL so a
+  // song delete doesn't cascade-delete sessions. Forward reference to
+  // `projectTracks` (declared further down) handled via the lazy
+  // callback form, same pattern as `projectId` above.
+  songId: uuid("song_id").references((): AnyPgColumn => projectTracks.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Booking = typeof bookings.$inferSelect;
@@ -317,6 +327,18 @@ export const projectStage = pgEnum("project_stage", [
   "final_review",  // final mix sent, awaiting approval
   "paid",          // final invoice paid
   "archived",      // closed
+]);
+
+// New workflow enum introduced by the Clients & Projects v3 redesign
+// (design doc: docs/plans/active/2026-05-14-clients-projects-redesign-design.md).
+// Drives the per-song stepper + the new Status stat tile on the Album hero.
+// Lives alongside `projectStage` — the old enum keeps running billing.
+export const workflowStage = pgEnum("workflow_stage", [
+  "brief",
+  "production",
+  "mixing",
+  "mastering",
+  "done",
 ]);
 
 export const projects = pgTable("projects", {
@@ -404,6 +426,13 @@ export const projects = pgTable("projects", {
   // chars at the procedure layer; the column itself is `text` so we can
   // raise the cap later without a migration.
   notes: text("notes"),
+  // Drag-to-reorder slot for the Projects list. Same pattern as
+  // client_contacts.position.
+  position: integer("position").notNull().default(0),
+  // Creative workflow stage for the new redesign hero + Status stat
+  // tile. Decoupled from the legacy `stage` (lifecycle) column — both
+  // co-exist; the new UI only ever shows this one.
+  workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
@@ -417,6 +446,11 @@ export const projectTracks = pgTable("project_tracks", {
   artist: text("artist"),
   position: integer("position").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Per-song workflow stage. Drives the WorkflowStepper on Song Space
+  // and the stage pill on Album tracklist rows. Advances when a new
+  // version is uploaded with a higher stage; manual override available
+  // from the Song Space.
+  workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
 });
 export type ProjectTrack = typeof projectTracks.$inferSelect;
 export type NewProjectTrack = typeof projectTracks.$inferInsert;
@@ -503,6 +537,15 @@ export const clientContacts = pgTable("client_contacts", {
   // history); artist-side queries filter `IS NULL` so a disconnected
   // studio disappears from the switcher / music / store / book.
   archivedAt: timestamp("archived_at", { withTimezone: true }),
+  // Linkpill "Invited" state for the Clients & Projects v3 redesign.
+  // Stamped when the producer triggers Send Invite (email or copy-link)
+  // from the Invite-to-App modal. Cleared when Clerk webhook resolves
+  // `clerkUserId`. NULL means "no invite ever sent".
+  invitedAt: timestamp("invited_at", { withTimezone: true }),
+  // Drag-to-reorder slot for the Clients list. NOT NULL with default 0
+  // so existing rows back-fill safely. Reorder mutations update many
+  // rows in a single transaction.
+  position: integer("position").notNull().default(0),
 }, (t) => ({
   uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
   clerkUserIdx: index("client_contacts_clerk_user_idx")
