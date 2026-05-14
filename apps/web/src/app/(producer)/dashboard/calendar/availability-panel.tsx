@@ -20,6 +20,11 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
+import {
+  orderByWeekStart,
+  useWeekStartPref,
+  type WeekStart,
+} from "~/lib/time/week-start";
 
 import {
   addBlackout,
@@ -53,48 +58,6 @@ type DayInfo = (typeof DAYS)[number];
 const CANCEL_HOURS = [12, 24, 48, 72] as const;
 const BUFFER_MIN = [0, 15, 30, 60] as const;
 
-// Week-start preference — display-only. Day IDs (0=Sun..6=Sat) stay
-// unchanged in the DB; we just rotate the visible order so producers
-// who think in Mon-first weeks see their grid that way. Persisted to
-// localStorage so the choice survives reloads without a schema change.
-type WeekStart = "sunday" | "monday";
-const WEEK_START_KEY = "skitza:week-starts-on";
-
-function useWeekStartPref(): [WeekStart, (next: WeekStart) => void] {
-  const [value, setValue] = useState<WeekStart>("sunday");
-
-  // Hydrate after mount — reading localStorage at render time would
-  // mismatch SSR (server has no localStorage) and flash the wrong pick.
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(WEEK_START_KEY);
-      if (stored === "sunday" || stored === "monday") {
-        setValue(stored);
-      }
-    } catch {
-      // Private mode / disabled storage — stick with the default.
-    }
-  }, []);
-
-  const update = (next: WeekStart) => {
-    setValue(next);
-    try {
-      window.localStorage.setItem(WEEK_START_KEY, next);
-    } catch {
-      // ignore
-    }
-  };
-
-  return [value, update];
-}
-
-function orderDays(start: WeekStart): readonly DayInfo[] {
-  if (start === "monday") {
-    return [DAYS[1], DAYS[2], DAYS[3], DAYS[4], DAYS[5], DAYS[6], DAYS[0]];
-  }
-  return DAYS;
-}
-
 // ── Public API ──────────────────────────────────────────────────────
 
 export type AvailabilityPanelProps = {
@@ -113,7 +76,10 @@ export function AvailabilityPanel({
   settings,
 }: AvailabilityPanelProps) {
   const [weekStart, setWeekStart] = useWeekStartPref();
-  const orderedDays = useMemo(() => orderDays(weekStart), [weekStart]);
+  const orderedDays = useMemo(
+    () => orderByWeekStart(DAYS, weekStart),
+    [weekStart],
+  );
 
   return (
     // Two columns share the viewport-locked panel; each scrolls
