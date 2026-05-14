@@ -80,8 +80,26 @@ export function resolveLegacyRedirect(pathname: string): string | null {
 // sharing /artist/music/<id> with their manager) work correctly: the
 // manager clicks → redirects to sign-in → post-sign-in lands on the
 // deep-link. Without this, shared links 404 and look broken.
-export default clerkMiddleware(async (auth, req) => {
-  // Legacy redirects BEFORE auth gating — returning a 301 is cheap and
+// Link-only access gate (pre-launch). Anything that isn't an API/tRPC route
+// must present either a `?t=<ACCESS_TOKEN>` query param (which we then stamp
+// into a cookie) or the `skitza-access` cookie. Otherwise we 404 — same shape
+// Clerk uses for protected routes, so we don't leak existence either.
+//
+// Lives OUTSIDE the clerkMiddleware wrapper because Clerk's dev "keyless
+// mode" short-circuits the wrapper and skips the user callback when keys
+// are missing. The gate must run unconditionally, so we evaluate it first
+// and only delegate to Clerk when access is allowed.
+const ACCESS_COOKIE = "skitza-access";
+
+function isAccessGated(pathname: string): boolean {
+  // API + tRPC routes are excluded so server-to-server callers and webhooks
+  // (Clerk, Stripe, Resend) keep working without the token.
+  if (pathname.startsWith("/api/") || pathname === "/api") return false;
+  if (pathname.startsWith("/trpc/") || pathname === "/trpc") return false;
+  return true;
+}
+
+const clerk = clerkMiddleware(async (auth, req) => {
   // the target is always inside /dashboard which is also protected.
   const legacy = resolveLegacyRedirect(req.nextUrl.pathname);
   if (legacy !== null) {
@@ -148,5 +166,42 @@ export default clerkMiddleware(async (auth, req) => {
 
   return NextResponse.next();
 });
+
+export default async function middleware(
+  req: Parameters<typeof clerk>[0],
+  ev: Parameters<typeof clerk>[1],
+) {
+  const accessToken = process.env.ACCESS_TOKEN;
+  if (accessToken && isAccessGated(req.nextUrl.pathname)) {
+    const queryToken = req.nextUrl.searchParams.get("t");
+    const cookieToken = req.cookies.get(ACCESS_COOKIE)?.value;
+
+    if (queryToken !== accessToken && cookieToken !== accessToken) {
+      return new Response("Not found.", { status: 404 });
+    }
+
+    if (queryToken === accessToken) {
+      // Delegate to Clerk so its auth context attaches, then stamp the
+      // cookie on whatever response Clerk produces. Returning NextResponse
+      // .next() directly here would skip Clerk and break any downstream
+      // page that calls auth().
+      const res = await clerk(req, ev);
+      const finalRes =
+        res instanceof NextResponse ? res : NextResponse.next();
+      finalRes.cookies.set({
+        name: ACCESS_COOKIE,
+        value: accessToken,
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 30,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      });
+      return finalRes;
+    }
+  }
+
+  return clerk(req, ev);
+}
 
 export const config = { matcher: ["/((?!_next|.*\\..*).*)", "/(api|trpc)(.*)"] };
