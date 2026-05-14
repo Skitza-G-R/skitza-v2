@@ -81,6 +81,36 @@ export async function removeClient(input: {
   }
 }
 
+// Clients & Projects v3 redesign — Phase 1 Task 11. Server Action
+// wrapper for clientContacts.sendInvite. The Invite-to-App modal calls
+// this with via='email' (real Resend dispatch) or via='link' (the
+// producer copied the URL to clipboard — server side only stamps
+// invited_at). On success, revalidates the list path so the LinkPill
+// flips from "Invite to app" → "Invited" without a hard reload.
+export async function sendClientInviteAction(input: {
+  id: string;
+  via: "email" | "link";
+}): Promise<ActionDataResult<{ invitedAtIso: string; via: "email" | "link" }>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const res = await c.caller.clientContacts.sendInvite(input);
+    revalidatePath(CLIENTS_PATH);
+    return {
+      ok: true,
+      data: {
+        invitedAtIso:
+          res.invitedAt instanceof Date
+            ? res.invitedAt.toISOString()
+            : new Date(res.invitedAt).toISOString(),
+        via: res.via,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Dispatches to two tRPC procedures based on which fields are passed:
 //   - clientContacts.update       — name / email (id-collision aware)
 //   - clientContacts.updateClientMeta — notes / tags (CRM meta)

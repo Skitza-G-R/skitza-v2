@@ -178,11 +178,9 @@ describe("clientContacts.sendInvite", () => {
     expect(sendEmailSpy).toHaveBeenCalledTimes(1);
     const [to, props] = sendEmailSpy.mock.calls[0] ?? [];
     expect(to).toBe("noa@example.com");
-    expect(props).toMatchObject({
-      clientName: "Noa Kirel",
-      // The invite URL must include the producer slug + contact id.
-      inviteUrl: expect.stringContaining("test-slug"),
-    });
+    expect(props?.clientName).toBe("Noa Kirel");
+    // The invite URL must include the producer slug + contact id.
+    expect(String(props?.inviteUrl ?? "")).toContain("test-slug");
     expect(updateMock).toHaveBeenCalledTimes(1);
   });
 
