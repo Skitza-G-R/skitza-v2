@@ -12,7 +12,9 @@ import {
   ClientCard,
   type ClientCardData,
 } from "~/components/dashboard/clients/client-card";
+import { InviteToAppModal } from "~/components/dashboard/clients/invite-modal";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
+import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 
 // Sort order options (in display order). `custom` defaults — the user
 // last-set order, persisted via the reorder mutations. `recent` is the
@@ -68,11 +70,11 @@ export interface WorkspaceListViewProps {
   projects: ProjectRowData[];
   clients: ClientCardData[];
   kpis: WorkspaceKPIs;
+  /** Producer slug — used to build the invite URL inside the modal. */
+  producerSlug: string;
   /** Optional callback fired when the user drags rows into a new order. */
   onReorderProjects?: (orderedIds: string[]) => void;
   onReorderClients?: (orderedIds: string[]) => void;
-  /** Fired when the user clicks a LinkPill's "Invite to app" button. */
-  onInviteClient?: (client: ClientCardData) => void;
 }
 
 function formatMoney(cents: number, currency: string): string {
@@ -91,9 +93,9 @@ export function WorkspaceListView({
   projects,
   clients,
   kpis,
+  producerSlug,
   onReorderProjects,
   onReorderClients,
-  onInviteClient,
 }: WorkspaceListViewProps) {
   const [tab, setTab] = useState<Tab>("projects");
   const [sort, setSort] = useState<SortValue>("custom");
@@ -106,6 +108,19 @@ export function WorkspaceListView({
   const [orderedProjects, setOrderedProjects] = useState(projects);
   const [orderedClients, setOrderedClients] = useState(clients);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  // Invite-to-App modal state. The modal mounts once at the bottom of
+  // the view and opens whenever a LinkPill "Invite to app" button is
+  // clicked on any ClientCard. inviteTarget = null hides the modal.
+  const [inviteTarget, setInviteTarget] = useState<ClientCardData | null>(
+    null,
+  );
+  const handleInviteClient = (client: ClientCardData) => {
+    setInviteTarget(client);
+  };
+  const closeInvite = () => {
+    setInviteTarget(null);
+  };
 
   const currency = kpis.currency ?? "USD";
 
@@ -136,10 +151,7 @@ export function WorkspaceListView({
   ) => {
     setDraggingId(id);
   };
-  const handleProjectDragOver = (
-    e: DragEvent<HTMLDivElement>,
-    _id: string,
-  ) => {
+  const handleProjectDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
   const handleProjectDrop = (
@@ -173,10 +185,7 @@ export function WorkspaceListView({
   ) => {
     setDraggingId(id);
   };
-  const handleClientDragOver = (
-    e: DragEvent<HTMLDivElement>,
-    _id: string,
-  ) => {
+  const handleClientDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
   const handleClientDrop = (
@@ -241,7 +250,7 @@ export function WorkspaceListView({
           type="button"
           role="tab"
           aria-selected={tab === "projects"}
-          onClick={() => setTab("projects")}
+          onClick={() => { setTab("projects"); }}
           className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
           style={{
             background:
@@ -260,7 +269,7 @@ export function WorkspaceListView({
           type="button"
           role="tab"
           aria-selected={tab === "clients"}
-          onClick={() => setTab("clients")}
+          onClick={() => { setTab("clients"); }}
           className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
           style={{
             background:
@@ -285,7 +294,7 @@ export function WorkspaceListView({
                 <button
                   key={f.value}
                   type="button"
-                  onClick={() => setProjectFilter(f.value)}
+                  onClick={() => { setProjectFilter(f.value); }}
                   className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
                   style={{
                     background:
@@ -309,7 +318,7 @@ export function WorkspaceListView({
                 <button
                   key={f.value}
                   type="button"
-                  onClick={() => setClientFilter(f.value)}
+                  onClick={() => { setClientFilter(f.value); }}
                   className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
                   style={{
                     background:
@@ -342,7 +351,7 @@ export function WorkspaceListView({
           >
             <button
               type="button"
-              onClick={() => setLayout("cards")}
+              onClick={() => { setLayout("cards"); }}
               aria-pressed={layout === "cards"}
               aria-label="Card layout"
               className="rounded-full p-1.5"
@@ -361,7 +370,7 @@ export function WorkspaceListView({
             </button>
             <button
               type="button"
-              onClick={() => setLayout("table")}
+              onClick={() => { setLayout("table"); }}
               aria-pressed={layout === "table"}
               aria-label="Table layout"
               className="rounded-full p-1.5"
@@ -382,7 +391,7 @@ export function WorkspaceListView({
           <label className="relative inline-flex items-center">
             <select
               value={sort}
-              onChange={(e) => setSort(e.target.value as SortValue)}
+              onChange={(e) => { setSort(e.target.value as SortValue); }}
               className="appearance-none rounded-full border bg-transparent py-1.5 pl-3 pr-7 text-[12px] font-medium focus:outline-none"
               style={{
                 background: "rgb(var(--bg-elevated))",
@@ -428,28 +437,32 @@ export function WorkspaceListView({
               : "flex flex-col gap-2"
           }
         >
-          {filteredClients.map((c) =>
-            onInviteClient ? (
-              <ClientCard
-                key={c.id}
-                client={c}
-                onInvite={onInviteClient}
-                onDragStart={handleClientDragStart}
-                onDragOver={handleClientDragOver}
-                onDrop={handleClientDrop}
-              />
-            ) : (
-              <ClientCard
-                key={c.id}
-                client={c}
-                onDragStart={handleClientDragStart}
-                onDragOver={handleClientDragOver}
-                onDrop={handleClientDrop}
-              />
-            ),
-          )}
+          {filteredClients.map((c) => (
+            <ClientCard
+              key={c.id}
+              client={c}
+              onInvite={handleInviteClient}
+              onDragStart={handleClientDragStart}
+              onDragOver={handleClientDragOver}
+              onDrop={handleClientDrop}
+            />
+          ))}
         </div>
       )}
+
+      {inviteTarget ? (
+        <InviteToAppModal
+          open={true}
+          onClose={closeInvite}
+          client={{
+            id: inviteTarget.id,
+            name: inviteTarget.name,
+            email: inviteTarget.email,
+            gradient: producerGradient(inviteTarget.name),
+          }}
+          producerSlug={producerSlug}
+        />
+      ) : null}
     </div>
   );
 }

@@ -116,4 +116,28 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
   it("renders the Custom sort label so users see what 'custom' means", () => {
     expect(SRC).toMatch(/Custom/);
   });
+
+  // ── Task 12: InviteToAppModal wiring ────────────────────────────
+  it("imports InviteToAppModal from the clients folder", () => {
+    expect(SRC).toContain("InviteToAppModal");
+    expect(SRC).toContain("~/components/dashboard/clients/invite-modal");
+  });
+
+  it("declares producerSlug as a required prop on WorkspaceListViewProps", () => {
+    expect(SRC).toMatch(/producerSlug:\s*string/);
+  });
+
+  it("manages invite modal open state via local useState", () => {
+    expect(SRC).toMatch(/inviteTarget|inviteOpen|inviteFor/);
+    expect(SRC).toMatch(/setInviteTarget|setInviteOpen|setInviteFor/);
+  });
+
+  it("passes the producer's gradient into the modal via producerGradient", () => {
+    expect(SRC).toContain("producerGradient");
+  });
+
+  it("mounts <InviteToAppModal> with producerSlug + client preview shape", () => {
+    expect(SRC).toMatch(/<InviteToAppModal/);
+    expect(SRC).toMatch(/producerSlug=\{producerSlug\}/);
+  });
 });
