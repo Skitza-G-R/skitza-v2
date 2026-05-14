@@ -4,6 +4,7 @@ import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer
 import { formatMoney } from "~/lib/format/money";
 import type { Stage } from "~/lib/projects/stages";
 import { STAGE_LABEL } from "~/lib/projects/stages";
+import { buildJoinUrl } from "~/lib/share/public-url";
 import { formatRelativeTime } from "~/lib/time/relative";
 
 import { PublicLinkStrip } from "./public-link-strip";
@@ -360,15 +361,28 @@ export function OverviewScreen({
 // one warm, opinionated next-step panel instead of three stacked
 // "all clear" messages.
 //
-// The three CTAs map to the actual first-week activation path:
-//   01 Share — drives the funnel; the producer's whole business hinges
-//      on people opening the /join page.
-//   02 Preview — open /join/<slug> so the producer trusts what they're
-//      sharing before they send it around.
-//   03 Tune — invites the producer back into /dashboard/profile to
-//      refine prices / what's included on each package.
+// The three CTAs are each a real one-click action (not "go to a page
+// where you might do the thing"):
+//   01 Share — wa.me deep link with the producer's /join URL
+//      pre-filled. Opens WhatsApp Web on desktop, the app on mobile;
+//      lets the producer pick the recipient and edit the message
+//      before sending. (The PublicLinkStrip above already handles
+//      basic clipboard copy — this CTA's job is the next channel.)
+//   02 Preview — opens /join/<slug> in a NEW TAB so the producer can
+//      verify what artists see without losing their dashboard.
+//   03 Polish — sends to /dashboard/portfolio: portfolio tracks are
+//      the highest-impact conversion lever (artists need to hear the
+//      work to book), and this CTA must not duplicate share or profile.
 
 function FirstWeekPanel({ slug }: { slug: string | null }) {
+  // Pre-filled WhatsApp message. Editable by the producer before
+  // sending. Only generated when we actually have a slug — without
+  // one there's nothing to share, so the CTA falls back to the
+  // profile editor instead.
+  const whatsappShareUrl = slug
+    ? `https://wa.me/?text=${encodeURIComponent(`Listen + book a session with me on Skitza: ${buildJoinUrl(slug)}`)}`
+    : null;
+
   return (
     <section
       aria-labelledby="first-week-heading"
@@ -392,30 +406,43 @@ function FirstWeekPanel({ slug }: { slug: string | null }) {
       <div className="mt-6 grid gap-3 sm:grid-cols-3">
         <FirstWeekActionTile
           step="01"
-          title="Share your link"
-          subtitle="Post it where your audience already lives — Instagram, WhatsApp, or your bio."
-          cta="Open profile"
-          href="/dashboard/profile"
+          title="Share on WhatsApp"
+          subtitle="Open WhatsApp with your link already filled in. Pick a contact and hit send."
+          cta={whatsappShareUrl ? "Open WhatsApp" : "Set a public link first"}
+          href={whatsappShareUrl ?? "/dashboard/profile"}
+          external={whatsappShareUrl !== null}
+          newTab
           accent
         />
         <FirstWeekActionTile
           step="02"
           title="See what artists see"
-          subtitle="Open your public join page before you send it around."
+          subtitle="Open your public join page in a new tab. Make sure it looks the way you want."
           cta={slug ? "Preview /join" : "Set a public link first"}
           href={slug ? `/join/${slug}` : `/dashboard/profile`}
+          newTab={slug !== null}
         />
         <FirstWeekActionTile
           step="03"
-          title="Polish your services"
-          subtitle="Names, prices, and what&rsquo;s included — what artists pay for."
-          cta="Edit services"
-          href="/dashboard/profile"
+          title="Add a portfolio track"
+          subtitle="Artists need to hear your work to book. Upload one or two of your best."
+          cta="Upload tracks"
+          href="/dashboard/portfolio"
         />
       </div>
     </section>
   );
 }
+
+// FirstWeekActionTile renders either an internal Next.js Link or a
+// plain anchor (for external URLs like wa.me). Both support new-tab.
+//
+// `external` — when true, render <a> instead of <Link>. Required for
+//   wa.me/ and any other non-Next-routed URL; using <Link> would have
+//   Next intercept the click and try to client-route to an off-site URL.
+// `newTab` — adds target="_blank" + the standard noopener/noreferrer
+//   rel pair. Use for previewing /join (don't lose dashboard position)
+//   and for any external link.
 
 function FirstWeekActionTile({
   step,
@@ -424,6 +451,8 @@ function FirstWeekActionTile({
   cta,
   href,
   accent = false,
+  external = false,
+  newTab = false,
 }: {
   step: string;
   title: string;
@@ -431,17 +460,18 @@ function FirstWeekActionTile({
   cta: string;
   href: string;
   accent?: boolean;
+  external?: boolean;
+  newTab?: boolean;
 }) {
-  return (
-    <Link
-      href={href}
-      className={[
-        "sk-press group flex flex-col gap-2 rounded-[var(--radius-md)] border p-4",
-        accent
-          ? "border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.06)]"
-          : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]",
-      ].join(" ")}
-    >
+  const className = [
+    "sk-press group flex flex-col gap-2 rounded-[var(--radius-md)] border p-4",
+    accent
+      ? "border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.06)]"
+      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]",
+  ].join(" ");
+
+  const inner = (
+    <>
       <span
         className={[
           "font-mono text-[10px] font-bold uppercase tracking-widest",
@@ -466,6 +496,30 @@ function FirstWeekActionTile({
       >
         {cta} <ArrowRightIcon />
       </span>
+    </>
+  );
+
+  if (external) {
+    return (
+      <a
+        href={href}
+        className={className}
+        target={newTab ? "_blank" : undefined}
+        rel={newTab ? "noopener noreferrer" : undefined}
+      >
+        {inner}
+      </a>
+    );
+  }
+
+  return (
+    <Link
+      href={href}
+      className={className}
+      target={newTab ? "_blank" : undefined}
+      rel={newTab ? "noopener noreferrer" : undefined}
+    >
+      {inner}
     </Link>
   );
 }

@@ -211,6 +211,40 @@ describe("OverviewScreen — design-aligned hierarchy", () => {
     expect(overviewSource).toMatch(/\/join\/\$\{slug\}/);
   });
 
+  it("FirstWeekPanel's Share CTA opens a WhatsApp deep link (not a generic dashboard page)", () => {
+    // Audit followup 2026-05-14: the original "Share your link" CTA
+    // routed to /dashboard/profile — vague, and duplicated the Copy
+    // button already visible in PublicLinkStrip above. The real day-1
+    // share action is a one-click WhatsApp deep link. wa.me/?text=
+    // opens WhatsApp Web on desktop and the app on mobile, lets the
+    // producer pick the recipient, and pre-fills an editable message.
+    expect(overviewSource).toMatch(/wa\.me\/\?text=/);
+    // The slug must be threaded into the shared message so the link
+    // actually points at the producer's /join page.
+    expect(overviewSource).toContain("buildJoinUrl(slug)");
+  });
+
+  it("FirstWeekPanel's preview link opens in a new tab (target=_blank)", () => {
+    // Previewing the /join page from inside the dashboard shouldn't
+    // navigate the producer away from their work. New tab preserves
+    // their place. Pin both the target attribute + the value, and
+    // the noopener/noreferrer rel pair (security best practice for
+    // any externally-pointing _blank link).
+    //
+    // We pin both forms (static "target='_blank'" + the JSX-expr
+    // "target={cond ? '_blank' : undefined}") so a refactor either
+    // way satisfies the invariant.
+    expect(overviewSource).toMatch(/target=(?:"_blank"|\{[^}]*"_blank")/);
+    expect(overviewSource).toMatch(/rel=(?:"noopener noreferrer"|\{[^}]*"noopener noreferrer")/);
+  });
+
+  it("FirstWeekPanel's 'Polish' CTA goes to /dashboard/portfolio (not a duplicate of profile)", () => {
+    // Portfolio is the highest-impact conversion lever for a fresh
+    // producer — artists need to hear the work to book. Pin the
+    // route so a refactor doesn't collapse two CTAs onto /profile.
+    expect(overviewSource).toContain('href="/dashboard/portfolio"');
+  });
+
   it("hides UrgentCard, RecentUploadsCard, FinancialPulseCard, and Activity in first-week mode", () => {
     // When the FirstWeekPanel takes over, the four "empty" cards
     // (Urgent, Recent, Financial, Activity) must NOT also render —
