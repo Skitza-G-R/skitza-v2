@@ -96,6 +96,8 @@ function isAccessGated(pathname: string): boolean {
   // (Clerk, Stripe, Resend) keep working without the token.
   if (pathname.startsWith("/api/") || pathname === "/api") return false;
   if (pathname.startsWith("/trpc/") || pathname === "/trpc") return false;
+  // /get-started is the public funnel entry — always reachable without the gate.
+  if (pathname === "/get-started" || pathname.startsWith("/get-started/")) return false;
   return true;
 }
 
@@ -171,6 +173,12 @@ export default async function middleware(
   req: Parameters<typeof clerk>[0],
   ev: Parameters<typeof clerk>[1],
 ) {
+  // /get-started is the public funnel entry — bypass the token gate entirely
+  // and skip Clerk too, so producer/artist auth never interferes with it.
+  if (req.nextUrl.pathname.startsWith("/get-started")) {
+    return NextResponse.next();
+  }
+
   const accessToken = process.env.ACCESS_TOKEN;
   if (accessToken && isAccessGated(req.nextUrl.pathname)) {
     const queryToken = req.nextUrl.searchParams.get("t");
@@ -204,4 +212,4 @@ export default async function middleware(
   return clerk(req, ev);
 }
 
-export const config = { matcher: ["/((?!_next|.*\\..*).*)", "/(api|trpc)(.*)"] };
+export const config = { matcher: ["/((?!_next|get-started|.*\\..*).*)", "/(api|trpc)(.*)"] };
