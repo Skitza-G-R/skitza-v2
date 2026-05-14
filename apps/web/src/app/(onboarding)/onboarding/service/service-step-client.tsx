@@ -364,7 +364,19 @@ export function ServiceStepClient({
               contractUrl={draft.contractUrl}
               contractText={draft.contractText}
               onChange={(patch) => {
-                setDraft((d) => ({ ...d, ...patch }));
+                // ContractStep emits its panel-selector field as
+                // `mode`; the Draft stores it as `contractMode` to
+                // disambiguate from PaymentPlanChoice (paymentPlan).
+                // Translate explicitly so a Text-tab click actually
+                // swaps panels instead of silently growing a dead
+                // `mode` key on Draft. Same fix is applied in
+                // dashboard/store/product-editor.tsx.
+                const { mode, ...rest } = patch;
+                setDraft((d) => ({
+                  ...d,
+                  ...rest,
+                  ...(mode !== undefined ? { contractMode: mode } : {}),
+                }));
               }}
             />
           )}

@@ -97,7 +97,12 @@ const ProductInputShape = {
   // column is NOT NULL for legacy reasons; we store 0 when the
   // producer leaves it blank.
   durationMin: z.number().int().min(0).max(24 * 60).optional(),
-  sessionCount: z.number().int().min(1).max(100).optional(),
+  // 0 is the canonical "unlimited sessions" marker — see
+  // storefront-screen.tsx's read-side: `unlimitedSessions: p.sessionCount === 0`.
+  // The wizard's Unlimited toggle saves 0; the prior min(1) made that
+  // round-trip silently fail, so the Save button errored on any
+  // product the producer marked as unlimited.
+  sessionCount: z.number().int().min(0).max(100).optional(),
   deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
   depositModel: DepositModel.default("flat"),
   depositPct: z.number().int().min(0).max(100).optional(),
@@ -187,7 +192,8 @@ const ProductUpdateInput = z
     volumeTiers: z.array(VolumeTier).max(10).optional(),
     hourlyRateCents: z.number().int().min(0).max(100_000_000).optional(),
     durationMin: z.number().int().min(0).max(24 * 60).optional(),
-    sessionCount: z.number().int().min(1).max(100).optional(),
+    // 0 = unlimited sessions (see create-input comment above).
+    sessionCount: z.number().int().min(0).max(100).optional(),
     deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
     depositModel: DepositModel.optional(),
     depositPct: z.number().int().min(0).max(100).optional(),
