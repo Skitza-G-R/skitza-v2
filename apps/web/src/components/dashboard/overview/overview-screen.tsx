@@ -768,6 +768,33 @@ function formatDuration(ms: number | null): string {
 }
 
 /**
+ * Detect the "completely fresh producer" state — every Overview signal
+ * empty. Used to swap the standard 4-card layout for a single
+ * FirstWeekPanel so a day-1 producer doesn't see three stacked "all
+ * clear" messages in a row.
+ *
+ * Any positive signal (a single pending approval, ₪1 earned, a refund
+ * showing as negative cents, one urgent project, any activity, or a
+ * session today) flips this to false — "you have something to look at"
+ * is not first week, even if everything else is empty.
+ */
+export function isFirstWeekEmptyState(input: {
+  thisMonthCents: number;
+  activityCount: number;
+  urgentCount: number;
+  hasTodaySession: boolean;
+  pendingApprovalsCount: number;
+}): boolean {
+  return (
+    input.thisMonthCents === 0 &&
+    input.activityCount === 0 &&
+    input.urgentCount === 0 &&
+    !input.hasTodaySession &&
+    input.pendingApprovalsCount === 0
+  );
+}
+
+/**
  * Build a small SVG path (100×22 viewBox) from the 30-bucket sparkline.
  * Returns "" for empty / all-zero data so the consumer can hide the
  * SVG entirely (a flat baseline reads as a chart, which is misleading).

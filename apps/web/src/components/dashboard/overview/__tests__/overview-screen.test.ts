@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { buildSparkPath } from "../overview-screen";
+import { buildSparkPath, isFirstWeekEmptyState } from "../overview-screen";
 
 // Overview Polish — pin the design hierarchy + the new public-link
 // hero strip + the sparkline math. The component itself renders in a
@@ -64,6 +64,75 @@ describe("buildSparkPath", () => {
     const path = buildSparkPath(buckets);
     // 30 points -> 1 M + 29 L -> 30 tokens total (space-joined).
     expect(path.split(" ").length).toBe(30);
+  });
+});
+
+// ─── isFirstWeekEmptyState — pure predicate ────────────────────────
+//
+// Detects the "completely fresh producer" state where every signal on
+// the Overview is empty. Used to swap the standard layout for a single
+// FirstWeekPanel so a new producer doesn't see 3 stacked "all clear"
+// messages on day 1.
+//
+// Returns true ONLY when:
+//   - thisMonthCents === 0           (no income yet)
+//   - activityCount === 0            (no events at all)
+//   - urgentCount === 0              (no urgent projects)
+//   - hasTodaySession === false      (no session today)
+//   - pendingApprovalsCount === 0    (no booking requests)
+//
+// Any one positive signal flips it to false — even a single pending
+// approval means "you have something to do", not first week.
+
+describe("isFirstWeekEmptyState", () => {
+  const base = {
+    thisMonthCents: 0,
+    activityCount: 0,
+    urgentCount: 0,
+    hasTodaySession: false,
+    pendingApprovalsCount: 0,
+  };
+
+  it("returns true when every signal is empty", () => {
+    expect(isFirstWeekEmptyState(base)).toBe(true);
+  });
+
+  it("returns false when the producer has earned money this month", () => {
+    expect(isFirstWeekEmptyState({ ...base, thisMonthCents: 1 })).toBe(false);
+  });
+
+  it("returns false when there is any activity", () => {
+    expect(isFirstWeekEmptyState({ ...base, activityCount: 1 })).toBe(false);
+  });
+
+  it("returns false when there are urgent projects", () => {
+    expect(isFirstWeekEmptyState({ ...base, urgentCount: 1 })).toBe(false);
+  });
+
+  it("returns false when a session is scheduled for today", () => {
+    expect(isFirstWeekEmptyState({ ...base, hasTodaySession: true })).toBe(false);
+  });
+
+  it("returns false when a booking request is waiting for approval", () => {
+    expect(isFirstWeekEmptyState({ ...base, pendingApprovalsCount: 1 })).toBe(false);
+  });
+
+  it("returns false when multiple positive signals are present", () => {
+    expect(
+      isFirstWeekEmptyState({
+        thisMonthCents: 50_000,
+        activityCount: 3,
+        urgentCount: 1,
+        hasTodaySession: true,
+        pendingApprovalsCount: 2,
+      }),
+    ).toBe(false);
+  });
+
+  it("treats negative thisMonthCents as non-empty (refunds count as activity)", () => {
+    // A refund or chargeback still means the producer has financial
+    // history this month — don't show first-week panel.
+    expect(isFirstWeekEmptyState({ ...base, thisMonthCents: -1 })).toBe(false);
   });
 });
 
