@@ -1153,4 +1153,46 @@ export const projectRouter = router({
       return { project: stripHash(row), shareToken: token.raw, existing: false };
     }),
 
+  // Clients & Projects v3 redesign — Phase 1 Task 15. Drag-to-reorder
+  // for the Projects list. Writes the new ordinals (position == index
+  // in orderedIds) inside a single ctx.db.transaction so a partial
+  // failure can't leave the list half-reordered. Ownership verified by
+  // selecting all matching producerIds in one query before any write.
+  // Idempotent: calling with the same order is a no-op DB write.
+  // Mirrors the precedents in booking.products.reorder and
+  // clientContacts.reorder.
+  reorder: producerProcedure
+    .input(
+      z.object({
+        orderedIds: z
+          .array(z.string().uuid())
+          .min(1)
+          .refine(
+            (arr) => new Set(arr).size === arr.length,
+            "duplicate ids are not allowed",
+          ),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({ id: projects.id, producerId: projects.producerId })
+        .from(projects)
+        .where(inArray(projects.id, input.orderedIds));
+      if (rows.length !== input.orderedIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (rows.some((r) => r.producerId !== ctx.producerId)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db.transaction(async (tx) => {
+        for (const [idx, id] of input.orderedIds.entries()) {
+          await tx
+            .update(projects)
+            .set({ position: idx })
+            .where(eq(projects.id, id));
+        }
+      });
+      return { count: input.orderedIds.length };
+    }),
+
 });
