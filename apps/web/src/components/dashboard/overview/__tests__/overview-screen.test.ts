@@ -224,6 +224,24 @@ describe("OverviewScreen — design-aligned hierarchy", () => {
     expect(overviewSource).toMatch(/:\s*\(?\s*<>/);
   });
 
+  it("collapses Urgent + Recent into full-width Recent when Urgent is empty", () => {
+    // Audit finding (2026-05-14): when urgentProjects.length === 0
+    // AND recentTop has items, the standard 2-up grid pairs a stubby
+    // "Nothing urgent" card (~80px) with a tall Recent Uploads card
+    // (~280px) — dedicating 50% of the viewport to a green-check pill.
+    //
+    // The collapse demotes the empty Urgent card entirely in that
+    // specific combo and lets RecentUploadsCard take the full row.
+    // (Urgent-empty + Recent-empty still shows the green-check
+    // empty state — that's the "you have projects, nothing urgent"
+    // signal. Urgent-has + Recent-empty also stays as-is.)
+    expect(overviewSource).toMatch(/useFullWidthRecent\s*=/);
+    expect(overviewSource).toMatch(/useFullWidthRecent\s*\?/);
+    // The predicate is the urgent-is-empty + recent-has-items combo.
+    expect(overviewSource).toMatch(/urgentProjects\.length\s*===\s*0/);
+    expect(overviewSource).toMatch(/recentTop\.length\s*>\s*0/);
+  });
+
   it("does NOT use Tailwind color literals (bg-blue-500, text-red-600, etc)", () => {
     // CSS-variable discipline — design tokens only.
     expect(overviewSource).not.toMatch(/bg-(red|blue|green|yellow|orange|purple)-\d{2,3}/);

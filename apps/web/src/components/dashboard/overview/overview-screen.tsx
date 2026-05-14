@@ -133,6 +133,10 @@ export function OverviewScreen({
     hasTodaySession: todaySession !== null,
     pendingApprovalsCount: pendingApprovals.length,
   });
+  // Collapse the 2-up Urgent+Recent grid when Urgent has nothing but
+  // Recent has uploads — see the JSX block below for the rationale.
+  const useFullWidthRecent =
+    urgentProjects.length === 0 && recentTop.length > 0;
 
   return (
     // Mobile: single vertical stack (gap-5). Desktop (lg+): same
@@ -275,13 +279,24 @@ export function OverviewScreen({
         </section>
       ) : null}
 
-      {/* TWO-COLUMN: Urgent + Recent uploads. Urgent always renders so
-          the empty state ("Nothing urgent — you're on top of
-          everything") gets surfaced when the producer is healthy. */}
-      <div className="reveal-up reveal-up-delay-2 grid gap-4 sm:gap-5 lg:grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
-        <UrgentCard projects={urgentProjects} />
-        {recentTop.length > 0 ? <RecentUploadsCard uploads={recentTop} now={now} /> : null}
-      </div>
+      {/* TWO-COLUMN: Urgent + Recent uploads. Urgent renders alone
+          when populated (or when there's no recent activity either —
+          the green-check empty state still belongs on screen as a
+          "you have projects, nothing urgent" signal). But when Urgent
+          is empty AND Recent has items, we drop Urgent and let Recent
+          take the full row — pairing a stubby ~80px "Nothing urgent"
+          card with a tall ~280px Recent Uploads card just dedicates
+          50% of the viewport to a green-check pill. */}
+      {useFullWidthRecent ? (
+        <div className="reveal-up reveal-up-delay-2">
+          <RecentUploadsCard uploads={recentTop} now={now} />
+        </div>
+      ) : (
+        <div className="reveal-up reveal-up-delay-2 grid gap-4 sm:gap-5 lg:grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
+          <UrgentCard projects={urgentProjects} />
+          {recentTop.length > 0 ? <RecentUploadsCard uploads={recentTop} now={now} /> : null}
+        </div>
+      )}
 
       {/* FINANCIAL PULSE — full-width, 3 columns */}
       <FinancialPulseCard
