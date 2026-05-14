@@ -59,13 +59,14 @@ export default async function ProjectsPage() {
           id: c.id,
           name: c.name,
           email: c.email,
-          // listWithProjects doesn't currently expose invitedAt /
-          // clerkUserId. Default to "none" so the LinkPill shows the
-          // "Invite to app" CTA — clicking it opens the InviteToAppModal
-          // which DOES stamp invited_at on the server. Pill state will
-          // sync on the next revalidate once the procedure is extended
-          // to surface those fields (follow-up).
-          linkState: "none" as const,
+          // clerkUserId set ⇒ the artist signed up via the invite link
+          // ("active"). Otherwise, invitedAt set ⇒ "pending" (amber
+          // pulsing pill). Otherwise ⇒ "none" (the Invite-to-app CTA).
+          linkState: c.clerkUserId
+            ? ("active" as const)
+            : c.invitedAt
+              ? ("pending" as const)
+              : ("none" as const),
           projects: c.activeProjectCount,
           lifetime: c.lifetimeCents,
           owed: c.outstandingCents,

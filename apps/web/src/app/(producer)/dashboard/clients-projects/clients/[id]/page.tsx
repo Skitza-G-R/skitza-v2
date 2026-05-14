@@ -61,17 +61,22 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const nextSession = pickNextSession(detail.projects);
 
   // Build the hero payload. Phone is null in v1 (we don't store it on
-  // client_contacts yet); linkState defaults to "none" because detail
-  // doesn't currently surface invitedAt / clerkUserId — same limit as
-  // the list page (the Invite modal still stamps invited_at server-
-  // side; pill state will flip once the procedure surfaces those
-  // fields).
+  // client_contacts yet). linkState reads invitedAt / clerkUserId off
+  // the detail payload — clerkUserId set ⇒ "active" (signed up),
+  // else invitedAt set ⇒ "pending" (amber pill), else "none".
+  const heroLinkState: ClientSpaceHeroData["linkState"] = detail.contact
+    .clerkUserId
+    ? "active"
+    : detail.contact.invitedAt
+      ? "pending"
+      : "none";
+
   const heroData: ClientSpaceHeroData = {
     id: detail.contact.id,
     name: detail.contact.name,
     email: detail.contact.email,
     phone: null,
-    linkState: "none",
+    linkState: heroLinkState,
     joinedAtIso: toIso(detail.contact.firstSeenAt),
     lifetime: detail.stats.lifetimeCents,
     outstanding: detail.stats.outstandingCents,

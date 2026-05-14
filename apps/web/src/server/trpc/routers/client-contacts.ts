@@ -192,12 +192,21 @@ export const clientContactsRouter = router({
             email: clientContacts.email,
             name: clientContacts.name,
             tags: clientContacts.tags,
+            invitedAt: clientContacts.invitedAt,
+            clerkUserId: clientContacts.clerkUserId,
           })
           .from(clientContacts)
           .where(eq(clientContacts.producerId, ctx.producerId));
         const contactByEmail = new Map<
           string,
-          { id: string; email: string; name: string; tags: string[] | null }
+          {
+            id: string;
+            email: string;
+            name: string;
+            tags: string[] | null;
+            invitedAt: Date | null;
+            clerkUserId: string | null;
+          }
         >();
         for (const c of contacts) {
           contactByEmail.set(c.email.toLowerCase(), {
@@ -205,6 +214,8 @@ export const clientContactsRouter = router({
             email: c.email,
             name: c.name,
             tags: c.tags,
+            invitedAt: c.invitedAt,
+            clerkUserId: c.clerkUserId,
           });
         }
         return {
@@ -220,12 +231,16 @@ export const clientContactsRouter = router({
                     email: ct.email,
                     name: ct.name,
                     tags: ct.tags,
+                    invitedAt: ct.invitedAt,
+                    clerkUserId: ct.clerkUserId,
                   }
                 : {
                     id: null,
                     email: p.clientEmail,
                     name: p.clientName ?? p.artistName,
                     tags: null as string[] | null,
+                    invitedAt: null as Date | null,
+                    clerkUserId: null as string | null,
                   },
             };
           }),
@@ -243,6 +258,11 @@ export const clientContactsRouter = router({
           tags: clientContacts.tags,
           notes: clientContacts.notes,
           referralSource: clientContacts.referralSource,
+          // Phase 1 (clients-projects redesign) — drives LinkPill state.
+          // `clerkUserId` set ⇒ "active" (artist signed up), else
+          // `invitedAt` set ⇒ "pending", else "none".
+          invitedAt: clientContacts.invitedAt,
+          clerkUserId: clientContacts.clerkUserId,
         })
         .from(clientContacts)
         .where(eq(clientContacts.producerId, ctx.producerId))
@@ -327,6 +347,8 @@ export const clientContactsRouter = router({
           tags: c.tags,
           notes: c.notes,
           referralSource: c.referralSource,
+          invitedAt: c.invitedAt,
+          clerkUserId: c.clerkUserId,
           activeProjectCount: agg.active,
           totalProjectCount: agg.total,
           outstandingCents: agg.outstanding,
@@ -912,6 +934,10 @@ export const clientContactsRouter = router({
           tags: contact.tags,
           notes: contact.notes,
           referralSource: contact.referralSource,
+          // Phase 1 (clients-projects redesign) — drives LinkPill state
+          // on the Client Space hero.
+          invitedAt: contact.invitedAt,
+          clerkUserId: contact.clerkUserId,
         },
         stats: {
           activeProjectCount,
