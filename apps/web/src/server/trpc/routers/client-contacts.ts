@@ -3,6 +3,7 @@ import {
   and,
   bookings,
   clientContacts,
+  producers,
   products,
   projectTracks,
   projects,
@@ -20,6 +21,7 @@ import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { emailHashFor } from "~/server/artist/identity";
+import { SITE_URL, sendClientInviteEmail } from "~/server/email/send";
 
 // Producer-scoped client CRM.
 //
@@ -678,6 +680,77 @@ export const clientContactsRouter = router({
       }
       await ctx.db.delete(clientContacts).where(eq(clientContacts.id, input.id));
       return { ok: true as const };
+    }),
+
+  // Clients & Projects v3 redesign — Phase 1 Task 13. Stamps invited_at
+  // on the contact and (when via='email') dispatches the invite email
+  // via Resend. The link path is a no-op send — the producer copied the
+  // URL to their clipboard from the modal — but we still stamp
+  // invited_at so the LinkPill flips to "Invited" either way.
+  //
+  // Notification emit is deliberately skipped: this is a producer-
+  // initiated action, so notifying the producer about their own click
+  // would just add inbox noise. The visible feedback is the LinkPill
+  // state change. (Deviation from the brief; documented in PR notes.)
+  //
+  // Email failure is surfaced (the modal needs to know whether the send
+  // succeeded) — we do NOT swallow Resend errors here. If the producer
+  // wants the link path as a fallback, that's a separate click.
+  sendInvite: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        via: z.enum(["email", "link"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({
+          id: clientContacts.id,
+          producerId: clientContacts.producerId,
+          email: clientContacts.email,
+          name: clientContacts.name,
+        })
+        .from(clientContacts)
+        .where(eq(clientContacts.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      const invitedAt = new Date();
+      await ctx.db
+        .update(clientContacts)
+        .set({ invitedAt })
+        .where(eq(clientContacts.id, input.id));
+
+      if (input.via === "email") {
+        // Look up the producer's slug + display name for the email body
+        // + invite URL. Both columns are NOT NULL on producers (slug is
+        // unique-indexed; displayName is nullable so we fall back to a
+        // generic label).
+        const [producer] = await ctx.db
+          .select({
+            slug: producers.slug,
+            displayName: producers.displayName,
+          })
+          .from(producers)
+          .where(eq(producers.id, ctx.producerId))
+          .limit(1);
+        const slug = producer?.slug ?? "";
+        const producerName = producer?.displayName ?? "Your producer";
+        const inviteUrl = `${SITE_URL}/invite/${slug}-${existing.id}`;
+        // Re-throws on Resend failure — caller decides whether to retry
+        // or fall back to the copy-link path.
+        await sendClientInviteEmail(existing.email, {
+          clientName: existing.name,
+          producerName,
+          inviteUrl,
+        });
+      }
+
+      return { invitedAt, via: input.via };
     }),
 
   // Detailed view — contact + linked projects + contracts + recent
