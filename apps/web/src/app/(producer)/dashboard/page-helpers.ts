@@ -1,4 +1,4 @@
-// Pure helpers for the redesigned Today dashboard (Story 06).
+// Pure helpers for the Overview dashboard.
 //
 // Extracted into a plain `.ts` module — no `"use client"` directive,
 // no React, no Next.js APIs — so the server-rendered page.tsx can
@@ -7,35 +7,7 @@
 // functions from a 'use client' file if any server component imports
 // them." Hence the dedicated module.
 //
-// Tested directly in __tests__/page-rebuild.test.ts. The component
-// shells (page.tsx, the inline DashboardGreeting/DashboardEmptyOnboarding
-// JSX) do nothing more than stitch the helper outputs together, so
-// pinning the helpers covers the load-bearing logic.
-
-/**
- * Day-1 empty state predicate.
- *
- * The Today page replaces its populated layout with a single
- * <DashboardEmptyOnboarding> card when ALL of the following are true:
- * the producer has no recent uploads, no active projects, and no
- * inbox items needing attention. This is the "I just signed up, what
- * now?" surface — a wall of zeros would be discouraging, the empty-
- * state card points the producer at the share-your-link gateway.
- *
- * `FinishSetupNudge` (a separate, skipper-specific banner) takes
- * precedence over this — see page.tsx for the order.
- */
-export function isDayOneEmpty(args: {
-  recentUploadsCount: number;
-  activeProjectsCount: number;
-  itemsCount: number;
-}): boolean {
-  return (
-    args.recentUploadsCount === 0 &&
-    args.activeProjectsCount === 0 &&
-    args.itemsCount === 0
-  );
-}
+// Tested directly in __tests__/page-rebuild.test.ts.
 
 /**
  * Greeting date — "Friday, April 25" style. en-US format only (the

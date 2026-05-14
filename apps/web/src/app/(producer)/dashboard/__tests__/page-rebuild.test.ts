@@ -4,33 +4,30 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import {
-  isDayOneEmpty,
   formatGreetingDate,
   formatGreetingSummary,
 } from "../page-helpers";
 
-// Today / Overview page — Phase 4 rebuild (the second redesign).
+// Today / Overview page.
 //
 // History:
 //   - Story 06 introduced DashboardGreeting → InboxSection →
 //     RecentUploadsShelf → PulseCard → ContextualActions.
-//   - Phase 4 (this rebuild) replaces that populated layout with a
-//     single <OverviewScreen> server component that mirrors the
-//     locked design's mobile-first hierarchy: Hero → Approvals →
-//     Today's Session → Money split → Activity feed.
+//   - Phase 4 replaced that populated layout with a single
+//     <OverviewScreen> server component (Hero → Approvals →
+//     Today's Session → Money split → Activity feed).
+//   - 2026-05-14 removed the day-1 takeover. <OverviewScreen> now
+//     renders unconditionally and each section handles its own empty
+//     state inline.
 //
 // What this test pins:
-//   1. Pure helpers from page-helpers.ts. The helpers stayed because
-//      isDayOneEmpty + the greeting formatters are pre-existing
-//      contracts the auth-fix flow depends on.
-//   2. Source-grep on page.tsx — that the retired Story 06
-//      components are NO LONGER imported, that <OverviewScreen>
-//      replaces them, and that the auth + skipper + day-1 empty
-//      branches are preserved (the brief said: don't touch role/auth
-//      logic, that's PR #60's territory).
-//   3. Filesystem assertions — the original Story 06 retired files
-//      (share-link-card, quick-actions, kpi-strip) are still
-//      deleted; the new OverviewScreen file exists.
+//   1. Pure helpers from page-helpers.ts (greeting formatters).
+//   2. Source-grep on page.tsx — retired Story 06 components are NOT
+//      imported, <OverviewScreen> replaces them, the day-1 takeover
+//      is gone, and the auth + skipper paths stay intact.
+//   3. Filesystem — the retired Story 06 files are still deleted; the
+//      OverviewScreen file exists; the deleted empty-onboarding file
+//      stays gone.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAGE_PATH = join(here, "..", "page.tsx");
@@ -42,58 +39,6 @@ const OVERVIEW_DIR = join(here, "..", "..", "..", "..", "components", "dashboard
 const pageSource = readFileSync(PAGE_PATH, "utf8");
 
 // ─── Pure helpers ──────────────────────────────────────────────────
-
-describe("isDayOneEmpty", () => {
-  it("returns true when uploads, projects, and items are all empty", () => {
-    expect(
-      isDayOneEmpty({
-        recentUploadsCount: 0,
-        activeProjectsCount: 0,
-        itemsCount: 0,
-      }),
-    ).toBe(true);
-  });
-
-  it("returns false when there are recent uploads", () => {
-    expect(
-      isDayOneEmpty({
-        recentUploadsCount: 1,
-        activeProjectsCount: 0,
-        itemsCount: 0,
-      }),
-    ).toBe(false);
-  });
-
-  it("returns false when there are active projects", () => {
-    expect(
-      isDayOneEmpty({
-        recentUploadsCount: 0,
-        activeProjectsCount: 1,
-        itemsCount: 0,
-      }),
-    ).toBe(false);
-  });
-
-  it("returns false when there are inbox items", () => {
-    expect(
-      isDayOneEmpty({
-        recentUploadsCount: 0,
-        activeProjectsCount: 0,
-        itemsCount: 1,
-      }),
-    ).toBe(false);
-  });
-
-  it("returns false when ALL three are positive", () => {
-    expect(
-      isDayOneEmpty({
-        recentUploadsCount: 5,
-        activeProjectsCount: 3,
-        itemsCount: 2,
-      }),
-    ).toBe(false);
-  });
-});
 
 describe("formatGreetingDate", () => {
   it("formats a known date as Weekday, Month Day", () => {
@@ -228,25 +173,34 @@ describe("Today page — preserved page chrome (auth-fix territory)", () => {
   });
 });
 
-// ─── Source-grep — empty-state branch (preserved) ──────────────────
+// ─── Source-grep — day-1 takeover is gone ──────────────────────────
 
-describe("Today page — day-1 empty state (preserved)", () => {
-  it("renders <DashboardEmptyOnboarding> in the empty-state branch", () => {
-    expect(pageSource).toContain("<DashboardEmptyOnboarding");
+describe("Today page — day-1 takeover removed", () => {
+  it("does not import DashboardEmptyOnboarding (deleted 2026-05-14)", () => {
+    expect(pageSource).not.toContain("DashboardEmptyOnboarding");
   });
 
-  it("references isDayOneEmpty for the empty-state predicate", () => {
-    expect(pageSource).toContain("isDayOneEmpty");
+  it("does not reference isDayOneEmpty (helper removed)", () => {
+    expect(pageSource).not.toContain("isDayOneEmpty");
+  });
+
+  it("renders <OverviewScreen> unconditionally (no `empty ?` gate)", () => {
+    // Source-grep: the OverviewScreen JSX must not sit inside a
+    // ternary keyed on an `empty` flag. The new contract is "always
+    // render". If someone re-introduces a takeover branch, this fails.
+    expect(pageSource).not.toMatch(/!empty[\s\S]*?<OverviewScreen/);
+    expect(pageSource).not.toMatch(/const empty =/);
   });
 });
 
-// ─── Filesystem — original Story 06 deletions held ────────────────
+// ─── Filesystem — Story 06 + day-1 deletions held ─────────────────
 
 describe("retired Story 06 files stay deleted from disk", () => {
   it.each([
     "share-link-card.tsx",
     "quick-actions.tsx",
     "kpi-strip.tsx",
+    "empty-onboarding.tsx",
     "__tests__/quick-actions-pills.test.ts",
   ])("does not exist: today/%s", (rel) => {
     expect(existsSync(join(TODAY_DIR, rel))).toBe(false);
