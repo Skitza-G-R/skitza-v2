@@ -57,3 +57,13 @@ describe("Phase 0 — projects.workflow_stage", () => {
     expect(col.default).toBe("brief");
   });
 });
+
+describe("Phase 0 — project_tracks.workflow_stage", () => {
+  it("exists per-song with default 'brief' to drive the stepper", () => {
+    const col = projectTracks.workflowStage;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("workflow_stage");
+    expect(col.notNull).toBe(true);
+    expect(col.default).toBe("brief");
+  });
+});

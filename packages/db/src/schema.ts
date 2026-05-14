@@ -436,6 +436,11 @@ export const projectTracks = pgTable("project_tracks", {
   artist: text("artist"),
   position: integer("position").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Per-song workflow stage. Drives the WorkflowStepper on Song Space
+  // and the stage pill on Album tracklist rows. Advances when a new
+  // version is uploaded with a higher stage; manual override available
+  // from the Song Space.
+  workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
 });
 export type ProjectTrack = typeof projectTracks.$inferSelect;
 export type NewProjectTrack = typeof projectTracks.$inferInsert;
