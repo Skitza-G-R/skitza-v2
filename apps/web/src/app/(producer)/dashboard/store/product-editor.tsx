@@ -444,7 +444,18 @@ export function ProductEditor({
             contractUrl={draft.contractUrl}
             contractText={draft.contractText}
             onChange={(patch) => {
-              setDraft((d) => ({ ...d, ...patch }));
+              // ContractStep emits its panel-selector field as `mode`;
+              // the Draft stores it as `contractMode` to disambiguate
+              // from PaymentPlanChoice (paymentPlan) and any future
+              // *Mode fields. Translate explicitly so a Text-tab click
+              // actually swaps panels instead of silently growing a
+              // dead `mode` key on Draft.
+              const { mode, ...rest } = patch;
+              setDraft((d) => ({
+                ...d,
+                ...rest,
+                ...(mode !== undefined ? { contractMode: mode } : {}),
+              }));
             }}
           />
         )}
