@@ -4,6 +4,7 @@ import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer
 import { formatMoney } from "~/lib/format/money";
 import type { Stage } from "~/lib/projects/stages";
 import { STAGE_LABEL } from "~/lib/projects/stages";
+import { buildJoinUrl } from "~/lib/share/public-url";
 import { formatRelativeTime } from "~/lib/time/relative";
 
 import { PublicLinkStrip } from "./public-link-strip";
@@ -121,30 +122,43 @@ export function OverviewScreen({
   // just renders them. Show the empty state when the producer has live
   // projects but none are urgent — see UrgentCard's branch below.
   const recentTop = recentUploads.slice(0, 3);
+  // Day-1 / completely-fresh detector. When every Overview signal is
+  // empty, the standard 4-card layout collapses into a single
+  // FirstWeekPanel so the producer doesn't see three stacked "all
+  // clear" messages in a row (see audit 2026-05-14). Any positive
+  // signal — even a single pending approval — exits this mode.
+  const isFirstWeek = isFirstWeekEmptyState({
+    thisMonthCents: pulseStats.thisMonthCents,
+    activityCount: activity.length,
+    urgentCount: urgentProjects.length,
+    hasTodaySession: todaySession !== null,
+    pendingApprovalsCount: pendingApprovals.length,
+  });
+  // Collapse the 2-up Urgent+Recent grid when Urgent has nothing but
+  // Recent has uploads — see the JSX block below for the rationale.
+  const useFullWidthRecent =
+    urgentProjects.length === 0 && recentTop.length > 0;
 
   return (
     // Mobile: single vertical stack (gap-5). Desktop (lg+): same
     // vertical rhythm but with a wider max-width and per-section
     // grids (the urgent + recent pair becomes 2-up).
     <div className="sk-page-enter mx-auto flex w-full max-w-[1180px] flex-col gap-5 px-4 pt-6 pb-24 sm:gap-6 sm:px-6 lg:px-8 lg:pt-10">
-      {/* GREETING */}
-      <header className="reveal-up flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <span className="pill pill-success inline-flex items-center gap-1.5">
-            <PingDot color="rgb(var(--fg-success))" />
-            Accepting Sessions
-          </span>
-          <h1 className="font-syne mt-3 text-[clamp(28px,4vw,44px)] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--fg-default))]">
-            {greetingSalutation}, {greetingName}.
-          </h1>
-          <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
-            Here is the pulse of your studio today.
-          </p>
-        </div>
-        <div className="inline-flex shrink-0 items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-muted))]">
-          <ClockIcon />
-          {formatTopDate(now)}
-        </div>
+      {/* GREETING — the redundant top-right "May 14, 2026" date chip
+          was removed 2026-05-14 (audit): it duplicated info already
+          visible in the producer's OS clock and competed with the
+          "Accepting Sessions" pill for visual weight. */}
+      <header className="reveal-up min-w-0">
+        <span className="pill pill-success inline-flex items-center gap-1.5">
+          <PingDot color="rgb(var(--fg-success))" />
+          Accepting Sessions
+        </span>
+        <h1 className="font-syne mt-3 text-[clamp(28px,4vw,44px)] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--fg-default))]">
+          {greetingSalutation}, {greetingName}.
+        </h1>
+        <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
+          Here is the pulse of your studio today.
+        </p>
       </header>
 
       {/* PUBLIC LINK HERO — only when slug is set. The Day-1 empty
@@ -155,6 +169,10 @@ export function OverviewScreen({
         </div>
       ) : null}
 
+      {isFirstWeek ? (
+        <FirstWeekPanel slug={slug} />
+      ) : (
+        <>
       {/* PENDING APPROVALS — most urgent, when present */}
       {pendingApprovals.length > 0 ? (
         <section
@@ -259,13 +277,24 @@ export function OverviewScreen({
         </section>
       ) : null}
 
-      {/* TWO-COLUMN: Urgent + Recent uploads. Urgent always renders so
-          the empty state ("Nothing urgent — you're on top of
-          everything") gets surfaced when the producer is healthy. */}
-      <div className="reveal-up reveal-up-delay-2 grid gap-4 sm:gap-5 lg:grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
-        <UrgentCard projects={urgentProjects} />
-        {recentTop.length > 0 ? <RecentUploadsCard uploads={recentTop} now={now} /> : null}
-      </div>
+      {/* TWO-COLUMN: Urgent + Recent uploads. Urgent renders alone
+          when populated (or when there's no recent activity either —
+          the green-check empty state still belongs on screen as a
+          "you have projects, nothing urgent" signal). But when Urgent
+          is empty AND Recent has items, we drop Urgent and let Recent
+          take the full row — pairing a stubby ~80px "Nothing urgent"
+          card with a tall ~280px Recent Uploads card just dedicates
+          50% of the viewport to a green-check pill. */}
+      {useFullWidthRecent ? (
+        <div className="reveal-up reveal-up-delay-2">
+          <RecentUploadsCard uploads={recentTop} now={now} />
+        </div>
+      ) : (
+        <div className="reveal-up reveal-up-delay-2 grid gap-4 sm:gap-5 lg:grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
+          <UrgentCard projects={urgentProjects} />
+          {recentTop.length > 0 ? <RecentUploadsCard uploads={recentTop} now={now} /> : null}
+        </div>
+      )}
 
       {/* FINANCIAL PULSE — full-width, 3 columns */}
       <FinancialPulseCard
@@ -318,7 +347,180 @@ export function OverviewScreen({
           </ul>
         )}
       </section>
+        </>
+      )}
     </div>
+  );
+}
+
+// — FirstWeekPanel — Day-1 empty-state hero —
+//
+// Replaces the standard 4-card layout when every Overview signal is
+// empty (no income, no activity, no urgent project, no session today,
+// no pending approval). Designed to give a freshly-onboarded producer
+// one warm, opinionated next-step panel instead of three stacked
+// "all clear" messages.
+//
+// The three CTAs are each a real one-click action (not "go to a page
+// where you might do the thing"):
+//   01 Share — wa.me deep link with the producer's /join URL
+//      pre-filled. Opens WhatsApp Web on desktop, the app on mobile;
+//      lets the producer pick the recipient and edit the message
+//      before sending. (The PublicLinkStrip above already handles
+//      basic clipboard copy — this CTA's job is the next channel.)
+//   02 Preview — opens /join/<slug> in a NEW TAB so the producer can
+//      verify what artists see without losing their dashboard.
+//   03 Polish — sends to /dashboard/portfolio: portfolio tracks are
+//      the highest-impact conversion lever (artists need to hear the
+//      work to book), and this CTA must not duplicate share or profile.
+
+function FirstWeekPanel({ slug }: { slug: string | null }) {
+  // Pre-filled WhatsApp message. Editable by the producer before
+  // sending. Only generated when we actually have a slug — without
+  // one there's nothing to share, so the CTA falls back to the
+  // profile editor instead.
+  const whatsappShareUrl = slug
+    ? `https://wa.me/?text=${encodeURIComponent(`Listen + book a session with me on Skitza: ${buildJoinUrl(slug)}`)}`
+    : null;
+
+  return (
+    <section
+      aria-labelledby="first-week-heading"
+      className="reveal-up reveal-up-delay-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 sm:p-8"
+    >
+      <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--brand-primary))]">
+        Your first week
+      </p>
+      <h2
+        id="first-week-heading"
+        className="font-syne mt-2 text-[clamp(20px,2.6vw,26px)] font-extrabold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]"
+      >
+        A quiet day &mdash; let&rsquo;s get the first artist on the books.
+      </h2>
+      <p className="mt-2 max-w-prose text-sm text-[rgb(var(--fg-muted))]">
+        Once you share your public link, artists can listen to your work, book
+        sessions, and pay you. Here&rsquo;s the fastest path to your first
+        session.
+      </p>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <FirstWeekActionTile
+          step="01"
+          title="Share on WhatsApp"
+          subtitle="Open WhatsApp with your link already filled in. Pick a contact and hit send."
+          cta={whatsappShareUrl ? "Open WhatsApp" : "Set a public link first"}
+          href={whatsappShareUrl ?? "/dashboard/profile"}
+          external={whatsappShareUrl !== null}
+          newTab
+          accent
+        />
+        <FirstWeekActionTile
+          step="02"
+          title="See what artists see"
+          subtitle="Open your public join page in a new tab. Make sure it looks the way you want."
+          cta={slug ? "Preview /join" : "Set a public link first"}
+          href={slug ? `/join/${slug}` : `/dashboard/profile`}
+          newTab={slug !== null}
+        />
+        <FirstWeekActionTile
+          step="03"
+          title="Add a portfolio track"
+          subtitle="Artists need to hear your work to book. Upload one or two of your best."
+          cta="Upload tracks"
+          href="/dashboard/portfolio"
+        />
+      </div>
+    </section>
+  );
+}
+
+// FirstWeekActionTile renders either an internal Next.js Link or a
+// plain anchor (for external URLs like wa.me). Both support new-tab.
+//
+// `external` — when true, render <a> instead of <Link>. Required for
+//   wa.me/ and any other non-Next-routed URL; using <Link> would have
+//   Next intercept the click and try to client-route to an off-site URL.
+// `newTab` — adds target="_blank" + the standard noopener/noreferrer
+//   rel pair. Use for previewing /join (don't lose dashboard position)
+//   and for any external link.
+
+function FirstWeekActionTile({
+  step,
+  title,
+  subtitle,
+  cta,
+  href,
+  accent = false,
+  external = false,
+  newTab = false,
+}: {
+  step: string;
+  title: string;
+  subtitle: string;
+  cta: string;
+  href: string;
+  accent?: boolean;
+  external?: boolean;
+  newTab?: boolean;
+}) {
+  const className = [
+    "sk-press group flex flex-col gap-2 rounded-[var(--radius-md)] border p-4",
+    accent
+      ? "border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.06)]"
+      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]",
+  ].join(" ");
+
+  const inner = (
+    <>
+      <span
+        className={[
+          "font-mono text-[10px] font-bold uppercase tracking-widest",
+          accent ? "text-[rgb(var(--brand-primary))]" : "text-[rgb(var(--fg-muted))]",
+        ].join(" ")}
+      >
+        {step}
+      </span>
+      <span className="text-sm font-bold leading-tight text-[rgb(var(--fg-default))]">
+        {title}
+      </span>
+      <span className="text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
+        {subtitle}
+      </span>
+      <span
+        className={[
+          "mt-1 inline-flex items-center gap-1 font-mono text-[10.5px] font-bold uppercase tracking-widest",
+          accent
+            ? "text-[rgb(var(--brand-primary))]"
+            : "text-[rgb(var(--fg-secondary))]",
+        ].join(" ")}
+      >
+        {cta} <ArrowRightIcon />
+      </span>
+    </>
+  );
+
+  if (external) {
+    return (
+      <a
+        href={href}
+        className={className}
+        target={newTab ? "_blank" : undefined}
+        rel={newTab ? "noopener noreferrer" : undefined}
+      >
+        {inner}
+      </a>
+    );
+  }
+
+  return (
+    <Link
+      href={href}
+      className={className}
+      target={newTab ? "_blank" : undefined}
+      rel={newTab ? "noopener noreferrer" : undefined}
+    >
+      {inner}
+    </Link>
   );
 }
 
@@ -710,15 +912,6 @@ function greetingFor(now: Date): string {
   return "Good evening";
 }
 
-function formatTopDate(d: Date): string {
-  // "May 1, 2026"
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function formatDateTime(d: Date): string {
   return `${formatDayLabel(d)} · ${formatTimeShort(d)}`;
 }
@@ -765,6 +958,33 @@ function formatDuration(ms: number | null): string {
   const min = Math.floor(totalSec / 60);
   const sec = totalSec % 60;
   return `${String(min)}:${String(sec).padStart(2, "0")}`;
+}
+
+/**
+ * Detect the "completely fresh producer" state — every Overview signal
+ * empty. Used to swap the standard 4-card layout for a single
+ * FirstWeekPanel so a day-1 producer doesn't see three stacked "all
+ * clear" messages in a row.
+ *
+ * Any positive signal (a single pending approval, ₪1 earned, a refund
+ * showing as negative cents, one urgent project, any activity, or a
+ * session today) flips this to false — "you have something to look at"
+ * is not first week, even if everything else is empty.
+ */
+export function isFirstWeekEmptyState(input: {
+  thisMonthCents: number;
+  activityCount: number;
+  urgentCount: number;
+  hasTodaySession: boolean;
+  pendingApprovalsCount: number;
+}): boolean {
+  return (
+    input.thisMonthCents === 0 &&
+    input.activityCount === 0 &&
+    input.urgentCount === 0 &&
+    !input.hasTodaySession &&
+    input.pendingApprovalsCount === 0
+  );
 }
 
 /**
@@ -887,25 +1107,6 @@ function ChevronRightIcon() {
       strokeLinejoin="round"
     >
       <path d="m6 4 4 4-4 4" />
-    </svg>
-  );
-}
-
-function ClockIcon() {
-  return (
-    <svg
-      aria-hidden
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="rgb(var(--brand-primary))"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="8" cy="8" r="6" />
-      <path d="M8 4.5V8l2.5 1.5" />
     </svg>
   );
 }
