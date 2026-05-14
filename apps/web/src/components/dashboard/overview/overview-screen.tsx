@@ -121,6 +121,18 @@ export function OverviewScreen({
   // just renders them. Show the empty state when the producer has live
   // projects but none are urgent — see UrgentCard's branch below.
   const recentTop = recentUploads.slice(0, 3);
+  // Day-1 / completely-fresh detector. When every Overview signal is
+  // empty, the standard 4-card layout collapses into a single
+  // FirstWeekPanel so the producer doesn't see three stacked "all
+  // clear" messages in a row (see audit 2026-05-14). Any positive
+  // signal — even a single pending approval — exits this mode.
+  const isFirstWeek = isFirstWeekEmptyState({
+    thisMonthCents: pulseStats.thisMonthCents,
+    activityCount: activity.length,
+    urgentCount: urgentProjects.length,
+    hasTodaySession: todaySession !== null,
+    pendingApprovalsCount: pendingApprovals.length,
+  });
 
   return (
     // Mobile: single vertical stack (gap-5). Desktop (lg+): same
@@ -155,6 +167,10 @@ export function OverviewScreen({
         </div>
       ) : null}
 
+      {isFirstWeek ? (
+        <FirstWeekPanel slug={slug} />
+      ) : (
+        <>
       {/* PENDING APPROVALS — most urgent, when present */}
       {pendingApprovals.length > 0 ? (
         <section
@@ -318,7 +334,127 @@ export function OverviewScreen({
           </ul>
         )}
       </section>
+        </>
+      )}
     </div>
+  );
+}
+
+// — FirstWeekPanel — Day-1 empty-state hero —
+//
+// Replaces the standard 4-card layout when every Overview signal is
+// empty (no income, no activity, no urgent project, no session today,
+// no pending approval). Designed to give a freshly-onboarded producer
+// one warm, opinionated next-step panel instead of three stacked
+// "all clear" messages.
+//
+// The three CTAs map to the actual first-week activation path:
+//   01 Share — drives the funnel; the producer's whole business hinges
+//      on people opening the /join page.
+//   02 Preview — open /join/<slug> so the producer trusts what they're
+//      sharing before they send it around.
+//   03 Tune — invites the producer back into /dashboard/profile to
+//      refine prices / what's included on each package.
+
+function FirstWeekPanel({ slug }: { slug: string | null }) {
+  return (
+    <section
+      aria-labelledby="first-week-heading"
+      className="reveal-up reveal-up-delay-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 sm:p-8"
+    >
+      <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--brand-primary))]">
+        Your first week
+      </p>
+      <h2
+        id="first-week-heading"
+        className="font-syne mt-2 text-[clamp(20px,2.6vw,26px)] font-extrabold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]"
+      >
+        A quiet day &mdash; let&rsquo;s get the first artist on the books.
+      </h2>
+      <p className="mt-2 max-w-prose text-sm text-[rgb(var(--fg-muted))]">
+        Once you share your public link, artists can listen to your work, book
+        sessions, and pay you. Here&rsquo;s the fastest path to your first
+        session.
+      </p>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <FirstWeekActionTile
+          step="01"
+          title="Share your link"
+          subtitle="Post it where your audience already lives — Instagram, WhatsApp, or your bio."
+          cta="Open profile"
+          href="/dashboard/profile"
+          accent
+        />
+        <FirstWeekActionTile
+          step="02"
+          title="See what artists see"
+          subtitle="Open your public join page before you send it around."
+          cta={slug ? "Preview /join" : "Set a public link first"}
+          href={slug ? `/join/${slug}` : `/dashboard/profile`}
+        />
+        <FirstWeekActionTile
+          step="03"
+          title="Polish your services"
+          subtitle="Names, prices, and what&rsquo;s included — what artists pay for."
+          cta="Edit services"
+          href="/dashboard/profile"
+        />
+      </div>
+    </section>
+  );
+}
+
+function FirstWeekActionTile({
+  step,
+  title,
+  subtitle,
+  cta,
+  href,
+  accent = false,
+}: {
+  step: string;
+  title: string;
+  subtitle: string;
+  cta: string;
+  href: string;
+  accent?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={[
+        "sk-press group flex flex-col gap-2 rounded-[var(--radius-md)] border p-4",
+        accent
+          ? "border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.06)]"
+          : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))]",
+      ].join(" ")}
+    >
+      <span
+        className={[
+          "font-mono text-[10px] font-bold uppercase tracking-widest",
+          accent ? "text-[rgb(var(--brand-primary))]" : "text-[rgb(var(--fg-muted))]",
+        ].join(" ")}
+      >
+        {step}
+      </span>
+      <span className="text-sm font-bold leading-tight text-[rgb(var(--fg-default))]">
+        {title}
+      </span>
+      <span className="text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
+        {subtitle}
+      </span>
+      <span
+        className={[
+          "mt-1 inline-flex items-center gap-1 font-mono text-[10.5px] font-bold uppercase tracking-widest",
+          accent
+            ? "text-[rgb(var(--brand-primary))]"
+            : "text-[rgb(var(--fg-secondary))]",
+        ].join(" ")}
+      >
+        {cta} <ArrowRightIcon />
+      </span>
+    </Link>
   );
 }
 

@@ -180,6 +180,50 @@ describe("OverviewScreen — design-aligned hierarchy", () => {
     expect(overviewSource).not.toMatch(/publicBaseUrl:\s*string;/);
   });
 
+  it("calls isFirstWeekEmptyState to detect the all-empty state", () => {
+    // Wired in OverviewScreen — the predicate decides whether to swap
+    // the standard 4-card layout for the single FirstWeekPanel.
+    expect(overviewSource).toMatch(/isFirstWeekEmptyState\(\s*\{/);
+  });
+
+  it("defines the FirstWeekPanel component", () => {
+    expect(overviewSource).toMatch(/function FirstWeekPanel\(/);
+  });
+
+  it("renders <FirstWeekPanel /> conditionally on the first-week predicate", () => {
+    // Pin the conditional render — a future refactor that drops the
+    // branch (e.g., "always render FirstWeekPanel") would defeat the
+    // whole point of the design (only fires day 1).
+    expect(overviewSource).toContain("<FirstWeekPanel");
+  });
+
+  it("FirstWeekPanel surfaces a 'share your link' CTA", () => {
+    // The whole funnel hinges on the public link. The first-week panel
+    // must include a path to that action even though the PublicLinkStrip
+    // already exists above it — this is the design's reinforced focus
+    // when everything else is empty.
+    expect(overviewSource).toMatch(/Share your link|Copy your link|public link/i);
+  });
+
+  it("FirstWeekPanel offers a 'see what artists see' preview link", () => {
+    // The /join/<slug> preview is the second priority CTA. Pin the
+    // href pattern so a refactor doesn't accidentally drop it.
+    expect(overviewSource).toMatch(/\/join\/\$\{slug\}/);
+  });
+
+  it("hides UrgentCard, RecentUploadsCard, FinancialPulseCard, and Activity in first-week mode", () => {
+    // When the FirstWeekPanel takes over, the four "empty" cards
+    // (Urgent, Recent, Financial, Activity) must NOT also render —
+    // otherwise we still get the "stacked all clear" problem.
+    // We pin this by requiring the renders to live under the `!isFirstWeek`
+    // branch (the else of the conditional).
+    expect(overviewSource).toMatch(/isFirstWeek\s*\?\s*\(?\s*</);
+    // The else-branch uses a JSX fragment to bundle all the standard
+    // sections (with or without the optional paren wrapper that
+    // multi-line JSX expressions usually need).
+    expect(overviewSource).toMatch(/:\s*\(?\s*<>/);
+  });
+
   it("does NOT use Tailwind color literals (bg-blue-500, text-red-600, etc)", () => {
     // CSS-variable discipline — design tokens only.
     expect(overviewSource).not.toMatch(/bg-(red|blue|green|yellow|orange|purple)-\d{2,3}/);
