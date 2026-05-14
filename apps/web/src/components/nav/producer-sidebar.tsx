@@ -141,7 +141,10 @@ export function ProducerSidebar({
     <aside
       data-collapsed={effectiveCollapsed}
       // RTL — `border-e` is the logical alias for the trailing border.
-      className="sticky top-0 hidden h-dvh shrink-0 flex-col border-e transition-[width] duration-200 lg:flex"
+      // `sk-sidebar-shell` carries the drawer-curve width transition
+      // (see globals.css) so the collapse/expand reads as a drawer
+      // sliding rather than a generic resize.
+      className="sk-sidebar-shell sticky top-0 hidden h-dvh shrink-0 flex-col border-e lg:flex"
       style={{
         width: widthPx,
         background: "rgb(var(--bg-sidebar))",
@@ -221,17 +224,16 @@ function SidebarBody({
           aria-label={collapsed ? t("expand") : t("collapse")}
           aria-expanded={!collapsed}
           onClick={onToggle}
-          className="sk-press flex h-7 w-7 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-          style={{
-            color: "rgb(var(--fg-onsidebar) / 0.55)",
-            background: "transparent",
-          }}
+          className="sk-press flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--fg-onsidebar)/0.55)] hover:bg-[rgb(var(--fg-onsidebar)/0.08)] hover:text-[rgb(var(--fg-onsidebar)/0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
         >
-          <Icon
-            name={collapsed ? "chevron-right" : "chevron-left"}
-            size={14}
-            strokeWidth={2.2}
-          />
+          {/* Single chevron rotating 180° between states — same arrow,
+              reversed direction. Reads as continuity instead of a swap. */}
+          <span
+            className="sk-sidebar-chevron inline-flex"
+            style={{ transform: collapsed ? "rotate(180deg)" : "none" }}
+          >
+            <Icon name="chevron-left" size={14} strokeWidth={2.2} />
+          </span>
         </button>
       </div>
 
@@ -336,21 +338,23 @@ function NavItem({
         minHeight: 36,
       }}
     >
-      {/* Active indicator — 3px amber bar on leading edge. */}
-      {isActive && (
-        <span
-          aria-hidden
-          className="absolute"
-          style={{
-            insetInlineStart: -5,
-            top: 8,
-            bottom: 8,
-            width: 3,
-            borderRadius: 2,
-            background: "rgb(var(--brand-primary))",
-          }}
-        />
-      )}
+      {/* Active indicator — 3px amber bar on leading edge.
+          Always mounted, fades via opacity (sk-sidebar-active-bar) so
+          the bar handoff on route change is smooth instead of a hard
+          pop-in. */}
+      <span
+        aria-hidden
+        className="sk-sidebar-active-bar pointer-events-none absolute"
+        style={{
+          insetInlineStart: -5,
+          top: 8,
+          bottom: 8,
+          width: 3,
+          borderRadius: 2,
+          background: "rgb(var(--brand-primary))",
+          opacity: isActive ? 1 : 0,
+        }}
+      />
       <span className="relative shrink-0 flex items-center">
         <Icon name={item.icon} size={16} strokeWidth={2.3} />
         {collapsed && badgeCount > 0 && (

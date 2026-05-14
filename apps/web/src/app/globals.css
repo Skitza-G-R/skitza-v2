@@ -616,6 +616,29 @@
   .sk-press:active { transform: scale(0.97); filter: brightness(0.96); }
 
   /* ----------------------------------------------------------------
+   * Sidebar motion — drawer-curve width transition + chevron rotation
+   * + active-bar fade. Three primitives, all motion-safe and disabled
+   * inside the reduced-motion block below (mirrors sk-press pattern).
+   * ---------------------------------------------------------------- */
+  .sk-sidebar-shell {
+    /* iOS-style drawer curve — slow start, snappy finish. Width is the
+       only animatable property here so we avoid `all`. */
+    transition: width 280ms var(--ease-in-out-strong);
+  }
+  .sk-sidebar-chevron {
+    /* The chevron is a single icon that rotates 180° between expanded
+       and collapsed states — reads as the same arrow reversing
+       direction rather than two different icons swapping. */
+    transition: transform 240ms var(--ease-in-out-strong);
+  }
+  .sk-sidebar-active-bar {
+    /* 3px amber leading-edge bar fades in/out on route change instead
+       of popping. The old item's bar fades out as the new one fades
+       in — smooth handoff. */
+    transition: opacity 220ms var(--ease-out-strong);
+  }
+
+  /* ----------------------------------------------------------------
    * Page-enter + per-row stagger
    * ---------------------------------------------------------------- */
   .sk-page-enter {
@@ -1065,6 +1088,9 @@
     .sk-lift:hover { transform: none !important; box-shadow: var(--shadow-sm) !important; }
     .sk-press { transition-duration: 0ms !important; }
     .sk-press:active { transform: none !important; filter: none !important; }
+    .sk-sidebar-shell { transition-duration: 0ms !important; }
+    .sk-sidebar-chevron { transition-duration: 0ms !important; }
+    .sk-sidebar-active-bar { transition-duration: 0ms !important; }
     .sk-pop,
     .sk-pop-center { animation: none !important; }
     .sk-cta-shine:hover::after { animation: none !important; }
