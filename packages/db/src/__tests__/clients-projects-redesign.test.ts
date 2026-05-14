@@ -18,3 +18,12 @@ describe("Phase 0 — workflow_stage enum", () => {
     ]);
   });
 });
+
+describe("Phase 0 — client_contacts.invited_at", () => {
+  it("exists as a nullable timestamp column on client_contacts", () => {
+    const col = clientContacts.invitedAt;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("invited_at");
+    expect(col.notNull).toBe(false);
+  });
+});

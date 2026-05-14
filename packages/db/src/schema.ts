@@ -515,6 +515,11 @@ export const clientContacts = pgTable("client_contacts", {
   // history); artist-side queries filter `IS NULL` so a disconnected
   // studio disappears from the switcher / music / store / book.
   archivedAt: timestamp("archived_at", { withTimezone: true }),
+  // Linkpill "Invited" state for the Clients & Projects v3 redesign.
+  // Stamped when the producer triggers Send Invite (email or copy-link)
+  // from the Invite-to-App modal. Cleared when Clerk webhook resolves
+  // `clerkUserId`. NULL means "no invite ever sent".
+  invitedAt: timestamp("invited_at", { withTimezone: true }),
 }, (t) => ({
   uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
   clerkUserIdx: index("client_contacts_clerk_user_idx")
