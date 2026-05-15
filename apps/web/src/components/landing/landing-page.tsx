@@ -1013,35 +1013,40 @@ function StackReplace() {
             </div>
           </div>
 
-          {/* With */}
-          <div
-            className="sk-reveal-right sk-d-3 relative overflow-hidden rounded-2xl p-6 text-white"
-            style={{ background: "#111009" }}
-          >
-            <div className="animate-shine" />
+          {/* With — outer relative wrapper hosts the pill outside the
+              inner card's overflow-hidden region (the shine animation
+              needs clipping, but the pill needs to bleed above the top
+              edge — same -top-2.5 offset as the Without card). */}
+          <div className="sk-reveal-right sk-d-3 relative">
             <div
-              className="absolute left-6 -top-2.5 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+              className="absolute left-6 -top-2.5 z-10 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
               style={{ background: "rgb(var(--brand-primary))", color: "#111009" }}
             >
               With Skitza
             </div>
             <div
-              className="relative flex flex-col items-center justify-center gap-3"
-              style={{ minHeight: 144 }}
+              className="relative overflow-hidden rounded-2xl p-6 text-white"
+              style={{ background: "#111009" }}
             >
-              <LogoLockup markSize={60} wordmarkSize={56} />
+              <div className="animate-shine" />
               <div
-                className="font-mono text-center text-[12px]"
-                style={{ color: "rgb(255 255 255 / 0.6)" }}
+                className="relative flex flex-col items-center justify-center gap-3"
+                style={{ minHeight: 144 }}
               >
-                skitza.app/join/<span style={{ color: "rgb(var(--brand-primary))" }}>gili</span>
+                <LogoLockup markSize={60} wordmarkSize={56} />
+                <div
+                  className="font-mono text-center text-[12px]"
+                  style={{ color: "rgb(255 255 255 / 0.6)" }}
+                >
+                  skitza.app/join/<span style={{ color: "rgb(var(--brand-primary))" }}>gili</span>
+                </div>
               </div>
-            </div>
-            <div
-              className="font-mono mt-3.5 text-center text-[11px]"
-              style={{ color: "rgb(255 255 255 / 0.7)" }}
-            >
-              1 link · 1 fee · 1 inbox
+              <div
+                className="font-mono mt-3.5 text-center text-[11px]"
+                style={{ color: "rgb(255 255 255 / 0.7)" }}
+              >
+                1 link · 1 fee · 1 inbox
+              </div>
             </div>
           </div>
         </div>
