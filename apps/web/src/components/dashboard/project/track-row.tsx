@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { DragEvent } from "react";
 import { ChevronRight, GripVertical } from "lucide-react";
 
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
@@ -17,10 +18,13 @@ import {
 //   ──── ─── ──── ─────────────── ───── ───── ───
 //   drag  idx  cover  title + meta  stage pill  progress  chevron
 //
-// Whole row is a Next <Link> to /dashboard/clients-projects/[id]/songs/[songId].
-// The drag handle reveals on `group-hover` so the row stays calm at rest.
-// `draggable="true"` plus parent-owned onDragStart/onDragOver/onDrop is the
-// same reorder protocol ClientCard + ProjectRow already use.
+// Container is a <div draggable>; navigation is handled by a Link
+// overlaid via `absolute inset-0 z-0`. Cells layer above the overlay
+// with `relative z-10` so the link still receives clicks that fall on
+// gaps. This mirrors the ClientCard/ProjectRow reorder protocol and
+// avoids the browser-level "draggable anchor" footgun where a
+// near-drag-then-release on an <a> can hijack the click into a drag
+// with no drop and never navigate.
 
 export interface TrackRowData {
   id: string;
@@ -41,9 +45,9 @@ export interface TrackRowProps {
   track: TrackRowData;
   /** 1-based row index (rendered as "01", "02"…). */
   index: number;
-  onDragStart?: (e: React.DragEvent<HTMLAnchorElement>, id: string) => void;
-  onDragOver?: (e: React.DragEvent<HTMLAnchorElement>, id: string) => void;
-  onDrop?: (e: React.DragEvent<HTMLAnchorElement>, id: string) => void;
+  onDragStart?: (e: DragEvent<HTMLDivElement>, id: string) => void;
+  onDragOver?: (e: DragEvent<HTMLDivElement>, id: string) => void;
+  onDrop?: (e: DragEvent<HTMLDivElement>, id: string) => void;
 }
 
 // Inline mm:ss formatter — duplicated from persistent-player's
@@ -82,35 +86,30 @@ export function TrackRow({
   }
   const meta = metaParts.join(" · ");
 
-  const handleDragStart = (e: React.DragEvent<HTMLAnchorElement>) => {
-    onDragStart?.(e, track.id);
-  };
-  const handleDragOver = (e: React.DragEvent<HTMLAnchorElement>) => {
-    onDragOver?.(e, track.id);
-  };
-  const handleDrop = (e: React.DragEvent<HTMLAnchorElement>) => {
-    onDrop?.(e, track.id);
-  };
-
   return (
-    <Link
-      href={`/dashboard/clients-projects/${projectId}/songs/${track.id}`}
-      data-id={track.id}
+    <div
       draggable="true"
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-      className="group grid items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2 transition-colors hover:bg-[rgb(var(--bg-elevated))]"
+      data-id={track.id}
+      onDragStart={onDragStart ? (e) => { onDragStart(e, track.id); } : undefined}
+      onDragOver={onDragOver ? (e) => { onDragOver(e, track.id); } : undefined}
+      onDrop={onDrop ? (e) => { onDrop(e, track.id); } : undefined}
+      className="group relative grid items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2 transition-colors hover:bg-[rgb(var(--bg-elevated))]"
       style={{
         gridTemplateColumns: "22px 30px 38px minmax(0,1fr) 130px 180px 22px",
         borderColor: "rgb(var(--border-subtle))",
         background: "rgb(var(--bg-background))",
       }}
     >
+      <Link
+        href={`/dashboard/clients-projects/${projectId}/songs/${track.id}`}
+        className="absolute inset-0 z-0 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+        aria-label={`Open ${track.title}`}
+      />
+
       {/* 1 — Drag handle (hidden until group hover) */}
       <span
         aria-hidden
-        className="flex h-5 w-5 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
+        className="relative z-10 flex h-5 w-5 cursor-grab items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
         <GripVertical size={14} />
@@ -118,7 +117,7 @@ export function TrackRow({
 
       {/* 2 — Index (mono "01", "02"…) */}
       <span
-        className="font-mono text-[12px] tabular-nums"
+        className="relative z-10 font-mono text-[12px] tabular-nums"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
         {indexLabel}
@@ -127,12 +126,12 @@ export function TrackRow({
       {/* 3 — 38px gradient cover tile */}
       <span
         aria-hidden
-        className="h-[38px] w-[38px] shrink-0 rounded-[var(--radius-sm)]"
+        className="relative z-10 h-[38px] w-[38px] shrink-0 rounded-[var(--radius-sm)]"
         style={{ background: coverBg }}
       />
 
       {/* 4 — Title + meta (truncates) */}
-      <div className="min-w-0">
+      <div className="relative z-10 min-w-0">
         <p
           className="truncate text-[14px] font-medium leading-tight transition-colors group-hover:text-[rgb(var(--brand-primary))]"
           style={{ color: "rgb(var(--fg-default))" }}
@@ -151,7 +150,7 @@ export function TrackRow({
 
       {/* 5 — Stage pill (colored dot + label) */}
       <span
-        className="inline-flex items-center gap-1.5 self-center justify-self-start rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+        className="relative z-10 inline-flex items-center gap-1.5 self-center justify-self-start rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
         style={{
           color: stageHue,
           borderColor: stageHue,
@@ -167,7 +166,7 @@ export function TrackRow({
       </span>
 
       {/* 6 — Progress bar + % */}
-      <div className="flex items-center gap-2">
+      <div className="relative z-10 flex items-center gap-2">
         <div
           className="relative h-1.5 flex-1 overflow-hidden rounded-full"
           style={{ background: "rgb(var(--border-subtle))" }}
@@ -191,11 +190,11 @@ export function TrackRow({
       {/* 7 — Chevron (decorative — the whole row is the link) */}
       <span
         aria-hidden
-        className="flex h-5 w-5 items-center justify-center"
+        className="relative z-10 flex h-5 w-5 items-center justify-center"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
         <ChevronRight size={16} />
       </span>
-    </Link>
+    </div>
   );
 }

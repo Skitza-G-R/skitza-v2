@@ -41,7 +41,7 @@ export function SongsTab({
   const [dragId, setDragId] = useState<string | null>(null);
 
   const handleDragStart = (
-    e: React.DragEvent<HTMLAnchorElement>,
+    e: React.DragEvent<HTMLDivElement>,
     id: string,
   ) => {
     void e;
@@ -49,7 +49,7 @@ export function SongsTab({
   };
 
   const handleDragOver = (
-    e: React.DragEvent<HTMLAnchorElement>,
+    e: React.DragEvent<HTMLDivElement>,
     id: string,
   ) => {
     // Allow drop — without this, the drop event never fires.
@@ -58,7 +58,7 @@ export function SongsTab({
   };
 
   const handleDrop = (
-    e: React.DragEvent<HTMLAnchorElement>,
+    e: React.DragEvent<HTMLDivElement>,
     targetId: string,
   ) => {
     e.preventDefault();

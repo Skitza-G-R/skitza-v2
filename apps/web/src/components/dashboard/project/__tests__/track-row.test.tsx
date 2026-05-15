@@ -29,6 +29,19 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).toMatch(/draggable=(?:"true"|\{true\})/);
   });
 
+  it("uses div-draggable + Link-overlay pattern (matches ClientCard / ProjectRow)", () => {
+    // The outer container is the draggable element — not the Link. This
+    // avoids the browser-level "draggable anchor with href" treatment
+    // that can hijack near-clicks into drag-with-no-drop and never
+    // navigate. We assert by ruling out `draggable` on a same-tag <Link>.
+    expect(SRC).not.toMatch(/<Link[^>]*draggable/);
+    expect(SRC).toMatch(/<div[^>]*draggable/);
+  });
+
+  it("renders the Link as an absolute inset-0 navigation overlay", () => {
+    expect(SRC).toMatch(/<Link[\s\S]*?className="[^"]*absolute inset-0/);
+  });
+
   it("imports producerGradient for the 38px cover tile", () => {
     expect(SRC).toContain("producerGradient");
     expect(SRC).toContain("~/lib/_phase4-stubs/producer-color");
