@@ -31,15 +31,17 @@ export const GRADIENT_CLASSES = [
 export type GradientClass = (typeof GRADIENT_CLASSES)[number];
 
 // Inline CSS for each gradient — used where we can't rely on a
-// stylesheet class (e.g. in dynamic style props, or for the song-page
-// hero where the original CSS class isn't present in scope).
+// stylesheet class. Interpolated `in oklch` so the transitions
+// between stops avoid the muddy mid-tones of sRGB interpolation
+// (impeccable rule: use OKLCH). Hex tokens kept as-is since they're
+// the design.md source of truth; only the interpolation space changes.
 export const GRADIENT_CSS: Record<GradientClass, string> = {
-  "grad-rose": "linear-gradient(135deg, #fb7185, #ef4444)",
-  "grad-amber": "linear-gradient(135deg, #fcd34d, #fb923c)",
-  "grad-slate": "linear-gradient(135deg, #cbd5e1, #94a3b8)",
-  "grad-emerald": "linear-gradient(135deg, #6ee7b7, #10b981)",
-  "grad-violet": "linear-gradient(135deg, #c4b5fd, #8b5cf6)",
-  "grad-indigo": "linear-gradient(135deg, #a5b4fc, #6366f1)",
+  "grad-rose": "linear-gradient(135deg in oklch, #fb7185, #ef4444)",
+  "grad-amber": "linear-gradient(135deg in oklch, #fcd34d, #fb923c)",
+  "grad-slate": "linear-gradient(135deg in oklch, #cbd5e1, #94a3b8)",
+  "grad-emerald": "linear-gradient(135deg in oklch, #6ee7b7, #10b981)",
+  "grad-violet": "linear-gradient(135deg in oklch, #c4b5fd, #8b5cf6)",
+  "grad-indigo": "linear-gradient(135deg in oklch, #a5b4fc, #6366f1)",
 };
 
 // Solid base color per gradient — the first stop. Used as a fallback
@@ -104,4 +106,117 @@ export function sumDurations(durations: ReadonlyArray<number | null | undefined>
 /** Zero-padded two-digit index for tracklist rows ("01", "02", "10"...). */
 export function padIndex(i: number): string {
   return String(i + 1).padStart(2, "0");
+}
+
+/** Tabular count formatter used by every "Plays" / "Notes" column.
+ *
+ *  Returns an empty string for 0/null/undefined so the column reads as
+ *  "no value" without falling back to em-dash placeholders (banned by
+ *  the impeccable design laws). Call sites reserve the column width
+ *  with a `min-width` so empty cells still align with populated rows.
+ */
+export function fmtCount(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "";
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return String(n);
+}
+
+/** Project page footer copy. Combines "Created <date>" + "Last upload
+ *  <relative>" so the footer earns its row.
+ *
+ *  Returns "" when both timestamps are missing — caller can branch on
+ *  empty to skip rendering the footer entirely.
+ */
+export function formatProjectFooter(args: {
+  createdAtIso: string | null;
+  lastUploadIso: string | null;
+  /** Optional clock — defaults to Date.now(). Tests pin a fixed value. */
+  now?: number;
+}): string {
+  const now = args.now ?? Date.now();
+  const parts: string[] = [];
+  if (args.createdAtIso) {
+    parts.push(`Created ${formatAbsoluteDate(args.createdAtIso)}`);
+  }
+  if (args.lastUploadIso) {
+    parts.push(`Last upload ${formatRelativeDate(args.lastUploadIso, now)}`);
+  } else if (args.createdAtIso) {
+    // Only mention "no uploads" if the project itself exists; otherwise
+    // both fields are empty and we return "".
+    parts.push("No uploads yet");
+  }
+  return parts.join(" · ");
+}
+
+function formatAbsoluteDate(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatRelativeDate(iso: string, now: number): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  const day = 24 * 60 * 60 * 1000;
+  // UTC-day comparison so "today"/"yesterday" align with the producer's
+  // intuition (not affected by the local-time-of-day of `now`).
+  const startOfNow = new Date(now);
+  startOfNow.setUTCHours(0, 0, 0, 0);
+  const startOfThen = new Date(ms);
+  startOfThen.setUTCHours(0, 0, 0, 0);
+  const diffDays = Math.floor(
+    (startOfNow.getTime() - startOfThen.getTime()) / day,
+  );
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${String(diffDays)} days ago`;
+  return formatAbsoluteDate(iso);
+}
+
+/** Generative ring pattern for the project cover.
+ *
+ *  Replaces the previous fixed-5-rings-everywhere generator. Picks 3,
+ *  5, or 7 rings based on the seed hash so each project has a
+ *  visually distinct silhouette while remaining deterministic per id.
+ *  Same seed always returns the same shape.
+ *
+ *  All rings stay within the 64-unit SVG canvas. Radii vary inside a
+ *  single pattern so it never reads as a bullseye.
+ */
+export interface CoverRing {
+  cx: number;
+  cy: number;
+  r: number;
+}
+
+export function coverPattern(seed: string): CoverRing[] {
+  const hash = hashString(seed);
+  // Pick 3 / 5 / 7 rings based on top bits of the hash. 0..2 → index
+  // into [3, 5, 7]. Spreads ~evenly across seeds.
+  const counts = [3, 5, 7] as const;
+  const count = counts[(hash >>> 28) % counts.length] ?? 5;
+  const rings: CoverRing[] = [];
+  for (let i = 0; i < count; i++) {
+    // cx/cy: keep within 8..56 so even big rings stay on-canvas.
+    const cx = 12 + ((hash >> (i * 3)) & 0xf) * 2.6;
+    const cy = 16 + ((hash >> (i * 4)) & 0xf) * 2.4;
+    // Radius cycles through three sizes (small, medium, large) keyed
+    // off both the index and a per-ring hash slice so a single pattern
+    // never reads as a bullseye of equal rings.
+    const sizeBucket = ((hash >> (i * 5 + 2)) & 0x3) % 3;
+    const baseRadius = [6, 12, 22][sizeBucket] ?? 12;
+    // Tiny per-ring jitter (±2) so rings of the same bucket aren't
+    // perfectly identical across the pattern.
+    const jitter = ((hash >> (i * 7)) & 0x3) - 1;
+    const r = Math.max(2, baseRadius + jitter);
+    rings.push({
+      cx: Math.max(0, Math.min(64, cx)),
+      cy: Math.max(0, Math.min(64, cy)),
+      r,
+    });
+  }
+  return rings;
 }

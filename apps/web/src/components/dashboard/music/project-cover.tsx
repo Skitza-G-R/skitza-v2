@@ -1,9 +1,9 @@
 import {
   COVER_SHADOW_CARD,
   COVER_SHADOW_HERO,
+  coverPattern,
   GRADIENT_BASE_COLOR,
   GRADIENT_CSS,
-  hashString,
   type GradientClass,
   type ProjectKind,
 } from "./lib";
@@ -44,7 +44,11 @@ export function ProjectCover({
   seed,
   gradient,
   kind,
-  wordmark = true,
+  // Default OFF — the wordmark is brand reinforcement only relevant on
+  // the project hero. Showing it on every library card is clutter on
+  // the producer's own surface. Callers that want it (project page)
+  // pass `wordmark` (true) explicitly.
+  wordmark = false,
   showKind = true,
   radius,
   shadow = "card",
@@ -81,7 +85,7 @@ export function ProjectCover({
 export function CoverPattern({
   seed,
   kind,
-  wordmark = true,
+  wordmark = false,
   showKind = true,
 }: {
   seed: string;
@@ -89,14 +93,11 @@ export function CoverPattern({
   wordmark?: boolean;
   showKind?: boolean;
 }) {
-  const hash = hashString(seed);
-  // Five concentric circles with offsets derived from the seed hash.
-  const circles = Array.from({ length: 5 }, (_, i) => {
-    const cx = 20 + ((hash >> (i * 3)) & 7) * 4;
-    const cy = 50 + ((hash >> (i * 4)) & 7) * 2 - 14;
-    const r = 26 - i * 4;
-    return { cx, cy, r };
-  });
+  // Variable ring count (3 / 5 / 7) and varied radii per seed via the
+  // shared coverPattern() generator. Same seed → same shape; different
+  // seeds → distinct silhouettes (no more "every cover is the same
+  // bullseye").
+  const circles = coverPattern(seed);
 
   return (
     <>

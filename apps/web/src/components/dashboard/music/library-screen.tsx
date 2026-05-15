@@ -24,6 +24,7 @@ import {
 
 import { ProjectCover } from "./project-cover";
 import {
+  fmtCount,
   fmtDuration,
   gradientForSeed,
   kindFromTrackCount,
@@ -264,12 +265,14 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
         </Link>
       </header>
 
-      {/* Toolbar */}
+      {/* Toolbar — fully-opaque elevated surface with a confident border
+          so it reads as the lid of the library section, not a floating
+          translucent strip. */}
       <div
         className="flex flex-wrap items-center gap-2.5 rounded-[12px] border px-3 py-2.5"
         style={{
-          background: "rgb(var(--bg-elevated) / 0.55)",
-          borderColor: "rgb(var(--border-subtle))",
+          background: "rgb(var(--bg-elevated))",
+          borderColor: "rgb(var(--border-strong))",
         }}
       >
         {/* Search — focus-within ring brightens the pill so the
@@ -315,34 +318,50 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
           <ModeToggle value={mode} onChange={setMode} />
         </div>
 
-        {/* Sort dropdown — only in songs table view */}
-        {mode === "songs" && view === "table" ? (
-          <SortDropdown value={sort} onChange={setSort} />
-        ) : null}
+        {/* Sort dropdown — always rendered. Disabled (greyed) when not
+            applicable (i.e. anything except Songs + Table view) so the
+            toolbar shape stays stable across mode/view toggles. */}
+        <SortDropdown
+          value={sort}
+          onChange={setSort}
+          disabled={!(mode === "songs" && view === "table")}
+        />
 
         {/* View toggle (Grid / Table) */}
         <ViewToggle value={view} onChange={setView} />
       </div>
 
-      {/* Body */}
-      {filteredTracks.length === 0 ? (
-        <EmptyResult hasQuery={Boolean(search.trim()) || artist !== "all"} />
-      ) : mode === "projects" ? (
-        view === "grid" ? (
-          <ProjectsGrid projects={projects} />
+      {/* Body — single panel that both toggles control via aria-controls. */}
+      <div id={RESULTS_PANEL_ID} role="tabpanel" aria-label="Library results">
+        {filteredTracks.length === 0 ? (
+          <EmptyResult
+            hasQuery={Boolean(search.trim()) || artist !== "all"}
+            hasProjects={totalProjects > 0}
+          />
+        ) : mode === "projects" ? (
+          view === "grid" ? (
+            <ProjectsGrid projects={projects} />
+          ) : (
+            <ProjectsTable projects={projects} />
+          )
+        ) : view === "grid" ? (
+          <SongsGrid songs={filteredTracks} />
         ) : (
-          <ProjectsTable projects={projects} />
-        )
-      ) : view === "grid" ? (
-        <SongsGrid songs={filteredTracks} />
-      ) : (
-        <SongsTable songs={sortedSongs} />
-      )}
+          <SongsTable songs={sortedSongs} />
+        )}
+      </div>
     </div>
   );
 }
 
 // ─── Toolbar primitives ──────────────────────────────────────────────
+
+// Shared id for the results panel — both toggles point to it via
+// aria-controls so screen readers can announce "controls library
+// results" on each tab. Two tablists controlling one panel is a known
+// compromise; the alternative is duplicate panels per axis which is
+// worse semantically + visually.
+const RESULTS_PANEL_ID = "library-results";
 
 function ModeToggle({
   value,
@@ -368,6 +387,7 @@ function ModeToggle({
         }}
         icon={<Disc3 size={13} strokeWidth={2.2} />}
         label="Projects"
+        controls={RESULTS_PANEL_ID}
       />
       <SegmentedButton
         active={value === "songs"}
@@ -376,6 +396,7 @@ function ModeToggle({
         }}
         icon={<AudioLines size={13} strokeWidth={2.2} />}
         label="Songs"
+        controls={RESULTS_PANEL_ID}
       />
     </div>
   );
@@ -406,6 +427,7 @@ function ViewToggle({
         icon={<Grid3x3 size={13} strokeWidth={2.2} />}
         ariaLabel="Grid view"
         iconOnly
+        controls={RESULTS_PANEL_ID}
       />
       <SegmentedButton
         active={value === "table"}
@@ -415,6 +437,7 @@ function ViewToggle({
         icon={<List size={13} strokeWidth={2.2} />}
         ariaLabel="Table view"
         iconOnly
+        controls={RESULTS_PANEL_ID}
       />
     </div>
   );
@@ -427,6 +450,7 @@ function SegmentedButton({
   label,
   ariaLabel,
   iconOnly,
+  controls,
 }: {
   active: boolean;
   onClick: () => void;
@@ -434,6 +458,7 @@ function SegmentedButton({
   label?: string;
   ariaLabel?: string;
   iconOnly?: boolean;
+  controls?: string;
 }) {
   return (
     <button
@@ -441,6 +466,7 @@ function SegmentedButton({
       role="tab"
       aria-selected={active}
       aria-label={ariaLabel ?? label}
+      aria-controls={controls}
       onClick={onClick}
       className={[
         "sk-press inline-flex items-center gap-1.5 rounded-[7px] font-bold sk-trans",
@@ -504,14 +530,23 @@ function ArtistFilterPill({
 function SortDropdown({
   value,
   onChange,
+  disabled = false,
 }: {
   value: SongSort;
   onChange: (v: SongSort) => void;
+  disabled?: boolean;
 }) {
   return (
     <label
-      className="sk-press sk-trans relative inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-[11.5px] font-semibold text-[rgb(var(--fg-default))]"
+      className={[
+        "sk-trans relative inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-[11.5px] font-semibold",
+        disabled
+          ? "cursor-not-allowed text-[rgb(var(--fg-faint))]"
+          : "sk-press text-[rgb(var(--fg-default))]",
+      ].join(" ")}
       style={{ border: "1px solid rgb(var(--border-subtle))" }}
+      aria-disabled={disabled}
+      title={disabled ? "Sort applies to Songs · Table view" : undefined}
     >
       <span className="pointer-events-none text-[rgb(var(--fg-muted))]">
         Sort
@@ -521,10 +556,11 @@ function SortDropdown({
       <select
         aria-label="Sort songs"
         value={value}
+        disabled={disabled}
         onChange={(e) => {
           onChange(e.target.value as SongSort);
         }}
-        className="absolute inset-0 cursor-pointer opacity-0"
+        className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
       >
         {(Object.keys(SORT_LABEL) as SongSort[]).map((k) => (
           <option key={k} value={k}>
@@ -539,6 +575,13 @@ function SortDropdown({
 // ─── Views ───────────────────────────────────────────────────────────
 
 function ProjectsGrid({ projects }: { projects: ProjectAggregate[] }) {
+  // Featured layout: when the library has more than 6 projects the
+  // first card spans 2 columns. Breaks the "every card identical" grid
+  // monotony without inventing a new component. Below that threshold a
+  // single oversized card would just look lopsided, so we stay in the
+  // uniform grid.
+  const FEATURED_THRESHOLD = 6;
+  const useFeatured = projects.length > FEATURED_THRESHOLD;
   return (
     <ul
       role="list"
@@ -549,7 +592,12 @@ function ProjectsGrid({ projects }: { projects: ProjectAggregate[] }) {
         <li
           key={p.id}
           className="sk-stagger-item"
-          style={{ "--i": String(i) } as React.CSSProperties}
+          style={
+            {
+              "--i": String(i),
+              gridColumn: useFeatured && i === 0 ? "span 2" : undefined,
+            } as React.CSSProperties
+          }
         >
           <ProjectCard project={p} />
         </li>
@@ -662,7 +710,7 @@ function ProjectsTable({ projects }: { projects: ProjectAggregate[] }) {
                 {p.title}
               </span>
               <span className="truncate text-[12px] text-[rgb(var(--fg-muted))]">
-                {p.artistLabel || "—"}
+                {p.artistLabel}
               </span>
               <span>
                 <span className="inline-flex items-center rounded-full bg-[rgb(var(--bg-sunken))] px-2 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--fg-default))]">
@@ -682,8 +730,9 @@ function ProjectsTable({ projects }: { projects: ProjectAggregate[] }) {
                     ? "font-bold text-[rgb(var(--brand-primary-dark))]"
                     : "text-[rgb(var(--fg-faint))]",
                 ].join(" ")}
+                style={{ minWidth: 24 }}
               >
-                {p.unreadComments > 0 ? String(p.unreadComments) : "—"}
+                {fmtCount(p.unreadComments)}
               </span>
             </Link>
           </li>
@@ -752,14 +801,19 @@ function SongCard({ song, isPlaying }: { song: MusicLibraryRow; isPlaying: boole
         >
           <Play size={13} strokeWidth={2.6} fill="currentColor" />
         </span>
-        {/* Bottom-right: mini-waveform peek; oscillates when current. */}
-        <span
-          aria-hidden
-          className="absolute bottom-3 right-3 z-10 inline-flex h-[18px] w-[18px] items-center justify-center text-white"
-          style={{ opacity: 0.78 }}
-        >
-          <EqBars playing={isPlaying} size={13} />
-        </span>
+        {/* Bottom-right: animated EqBars only when this song is the
+            currently-playing track. When not playing, render nothing —
+            avoids a static "waveform" that competes with the EqBars
+            elsewhere as the now-playing signal. */}
+        {isPlaying ? (
+          <span
+            aria-label="Now playing"
+            className="absolute bottom-3 right-3 z-10 inline-flex h-[18px] w-[18px] items-center justify-center text-white"
+            style={{ opacity: 0.92 }}
+          >
+            <EqBars playing size={13} />
+          </span>
+        ) : null}
       </div>
       <div className="min-w-0">
         <p
@@ -776,8 +830,8 @@ function SongCard({ song, isPlaying }: { song: MusicLibraryRow; isPlaying: boole
         <p className="mt-1 flex items-center justify-between font-mono text-[10.5px] text-[rgb(var(--fg-faint))]">
           <span className="inline-flex items-center gap-1">
             <Play size={9} strokeWidth={2.6} fill="currentColor" />
-            <span className="tabular-nums">
-              {song.plays > 0 ? String(song.plays) : "—"}
+            <span className="tabular-nums" style={{ minWidth: 16 }}>
+              {fmtCount(song.plays)}
             </span>
           </span>
           <span className="tabular-nums">{fmtDuration(song.durationMs)}</span>
@@ -854,6 +908,7 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                   <button
                     type="button"
                     aria-label={isPlayingHere ? "Pause" : "Play"}
+                    title={isPlayingHere ? "Pause (Space)" : "Play (Space)"}
                     onClick={() => {
                       handlePlay(s);
                     }}
@@ -861,7 +916,7 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                     className={[
                       "sk-press inline-flex h-7 w-7 items-center justify-center rounded-full sk-trans disabled:opacity-40",
                       isCurrent
-                        ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.25)]"
+                        ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
                         : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100",
                     ].join(" ")}
                   >
@@ -901,7 +956,7 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                 </Link>
 
                 <span className="truncate text-[12px] text-[rgb(var(--fg-muted))]">
-                  {s.clientName ?? s.trackArtist ?? "—"}
+                  {s.clientName ?? s.trackArtist ?? ""}
                 </span>
 
                 <span>
@@ -910,8 +965,11 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                   </span>
                 </span>
 
-                <span className="text-right font-mono text-[11px] tabular-nums text-[rgb(var(--fg-muted))]">
-                  {s.plays > 0 ? String(s.plays) : "—"}
+                <span
+                  className="text-right font-mono text-[11px] tabular-nums text-[rgb(var(--fg-muted))]"
+                  style={{ minWidth: 24 }}
+                >
+                  {fmtCount(s.plays)}
                 </span>
 
                 <span
@@ -921,8 +979,9 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                       ? "font-bold text-[rgb(var(--brand-primary-dark))]"
                       : "text-[rgb(var(--fg-faint))]",
                   ].join(" ")}
+                  style={{ minWidth: 24 }}
                 >
-                  {s.unreadComments > 0 ? String(s.unreadComments) : "—"}
+                  {fmtCount(s.unreadComments)}
                 </span>
 
                 <span className="text-right font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
@@ -947,7 +1006,59 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
   );
 }
 
-function EmptyResult({ hasQuery }: { hasQuery: boolean }) {
+function EmptyResult({
+  hasQuery,
+  hasProjects,
+}: {
+  hasQuery: boolean;
+  hasProjects: boolean;
+}) {
+  // Three states:
+  //   1. Filter active   → tell the user to clear it
+  //   2. No projects yet → send them to create one (uploads need a
+  //                        project to live inside)
+  //   3. Has projects, no tracks → show the upload hint
+  if (hasQuery) {
+    return (
+      <EmptyShell
+        title="Nothing matches"
+        body="Clear the search or the artist filter to see everything."
+      />
+    );
+  }
+  if (!hasProjects) {
+    return (
+      <EmptyShell
+        title="Start a project"
+        body="Music lives inside projects. Create one to start uploading tracks."
+        cta={{
+          href: "/dashboard/clients-projects?action=new",
+          label: "Create your first project",
+        }}
+      />
+    );
+  }
+  return (
+    <EmptyShell
+      title="No tracks yet"
+      body="Drop a WAV into any project, your uploads land here."
+      cta={{
+        href: "/dashboard/clients-projects?action=upload",
+        label: "Upload a track",
+      }}
+    />
+  );
+}
+
+function EmptyShell({
+  title,
+  body,
+  cta,
+}: {
+  title: string;
+  body: string;
+  cta?: { href: string; label: string };
+}) {
   return (
     <div
       role="status"
@@ -958,14 +1069,18 @@ function EmptyResult({ hasQuery }: { hasQuery: boolean }) {
       }}
     >
       <h3 className="font-display text-[18px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-        Nothing here
+        {title}
         <span className="text-[rgb(var(--brand-primary-dark))]">.</span>
       </h3>
-      <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
-        {hasQuery
-          ? "Try clearing the search or artist filter."
-          : "Drop a WAV into any project and it’ll land here."}
-      </p>
+      <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">{body}</p>
+      {cta ? (
+        <Link
+          href={cta.href}
+          className="sk-press mt-4 inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--brand-primary))] px-4 py-2 text-[12.5px] font-bold text-[rgb(var(--fg-default))]"
+        >
+          {cta.label}
+        </Link>
+      ) : null}
     </div>
   );
 }

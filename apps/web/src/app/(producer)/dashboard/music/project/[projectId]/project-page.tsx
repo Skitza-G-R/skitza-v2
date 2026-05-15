@@ -9,7 +9,7 @@ import {
   Shuffle,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
 import {
@@ -20,7 +20,9 @@ import {
 
 import { ProjectCover } from "~/components/dashboard/music/project-cover";
 import {
+  fmtCount,
   fmtDuration,
+  formatProjectFooter,
   gradientForSeed,
   GRADIENT_CSS,
   kindFromTrackCount,
@@ -57,6 +59,10 @@ export interface ProjectPageData {
 
 export function ProjectPage({ data }: { data: ProjectPageData }) {
   const nowPlaying = useNowPlaying();
+  // Inline "Link copied" confirmation. Auto-dismisses 2.4s after the
+  // share action triggers a clipboard fallback. Inline (not a modal /
+  // toast) per the impeccable rule "modals are usually laziness."
+  const [shareConfirm, setShareConfirm] = useState<null | "copied" | "shared">(null);
 
   const gradient = useMemo(
     () => gradientForSeed(data.project.id),
@@ -70,7 +76,30 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
     () => sumDurations(data.tracks.map((t) => t.durationMs)),
     [data.tracks],
   );
+  const lastUploadIso = useMemo(() => {
+    let max = 0;
+    let iso: string | null = null;
+    for (const t of data.tracks) {
+      const ts = Date.parse(t.uploadedAtIso);
+      if (Number.isFinite(ts) && ts > max) {
+        max = ts;
+        iso = t.uploadedAtIso;
+      }
+    }
+    return iso;
+  }, [data.tracks]);
   const artistLabel = (data.project.clientName ?? "").trim() || "Unknown artist";
+
+  // Auto-dismiss the share confirmation after a short window.
+  useEffect(() => {
+    if (shareConfirm === null) return;
+    const t = window.setTimeout(() => {
+      setShareConfirm(null);
+    }, 2400);
+    return () => {
+      window.clearTimeout(t);
+    };
+  }, [shareConfirm]);
 
   // Build a PlayerTrack payload for a given row.
   function toPlayerTrack(t: ProjectPageTrack) {
@@ -119,9 +148,11 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
     const url = window.location.href;
     try {
       await navigator.share({ title: data.project.title, url });
+      setShareConfirm("shared");
     } catch {
       try {
         await navigator.clipboard.writeText(url);
+        setShareConfirm("copied");
       } catch {
         // Neither API available — the affordance is non-destructive.
       }
@@ -161,7 +192,9 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
           className="relative mx-auto"
           style={{
             maxWidth: 1120,
-            padding: "clamp(22px, 2.6vw, 32px) clamp(28px, 3vw, 36px) clamp(30px, 3vw, 40px)",
+            // More breathing room above the cover so it floats lower
+            // inside its hero (hero felt cover-dominated).
+            padding: "clamp(36px, 4.4vw, 56px) clamp(28px, 3vw, 36px) clamp(30px, 3vw, 40px)",
           }}
         >
           {/* Top row: back button + eyebrow + ellipsis */}
@@ -170,6 +203,7 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
               <Link
                 href="/dashboard/music"
                 aria-label="Back to Library"
+                title="Back to Library"
                 className="sk-press sk-trans inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 backdrop-blur-sm hover:bg-white/22"
               >
                 <ChevronLeft size={14} strokeWidth={2.4} />
@@ -181,12 +215,13 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
                   color: "rgba(255,255,255,0.65)",
                 }}
               >
-                Library / {kind}
+                Library <span aria-hidden>›</span> {kind}
               </span>
             </div>
             <button
               type="button"
               aria-label="More actions"
+              title="More actions"
               className="sk-press sk-trans inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white backdrop-blur-sm hover:bg-white/22"
             >
               <MoreHorizontal size={14} />
@@ -203,6 +238,7 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
                 seed={data.project.id}
                 gradient={gradient}
                 kind={kind}
+                wordmark
                 shadow="hero"
                 radius="18px"
                 className="h-[232px] w-[232px] shrink-0"
@@ -221,7 +257,10 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
               <h1
                 className="reveal-up reveal-up-delay-2 mt-3 font-display font-extrabold text-white"
                 style={{
-                  fontSize: "clamp(40px, 6.4vw, 76px)",
+                  // Capped lower than the original 76px max so the
+                  // title reads as bold without becoming a billboard.
+                  // Apple Music's album hero caps around 56–60px.
+                  fontSize: "clamp(36px, 4.4vw, 60px)",
                   lineHeight: 0.96,
                   letterSpacing: "-0.035em",
                   textShadow: "0 2px 12px rgba(17,16,9,0.22)",
@@ -248,6 +287,7 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
             <button
               type="button"
               aria-label={projectIsPlaying ? "Pause project" : "Play project"}
+              title={projectIsPlaying ? "Pause (Space)" : "Play (Space)"}
               onClick={handlePlayProject}
               className={[
                 "sk-press inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-[0_8px_22px_rgba(17,16,9,0.28)]",
@@ -260,18 +300,30 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
                 <Play size={20} strokeWidth={2.6} fill="currentColor" />
               )}
             </button>
-            <CircleIconButton
-              ariaLabel="Shuffle"
-              onClick={handleShuffle}
-            >
+            <CircleIconButton ariaLabel="Shuffle" title="Shuffle play" onClick={handleShuffle}>
               <Shuffle size={16} strokeWidth={2.2} />
             </CircleIconButton>
-            <CircleIconButton ariaLabel="Share" onClick={() => void handleShare()}>
+            <CircleIconButton
+              ariaLabel="Share"
+              title="Share project link"
+              onClick={() => void handleShare()}
+            >
               <Share2 size={16} strokeWidth={2.2} />
             </CircleIconButton>
-            <CircleIconButton ariaLabel="More">
+            <CircleIconButton ariaLabel="More" title="More actions">
               <MoreHorizontal size={16} strokeWidth={2.2} />
             </CircleIconButton>
+            {/* Inline share confirmation. Mounts only briefly; CSS
+                fade-in via reveal-up. role="status" so screen readers
+                announce the result. */}
+            {shareConfirm ? (
+              <span
+                role="status"
+                className="reveal-up rounded-full bg-white/90 px-3 py-1.5 text-[11.5px] font-bold text-[rgb(17_16_9)] backdrop-blur-sm"
+              >
+                {shareConfirm === "copied" ? "Link copied" : "Shared"}
+              </span>
+            ) : null}
           </div>
         </div>
       </header>
@@ -296,17 +348,32 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
               onPlay={handlePlayTrack}
             />
             <footer
-              className="mt-7 flex flex-wrap items-center justify-between gap-2 pt-4 font-mono text-[11.5px] text-[rgb(var(--fg-muted))]"
+              className="mt-7 flex flex-col gap-1 pt-4 font-mono text-[11.5px] text-[rgb(var(--fg-muted))]"
               style={{ borderTop: "1px solid rgb(var(--border-subtle))" }}
             >
-              <span>
-                <span className="font-bold tabular-nums text-[rgb(var(--fg-default))]">
-                  {String(data.tracks.length)}
-                </span>{" "}
-                track{data.tracks.length === 1 ? "" : "s"} ·{" "}
-                <span className="tabular-nums">{fmtDuration(totalDurationMs)}</span>
-              </span>
-              <span className="truncate">{artistLabel}</span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <span className="font-bold tabular-nums text-[rgb(var(--fg-default))]">
+                    {String(data.tracks.length)}
+                  </span>{" "}
+                  track{data.tracks.length === 1 ? "" : "s"} ·{" "}
+                  <span className="tabular-nums">
+                    {fmtDuration(totalDurationMs)}
+                  </span>
+                </span>
+                <span className="truncate">{artistLabel}</span>
+              </div>
+              {(() => {
+                const meta = formatProjectFooter({
+                  createdAtIso: data.project.createdAtIso,
+                  lastUploadIso,
+                });
+                return meta ? (
+                  <div className="text-[10.5px] text-[rgb(var(--fg-faint))]">
+                    {meta}
+                  </div>
+                ) : null;
+              })()}
             </footer>
           </>
         )}
@@ -319,11 +386,13 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
 
 function CircleIconButton({
   ariaLabel,
+  title,
   onClick,
   active,
   children,
 }: {
   ariaLabel: string;
+  title?: string;
   onClick?: () => void;
   active?: boolean;
   children: React.ReactNode;
@@ -332,6 +401,7 @@ function CircleIconButton({
     <button
       type="button"
       aria-label={ariaLabel}
+      title={title ?? ariaLabel}
       onClick={onClick}
       className={[
         "sk-press sk-trans inline-flex h-10 w-10 items-center justify-center rounded-full",
@@ -407,6 +477,7 @@ function Tracklist({
                   <button
                     type="button"
                     aria-label={playingHere ? "Pause" : "Play"}
+                    title={playingHere ? "Pause (Space)" : "Play (Space)"}
                     onClick={() => {
                       onPlay(t);
                     }}
@@ -414,7 +485,7 @@ function Tracklist({
                     className={[
                       "sk-press sk-trans inline-flex h-[26px] w-[26px] items-center justify-center rounded-full disabled:opacity-40",
                       isCurrent
-                        ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.25)]"
+                        ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
                         : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100",
                     ].join(" ")}
                   >
@@ -467,8 +538,11 @@ function Tracklist({
                   </span>
                 </span>
 
-                <span className="text-right font-mono text-[11px] tabular-nums text-[rgb(var(--fg-muted))]">
-                  {t.plays > 0 ? String(t.plays) : "—"}
+                <span
+                  className="text-right font-mono text-[11px] tabular-nums text-[rgb(var(--fg-muted))]"
+                  style={{ minWidth: 24 }}
+                >
+                  {fmtCount(t.plays)}
                 </span>
 
                 <span
@@ -478,8 +552,9 @@ function Tracklist({
                       ? "font-bold text-[rgb(var(--brand-primary-dark))]"
                       : "text-[rgb(var(--fg-faint))]",
                   ].join(" ")}
+                  style={{ minWidth: 24 }}
                 >
-                  {t.unreadComments > 0 ? String(t.unreadComments) : "—"}
+                  {fmtCount(t.unreadComments)}
                 </span>
 
                 <span className="text-right font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
