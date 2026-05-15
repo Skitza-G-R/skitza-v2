@@ -147,6 +147,12 @@ export function WorkflowStepper({ current }: WorkflowStepperProps) {
             <li
               key={stage.key}
               data-state={state}
+              // `aria-current="step"` flags the active stage for SR
+              // users — the visual amber dot + ring on its own carries
+              // no semantic meaning. We attach it on the <li> rather
+              // than the dot because the dot itself is decorative
+              // (`aria-hidden`).
+              aria-current={isNow ? "step" : undefined}
               className="flex flex-col items-center text-center"
             >
               <span
@@ -165,6 +171,11 @@ export function WorkflowStepper({ current }: WorkflowStepperProps) {
                 style={{ color: labelColor }}
               >
                 {stageLabel(stage.key)}
+                {/* Visually-hidden completion suffix — turns "Mixing"
+                    into "Mixing (completed)" when read by a screen
+                    reader, mirroring the green checkmark visible
+                    sighted users get. */}
+                {isDone ? <span className="sr-only"> (completed)</span> : null}
               </span>
               <span
                 className="mt-0.5 text-[10px] leading-tight"

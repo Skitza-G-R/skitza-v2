@@ -80,6 +80,14 @@ describe("WorkflowStepper — 5-stage horizontal stepper", () => {
     expect(SRC).toContain("WorkflowStage");
   });
 
+  it("marks the 'now' step with aria-current='step'", () => {
+    expect(SRC).toMatch(/aria-current=["']step["']|aria-current=\{["']step["']\}/);
+  });
+
+  it("includes visually-hidden completion suffix on done steps", () => {
+    expect(SRC).toMatch(/sr-only.*completed|completed.*sr-only/);
+  });
+
   it("forbids --surface-card", () => {
     expect(SRC).not.toContain("--surface-card");
   });
