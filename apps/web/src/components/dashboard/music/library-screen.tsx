@@ -222,7 +222,7 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
   }, [filteredTracks, mode, view, sort]);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="sk-page-enter flex flex-col gap-5">
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
@@ -258,7 +258,7 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
             the prior screen so click never goes nowhere. */}
         <Link
           href="/dashboard/clients-projects?action=upload"
-          className="inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--brand-primary))] px-[15px] py-[9px] text-[12.5px] font-bold text-[rgb(var(--fg-default))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)] transition-[filter] hover:brightness-105"
+          className="sk-press inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--brand-primary))] px-[15px] py-[9px] text-[12.5px] font-bold text-[rgb(var(--fg-default))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
         >
           <Upload size={13} strokeWidth={2.4} />
           Upload track
@@ -273,9 +273,10 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
           borderColor: "rgb(var(--border-subtle))",
         }}
       >
-        {/* Search */}
+        {/* Search — focus-within ring brightens the pill so the
+            keyboardable surface is visible without a heavy outline. */}
         <div
-          className="flex min-w-[220px] max-w-[320px] flex-1 items-center gap-1.5 rounded-full bg-[rgb(var(--bg-elevated))] px-3 py-1.5"
+          className="sk-trans flex min-w-[220px] max-w-[320px] flex-1 items-center gap-1.5 rounded-full bg-[rgb(var(--bg-elevated))] px-3 py-1.5 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)]"
           style={{ border: "1px solid rgb(var(--border-subtle))" }}
         >
           <Search size={13} className="text-[rgb(var(--fg-muted))]" />
@@ -296,7 +297,7 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
               onClick={() => {
                 setSearch("");
               }}
-              className="rounded-full p-0.5 text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+              className="sk-press rounded-full p-0.5 text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
             >
               <X size={12} />
             </button>
@@ -443,7 +444,7 @@ function SegmentedButton({
       aria-label={ariaLabel ?? label}
       onClick={onClick}
       className={[
-        "inline-flex items-center gap-1.5 rounded-[7px] font-bold transition",
+        "sk-press inline-flex items-center gap-1.5 rounded-[7px] font-bold sk-trans",
         iconOnly ? "px-[9px] py-[6px]" : "px-[11px] py-[6px]",
         "text-[11.5px]",
         active
@@ -471,7 +472,7 @@ function ArtistFilterPill({
   return (
     <label
       className={[
-        "relative inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition",
+        "sk-press sk-trans relative inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold",
         filtered
           ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-background))]"
           : "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
@@ -510,7 +511,7 @@ function SortDropdown({
 }) {
   return (
     <label
-      className="relative inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-[11.5px] font-semibold text-[rgb(var(--fg-default))]"
+      className="sk-press sk-trans relative inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-[11.5px] font-semibold text-[rgb(var(--fg-default))]"
       style={{ border: "1px solid rgb(var(--border-subtle))" }}
     >
       <span className="pointer-events-none text-[rgb(var(--fg-muted))]">
@@ -545,8 +546,12 @@ function ProjectsGrid({ projects }: { projects: ProjectAggregate[] }) {
       className="grid gap-[22px]"
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(196px, 1fr))" }}
     >
-      {projects.map((p) => (
-        <li key={p.id}>
+      {projects.map((p, i) => (
+        <li
+          key={p.id}
+          className="sk-stagger-item"
+          style={{ "--i": String(i) } as React.CSSProperties}
+        >
           <ProjectCard project={p} />
         </li>
       ))}
@@ -558,9 +563,9 @@ function ProjectCard({ project }: { project: ProjectAggregate }) {
   return (
     <Link
       href={`/dashboard/music/project/${project.id}`}
-      className="group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
+      className="sk-lift group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
     >
-      <div className="relative">
+      <div className="relative" style={{ willChange: "transform" }}>
         <ProjectCover
           seed={project.id}
           gradient={project.gradient}
@@ -569,10 +574,16 @@ function ProjectCard({ project }: { project: ProjectAggregate }) {
           radius="12px"
           className="aspect-square"
         />
-        {/* Hover-only play button — translates up + fades in. */}
+        {/* Hover-only play button — translates up + fades + scales in.
+            Strong-ease-out curve (0.23, 1, 0.32, 1) matches the rest of
+            the app's entries (sk-page-enter, sk-stagger-item). */}
         <span
           aria-hidden
-          className="pointer-events-none absolute bottom-3 right-3 flex h-11 w-11 translate-y-1 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] opacity-0 shadow-[0_6px_14px_rgba(17,16,9,0.32)] transition-[opacity,transform] duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100"
+          className="pointer-events-none absolute bottom-3 right-3 flex h-11 w-11 translate-y-1.5 scale-90 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] opacity-0 shadow-[0_6px_14px_rgba(17,16,9,0.32)] group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100"
+          style={{
+            transition:
+              "opacity 180ms cubic-bezier(0.23, 1, 0.32, 1), transform 220ms cubic-bezier(0.23, 1, 0.32, 1)",
+          }}
         >
           <Play size={16} strokeWidth={2.6} fill="currentColor" />
         </span>
@@ -629,11 +640,13 @@ function ProjectsTable({ projects }: { projects: ProjectAggregate[] }) {
           <li key={p.id}>
             <Link
               href={`/dashboard/music/project/${p.id}`}
-              className="grid items-center gap-3 px-4 py-2.5 transition hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:bg-[rgb(var(--bg-overlay))]"
+              className="grid items-center gap-3 px-4 py-2.5 hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:bg-[rgb(var(--bg-overlay))] active:bg-[rgb(var(--bg-overlay))] active:scale-[0.992]"
               style={{
                 gridTemplateColumns:
                   "44px minmax(0,2.2fr) minmax(0,1.4fr) 90px 70px 80px 70px",
                 borderBottom: "1px solid rgb(var(--border-subtle))",
+                transition:
+                  "background-color 140ms ease-out, transform 100ms cubic-bezier(0.4,0,0.2,1)",
               }}
             >
               <ProjectCover
@@ -682,22 +695,30 @@ function ProjectsTable({ projects }: { projects: ProjectAggregate[] }) {
 }
 
 function SongsGrid({ songs }: { songs: MusicLibraryRow[] }) {
+  const nowPlaying = useNowPlaying();
   return (
     <ul
       role="list"
       className="grid gap-[22px]"
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(196px, 1fr))" }}
     >
-      {songs.map((s) => (
-        <li key={s.id}>
-          <SongCard song={s} />
+      {songs.map((s, i) => (
+        <li
+          key={s.id}
+          className="sk-stagger-item"
+          style={{ "--i": String(i) } as React.CSSProperties}
+        >
+          <SongCard
+            song={s}
+            isPlaying={nowPlaying.trackId === s.id && nowPlaying.playing}
+          />
         </li>
       ))}
     </ul>
   );
 }
 
-function SongCard({ song }: { song: MusicLibraryRow }) {
+function SongCard({ song, isPlaying }: { song: MusicLibraryRow; isPlaying: boolean }) {
   const gradient = gradientForSeed(song.projectId);
   const subtitle = [song.projectTitle, song.clientName ?? song.trackArtist]
     .filter(Boolean)
@@ -705,9 +726,12 @@ function SongCard({ song }: { song: MusicLibraryRow }) {
   return (
     <Link
       href={`/dashboard/music/${song.id}`}
-      className="group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
+      className="sk-lift group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
     >
-      <div className="relative" style={{ aspectRatio: "1.3 / 1" }}>
+      <div
+        className="relative"
+        style={{ aspectRatio: "1.3 / 1", willChange: "transform" }}
+      >
         <ProjectCover
           seed={song.id}
           gradient={gradient}
@@ -718,18 +742,33 @@ function SongCard({ song }: { song: MusicLibraryRow }) {
           shadow="hero"
           className="absolute inset-0"
         />
-        {/* Version chip top-right */}
-        <span
-          className="absolute right-2.5 top-2.5 rounded-[4px] bg-black/35 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-sm"
-        >
-          {song.label}
-        </span>
-        {/* Hover play */}
+        {/* Favorite star top-left, on a dimmed bg per design.md */}
         <span
           aria-hidden
-          className="pointer-events-none absolute bottom-3 left-3 flex h-8 w-8 translate-y-1 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] opacity-0 shadow-[0_6px_14px_rgba(17,16,9,0.32)] transition-[opacity,transform] duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100"
+          className="absolute left-2.5 top-2.5 inline-flex h-[22px] w-[24px] items-center justify-center rounded-[4px] bg-black/28 text-white"
+        >
+          <Star size={11} strokeWidth={1.8} />
+        </span>
+        {/* Version chip top-right */}
+        <span className="absolute right-2.5 top-2.5 rounded-[4px] bg-black/35 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
+          {song.label}
+        </span>
+        {/* Bottom-left: 32px white play circle. Visible always per
+            design.md; brightens slightly on card hover for tactility. */}
+        <span
+          aria-hidden
+          className="sk-trans absolute bottom-3 left-3 flex h-8 w-8 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_6px_14px_rgba(17,16,9,0.28)] group-hover:scale-105"
         >
           <Play size={13} strokeWidth={2.6} fill="currentColor" />
+        </span>
+        {/* Bottom-right: 18px mini-waveform peek. Plays through when this
+            track is current (the last bar oscillates via EqBars). */}
+        <span
+          aria-hidden
+          className="absolute bottom-3 right-3 inline-flex h-[18px] w-[18px] items-center justify-center text-white"
+          style={{ opacity: 0.6 }}
+        >
+          <EqBars playing={isPlaying} size={13} />
         </span>
       </div>
       <div className="min-w-0">
@@ -809,12 +848,13 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
             <li key={s.id}>
               <div
                 className={[
-                  "group grid items-center gap-3 px-4 py-2 transition hover:bg-[rgb(var(--bg-overlay))]",
+                  "group grid items-center gap-3 px-4 py-2 hover:bg-[rgb(var(--bg-overlay))]",
                   isCurrent ? "bg-[rgb(var(--brand-primary)/0.055)]" : "",
                 ].join(" ")}
                 style={{
                   gridTemplateColumns: cols,
                   borderBottom: "1px solid rgb(var(--border-subtle))",
+                  transition: "background-color 140ms ease-out",
                 }}
               >
                 {/* Index → play button on hover / current. Both sit in
@@ -829,9 +869,9 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                     }}
                     disabled={!s.audioUrl}
                     className={[
-                      "inline-flex h-7 w-7 items-center justify-center rounded-full transition disabled:opacity-40",
+                      "sk-press inline-flex h-7 w-7 items-center justify-center rounded-full sk-trans disabled:opacity-40",
                       isCurrent
-                        ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
+                        ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.25)]"
                         : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100",
                     ].join(" ")}
                   >
@@ -904,7 +944,7 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                   <button
                     type="button"
                     aria-label="More actions"
-                    className="rounded-full p-1 text-[rgb(var(--fg-muted))] transition hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
+                    className="sk-press sk-trans rounded-full p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
                   >
                     <MoreHorizontal size={14} />
                   </button>
@@ -932,7 +972,7 @@ function FavoriteButton({ trackId }: { trackId: string }) {
       onClick={() => {
         setOn((v) => !v);
       }}
-      className="rounded-full p-1 text-[rgb(var(--fg-muted))] transition hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
+      className="sk-press sk-trans rounded-full p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
     >
       <Star
         size={13}

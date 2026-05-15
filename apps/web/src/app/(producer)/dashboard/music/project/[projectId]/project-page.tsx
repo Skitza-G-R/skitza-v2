@@ -167,12 +167,12 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
           }}
         >
           {/* Top row: back button + eyebrow + ellipsis */}
-          <div className="mb-6 flex items-center justify-between gap-3 text-white">
+          <div className="reveal-up mb-6 flex items-center justify-between gap-3 text-white">
             <div className="flex items-center gap-3">
               <Link
                 href="/dashboard/music"
                 aria-label="Back to Library"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 backdrop-blur-sm transition hover:bg-white/22"
+                className="sk-press sk-trans inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 backdrop-blur-sm hover:bg-white/22"
               >
                 <ChevronLeft size={14} strokeWidth={2.4} />
               </Link>
@@ -189,26 +189,30 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
             <button
               type="button"
               aria-label="More actions"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white backdrop-blur-sm transition hover:bg-white/22"
+              className="sk-press sk-trans inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white backdrop-blur-sm hover:bg-white/22"
             >
               <MoreHorizontal size={14} />
             </button>
           </div>
 
           {/* Cover + meta — flex row, ends at bottom so the title baseline
-              aligns with the cover's bottom edge. Wraps on narrow screens. */}
+              aligns with the cover's bottom edge. Wraps on narrow screens.
+              Hero elements reveal in a 4-step cascade so the page assembles
+              visually rather than appearing as a single block. */}
           <div className="flex flex-wrap items-end gap-8 pb-1.5">
-            <ProjectCover
-              seed={data.project.id}
-              gradient={gradient}
-              kind={kind}
-              shadow="hero"
-              radius="18px"
-              className="h-[232px] w-[232px] shrink-0 sm:h-[232px] sm:w-[232px]"
-            />
+            <div className="reveal-up reveal-up-delay-1">
+              <ProjectCover
+                seed={data.project.id}
+                gradient={gradient}
+                kind={kind}
+                shadow="hero"
+                radius="18px"
+                className="h-[232px] w-[232px] shrink-0"
+              />
+            </div>
             <div className="min-w-0 flex-1">
               <span
-                className="font-mono text-[10.5px] font-bold uppercase"
+                className="reveal-up reveal-up-delay-2 inline-block font-mono text-[10.5px] font-bold uppercase"
                 style={{
                   letterSpacing: "0.1em",
                   color: "rgba(255,255,255,0.78)",
@@ -217,7 +221,7 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
                 {kind}
               </span>
               <h1
-                className="mt-3 font-display font-extrabold text-white"
+                className="reveal-up reveal-up-delay-2 mt-3 font-display font-extrabold text-white"
                 style={{
                   fontSize: "clamp(40px, 6.4vw, 76px)",
                   lineHeight: 0.96,
@@ -229,7 +233,7 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
                 {data.project.title}
               </h1>
               <p
-                className="mt-4 text-[13px]"
+                className="reveal-up reveal-up-delay-3 mt-4 text-[13px]"
                 style={{ color: "rgba(255,255,255,0.92)" }}
               >
                 {artistLabel} · {String(data.tracks.length)} track
@@ -242,12 +246,15 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
           </div>
 
           {/* Action row */}
-          <div className="mt-6 flex flex-wrap items-center gap-3.5">
+          <div className="reveal-up reveal-up-delay-4 mt-6 flex flex-wrap items-center gap-3.5">
             <button
               type="button"
               aria-label={projectIsPlaying ? "Pause project" : "Play project"}
               onClick={handlePlayProject}
-              className="inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-[0_8px_22px_rgba(17,16,9,0.28)] transition active:scale-95"
+              className={[
+                "sk-press inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-[0_8px_22px_rgba(17,16,9,0.28)]",
+                projectIsPlaying ? "skitza-playing-glow" : "",
+              ].join(" ")}
             >
               {projectIsPlaying ? (
                 <EqBars playing size={20} />
@@ -343,10 +350,10 @@ function CircleIconButton({
       aria-label={ariaLabel}
       onClick={onClick}
       className={[
-        "inline-flex h-10 w-10 items-center justify-center rounded-full transition active:scale-95",
+        "sk-press sk-trans inline-flex h-10 w-10 items-center justify-center rounded-full",
         active
           ? "bg-white text-[rgb(17_16_9)]"
-          : "bg-transparent text-white",
+          : "bg-transparent text-white hover:bg-white/12",
       ].join(" ")}
       style={{ border: "1px solid rgba(255,255,255,0.92)" }}
     >
@@ -393,10 +400,14 @@ function Tracklist({
           const isCurrent = nowPlayingId === t.id;
           const playingHere = isCurrent && isPlaying;
           return (
-            <li key={t.id}>
+            <li
+              key={t.id}
+              className="sk-stagger-item"
+              style={{ "--i": String(idx) } as React.CSSProperties}
+            >
               <div
                 className={[
-                  "group relative grid items-center gap-3 px-4 py-2.5 transition",
+                  "group relative grid items-center gap-3 px-4 py-2.5",
                   isCurrent
                     ? "bg-[rgb(var(--brand-primary)/0.06)]"
                     : "hover:bg-[rgb(var(--bg-overlay))]",
@@ -404,6 +415,7 @@ function Tracklist({
                 style={{
                   gridTemplateColumns: cols,
                   borderRadius: 12,
+                  transition: "background-color 140ms ease-out",
                 }}
               >
                 {/* Index → play swap */}
@@ -416,9 +428,9 @@ function Tracklist({
                     }}
                     disabled={!t.audioUrl}
                     className={[
-                      "inline-flex h-[26px] w-[26px] items-center justify-center rounded-full transition disabled:opacity-40",
+                      "sk-press sk-trans inline-flex h-[26px] w-[26px] items-center justify-center rounded-full disabled:opacity-40",
                       isCurrent
-                        ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
+                        ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.25)]"
                         : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100",
                     ].join(" ")}
                   >

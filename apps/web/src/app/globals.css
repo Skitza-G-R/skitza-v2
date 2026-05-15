@@ -439,6 +439,28 @@
     50%      { box-shadow: 0 0 0 8px rgb(var(--brand-primary) / 0); }
   }
 
+  /* Now-playing glow — gentle continuous breathing on the project hero
+     play button when audio in the current project is playing. The base
+     drop-shadow stays static; only the brand-amber halo around the
+     button fades in and out. ease-in-out is intentional here — the
+     animation is decorative/ambient, not a UI response, so the
+     symmetric curve reads as alive rather than reacting. */
+  @keyframes skitza-now-playing-glow {
+    0%, 100% {
+      box-shadow:
+        0 0 0 0 rgb(var(--brand-primary) / 0.40),
+        0 8px 22px rgba(17, 16, 9, 0.28);
+    }
+    50% {
+      box-shadow:
+        0 0 0 6px rgb(var(--brand-primary) / 0.05),
+        0 8px 22px rgba(17, 16, 9, 0.28);
+    }
+  }
+  .skitza-playing-glow {
+    animation: skitza-now-playing-glow 2.4s ease-in-out infinite;
+  }
+
   /* ----------------------------------------------------------------
    * Reveal + entrance utilities
    * ---------------------------------------------------------------- */
@@ -1098,6 +1120,14 @@
     .sk-page-enter { animation: none !important; }
     .sk-stagger-item { animation: none !important; opacity: 1 !important; }
     .sk-trend-line { animation: none !important; stroke-dashoffset: 0 !important; }
+    /* Now-playing breathing glow — no-op for motion-sensitive users.
+       Keep the base shadow so the button still reads as elevated. */
+    .skitza-playing-glow { animation: none !important; box-shadow: 0 8px 22px rgba(17, 16, 9, 0.28) !important; }
+    .reveal-up,
+    .reveal-up-delay-1,
+    .reveal-up-delay-2,
+    .reveal-up-delay-3,
+    .reveal-up-delay-4 { animation: none !important; opacity: 1 !important; }
   }
 }
 
