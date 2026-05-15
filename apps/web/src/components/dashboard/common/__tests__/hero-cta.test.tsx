@@ -56,4 +56,21 @@ describe("HeroCTA", () => {
   it("forbids non-existent --brand-primary-on token", () => {
     expect(SRC).not.toContain("--brand-primary-on");
   });
+
+  it("accepts an optional disabled prop on HeroCTAProps", () => {
+    expect(SRC).toMatch(/disabled\?:\s*boolean/);
+  });
+
+  it("wires the disabled prop onto the <button> element", () => {
+    // Either a literal `disabled` attribute or pass-through via {disabled}
+    expect(SRC).toMatch(/disabled=\{disabled\}|<button[^>]*\bdisabled\b/);
+  });
+
+  it("renders a 'Coming soon' title hint when disabled is set", () => {
+    expect(SRC).toContain("Coming soon");
+  });
+
+  it("applies disabled:opacity-50 to visually mute the button", () => {
+    expect(SRC).toContain("disabled:opacity-50");
+  });
 });

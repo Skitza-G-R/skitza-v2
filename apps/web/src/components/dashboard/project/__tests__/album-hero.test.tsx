@@ -94,4 +94,12 @@ describe("AlbumHero — dark gradient band for the album page", () => {
   it("forbids --brand-primary-on", () => {
     expect(SRC).not.toContain("--brand-primary-on");
   });
+
+  it("renders hero CTAs as disabled when no handler is wired (no silent no-op)", () => {
+    // Both Play latest + Add song fall through to <HeroCTA ... disabled>
+    // when the parent doesn't pass a handler. We assert the disabled prop
+    // is propagated on the no-handler branch of each ternary.
+    expect(SRC).toMatch(/HeroCTA[^>]*variant=["']play["'][^>]*disabled/);
+    expect(SRC).toMatch(/HeroCTA[^>]*variant=["']upload["'][^>]*disabled/);
+  });
 });

@@ -123,14 +123,18 @@ export function AlbumHero({
               Play latest
             </HeroCTA>
           ) : (
-            <HeroCTA variant="play">Play latest</HeroCTA>
+            <HeroCTA variant="play" disabled>
+              Play latest
+            </HeroCTA>
           )}
           {onAddSong ? (
             <HeroCTA variant="upload" onClick={onAddSong}>
               Add song
             </HeroCTA>
           ) : (
-            <HeroCTA variant="upload">Add song</HeroCTA>
+            <HeroCTA variant="upload" disabled>
+              Add song
+            </HeroCTA>
           )}
         </div>
       </div>
