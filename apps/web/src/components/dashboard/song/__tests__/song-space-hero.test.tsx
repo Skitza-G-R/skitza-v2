@@ -68,10 +68,15 @@ describe("SongSpaceHero — dark hero band for the Song Space", () => {
     expect(SRC).toContain("song.durationMs");
   });
 
-  it("forces the Upload HeroCTA to be disabled in Phase 3 (Phase 4 wires it)", () => {
-    // Either an always-disabled HeroCTA, or a HeroCTA with the prop set
-    // unconditionally on the upload variant.
-    expect(SRC).toMatch(/HeroCTA[^>]*variant=["']upload["'][^>]*disabled/);
+  it("wires the Upload HeroCTA to onUploadNewVersion (Phase 4) with a disabled fallback", () => {
+    // Branch on onUploadNewVersion: live → onClick; missing → disabled.
+    expect(SRC).toMatch(/onUploadNewVersion\?:/);
+    expect(SRC).toMatch(
+      /HeroCTA[\s\S]*?variant=["']upload["'][\s\S]*?onClick=\{onUploadNewVersion\}/,
+    );
+    expect(SRC).toMatch(
+      /HeroCTA[\s\S]*?variant=["']upload["'][\s\S]*?disabled/,
+    );
   });
 
   it("places the dark hero background via inline style with heroBg(token)", () => {

@@ -22,9 +22,9 @@ import { formatDuration } from "~/lib/format/duration";
 // 1 track (the Single-Space rule — see [id]/page.tsx redirect). The
 // gradient + dark hero treatment is identical between modes.
 //
-// Phase 3: the Play-latest HeroCTA wires its onPlayLatest callback;
-// the Upload HeroCTA is ALWAYS disabled (Phase 4 ships the upload
-// modal). We render both so the visual rhythm is locked in.
+// Phase 4: BOTH HeroCTAs now wire. Play-latest fires playerPlay via
+// the parent's `onPlayLatest`. Upload new version fires the parent's
+// `onUploadNewVersion`, which opens the shared UploadTrackModal.
 
 interface SongSpaceHeroSong {
   title: string;
@@ -50,6 +50,8 @@ interface SongSpaceHeroProps {
   gradientToken: GradientToken;
   /** Phase 3 — calls playerPlay with the latest version. Disabled when undefined. */
   onPlayLatest?: () => void;
+  /** Phase 4 — opens the UploadTrackModal (mode="new-version"). Disabled when undefined. */
+  onUploadNewVersion?: () => void;
 }
 
 export function SongSpaceHero({
@@ -59,6 +61,7 @@ export function SongSpaceHero({
   client,
   gradientToken,
   onPlayLatest,
+  onUploadNewVersion,
 }: SongSpaceHeroProps) {
   const stageEyebrow = stageLabel(song.workflowStage).toUpperCase();
   const modeEyebrow = mode === "single" ? "SINGLE" : "SONG";
@@ -120,13 +123,19 @@ export function SongSpaceHero({
               Play latest
             </HeroCTA>
           )}
-          {/* Upload is ALWAYS disabled in Phase 3 — Phase 4 wires the
-              Upload Track modal. We render the pill so the hero's
-              right-side action group has the same visual weight as
-              the AlbumHero. */}
-          <HeroCTA variant="upload" disabled>
-            Upload new version
-          </HeroCTA>
+          {/* Phase 4 — wires the Upload Track modal. If the parent
+              doesn't pass onUploadNewVersion (rare; usually means the
+              modal isn't mountable for some reason) we fall back to
+              a disabled pill so the hero still composes. */}
+          {onUploadNewVersion ? (
+            <HeroCTA variant="upload" onClick={onUploadNewVersion}>
+              Upload new version
+            </HeroCTA>
+          ) : (
+            <HeroCTA variant="upload" disabled>
+              Upload new version
+            </HeroCTA>
+          )}
         </div>
       </div>
     </section>

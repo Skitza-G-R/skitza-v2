@@ -52,6 +52,23 @@ describe("SongSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toMatch(/SongTabs[^>]*mode/);
   });
 
+  it("owns the UploadTrackModal state for both hero + drop-zone triggers (Phase 4)", () => {
+    expect(SRC).toContain("UploadTrackModal");
+    expect(SRC).toMatch(/uploadOpen/);
+    // Locked mode + trackId so the song picker can't change songs.
+    expect(SRC).toMatch(/mode=["']new-version["']/);
+    expect(SRC).toMatch(/trackId=\{song\.id\}/);
+  });
+
+  it("threads openUpload into both SongSpaceHero.onUploadNewVersion and VersionsTab.onAddVersion", () => {
+    expect(SRC).toMatch(/onUploadNewVersion=\{openUpload\}/);
+    expect(SRC).toMatch(/onAddVersion=\{openUpload\}/);
+  });
+
+  it("derives the default version label from song.revisionCount + 1", () => {
+    expect(SRC).toMatch(/song\.revisionCount\s*\+\s*1/);
+  });
+
   it("forbids --surface-card", () => {
     expect(SRC).not.toContain("--surface-card");
   });

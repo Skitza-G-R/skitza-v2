@@ -8,17 +8,24 @@ import {
 
 // VersionsTab — full version history for the Song Space (DESIGN.md
 // §4.4, BUILD-NOTES §5.4.2). First row is the slim AddVersionDropZone
-// — Phase 3 ships it disabled; Phase 4 wires the Upload Track modal.
-// Below the drop zone, every version is rendered as a VersionRow,
-// newest-first (the parent passes the list in display order).
+// (Phase 4 wires it to the parent's onAddVersion handler). Below the
+// drop zone, every version is rendered as a VersionRow, newest-first
+// (the parent passes the list in display order).
 
 interface VersionsTabProps {
   song: { title: string };
   project: { name: string };
   versions: VersionRowVersionData[];
+  /** Phase 4 — opens the UploadTrackModal from the parent SongSpace. */
+  onAddVersion?: () => void;
 }
 
-export function VersionsTab({ song, project, versions }: VersionsTabProps) {
+export function VersionsTab({
+  song,
+  project,
+  versions,
+  onAddVersion,
+}: VersionsTabProps) {
   return (
     <section
       role="tabpanel"
@@ -26,8 +33,9 @@ export function VersionsTab({ song, project, versions }: VersionsTabProps) {
       aria-labelledby="tab-versions"
       className="space-y-1.5"
     >
-      {/* Add-version drop zone — always rendered as the first row. */}
-      <AddVersionDropZone />
+      {/* Add-version drop zone — always rendered as the first row. The
+          parent's `onAddVersion` opens the UploadTrackModal (Phase 4). */}
+      <AddVersionDropZone {...(onAddVersion ? { onClick: onAddVersion } : {})} />
 
       {versions.length === 0 ? (
         <p

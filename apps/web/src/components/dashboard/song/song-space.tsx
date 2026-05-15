@@ -20,6 +20,7 @@ import {
   PaymentsTab,
   type PaymentMilestone,
 } from "./song-tabs/payments-tab";
+import { UploadTrackModal } from "./upload-track-modal";
 import type { VersionRowVersionData } from "./version-row";
 
 // SongSpace — top-level shell for the new Song Space (and Single
@@ -90,6 +91,17 @@ export function SongSpace({
   payments,
 }: SongSpaceProps) {
   const [active, setActive] = useState<SongTab>("overview");
+  // Phase 4: the Upload Track modal lives at the SongSpace level so both
+  // the SongSpaceHero CTA and the VersionsTab drop zone open the same
+  // instance. mode="new-version" + a locked trackId means the modal's
+  // song picker renders as plain text (no "+ New song" option).
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const openUpload = useCallback(() => {
+    setUploadOpen(true);
+  }, []);
+  const closeUpload = useCallback(() => {
+    setUploadOpen(false);
+  }, []);
 
   // Latest playable version — used by SongSpaceHero's Play-latest CTA.
   // We treat versions as newest-first (parent ordering).
@@ -110,6 +122,12 @@ export function SongSpace({
     });
   }, [latest, song.title, project.name]);
 
+  // Default label for the modal — auto-bumps to v{revisionCount+1}. The
+  // modal can also derive this from tracks[].versionCount, but we lock
+  // the SongSpace context to a single song, so passing it explicitly
+  // skips the dropdown-driven re-derivation.
+  const defaultLabel = `v${String(song.revisionCount + 1)}`;
+
   return (
     <div className="space-y-6">
       <SongSpaceHero
@@ -119,6 +137,7 @@ export function SongSpace({
         client={client}
         gradientToken={gradientToken}
         {...(hasPlayable ? { onPlayLatest: handlePlayLatest } : {})}
+        onUploadNewVersion={openUpload}
       />
 
       <SongSpaceStatStrip
@@ -154,6 +173,7 @@ export function SongSpace({
           song={{ title: song.title }}
           project={{ name: project.name }}
           versions={versions}
+          onAddVersion={openUpload}
         />
       ) : null}
       {active === "sessions" ? <SessionsTab sessions={sessions} /> : null}
@@ -166,6 +186,20 @@ export function SongSpace({
           milestones={payments.milestones}
         />
       ) : null}
+
+      {/* Phase 4: shared Upload Track modal — fired from SongSpaceHero's
+          "Upload new version" CTA AND from the VersionsTab drop zone.
+          The song picker is locked (mode="new-version" + trackId), so
+          the producer can't accidentally upload into a different track. */}
+      <UploadTrackModal
+        open={uploadOpen}
+        onClose={closeUpload}
+        projectId={project.id}
+        mode="new-version"
+        trackId={song.id}
+        defaultLabel={defaultLabel}
+        tracks={[{ id: song.id, title: song.title, versionCount: versions.length }]}
+      />
     </div>
   );
 }
