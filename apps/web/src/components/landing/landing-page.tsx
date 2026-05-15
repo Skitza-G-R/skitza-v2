@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { LogoMark } from "~/components/brand/logo-mark";
 import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
 
 // =============================================================================
@@ -81,17 +82,40 @@ function Wordmark({ size = 22, inverse = false }: { size?: number; inverse?: boo
       className="font-syne inline-flex items-baseline gap-px font-extrabold leading-none"
       style={{
         fontSize: size,
-        letterSpacing: "-0.04em",
+        letterSpacing: "-0.03em",
         color: inverse ? "#F2EDE6" : "rgb(var(--fg-default))",
       }}
     >
-      Skitza
+      skitza
       <span
         className="inline-block transition-transform duration-300 group-hover:translate-y-[-2px] group-hover:rotate-12 group-hover:scale-125"
         style={{ color: "rgb(var(--brand-primary))" }}
       >
         .
       </span>
+    </span>
+  );
+}
+
+// Landing-page brand lockup — LogoMark + lowercase Wordmark.
+// `markSize` controls the amber square; the wordmark size is passed
+// through so each surface (navbar 22, footer 16, demo 14) keeps its
+// own typographic scale. Wrapped in a flex container so the parent
+// link/group still drives the dot's hover transform.
+function LogoLockup({
+  markSize,
+  wordmarkSize,
+  inverse = true,
+}: {
+  markSize: number;
+  wordmarkSize: number;
+  inverse?: boolean;
+}) {
+  const gap = Math.max(6, Math.round(markSize / 3));
+  return (
+    <span className="inline-flex items-center" style={{ gap }}>
+      <LogoMark size={markSize} />
+      <Wordmark size={wordmarkSize} inverse={inverse} />
     </span>
   );
 }
@@ -329,7 +353,7 @@ function Nav({
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5 sm:px-8">
         <div className="flex items-center gap-4 sm:gap-9">
           <Link href="/" className="group inline-flex items-center" aria-label="Skitza home">
-            <Wordmark size={22} inverse />
+            <LogoLockup markSize={30} wordmarkSize={22} />
           </Link>
           <span
             className="font-mono hidden sm:inline text-[11px]"
@@ -644,8 +668,8 @@ function HeroProductPeek() {
               padding: "14px 10px",
             }}
           >
-            <div className="flex items-center gap-2 px-1.5 pb-3 pt-1">
-              <Wordmark size={14} inverse />
+            <div className="flex items-center px-1.5 pb-3 pt-1">
+              <LogoLockup markSize={18} wordmarkSize={14} />
             </div>
             {(
               [
@@ -932,7 +956,7 @@ function StackReplace() {
           Forty-seven emails per session.
         </h2>
 
-        <div className="mx-auto mt-14 grid max-w-4xl items-center gap-8 md:grid-cols-2">
+        <div className="mx-auto mt-14 grid max-w-4xl gap-8 md:grid-cols-2 md:items-stretch">
           {/* Without */}
           <div
             className="sk-reveal-left sk-d-2 relative rounded-2xl border p-6"
@@ -989,38 +1013,41 @@ function StackReplace() {
             </div>
           </div>
 
-          {/* With */}
-          <div
-            className="sk-reveal-right sk-d-3 relative overflow-hidden rounded-2xl p-6 text-white"
-            style={{ background: "#111009" }}
-          >
-            <div className="animate-shine" />
+          {/* With — outer relative wrapper hosts the pill outside the
+              inner card's overflow-hidden region (the shine animation
+              needs clipping, but the pill needs to bleed above the top
+              edge — same -top-2.5 offset as the Without card).
+              h-full + flex-col on the inner card lets the middle
+              content grow to match the Without card's height, while
+              keeping the "1 link · 1 fee · 1 inbox" footer pinned to
+              the bottom edge. */}
+          <div className="sk-reveal-right sk-d-3 relative h-full">
             <div
-              className="absolute left-6 -top-2.5 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+              className="absolute left-6 -top-2.5 z-10 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
               style={{ background: "rgb(var(--brand-primary))", color: "#111009" }}
             >
               With Skitza
             </div>
             <div
-              className="relative flex flex-col items-center justify-center gap-3"
-              style={{ minHeight: 144 }}
+              className="relative flex h-full flex-col overflow-hidden rounded-2xl p-6 text-white"
+              style={{ background: "#111009" }}
             >
-              <span className="font-syne flex items-baseline gap-px text-[56px] font-extrabold leading-none">
-                Skitza
-                <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
-              </span>
-              <div
-                className="font-mono text-center text-[12px]"
-                style={{ color: "rgb(255 255 255 / 0.6)" }}
-              >
-                skitza.app/join/<span style={{ color: "rgb(var(--brand-primary))" }}>gili</span>
+              <div className="animate-shine" />
+              <div className="relative flex flex-1 flex-col items-center justify-center gap-3">
+                <LogoLockup markSize={60} wordmarkSize={56} />
+                <div
+                  className="font-mono text-center text-[12px]"
+                  style={{ color: "rgb(255 255 255 / 0.6)" }}
+                >
+                  skitza.app/join/<span style={{ color: "rgb(var(--brand-primary))" }}>gili</span>
+                </div>
               </div>
-            </div>
-            <div
-              className="font-mono mt-3.5 text-center text-[11px]"
-              style={{ color: "rgb(255 255 255 / 0.7)" }}
-            >
-              1 link · 1 fee · 1 inbox
+              <div
+                className="font-mono mt-3.5 text-center text-[11px]"
+                style={{ color: "rgb(255 255 255 / 0.7)" }}
+              >
+                1 link · 1 fee · 1 inbox
+              </div>
             </div>
           </div>
         </div>
@@ -1912,7 +1939,7 @@ function LandingFooter() {
       }}
     >
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
-        <Wordmark size={16} inverse />
+        <LogoLockup markSize={24} wordmarkSize={16} />
         <span className="font-mono">© 2026 · Built for producers, by producers</span>
         <div className="flex gap-5">
           <Link href="/privacy" style={{ color: "inherit" }} className="hover:text-white">
