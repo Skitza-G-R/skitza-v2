@@ -727,38 +727,36 @@ function SongCard({ song, isPlaying }: { song: MusicLibraryRow; isPlaying: boole
       href={`/dashboard/music/${song.id}`}
       className="sk-lift group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
     >
-      <div
-        className="relative"
-        style={{ aspectRatio: "1.3 / 1", willChange: "transform" }}
-      >
+      {/* Wrapper sized by ProjectCover's own aspect-ratio. The cover sits
+          as a sibling of the overlay spans — all anchored to this
+          relative wrapper. No absolute/relative conflict on ProjectCover. */}
+      <div className="relative" style={{ willChange: "transform" }}>
         <ProjectCover
-          seed={song.id}
+          seed={song.projectId}
           gradient={gradient}
           kind={null}
           wordmark
           showKind={false}
           radius="12px"
           shadow="hero"
-          className="absolute inset-0"
+          className="aspect-[1.3/1] w-full"
         />
         {/* Version chip top-right */}
-        <span className="absolute right-2.5 top-2.5 rounded-[4px] bg-black/35 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
+        <span className="absolute right-2.5 top-2.5 z-10 rounded-[4px] bg-black/35 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
           {song.label}
         </span>
-        {/* Bottom-left: 32px white play circle. Visible always per
-            design.md; brightens slightly on card hover for tactility. */}
+        {/* Bottom-left: 32px white play circle. */}
         <span
           aria-hidden
-          className="sk-trans absolute bottom-3 left-3 flex h-8 w-8 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_6px_14px_rgba(17,16,9,0.28)] group-hover:scale-105"
+          className="sk-trans absolute bottom-3 left-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_6px_14px_rgba(17,16,9,0.28)] group-hover:scale-105"
         >
           <Play size={13} strokeWidth={2.6} fill="currentColor" />
         </span>
-        {/* Bottom-right: 18px mini-waveform peek. Plays through when this
-            track is current (the last bar oscillates via EqBars). */}
+        {/* Bottom-right: mini-waveform peek; oscillates when current. */}
         <span
           aria-hidden
-          className="absolute bottom-3 right-3 inline-flex h-[18px] w-[18px] items-center justify-center text-white"
-          style={{ opacity: 0.6 }}
+          className="absolute bottom-3 right-3 z-10 inline-flex h-[18px] w-[18px] items-center justify-center text-white"
+          style={{ opacity: 0.78 }}
         >
           <EqBars playing={isPlaying} size={13} />
         </span>

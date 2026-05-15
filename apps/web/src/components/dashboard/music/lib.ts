@@ -55,6 +55,21 @@ export const GRADIENT_BASE_COLOR: Record<GradientClass, string> = {
   "grad-indigo": "#a5b4fc",
 };
 
+/** Layered ambient shadow for cover artwork — three stacked shadows
+ *  give depth without the harsh single-layer "drop" look. Used for
+ *  hero covers (project page) and card covers (library grids).
+ *
+ *  Reference: Apple Music album hero, Spotify "now playing" hero.
+ *  The micro shadow (1px blur) defines the edge; the soft layer
+ *  (8px blur) gives it weight; the ambient layer (32px blur) lifts
+ *  it off the background.
+ */
+export const COVER_SHADOW_HERO =
+  "0 1px 2px rgba(17,16,9,0.08), 0 4px 14px rgba(17,16,9,0.10), 0 18px 40px -12px rgba(17,16,9,0.22)";
+
+export const COVER_SHADOW_CARD =
+  "0 1px 2px rgba(17,16,9,0.06), 0 2px 8px rgba(17,16,9,0.06), 0 10px 24px -8px rgba(17,16,9,0.14)";
+
 /** Deterministic 32-bit FNV-1a hash. Spreads well, no deps. */
 export function hashString(s: string): number {
   let h = 0x811c9dc5;

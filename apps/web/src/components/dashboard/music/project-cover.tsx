@@ -1,4 +1,6 @@
 import {
+  COVER_SHADOW_CARD,
+  COVER_SHADOW_HERO,
   GRADIENT_BASE_COLOR,
   GRADIENT_CSS,
   hashString,
@@ -11,16 +13,13 @@ import {
 // with a generative SVG ring pattern, optional Kind badge, and a
 // Skitza wordmark.
 //
-// Defensive rendering:
-//   - background is split into backgroundColor + backgroundImage (NOT
-//     the `background` shorthand) so the solid base color renders even
-//     if the linear-gradient parser ever chokes
-//   - SVG rings paint with a plain white stroke at 0.32 opacity rather
-//     than relying on mix-blend-mode (overlay needs a backdrop to
-//     compose against; without one, the rings were invisible)
-//   - the wrapper is `position: relative` so the caller's wrapping div
-//     positions the cover; child overlays (rings, badge, wordmark) are
-//     all absolute within it
+// API: ProjectCover ALWAYS renders as `position: relative` and sizes
+// itself via the className the caller passes (e.g. `aspect-square`,
+// `h-[232px] w-[232px]`, `h-9 w-9`). Callers MUST pass dimensions.
+// To position the cover absolutely inside another container, wrap it
+// in your own absolute-inset-0 div — never pass conflicting position
+// classes (Tailwind utility-class collisions silently break the
+// gradient render in some build paths).
 
 export interface ProjectCoverProps {
   seed: string;
@@ -34,8 +33,10 @@ export interface ProjectCoverProps {
   /** Optional rounded-corner override. Default `var(--radius-md)` (12). */
   radius?: string;
   /** Optional shadow override. Default a card-lift; pass `hero` for the
-   *  large hero shadow specified in design.md. */
+   *  hero ambient stack specified in lib.ts. */
   shadow?: "card" | "hero" | "none";
+  /** Sizing classes: aspect-square, h-[232px] w-[232px], etc. The caller
+   *  is responsible for giving the cover dimensions. */
   className?: string;
 }
 
@@ -49,22 +50,11 @@ export function ProjectCover({
   shadow = "card",
   className,
 }: ProjectCoverProps) {
-  const hash = hashString(seed);
-  // Five concentric circles, offsets derived from hash bit-fields per
-  // the design.md spec. Stable per seed so the same project always
-  // renders the same artwork.
-  const circles = Array.from({ length: 5 }, (_, i) => {
-    const cx = 20 + ((hash >> (i * 3)) & 7) * 4;
-    const cy = 50 + ((hash >> (i * 4)) & 7) * 2 - 14;
-    const r = 26 - i * 4;
-    return { cx, cy, r };
-  });
-
   const shadowStyle =
     shadow === "hero"
-      ? "0 16px 38px rgba(17,16,9,0.28)"
+      ? COVER_SHADOW_HERO
       : shadow === "card"
-        ? "0 6px 20px rgba(17,16,9,0.08)"
+        ? COVER_SHADOW_CARD
         : "none";
 
   return (
@@ -78,10 +68,41 @@ export function ProjectCover({
         boxShadow: shadowStyle,
       }}
     >
-      {/* Generative SVG ring pattern. Plain white strokes at low
-          opacity — no mix-blend so it always renders, regardless of
-          backdrop composition. preserveAspectRatio="none" stretches
-          the pattern to fill non-square covers cleanly. */}
+      <CoverPattern seed={seed} kind={kind} wordmark={wordmark} showKind={showKind} />
+    </div>
+  );
+}
+
+/** Internal: the visual ornaments that sit ON TOP of the gradient.
+ *  Exported so callers who paint the gradient themselves (because they
+ *  need full control of the wrapper) can compose the same ornaments.
+ *  Always renders as a `pointer-events: none` overlay filling its
+ *  positioned parent. */
+export function CoverPattern({
+  seed,
+  kind,
+  wordmark = true,
+  showKind = true,
+}: {
+  seed: string;
+  kind?: ProjectKind | null | undefined;
+  wordmark?: boolean;
+  showKind?: boolean;
+}) {
+  const hash = hashString(seed);
+  // Five concentric circles with offsets derived from the seed hash.
+  const circles = Array.from({ length: 5 }, (_, i) => {
+    const cx = 20 + ((hash >> (i * 3)) & 7) * 4;
+    const cy = 50 + ((hash >> (i * 4)) & 7) * 2 - 14;
+    const r = 26 - i * 4;
+    return { cx, cy, r };
+  });
+
+  return (
+    <>
+      {/* Generative SVG ring pattern. Plain white strokes — no
+          mix-blend so they always render. preserveAspectRatio="none"
+          stretches the pattern to non-square covers. */}
       <svg
         viewBox="0 0 64 64"
         preserveAspectRatio="none"
@@ -95,8 +116,8 @@ export function ProjectCover({
             cy={c.cy}
             r={c.r}
             fill="none"
-            stroke="rgba(255,255,255,0.32)"
-            strokeWidth="0.5"
+            stroke="rgba(255,255,255,0.45)"
+            strokeWidth="0.6"
             vectorEffect="non-scaling-stroke"
           />
         ))}
@@ -108,11 +129,22 @@ export function ProjectCover({
         className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            "radial-gradient(120% 80% at 28% 22%, rgba(255,255,255,0.28), transparent 60%)",
+            "radial-gradient(120% 80% at 28% 22%, rgba(255,255,255,0.32), transparent 60%)",
         }}
       />
 
-      {/* Kind badge */}
+      {/* Inner edge — subtle 1px white bevel + outer dark bottom edge,
+          gives the cover the "printed sleeve" feel. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          boxShadow:
+            "inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(17,16,9,0.10)",
+          borderRadius: "inherit",
+        }}
+      />
+
       {showKind && kind ? (
         <span
           className="absolute bottom-2.5 left-2.5 font-display text-[13px] font-extrabold leading-none text-white drop-shadow-[0_1px_2px_rgba(17,16,9,0.32)]"
@@ -122,7 +154,6 @@ export function ProjectCover({
         </span>
       ) : null}
 
-      {/* Wordmark */}
       {wordmark ? (
         <span
           className="absolute bottom-2.5 right-2.5 font-display text-[12px] font-extrabold leading-none drop-shadow-[0_1px_2px_rgba(17,16,9,0.22)]"
@@ -132,6 +163,6 @@ export function ProjectCover({
           <span style={{ color: "rgb(212 150 10)" }}>.</span>
         </span>
       ) : null}
-    </div>
+    </>
   );
 }
