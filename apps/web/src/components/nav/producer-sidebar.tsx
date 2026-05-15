@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { UserButton } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 
 import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
-import { LanguageSwitcher } from "~/components/shell/language-switcher";
+// LanguageSwitcher intentionally NOT imported in the rail — Skitza is
+// EN-only at v1 per CLAUDE.md §"Language". Re-add when he.json is
+// populated. (Removed 2026-05-15 — sidebar polish PR.)
 import { NotificationBell } from "~/components/shell/notification-bell";
 import { SidebarShareChip } from "~/components/shell/sidebar-share-chip";
 import { ThemeToggle } from "~/components/shell/theme-toggle";
@@ -36,9 +38,9 @@ import { Wordmark } from "./wordmark";
 //   - Collapse state + localStorage persistence + `[` shortcut event.
 //   - `getActiveKey(usePathname())` URL-derived active state.
 //   - i18n via `useTranslations("sidebar")`.
-//   - Notification bell, theme toggle, language switcher, share chip,
-//     and Clerk `<UserButton>` all mount in the bottom block — same
-//     widgets, dark-themed surrounds.
+//   - Notification bell, theme toggle, share chip, and Clerk
+//     `<UserButton>` mount in the bottom block. LanguageSwitcher
+//     was removed 2026-05-15 (EN-only at v1 — see import block).
 //
 // Functionality intentionally deferred to Phase 4 (per the Phase 2
 // brief): the in-rail search button reads ⌘K but is currently a
@@ -72,15 +74,30 @@ const STORAGE_KEY = "skitza-sidebar-collapsed";
 // G-leader shortcuts mirror the locked-design `ShortcutsHelp` panel
 // (notes/nav.jsx): G H = Overview, G P = Projects, G M = Music,
 // G C = Calendar, G S = Storefront, G T = Settings.
+//
+// Portfolio row removed 2026-05-15 — CLAUDE.md §"Producer platform — 6
+// pages" is the canonical surface count. The /dashboard/portfolio
+// route still exists and is reachable from inside the Store experience
+// (see storefront redesign Phase 3). Coordinate with @raz before
+// re-introducing Portfolio as a top-level rail entry.
 export const NAV_ITEMS: readonly NavItem[] = [
   { id: "today", label: "Overview", labelKey: "today", href: "/dashboard", icon: "home", shortcut: "G H" },
   { id: "clients-projects", label: "Clients & Projects", labelKey: "clients-projects", href: "/dashboard/clients-projects", icon: "users", shortcut: "G P" },
   { id: "music", label: "Music", labelKey: "music", href: "/dashboard/music", icon: "music", shortcut: "G M" },
   { id: "calendar", label: "Calendar", labelKey: "calendar", href: "/dashboard/calendar", icon: "calendar", shortcut: "G C" },
   { id: "profile", label: "Store", labelKey: "profile", href: "/dashboard/store", icon: "store", shortcut: "G S" },
-  { id: "portfolio", label: "Portfolio", labelKey: "portfolio", href: "/dashboard/portfolio", icon: "book", shortcut: "G B" },
   { id: "setup", label: "Settings", labelKey: "setup", href: "/dashboard/settings", icon: "settings", shortcut: "G T" },
 ] as const;
+
+// Visual grouping — section dividers render after these item ids.
+// Groups: [Overview] / [Clients & Projects, Music, Calendar] /
+// [Store] / [Settings]. Pure layout concern; doesn't change route
+// behaviour or active-state derivation.
+const SECTION_BOUNDARY_AFTER: ReadonlySet<ActiveKey> = new Set([
+  "today",
+  "calendar",
+  "profile",
+]);
 
 export function ProducerSidebar({
   producerSlug,
@@ -237,7 +254,13 @@ function SidebarBody({
         </button>
       </div>
 
-      {/* Nav rail */}
+      {/* Nav rail.
+          Unread-count is intentionally NOT mirrored onto the Overview
+          row — the bottom-cluster NotificationBell already owns that
+          number. Showing the same count in two places was confusing
+          (see sidebar polish PR, 2026-05-15). Per-route badges (e.g.
+          pending bookings on Calendar) can re-introduce `badgeCount`
+          via the NavItem prop when their data sources exist. */}
       <nav
         aria-label="Primary"
         data-tour-id="sidebar-nav"
@@ -245,26 +268,30 @@ function SidebarBody({
         style={{ padding: collapsed ? "4px 8px" : "4px 12px", gap: 2 }}
       >
         {NAV_ITEMS.map((item) => (
-          <NavItem
-            key={item.id}
-            item={item}
-            isActive={active === item.id}
-            collapsed={collapsed}
-            badgeCount={item.id === "today" ? unreadCount : 0}
-            label={t(item.labelKey)}
-          />
+          <Fragment key={item.id}>
+            <NavItem
+              item={item}
+              isActive={active === item.id}
+              collapsed={collapsed}
+              badgeCount={0}
+              label={t(item.labelKey)}
+            />
+            {SECTION_BOUNDARY_AFTER.has(item.id) && (
+              <SectionDivider collapsed={collapsed} />
+            )}
+          </Fragment>
         ))}
       </nav>
 
       {/* Bottom block — widgets cluster + Clerk UserButton.
-          Phase 2: the existing widgets (NotificationBell, ThemeToggle,
-          LanguageSwitcher, SidebarShareChip) stay mounted so producers
-          can still toggle theme + see notifications + share their
-          link. They were styled for the prior light-surface sidebar —
-          some visual mismatch is expected and intentional per the
-          Phase 2 brief ("Pages inside will visually mismatch the new
-          shells"). Phase 3 will redesign each widget to fit the dark
-          rail. */}
+          Phase 2: NotificationBell + ThemeToggle + SidebarShareChip
+          stay mounted so producers can still toggle theme + see
+          notifications + share their link. They were styled for the
+          prior light-surface sidebar — some visual mismatch is
+          expected and intentional per the Phase 2 brief ("Pages
+          inside will visually mismatch the new shells"). Phase 3
+          will redesign each widget to fit the dark rail.
+          LanguageSwitcher was removed 2026-05-15 (EN-only at v1). */}
       <div
         className="flex flex-col gap-2"
         style={{
@@ -285,7 +312,6 @@ function SidebarBody({
           <div className={`flex items-center ${collapsed ? "flex-col" : ""} gap-1`}>
             <ThemeToggle />
             <NotificationBell unreadCount={unreadCount} unreadItems={unreadItems} />
-            <LanguageSwitcher collapsed={collapsed} />
           </div>
           <UserButton
             appearance={{
@@ -315,21 +341,34 @@ function NavItem({
   label: string;
 }) {
   const badgeLabel = badgeCount > 99 ? "99+" : badgeCount.toString();
+  // Sidebar polish (2026-05-15):
+  //   - inactive text alpha 0.55 → 0.65 closes the likely WCAG AA gap
+  //     on 13.5px body text against #111009.
+  //   - active row background fill 0.06 → 0.10 lifts the "you are
+  //     here" cue out of the noise floor on bright displays — the
+  //     3px amber bar was carrying the whole signal.
+  //   - `group` class enables the right-aligned shortcut chip to
+  //     fade in on row hover/focus (see ShortcutChip below).
+  //   - collapsed-mode `title=` now includes the G-leader shortcut
+  //     so the rail teaches its own shortcuts without needing a
+  //     custom tooltip component.
   return (
     <Link
       href={item.href}
       data-tour-id={`nav-${item.id}`}
+      aria-label={collapsed ? label : undefined}
+      aria-keyshortcuts={item.shortcut}
       {...(isActive ? { "aria-current": "page" as const } : {})}
-      {...(collapsed ? { title: label } : {})}
-      className="sk-press relative flex items-center rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+      {...(collapsed ? { title: `${label} · ${item.shortcut}` } : {})}
+      className="group sk-press relative flex items-center rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
       style={{
         gap: collapsed ? 0 : 12,
         padding: collapsed ? "11px 10px" : "10px 12px",
         color: isActive
           ? "rgb(var(--fg-onsidebar))"
-          : "rgb(var(--fg-onsidebar) / 0.55)",
+          : "rgb(var(--fg-onsidebar) / 0.65)",
         background: isActive
-          ? "rgb(var(--fg-onsidebar) / 0.06)"
+          ? "rgb(var(--fg-onsidebar) / 0.10)"
           : "transparent",
         fontSize: 13.5,
         fontWeight: isActive ? 700 : 500,
@@ -376,7 +415,7 @@ function NavItem({
       {!collapsed && (
         <>
           <span className="truncate">{label}</span>
-          {badgeCount > 0 && (
+          {badgeCount > 0 ? (
             <span
               aria-label={`${badgeCount.toString()} unread`}
               className="font-mono"
@@ -393,9 +432,57 @@ function NavItem({
             >
               {badgeLabel}
             </span>
+          ) : (
+            // Keyboard shortcut hint — fades in on row hover/focus.
+            // The shortcut data has lived on every NavItem since the
+            // Phase 2 port; this is its first render path. `aria-hidden`
+            // because screen readers get the same info from the link's
+            // `aria-keyshortcuts` attribute (set below).
+            <kbd
+              aria-hidden
+              className="font-mono opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+              style={{
+                marginInlineStart: "auto",
+                fontSize: "0.625rem",
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                padding: "2px 5px",
+                borderRadius: 4,
+                border: "1px solid rgb(var(--fg-onsidebar) / 0.18)",
+                color: "rgb(var(--fg-onsidebar) / 0.7)",
+                background: "rgb(var(--fg-onsidebar) / 0.04)",
+                lineHeight: 1.2,
+              }}
+            >
+              {item.shortcut}
+            </kbd>
           )}
         </>
       )}
     </Link>
+  );
+}
+
+// ─── SectionDivider ─────────────────────────────────────────────────
+//
+// Visually splits the rail into the four functional groups defined by
+// SECTION_BOUNDARY_AFTER. Whitespace-dominant (Linear / Notion style)
+// with a faint 1px hairline tinted from `--border-sidebar`. Purely
+// presentational — `role="separator"` advertises the grouping to
+// assistive tech without putting anything on the page semantically.
+function SectionDivider({ collapsed }: { collapsed: boolean }) {
+  return (
+    <div
+      aria-hidden
+      role="separator"
+      style={{
+        height: 1,
+        marginTop: 6,
+        marginBottom: 6,
+        marginInlineStart: collapsed ? 8 : 10,
+        marginInlineEnd: collapsed ? 8 : 10,
+        background: "rgb(var(--border-sidebar) / 0.6)",
+      }}
+    />
   );
 }
