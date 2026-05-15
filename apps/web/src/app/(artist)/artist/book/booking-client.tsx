@@ -1,7 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 
 import { ProducerPicker } from "~/components/artist/producer-picker";
 
@@ -53,8 +60,6 @@ const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
 // Formatters & date math
 // ──────────────────────────────────────────────────────────────────────
 
-// 12-hour clock, e.g. "8:00 AM". Pair with `tabular-nums` so columns
-// of times line up. Locale-aware so non-US users see what they expect.
 function fmtClock(minutes: number): string {
   const ref = new Date(2000, 0, 1, 0, 0, 0, 0);
   ref.setMinutes(minutes);
@@ -77,13 +82,22 @@ function fmtPrice(cents: number, currency: string): string {
   }
 }
 
-// "Monday, May 18" — anchored to UTC to match the router's day math.
 function fmtDateLong(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return iso;
   return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function fmtDateShort(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
+    month: "short",
     day: "numeric",
     timeZone: "UTC",
   });
@@ -97,8 +111,6 @@ function fmtMonthYear(year: number, month0: number): string {
   });
 }
 
-// Today as "YYYY-MM-DD" in UTC terms — keeps the calendar grid's
-// "today" highlight in sync with the server-side availability keying.
 function todayISO(): string {
   const t = new Date();
   const y = t.getUTCFullYear();
@@ -113,20 +125,12 @@ function isoForCell(year: number, month0: number, day: number): string {
   return `${String(year)}-${m}-${d}`;
 }
 
-// Time zone label for the calendar footer. Best-effort: derives from
-// the browser; falls back gracefully if Intl can't resolve.
-function timeZoneLabel(): string {
-  try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const now = new Date().toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: false,
-    });
-    return `${tz.replace(/_/g, " ")} · ${now}`;
-  } catch {
-    return "Local time";
-  }
+function shiftIsoByDays(iso: string, delta: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + delta);
+  return isoForCell(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
 }
 
 // Hourly start-time options inside a block, capped so the session
@@ -143,6 +147,37 @@ function startsForBlock(block: BlockShape): number[] {
 type StartOption = { minutes: number; block: "morning" | "evening" };
 
 // ──────────────────────────────────────────────────────────────────────
+// Live wall-clock for the time-zone footer. Returns null during SSR
+// so hydration matches; first client render fills it in and we tick
+// once a minute thereafter.
+// ──────────────────────────────────────────────────────────────────────
+
+function useLiveTimeZoneLabel(): string | null {
+  const [label, setLabel] = useState<string | null>(null);
+  useEffect(() => {
+    const update = () => {
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const now = new Date().toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: false,
+        });
+        setLabel(`${tz.replace(/_/g, " ")} · ${now}`);
+      } catch {
+        setLabel("Local time");
+      }
+    };
+    update();
+    const id = window.setInterval(update, 60_000);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, []);
+  return label;
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Main client
 // ──────────────────────────────────────────────────────────────────────
 
@@ -156,16 +191,19 @@ export function BookingClient({
   const router = useRouter();
   const today = todayISO();
 
-  // Quick lookup so the month grid doesn't scan 14 entries per cell.
   const daysByDate = useMemo(() => {
     const m = new Map<string, Day>();
     for (const d of availability.days) m.set(d.date, d);
     return m;
   }, [availability.days]);
 
-  // Default the month view to the month containing today. Allow
-  // navigation forward (the 14-day window can spill into next month)
-  // and back to today's month — never further (no booking the past).
+  const hasAnyAvailability = useMemo(() => {
+    for (const d of availability.days) {
+      if (d.morning?.available || d.evening?.available) return true;
+    }
+    return false;
+  }, [availability.days]);
+
   const initialYear = Number(today.slice(0, 4));
   const initialMonth = Number(today.slice(5, 7)) - 1;
   const [viewYear, setViewYear] = useState(initialYear);
@@ -193,8 +231,6 @@ export function BookingClient({
     null;
   const activeStudio = studios.find((s) => s.producerId === activeStudioId);
 
-  // Flat list of selectable starts for the chosen day — morning first,
-  // then evening — each tagged so the confirm action knows the block.
   const startsForSelected: StartOption[] = useMemo(() => {
     if (!selectedDate) return [];
     const day = daysByDate.get(selectedDate);
@@ -264,6 +300,12 @@ export function BookingClient({
     viewYear > initialYear ||
     (viewYear === initialYear && viewMonth > initialMonth);
 
+  // Mobile swap: when a date is picked, hide LeftContext + Calendar at
+  // <lg so the TimeColumn gets the full card width. Desktop keeps the
+  // 3-column layout regardless.
+  const mobileHidden = selectedDate ? "hidden lg:block" : "block";
+  const mobileHiddenGrid = selectedDate ? "hidden lg:grid" : "grid";
+
   return (
     <div className="space-y-4">
       {studios.length > 1 ? (
@@ -275,14 +317,15 @@ export function BookingClient({
       ) : null}
 
       <article
-        className="reveal-up overflow-hidden rounded-[var(--radius-2xl)] border bg-[rgb(var(--bg-elevated))]"
+        className="overflow-hidden rounded-[var(--radius-2xl)] border bg-[rgb(var(--bg-elevated))]"
         style={{
           borderColor: "rgb(var(--border-subtle))",
-          boxShadow: "var(--shadow-lg)",
+          boxShadow: "var(--shadow-md)",
         }}
       >
-        <div className="grid lg:grid-cols-[minmax(280px,340px)_1fr]">
+        <div className="lg:grid lg:grid-cols-[minmax(280px,340px)_1fr]">
           <LeftContext
+            className={mobileHidden}
             activeStudio={activeStudio ?? null}
             packages={activePackages}
             selectedProjectId={selectedPackageProjectId}
@@ -297,13 +340,17 @@ export function BookingClient({
             }}
           />
 
-          <div className="grid border-t border-[rgb(var(--border-subtle))] lg:grid-cols-[1fr_auto] lg:border-l lg:border-t-0">
+          <div
+            className={`${mobileHiddenGrid} border-t border-[rgb(var(--border-subtle))] lg:grid lg:grid-cols-[1fr_auto] lg:border-l lg:border-t-0`}
+          >
             <CalendarColumn
               year={viewYear}
               month0={viewMonth}
               daysByDate={daysByDate}
               today={today}
               selectedDate={selectedDate}
+              hasAnyAvailability={hasAnyAvailability}
+              producerName={activeStudio?.name ?? null}
               onPickDate={handlePickDate}
               onPrevMonth={
                 canGoBack
@@ -320,30 +367,30 @@ export function BookingClient({
                 setViewMonth(next.getUTCMonth());
               }}
             />
-
-            {selectedDate ? (
-              <TimeColumn
-                key={selectedDate}
-                selectedDate={selectedDate}
-                starts={startsForSelected}
-                chosenStart={chosenStart}
-                onPickStart={handlePickStart}
-                products={products}
-                selectedProductId={selectedProductId}
-                onPickProduct={(id) => {
-                  setSelectedProductId(id);
-                  setResult(null);
-                }}
-                usingCredit={usingCredit}
-                selectedPackage={selectedPackage}
-                activeStudio={activeStudio ?? null}
-                isPending={isPending}
-                result={result}
-                onConfirm={handleConfirm}
-                onClose={resetSelection}
-              />
-            ) : null}
           </div>
+
+          {selectedDate ? (
+            <TimeColumn
+              key={selectedDate}
+              selectedDate={selectedDate}
+              starts={startsForSelected}
+              chosenStart={chosenStart}
+              onPickStart={handlePickStart}
+              products={products}
+              selectedProductId={selectedProductId}
+              onPickProduct={(id) => {
+                setSelectedProductId(id);
+                setResult(null);
+              }}
+              usingCredit={usingCredit}
+              selectedPackage={selectedPackage}
+              activeStudio={activeStudio ?? null}
+              isPending={isPending}
+              result={result}
+              onConfirm={handleConfirm}
+              onBack={resetSelection}
+            />
+          ) : null}
         </div>
       </article>
     </div>
@@ -351,16 +398,18 @@ export function BookingClient({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Left context — producer + session meta + credits (persistent)
+// Left context — producer + session meta + credits
 // ──────────────────────────────────────────────────────────────────────
 
 function LeftContext({
+  className,
   activeStudio,
   packages,
   selectedProjectId,
   onPickPackage,
   onClearPackage,
 }: {
+  className?: string;
   activeStudio: Studio | null;
   packages: ActivePackage[];
   selectedProjectId: string | null;
@@ -369,22 +418,20 @@ function LeftContext({
 }) {
   const initial = (activeStudio?.name ?? "S").charAt(0).toUpperCase();
   return (
-    <div className="flex flex-col gap-5 p-6 lg:p-7">
-      <header className="flex items-start gap-3">
+    <div className={`flex flex-col gap-5 p-6 lg:p-7 ${className ?? ""}`}>
+      <header className="flex items-center gap-3">
         {activeStudio?.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={activeStudio.logoUrl}
             alt=""
-            className="h-12 w-12 shrink-0 rounded-full object-cover"
-            style={{
-              boxShadow: "0 0 0 2px rgb(var(--brand-primary) / 0.3)",
-            }}
+            className="h-10 w-10 shrink-0 rounded-full object-cover"
+            style={{ boxShadow: "0 0 0 2px rgb(var(--brand-primary) / 0.3)" }}
           />
         ) : (
           <div
             aria-hidden
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full font-display text-[18px] font-extrabold text-[rgb(var(--bg-sidebar))]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-[16px] font-extrabold text-[rgb(var(--bg-sidebar))]"
             style={{
               background:
                 "linear-gradient(140deg, rgb(var(--brand-primary)), rgb(var(--brand-copper)))",
@@ -393,17 +440,19 @@ function LeftContext({
             {initial}
           </div>
         )}
-        <div className="min-w-0 pt-0.5">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            Studio
-          </p>
-          <p className="mt-0.5 truncate font-display text-[16px] font-extrabold leading-tight tracking-[-0.015em] text-[rgb(var(--fg-default))]">
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-semibold leading-tight text-[rgb(var(--fg-default))]">
             {activeStudio?.name ?? "Studio session"}
           </p>
+          {activeStudio?.slug ? (
+            <p className="truncate font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+              @{activeStudio.slug}
+            </p>
+          ) : null}
         </div>
       </header>
 
-      <h1 className="font-display text-[26px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[rgb(var(--fg-default))]">
+      <h1 className="font-display text-[28px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[rgb(var(--fg-default))]">
         Studio session
         <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
       </h1>
@@ -463,7 +512,7 @@ function CreditsBlock({
       }}
     >
       <header className="flex items-baseline justify-between gap-3">
-        <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary))]">
+        <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
           Your sessions
         </h2>
         <p className="font-mono text-[10.5px] tabular-nums text-[rgb(var(--fg-secondary))]">
@@ -507,7 +556,7 @@ function CreditsBlock({
                       : "rgb(var(--brand-primary) / 0.12)",
                     color: sel
                       ? "rgb(var(--bg-sidebar))"
-                      : "rgb(var(--brand-primary))",
+                      : "rgb(var(--brand-primary-dark))",
                   }}
                 >
                   {pkg.sessionsRemaining}/{pkg.sessionCount}
@@ -524,7 +573,7 @@ function CreditsBlock({
         style={{
           color:
             selectedProjectId === null
-              ? "rgb(var(--brand-primary))"
+              ? "rgb(var(--brand-primary-dark))"
               : "rgb(var(--fg-muted))",
         }}
       >
@@ -537,7 +586,7 @@ function CreditsBlock({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Calendar column — month grid + timezone footer
+// Calendar column — month grid + timezone footer + keyboard nav
 // ──────────────────────────────────────────────────────────────────────
 
 function CalendarColumn({
@@ -546,6 +595,8 @@ function CalendarColumn({
   daysByDate,
   today,
   selectedDate,
+  hasAnyAvailability,
+  producerName,
   onPickDate,
   onPrevMonth,
   onNextMonth,
@@ -555,13 +606,12 @@ function CalendarColumn({
   daysByDate: Map<string, Day>;
   today: string;
   selectedDate: string | null;
+  hasAnyAvailability: boolean;
+  producerName: string | null;
   onPickDate: (date: string) => void;
   onPrevMonth: (() => void) | null;
   onNextMonth: () => void;
 }) {
-  // 7-col × 5-or-6-row grid. Empty cells before day 1 + after last day
-  // stay visually blank (Calendly-style) so focal weight stays on
-  // real days only.
   const firstWeekday = new Date(Date.UTC(year, month0, 1)).getUTCDay();
   const daysIn = new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
   const cells: ({ day: number; iso: string } | null)[] = [];
@@ -571,6 +621,82 @@ function CalendarColumn({
   }
   while (cells.length % 7 !== 0) cells.push(null);
 
+  // Roving-tabindex target — the cell that will receive focus first
+  // when the user tabs into the grid. Defaults to the selected day,
+  // then today, then the first available day in view.
+  const dayRefs = useRef(new Map<string, HTMLButtonElement>());
+  const firstAvailableInView = useMemo(() => {
+    for (const c of cells) {
+      if (!c) continue;
+      if (c.iso < today) continue;
+      const d = daysByDate.get(c.iso);
+      if (d && (d.morning?.available || d.evening?.available)) return c.iso;
+    }
+    return null;
+  }, [cells, daysByDate, today]);
+  const rovingDate =
+    selectedDate ?? (cells.some((c) => c?.iso === today) ? today : firstAvailableInView);
+
+  const moveFocus = useCallback(
+    (fromIso: string, delta: number) => {
+      const target = shiftIsoByDays(fromIso, delta);
+      const el = dayRefs.current.get(target);
+      if (el && !el.disabled) {
+        el.focus();
+        return;
+      }
+      // Target not visible (different month) — page to that month and
+      // focus on next render via a useEffect tied to viewYear/Month.
+      const [y, m] = target.split("-").map(Number);
+      if (!y || !m) return;
+      if (m - 1 < month0 || (m - 1 === month0 && y < year)) {
+        onPrevMonth?.();
+      } else if (m - 1 > month0 || (m - 1 === month0 && y > year)) {
+        onNextMonth();
+      }
+    },
+    [month0, year, onPrevMonth, onNextMonth],
+  );
+
+  const onGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!rovingDate) return;
+    let delta = 0;
+    switch (e.key) {
+      case "ArrowLeft":
+        delta = -1;
+        break;
+      case "ArrowRight":
+        delta = 1;
+        break;
+      case "ArrowUp":
+        delta = -7;
+        break;
+      case "ArrowDown":
+        delta = 7;
+        break;
+      case "Home": {
+        const [y, m, d] = rovingDate.split("-").map(Number);
+        if (!y || !m || !d) return;
+        const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+        delta = -dow;
+        break;
+      }
+      case "End": {
+        const [y, m, d] = rovingDate.split("-").map(Number);
+        if (!y || !m || !d) return;
+        const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+        delta = 6 - dow;
+        break;
+      }
+      default:
+        return;
+    }
+    e.preventDefault();
+    moveFocus(rovingDate, delta);
+  };
+
+  const tzLabel = useLiveTimeZoneLabel();
+
   return (
     <div className="p-6 lg:min-w-[360px] lg:p-7">
       <header className="mb-4 flex items-center justify-between">
@@ -578,50 +704,98 @@ function CalendarColumn({
           {fmtMonthYear(year, month0)}
         </h2>
         <div className="flex items-center gap-1">
-          <NavButton onClick={onPrevMonth} label="Previous month">
-            <ChevronLeft />
-          </NavButton>
+          {onPrevMonth ? (
+            <NavButton onClick={onPrevMonth} label="Previous month">
+              <ChevronLeft />
+            </NavButton>
+          ) : (
+            <span className="h-8 w-8" aria-hidden />
+          )}
           <NavButton onClick={onNextMonth} label="Next month">
             <ChevronRight />
           </NavButton>
         </div>
       </header>
 
-      <div className="grid grid-cols-7 gap-1.5">
+      {!hasAnyAvailability ? (
+        <div
+          role="status"
+          className="mb-4 rounded-[var(--radius-md)] border border-dashed px-3 py-2.5 text-[12.5px] leading-snug"
+          style={{
+            background: "rgb(var(--bg-overlay))",
+            borderColor: "rgb(var(--border-strong))",
+            color: "rgb(var(--fg-secondary))",
+          }}
+        >
+          No open slots in the next 14 days.
+          {producerName ? <> Message {producerName} directly.</> : null}
+        </div>
+      ) : null}
+
+      <div
+        role="grid"
+        aria-label={fmtMonthYear(year, month0)}
+        className="grid grid-cols-7 gap-1.5"
+        onKeyDown={onGridKeyDown}
+      >
         {WEEKDAY_HEADERS.map((w) => (
           <div
             key={w}
+            role="columnheader"
             className="pb-2 text-center font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]"
           >
             {w.slice(0, 3)}
           </div>
         ))}
         {cells.map((cell, i) => {
-          if (!cell) return <div key={`empty-${String(i)}`} className="h-10" />;
+          if (!cell)
+            return (
+              <div
+                key={`empty-${String(i)}`}
+                role="gridcell"
+                aria-hidden
+                className="h-10"
+              />
+            );
           const day = daysByDate.get(cell.iso);
           const available =
             !!day && (!!day.morning?.available || !!day.evening?.available);
           const isToday = cell.iso === today;
           const isSelected = cell.iso === selectedDate;
           const inPast = cell.iso < today;
+          const enabled = available && !inPast;
+          const isRoving = cell.iso === rovingDate;
           return (
             <DayCell
               key={cell.iso}
               dayNum={cell.day}
-              available={available && !inPast}
+              available={enabled}
               isToday={isToday}
               isSelected={isSelected}
+              tabIndex={isRoving ? 0 : -1}
+              ariaLabel={fmtDateLong(cell.iso)}
+              registerRef={(el) => {
+                if (el) dayRefs.current.set(cell.iso, el);
+                else dayRefs.current.delete(cell.iso);
+              }}
               onClick={() => {
-                if (available && !inPast) onPickDate(cell.iso);
+                if (enabled) onPickDate(cell.iso);
               }}
             />
           );
         })}
       </div>
 
-      <footer className="mt-5 flex items-center gap-2 text-[11.5px] text-[rgb(var(--fg-muted))]">
-        <GlobeIcon />
-        <span className="font-mono tabular-nums">{timeZoneLabel()}</span>
+      <footer
+        className="mt-5 flex h-[18px] items-center gap-2 text-[11.5px] text-[rgb(var(--fg-muted))]"
+        aria-live="polite"
+      >
+        {tzLabel ? (
+          <>
+            <GlobeIcon />
+            <span className="font-mono tabular-nums">{tzLabel}</span>
+          </>
+        ) : null}
       </footer>
     </div>
   );
@@ -632,12 +806,18 @@ function DayCell({
   available,
   isToday,
   isSelected,
+  tabIndex,
+  ariaLabel,
+  registerRef,
   onClick,
 }: {
   dayNum: number;
   available: boolean;
   isToday: boolean;
   isSelected: boolean;
+  tabIndex: 0 | -1;
+  ariaLabel: string;
+  registerRef: (el: HTMLButtonElement | null) => void;
   onClick: () => void;
 }) {
   const disabled = !available;
@@ -657,12 +837,16 @@ function DayCell({
         };
   return (
     <button
+      ref={registerRef}
       type="button"
+      role="gridcell"
       disabled={disabled}
       onClick={onClick}
+      tabIndex={tabIndex}
       aria-current={isToday ? "date" : undefined}
-      aria-pressed={isSelected}
-      className="sk-press relative flex h-10 items-center justify-center rounded-full font-mono text-[13px] font-semibold tabular-nums disabled:cursor-not-allowed"
+      aria-selected={isSelected}
+      aria-label={ariaLabel}
+      className={`day-cell sk-press relative flex h-10 items-center justify-center rounded-full font-mono text-[13px] font-semibold tabular-nums disabled:cursor-not-allowed ${available ? "day-cell-available" : ""}`}
       style={{
         ...tone,
         transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}`,
@@ -676,6 +860,13 @@ function DayCell({
           style={{ background: "rgb(var(--brand-primary))" }}
         />
       ) : null}
+      <style jsx>{`
+        @media (hover: hover) and (pointer: fine) {
+          .day-cell-available:hover:not([aria-selected="true"]) {
+            background-color: rgb(var(--brand-primary) / 0.2) !important;
+          }
+        }
+      `}</style>
     </button>
   );
 }
@@ -685,17 +876,16 @@ function NavButton({
   label,
   children,
 }: {
-  onClick: (() => void) | null;
+  onClick: () => void;
   label: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
-      disabled={!onClick}
-      onClick={onClick ?? undefined}
+      onClick={onClick}
       aria-label={label}
-      className="sk-press flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))] disabled:cursor-not-allowed disabled:opacity-30"
+      className="sk-press flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))]"
     >
       {children}
     </button>
@@ -720,7 +910,7 @@ function TimeColumn({
   isPending,
   result,
   onConfirm,
-  onClose,
+  onBack,
 }: {
   selectedDate: string;
   starts: StartOption[];
@@ -735,7 +925,7 @@ function TimeColumn({
   isPending: boolean;
   result: { ok: true } | { ok: false; error: string } | null;
   onConfirm: () => void;
-  onClose: () => void;
+  onBack: () => void;
 }) {
   const morningStarts = starts.filter((s) => s.block === "morning");
   const eveningStarts = starts.filter((s) => s.block === "evening");
@@ -747,22 +937,31 @@ function TimeColumn({
   return (
     <section
       aria-label="Pick a time"
-      className="time-column flex w-full flex-col border-t border-[rgb(var(--border-subtle))] p-6 lg:w-[300px] lg:border-l lg:border-t-0 lg:p-7"
-      style={{
-        animation: `time-column-in 200ms ${EASE_OUT} both`,
-      }}
+      className="time-column col-span-full flex w-full flex-col border-t border-[rgb(var(--border-subtle))] p-6 lg:col-span-1 lg:w-[300px] lg:border-l lg:border-t-0 lg:p-7"
     >
+      {/* Mobile-only back to calendar. Desktop uses the column's own
+          context (calendar still visible to the left). */}
+      <button
+        type="button"
+        onClick={onBack}
+        className="sk-press mb-3 flex items-center gap-1.5 self-start font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))] lg:hidden"
+        aria-label="Back to calendar"
+      >
+        <ChevronLeft />
+        <span>{fmtDateShort(selectedDate)}</span>
+      </button>
+
       <header className="mb-4 flex items-start justify-between gap-3">
         <h3 className="font-display text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-[rgb(var(--fg-default))]">
           {fmtDateLong(selectedDate)}
         </h3>
         <button
           type="button"
-          onClick={onClose}
+          onClick={onBack}
           aria-label="Close"
-          className="sk-press -mr-2 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[15px] leading-none text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))]"
+          className="sk-press hidden h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] lg:flex"
         >
-          ×
+          <XIcon />
         </button>
       </header>
 
@@ -790,8 +989,11 @@ function TimeColumn({
         ) : null}
 
         {showServices ? (
-          <div className="mt-1 border-t border-[rgb(var(--border-subtle))] pt-4">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary))]">
+          <div className="service-reveal mt-1 border-t border-[rgb(var(--border-subtle))] pt-4">
+            <p
+              className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em]"
+              style={{ color: "rgb(var(--brand-primary-dark))" }}
+            >
               Service
             </p>
             {products.length === 0 ? (
@@ -891,7 +1093,7 @@ function TimeColumn({
       ) : null}
 
       <style jsx>{`
-        @keyframes time-column-in {
+        @keyframes time-column-in-desktop {
           from {
             opacity: 0;
             transform: translateX(-8px);
@@ -901,8 +1103,40 @@ function TimeColumn({
             transform: translateX(0);
           }
         }
-        @media (prefers-reduced-motion: reduce) {
+        @keyframes time-column-in-mobile {
+          from {
+            opacity: 0;
+            transform: translateY(6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes service-reveal-in {
+          from {
+            opacity: 0;
+            transform: translateY(-4px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .time-column {
+          animation: time-column-in-mobile 200ms ${EASE_OUT} both;
+        }
+        @media (min-width: 1024px) {
           .time-column {
+            animation: time-column-in-desktop 200ms ${EASE_OUT} both;
+          }
+        }
+        .service-reveal {
+          animation: service-reveal-in 180ms ${EASE_OUT} both;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .time-column,
+          .service-reveal {
             animation: none !important;
           }
         }
@@ -937,17 +1171,17 @@ function TimeGroup({
                 onClick={() => {
                   onPick(s);
                 }}
-                className="sk-press flex w-full items-center justify-center rounded-[var(--radius-md)] border px-3 py-2.5 font-mono text-[13px] font-semibold tabular-nums"
+                className="time-pill sk-press flex w-full items-center justify-center rounded-[var(--radius-md)] border px-3 py-2.5 font-mono text-[13px] font-semibold tabular-nums"
                 style={{
                   background: sel
                     ? "rgb(var(--brand-primary))"
                     : "transparent",
                   color: sel
                     ? "rgb(var(--bg-sidebar))"
-                    : "rgb(var(--brand-primary))",
+                    : "rgb(var(--fg-default))",
                   borderColor: sel
                     ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--brand-primary) / 0.35)",
+                    : "rgb(var(--border-strong))",
                   transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}`,
                 }}
               >
@@ -957,6 +1191,14 @@ function TimeGroup({
           );
         })}
       </ul>
+      <style jsx>{`
+        @media (hover: hover) and (pointer: fine) {
+          .time-pill:not([style*="rgb(var(--brand-primary))"]):hover {
+            background-color: rgb(var(--brand-primary) / 0.06) !important;
+            border-color: rgb(var(--brand-primary)) !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -977,7 +1219,7 @@ function ClockIcon() {
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      style={{ color: "rgb(var(--brand-primary))" }}
+      style={{ color: "rgb(var(--brand-primary-dark))" }}
     >
       <circle cx="8" cy="8" r="6.5" />
       <path d="M8 4.5V8l2.25 1.5" />
@@ -997,7 +1239,7 @@ function BoltIcon() {
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      style={{ color: "rgb(var(--brand-primary))" }}
+      style={{ color: "rgb(var(--brand-primary-dark))" }}
     >
       <path d="M9 1.5 3 9h4l-1 5.5L13 7H9l1-5.5z" />
     </svg>
@@ -1055,6 +1297,24 @@ function ChevronRight() {
       strokeLinejoin="round"
     >
       <path d="m6 3 5 5-5 5" />
+    </svg>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m4 4 8 8M12 4l-8 8" />
     </svg>
   );
 }
