@@ -40,11 +40,23 @@ describe("AddVersionDropZone — first row of the Versions tab", () => {
     expect(SRC).toMatch(/<button[^>]*type=["']button["']/);
   });
 
-  it("falls back to disabled when no onClick is wired (Phase 3 stub)", () => {
-    // Native disabled attribute + Coming-soon tooltip — same pattern as
-    // HeroCTA.
-    expect(SRC).toMatch(/disabled/);
-    expect(SRC).toContain("Coming soon");
+  it("falls back to disabled when no onClick is wired (defensive)", () => {
+    // Native disabled attribute — the visual stub stays for callers
+    // that haven't threaded the Upload Track modal yet.
+    expect(SRC).toMatch(/disabled\s*=\s*\{disabled\}/);
+    expect(SRC).toMatch(/const\s+disabled\s*=\s*!onClick/);
+  });
+
+  it("wires onClick to the parent (UploadTrackModal opener)", () => {
+    expect(SRC).toMatch(/onClick\?:\s*\(\)\s*=>\s*void/);
+    expect(SRC).toMatch(/onClick=\{onClick\}/);
+  });
+
+  it("accepts file drag-and-drop and forwards via onFileDrop when present", () => {
+    expect(SRC).toMatch(/onFileDrop\?:/);
+    expect(SRC).toMatch(/onDragOver/);
+    expect(SRC).toMatch(/onDrop/);
+    expect(SRC).toMatch(/dataTransfer\.files/);
   });
 
   it("dims the row visually when disabled (opacity / not-allowed cursor)", () => {
