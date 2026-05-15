@@ -100,7 +100,7 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toContain("Cancel");
   });
 
-  it("calls all 7 Server Actions from the upload-actions wrapper", () => {
+  it("calls all 8 Server Actions from the upload-actions wrapper", () => {
     expect(SRC).toContain("addTrackAction");
     expect(SRC).toContain("addVersionAction");
     expect(SRC).toContain("initMultipartAction");
@@ -108,6 +108,19 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toContain("completeMultipartAction");
     expect(SRC).toContain("abortMultipartAction");
     expect(SRC).toContain("setTrackStageAction");
+    // I1 — orphan cleanup on upload failure.
+    expect(SRC).toContain("deleteVersionAction");
+  });
+
+  // I1 — on upload failure, the modal must cleanup the orphan
+  // track_versions row created at step 2 of the chain. R2 multipart
+  // abort happens for storage cleanup, but the DB row stayed forever
+  // before this fix.
+  it("calls deleteVersionAction in the catch branch (best-effort fire-and-forget)", () => {
+    expect(SRC).toMatch(/createdVersionId/);
+    // The cleanup call is fire-and-forget (no await) so the producer
+    // only sees ONE error toast.
+    expect(SRC).toMatch(/void deleteVersionAction/);
   });
 
   it("imports Server Actions from the clients-projects upload-actions module", () => {

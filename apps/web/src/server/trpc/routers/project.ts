@@ -690,6 +690,45 @@ export const projectRouter = router({
     return row;
   }),
 
+  // Phase 4 (I1) — delete an orphan track_versions row created by the
+  // Upload Track modal when its multipart upload fails. The modal
+  // creates the row at step 2 of the chain (audioUrl=null) and patches
+  // it later in completeMultipart; if any chunk PUT or the finalise
+  // step throws, the row stayed around forever. This mutation lets the
+  // modal's catch-branch fire a best-effort cleanup.
+  //
+  // Ownership chain: version -> track -> project -> producer. Same shape
+  // as updateVersionLabel. NOT_FOUND for both missing and foreign rows
+  // so a tampered id can't enumerate the track_versions space.
+  deleteVersion: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({
+          projectId: projectTracks.projectId,
+          producerId: projects.producerId,
+        })
+        .from(trackVersions)
+        .innerJoin(
+          projectTracks,
+          eq(projectTracks.id, trackVersions.trackId),
+        )
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(eq(trackVersions.id, input.id))
+        .limit(1);
+      if (!row || row.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      await ctx.db
+        .delete(trackVersions)
+        .where(eq(trackVersions.id, input.id));
+      await ctx.db
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(eq(projects.id, row.projectId));
+      return { ok: true as const };
+    }),
+
   setPaid: producerProcedure.input(SetPaidInput).mutation(async ({ ctx, input }) => {
     const [project] = await ctx.db
       .select({

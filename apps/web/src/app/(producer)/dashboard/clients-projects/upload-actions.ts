@@ -113,6 +113,26 @@ export async function addVersionAction(input: {
   }
 }
 
+// Phase 4 (I1) — cleanup an orphan track_versions row created by
+// addVersionAction when the rest of the upload chain failed. Fired
+// from the modal's catch branch after the R2 multipart has been
+// aborted. Best-effort — failures are silently swallowed by the
+// caller, so the producer can still retry without seeing two error
+// toasts in a row.
+export async function deleteVersionAction(input: {
+  id: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.deleteVersion(input);
+    revalidatePath(CLIENTS_PROJECTS_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // ─── Multipart upload bridge ─────────────────────────────────────────
 // These three actions wrap the audio router's R2 multipart flow. We
 // deliberately do NOT call revalidatePath on initMultipart or signPart

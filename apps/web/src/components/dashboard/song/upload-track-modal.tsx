@@ -24,6 +24,7 @@ import {
   addTrackAction,
   addVersionAction,
   completeMultipartAction,
+  deleteVersionAction,
   initMultipartAction,
   setTrackStageAction,
   signPartAction,
@@ -213,6 +214,11 @@ export function UploadTrackModal({
 
     startTransition(async () => {
       setProgress(0);
+      // Track the version row id outside the try so a catch can clean up
+      // the orphan when any later step (R2 init, chunk PUT, finalise)
+      // fails. I1 — without this, a failed upload left a permanent
+      // audioUrl=null row in the DB even after R2 multipart was aborted.
+      let createdVersionId: string | null = null;
       try {
         // 1. Resolve trackId — create a new project_tracks row if the
         //    producer picked "+ New song", else use the existing id.
@@ -241,6 +247,7 @@ export function UploadTrackModal({
         });
         if (!vres.ok) throw new Error(vres.error);
         const versionId = vres.data.id;
+        createdVersionId = versionId;
 
         // 3. Init multipart upload on R2.
         const ires = await initMultipartAction({
@@ -326,11 +333,21 @@ export function UploadTrackModal({
           }
         }
 
+        // Clear the orphan-cleanup handle — the row is now legitimate.
+        createdVersionId = null;
         toast("Upload complete", "success");
         onCreated?.();
         router.refresh();
         onClose();
       } catch (err) {
+        // I1 — if we already created a track_versions row (audioUrl=null
+        // placeholder) before failing, delete it so the producer doesn't
+        // see a ghost version in the song list. Best-effort — failures
+        // are swallowed so the producer only sees ONE error toast.
+        if (createdVersionId) {
+          void deleteVersionAction({ id: createdVersionId });
+          createdVersionId = null;
+        }
         const msg =
           err instanceof Error ? err.message : "Upload failed. Please retry.";
         toast(msg, "error");
