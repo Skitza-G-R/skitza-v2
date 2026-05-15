@@ -956,7 +956,7 @@ function StackReplace() {
           Forty-seven emails per session.
         </h2>
 
-        <div className="mx-auto mt-14 grid max-w-4xl items-center gap-8 md:grid-cols-2">
+        <div className="mx-auto mt-14 grid max-w-4xl gap-8 md:grid-cols-2 md:items-stretch">
           {/* Without */}
           <div
             className="sk-reveal-left sk-d-2 relative rounded-2xl border p-6"
@@ -1016,8 +1016,12 @@ function StackReplace() {
           {/* With — outer relative wrapper hosts the pill outside the
               inner card's overflow-hidden region (the shine animation
               needs clipping, but the pill needs to bleed above the top
-              edge — same -top-2.5 offset as the Without card). */}
-          <div className="sk-reveal-right sk-d-3 relative">
+              edge — same -top-2.5 offset as the Without card).
+              h-full + flex-col on the inner card lets the middle
+              content grow to match the Without card's height, while
+              keeping the "1 link · 1 fee · 1 inbox" footer pinned to
+              the bottom edge. */}
+          <div className="sk-reveal-right sk-d-3 relative h-full">
             <div
               className="absolute left-6 -top-2.5 z-10 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
               style={{ background: "rgb(var(--brand-primary))", color: "#111009" }}
@@ -1025,14 +1029,11 @@ function StackReplace() {
               With Skitza
             </div>
             <div
-              className="relative overflow-hidden rounded-2xl p-6 text-white"
+              className="relative flex h-full flex-col overflow-hidden rounded-2xl p-6 text-white"
               style={{ background: "#111009" }}
             >
               <div className="animate-shine" />
-              <div
-                className="relative flex flex-col items-center justify-center gap-3"
-                style={{ minHeight: 144 }}
-              >
+              <div className="relative flex flex-1 flex-col items-center justify-center gap-3">
                 <LogoLockup markSize={60} wordmarkSize={56} />
                 <div
                   className="font-mono text-center text-[12px]"
