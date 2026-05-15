@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { Plus, Mail, Phone, FolderOpen, Calendar } from "lucide-react";
 
@@ -14,6 +13,10 @@ import { StatTile } from "~/components/dashboard/common/stat-tile";
 
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
+import {
+  NewProjectModal,
+  type NewProjectModalProductOption,
+} from "./new-project-modal";
 
 // The Client Space hero replaces the old 4-tab header. One big dark
 // gradient band: 112px avatar tile, eyebrow CLIENT, name + LinkPill
@@ -45,8 +48,6 @@ export interface ClientSpaceHeroData {
   activeProjects: number;
   /** Currency code — defaults to USD. */
   currency?: string;
-  /** Href for the "+ New project" CTA. */
-  newProjectHref: string;
 }
 
 interface ClientSpaceHeroProps {
@@ -56,6 +57,11 @@ interface ClientSpaceHeroProps {
    *  opens the modal automatically; an explicit onInvite override still
    *  takes precedence for callers that want to handle the click. */
   producerSlug?: string;
+  /** Producer's active store products. Forwarded to NewProjectModal so
+   *  the "+ New project" pill can drive the product picker. Pass `[]`
+   *  if the producer hasn't set up products yet — the modal renders an
+   *  empty-state hint linking to /dashboard/store in that case. */
+  products: NewProjectModalProductOption[];
   onInvite?: (client: ClientSpaceHeroData) => void;
 }
 
@@ -85,6 +91,7 @@ function formatJoinedFallback(iso: string): string {
 export function ClientSpaceHero({
   client,
   producerSlug,
+  products,
   onInvite,
 }: ClientSpaceHeroProps) {
   const {
@@ -99,7 +106,6 @@ export function ClientSpaceHero({
     outstanding,
     activeProjects,
     currency = "USD",
-    newProjectHref,
   } = client;
 
   // Internal modal state — opens when the LinkPill's "none" state is
@@ -118,6 +124,12 @@ export function ClientSpaceHero({
   const closeInvite = () => {
     setInviteOpen(false);
   };
+
+  // Phase 1 G7 — NewProjectModal state. The "+ New project" pill in the
+  // hero used to be a <Link> to the legacy /new page; it now opens this
+  // modal in `lockedClient` mode so the project is always created
+  // against the client whose space we're on.
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
 
   const initials = producerInitials(name);
   const avatarBg = producerGradient(name);
@@ -183,13 +195,14 @@ export function ClientSpaceHero({
           </div>
         </div>
 
-        <Link
-          href={newProjectHref}
+        <button
+          type="button"
+          onClick={() => { setNewProjectOpen(true); }}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
         >
           <Plus size={14} />
           New project
-        </Link>
+        </button>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -219,6 +232,27 @@ export function ClientSpaceHero({
           producerSlug={producerSlug}
         />
       ) : null}
+
+      <NewProjectModal
+        open={newProjectOpen}
+        onClose={() => {
+          setNewProjectOpen(false);
+        }}
+        clients={[]}
+        products={products}
+        lockedClient={{
+          id,
+          name,
+          // The artistEmail snapshot on the project requires a string;
+          // a hero-rendered client without an email is a no-go for v1
+          // (we won't ever open the modal in lockedClient mode without
+          // one), so fall back to an empty string defensively.
+          email: email ?? "",
+        }}
+        onCreated={() => {
+          setNewProjectOpen(false);
+        }}
+      />
     </section>
   );
 }

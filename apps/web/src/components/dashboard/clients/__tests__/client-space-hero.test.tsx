@@ -90,4 +90,33 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).toContain("outstanding");
     expect(SRC).toContain("activeProjects");
   });
+
+  // ── Phase 1 G7 — NewProjectModal wiring ─────────────────────────
+  // The "+ New project" pill used to be a <Link> to the legacy /new
+  // page. It now opens NewProjectModal in lockedClient mode so the
+  // producer can't accidentally repoint the project to a different
+  // client.
+  it("imports NewProjectModal from the clients folder (G7)", () => {
+    expect(SRC).toContain("NewProjectModal");
+    expect(SRC).toContain("./new-project-modal");
+  });
+
+  it("renders the '+ New project' pill as a <button> (not a <Link>)", () => {
+    expect(SRC).toMatch(/<button[\s\S]{0,500}New project/);
+    expect(SRC).not.toMatch(/<Link[\s\S]{0,200}newProjectHref/);
+  });
+
+  it("manages NewProjectModal open state via local useState (setNewProjectOpen)", () => {
+    expect(SRC).toContain("setNewProjectOpen");
+    expect(SRC).toContain("newProjectOpen");
+  });
+
+  it("mounts <NewProjectModal> with lockedClient set to the current client", () => {
+    expect(SRC).toMatch(/<NewProjectModal/);
+    expect(SRC).toMatch(/lockedClient=\{/);
+  });
+
+  it("accepts a products prop the hero forwards to NewProjectModal", () => {
+    expect(SRC).toMatch(/products:\s*/);
+  });
 });

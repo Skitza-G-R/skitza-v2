@@ -54,6 +54,33 @@ export default async function ClientDetailPage({ params }: PageProps) {
     console.warn("[clients/detail] producer.me failed", err);
   }
 
+  // G7 — fetch the producer's products so the hero's "+ New project"
+  // pill can drive the NewProjectModal picker. Falls back to [] on
+  // error; the modal renders an empty-state hint in that case.
+  let products: {
+    id: string;
+    name: string;
+    description: string | null;
+    deliverables: string[] | null;
+    priceCents: number;
+    currency: string;
+    depositPct: number;
+  }[] = [];
+  try {
+    const rows = await caller.booking.products.list();
+    products = rows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      deliverables: p.deliverables,
+      priceCents: p.priceCents,
+      currency: p.currency,
+      depositPct: p.depositPct,
+    }));
+  } catch (err) {
+    console.warn("[clients/detail] booking.products.list failed", err);
+  }
+
   // Pre-compute the next upcoming session across this client's
   // projects — kept here (preserved helper) rather than inside the
   // hero so the date-comparison logic stays presentational-free.
@@ -81,10 +108,6 @@ export default async function ClientDetailPage({ params }: PageProps) {
     outstanding: detail.stats.outstandingCents,
     activeProjects: detail.stats.activeProjectCount,
     currency: producerCurrency,
-    newProjectHref:
-      `/dashboard/clients-projects/new?clientEmail=${encodeURIComponent(
-        detail.contact.email,
-      )}&clientName=${encodeURIComponent(detail.contact.name)}`,
   };
 
   // Map each detail project into the new ProjectRow shape. The list
@@ -117,7 +140,11 @@ export default async function ClientDetailPage({ params }: PageProps) {
   return (
     <main className="sk-page-enter">
       <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
-        <ClientSpaceHero client={heroData} producerSlug={producerSlug} />
+        <ClientSpaceHero
+          client={heroData}
+          producerSlug={producerSlug}
+          products={products}
+        />
 
         {projectRows.length === 0 ? (
           <div

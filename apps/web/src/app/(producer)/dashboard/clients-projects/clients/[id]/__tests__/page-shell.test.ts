@@ -60,9 +60,20 @@ describe("clients/[id]/page.tsx — Phase 1 rewrite", () => {
     expect(SRC).toContain("pickNextSession");
   });
 
-  it("preserves the '+ New project' pre-filled href", () => {
-    expect(SRC).toContain("clientEmail=");
-    expect(SRC).toContain("clientName=");
+  // Phase 1 G7 — the hero's "+ New project" pill no longer routes to
+  // the legacy /new page with prefilled query params; it opens the
+  // floating NewProjectModal in lockedClient mode. The query-string
+  // wiring is gone and shouldn't come back.
+  it("does NOT pre-fill a legacy /new link with clientEmail / clientName (modal handles it now)", () => {
+    expect(SRC).not.toContain("clientEmail=");
+    expect(SRC).not.toContain("clientName=");
+    expect(SRC).not.toContain("/clients-projects/new?");
+  });
+
+  it("fetches products list for the hero's NewProjectModal picker", () => {
+    expect(SRC).toContain("booking.products.list");
+    // Hero gets the products prop wired through.
+    expect(SRC).toMatch(/products=\{products\}/);
   });
 
   it("removes the import of ClientDetailHeader", () => {
