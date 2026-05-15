@@ -38,6 +38,12 @@ export interface TrackRowData {
   noteCount?: number;
   /** Duration of the latest version in ms — optional. */
   durationMs?: number;
+  /**
+   * Total number of versions for this track. Drives the auto-bumped
+   * default version label in the UploadTrackModal (v{N+1}). Defaults
+   * to 0 if the parent doesn't supply it.
+   */
+  versionCount?: number;
 }
 
 export interface TrackRowProps {

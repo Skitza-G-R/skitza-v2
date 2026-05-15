@@ -148,6 +148,9 @@ export default async function ProjectDetail({ params }: PageProps) {
     if (latest?.label) base.currentVersion = latest.label;
     if (noteCount > 0) base.noteCount = noteCount;
     if (latest?.durationMs) base.durationMs = latest.durationMs;
+    // versionCount feeds the UploadTrackModal's "v{N+1}" default label.
+    // Always set, even at 0, so the modal can pick "v1" deterministically.
+    base.versionCount = trackVersions.length;
     return base;
   });
 

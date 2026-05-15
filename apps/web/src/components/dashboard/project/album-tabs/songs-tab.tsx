@@ -7,6 +7,7 @@ import {
   TrackRow,
   type TrackRowData,
 } from "~/components/dashboard/project/track-row";
+import { UploadTrackModal } from "~/components/dashboard/song/upload-track-modal";
 
 // SongsTab — Songs panel for the new Album Page (DESIGN.md §4.3,
 // BUILD-NOTES §5.3). Renders the Tracklist header + list of
@@ -17,10 +18,17 @@ import {
 // — the parent owns the tRPC mutation (Phase 4 wires the real
 // `project.reorderTracks` call). The local order resyncs to props
 // whenever the parent re-renders with a fresh `tracks` list.
+//
+// Phase 4: "+ Add song" opens the UploadTrackModal (mode="new-song").
+// We own the open/close state locally so the modal is colocated with
+// the button that summons it. The parent doesn't need an onAddSong
+// callback anymore (it's still accepted for backward-compat callers
+// that want to override the default open behaviour).
 
 interface SongsTabProps {
   projectId: string;
   tracks: TrackRowData[];
+  /** Optional override — if not provided, "+ Add song" opens the modal. */
   onAddSong?: () => void;
   onReorder?: (orderedIds: string[]) => unknown;
 }
@@ -31,6 +39,23 @@ export function SongsTab({
   onAddSong,
   onReorder,
 }: SongsTabProps) {
+  const [uploadOpen, setUploadOpen] = useState(false);
+  // The modal needs the same id+title+versionCount projection on every
+  // track in the project, so the producer can pick an existing song
+  // from the dropdown. `versionCount ?? 0` keeps the modal's default
+  // label deterministic even if the parent forgot to thread it.
+  const modalTracks = tracks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    versionCount: t.versionCount ?? 0,
+  }));
+  const handleAddSong = () => {
+    if (onAddSong) {
+      onAddSong();
+      return;
+    }
+    setUploadOpen(true);
+  };
   // Local mirror of the incoming order — enables optimistic reorder
   // without waiting on the server round-trip. Reset when props change.
   const [ordered, setOrdered] = useState<TrackRowData[]>(tracks);
@@ -82,6 +107,20 @@ export function SongsTab({
     setDragId(null);
   };
 
+  // Shared modal mount used by both render branches — colocated with
+  // the SongsTab so the open state lives where the trigger lives.
+  const modal = (
+    <UploadTrackModal
+      open={uploadOpen}
+      onClose={() => {
+        setUploadOpen(false);
+      }}
+      projectId={projectId}
+      mode="new-song"
+      tracks={modalTracks}
+    />
+  );
+
   if (ordered.length === 0) {
     return (
       <section
@@ -108,7 +147,7 @@ export function SongsTab({
         </p>
         <button
           type="button"
-          onClick={onAddSong}
+          onClick={handleAddSong}
           className="mt-5 inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-semibold shadow-[var(--shadow-sm)] transition-colors"
           style={{
             background: "rgb(var(--brand-primary))",
@@ -118,6 +157,7 @@ export function SongsTab({
           <Plus size={14} />
           Add song
         </button>
+        {modal}
       </section>
     );
   }
@@ -138,7 +178,7 @@ export function SongsTab({
         </h3>
         <button
           type="button"
-          onClick={onAddSong}
+          onClick={handleAddSong}
           className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors"
           style={{
             background: "transparent",
@@ -164,6 +204,7 @@ export function SongsTab({
           />
         ))}
       </div>
+      {modal}
     </section>
   );
 }
