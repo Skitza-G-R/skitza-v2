@@ -650,11 +650,13 @@ export function WorkspaceListView({
         onClose={() => {
           setNewProjectOpen(false);
         }}
-        clients={clients.map((c) => ({
-          id: c.id,
-          name: c.name,
-          email: c.email ?? "",
-        }))}
+        clients={clients
+          .filter((c) => c.email !== null && c.email !== "")
+          .map((c) => ({
+            id: c.id,
+            name: c.name,
+            email: c.email ?? "",
+          }))}
         products={products}
         onCreated={() => {
           // Same pattern as the new-client wiring above — the Server

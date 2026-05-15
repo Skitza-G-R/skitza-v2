@@ -198,7 +198,13 @@ export function ClientSpaceHero({
         <button
           type="button"
           onClick={() => { setNewProjectOpen(true); }}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+          disabled={!email}
+          title={
+            email
+              ? undefined
+              : "Add an email to this client before creating a project for them."
+          }
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white/10"
         >
           <Plus size={14} />
           New project

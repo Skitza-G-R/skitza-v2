@@ -102,8 +102,18 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
   });
 
   it("renders the '+ New project' pill as a <button> (not a <Link>)", () => {
-    expect(SRC).toMatch(/<button[\s\S]{0,500}New project/);
+    // Range widened to {0,900} to accommodate the disabled-state
+    // styling + title prop added in the email-null guard.
+    expect(SRC).toMatch(/<button[\s\S]{0,900}New project/);
     expect(SRC).not.toMatch(/<Link[\s\S]{0,200}newProjectHref/);
+  });
+
+  it("disables the '+ New project' pill when the client has no email", () => {
+    // Producer can't create a project for a client without an email
+    // address (project.create requires artistEmail). Better to block
+    // the entry point than show a confusing 'Invalid input' toast.
+    expect(SRC).toMatch(/disabled=\{!email\}/);
+    expect(SRC).toMatch(/Add an email to this client/);
   });
 
   it("manages NewProjectModal open state via local useState (setNewProjectOpen)", () => {

@@ -162,7 +162,12 @@ export function NewProjectModal({
       setTotalUnits("");
       setDepositUnits("");
     }
-  }, [open, clients.length, products]);
+    // Only `open` is a real trigger — depending on `products` array
+    // identity (not content) caused the form to silently reset
+    // mid-edit on any parent re-render that built a new array.
+    // (react-hooks/exhaustive-deps isn't configured in this repo, so
+    // no inline override needed.)
+  }, [open]);
 
   // Whenever the producer picks a different product, repopulate the
   // total + deposit defaults. The producer can edit afterwards.
