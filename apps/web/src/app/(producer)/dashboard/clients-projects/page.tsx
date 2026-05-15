@@ -32,11 +32,19 @@ import {
 //     build skitza.app/invite/<slug>-<id>) and `defaultCurrency`.
 
 // WorkspaceListView owns ?tab= / ?sort= / ?filter= as local state in
-// Phase 1; URL hydration is a fast-follow. No searchParams contract on
-// the server component until that wire-through lands.
-export default async function ProjectsPage() {
+// Phase 1; URL hydration is a fast-follow. The one searchParam we DO
+// hydrate is `?newProject=1` — the legacy /clients-projects/new route
+// redirects here with that param so the modal auto-opens. (G7.)
+type PageProps = {
+  searchParams?: Promise<{ newProject?: string }>;
+};
+
+export default async function ProjectsPage({ searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
+
+  const sp = (await searchParams) ?? {};
+  const autoOpenNewProject = sp.newProject === "1";
 
   const caller = appRouter.createCaller({ userId });
 
@@ -144,6 +152,7 @@ export default async function ProjectsPage() {
           kpis={kpis}
           producerSlug={producerSlug}
           products={productsList}
+          initialNewProjectOpen={autoOpenNewProject}
           onReorderProjects={reorderProjectsAction}
           onReorderClients={reorderClientsAction}
         />

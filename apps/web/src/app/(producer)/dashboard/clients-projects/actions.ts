@@ -61,22 +61,11 @@ type Stage =
   | "paid"
   | "archived";
 
-export async function createProject(input: {
-  title: string;
-  artistName: string;
-  artistEmail: string;
-  bookingId?: string;
-}): Promise<ActionDataResult<{ id: string; inviteToken: string }>> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    const res = await c.caller.project.create(input);
-    revalidatePath(PATH_LIST);
-    return { ok: true, data: { id: res.project.id, inviteToken: res.inviteToken } };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
+// Phase 1 G7 — the legacy `createProject` action was deleted alongside
+// the /clients-projects/new page it served. The redesigned flow uses
+// `createProjectAction` in clients-actions.ts, which accepts the four
+// new modal fields (productId / deadlineAt / engagementTotalCents /
+// depositCents) and returns just the new project id.
 
 export async function updateProjectAction(input: {
   id: string;

@@ -98,6 +98,10 @@ export interface WorkspaceListViewProps {
    *  empty array if the producer hasn't created any products yet — the
    *  modal renders an empty-state hint linking to /dashboard/store. */
   products: NewProjectModalProductOption[];
+  /** When true, opens the NewProjectModal on mount. Set by the page
+   *  when `?newProject=1` is present in the URL — the legacy /new
+   *  route redirects here with that flag (G7). */
+  initialNewProjectOpen?: boolean;
   /** Optional callback fired when the user drags rows into a new order.
    *  Returning a Promise lets the page wire a Server Action — the
    *  component never awaits the result (drag is optimistic). */
@@ -135,10 +139,16 @@ export function WorkspaceListView({
   kpis,
   producerSlug,
   products,
+  initialNewProjectOpen,
   onReorderProjects,
   onReorderClients,
 }: WorkspaceListViewProps) {
-  const [tab, setTab] = useState<Tab>("clients");
+  // When the page hydrates with `?newProject=1` (the redirect target
+  // from the deleted /new route), default to the Projects tab AND
+  // open the modal — that's where the legacy route landed the user.
+  const [tab, setTab] = useState<Tab>(
+    initialNewProjectOpen ? "projects" : "clients",
+  );
   const [sort, setSort] = useState<SortValue>("custom");
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>("all");
   const [clientFilter, setClientFilter] = useState<ClientFilter>("all");
@@ -173,7 +183,11 @@ export function WorkspaceListView({
   // the Projects tab. Replaces the previous `<Link href="/.../new">`
   // route — Gili spotted that the legacy page was still wired up to
   // the CTA during QA. DESIGN.md §6.2 / BUILD-NOTES §7.2.
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  // Initial state from the page's searchParams (?newProject=1) so the
+  // legacy /new redirect lands the producer directly in the modal.
+  const [newProjectOpen, setNewProjectOpen] = useState(
+    initialNewProjectOpen ?? false,
+  );
 
   const currency = kpis.currency ?? "USD";
 

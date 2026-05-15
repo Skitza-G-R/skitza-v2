@@ -146,8 +146,11 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).not.toMatch(/label:\s*["']Urgent["']/);
   });
 
-  it("defaults to the Clients tab", () => {
-    expect(SRC).toMatch(/useState<Tab>\(["']clients["']\)/);
+  it("defaults to the Clients tab (or Projects when ?newProject=1)", () => {
+    // Phase 1 G7 — the tab default is now conditional on the
+    // initialNewProjectOpen prop. The default-when-not-set is still
+    // "clients", but the test allows the conditional shape.
+    expect(SRC).toMatch(/initialNewProjectOpen[\s\S]{0,200}["']clients["']/);
   });
 
   it("renders the Clients tab button before the Projects tab button", () => {
