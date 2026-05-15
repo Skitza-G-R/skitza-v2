@@ -184,7 +184,7 @@ export function NewClientModal({
                 required
                 autoFocus
                 value={name}
-                maxLength={200}
+                maxLength={80}
                 onChange={(e) => {
                   setName(e.target.value);
                 }}
