@@ -102,3 +102,46 @@ describe("Phase 4 — track_versions.description", () => {
     expect(col.notNull).toBe(false);
   });
 });
+
+// Phase 1 (G7) — New Project modal fields. The producer picks a store
+// product, sets a deadline, and confirms total + deposit at create
+// time. All four columns are nullable so legacy rows and old callers
+// (e.g. project.create without these inputs) continue to work.
+// Migration 0014; DESIGN.md §6.2.
+describe("Phase 1 — projects.product_id", () => {
+  it("exists as a nullable uuid FK to products", () => {
+    const col = projects.productId;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("product_id");
+    expect(col.notNull).toBe(false);
+  });
+});
+
+describe("Phase 1 — projects.deadline_at", () => {
+  it("exists as a nullable timestamp column on projects", () => {
+    const col = projects.deadlineAt;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("deadline_at");
+    expect(col.notNull).toBe(false);
+  });
+});
+
+describe("Phase 1 — projects.engagement_total_cents", () => {
+  it("exists as a nullable integer column on projects", () => {
+    const col = projects.engagementTotalCents;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("engagement_total_cents");
+    expect(col.dataType).toBe("number");
+    expect(col.notNull).toBe(false);
+  });
+});
+
+describe("Phase 1 — projects.deposit_cents", () => {
+  it("exists as a nullable integer column on projects", () => {
+    const col = projects.depositCents;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("deposit_cents");
+    expect(col.dataType).toBe("number");
+    expect(col.notNull).toBe(false);
+  });
+});

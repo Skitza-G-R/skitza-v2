@@ -433,6 +433,30 @@ export const projects = pgTable("projects", {
   // tile. Decoupled from the legacy `stage` (lifecycle) column — both
   // co-exist; the new UI only ever shows this one.
   workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
+  // ─── Phase 1 G7 — New Project modal fields ───────────────────────
+  // Producer picks one of their store products at create time. SET
+  // NULL on delete so archiving a product doesn't nuke the project's
+  // engagement history; the row-level priceCents/depositCents
+  // snapshots below preserve what was charged.
+  productId: uuid("product_id").references((): AnyPgColumn => products.id, {
+    onDelete: "set null",
+  }),
+  // Optional deliverable due-date the producer commits to. Drives the
+  // hero countdown + the Calendar's "deadline" markers. Null = no
+  // explicit deadline.
+  deadlineAt: timestamp("deadline_at", { withTimezone: true }),
+  // Snapshot of the engagement total at create-time (minor units).
+  // Defaults from product.priceCents in the modal; producer can edit
+  // before submit. Stays stable even if the underlying product price
+  // changes later — that's the snapshot guarantee. Nullable for legacy
+  // rows pre-G7.
+  engagementTotalCents: integer("engagement_total_cents"),
+  // Snapshot of the upfront deposit (minor units) the modal computed
+  // from product.priceCents * depositPct / 100, with optional manual
+  // override. Read downstream by the deposit-collection flow so a
+  // mid-engagement product price change can't recalculate what the
+  // artist owes. Nullable for legacy rows pre-G7.
+  depositCents: integer("deposit_cents"),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
