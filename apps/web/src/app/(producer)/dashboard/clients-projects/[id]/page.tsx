@@ -53,12 +53,6 @@ function progressForStage(stage: WorkflowStage): number {
   return STAGE_PROGRESS[stage];
 }
 
-function milestoneStatusForInvoice(status: string): MilestoneStatus {
-  if (status === "paid") return "paid";
-  if (status === "uncollectible") return "overdue";
-  return "pending";
-}
-
 export default async function ProjectDetail({ params }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
@@ -176,10 +170,8 @@ export default async function ProjectDetail({ params }: PageProps) {
   const milestones: PaymentMilestone[] = [];
   if (money.paidCents > 0 || money.outstandingCents > 0) {
     const total = money.paidCents + money.outstandingCents;
-    let status: MilestoneStatus;
-    if (money.outstandingCents === 0) status = "paid";
-    else if (money.paidCents === 0) status = "pending";
-    else status = "pending";
+    const status: MilestoneStatus =
+      money.outstandingCents === 0 ? "paid" : "pending";
     milestones.push({
       id: `engagement-${data.project.id}`,
       label: "Engagement total",
@@ -188,7 +180,6 @@ export default async function ProjectDetail({ params }: PageProps) {
       date: data.project.paidAt,
     });
   }
-  void milestoneStatusForInvoice;
 
   // Activity timeline — distilled from the project's event ledger.
   // We don't currently have a normalized activity table, so we
