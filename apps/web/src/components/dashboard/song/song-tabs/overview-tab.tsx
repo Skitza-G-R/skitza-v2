@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ChevronRight, MessageCircle, User } from "lucide-react";
 
 import {
@@ -187,18 +188,26 @@ export function OverviewTab({
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <a
-                href={`/dashboard/clients-projects?client=${client.id}`}
-                className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))]"
-                style={{
-                  background: "transparent",
-                  borderColor: "rgb(var(--border-subtle))",
-                  color: "rgb(var(--fg-default))",
-                }}
-              >
-                <User size={12} />
-                View client
-              </a>
+              {/* When the project has no matching clientContacts row, the
+                  page-level loader falls back to client.id === "". A link
+                  to `/clients/` (no id) routes to a 404 — worse than just
+                  omitting the action. Guard with the empty-string check
+                  and target the canonical Client Space route from the
+                  Phase 1 redesign. */}
+              {client.id ? (
+                <Link
+                  href={`/dashboard/clients-projects/clients/${client.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))]"
+                  style={{
+                    background: "transparent",
+                    borderColor: "rgb(var(--border-subtle))",
+                    color: "rgb(var(--fg-default))",
+                  }}
+                >
+                  <User size={12} />
+                  View client
+                </Link>
+              ) : null}
               <button
                 type="button"
                 disabled

@@ -69,6 +69,14 @@ describe("overview-tab — WorkflowStepper + Latest versions + Client snippet", 
     expect(SRC).toMatch(/slice\(\s*0\s*,\s*3\s*\)/);
   });
 
+  it("only renders the 'View client' link when client.id is non-empty", () => {
+    expect(SRC).toMatch(/\{client\.id\s*\?/);
+  });
+
+  it("links to the Client Space route (not the filtered list)", () => {
+    expect(SRC).toMatch(/\/dashboard\/clients-projects\/clients\//);
+  });
+
   it("forbids --surface-card", () => {
     expect(SRC).not.toContain("--surface-card");
   });
