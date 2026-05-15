@@ -83,9 +83,19 @@ describe("ChangeStageMenu — manual stage advance on Song Space", () => {
     expect(SRC).toMatch(/aria-expanded=\{open\}/);
   });
 
-  it("renders the menu list with role=menu and items with role=menuitem", () => {
-    expect(SRC).toMatch(/role=["']menu["']/);
-    expect(SRC).toMatch(/role=["']menuitem["']/);
+  // I3 — we used to declare role="menu" / role="menuitem" without
+  // implementing the keyboard contract those roles imply (arrow-key
+  // nav, initial focus, type-ahead). Honest fix: drop the menu roles
+  // and treat as a disclosed group of plain buttons. The trigger
+  // keeps aria-haspopup/aria-expanded — those are correct for a
+  // disclosed button group.
+  it("does NOT claim role=menu / role=menuitem (keyboard contract not implemented)", () => {
+    expect(SRC).not.toMatch(/role=["']menu["']/);
+    expect(SRC).not.toMatch(/role=["']menuitem["']/);
+  });
+
+  it("labels the disclosed button group with aria-label", () => {
+    expect(SRC).toMatch(/aria-label=["']Workflow stage options["']/);
   });
 
   it("uses lucide-react ChevronDown + Check icons for trigger + active marker", () => {

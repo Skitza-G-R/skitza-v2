@@ -137,10 +137,16 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
       </button>
 
       {open ? (
+        // I3 — we don't implement the full ARIA menu keyboard contract
+        // (arrow-key navigation, initial focus on the first item, type-
+        // ahead). Honest fix: drop the menu/menuitem roles so we don't
+        // claim a pattern we haven't built; treat as a disclosed group
+        // of plain buttons. The trigger keeps aria-haspopup +
+        // aria-expanded — those are still correct for a disclosed
+        // button group.
         <div
           ref={menuRef}
-          role="menu"
-          aria-label="Change workflow stage"
+          aria-label="Workflow stage options"
           className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[200px] overflow-hidden rounded-[10px] border bg-[rgb(var(--bg-background))] py-1 shadow-[0_18px_40px_-12px_rgba(17,16,9,0.32)]"
           style={{ borderColor: "rgb(var(--border-subtle))" }}
         >
@@ -149,7 +155,6 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
             return (
               <button
                 key={s.key}
-                role="menuitem"
                 type="button"
                 onClick={() => {
                   handlePick(s.key);
