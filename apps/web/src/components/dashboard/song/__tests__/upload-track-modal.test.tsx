@@ -90,6 +90,19 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toContain("onDragOver");
   });
 
+  // M1 — drag-and-drop scenarios (Finder, certain browsers) can hand
+  // us a File with empty `type`. Fall back to an extension whitelist
+  // so a correctly-named .wav / .flac / .m4a file isn't refused just
+  // because the MIME hint is missing.
+  it("accepts files with empty MIME via the audio-extension whitelist (M1)", () => {
+    expect(SRC).toContain("AUDIO_EXTENSIONS");
+    expect(SRC).toMatch(/\.wav/);
+    expect(SRC).toMatch(/\.mp3/);
+    expect(SRC).toMatch(/\.flac/);
+    expect(SRC).toMatch(/\.m4a/);
+    expect(SRC).toContain("isAudioFile");
+  });
+
   it("renders an upload progress bar with role=progressbar", () => {
     expect(SRC).toMatch(/role=["']progressbar["']/);
     expect(SRC).toMatch(/aria-valuenow=\{progress\}/);

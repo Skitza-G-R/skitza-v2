@@ -60,6 +60,19 @@ import {
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 const NEW_SONG_VALUE = "__new__";
 
+// M1 — some drag-and-drop scenarios (Finder, certain browsers) hand us
+// a File with an empty `type`. The audio/ prefix check rejects those
+// files even when the filename ends in .wav / .flac / .m4a. Fall back
+// to an extension whitelist so the producer's correctly-named file
+// isn't refused for a missing MIME hint.
+const AUDIO_EXTENSIONS = [".wav", ".mp3", ".flac", ".m4a", ".aiff", ".aif"];
+
+function isAudioFile(file: File): boolean {
+  if (file.type.startsWith("audio/")) return true;
+  const lower = file.name.toLowerCase();
+  return AUDIO_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
 export interface UploadTrackModalTrack {
   id: string;
   title: string;
@@ -169,7 +182,7 @@ export function UploadTrackModal({
       setFile(null);
       return;
     }
-    if (!f.type.startsWith("audio/")) {
+    if (!isAudioFile(f)) {
       toast("Please pick an audio file (WAV / MP3).", "error");
       return;
     }
