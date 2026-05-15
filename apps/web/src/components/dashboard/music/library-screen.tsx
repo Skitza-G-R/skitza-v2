@@ -1,0 +1,968 @@
+"use client";
+
+import {
+  AudioLines,
+  ChevronDown,
+  Disc3,
+  Grid3x3,
+  List,
+  MoreHorizontal,
+  Play,
+  Search,
+  Star,
+  Upload,
+  X,
+} from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+
+import { EqBars } from "~/components/audio/eq-bars";
+import {
+  playerPlay,
+  playerToggle,
+  useNowPlaying,
+} from "~/components/audio/persistent-player";
+
+import { ProjectCover } from "./project-cover";
+import {
+  fmtDuration,
+  gradientForSeed,
+  kindFromTrackCount,
+  padIndex,
+  sumDurations,
+  type GradientClass,
+  type ProjectKind,
+} from "./lib";
+
+// ─── Wire types ──────────────────────────────────────────────────────
+// One row per TRACK. `id` is the latest version's id so existing deep-
+// links into /dashboard/music/<id> keep working.
+export interface MusicLibraryRow {
+  id: string;
+  trackId: string;
+  trackTitle: string;
+  trackArtist: string | null;
+  label: string;
+  projectId: string;
+  projectTitle: string;
+  clientName: string | null;
+  uploadedAtIso: string;
+  audioUrl: string | null;
+  durationMs: number | null;
+  unreadComments: number;
+  plays: number;
+}
+
+// One row per PROJECT, derived client-side from `MusicLibraryRow[]`.
+interface ProjectAggregate {
+  id: string;
+  title: string;
+  artistLabel: string;
+  trackCount: number;
+  durationMs: number;
+  kind: ProjectKind;
+  gradient: GradientClass;
+  unreadComments: number;
+  firstTrack: MusicLibraryRow | null;
+}
+
+type Mode = "projects" | "songs";
+type View = "grid" | "table";
+type SongSort = "recent" | "title" | "plays" | "notes" | "length";
+
+const SORT_LABEL: Record<SongSort, string> = {
+  recent: "Most recent",
+  title: "Title A → Z",
+  plays: "Most plays",
+  notes: "Most notes",
+  length: "Length",
+};
+
+// ─── Public component ────────────────────────────────────────────────
+
+export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
+  // "all" is the sentinel for "no artist filter" — any other string is
+  // a literal client/artist name from the artist filter pill.
+  const [mode, setMode] = useState<Mode>("projects");
+  const [view, setView] = useState<View>("grid");
+  const [search, setSearch] = useState("");
+  const [artist, setArtist] = useState<string>("all");
+  const [sort, setSort] = useState<SongSort>("recent");
+
+  // Unique client/artist names for the filter pill. Order by first
+  // appearance so the most-recently-uploaded clients sit near the top.
+  const artistOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of tracks) {
+      const name = (t.clientName ?? t.trackArtist ?? "").trim();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      out.push(name);
+    }
+    return out;
+  }, [tracks]);
+
+  // Apply search + artist filter to the raw track list. Reused for the
+  // Songs view directly and as the substrate for project aggregation.
+  const filteredTracks = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return tracks.filter((t) => {
+      if (artist !== "all") {
+        const name = (t.clientName ?? t.trackArtist ?? "").trim();
+        if (name !== artist) return false;
+      }
+      if (!q) return true;
+      const hay = [
+        t.trackTitle,
+        t.trackArtist ?? "",
+        t.clientName ?? "",
+        t.projectTitle,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [tracks, search, artist]);
+
+  // Project aggregation — one entry per projectId, with track count,
+  // total duration, kind, and a stable gradient picked by hashing the
+  // projectId so the same project always lands on the same palette.
+  const projects = useMemo<ProjectAggregate[]>(() => {
+    const byId = new Map<string, ProjectAggregate & { tracks: MusicLibraryRow[] }>();
+    for (const t of filteredTracks) {
+      let agg = byId.get(t.projectId);
+      if (!agg) {
+        agg = {
+          id: t.projectId,
+          title: t.projectTitle,
+          artistLabel: (t.clientName ?? t.trackArtist ?? "").trim(),
+          trackCount: 0,
+          durationMs: 0,
+          kind: "SINGLE",
+          gradient: gradientForSeed(t.projectId),
+          unreadComments: 0,
+          firstTrack: null,
+          tracks: [],
+        };
+        byId.set(t.projectId, agg);
+      }
+      agg.tracks.push(t);
+    }
+    const items: ProjectAggregate[] = [];
+    for (const agg of byId.values()) {
+      const trackCount = agg.tracks.length;
+      const durationMs = sumDurations(agg.tracks.map((t) => t.durationMs));
+      const unreadComments = agg.tracks.reduce(
+        (acc, t) => acc + t.unreadComments,
+        0,
+      );
+      items.push({
+        id: agg.id,
+        title: agg.title,
+        artistLabel: agg.artistLabel,
+        trackCount,
+        durationMs,
+        kind: kindFromTrackCount(trackCount),
+        gradient: agg.gradient,
+        unreadComments,
+        firstTrack: agg.tracks[0] ?? null,
+      });
+    }
+    // Sort projects by most recent track upload (the first track is the
+    // newest because filteredTracks inherits the server's desc order).
+    items.sort((a, b) => {
+      const at = a.firstTrack ? Date.parse(a.firstTrack.uploadedAtIso) : 0;
+      const bt = b.firstTrack ? Date.parse(b.firstTrack.uploadedAtIso) : 0;
+      return bt - at;
+    });
+    return items;
+  }, [filteredTracks]);
+
+  // Header counts — surface the raw-tracks totals, not the filtered
+  // version, so the meta line reads as a stable library summary.
+  const totalTracks = tracks.length;
+  const totalProjects = useMemo(() => {
+    const seen = new Set<string>();
+    for (const t of tracks) seen.add(t.projectId);
+    return seen.size;
+  }, [tracks]);
+  const totalUnread = useMemo(
+    () => tracks.reduce((acc, t) => acc + t.unreadComments, 0),
+    [tracks],
+  );
+
+  // Sort songs only when the songs table is showing (per design.md the
+  // sort dropdown disappears in grid view).
+  const sortedSongs = useMemo(() => {
+    if (mode !== "songs" || view !== "table") return filteredTracks;
+    const arr = [...filteredTracks];
+    switch (sort) {
+      case "title":
+        arr.sort((a, b) => a.trackTitle.localeCompare(b.trackTitle));
+        break;
+      case "plays":
+        arr.sort((a, b) => b.plays - a.plays);
+        break;
+      case "notes":
+        arr.sort((a, b) => b.unreadComments - a.unreadComments);
+        break;
+      case "length":
+        arr.sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0));
+        break;
+      case "recent":
+      default:
+        arr.sort(
+          (a, b) =>
+            Date.parse(b.uploadedAtIso) - Date.parse(a.uploadedAtIso),
+        );
+        break;
+    }
+    return arr;
+  }, [filteredTracks, mode, view, sort]);
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Header */}
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1
+            className="font-display font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))]"
+            style={{ margin: 0, fontSize: "clamp(28px, 3.2vw, 38px)" }}
+          >
+            Library
+            <span className="text-[rgb(var(--brand-primary-dark))]">.</span>
+          </h1>
+          <p className="mt-2 text-[12.5px] text-[rgb(var(--fg-muted))]">
+            <span className="font-mono font-bold text-[rgb(var(--fg-default))] tabular-nums">
+              {String(totalTracks)}
+            </span>{" "}
+            tracks{" · "}
+            <span className="font-mono font-bold text-[rgb(var(--fg-default))] tabular-nums">
+              {String(totalProjects)}
+            </span>{" "}
+            projects{" · "}
+            {totalUnread > 0 ? (
+              <span className="font-bold text-[rgb(var(--brand-primary-dark))]">
+                {String(totalUnread)} with new notes
+              </span>
+            ) : (
+              <span className="text-[rgb(var(--fg-success))]">
+                all notes answered
+              </span>
+            )}
+          </p>
+        </div>
+        {/* Upload track CTA — placeholder route until upload UX wires up
+            its own page. Routes to clients-projects?action=upload like
+            the prior screen so click never goes nowhere. */}
+        <Link
+          href="/dashboard/clients-projects?action=upload"
+          className="inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--brand-primary))] px-[15px] py-[9px] text-[12.5px] font-bold text-[rgb(var(--fg-default))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)] transition-[filter] hover:brightness-105"
+        >
+          <Upload size={13} strokeWidth={2.4} />
+          Upload track
+        </Link>
+      </header>
+
+      {/* Toolbar */}
+      <div
+        className="flex flex-wrap items-center gap-2.5 rounded-[12px] border px-3 py-2.5"
+        style={{
+          background: "rgb(var(--bg-elevated) / 0.55)",
+          borderColor: "rgb(var(--border-subtle))",
+        }}
+      >
+        {/* Search */}
+        <div
+          className="flex min-w-[220px] max-w-[320px] flex-1 items-center gap-1.5 rounded-full bg-[rgb(var(--bg-elevated))] px-3 py-1.5"
+          style={{ border: "1px solid rgb(var(--border-subtle))" }}
+        >
+          <Search size={13} className="text-[rgb(var(--fg-muted))]" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+            }}
+            placeholder="Search tracks, artists, projects…"
+            aria-label="Search music library"
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
+          />
+          {search ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setSearch("");
+              }}
+              className="rounded-full p-0.5 text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+            >
+              <X size={12} />
+            </button>
+          ) : null}
+        </div>
+
+        {/* Artist filter pill */}
+        <ArtistFilterPill
+          options={artistOptions}
+          value={artist}
+          onChange={setArtist}
+        />
+
+        {/* Mode toggle (Projects / Songs) — pushed to the right */}
+        <div className="ml-auto flex">
+          <ModeToggle value={mode} onChange={setMode} />
+        </div>
+
+        {/* Sort dropdown — only in songs table view */}
+        {mode === "songs" && view === "table" ? (
+          <SortDropdown value={sort} onChange={setSort} />
+        ) : null}
+
+        {/* View toggle (Grid / Table) */}
+        <ViewToggle value={view} onChange={setView} />
+      </div>
+
+      {/* Body */}
+      {filteredTracks.length === 0 ? (
+        <EmptyResult hasQuery={Boolean(search.trim()) || artist !== "all"} />
+      ) : mode === "projects" ? (
+        view === "grid" ? (
+          <ProjectsGrid projects={projects} />
+        ) : (
+          <ProjectsTable projects={projects} />
+        )
+      ) : view === "grid" ? (
+        <SongsGrid songs={filteredTracks} />
+      ) : (
+        <SongsTable songs={sortedSongs} />
+      )}
+    </div>
+  );
+}
+
+// ─── Toolbar primitives ──────────────────────────────────────────────
+
+function ModeToggle({
+  value,
+  onChange,
+}: {
+  value: Mode;
+  onChange: (m: Mode) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Library mode"
+      className="flex rounded-[9px] p-[2px]"
+      style={{
+        background: "rgb(var(--bg-elevated))",
+        border: "1px solid rgb(var(--border-subtle))",
+      }}
+    >
+      <SegmentedButton
+        active={value === "projects"}
+        onClick={() => {
+          onChange("projects");
+        }}
+        icon={<Disc3 size={13} strokeWidth={2.2} />}
+        label="Projects"
+      />
+      <SegmentedButton
+        active={value === "songs"}
+        onClick={() => {
+          onChange("songs");
+        }}
+        icon={<AudioLines size={13} strokeWidth={2.2} />}
+        label="Songs"
+      />
+    </div>
+  );
+}
+
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: View;
+  onChange: (v: View) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="View"
+      className="flex rounded-[9px] p-[2px]"
+      style={{
+        background: "rgb(var(--bg-elevated))",
+        border: "1px solid rgb(var(--border-subtle))",
+      }}
+    >
+      <SegmentedButton
+        active={value === "grid"}
+        onClick={() => {
+          onChange("grid");
+        }}
+        icon={<Grid3x3 size={13} strokeWidth={2.2} />}
+        ariaLabel="Grid view"
+        iconOnly
+      />
+      <SegmentedButton
+        active={value === "table"}
+        onClick={() => {
+          onChange("table");
+        }}
+        icon={<List size={13} strokeWidth={2.2} />}
+        ariaLabel="Table view"
+        iconOnly
+      />
+    </div>
+  );
+}
+
+function SegmentedButton({
+  active,
+  onClick,
+  icon,
+  label,
+  ariaLabel,
+  iconOnly,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label?: string;
+  ariaLabel?: string;
+  iconOnly?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      aria-label={ariaLabel ?? label}
+      onClick={onClick}
+      className={[
+        "inline-flex items-center gap-1.5 rounded-[7px] font-bold transition",
+        iconOnly ? "px-[9px] py-[6px]" : "px-[11px] py-[6px]",
+        "text-[11.5px]",
+        active
+          ? "bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
+          : "bg-transparent text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+      ].join(" ")}
+    >
+      {icon}
+      {label && !iconOnly ? <span>{label}</span> : null}
+    </button>
+  );
+}
+
+function ArtistFilterPill({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  /** "all" is the sentinel for "no filter"; any other value is a name. */
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const filtered = value !== "all";
+  return (
+    <label
+      className={[
+        "relative inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition",
+        filtered
+          ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-background))]"
+          : "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
+      ].join(" ")}
+      style={{
+        border: filtered ? "none" : "1px solid rgb(var(--border-subtle))",
+      }}
+    >
+      <span className="pointer-events-none">{filtered ? value : "All artists"}</span>
+      <ChevronDown size={11} strokeWidth={2.2} className="pointer-events-none" />
+      <select
+        aria-label="Filter by artist"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+        }}
+        className="absolute inset-0 cursor-pointer opacity-0"
+      >
+        <option value="all">All artists</option>
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function SortDropdown({
+  value,
+  onChange,
+}: {
+  value: SongSort;
+  onChange: (v: SongSort) => void;
+}) {
+  return (
+    <label
+      className="relative inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-[11.5px] font-semibold text-[rgb(var(--fg-default))]"
+      style={{ border: "1px solid rgb(var(--border-subtle))" }}
+    >
+      <span className="pointer-events-none text-[rgb(var(--fg-muted))]">
+        Sort
+      </span>
+      <span className="pointer-events-none">{SORT_LABEL[value]}</span>
+      <ChevronDown size={11} strokeWidth={2.2} className="pointer-events-none" />
+      <select
+        aria-label="Sort songs"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value as SongSort);
+        }}
+        className="absolute inset-0 cursor-pointer opacity-0"
+      >
+        {(Object.keys(SORT_LABEL) as SongSort[]).map((k) => (
+          <option key={k} value={k}>
+            {SORT_LABEL[k]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+// ─── Views ───────────────────────────────────────────────────────────
+
+function ProjectsGrid({ projects }: { projects: ProjectAggregate[] }) {
+  return (
+    <ul
+      role="list"
+      className="grid gap-[22px]"
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(196px, 1fr))" }}
+    >
+      {projects.map((p) => (
+        <li key={p.id}>
+          <ProjectCard project={p} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ProjectCard({ project }: { project: ProjectAggregate }) {
+  return (
+    <Link
+      href={`/dashboard/music/project/${project.id}`}
+      className="group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
+    >
+      <div className="relative">
+        <ProjectCover
+          seed={project.id}
+          gradient={project.gradient}
+          kind={project.kind}
+          shadow="hero"
+          radius="12px"
+          className="aspect-square"
+        />
+        {/* Hover-only play button — translates up + fades in. */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute bottom-3 right-3 flex h-11 w-11 translate-y-1 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] opacity-0 shadow-[0_6px_14px_rgba(17,16,9,0.32)] transition-[opacity,transform] duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100"
+        >
+          <Play size={16} strokeWidth={2.6} fill="currentColor" />
+        </span>
+      </div>
+      <div className="min-w-0">
+        <p
+          className="truncate font-display text-[15px] font-bold leading-tight text-[rgb(var(--fg-default))]"
+          style={{ letterSpacing: "-0.02em" }}
+        >
+          {project.title}
+        </p>
+        {project.artistLabel ? (
+          <p className="mt-0.5 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+            {project.artistLabel}
+          </p>
+        ) : null}
+        <p className="mt-1 truncate font-mono text-[10.5px] text-[rgb(var(--fg-faint))]">
+          {project.kind} · {String(project.trackCount)} track
+          {project.trackCount === 1 ? "" : "s"} · {fmtDuration(project.durationMs)}
+        </p>
+      </div>
+    </Link>
+  );
+}
+
+function ProjectsTable({ projects }: { projects: ProjectAggregate[] }) {
+  return (
+    <div
+      className="overflow-hidden rounded-[12px] border"
+      style={{
+        background: "rgb(var(--bg-elevated))",
+        borderColor: "rgb(var(--border-subtle))",
+      }}
+    >
+      {/* Header */}
+      <div
+        className="grid items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+        style={{
+          gridTemplateColumns:
+            "44px minmax(0,2.2fr) minmax(0,1.4fr) 90px 70px 80px 70px",
+          borderBottom: "1px solid rgb(var(--border-subtle))",
+        }}
+      >
+        <span />
+        <span>Project</span>
+        <span>Artist</span>
+        <span>Kind</span>
+        <span className="text-right">Tracks</span>
+        <span className="text-right">Duration</span>
+        <span className="text-right">Notes</span>
+      </div>
+      <ul role="list">
+        {projects.map((p) => (
+          <li key={p.id}>
+            <Link
+              href={`/dashboard/music/project/${p.id}`}
+              className="grid items-center gap-3 px-4 py-2.5 transition hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:bg-[rgb(var(--bg-overlay))]"
+              style={{
+                gridTemplateColumns:
+                  "44px minmax(0,2.2fr) minmax(0,1.4fr) 90px 70px 80px 70px",
+                borderBottom: "1px solid rgb(var(--border-subtle))",
+              }}
+            >
+              <ProjectCover
+                seed={p.id}
+                gradient={p.gradient}
+                kind={null}
+                wordmark={false}
+                showKind={false}
+                shadow="none"
+                radius="6px"
+                className="h-9 w-9"
+              />
+              <span className="truncate font-display text-[14px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+                {p.title}
+              </span>
+              <span className="truncate text-[12px] text-[rgb(var(--fg-muted))]">
+                {p.artistLabel || "—"}
+              </span>
+              <span>
+                <span className="inline-flex items-center rounded-full bg-[rgb(var(--bg-sunken))] px-2 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--fg-default))]">
+                  {p.kind}
+                </span>
+              </span>
+              <span className="text-right font-mono text-[11.5px] tabular-nums text-[rgb(var(--fg-muted))]">
+                {String(p.trackCount)}
+              </span>
+              <span className="text-right font-mono text-[11.5px] tabular-nums text-[rgb(var(--fg-muted))]">
+                {fmtDuration(p.durationMs)}
+              </span>
+              <span
+                className={[
+                  "text-right font-mono text-[11.5px] tabular-nums",
+                  p.unreadComments > 0
+                    ? "font-bold text-[rgb(var(--brand-primary-dark))]"
+                    : "text-[rgb(var(--fg-faint))]",
+                ].join(" ")}
+              >
+                {p.unreadComments > 0 ? String(p.unreadComments) : "—"}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SongsGrid({ songs }: { songs: MusicLibraryRow[] }) {
+  return (
+    <ul
+      role="list"
+      className="grid gap-[22px]"
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(196px, 1fr))" }}
+    >
+      {songs.map((s) => (
+        <li key={s.id}>
+          <SongCard song={s} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SongCard({ song }: { song: MusicLibraryRow }) {
+  const gradient = gradientForSeed(song.projectId);
+  const subtitle = [song.projectTitle, song.clientName ?? song.trackArtist]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <Link
+      href={`/dashboard/music/${song.id}`}
+      className="group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
+    >
+      <div className="relative" style={{ aspectRatio: "1.3 / 1" }}>
+        <ProjectCover
+          seed={song.id}
+          gradient={gradient}
+          kind={null}
+          wordmark
+          showKind={false}
+          radius="12px"
+          shadow="hero"
+          className="absolute inset-0"
+        />
+        {/* Version chip top-right */}
+        <span
+          className="absolute right-2.5 top-2.5 rounded-[4px] bg-black/35 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-sm"
+        >
+          {song.label}
+        </span>
+        {/* Hover play */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute bottom-3 left-3 flex h-8 w-8 translate-y-1 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] opacity-0 shadow-[0_6px_14px_rgba(17,16,9,0.32)] transition-[opacity,transform] duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100"
+        >
+          <Play size={13} strokeWidth={2.6} fill="currentColor" />
+        </span>
+      </div>
+      <div className="min-w-0">
+        <p
+          className="truncate font-display text-[13px] font-bold leading-tight text-[rgb(var(--fg-default))]"
+          style={{ letterSpacing: "-0.01em" }}
+        >
+          {song.trackTitle}
+        </p>
+        {subtitle ? (
+          <p className="mt-0.5 truncate text-[11px] text-[rgb(var(--fg-muted))]">
+            {subtitle}
+          </p>
+        ) : null}
+        <p className="mt-1 flex items-center justify-between font-mono text-[10.5px] text-[rgb(var(--fg-faint))]">
+          <span className="inline-flex items-center gap-1">
+            <Play size={9} strokeWidth={2.6} fill="currentColor" />
+            <span className="tabular-nums">
+              {song.plays > 0 ? String(song.plays) : "—"}
+            </span>
+          </span>
+          <span className="tabular-nums">{fmtDuration(song.durationMs)}</span>
+        </p>
+      </div>
+    </Link>
+  );
+}
+
+function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
+  const nowPlaying = useNowPlaying();
+  const cols = "44px minmax(0,2fr) minmax(0,1fr) 70px 64px 60px 64px 36px";
+
+  function handlePlay(song: MusicLibraryRow) {
+    if (!song.audioUrl) return;
+    if (nowPlaying.trackId === song.id) {
+      playerToggle();
+      return;
+    }
+    playerPlay({
+      id: song.id,
+      audioUrl: song.audioUrl,
+      title: song.trackTitle,
+      subtitle: `${song.clientName ?? song.trackArtist ?? song.projectTitle} · ${song.label}`,
+      durationMs: song.durationMs,
+    });
+  }
+
+  return (
+    <div
+      className="overflow-hidden rounded-[12px] border"
+      style={{
+        background: "rgb(var(--bg-elevated))",
+        borderColor: "rgb(var(--border-subtle))",
+      }}
+    >
+      <div
+        className="grid items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+        style={{
+          gridTemplateColumns: cols,
+          borderBottom: "1px solid rgb(var(--border-subtle))",
+        }}
+      >
+        <span className="text-right">#</span>
+        <span>Title</span>
+        <span>Artist</span>
+        <span>Version</span>
+        <span className="text-right">Plays</span>
+        <span className="text-right">Notes</span>
+        <span className="text-right">Length</span>
+        <span />
+      </div>
+      <ul role="list">
+        {songs.map((s, idx) => {
+          const isCurrent = nowPlaying.trackId === s.id;
+          const isPlayingHere = isCurrent && nowPlaying.playing;
+          return (
+            <li key={s.id}>
+              <div
+                className={[
+                  "group grid items-center gap-3 px-4 py-2 transition hover:bg-[rgb(var(--bg-overlay))]",
+                  isCurrent ? "bg-[rgb(var(--brand-primary)/0.055)]" : "",
+                ].join(" ")}
+                style={{
+                  gridTemplateColumns: cols,
+                  borderBottom: "1px solid rgb(var(--border-subtle))",
+                }}
+              >
+                {/* Index → play button on hover / current. Both sit in
+                    the same cell so the button reveals over the number
+                    on hover instead of pushing it sideways. */}
+                <div className="relative flex justify-end">
+                  <button
+                    type="button"
+                    aria-label={isPlayingHere ? "Pause" : "Play"}
+                    onClick={() => {
+                      handlePlay(s);
+                    }}
+                    disabled={!s.audioUrl}
+                    className={[
+                      "inline-flex h-7 w-7 items-center justify-center rounded-full transition disabled:opacity-40",
+                      isCurrent
+                        ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
+                        : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100",
+                    ].join(" ")}
+                  >
+                    {isPlayingHere ? (
+                      <EqBars playing size={11} />
+                    ) : (
+                      <Play size={11} strokeWidth={2.6} fill="currentColor" />
+                    )}
+                  </button>
+                  <span
+                    aria-hidden
+                    className={[
+                      "pointer-events-none absolute font-mono text-[11px] tabular-nums text-[rgb(var(--fg-faint))] transition",
+                      isCurrent ? "opacity-0" : "group-hover:opacity-0",
+                    ].join(" ")}
+                    style={{
+                      width: 28,
+                      textAlign: "right",
+                      lineHeight: "28px",
+                    }}
+                  >
+                    {padIndex(idx)}
+                  </span>
+                </div>
+
+                {/* Title + project (deep link) */}
+                <Link
+                  href={`/dashboard/music/${s.id}`}
+                  className="min-w-0"
+                >
+                  <p className="truncate text-[13.5px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+                    {s.trackTitle}
+                  </p>
+                  <p className="truncate text-[11px] text-[rgb(var(--fg-muted))]">
+                    {s.projectTitle}
+                  </p>
+                </Link>
+
+                <span className="truncate text-[12px] text-[rgb(var(--fg-muted))]">
+                  {s.clientName ?? s.trackArtist ?? "—"}
+                </span>
+
+                <span>
+                  <span className="inline-flex items-center rounded-[4px] bg-[rgb(var(--bg-sunken))] px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase text-[rgb(var(--fg-default))]">
+                    {s.label}
+                  </span>
+                </span>
+
+                <span className="text-right font-mono text-[11px] tabular-nums text-[rgb(var(--fg-muted))]">
+                  {s.plays > 0 ? String(s.plays) : "—"}
+                </span>
+
+                <span
+                  className={[
+                    "text-right font-mono text-[11px] tabular-nums",
+                    s.unreadComments > 0
+                      ? "font-bold text-[rgb(var(--brand-primary-dark))]"
+                      : "text-[rgb(var(--fg-faint))]",
+                  ].join(" ")}
+                >
+                  {s.unreadComments > 0 ? String(s.unreadComments) : "—"}
+                </span>
+
+                <span className="text-right font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
+                  {fmtDuration(s.durationMs)}
+                </span>
+
+                <span className="flex items-center justify-end gap-1.5">
+                  <FavoriteButton trackId={s.id} />
+                  <button
+                    type="button"
+                    aria-label="More actions"
+                    className="rounded-full p-1 text-[rgb(var(--fg-muted))] transition hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// Local-only favorite toggle. Persists nowhere — design.md mentions
+// favorites are local React state in v1 (real persistence is a follow-up).
+function FavoriteButton({ trackId }: { trackId: string }) {
+  const [on, setOn] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={on ? "Remove favorite" : "Add favorite"}
+      aria-pressed={on}
+      title={on ? "In favorites" : "Add to favorites"}
+      data-track={trackId}
+      onClick={() => {
+        setOn((v) => !v);
+      }}
+      className="rounded-full p-1 text-[rgb(var(--fg-muted))] transition hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
+    >
+      <Star
+        size={13}
+        strokeWidth={1.8}
+        fill={on ? "rgb(var(--brand-primary))" : "none"}
+        color={on ? "rgb(var(--brand-primary-dark))" : "currentColor"}
+      />
+    </button>
+  );
+}
+
+function EmptyResult({ hasQuery }: { hasQuery: boolean }) {
+  return (
+    <div
+      role="status"
+      className="rounded-[14px] border border-dashed px-6 py-10 text-center"
+      style={{
+        borderColor: "rgb(var(--border-subtle))",
+        background: "rgb(var(--bg-elevated))",
+      }}
+    >
+      <h3 className="font-display text-[18px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+        Nothing here
+        <span className="text-[rgb(var(--brand-primary-dark))]">.</span>
+      </h3>
+      <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
+        {hasQuery
+          ? "Try clearing the search or artist filter."
+          : "Drop a WAV into any project and it’ll land here."}
+      </p>
+    </div>
+  );
+}

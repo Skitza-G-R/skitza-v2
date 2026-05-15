@@ -282,42 +282,55 @@ describe("producer.music.list", () => {
     // Rows already arrive in desc order (the DB enforces it via the
     // ORDER BY clause). We verify the router surfaces them in the same
     // order — i.e. doesn't reverse them or re-sort by a different key.
+    // Each row is one TRACK; the query also returns the same row's
+    // latest version metadata.
     musicListMock.mockResolvedValueOnce([
       {
-        id: "v-newest",
-        trackTitle: "Newest",
-        label: "Master",
-        projectId: "p1",
-        projectTitle: "Project 1",
-        clientName: "Alice",
-        uploadedAt: newest,
+        versionId: "v-newest",
+        versionLabel: "Master",
         audioUrl: "https://cdn/newest.mp3",
-      },
-      {
-        id: "v-middle",
-        trackTitle: "Middle",
-        label: "Mix v2",
+        durationMs: 240_000,
+        uploadedAt: newest,
+        trackId: "t-newest",
+        trackTitle: "Newest",
+        trackArtist: "Alice",
         projectId: "p1",
         projectTitle: "Project 1",
         clientName: "Alice",
-        uploadedAt: middle,
-        audioUrl: "https://cdn/middle.mp3",
       },
       {
-        id: "v-oldest",
+        versionId: "v-middle",
+        versionLabel: "Mix v2",
+        audioUrl: "https://cdn/middle.mp3",
+        durationMs: 240_000,
+        uploadedAt: middle,
+        trackId: "t-middle",
+        trackTitle: "Middle",
+        trackArtist: "Alice",
+        projectId: "p1",
+        projectTitle: "Project 1",
+        clientName: "Alice",
+      },
+      {
+        versionId: "v-oldest",
+        versionLabel: "Mix v1",
+        audioUrl: "https://cdn/oldest.mp3",
+        durationMs: 200_000,
+        uploadedAt: oldest,
+        trackId: "t-oldest",
         trackTitle: "Oldest",
-        label: "Mix v1",
+        trackArtist: "Bob",
         projectId: "p2",
         projectTitle: "Project 2",
         clientName: "Bob",
-        uploadedAt: oldest,
-        audioUrl: "https://cdn/oldest.mp3",
       },
     ]);
 
     const caller = await buildCaller();
     const result = await caller.producer.music.list();
 
+    // The `id` field is the latest version id (kept for deep-link
+    // compatibility with /dashboard/music/<versionId>).
     expect(result.tracks.map((t) => t.id)).toEqual([
       "v-newest",
       "v-middle",
@@ -325,18 +338,63 @@ describe("producer.music.list", () => {
     ]);
   });
 
-  it("returns full row shape: track title + label + project context + audioUrl + uploadedAt", async () => {
-    const uploadedAt = new Date("2026-04-15T12:00:00Z");
+  it("collapses multiple versions of a track into one row (newest version wins)", async () => {
+    const now = Date.now();
+    // Two versions of the same trackId — newest first per the ORDER BY.
+    // The router collapses them into a single row with the newest version
+    // surfaced as `id` + `label` + `audioUrl`.
     musicListMock.mockResolvedValueOnce([
       {
-        id: "v1",
+        versionId: "v-new",
+        versionLabel: "Master",
+        audioUrl: "https://cdn/new.mp3",
+        durationMs: 240_000,
+        uploadedAt: new Date(now),
+        trackId: "track-1",
         trackTitle: "Midnight Drive",
-        label: "Master",
+        trackArtist: "Alice",
         projectId: "p1",
         projectTitle: "Alice EP",
         clientName: "Alice Records",
-        uploadedAt,
+      },
+      {
+        versionId: "v-old",
+        versionLabel: "Mix v1",
+        audioUrl: "https://cdn/old.mp3",
+        durationMs: 240_000,
+        uploadedAt: new Date(now - 60_000),
+        trackId: "track-1",
+        trackTitle: "Midnight Drive",
+        trackArtist: "Alice",
+        projectId: "p1",
+        projectTitle: "Alice EP",
+        clientName: "Alice Records",
+      },
+    ]);
+
+    const caller = await buildCaller();
+    const result = await caller.producer.music.list();
+
+    expect(result.tracks).toHaveLength(1);
+    expect(result.tracks[0]?.id).toBe("v-new");
+    expect(result.tracks[0]?.label).toBe("Master");
+  });
+
+  it("returns full row shape: track + project context + version metadata + notes count", async () => {
+    const uploadedAt = new Date("2026-04-15T12:00:00Z");
+    musicListMock.mockResolvedValueOnce([
+      {
+        versionId: "v1",
+        versionLabel: "Master",
         audioUrl: "https://cdn/midnight.mp3",
+        durationMs: 245_000,
+        uploadedAt,
+        trackId: "t1",
+        trackTitle: "Midnight Drive",
+        trackArtist: "Alice",
+        projectId: "p1",
+        projectTitle: "Alice EP",
+        clientName: "Alice Records",
       },
     ]);
 
@@ -346,31 +404,41 @@ describe("producer.music.list", () => {
     expect(result.tracks).toHaveLength(1);
     expect(result.tracks[0]).toEqual({
       id: "v1",
+      trackId: "t1",
       trackTitle: "Midnight Drive",
+      trackArtist: "Alice",
       label: "Master",
       projectId: "p1",
       projectTitle: "Alice EP",
       clientName: "Alice Records",
       uploadedAt,
       audioUrl: "https://cdn/midnight.mp3",
+      durationMs: 245_000,
+      // No comments enqueued in trackCommentsQueue → the fallback chain
+      // returns [], so notesByVersion is empty → 0.
+      unreadComments: 0,
+      // Plays counter not in schema yet — design.md renders em-dash for 0.
+      plays: 0,
     });
   });
 
-  it("caps at 100 rows", async () => {
-    // Seed 150 rows. Even if the DB layer returned more than 100, the
-    // router's response must be ≤ 100. (The router enforces this via
-    // .limit(100) in the query; this test is a belt-and-braces assertion
-    // on the response shape.)
+  it("caps at 100 rows after deduping", async () => {
+    // Seed 150 unique trackIds. The deduplication doesn't collapse
+    // anything (each trackId is unique), so the post-collapse cap of
+    // MUSIC_LIST_MAX (100) is what bounds the response.
     musicListMock.mockResolvedValueOnce(
       Array.from({ length: 150 }, (_, i) => ({
-        id: `v-${String(i)}`,
+        versionId: `v-${String(i)}`,
+        versionLabel: "Mix",
+        audioUrl: `https://cdn/${String(i)}.mp3`,
+        durationMs: 200_000,
+        uploadedAt: new Date(Date.now() - i * 60_000),
+        trackId: `t-${String(i)}`,
         trackTitle: `Track ${String(i)}`,
-        label: "Mix",
+        trackArtist: "Alice",
         projectId: "p1",
         projectTitle: "Project 1",
         clientName: "Alice",
-        uploadedAt: new Date(Date.now() - i * 60_000),
-        audioUrl: `https://cdn/${String(i)}.mp3`,
       })),
     );
 

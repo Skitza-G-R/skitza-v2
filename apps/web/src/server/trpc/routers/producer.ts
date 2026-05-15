@@ -1279,42 +1279,193 @@ export const producerRouter = router({
     return { points, currency: defaultCurrency };
   }),
 
-  // Music top-level — Samply-style cross-project library. One row per
-  // track version across every project this producer owns, sorted
-  // newest-upload-first. The UI deep-links a row tap to
-  // /dashboard/projects/<projectId>?tab=music&version=<versionId>, so
-  // the producer can listen to anything they've ever uploaded without
-  // hunting through the Projects list for the right client.
+  // Music top-level — Spotify-style track library. One row per TRACK
+  // (not per version), each carrying the latest version's audio + label
+  // for instant playback. Same producer-scoped join as before; the new
+  // shape ships unread-notes count so the redesigned library can render
+  // the amber "notes badge" in both grid and table views.
   //
-  // The single query joins outward from track_versions → project_tracks
-  // → projects, then filters by projects.producerId. No separate
-  // count query — the list is capped at MUSIC_LIST_MAX rows, which is
-  // enough to not need pagination for the vast majority of producers.
+  // The query pulls every version under the producer, then collapses to
+  // one row per trackId, keeping the newest version per track. Done in
+  // JS rather than a window-function SQL query — the per-producer
+  // volume is bounded (< a few hundred versions for the vast majority)
+  // and the JS reduce is easier to reason about + test.
   music: router({
     list: producerProcedure.query(async ({ ctx }) => {
       const rows = await ctx.db
         .select({
-          id: trackVersions.id,
+          versionId: trackVersions.id,
+          versionLabel: trackVersions.label,
+          audioUrl: trackVersions.audioUrl,
+          durationMs: trackVersions.durationMs,
+          uploadedAt: trackVersions.uploadedAt,
+          trackId: projectTracks.id,
           trackTitle: projectTracks.title,
-          label: trackVersions.label,
+          trackArtist: projectTracks.artist,
           projectId: projects.id,
           projectTitle: projects.title,
           clientName: projects.clientName,
-          uploadedAt: trackVersions.uploadedAt,
-          audioUrl: trackVersions.audioUrl,
         })
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
         .innerJoin(projects, eq(projects.id, projectTracks.projectId))
         .where(eq(projects.producerId, ctx.producerId))
-        .orderBy(desc(trackVersions.uploadedAt))
-        .limit(MUSIC_LIST_MAX);
+        .orderBy(desc(trackVersions.uploadedAt));
 
-      // Belt-and-braces cap. The .limit() above already constrains the
-      // SQL result, but slicing here guarantees the response shape
-      // holds even if a future query path skips the DB-side limit.
-      return { tracks: rows.slice(0, MUSIC_LIST_MAX) };
+      // Collapse versions → tracks, keeping the newest per track.
+      // The query already orders desc by uploadedAt, so the first
+      // occurrence of a trackId is the newest version.
+      const byTrack = new Map<string, (typeof rows)[number]>();
+      for (const r of rows) {
+        if (!byTrack.has(r.trackId)) byTrack.set(r.trackId, r);
+      }
+      const trackList = Array.from(byTrack.values()).slice(0, MUSIC_LIST_MAX);
+
+      // Per-version unread-notes count — only matters for the latest
+      // version (that's what the library row represents). One IN query
+      // is cheaper than N parallel COUNTs.
+      const versionIds = trackList.map((t) => t.versionId);
+      const noteRows = versionIds.length
+        ? await ctx.db
+            .select({
+              versionId: trackComments.versionId,
+              id: trackComments.id,
+            })
+            .from(trackComments)
+            .where(
+              and(
+                inArray(trackComments.versionId, versionIds),
+                eq(trackComments.fromProducer, false),
+                isNull(trackComments.resolvedAt),
+              ),
+            )
+        : [];
+      const notesByVersion = new Map<string, number>();
+      for (const n of noteRows) {
+        notesByVersion.set(n.versionId, (notesByVersion.get(n.versionId) ?? 0) + 1);
+      }
+
+      const tracks = trackList.map((r) => ({
+        // Keep `id` = versionId so existing deep-links into
+        // /dashboard/music/<id> (which expects a versionId) still work.
+        id: r.versionId,
+        trackId: r.trackId,
+        trackTitle: r.trackTitle,
+        trackArtist: r.trackArtist,
+        label: r.versionLabel,
+        projectId: r.projectId,
+        projectTitle: r.projectTitle,
+        clientName: r.clientName,
+        uploadedAt: r.uploadedAt,
+        audioUrl: r.audioUrl,
+        durationMs: r.durationMs,
+        unreadComments: notesByVersion.get(r.versionId) ?? 0,
+        // Plays — schema has no counter yet; design.md renders em-dash
+        // for zero, so 0 is the correct placeholder.
+        plays: 0,
+      }));
+
+      return { tracks };
     }),
+
+    // Project page — hero + tracklist data for /dashboard/music/project/[id].
+    // Producer-scoped (auth boundary: projects.producerId = ctx.producerId).
+    // Returns the project meta + one row per track with the latest
+    // version's playable info. Mirrors the shape `list` uses so consumers
+    // can reuse the same row primitives.
+    project: producerProcedure
+      .input(z.object({ projectId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        // (1) Project meta — single row, gated by producer scope.
+        const [head] = await ctx.db
+          .select({
+            id: projects.id,
+            title: projects.title,
+            clientName: projects.clientName,
+            createdAt: projects.createdAt,
+          })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.id, input.projectId),
+              eq(projects.producerId, ctx.producerId),
+            ),
+          )
+          .limit(1);
+        if (!head) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // (2) Every version under this project, newest first. We collapse
+        // to one row per track in JS (same trick as `list`).
+        const versionRows = await ctx.db
+          .select({
+            versionId: trackVersions.id,
+            versionLabel: trackVersions.label,
+            audioUrl: trackVersions.audioUrl,
+            durationMs: trackVersions.durationMs,
+            uploadedAt: trackVersions.uploadedAt,
+            trackId: projectTracks.id,
+            trackTitle: projectTracks.title,
+            trackArtist: projectTracks.artist,
+          })
+          .from(trackVersions)
+          .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+          .where(eq(projectTracks.projectId, input.projectId))
+          .orderBy(desc(trackVersions.uploadedAt));
+
+        const byTrack = new Map<string, (typeof versionRows)[number]>();
+        for (const v of versionRows) {
+          if (!byTrack.has(v.trackId)) byTrack.set(v.trackId, v);
+        }
+        const trackList = Array.from(byTrack.values());
+
+        // (3) Notes count per latest-version, single IN query.
+        const versionIds = trackList.map((t) => t.versionId);
+        const noteRows = versionIds.length
+          ? await ctx.db
+              .select({
+                versionId: trackComments.versionId,
+                id: trackComments.id,
+              })
+              .from(trackComments)
+              .where(
+                and(
+                  inArray(trackComments.versionId, versionIds),
+                  eq(trackComments.fromProducer, false),
+                  isNull(trackComments.resolvedAt),
+                ),
+              )
+          : [];
+        const notesByVersion = new Map<string, number>();
+        for (const n of noteRows) {
+          notesByVersion.set(
+            n.versionId,
+            (notesByVersion.get(n.versionId) ?? 0) + 1,
+          );
+        }
+
+        const tracks = trackList.map((r) => ({
+          id: r.versionId,
+          trackId: r.trackId,
+          title: r.trackTitle,
+          artist: r.trackArtist,
+          versionLabel: r.versionLabel,
+          audioUrl: r.audioUrl,
+          durationMs: r.durationMs,
+          uploadedAt: r.uploadedAt,
+          unreadComments: notesByVersion.get(r.versionId) ?? 0,
+          plays: 0,
+        }));
+
+        return {
+          project: {
+            id: head.id,
+            title: head.title,
+            clientName: head.clientName,
+            createdAt: head.createdAt,
+          },
+          tracks,
+        };
+      }),
 
     // L3 song page detail — single track with its full version stack +
     // timestamped comments, scoped to the producer's tenant. Resolves
