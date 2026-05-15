@@ -28,20 +28,9 @@ export default async function BookPage({ searchParams }: PageProps) {
   const activeStudioId = sp.studio ?? studios[0]?.producerId;
   if (!activeStudioId) {
     return (
-      <div className="reveal-up space-y-4">
-        <header className="px-1">
-          <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-            Book
-            <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
-          </h1>
-          <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
-            Sessions live here once you're connected to a producer.
-          </p>
-        </header>
-        <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center text-sm text-[rgb(var(--fg-secondary))]">
-          No studios yet. Once a producer invites you, booking shows up
-          here.
-        </div>
+      <div className="reveal-up space-y-6">
+        <BookHeader sub="Sessions land here once you're connected to a producer." />
+        <EmptyStudios />
       </div>
     );
   }
@@ -53,18 +42,14 @@ export default async function BookPage({ searchParams }: PageProps) {
   ]);
 
   return (
-    <div className="reveal-up space-y-4">
-      <header className="px-1">
-        <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-          Book
-          <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
-        </h1>
-        <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
-          {studios.length > 1
-            ? "Pick a producer to see their availability."
-            : "Pick a slot in the next 14 days."}
-        </p>
-      </header>
+    <div className="reveal-up space-y-6">
+      <BookHeader
+        sub={
+          studios.length > 1
+            ? "Pick a producer, then grab a slot in the next 14 days."
+            : "Grab a slot in the next 14 days."
+        }
+      />
       <BookingClient
         activeStudioId={activeStudioId}
         availability={availability}
@@ -73,5 +58,60 @@ export default async function BookPage({ searchParams }: PageProps) {
         activePackages={activePackages}
       />
     </div>
+  );
+}
+
+function BookHeader({ sub }: { sub: string }) {
+  return (
+    <header className="px-1 pb-1 pt-1 sm:px-0">
+      <p className="font-mono text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+        Studio time
+      </p>
+      <h1 className="mt-1 font-display text-[34px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))]">
+        Book
+        <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+      </h1>
+      <p className="mt-2.5 text-[13.5px] leading-snug text-[rgb(var(--fg-muted))]">
+        {sub}
+      </p>
+    </header>
+  );
+}
+
+function EmptyStudios() {
+  return (
+    <section
+      aria-label="No studios yet"
+      className="overflow-hidden rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))]"
+      style={{
+        borderColor: "rgb(var(--border-subtle))",
+        boxShadow: "var(--shadow-sm)",
+      }}
+    >
+      <div
+        aria-hidden
+        className="flex h-24 items-center justify-center"
+        style={{
+          background:
+            "radial-gradient(120% 80% at 50% 0%, rgb(var(--brand-primary) / 0.16), transparent 65%), rgb(var(--bg-overlay))",
+        }}
+      >
+        <span
+          className="font-mono text-[10px] font-bold uppercase tracking-[0.24em]"
+          style={{ color: "rgb(var(--brand-primary))" }}
+        >
+          Waiting for an invite
+        </span>
+      </div>
+      <div className="px-6 py-5">
+        <p className="font-display text-[18px] font-extrabold leading-tight tracking-[-0.015em] text-[rgb(var(--fg-default))]">
+          Nothing to book yet.
+        </p>
+        <p className="mt-1.5 text-[13px] leading-snug text-[rgb(var(--fg-muted))]">
+          Once a producer invites you, their next 14 days appear here. You
+          pick a window, they confirm.
+        </p>
+      </div>
+    </section>
   );
 }
