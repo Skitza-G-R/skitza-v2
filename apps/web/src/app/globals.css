@@ -1118,6 +1118,13 @@
        Drop the ring entirely; consumers (which set their own static
        shadow) keep their elevation. */
     .skitza-playing-glow { animation: none !important; box-shadow: none !important; }
+    /* PersistentPlayer dock auto-hide: keep the hidden/visible
+       toggle but kill the animation. Transform + opacity still
+       apply (dock disappears) — just no slide / blur transition. */
+    .persistent-player-dock {
+      transition: none !important;
+      filter: none !important;
+    }
     .reveal-up,
     .reveal-up-delay-1,
     .reveal-up-delay-2,
