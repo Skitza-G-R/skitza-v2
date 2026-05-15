@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
+import { playerPlay } from "~/components/audio/persistent-player";
 import type { GradientToken } from "~/lib/clients/derive-gradient";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { LinkPillState } from "~/components/dashboard/clients/link-pill";
@@ -76,8 +77,6 @@ interface SongSpaceProps {
   gradientToken: GradientToken;
   /** Only required when mode === "single". */
   payments?: SongSpacePayments;
-  /** Phase 3 — calls playerPlay with the latest version. */
-  onPlayLatest?: () => void;
 }
 
 export function SongSpace({
@@ -89,15 +88,27 @@ export function SongSpace({
   sessions,
   gradientToken,
   payments,
-  onPlayLatest,
 }: SongSpaceProps) {
   const [active, setActive] = useState<SongTab>("overview");
 
   // Latest playable version — used by SongSpaceHero's Play-latest CTA.
   // We treat versions as newest-first (parent ordering).
-  const latestVersionId = versions[0]?.id ?? null;
-  const hasPlayable =
-    latestVersionId !== null && versions[0]?.audioUrl !== null;
+  const latest = versions[0];
+  const hasPlayable = latest !== undefined && latest.audioUrl !== null;
+
+  // Hero's Play-latest CTA wires to playerPlay() with the freshest
+  // version that has audio. Defined locally so server components can
+  // pass plain JSON props and the client shell owns the side-effect.
+  const handlePlayLatest = useCallback(() => {
+    if (!latest || latest.audioUrl === null) return;
+    playerPlay({
+      id: latest.id,
+      audioUrl: latest.audioUrl,
+      title: song.title,
+      subtitle: `${project.name} · ${latest.versionLabel}`,
+      durationMs: latest.durationMs,
+    });
+  }, [latest, song.title, project.name]);
 
   return (
     <div className="space-y-6">
@@ -107,7 +118,7 @@ export function SongSpace({
         project={project}
         client={client}
         gradientToken={gradientToken}
-        {...(hasPlayable && onPlayLatest ? { onPlayLatest } : {})}
+        {...(hasPlayable ? { onPlayLatest: handlePlayLatest } : {})}
       />
 
       <SongSpaceStatStrip
