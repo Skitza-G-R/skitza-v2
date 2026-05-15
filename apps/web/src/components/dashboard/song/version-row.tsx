@@ -7,6 +7,7 @@ import {
   useNowPlaying,
 } from "~/components/audio/persistent-player";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+import { formatDuration } from "~/lib/format/duration";
 
 // VersionRow — single row in the Song Space's version-history list
 // (DESIGN.md §5.5, BUILD-NOTES §6.6). Spotify/Samply-inspired, tightly
@@ -56,17 +57,6 @@ interface VersionRowProps {
   songTitle: string;
   /** The album/project name — first half of the player subtitle. */
   projectName: string;
-}
-
-// Inline mm:ss formatter — duplicated from persistent-player's
-// `fmtTime` because the row is rendered enough times per page that we
-// want zero overhead from importing a heavy module just for 4 lines.
-function formatDuration(ms: number | null): string {
-  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 // "5m ago" / "3d ago" / "Oct 14" — quick relative-time helper that

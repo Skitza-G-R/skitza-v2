@@ -9,6 +9,7 @@ import {
   type WorkflowStage,
 } from "~/lib/clients/workflow-stage";
 import { HeroCTA } from "~/components/dashboard/common/hero-cta";
+import { formatDuration } from "~/lib/format/duration";
 
 // SongSpaceHero — the dark gradient band that anchors the new Song
 // Space (DESIGN.md §4.4, BUILD-NOTES §5.4). Mirrors the AlbumHero
@@ -49,14 +50,6 @@ interface SongSpaceHeroProps {
   gradientToken: GradientToken;
   /** Phase 3 — calls playerPlay with the latest version. Disabled when undefined. */
   onPlayLatest?: () => void;
-}
-
-function formatDuration(ms: number | null): string {
-  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 export function SongSpaceHero({
