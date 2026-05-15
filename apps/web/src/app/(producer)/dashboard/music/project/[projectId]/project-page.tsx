@@ -459,14 +459,7 @@ function Tracklist({
               className="sk-stagger-item"
               style={{ "--i": String(idx) } as React.CSSProperties}
             >
-              {/* Whole-row Link makes the entire row a tap target → song
-                  page. The play button inside calls e.preventDefault() so
-                  clicking it plays without navigating. Spotify + Apple
-                  Music both use this pattern (clickable row, dedicated
-                  play affordance). */}
-              <Link
-                href={`/dashboard/music/${t.id}?from=${projectId}`}
-                aria-label={`Open ${t.title} song page`}
+              <div
                 className={[
                   "group relative grid items-center gap-3 px-4 py-2.5",
                   isCurrent
@@ -480,14 +473,12 @@ function Tracklist({
                 }}
               >
                 {/* Index → play swap */}
-                <span className="relative flex justify-end">
+                <div className="relative flex justify-end">
                   <button
                     type="button"
                     aria-label={playingHere ? "Pause" : "Play"}
                     title={playingHere ? "Pause (Space)" : "Play (Space)"}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
+                    onClick={() => {
                       onPlay(t);
                     }}
                     disabled={!t.audioUrl}
@@ -518,10 +509,13 @@ function Tracklist({
                   >
                     {padIndex(idx)}
                   </span>
-                </span>
+                </div>
 
-                {/* Title cell — bare divs since the whole row is the link */}
-                <span className="min-w-0 block">
+                {/* Title (deep link to song page) */}
+                <Link
+                  href={`/dashboard/music/${t.id}?from=${projectId}`}
+                  className="min-w-0"
+                >
                   <p className="truncate text-[14px] font-bold leading-tight text-[rgb(var(--fg-default))]">
                     {t.title}
                   </p>
@@ -530,7 +524,7 @@ function Tracklist({
                       {t.artist}
                     </p>
                   ) : null}
-                </span>
+                </Link>
 
                 <span>
                   <span
@@ -566,7 +560,7 @@ function Tracklist({
                 <span className="text-right font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
                   {fmtDuration(t.durationMs)}
                 </span>
-              </Link>
+              </div>
             </li>
           );
         })}

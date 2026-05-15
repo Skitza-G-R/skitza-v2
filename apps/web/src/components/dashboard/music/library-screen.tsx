@@ -896,12 +896,7 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
           const isPlayingHere = isCurrent && nowPlaying.playing;
           return (
             <li key={s.id}>
-              {/* Whole row is a Link → song page. The play + more
-                  buttons inside use preventDefault + stopPropagation
-                  so they fire their own action without navigating. */}
-              <Link
-                href={`/dashboard/music/${s.id}`}
-                aria-label={`Open ${s.trackTitle} song page`}
+              <div
                 className={[
                   "group grid items-center gap-3 px-4 py-2 hover:bg-[rgb(var(--bg-overlay))]",
                   isCurrent ? "bg-[rgb(var(--brand-primary)/0.055)]" : "",
@@ -915,14 +910,12 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                 {/* Index → play button on hover / current. Both sit in
                     the same cell so the button reveals over the number
                     on hover instead of pushing it sideways. */}
-                <span className="relative flex justify-end">
+                <div className="relative flex justify-end">
                   <button
                     type="button"
                     aria-label={isPlayingHere ? "Pause" : "Play"}
                     title={isPlayingHere ? "Pause (Space)" : "Play (Space)"}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
+                    onClick={() => {
                       handlePlay(s);
                     }}
                     disabled={!s.audioUrl}
@@ -953,9 +946,11 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                   >
                     {padIndex(idx)}
                   </span>
-                </span>
+                </div>
 
-                {/* Cover thumbnail — 36px, no wordmark/kind. */}
+                {/* Cover thumbnail — 36px, no wordmark/kind. Stable
+                    per project so all tracks from the same project
+                    share the same color identity in the table. */}
                 <ProjectCover
                   seed={s.projectId}
                   gradient={gradientForSeed(s.projectId)}
@@ -966,15 +961,18 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                   className="h-9 w-9"
                 />
 
-                {/* Title + project (whole row is the link, just text here) */}
-                <span className="min-w-0 block">
+                {/* Title + project (deep link) */}
+                <Link
+                  href={`/dashboard/music/${s.id}`}
+                  className="min-w-0"
+                >
                   <p className="truncate text-[13.5px] font-bold leading-tight text-[rgb(var(--fg-default))]">
                     {s.trackTitle}
                   </p>
                   <p className="truncate text-[11px] text-[rgb(var(--fg-muted))]">
                     {s.projectTitle}
                   </p>
-                </span>
+                </Link>
 
                 <span className="truncate text-[12px] text-[rgb(var(--fg-muted))]">
                   {s.clientName ?? s.trackArtist ?? ""}
@@ -1013,16 +1011,12 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                   <button
                     type="button"
                     aria-label="More actions"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
                     className="sk-press sk-trans rounded-full p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
                   >
                     <MoreHorizontal size={14} />
                   </button>
                 </span>
-              </Link>
+              </div>
             </li>
           );
         })}
