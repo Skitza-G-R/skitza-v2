@@ -1,5 +1,8 @@
 "use client";
 
+import { Calendar, DollarSign, LayoutGrid, Music } from "lucide-react";
+import type { ComponentType, SVGProps } from "react";
+
 // SongTabs — pill-shaped segmented control for the Song Space.
 // Mirrors AlbumTabs but switches the tab count by mode:
 //
@@ -9,6 +12,10 @@
 // Default tab = `overview`. The Payments tab only renders in single
 // mode because the album already has a project-scope Payments tab —
 // per-song payments make sense only when the project IS one song.
+//
+// Active tab paints `bg-sidebar` (near-black) + white text to match
+// the design prototype's dark-fill "you are here" treatment. Each
+// tab carries a leading icon for visual scan.
 
 export type SongTab = "overview" | "versions" | "sessions" | "payments";
 
@@ -19,9 +26,12 @@ interface SongTabsProps {
   versionsCount: number;
 }
 
+type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number }>;
+
 interface TabEntry {
   key: SongTab;
   label: string;
+  icon: IconComponent;
 }
 
 export function SongTabs({
@@ -31,13 +41,20 @@ export function SongTabs({
   versionsCount,
 }: SongTabsProps) {
   const baseEntries: TabEntry[] = [
-    { key: "overview", label: "Overview" },
-    { key: "versions", label: `Versions (${String(versionsCount)})` },
-    { key: "sessions", label: "Sessions" },
+    { key: "overview", label: "Overview", icon: LayoutGrid },
+    {
+      key: "versions",
+      label: `Versions (${String(versionsCount)})`,
+      icon: Music,
+    },
+    { key: "sessions", label: "Sessions", icon: Calendar },
   ];
   const entries: TabEntry[] =
     mode === "single"
-      ? [...baseEntries, { key: "payments", label: "Payments" }]
+      ? [
+          ...baseEntries,
+          { key: "payments", label: "Payments", icon: DollarSign },
+        ]
       : baseEntries;
 
   return (
@@ -52,6 +69,7 @@ export function SongTabs({
     >
       {entries.map((t) => {
         const isActive = active === t.key;
+        const Icon = t.icon;
         return (
           <button
             key={t.key}
@@ -63,16 +81,17 @@ export function SongTabs({
             onClick={() => {
               onChange(t.key);
             }}
-            className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
             style={{
               background: isActive
-                ? "rgb(var(--brand-primary))"
+                ? "rgb(var(--bg-sidebar))"
                 : "transparent",
               color: isActive
-                ? "rgb(var(--bg-sidebar))"
+                ? "rgb(var(--bg-elevated))"
                 : "rgb(var(--fg-muted))",
             }}
           >
+            <Icon size={13} strokeWidth={2.2} aria-hidden />
             {t.key === "versions" ? (
               <>
                 Versions{" "}

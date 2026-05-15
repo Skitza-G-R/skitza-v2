@@ -102,4 +102,15 @@ describe("SongSpaceHero — dark hero band for the Song Space", () => {
   it("forbids --brand-primary-on", () => {
     expect(SRC).not.toContain("--brand-primary-on");
   });
+
+  it("renders a music-icon avatar tile on the left of the hero (PR C — match design)", () => {
+    // The design prototype shows a 112px gradient music-icon tile
+    // anchoring the song page hero. PR #122 inherited a stale
+    // "no avatar on the song page" comment that turned out to be
+    // wrong — Gili spotted the gap during QA. The avatar uses the
+    // song title to seed a stable gradient, mirroring AlbumHero.
+    expect(SRC).toContain("producerGradient");
+    expect(SRC).toMatch(/rounded-\[24px\]/);
+    expect(SRC).toMatch(/<Music\s*size=\{44\}/);
+  });
 });

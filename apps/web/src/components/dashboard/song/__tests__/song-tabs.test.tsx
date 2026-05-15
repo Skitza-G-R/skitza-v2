@@ -44,12 +44,17 @@ describe("SongTabs — mode-aware tab control (3 vs 4 tabs)", () => {
     expect(SRC).toContain("versionsCount");
   });
 
-  it("uses --brand-primary for the active tab background", () => {
-    expect(SRC).toContain("--brand-primary");
+  it("uses --bg-sidebar for the active tab background (PR C — dark-fill design match)", () => {
+    expect(SRC).toContain("--bg-sidebar");
   });
 
-  it("uses --bg-sidebar for the active-tab text contrast", () => {
-    expect(SRC).toContain("--bg-sidebar");
+  it("uses --bg-elevated as the active-tab text color (white on dark)", () => {
+    expect(SRC).toContain("--bg-elevated");
+  });
+
+  it("renders a leading icon on every tab (PR C — design polish)", () => {
+    expect(SRC).toMatch(/from\s*["']lucide-react["']/);
+    expect(SRC).toMatch(/<Icon\s*size=/);
   });
 
   it("uses --bg-elevated for the pill container background", () => {
