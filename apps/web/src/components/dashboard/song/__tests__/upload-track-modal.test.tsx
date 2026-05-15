@@ -71,6 +71,18 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/<textarea[\s\S]*?id="upload-track-description"/);
   });
 
+  // C2 — the description value must be threaded into addVersionAction
+  // so it lands on track_versions.description. Pre-fix the textarea was
+  // pure UI: the user typed notes, hit Upload, and the value evaporated.
+  it("forwards the trimmed description into addVersionAction (only when non-empty)", () => {
+    // We trim before forwarding so a textarea full of whitespace stays
+    // NULL rather than storing "   ".
+    expect(SRC).toMatch(/description\.trim\(\)/);
+    // The action call must include a `description:` key under the
+    // conditional spread that drops it when empty.
+    expect(SRC).toMatch(/description:\s*trimmedDescription/);
+  });
+
   it("renders an audio-only file input with a click + drop drop zone", () => {
     expect(SRC).toMatch(/id="upload-track-file"/);
     expect(SRC).toMatch(/accept="audio\/\*"/);

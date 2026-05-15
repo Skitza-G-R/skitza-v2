@@ -89,6 +89,7 @@ export async function addVersionAction(input: {
   label: string;
   audioUrl: string | null;
   durationMs?: number;
+  description?: string;
 }): Promise<
   ActionDataResult<{ id: string; trackId: string; label: string }>
 > {
@@ -100,6 +101,7 @@ export async function addVersionAction(input: {
       label: input.label,
       audioUrl: input.audioUrl,
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
+      ...(input.description === undefined ? {} : { description: input.description }),
     });
     revalidatePath(CLIENTS_PROJECTS_PATH);
     return {

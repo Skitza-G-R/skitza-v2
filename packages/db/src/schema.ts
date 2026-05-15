@@ -468,6 +468,10 @@ export const trackVersions = pgTable("track_versions", {
   audioR2Key: text("audio_r2_key"),
   sizeBytes: bigint("size_bytes", { mode: "number" }),
   peaksR2Key: text("peaks_r2_key"),
+  // Phase 4 Upload Track modal — optional notes the producer types when
+  // uploading a new version (DESIGN.md §6.4). Nullable; surfaces on the
+  // artist-facing version page.
+  description: text("description"),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
   // G.11 — producer marks a version "final/approved". Presence of a
   // timestamp is the approved flag; null means unapproved. When the

@@ -5,6 +5,7 @@ import {
   projects,
   projectTracks,
   bookings,
+  trackVersions,
 } from "../index";
 
 describe("Phase 0 — workflow_stage enum", () => {
@@ -85,6 +86,19 @@ describe("Phase 0 — bookings.song_id", () => {
     const col = bookings.songId;
     expect(col).toBeDefined();
     expect(col.name).toBe("song_id");
+    expect(col.notNull).toBe(false);
+  });
+});
+
+// Phase 4 (C2) — persists the producer's notes typed in the Upload
+// Track modal (DESIGN.md §6.4). Nullable so existing rows are
+// unaffected; surfaces on the artist-facing version page.
+describe("Phase 4 — track_versions.description", () => {
+  it("exists as a nullable text column on track_versions", () => {
+    const col = trackVersions.description;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("description");
+    expect(col.dataType).toBe("string");
     expect(col.notNull).toBe(false);
   });
 });

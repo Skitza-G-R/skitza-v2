@@ -98,6 +98,10 @@ const AddVersionInput = z.object({
   // filled later by audio.completeMultipart patching the same row.
   audioUrl: z.string().url().nullable(),
   durationMs: z.number().int().min(1).max(1000 * 60 * 60 * 3).optional(), // cap 3h
+  // Phase 4 (C2) — optional producer notes typed in the Upload Track
+  // modal. Trimmed + capped to keep the textarea honest. Stored on
+  // track_versions.description.
+  description: z.string().trim().max(2000).optional(),
 });
 
 const SetPaidInput = z.object({
@@ -667,6 +671,9 @@ export const projectRouter = router({
         label: input.label,
         audioUrl: input.audioUrl,
         ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
+        ...(input.description && input.description.length > 0
+          ? { description: input.description }
+          : {}),
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });

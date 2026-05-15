@@ -228,10 +228,16 @@ export function UploadTrackModal({
 
         // 2. Create the track_versions row with audioUrl=null. The R2
         //    completion step patches this same row once parts upload.
+        //    description is forwarded only when non-empty so the column
+        //    stays NULL for blank textareas rather than storing "".
+        const trimmedDescription = description.trim();
         const vres = await addVersionAction({
           trackId: resolvedTrackId,
           label: label.trim(),
           audioUrl: null,
+          ...(trimmedDescription.length > 0
+            ? { description: trimmedDescription }
+            : {}),
         });
         if (!vres.ok) throw new Error(vres.error);
         const versionId = vres.data.id;
