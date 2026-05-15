@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { LogoMark } from "~/components/brand/logo-mark";
 import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
 
 // =============================================================================
@@ -81,17 +82,40 @@ function Wordmark({ size = 22, inverse = false }: { size?: number; inverse?: boo
       className="font-syne inline-flex items-baseline gap-px font-extrabold leading-none"
       style={{
         fontSize: size,
-        letterSpacing: "-0.04em",
+        letterSpacing: "-0.03em",
         color: inverse ? "#F2EDE6" : "rgb(var(--fg-default))",
       }}
     >
-      Skitza
+      skitza
       <span
         className="inline-block transition-transform duration-300 group-hover:translate-y-[-2px] group-hover:rotate-12 group-hover:scale-125"
         style={{ color: "rgb(var(--brand-primary))" }}
       >
         .
       </span>
+    </span>
+  );
+}
+
+// Landing-page brand lockup — LogoMark + lowercase Wordmark.
+// `markSize` controls the amber square; the wordmark size is passed
+// through so each surface (navbar 22, footer 16, demo 14) keeps its
+// own typographic scale. Wrapped in a flex container so the parent
+// link/group still drives the dot's hover transform.
+function LogoLockup({
+  markSize,
+  wordmarkSize,
+  inverse = true,
+}: {
+  markSize: number;
+  wordmarkSize: number;
+  inverse?: boolean;
+}) {
+  const gap = Math.max(6, Math.round(markSize / 3));
+  return (
+    <span className="inline-flex items-center" style={{ gap }}>
+      <LogoMark size={markSize} />
+      <Wordmark size={wordmarkSize} inverse={inverse} />
     </span>
   );
 }
@@ -329,7 +353,7 @@ function Nav({
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5 sm:px-8">
         <div className="flex items-center gap-4 sm:gap-9">
           <Link href="/" className="group inline-flex items-center" aria-label="Skitza home">
-            <Wordmark size={22} inverse />
+            <LogoLockup markSize={30} wordmarkSize={22} />
           </Link>
           <span
             className="font-mono hidden sm:inline text-[11px]"
@@ -644,8 +668,8 @@ function HeroProductPeek() {
               padding: "14px 10px",
             }}
           >
-            <div className="flex items-center gap-2 px-1.5 pb-3 pt-1">
-              <Wordmark size={14} inverse />
+            <div className="flex items-center px-1.5 pb-3 pt-1">
+              <LogoLockup markSize={18} wordmarkSize={14} />
             </div>
             {(
               [
@@ -1912,7 +1936,7 @@ function LandingFooter() {
       }}
     >
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
-        <Wordmark size={16} inverse />
+        <LogoLockup markSize={24} wordmarkSize={16} />
         <span className="font-mono">© 2026 · Built for producers, by producers</span>
         <div className="flex gap-5">
           <Link href="/privacy" style={{ color: "inherit" }} className="hover:text-white">
