@@ -84,6 +84,58 @@ export async function sendClientInviteAction(input: {
   }
 }
 
+// New Client modal (Clients & Projects v3 redesign, Phase 1 G6).
+// Creates a client + auto-sends the invite email so the modal can be
+// a single "Add client" CTA. Two-step internally so we can surface the
+// `existed: true` short-circuit to the UI without sending a duplicate
+// invite. On `existed: true` the modal redirects to the client's space
+// instead of pretending an invite went out.
+//
+// Field defaults: phone/notes are forwarded straight through. The
+// tRPC procedure trims + nulls whitespace and clamps the size — we
+// don't replicate that contract here.
+export async function createClientAction(input: {
+  name: string;
+  email: string;
+  phone?: string;
+  notes?: string;
+}): Promise<
+  ActionDataResult<
+    | { existed: true; id: string }
+    | { existed: false; id: string; invitedAtIso: string }
+  >
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const created = await c.caller.clientContacts.create(input);
+    if (created.existed) {
+      // Existing row — do NOT re-send an invite. The UI redirects to
+      // the client's space so the producer sees what they already have.
+      revalidatePath(CLIENTS_PATH);
+      return { ok: true, data: { existed: true, id: created.id } };
+    }
+    const sent = await c.caller.clientContacts.sendInvite({
+      id: created.id,
+      via: "email",
+    });
+    revalidatePath(CLIENTS_PATH);
+    return {
+      ok: true,
+      data: {
+        existed: false,
+        id: created.id,
+        invitedAtIso:
+          sent.invitedAt instanceof Date
+            ? sent.invitedAt.toISOString()
+            : new Date(sent.invitedAt).toISOString(),
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Reorder wrappers for the drag-to-reorder UX on the Clients & Projects
 // list view. The tRPC mutations (clientContacts.reorder, projects.reorder)
 // verify ownership + atomically rewrite the `position` column.
