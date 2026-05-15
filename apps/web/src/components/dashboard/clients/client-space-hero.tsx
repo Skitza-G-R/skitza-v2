@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Plus, Mail, Phone, FolderOpen, Calendar } from "lucide-react";
 
 import {
@@ -11,6 +11,8 @@ import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { heroBg } from "~/lib/clients/hero-bg";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 import { HeroGlowOrbs } from "~/components/dashboard/common/hero-glow-orbs";
+import { useToast } from "~/components/ui/toast";
+import { sendClientInviteAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
 
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
@@ -132,6 +134,23 @@ export function ClientSpaceHero({
   // against the client whose space we're on.
   const [newProjectOpen, setNewProjectOpen] = useState(false);
 
+  // Inline "Resend invite link" affordance — matches the HTML mockup's
+  // hero meta line for `pending` clients. Re-runs sendClientInviteAction
+  // with via='email'; same shape as the InviteToAppModal email path so
+  // the producer doesn't have to open the modal just to resend.
+  const { toast } = useToast();
+  const [resendPending, startResendTransition] = useTransition();
+  const handleResend = () => {
+    startResendTransition(async () => {
+      const res = await sendClientInviteAction({ id, via: "email" });
+      if (!res.ok) {
+        toast(res.error, "error");
+        return;
+      }
+      toast("Invite re-sent", "success");
+    });
+  };
+
   const initials = producerInitials(name);
   const avatarBg = producerGradient(name);
   const token = deriveGradient(name);
@@ -210,6 +229,41 @@ export function ClientSpaceHero({
                 <span>{joined}</span>
               </li>
             </ul>
+
+            {/* Inline link-state line — DESIGN.md hero meta row, third
+                children. For pending clients, surface a one-click
+                "Resend invite link" so producers don't have to re-open
+                the invite modal. For active clients, a quiet "Active in
+                artist app" affirmation. The LinkPill itself sits next
+                to the h1 above; this line adds the verb. */}
+            {linkState === "pending" ? (
+              <p className="mt-2 inline-flex items-center gap-2 text-[12px] text-white/78">
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 rounded-full animate-pulse"
+                  style={{ background: "rgb(var(--brand-primary))" }}
+                />
+                <span>Invitation sent &middot;{" "}
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    disabled={resendPending}
+                    className="font-semibold text-white underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-50"
+                  >
+                    {resendPending ? "Resending…" : "Resend invite link"}
+                  </button>
+                </span>
+              </p>
+            ) : linkState === "active" ? (
+              <p className="mt-2 inline-flex items-center gap-2 text-[12px] text-white/78">
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ background: "rgb(var(--fg-success))" }}
+                />
+                Active in artist app
+              </p>
+            ) : null}
           </div>
         </div>
 
