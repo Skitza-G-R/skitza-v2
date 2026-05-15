@@ -7,7 +7,6 @@ import type { GradientToken } from "~/lib/clients/derive-gradient";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { LinkPillState } from "~/components/dashboard/clients/link-pill";
 
-import { ChangeStageMenu } from "./change-stage-menu";
 import { SongSpaceHero } from "./song-space-hero";
 import { SongSpaceStatStrip } from "./song-space-stat-strip";
 import { SongTabs, type SongTab } from "./song-tabs";
@@ -141,19 +140,11 @@ export function SongSpace({
         onUploadNewVersion={openUpload}
       />
 
-      {/* Phase 4: manual stage advance affordance. Mirrors the
-          Status pill on the stat strip just below, but lets the
-          producer pick a different stage without uploading. */}
-      <div className="flex items-center justify-end gap-3">
-        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-          Change stage
-        </span>
-        <ChangeStageMenu
-          trackId={song.id}
-          current={song.workflowStage}
-        />
-      </div>
-
+      {/* I5 — ChangeStageMenu now lives INSIDE the Status tile of the
+          stat strip (via the trackId prop). Pre-fix this section was a
+          standalone "Change stage" row that duplicated the Status tile's
+          read-only pill, creating visual noise + a confusing dual-source
+          of truth. */}
       <SongSpaceStatStrip
         workflowStage={song.workflowStage}
         progress={song.progress}
@@ -161,6 +152,7 @@ export function SongSpace({
         isOverdue={song.isOverdue}
         currentVersion={song.currentVersion}
         revisionCount={song.revisionCount}
+        trackId={song.id}
       />
 
       <SongTabs

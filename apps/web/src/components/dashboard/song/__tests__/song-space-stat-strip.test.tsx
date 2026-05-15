@@ -54,6 +54,22 @@ describe("SongSpaceStatStrip — 4 stat tiles for the Song Space hero", () => {
     expect(SRC).toMatch(/md:grid-cols-4/);
   });
 
+  // I5 — the Status tile now hosts ChangeStageMenu when a trackId is
+  // provided, replacing the separate "Change stage" row that used to
+  // duplicate the Status tile's read-only pill above the strip.
+  it("accepts an optional trackId prop for the interactive Status tile (I5)", () => {
+    expect(SRC).toMatch(/trackId\?:\s*string/);
+  });
+
+  it("imports ChangeStageMenu so the Status tile can host the stage picker (I5)", () => {
+    expect(SRC).toMatch(/ChangeStageMenu/);
+    expect(SRC).toMatch(/from\s+["']\.\/change-stage-menu["']/);
+  });
+
+  it("renders ChangeStageMenu inside the Status tile when trackId is present (I5)", () => {
+    expect(SRC).toMatch(/<ChangeStageMenu\s+trackId=\{trackId\}/);
+  });
+
   it("forbids --surface-card", () => {
     expect(SRC).not.toContain("--surface-card");
   });

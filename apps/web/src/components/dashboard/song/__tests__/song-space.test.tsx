@@ -60,10 +60,17 @@ describe("SongSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toMatch(/trackId=\{song\.id\}/);
   });
 
-  it("mounts ChangeStageMenu so producers can advance stage without uploading (Phase 4)", () => {
-    expect(SRC).toContain("ChangeStageMenu");
-    expect(SRC).toMatch(/trackId=\{song\.id\}/);
-    expect(SRC).toMatch(/current=\{song\.workflowStage\}/);
+  // I5 — ChangeStageMenu now lives INSIDE the Status tile of the
+  // SongSpaceStatStrip (passed via `trackId`), not as a standalone row
+  // above the strip. We no longer import ChangeStageMenu directly in
+  // SongSpace — instead trackId is forwarded down so the strip mounts
+  // it inside the Status tile.
+  it("threads song.id into SongSpaceStatStrip so the Status tile hosts the stage picker (I5)", () => {
+    expect(SRC).toMatch(/SongSpaceStatStrip[\s\S]*?trackId=\{song\.id\}/);
+  });
+
+  it("no longer imports ChangeStageMenu directly (it lives inside the stat strip via trackId) (I5)", () => {
+    expect(SRC).not.toMatch(/from\s+["']\.\/change-stage-menu["']/);
   });
 
   it("threads openUpload into both SongSpaceHero.onUploadNewVersion and VersionsTab.onAddVersion", () => {
