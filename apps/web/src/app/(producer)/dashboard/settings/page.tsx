@@ -130,6 +130,7 @@ export default async function SettingsPage({
         avatarUrl: user?.imageUrl ?? null,
         initials,
         email: profile.email,
+        slug: profile.slug,
       }}
       integrations={{
         tranzilaConnected: paymentConnection.connected,

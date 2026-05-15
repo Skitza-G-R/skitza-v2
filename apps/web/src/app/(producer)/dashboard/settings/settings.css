@@ -42,7 +42,7 @@
 .s-nav h1 {
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 28px;
+  font-size: 34px;
   letter-spacing: -0.035em;
   margin: 0 10px 18px;
   line-height: 0.95;
@@ -77,6 +77,18 @@
 .s-nav button svg {
   opacity: 0.85;
   flex-shrink: 0;
+}
+.s-nav-dirty-dot {
+  /* Per-section unsaved-edits indicator. Right-aligned via auto
+     margin, brand-amber so it visually rhymes with the savebar pulse
+     (same colour, no animation — the savebar already pulses). 7px to
+     match the savebar dot. */
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgb(var(--brand-primary));
+  flex: none;
 }
 
 @media (max-width: 768px) {
@@ -221,6 +233,50 @@
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 36px;
+}
+
+/* ─── Slug preview (Profile section) ────────────────────────────────── */
+/* Read-only display of the producer's public share URL. The host
+   uses --fg-muted (it's context); the handle uses --fg-default (it's
+   the part that varies and matters). The 'Open ↗' link sits to the
+   right of the field so the row still feels balanced. */
+.s-row-field:has(.s-slug-preview) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.s-slug-preview {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 9px 14px;
+  border: 1px solid rgb(var(--border-subtle));
+  border-radius: 10px;
+  background: rgb(var(--bg-background));
+  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  letter-spacing: 0;
+  user-select: all;
+}
+.s-slug-host {
+  color: rgb(var(--fg-muted));
+}
+.s-slug-handle {
+  color: rgb(var(--fg-default));
+  font-weight: 700;
+}
+.s-slug-open {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: rgb(var(--fg-default));
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.s-slug-open:hover {
+  background: rgb(var(--bg-background));
 }
 
 /* ─── Buttons (settings-scoped) ─────────────────────────────────────── */
@@ -466,8 +522,47 @@
 .s-usage-bar > i.s-amber {
   background: rgb(var(--brand-primary));
 }
+.s-usage-soft {
+  /* Soft info line below the usage grid — explains the em-dash
+     placeholders while real usage measurement lands. Lives inside
+     the card so it visually anchors to the cells above. */
+  margin: 0;
+  padding: 12px 24px 16px;
+  font-size: 11.5px;
+  color: rgb(var(--fg-muted));
+  border-top: 1px solid rgb(var(--border-subtle));
+  background: rgb(var(--bg-background));
+  line-height: 1.45;
+}
 
 /* ─── Notif matrix ──────────────────────────────────────────────────── */
+/* Heads-up callout at the top of the notifications card. Pinned to the
+   card edge so the matrix below feels visually attached to the same
+   surface. The amber dot is a softer cousin of the savebar pulse —
+   same brand colour, no animation. */
+.s-notif-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 24px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgb(var(--fg-default));
+  background: rgb(var(--brand-primary) / 0.06);
+  border-bottom: 1px solid rgb(var(--border-subtle));
+}
+.s-notif-note b {
+  font-weight: 700;
+}
+.s-notif-note-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgb(var(--brand-primary));
+  flex: none;
+  margin-top: 7px;
+}
+
 .s-notif-head,
 .s-notif-row {
   display: grid;
@@ -558,6 +653,31 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* ─── Payment alt-provider disclosure ───────────────────────────────── */
+/* The secondary regional payment provider tucks behind a native
+   <details>. Summary reads as a discoverable link, opens to reveal
+   the full block. We strip the default disclosure triangle and rely
+   on the inline arrow in the summary copy. */
+.s-payments-alt {
+  border-top: 1px dashed rgb(var(--border-subtle));
+  padding-top: 16px;
+}
+.s-payments-alt > summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: rgb(var(--fg-default));
+  padding: 8px 0;
+  user-select: none;
+}
+.s-payments-alt > summary::-webkit-details-marker {
+  display: none;
+}
+.s-payments-alt > summary:hover {
+  color: rgb(var(--brand-primary));
 }
 
 /* ─── Status chip ───────────────────────────────────────────────────── */
@@ -692,7 +812,7 @@
   }
 }
 .s-reveal {
-  animation: s-reveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: s-reveal 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

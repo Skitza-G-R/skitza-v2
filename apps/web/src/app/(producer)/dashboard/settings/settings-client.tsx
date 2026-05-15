@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { useToast } from "~/components/ui/toast";
+import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
 import { updateProducer } from "./actions";
 import { PaymentCard } from "./payment-card";
 import { StripeCard } from "./stripe-card";
@@ -37,6 +38,12 @@ interface IdentityState {
   avatarUrl: string | null;
   initials: string;
   email: string;
+  // The producer's public-page slug. Surfaced in the Profile section
+  // as a read-only `skitza.app/join/<slug>` preview row so producers
+  // can see / copy their share URL without leaving Settings.
+  // Editing the slug itself moves to the future /dashboard/public-page
+  // route — until that lands, this row is preview-only.
+  slug: string;
 }
 
 interface IntegrationsState {
@@ -98,6 +105,30 @@ export function SettingsClient({
     );
   }, [form, savedForm, notifs, savedNotifs]);
 
+  // Per-section dirty breakdown. Drives the small amber dot we paint
+  // on each sub-nav button so a producer can see at a glance WHICH
+  // section has unsaved edits, not just THAT something is unsaved.
+  // Fields → section ownership:
+  //   displayName              → profile
+  //   defaultCurrency, weekStart → region
+  //   notifications matrix     → notif
+  // Plan + Integrations don't own savebar-managed fields, so they
+  // never appear in this set.
+  const dirtySections = useMemo<Set<SettingsSectionKey>>(() => {
+    const out = new Set<SettingsSectionKey>();
+    if (form.displayName !== savedForm.displayName) out.add("profile");
+    if (
+      form.defaultCurrency !== savedForm.defaultCurrency ||
+      form.weekStart !== savedForm.weekStart
+    ) {
+      out.add("region");
+    }
+    if (JSON.stringify(notifs) !== JSON.stringify(savedNotifs)) {
+      out.add("notif");
+    }
+    return out;
+  }, [form, savedForm, notifs, savedNotifs]);
+
   function onDiscard() {
     setForm(savedForm);
     setNotifs(savedNotifs);
@@ -156,6 +187,7 @@ export function SettingsClient({
         {SUB_NAV.map((item) => {
           const Icon = ICONS[item.iconKey];
           const isActive = active === item.key;
+          const isDirty = dirtySections.has(item.key);
           return (
             <button
               key={item.key}
@@ -164,10 +196,26 @@ export function SettingsClient({
               aria-current={isActive ? "page" : undefined}
               onClick={() => {
                 setActive(item.key);
+                // Update the URL bar via the raw History API so the
+                // server page isn't re-fetched (router.replace would
+                // remount SettingsClient and wipe in-flight edits in
+                // `form` / `notifs`). Deep linking + browser back +
+                // sharing now reflect the active section.
+                window.history.replaceState(
+                  null,
+                  "",
+                  `/dashboard/settings?section=${item.key}`,
+                );
               }}
             >
               <Icon />
               {item.label}
+              {isDirty && (
+                <span
+                  className="s-nav-dirty-dot"
+                  aria-label="Unsaved changes in this section"
+                />
+              )}
             </button>
           );
         })}
@@ -189,7 +237,10 @@ export function SettingsClient({
             <NotifSection notifs={notifs} setNotifs={setNotifs} />
           )}
           {active === "int" && (
-            <IntegrationsSection integrations={integrations} />
+            <IntegrationsSection
+              integrations={integrations}
+              defaultCurrency={form.defaultCurrency}
+            />
           )}
           {active === "region" && (
             <RegionSection form={form} setForm={setForm} />
@@ -307,6 +358,38 @@ function ProfileSection({
             />
           </div>
         </div>
+
+        {/* Public-page URL preview. Slug-editing UI moves to the
+            future /dashboard/public-page; until that ships, producers
+            can at least see + copy their share link from here so they
+            stop wondering where their "Skitza URL" lives. The visible
+            host is the brand origin (skitza.app), not the deploy URL —
+            see lib/share/public-url for the rationale. */}
+        <div className="s-row">
+          <div>
+            <div className="s-row-label">Public page URL</div>
+            <div className="s-row-hint">
+              Edit your slug, bio, and brand colors from the public-page
+              editor (coming soon).
+            </div>
+          </div>
+          <div className="s-row-field">
+            <div className="s-slug-preview">
+              <span className="s-slug-host">
+                {PUBLIC_BRAND_ORIGIN.replace(/^https?:\/\//, "")}/join/
+              </span>
+              <span className="s-slug-handle">{identity.slug}</span>
+            </div>
+            <a
+              className="s-slug-open"
+              href={buildJoinUrl(identity.slug)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open ↗
+            </a>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -319,12 +402,12 @@ function PlanSection({ plan }: { plan: "free" | "pro" }) {
 }
 
 function PlanFreeView() {
-  // Hard-coded usage numbers for v1. Real artist count + GB storage
-  // measurement land in a separate Plan & Billing task (the design's
-  // "Free has 3 artists + 5 GB" limits are not yet enforced).
-  const artistsUsed = 2;
+  // Free-plan limits ("3 artists, 5 GB") for the suffix copy. Actual
+  // usage measurement (count of producer.artists rows, sum of
+  // audioAsset bytes) lands in a separate task — until then the cells
+  // show em-dash placeholders so the producer never sees wrong
+  // numbers and loses trust in the rest of the page.
   const artistsLim = 3;
-  const storageUsed = 3.2;
   const storageLim = 5;
   return (
     <section className="s-reveal" aria-labelledby="settings-plan-h">
@@ -362,26 +445,30 @@ function PlanFreeView() {
           >
             Up to 3 artists · 5 GB storage · Standard storefront.
           </div>
-          <div className="s-plan-ctas">
-            <ComingSoonButton kind="amber">Upgrade to Pro</ComingSoonButton>
-            <ComingSoonButton kind="ghost">See what&apos;s in Pro</ComingSoonButton>
-          </div>
+          {/* CTA intentionally lives in the pricing card below — keeps
+              the hero descriptive and the action card decisive. Saves
+              the producer from hitting the same 'Coming soon' toast
+              twice in a row. */}
         </div>
         <div className="s-usage-grid">
           <UsageCell
-            num={artistsUsed.toString()}
-            suffix={`/ ${artistsLim.toString()} artists`}
+            num="—"
+            suffix={`of ${artistsLim.toString()} artists`}
             label="Artists"
-            barPct={(artistsUsed / artistsLim) * 100}
+            barPct={0}
           />
           <UsageCell
-            num={`${storageUsed.toString()} GB`}
-            suffix={`/ ${storageLim.toString()} GB`}
+            num="—"
+            suffix={`of ${storageLim.toString()} GB`}
             label="Storage"
-            barPct={(storageUsed / storageLim) * 100}
+            barPct={0}
             barAmber
           />
         </div>
+        <p className="s-usage-soft">
+          Live usage tracking ships shortly — we&apos;ll fill these in
+          automatically once it&apos;s on.
+        </p>
       </div>
 
       <div className="s-card">
@@ -432,8 +519,9 @@ function PlanFreeView() {
 }
 
 function PlanProView() {
-  const artistsCount = 12;
-  const storageUsed = 47;
+  // Pro plan: 100 GB storage cap is the documented limit, artists are
+  // unlimited. Real usage figures land alongside the Free-plan
+  // measurement (same task) — until then, em-dash placeholders.
   const storageLim = 100;
   return (
     <section className="s-reveal" aria-labelledby="settings-plan-h">
@@ -481,19 +569,23 @@ function PlanProView() {
         </div>
         <div className="s-usage-grid">
           <UsageCell
-            num={artistsCount.toString()}
+            num="—"
             suffix="artists · no limit"
             label="Artists"
-            barPct={8}
+            barPct={0}
           />
           <UsageCell
-            num={`${storageUsed.toString()} GB`}
-            suffix={`/ ${storageLim.toString()} GB`}
+            num="—"
+            suffix={`of ${storageLim.toString()} GB`}
             label="Storage"
-            barPct={(storageUsed / storageLim) * 100}
+            barPct={0}
             barAmber
           />
         </div>
+        <p className="s-usage-soft">
+          Live usage tracking ships shortly — we&apos;ll fill these in
+          automatically once it&apos;s on.
+        </p>
       </div>
 
       <div className="s-card">
@@ -631,6 +723,18 @@ function NotifSection({
         <p>Choose how Skitza pings you about activity in your workspace.</p>
       </header>
       <div className="s-card">
+        {/* Heads-up callout — lives at the TOP of the card so producers
+            read it on the way IN to the toggles, not buried below.
+            Channels light up feature-by-feature as the underlying
+            sender wiring lands. The producer's preferences save now
+            either way. */}
+        <div className="s-notif-note" role="note">
+          <span className="s-notif-note-dot" aria-hidden />
+          <span>
+            <b>Heads up —</b> toggles save right away. Each channel turns on
+            as the matching feature ships.
+          </span>
+        </div>
         <div className="s-notif-head" role="row">
           <div className="s-h s-h-lead">Event</div>
           <div className="s-h">Email</div>
@@ -666,11 +770,6 @@ function NotifSection({
           );
         })}
       </div>
-      <p className="mt-3 text-xs text-[rgb(var(--fg-muted))]">
-        Email + in-app delivery for each event is currently being wired up
-        feature-by-feature. Toggles save here; live notifications switch on as
-        each feature ships.
-      </p>
     </section>
   );
 }
@@ -701,12 +800,23 @@ function Toggle({
 /* ─── Integrations section ─────────────────────────────────────────── */
 function IntegrationsSection({
   integrations,
+  defaultCurrency,
 }: {
   integrations: IntegrationsState;
+  defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
 }) {
   const paymentsConnected =
     integrations.tranzilaConnected ||
     (integrations.stripeConnected && integrations.stripeChargesEnabled);
+
+  // Region routing: ILS producers see Tranzila first, everyone else
+  // sees Stripe first. The secondary provider stays reachable behind
+  // a <details> disclosure so producers near the regional edge
+  // (Israeli producer billing in USD; expat using Tranzila) can still
+  // switch. We key off the producer's selected default currency, not
+  // a separate country field, because that field doesn't exist yet
+  // (lives on the future Studio section).
+  const tranzilaFirst = defaultCurrency === "ILS";
 
   return (
     <section className="s-reveal" aria-labelledby="settings-int-h">
@@ -774,44 +884,74 @@ function IntegrationsSection({
         </div>
       </div>
 
-      {/* Payment setup detail. Both regional flows visible so the
-          producer can pick whichever applies — country auto-detection
-          will land with the future Studio section. */}
+      {/* Payment setup detail. Primary provider (matched to the
+          producer's default currency) renders expanded; the secondary
+          collapses into a <details> so the page stops shouting at the
+          wrong audience. Country auto-detection will land with the
+          future Studio section. */}
       <div className="mt-8 space-y-6">
-        <div>
-          <h3 className="font-display text-base font-bold tracking-tight">
-            Payments — Israel (Tranzila)
-          </h3>
-          <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
-            Direct payouts to your Tranzila terminal. Approved manually by Skitza
-            once you submit the form.
-          </p>
-          <div className="mt-3 rounded-2xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-            <PaymentCard
-              connected={integrations.tranzilaConnected}
-              defaultBusinessName={integrations.defaultBusinessName}
-              defaultContactEmail={integrations.billingEmail}
-            />
+        {tranzilaFirst ? (
+          <TranzilaBlock integrations={integrations} />
+        ) : (
+          <StripeBlock integrations={integrations} />
+        )}
+        <details className="s-payments-alt">
+          <summary>
+            {tranzilaFirst
+              ? "Outside Israel? Use Stripe instead →"
+              : "Israel-based? Use Tranzila instead →"}
+          </summary>
+          <div className="mt-3">
+            {tranzilaFirst ? (
+              <StripeBlock integrations={integrations} />
+            ) : (
+              <TranzilaBlock integrations={integrations} />
+            )}
           </div>
-        </div>
-
-        <div>
-          <h3 className="font-display text-base font-bold tracking-tight">
-            Payments — rest of world (Stripe)
-          </h3>
-          <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
-            Stripe Connect onboarding. Skitza adds no platform fee — you keep
-            everything minus Stripe&apos;s standard rates.
-          </p>
-          <div className="mt-3 rounded-2xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-            <StripeCard
-              connected={integrations.stripeConnected}
-              chargesEnabled={integrations.stripeChargesEnabled}
-            />
-          </div>
-        </div>
+        </details>
       </div>
     </section>
+  );
+}
+
+function TranzilaBlock({ integrations }: { integrations: IntegrationsState }) {
+  return (
+    <div>
+      <h3 className="font-display text-base font-bold tracking-tight">
+        Payments — Israel (Tranzila)
+      </h3>
+      <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
+        Direct payouts to your Tranzila terminal. Approved manually by Skitza
+        once you submit the form.
+      </p>
+      <div className="mt-3 rounded-2xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
+        <PaymentCard
+          connected={integrations.tranzilaConnected}
+          defaultBusinessName={integrations.defaultBusinessName}
+          defaultContactEmail={integrations.billingEmail}
+        />
+      </div>
+    </div>
+  );
+}
+
+function StripeBlock({ integrations }: { integrations: IntegrationsState }) {
+  return (
+    <div>
+      <h3 className="font-display text-base font-bold tracking-tight">
+        Payments — rest of world (Stripe)
+      </h3>
+      <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
+        Stripe Connect onboarding. Skitza adds no platform fee — you keep
+        everything minus Stripe&apos;s standard rates.
+      </p>
+      <div className="mt-3 rounded-2xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
+        <StripeCard
+          connected={integrations.stripeConnected}
+          chargesEnabled={integrations.stripeChargesEnabled}
+        />
+      </div>
+    </div>
   );
 }
 
