@@ -29,11 +29,6 @@ import { Icon, type IconName } from "./icons";
 //
 // Active state derivation reuses `getActiveKey()` so the same URL
 // triggers the same active state on both mobile + desktop.
-//
-// Portfolio tab removed 2026-05-15 to keep parity with the desktop
-// rail — see producer-sidebar.tsx for the rationale. The
-// /dashboard/portfolio route still exists and is reachable from
-// inside the Store experience.
 
 type ProducerMobileTab = {
   id: ActiveKey;
@@ -48,6 +43,7 @@ const PROD_TABS: readonly ProducerMobileTab[] = [
   { id: "music", label: "Library", href: "/dashboard/music", icon: "music" },
   { id: "calendar", label: "Calendar", href: "/dashboard/calendar", icon: "calendar" },
   { id: "profile", label: "Store", href: "/dashboard/store", icon: "store" },
+  { id: "portfolio", label: "Portfolio", href: "/dashboard/portfolio", icon: "book" },
 ] as const;
 
 export function ProducerBottomNav(): ReactNode {
