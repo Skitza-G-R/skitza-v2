@@ -347,11 +347,13 @@ function NavItem({
   //   - active row background fill 0.06 → 0.10 lifts the "you are
   //     here" cue out of the noise floor on bright displays — the
   //     3px amber bar was carrying the whole signal.
-  //   - `group` class enables the right-aligned shortcut chip to
-  //     fade in on row hover/focus (see ShortcutChip below).
-  //   - collapsed-mode `title=` now includes the G-leader shortcut
-  //     so the rail teaches its own shortcuts without needing a
-  //     custom tooltip component.
+  //   - Visible G-leader shortcut chip removed at Gili's request
+  //     (2026-05-15) — the rail no longer advertises the chord in
+  //     the row. The shortcuts themselves are still wired in
+  //     `~/lib/keyboard/use-shortcuts.ts` (G H = Overview, G M =
+  //     Music, etc.) and remain discoverable via the ShortcutCheatsheet
+  //     overlay (`?` to open). `aria-keyshortcuts` stays on the Link
+  //     so screen readers still announce the chord.
   return (
     <Link
       href={item.href}
@@ -359,8 +361,8 @@ function NavItem({
       aria-label={collapsed ? label : undefined}
       aria-keyshortcuts={item.shortcut}
       {...(isActive ? { "aria-current": "page" as const } : {})}
-      {...(collapsed ? { title: `${label} · ${item.shortcut}` } : {})}
-      className="group sk-press relative flex items-center rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+      {...(collapsed ? { title: label } : {})}
+      className="sk-press relative flex items-center rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
       style={{
         gap: collapsed ? 0 : 12,
         padding: collapsed ? "11px 10px" : "10px 12px",
@@ -415,7 +417,7 @@ function NavItem({
       {!collapsed && (
         <>
           <span className="truncate">{label}</span>
-          {badgeCount > 0 ? (
+          {badgeCount > 0 && (
             <span
               aria-label={`${badgeCount.toString()} unread`}
               className="font-mono"
@@ -432,30 +434,6 @@ function NavItem({
             >
               {badgeLabel}
             </span>
-          ) : (
-            // Keyboard shortcut hint — fades in on row hover/focus.
-            // The shortcut data has lived on every NavItem since the
-            // Phase 2 port; this is its first render path. `aria-hidden`
-            // because screen readers get the same info from the link's
-            // `aria-keyshortcuts` attribute (set below).
-            <kbd
-              aria-hidden
-              className="font-mono opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
-              style={{
-                marginInlineStart: "auto",
-                fontSize: "0.625rem",
-                fontWeight: 600,
-                letterSpacing: "0.04em",
-                padding: "2px 5px",
-                borderRadius: 4,
-                border: "1px solid rgb(var(--fg-onsidebar) / 0.18)",
-                color: "rgb(var(--fg-onsidebar) / 0.7)",
-                background: "rgb(var(--fg-onsidebar) / 0.04)",
-                lineHeight: 1.2,
-              }}
-            >
-              {item.shortcut}
-            </kbd>
           )}
         </>
       )}
