@@ -160,4 +160,24 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
   it("only renders the layout switcher when tab is 'clients'", () => {
     expect(SRC).toMatch(/\{tab\s*===\s*["']clients["'][\s\S]{0,600}aria-label=["']Layout["']/);
   });
+
+  it("renders a header with the 'Clients & Projects' title", () => {
+    expect(SRC).toContain("Clients & Projects");
+  });
+
+  it("renders a 'New client' CTA when on the Clients tab", () => {
+    expect(SRC).toMatch(/tab\s*===\s*["']clients["'][\s\S]{0,500}New client/);
+  });
+
+  it("renders a 'New project' CTA when on the Projects tab", () => {
+    expect(SRC).toMatch(/tab\s*===\s*["']projects["'][\s\S]{0,500}New project/);
+  });
+
+  it("links the 'New project' CTA to the existing new-project route", () => {
+    expect(SRC).toMatch(/href=["']\/dashboard\/clients-projects\/new["']/);
+  });
+
+  it("links the 'New client' CTA to the new-project route with clientFirst=1", () => {
+    expect(SRC).toMatch(/href=["']\/dashboard\/clients-projects\/new\?clientFirst=1["']/);
+  });
 });

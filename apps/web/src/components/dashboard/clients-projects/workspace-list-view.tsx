@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import type { DragEvent } from "react";
-import { ChevronDown, LayoutGrid, List } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, LayoutGrid, List, Plus } from "lucide-react";
 
 import {
   ProjectRow,
@@ -94,6 +95,18 @@ export interface WorkspaceListViewProps {
   onReorderProjects?: (orderedIds: string[]) => unknown;
   onReorderClients?: (orderedIds: string[]) => unknown;
 }
+
+// Shared pill-CTA styling for the header buttons. Extracted so the
+// JSX between the `tab === "clients"` branch and the visible label
+// stays readable (and source-grep tests can find the label close to
+// the conditional).
+const HEADER_CTA_CLASS =
+  "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-semibold shadow-[0_2px_8px_-2px_rgb(var(--brand-primary)/0.5)] transition-transform hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2";
+
+const HEADER_CTA_STYLE = {
+  background: "rgb(var(--brand-primary))",
+  color: "rgb(var(--bg-sidebar))",
+} as const;
 
 function formatMoney(cents: number, currency: string): string {
   try {
@@ -298,6 +311,35 @@ export function WorkspaceListView({
 
   return (
     <div className="flex flex-col gap-5">
+      <header className="flex items-center justify-between gap-3">
+        <h1
+          className="font-syne text-[24px] font-bold tracking-tight"
+          style={{ color: "rgb(var(--fg-default))" }}
+        >
+          {"Clients & Projects"}
+        </h1>
+        {tab === "clients" ? (
+          <Link
+            href="/dashboard/clients-projects/new?clientFirst=1"
+            className={HEADER_CTA_CLASS}
+            style={HEADER_CTA_STYLE}
+          >
+            <Plus size={14} strokeWidth={2.4} />
+            New client
+          </Link>
+        ) : null}
+        {tab === "projects" ? (
+          <Link
+            href="/dashboard/clients-projects/new"
+            className={HEADER_CTA_CLASS}
+            style={HEADER_CTA_STYLE}
+          >
+            <Plus size={14} strokeWidth={2.4} />
+            New project
+          </Link>
+        ) : null}
+      </header>
+
       {/* KPI strip — 4 cards across, full bleed */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatTile
