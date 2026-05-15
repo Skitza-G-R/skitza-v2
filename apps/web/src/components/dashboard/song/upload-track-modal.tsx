@@ -619,10 +619,9 @@ export function UploadTrackModal({
               <button
                 type="button"
                 onClick={handleClose}
-                disabled={pending}
-                className="sk-press inline-flex items-center justify-center rounded-[10px] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+                className="sk-press inline-flex items-center justify-center rounded-[10px] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
               >
-                Cancel
+                {pending ? "Stop uploading" : "Cancel"}
               </button>
               <button
                 type="submit"

@@ -100,6 +100,18 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toContain("Cancel");
   });
 
+  // I2 — Cancel button used to be disabled mid-upload, but X and Escape
+  // both fire handleClose (which aborts R2). Inconsistent. The button
+  // now fires handleClose directly and re-labels to "Stop uploading"
+  // during pending so the destructive action is honest.
+  it("Cancel button stays clickable during pending state (fires handleClose)", () => {
+    // The Cancel button must NOT carry `disabled={pending}` — the same
+    // handler that X uses needs to fire mid-upload to abort R2.
+    expect(SRC).not.toMatch(/onClick=\{handleClose\}[\s\S]{0,200}?disabled=\{pending\}/);
+    // Label flips to "Stop uploading" during pending.
+    expect(SRC).toMatch(/Stop\s+uploading/);
+  });
+
   it("calls all 8 Server Actions from the upload-actions wrapper", () => {
     expect(SRC).toContain("addTrackAction");
     expect(SRC).toContain("addVersionAction");
