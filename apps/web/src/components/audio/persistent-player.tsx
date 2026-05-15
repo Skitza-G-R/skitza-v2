@@ -406,10 +406,22 @@ function DesktopDock({
       // hides. inert prevents focus from landing on it while hidden.
       className={[
         "persistent-player-dock fixed inset-x-0 z-40 hidden md:flex md:justify-center md:px-6 lg:ps-[calc(var(--sidebar-width,260px)+24px)] lg:pe-6",
-        hidden ? "pointer-events-none translate-y-[140%]" : "translate-y-0",
+        hidden ? "pointer-events-none" : "",
       ].join(" ")}
       style={{
-        transition: "transform 320ms cubic-bezier(0.23, 1, 0.32, 1)",
+        // Emil's "blur to mask imperfect transitions" + asymmetric
+        // timing (slow exit, snappy entry). Exit is deliberate — the
+        // dock is bowing out so the song page takes focus. Entry is
+        // welcoming — snap back to seat when you're back in Library.
+        // Opacity + transform + blur run together so the dock dissolves
+        // away instead of just falling off-screen.
+        transform: hidden ? "translateY(110%) scale(0.98)" : "translateY(0) scale(1)",
+        opacity: hidden ? 0 : 1,
+        filter: hidden ? "blur(6px)" : "blur(0px)",
+        transition: hidden
+          ? "transform 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1), filter 380ms cubic-bezier(0.16, 1, 0.3, 1)"
+          : "transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1), filter 240ms cubic-bezier(0.16, 1, 0.3, 1)",
+        willChange: "transform, opacity, filter",
       }}
     >
       <div
@@ -424,8 +436,16 @@ function DesktopDock({
             template (1fr_auto_1fr) keeps the auto-width center column
             exactly in the middle of the dock regardless of left/right
             content imbalance — flexbox can't do this without per-side
-            spacers. */}
-        <div className="flex min-w-0 items-center gap-3">
+            spacers. The whole block is a Link → song page (Apple Music
+            "tap the mini-player to expand to Now Playing" pattern).
+            sk-press gives the same tactile press feedback used elsewhere
+            in the app so the whole row reads as one tappable surface. */}
+        <Link
+          href={expandHrefForTrack(track)}
+          aria-label={`Open ${track.title} song page`}
+          title="Open song page"
+          className="sk-press flex min-w-0 items-center gap-3 rounded-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+        >
           <Cover track={track} size={44} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
@@ -435,7 +455,7 @@ function DesktopDock({
               {track.subtitle}
             </p>
           </div>
-        </div>
+        </Link>
 
         {/* CENTER — transport. Sits in the auto-width middle grid
             track. The inner stack carries `min-w-[360px]` so the
@@ -548,10 +568,16 @@ function MobileDock({
       // takes the dark pill aesthetic and only renders <md.
       className={[
         "persistent-player-dock fixed inset-x-2 z-40 flex md:hidden",
-        hidden ? "pointer-events-none translate-y-[160%]" : "translate-y-0",
+        hidden ? "pointer-events-none" : "",
       ].join(" ")}
       style={{
-        transition: "transform 320ms cubic-bezier(0.23, 1, 0.32, 1)",
+        transform: hidden ? "translateY(120%) scale(0.98)" : "translateY(0) scale(1)",
+        opacity: hidden ? 0 : 1,
+        filter: hidden ? "blur(6px)" : "blur(0px)",
+        transition: hidden
+          ? "transform 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1), filter 380ms cubic-bezier(0.16, 1, 0.3, 1)"
+          : "transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1), filter 240ms cubic-bezier(0.16, 1, 0.3, 1)",
+        willChange: "transform, opacity, filter",
       }}
     >
       <div
@@ -562,15 +588,25 @@ function MobileDock({
           color: "#fff",
         }}
       >
-        <Cover track={track} size={38} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
-            {track.title}
-          </p>
-          <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
-            {track.subtitle}
-          </p>
-        </div>
+        {/* Cover + title is one tappable surface → song page (Apple
+            Music mini-player pattern). The dedicated expand button is
+            kept too for users who learned that affordance. */}
+        <Link
+          href={expandHrefForTrack(track)}
+          aria-label={`Open ${track.title} song page`}
+          title="Open song page"
+          className="sk-press flex min-w-0 flex-1 items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+        >
+          <Cover track={track} size={38} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
+              {track.title}
+            </p>
+            <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
+              {track.subtitle}
+            </p>
+          </div>
+        </Link>
         <button
           type="button"
           aria-label={playing ? "Pause" : "Play"}
