@@ -1,48 +1,71 @@
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { createDb, desc, eq, invoices, producers } from "@skitza/db";
 
-import { ProjectHeader } from "~/components/dashboard/project/project-header";
-import { ProjectRoomHero } from "~/components/dashboard/project/project-room-hero";
-import { ProjectStatStrip } from "~/components/dashboard/project/project-stat-strip";
-// Server-safe imports (pure types + type-guard) come from the
-// shared module; the UI-only `ProjectSubTabs` component stays in
-// the `"use client"` file. Importing the guard from the client
-// module crashes RSC — that was the 2026-04-23 "Something buzzed"
-// bug on every project page.
 import {
-  resolveProjectSubTab,
-  type VisibleProjectSubTabId,
-} from "~/components/dashboard/project/project-sub-tab-shared";
-import { ProjectSubTabs } from "~/components/dashboard/project/project-sub-tabs";
-import { FilesSubTab } from "~/components/dashboard/project/sub-tabs/files-sub-tab";
-import { MusicSubTab } from "~/components/dashboard/project/sub-tabs/music-sub-tab";
-import { NotesSubTab } from "~/components/dashboard/project/sub-tabs/notes-sub-tab";
-import { OverviewSubTab } from "~/components/dashboard/project/sub-tabs/overview-sub-tab";
-import {
-  SessionsSubTab,
-  type SessionBooking,
-} from "~/components/dashboard/project/sub-tabs/sessions-sub-tab";
+  AlbumSpace,
+  type AlbumSpaceProject,
+  type AlbumSpacePayments,
+  type AlbumSpaceStudioLog,
+} from "~/components/dashboard/project/album-space";
+import { stageOrder, type WorkflowStage } from "~/lib/clients/workflow-stage";
+import type { TrackRowData } from "~/components/dashboard/project/track-row";
+import type {
+  MilestoneStatus,
+  PaymentMilestone,
+} from "~/components/dashboard/project/album-tabs/payments-tab";
+import type {
+  StudioLogActivity,
+  StudioLogSession,
+} from "~/components/dashboard/project/album-tabs/studio-log-tab";
 import { appRouter } from "~/server/trpc/routers/_app";
-import { getStripe } from "~/server/stripe/client";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function ProjectDetail({ params, searchParams }: PageProps) {
+// Phase 2 — Album Page server component. The 5-sub-tab legacy stack
+// (header + room-hero + stat-strip + sub-tabs + Overview/Music/Notes/
+// Sessions/Files) has been replaced by a single <AlbumSpace> shell
+// that owns the new IA: AlbumHero · AlbumStatStrip · AlbumTabs
+// (Songs / Files / Payments / Studio Log).
+//
+// This server component:
+//   1. Verifies auth.
+//   2. Parallel-fetches project.detail + project.money + bookings.
+//   3. Reshapes the data into the AlbumSpace prop tree.
+//   4. Renders <AlbumSpace>.
+//
+// Progress derivation: we don't have a per-stage % column yet, so we
+// derive a project-wide progress heuristic from the workflow stage
+// (brief=0, production=25, mixing=55, mastering=85, done=100). This
+// keeps the bar visually meaningful for v1 — Phase 4 may replace it
+// with a real per-song aggregation.
+
+const STAGE_PROGRESS: Record<WorkflowStage, number> = {
+  brief:      5,
+  production: 30,
+  mixing:     60,
+  mastering:  85,
+  done:       100,
+};
+
+function progressForStage(stage: WorkflowStage): number {
+  return STAGE_PROGRESS[stage];
+}
+
+function milestoneStatusForInvoice(status: string): MilestoneStatus {
+  if (status === "paid") return "paid";
+  if (status === "uncollectible") return "overdue";
+  return "pending";
+}
+
+export default async function ProjectDetail({ params }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const { id } = await params;
-  const sp = await searchParams;
-  // Resolve to one of the 5 visible PRD-spec tabs (Overview / Music /
-  // Sessions / Files / Notes). Legacy `?tab=money` deep-links from
-  // pre-PRD-v3 builds resolve to `overview` since the money strip
-  // moved there.
-  const activeTab: VisibleProjectSubTabId = resolveProjectSubTab(sp.tab);
 
   const caller = appRouter.createCaller({ userId });
+
   let data;
   try {
     data = await caller.project.detail({ id });
@@ -50,317 +73,207 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     notFound();
   }
 
-  // Batch G Task 4 — money summary for the Money sub-tab's 3-metric
-  // strip (Paid / Outstanding / Next charge). Degrade gracefully:
-  // zero everywhere if the router errors, matching the "no invoices"
-  // render path.
-  let moneyForProject: {
-    paidCents: number;
-    outstandingCents: number;
-    currency: string;
-    nextChargeAt: Date | null;
-  } = {
-    paidCents: 0,
-    outstandingCents: 0,
-    currency: "USD",
-    nextChargeAt: null,
-  };
-  try {
-    moneyForProject = await caller.project.money({ projectId: id });
-  } catch (err) {
-    console.warn("[projects] project.money failed", err);
-  }
+  // Parallel: money + sessions list (filtered to this project).
+  const [moneyResult, bookingsResult] = await Promise.allSettled([
+    caller.project.money({ projectId: id }),
+    caller.booking.list(),
+  ]);
 
-  // Task 7 — Sessions sub-tab needs the single booking linked to this
-  // project (projects.bookingId is a 1:1 FK). Reuse the producer-scoped
-  // booking.list and filter in JS: producers typically have a small
-  // number of bookings and list is already cached by this render tree.
-  // Degrade silently if the router errors — the sub-tab will render its
-  // empty state, which is the right UX for "we can't resolve a booking".
-  let sessionBooking: SessionBooking | null = null;
-  if (data.project.bookingId) {
-    try {
-      const all = await caller.booking.list();
-      const match = all.find((b) => b.id === data.project.bookingId);
-      if (match) {
-        sessionBooking = {
-          id: match.id,
-          status: match.status,
-          startsAt: match.startsAt,
-          durationMin: match.durationMin,
-          packageName: match.packageNameSnapshot,
-          artistName: match.artistName,
-          artistEmail: match.artistEmail,
+  const money =
+    moneyResult.status === "fulfilled"
+      ? moneyResult.value
+      : {
+          paidCents: 0,
+          outstandingCents: 0,
+          currency: data.project.currency ?? "USD",
+          nextChargeAt: null as Date | null,
         };
-      }
-    } catch (err) {
-      console.warn("[projects] booking.list failed for sessions tab", err);
-    }
-  }
 
-  // For split_50_50 projects with a saved PM, fetch the card's last-4
-  // from Stripe so the confirm-charge modal can show "card ending 4242"
-  // before the producer fires the off-session charge. Degrade silently
-  // on Stripe outage — the modal just omits the tail, no functional
-  // loss. Only fetched when actually relevant (plan + PM present).
-  let cardLast4: string | null = null;
-  if (
-    data.project.paymentPlanKind === "split_50_50" &&
-    data.project.stripePaymentMethodId
-  ) {
-    try {
-      const stripe = getStripe();
-      const pm = await stripe.paymentMethods.retrieve(
-        data.project.stripePaymentMethodId,
-      );
-      cardLast4 = pm.card?.last4 ?? null;
-    } catch (err) {
-      console.warn("[projects] paymentMethods.retrieve failed", err);
-    }
-  }
+  const projectBookings =
+    bookingsResult.status === "fulfilled"
+      ? bookingsResult.value.filter((b) => b.projectId === data.project.id)
+      : [];
 
-  // Important 3: currency is now snapshotted on the project row at
-  // booking time, so the modal + chargeFinal both read from the same
-  // source. For legacy projects without a persisted currency, fall back
-  // to the most recent invoice; failing that, the producer's default.
-  // The fallback chain protects pre-migration-0023 rows; new rows hit
-  // the project field directly.
-  let projectCurrency = data.project.currency ?? "USD";
-  if (!data.project.currency) {
-    const dbUrl = process.env.DATABASE_URL;
-    if (dbUrl) {
-      try {
-        const db = createDb(dbUrl);
-        const [inv] = await db
-          .select({ currency: invoices.currency })
-          .from(invoices)
-          .where(eq(invoices.projectId, id))
-          .orderBy(desc(invoices.createdAt))
-          .limit(1);
-        if (inv?.currency) {
-          projectCurrency = inv.currency;
-        } else {
-          const [producer] = await db
-            .select({ defaultCurrency: producers.defaultCurrency })
-            .from(producers)
-            .where(eq(producers.id, data.project.producerId))
-            .limit(1);
-          if (producer?.defaultCurrency) {
-            projectCurrency = producer.defaultCurrency;
-          }
-        }
-      } catch (err) {
-        console.warn("[projects] currency lookup failed", err);
-      }
-    }
-  }
+  // Sessions count + studio hours derived from this project's bookings.
+  const sessionsList: StudioLogSession[] = projectBookings.map((b) => ({
+    id: b.id,
+    date: b.startsAt,
+    durationMinutes: b.durationMin,
+    attendees: [b.artistName],
+  }));
+  const studioHours =
+    projectBookings.reduce((sum, b) => sum + b.durationMin, 0) / 60;
+  const now = new Date();
+  const thisMonthCount = projectBookings.filter((b) => {
+    const d = b.startsAt;
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }).length;
+  const firstBooking = projectBookings[0];
+  const lastSessionDate: Date | null =
+    firstBooking === undefined
+      ? null
+      : projectBookings.reduce<Date>((latest, b) => {
+          return b.startsAt > latest ? b.startsAt : latest;
+        }, firstBooking.startsAt);
 
-  // Batch D — look up the client contact linked to this project so
-  // the header can render per-client tags + the inline tag editor.
-  // Matches on project.artistEmail; for legacy rows with clientEmail
-  // but no artistEmail the clientContacts.listWithProjects fallback
-  // would catch them, but this path is simpler and covers 99% of
-  // projects. Failure degrades to `null` (header omits the tag strip).
-  let clientContact: {
-    id: string;
-    tags: string[];
-  } | null = null;
-  let tagVocabulary: string[] = [];
-  try {
-    const [contact, vocab] = await Promise.all([
-      caller.clientContacts.list({ q: data.project.artistEmail }),
-      caller.clientContacts.listTags(),
-    ]);
-    const match = contact.find(
-      (c) => c.email.toLowerCase() === data.project.artistEmail.toLowerCase(),
-    );
-    if (match) {
-      // The list query projects a slim row; fetch the full record for
-      // tags since autocomplete values aren't exposed on the list shape.
-      const detail = await caller.clientContacts.detail({ id: match.id });
-      clientContact = {
-        id: detail.contact.id,
-        tags: detail.contact.tags,
-      };
-    }
-    tagVocabulary = vocab;
-  } catch (err) {
-    console.warn("[projects] client contact lookup failed", err);
-  }
+  // Build the TrackRow data from the project.detail payload. For each
+  // track we derive:
+  //   - currentVersion: label of the latest version (versions already
+  //     come back ordered newest-first).
+  //   - noteCount: unresolved comments for this track's versions.
+  //   - durationMs: from the latest version.
+  //   - progress: heuristic per workflow stage (no per-track progress
+  //     column yet).
+  const tracks: TrackRowData[] = data.tracks.map((t) => {
+    const trackVersions = data.versions.filter((v) => v.trackId === t.id);
+    const latest = trackVersions[0];
+    const noteIds = new Set(trackVersions.map((v) => v.id));
+    const noteCount = data.comments.filter(
+      (c) => noteIds.has(c.versionId) && c.resolvedAt === null,
+    ).length;
+    const stage: WorkflowStage = t.workflowStage;
+    const base: TrackRowData = {
+      id: t.id,
+      title: t.title,
+      workflowStage: stage,
+      progress: progressForStage(stage),
+    };
+    if (latest?.label) base.currentVersion = latest.label;
+    if (noteCount > 0) base.noteCount = noteCount;
+    if (latest?.durationMs) base.durationMs = latest.durationMs;
+    return base;
+  });
 
-  // Shared header props — consumed by ProjectHeader's top row, payment
-  // strip, timeline, and 3-dot action handlers. finalDelivered mirrors
-  // finalPaid for now (pre-Task-6 there's no dedicated "delivered"
-  // column).
-  const headerProject = {
+  // Project-wide progress: prefer the max stage among tracks (a project
+  // with 1 mastered track + 2 in mixing is further along than the worst).
+  // Falls back to project-level workflowStage when there are no tracks.
+  const projectStage: WorkflowStage = data.project.workflowStage;
+  const projectProgress =
+    tracks.length === 0
+      ? progressForStage(projectStage)
+      : Math.max(
+          ...tracks.map((t) => progressForStage(t.workflowStage)),
+        );
+
+  // Highest-order stage across tracks — drives the hero eyebrow.
+  const headlineStage: WorkflowStage =
+    tracks.length === 0
+      ? projectStage
+      : tracks.reduce<WorkflowStage>((best, t) => {
+          return stageOrder(t.workflowStage) > stageOrder(best)
+            ? t.workflowStage
+            : best;
+        }, "brief");
+
+  // Build milestones from invoices for this project. The project
+  // router doesn't currently expose invoice rows directly, so we
+  // surface a slim list derived from money + invoice status counts.
+  // Phase 4 will add a dedicated `project.milestones` procedure; until
+  // then we render an empty list when there's nothing to show. We
+  // collapse this to a single "Engagement total" row when there's a
+  // paid balance so the panel renders with at least one milestone for
+  // the producer to scan.
+  const milestones: PaymentMilestone[] = [];
+  if (money.paidCents > 0 || money.outstandingCents > 0) {
+    const total = money.paidCents + money.outstandingCents;
+    let status: MilestoneStatus;
+    if (money.outstandingCents === 0) status = "paid";
+    else if (money.paidCents === 0) status = "pending";
+    else status = "pending";
+    milestones.push({
+      id: `engagement-${data.project.id}`,
+      label: "Engagement total",
+      amountCents: total,
+      status,
+      date: data.project.paidAt,
+    });
+  }
+  void milestoneStatusForInvoice;
+
+  // Activity timeline — distilled from the project's event ledger.
+  // We don't currently have a normalized activity table, so we
+  // synthesize a small list from the strongest signals: project
+  // creation, version uploads (newest 5), and resolved/unresolved
+  // comments (newest 5). Phase 4 may persist a real `project_events`
+  // log; this is enough for v1.
+  const activities: StudioLogActivity[] = [];
+  activities.push({
+    id: `created-${data.project.id}`,
+    kind: "created",
+    ts: data.project.createdAt,
+    description: "Project created",
+  });
+  for (const v of data.versions.slice(0, 5)) {
+    activities.push({
+      id: `version-${v.id}`,
+      kind: "version",
+      ts: v.uploadedAt,
+      description: `New version uploaded — ${v.label}`,
+    });
+  }
+  for (const c of data.comments.slice(0, 5)) {
+    activities.push({
+      id: `comment-${c.id}`,
+      kind: "comment",
+      ts: c.createdAt,
+      description: `${c.authorName} left a note`,
+    });
+  }
+  activities.sort((a, b) => b.ts.getTime() - a.ts.getTime());
+  const trimmedActivities = activities.slice(0, 10);
+
+  // Deadline + isOverdue — the project schema doesn't currently carry
+  // a deadline column. Use nextChargeAt as the closest signal we have
+  // (renders "—" when null). Phase 4 can wire a real deadline.
+  const deadline = money.nextChargeAt
+    ? new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+      }).format(money.nextChargeAt)
+    : "—";
+  const isOverdue =
+    money.nextChargeAt !== null && money.nextChargeAt < new Date() && money.outstandingCents > 0;
+
+  const project: AlbumSpaceProject = {
     id: data.project.id,
-    title: data.project.title,
-    stage: data.project.stage,
-    artistName: data.project.artistName,
-    artistEmail: data.project.artistEmail,
-    clientName: data.project.clientName,
-    depositPaid: data.project.depositPaid,
-    finalPaid: data.project.finalPaid,
-    paymentPlanKind: data.project.paymentPlanKind,
-    installments: data.project.installments,
-    nextChargeAt: data.project.nextChargeAt,
-    chargesCompleted: data.project.chargesCompleted,
-    chargesTotal: data.project.chargesTotal,
-    totalAmountCents: data.project.totalAmountCents,
-    cardLast4,
-    currency: projectCurrency,
-    finalDelivered: data.project.finalPaid,
+    name: data.project.title,
+    clientName: data.project.clientName ?? data.project.artistName,
+    songsCount: data.tracks.length,
+    sessionsCount: projectBookings.length,
+    totalCents: data.project.totalAmountCents ?? money.paidCents + money.outstandingCents,
+    currency: money.currency,
+    workflowStage: headlineStage,
+    progress: projectProgress,
+    deadline,
+    isOverdue,
+    outstandingCents: money.outstandingCents,
   };
 
-  // 2026-05-06 redesign — slim hero shape sits above the existing
-  // ProjectHeader. The hero is purely cosmetic (back link, gradient,
-  // title, info row, "Play latest"); ProjectHeader keeps owning the
-  // stage select, action menu, tag editor, payment strip, and timeline
-  // so existing tests + flows aren't disturbed.
-  const heroProject = {
-    id: data.project.id,
-    title: data.project.title,
-    stage: data.project.stage,
-    artistName: data.project.clientName ?? data.project.artistName,
-    trackCount: data.tracks.length,
-    sessionCount: sessionBooking ? 1 : 0,
-    totalAmountCents: data.project.totalAmountCents,
-    currency: projectCurrency,
-    firstTrackId: data.tracks[0]?.id ?? null,
+  const payments: AlbumSpacePayments = {
+    paidCents: money.paidCents,
+    outstandingCents: money.outstandingCents,
+    currency: money.currency,
+    nextChargeAt: money.nextChargeAt,
+    milestones,
+  };
+
+  const studioLog: AlbumSpaceStudioLog = {
+    sessionsCount: projectBookings.length,
+    studioHours,
+    thisMonthCount,
+    lastSessionDate,
+    activities: trimmedActivities,
+    sessions: sessionsList,
   };
 
   return (
-    <>
-      {/* Full-bleed gradient hero — title, info row, Play latest */}
-      <ProjectRoomHero project={heroProject} />
-
-      {/* Centered body — stat strip + ProjectHeader (controls) + tabs */}
-      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
-        <ProjectStatStrip
-          stage={data.project.stage}
-          nextSessionAt={sessionBooking?.startsAt ?? null}
-          outstandingCents={moneyForProject.outstandingCents}
-          currency={projectCurrency}
-        />
-
-        <div className="mt-5">
-          <ProjectHeader
-            project={headerProject}
-            clientContact={clientContact}
-            tagVocabulary={tagVocabulary}
-          />
-        </div>
-
-        <div className="mt-6">
-          <ProjectSubTabs activeTab={activeTab}>
-            {activeTab === "overview" ? (
-              <OverviewSubTab
-                project={{
-                  title: data.project.title,
-                  createdAt: data.project.createdAt,
-                  updatedAt: data.project.updatedAt,
-                  finalPaid: data.project.finalPaid,
-                  paidAt: data.project.paidAt,
-                }}
-                money={moneyForProject}
-                session={
-                  sessionBooking
-                    ? {
-                        id: sessionBooking.id,
-                        status: sessionBooking.status,
-                        startsAt: sessionBooking.startsAt,
-                      }
-                    : null
-                }
-                tracks={data.tracks.map((t) => ({
-                  id: t.id,
-                  title: t.title,
-                  createdAt: t.createdAt,
-                }))}
-                versions={data.versions.map((v) => ({
-                  id: v.id,
-                  trackId: v.trackId,
-                  label: v.label,
-                  uploadedAt: v.uploadedAt,
-                  approvedAt: v.approvedAt,
-                }))}
-                comments={data.comments.map((c) => ({
-                  id: c.id,
-                  versionId: c.versionId,
-                  authorName: c.authorName,
-                  body: c.body,
-                  fromProducer: c.fromProducer,
-                  createdAt: c.createdAt,
-                }))}
-              />
-            ) : null}
-            {activeTab === "music" ? (
-              <MusicSubTab
-                project={{ id: data.project.id }}
-                tracks={data.tracks.map((t) => ({
-                  id: t.id,
-                  title: t.title,
-                  artist: t.artist,
-                  position: t.position,
-                }))}
-                versions={data.versions.map((v) => ({
-                  id: v.id,
-                  trackId: v.trackId,
-                  label: v.label,
-                  audioUrl: v.audioUrl,
-                  uploadedAt: v.uploadedAt,
-                  approvedAt: v.approvedAt,
-                }))}
-                comments={data.comments.map((c) => ({
-                  id: c.id,
-                  versionId: c.versionId,
-                  authorName: c.authorName,
-                  body: c.body,
-                  timestampMs: c.timestampMs,
-                  resolvedAt: c.resolvedAt,
-                  fromProducer: c.fromProducer,
-                  createdAt: c.createdAt,
-                }))}
-              />
-            ) : null}
-            {activeTab === "sessions" ? (
-              <SessionsSubTab projectId={data.project.id} booking={sessionBooking} />
-            ) : null}
-            {activeTab === "files" ? (
-              <FilesSubTab projectId={data.project.id} />
-            ) : null}
-            {activeTab === "notes" ? (
-              <NotesSubTab
-                project={{
-                  id: data.project.id,
-                  clientName: data.project.clientName,
-                  clientEmail: data.project.clientEmail,
-                  artistName: data.project.artistName,
-                  artistEmail: data.project.artistEmail,
-                  createdAt: data.project.createdAt,
-                  updatedAt: data.project.updatedAt,
-                  notes: data.project.notes,
-                }}
-                trackCount={data.tracks.length}
-                versionCount={data.versions.length}
-                tracks={data.tracks.map((t) => ({ id: t.id, title: t.title }))}
-                versions={data.versions.map((v) => ({
-                  trackId: v.trackId,
-                  label: v.label,
-                  uploadedAt: v.uploadedAt,
-                }))}
-                comments={data.comments.map((c) => ({
-                  authorName: c.authorName,
-                  body: c.body,
-                  timestampMs: c.timestampMs,
-                  fromProducer: c.fromProducer,
-                  createdAt: c.createdAt,
-                }))}
-              />
-            ) : null}
-          </ProjectSubTabs>
-        </div>
-      </div>
-    </>
+    <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+      <AlbumSpace
+        project={project}
+        tracks={tracks}
+        payments={payments}
+        studioLog={studioLog}
+      />
+    </main>
   );
 }
