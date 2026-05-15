@@ -156,4 +156,8 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(clientsIdx).toBeGreaterThan(-1);
     expect(projectsIdx).toBeGreaterThan(clientsIdx);
   });
+
+  it("only renders the layout switcher when tab is 'clients'", () => {
+    expect(SRC).toMatch(/\{tab\s*===\s*["']clients["'][\s\S]{0,600}aria-label=["']Layout["']/);
+  });
 });

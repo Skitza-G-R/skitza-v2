@@ -421,54 +421,56 @@ export function WorkspaceListView({
               ))}
         </div>
         <div className="flex items-center gap-2">
-          <div
-            className="inline-flex items-center gap-0.5 rounded-full border p-0.5"
-            style={{
-              background: "rgb(var(--bg-elevated))",
-              borderColor: "rgb(var(--border-subtle))",
-            }}
-            role="group"
-            aria-label="Layout"
-          >
-            <button
-              type="button"
-              onClick={() => { setLayout("cards"); }}
-              aria-pressed={layout === "cards"}
-              aria-label="Card layout"
-              className="rounded-full p-1.5"
+          {tab === "clients" ? (
+            <div
+              className="inline-flex items-center gap-0.5 rounded-full border p-0.5"
               style={{
-                background:
-                  layout === "cards"
-                    ? "rgb(var(--brand-primary)/0.15)"
-                    : "transparent",
-                color:
-                  layout === "cards"
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--fg-muted))",
+                background: "rgb(var(--bg-elevated))",
+                borderColor: "rgb(var(--border-subtle))",
               }}
+              role="group"
+              aria-label="Layout"
             >
-              <LayoutGrid size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={() => { setLayout("table"); }}
-              aria-pressed={layout === "table"}
-              aria-label="Table layout"
-              className="rounded-full p-1.5"
-              style={{
-                background:
-                  layout === "table"
-                    ? "rgb(var(--brand-primary)/0.15)"
-                    : "transparent",
-                color:
-                  layout === "table"
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--fg-muted))",
-              }}
-            >
-              <List size={14} />
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => { setLayout("cards"); }}
+                aria-pressed={layout === "cards"}
+                aria-label="Card layout"
+                className="rounded-full p-1.5"
+                style={{
+                  background:
+                    layout === "cards"
+                      ? "rgb(var(--brand-primary)/0.15)"
+                      : "transparent",
+                  color:
+                    layout === "cards"
+                      ? "rgb(var(--brand-primary))"
+                      : "rgb(var(--fg-muted))",
+                }}
+              >
+                <LayoutGrid size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => { setLayout("table"); }}
+                aria-pressed={layout === "table"}
+                aria-label="Table layout"
+                className="rounded-full p-1.5"
+                style={{
+                  background:
+                    layout === "table"
+                      ? "rgb(var(--brand-primary)/0.15)"
+                      : "transparent",
+                  color:
+                    layout === "table"
+                      ? "rgb(var(--brand-primary))"
+                      : "rgb(var(--fg-muted))",
+                }}
+              >
+                <List size={14} />
+              </button>
+            </div>
+          ) : null}
           <label className="relative inline-flex items-center">
             <select
               value={sort}
