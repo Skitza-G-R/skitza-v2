@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import type { DragEvent } from "react";
-import Link from "next/link";
 import { ChevronDown, LayoutGrid, List, Plus } from "lucide-react";
 
 import {
@@ -15,6 +14,10 @@ import {
 } from "~/components/dashboard/clients/client-card";
 import { InviteToAppModal } from "~/components/dashboard/clients/invite-modal";
 import { NewClientModal } from "~/components/dashboard/clients/new-client-modal";
+import {
+  NewProjectModal,
+  type NewProjectModalProductOption,
+} from "~/components/dashboard/clients/new-project-modal";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 
@@ -90,6 +93,11 @@ export interface WorkspaceListViewProps {
   kpis: WorkspaceKPIs;
   /** Producer slug — used to build the invite URL inside the modal. */
   producerSlug: string;
+  /** Producer's active store products. Passed through to NewProjectModal
+   *  so the "+ New project" CTA can drive the product picker. Pass an
+   *  empty array if the producer hasn't created any products yet — the
+   *  modal renders an empty-state hint linking to /dashboard/store. */
+  products: NewProjectModalProductOption[];
   /** Optional callback fired when the user drags rows into a new order.
    *  Returning a Promise lets the page wire a Server Action — the
    *  component never awaits the result (drag is optimistic). */
@@ -126,6 +134,7 @@ export function WorkspaceListView({
   clients,
   kpis,
   producerSlug,
+  products,
   onReorderProjects,
   onReorderClients,
 }: WorkspaceListViewProps) {
@@ -159,6 +168,12 @@ export function WorkspaceListView({
   // sent the producer to the new-project form with a client-first
   // query flag). DESIGN.md §6.1 / BUILD-NOTES §7.1.
   const [newClientOpen, setNewClientOpen] = useState(false);
+
+  // New Project modal state (G7). Opens from the "+ New project" CTA on
+  // the Projects tab. Replaces the previous `<Link href="/.../new">`
+  // route — Gili spotted that the legacy page was still wired up to
+  // the CTA during QA. DESIGN.md §6.2 / BUILD-NOTES §7.2.
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
 
   const currency = kpis.currency ?? "USD";
 
@@ -337,14 +352,15 @@ export function WorkspaceListView({
           </button>
         ) : null}
         {tab === "projects" ? (
-          <Link
-            href="/dashboard/clients-projects/new"
+          <button
+            type="button"
+            onClick={() => { setNewProjectOpen(true); }}
             className={HEADER_CTA_CLASS}
             style={HEADER_CTA_STYLE}
           >
             <Plus size={14} strokeWidth={2.4} />
             New project
-          </Link>
+          </button>
         ) : null}
       </header>
 
@@ -612,6 +628,24 @@ export function WorkspaceListView({
           // the new client appears on the next render without a
           // hard reload.
           setNewClientOpen(false);
+        }}
+      />
+
+      <NewProjectModal
+        open={newProjectOpen}
+        onClose={() => {
+          setNewProjectOpen(false);
+        }}
+        clients={clients.map((c) => ({
+          id: c.id,
+          name: c.name,
+          email: c.email ?? "",
+        }))}
+        products={products}
+        onCreated={() => {
+          // Same pattern as the new-client wiring above — the Server
+          // Action revalidates + the modal calls router.refresh.
+          setNewProjectOpen(false);
         }}
       />
     </div>

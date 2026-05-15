@@ -41,11 +41,14 @@ export default async function ProjectsPage() {
   const caller = appRouter.createCaller({ userId });
 
   // Two parallel calls — one fold per view. Cheap (Neon HTTP, both
-  // producer-scoped, both indexed lookups).
-  const [projectsResult, clientsResult, me] = await Promise.all([
+  // producer-scoped, both indexed lookups). `productsList` is included
+  // for the NewProjectModal product picker; the modal handles the
+  // empty-state gracefully if the producer hasn't created any yet.
+  const [projectsResult, clientsResult, me, productsList] = await Promise.all([
     caller.clientContacts.listWithProjects({ view: "all-projects" }),
     caller.clientContacts.listWithProjects({ view: "by-client" }),
     safeMe(caller),
+    safeProducts(caller),
   ]);
 
   const producerSlug = me.slug ?? "";
@@ -140,6 +143,7 @@ export default async function ProjectsPage() {
           clients={clientRows}
           kpis={kpis}
           producerSlug={producerSlug}
+          products={productsList}
           onReorderProjects={reorderProjectsAction}
           onReorderClients={reorderClientsAction}
         />
@@ -163,6 +167,40 @@ async function safeMe(
   } catch (err) {
     console.warn("[clients-projects] producer.me failed", err);
     return { slug: null, defaultCurrency: "USD" };
+  }
+}
+
+// Producer's active products for the NewProjectModal picker. Falls
+// back to an empty list on any error — the modal renders an empty
+// state hint pointing at /dashboard/store in that case. The mapping
+// trims the wire shape down to exactly what the modal consumes.
+async function safeProducts(
+  caller: ReturnType<typeof appRouter.createCaller>,
+): Promise<
+  {
+    id: string;
+    name: string;
+    description: string | null;
+    deliverables: string[] | null;
+    priceCents: number;
+    currency: string;
+    depositPct: number;
+  }[]
+> {
+  try {
+    const rows = await caller.booking.products.list();
+    return rows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      deliverables: p.deliverables,
+      priceCents: p.priceCents,
+      currency: p.currency,
+      depositPct: p.depositPct,
+    }));
+  } catch (err) {
+    console.warn("[clients-projects] booking.products.list failed", err);
+    return [];
   }
 }
 

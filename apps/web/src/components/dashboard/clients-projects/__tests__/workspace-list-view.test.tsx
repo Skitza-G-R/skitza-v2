@@ -189,8 +189,17 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toMatch(/tab\s*===\s*["']projects["'][\s\S]{0,500}New project/);
   });
 
-  it("links the 'New project' CTA to the existing new-project route", () => {
-    expect(SRC).toMatch(/href=["']\/dashboard\/clients-projects\/new["']/);
+  // Phase 1 G7 — the "+ New project" CTA was a <Link href="/dashboard/
+  // clients-projects/new"> before. It now opens NewProjectModal in the
+  // same flow as "+ New client" did in G6. The href should be gone.
+  it("does NOT route the 'New project' CTA to /clients-projects/new", () => {
+    expect(SRC).not.toMatch(/href=["']\/dashboard\/clients-projects\/new["']/);
+  });
+
+  it("renders the 'New project' CTA as a <button> on the Projects tab (opens modal)", () => {
+    expect(SRC).toMatch(
+      /tab\s*===\s*["']projects["'][\s\S]{0,500}<button[\s\S]{0,500}New project/,
+    );
   });
 
   // ── G6: NewClientModal wiring ───────────────────────────────────
@@ -213,5 +222,32 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
 
   it("wires the 'New client' CTA onClick to open the modal", () => {
     expect(SRC).toMatch(/onClick=\{\(\)\s*=>\s*\{\s*setNewClientOpen\(true\)/);
+  });
+
+  // ── G7: NewProjectModal wiring ──────────────────────────────────
+  it("imports NewProjectModal from the clients folder", () => {
+    expect(SRC).toContain("NewProjectModal");
+    expect(SRC).toContain("~/components/dashboard/clients/new-project-modal");
+  });
+
+  it("manages NewProjectModal open state via local useState (setNewProjectOpen)", () => {
+    expect(SRC).toContain("setNewProjectOpen");
+    expect(SRC).toContain("newProjectOpen");
+  });
+
+  it("mounts <NewProjectModal> with open + onClose + clients + products", () => {
+    expect(SRC).toMatch(/<NewProjectModal/);
+    expect(SRC).toMatch(/open=\{newProjectOpen\}/);
+    expect(SRC).toMatch(/onClose=\{/);
+    expect(SRC).toMatch(/clients=\{/);
+    expect(SRC).toMatch(/products=\{/);
+  });
+
+  it("wires the 'New project' CTA onClick to open the modal", () => {
+    expect(SRC).toMatch(/onClick=\{\(\)\s*=>\s*\{\s*setNewProjectOpen\(true\)/);
+  });
+
+  it("declares products as a required prop on WorkspaceListViewProps", () => {
+    expect(SRC).toMatch(/products:\s*/);
   });
 });

@@ -29,6 +29,14 @@ describe("clients-projects/page.tsx — Phase 1 rewrite", () => {
     expect(SRC).toMatch(/producerSlug=\{/);
   });
 
+  // Phase 1 G7 — page must pass the producer's product list so the
+  // "+ New project" CTA inside WorkspaceListView can drive the modal's
+  // product picker without an extra client-side fetch.
+  it("passes products to the view (NewProjectModal picker source)", () => {
+    expect(SRC).toMatch(/products=\{/);
+    expect(SRC).toContain("booking.products.list");
+  });
+
   it("preserves the auth + caller scaffolding", () => {
     expect(SRC).toContain("@clerk/nextjs/server");
     expect(SRC).toContain("appRouter.createCaller");
