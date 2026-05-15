@@ -218,14 +218,15 @@ function SidebarBody({
         <Link
           href="/dashboard"
           aria-label="Skitza dashboard home"
-          className="sk-press flex items-center gap-2"
+          className="sk-press flex items-center"
+          style={{ gap: 10 }}
         >
           {collapsed ? (
             <LogoMark size={32} />
           ) : (
             <>
-              <LogoMark size={28} />
-              <Wordmark size={20} inverse lowercase />
+              <LogoMark size={30} />
+              <Wordmark size={18} inverse lowercase />
             </>
           )}
         </Link>

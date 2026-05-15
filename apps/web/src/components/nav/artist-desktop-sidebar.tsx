@@ -76,11 +76,11 @@ export function ArtistDesktopSidebar({
       <Link
         href="/artist"
         aria-label="Skitza artist home"
-        className="sk-press flex items-center gap-2"
-        style={{ padding: "4px 8px 18px" }}
+        className="sk-press flex items-center"
+        style={{ gap: 10, padding: "4px 8px 18px" }}
       >
-        <LogoMark size={28} />
-        <Wordmark size={20} inverse lowercase />
+        <LogoMark size={30} />
+        <Wordmark size={18} inverse lowercase />
       </Link>
 
       {/* Studio switcher — multi-producer artists need this on every
