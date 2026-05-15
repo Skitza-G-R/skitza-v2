@@ -17,7 +17,7 @@ import "./settings.css";
 // /dashboard/settings — Settings redesign (2026-05-14).
 //
 // Five sections in a left sub-nav (Profile · Plan & billing · Notifications ·
-// Integrations · Language & region). The Studio section in the original
+// Integrations · Currency & region). The Studio section in the original
 // reference is intentionally deferred; the slot is held open in the design
 // but not rendered until business-name/city/country/tax-id schema lands.
 //

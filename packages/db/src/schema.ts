@@ -101,7 +101,7 @@ export const producers = pgTable("producers", {
   // and the onboarding availability step. Two values: 'sunday' | 'monday'
   // — long form matches the existing `useWeekStartPref` hook in
   // lib/time/week-start.ts so the same string flows from DB → server →
-  // client without translation. Settings → Language & region writes
+  // client without translation. Settings → Currency & region writes
   // here; Calendar / Onboarding read from here.
   weekStart: text("week_start").notNull().default("sunday"),
   // Per-event notification preferences. Shape:

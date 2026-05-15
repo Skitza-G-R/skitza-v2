@@ -410,7 +410,7 @@ function PlanFreeView() {
                   letterSpacing: "-0.02em",
                 }}
               >
-                $12{" "}
+                $29{" "}
                 <span
                   className="s-mono"
                   style={{
@@ -458,7 +458,7 @@ function PlanProView() {
               className="s-mono"
               style={{ fontSize: 13, color: "rgb(255 255 255 / 0.7)" }}
             >
-              $12 / month
+              $29 / month
             </span>
           </div>
           <div
@@ -815,7 +815,7 @@ function IntegrationsSection({
   );
 }
 
-/* ─── Language & region section ────────────────────────────────────── */
+/* ─── Currency & region section ────────────────────────────────────── */
 function RegionSection({
   form,
   setForm,
@@ -827,7 +827,7 @@ function RegionSection({
     <section className="s-reveal" aria-labelledby="settings-region-h">
       <header className="s-section-head">
         <span className="s-section-eyebrow">Localization</span>
-        <h2 id="settings-region-h">Language &amp; region</h2>
+        <h2 id="settings-region-h">Currency &amp; region</h2>
         <p>Defaults for storefront pricing and the calendar week.</p>
       </header>
       <div className="s-card">

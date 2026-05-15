@@ -81,7 +81,7 @@ export const SUB_NAV: readonly NavItem[] = [
   { key: "plan", label: "Plan & billing", iconKey: "bolt" },
   { key: "notif", label: "Notifications", iconKey: "bell" },
   { key: "int", label: "Integrations", iconKey: "plug" },
-  { key: "region", label: "Language & region", iconKey: "globe" },
+  { key: "region", label: "Currency & region", iconKey: "globe" },
 ];
 
 // ─── Notification events ──────────────────────────────────────────────
