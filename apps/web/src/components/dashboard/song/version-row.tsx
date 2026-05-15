@@ -117,7 +117,14 @@ export function VersionRow({
   if (version.changelog) metaParts.push(version.changelog);
   const meta = metaParts.join(" · ");
 
+  // No-audio rows MUST NOT dispatch a play. Without this gate the
+  // PersistentPlayer would receive `audioUrl: null`, paint the row as
+  // "current" via the amber wash, but silently fail to load any audio —
+  // the user sees a "playing" state with no sound and no feedback. Bail
+  // early so the click is a true no-op for empty rows.
+  const hasAudio = version.audioUrl !== null;
   const handlePlay = () => {
+    if (version.audioUrl === null) return;
     playerPlay({
       id: version.id,
       audioUrl: version.audioUrl,
@@ -156,13 +163,16 @@ export function VersionRow({
       onClick={handlePlay}
       data-version-id={version.id}
       data-current={isCurrent ? "true" : "false"}
-      className={`group relative grid w-full items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors hover:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] ${beforeClass}`}
+      aria-disabled={!hasAudio}
+      className={`group relative grid w-full items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors hover:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] ${beforeClass} ${hasAudio ? "" : "cursor-not-allowed opacity-60"}`}
       style={{
         gridTemplateColumns: "36px minmax(0,1fr) 48px 48px 56px 32px",
         borderColor: "rgb(var(--border-subtle))",
         background: rowBg,
       }}
-      aria-label={`Play ${songTitle} ${versionLabel}`}
+      aria-label={
+        hasAudio ? `Play ${songTitle} ${versionLabel}` : "No audio available"
+      }
     >
       {/* 1 — 36px gradient cover tile */}
       <span
@@ -224,7 +234,11 @@ export function VersionRow({
           color: playColor,
         }}
       >
-        <Play size={12} fill="currentColor" aria-label="Play" />
+        <Play
+          size={12}
+          fill="currentColor"
+          aria-label={hasAudio ? "Play" : "No audio available"}
+        />
       </span>
     </button>
   );

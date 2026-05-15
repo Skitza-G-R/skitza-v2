@@ -95,6 +95,15 @@ describe("VersionRow — Song Space version-history row", () => {
     expect(SRC).toMatch(/Play\b/);
   });
 
+  it("guards handlePlay when audioUrl is null", () => {
+    expect(SRC).toMatch(/version\.audioUrl\s*===\s*null/);
+  });
+
+  it("sets aria-disabled / 'No audio available' for null-audio rows", () => {
+    expect(SRC).toMatch(/aria-disabled/);
+    expect(SRC).toMatch(/No audio available/);
+  });
+
   it("forbids --surface-card", () => {
     expect(SRC).not.toContain("--surface-card");
   });
