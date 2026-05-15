@@ -77,6 +77,7 @@ export async function addTrackAction(input: {
       data: { id: row.id, projectId: row.projectId, title: row.title },
     };
   } catch (err) {
+    console.error("[upload-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -113,6 +114,7 @@ export async function addVersionAction(input: {
       data: { id: row.id, trackId: row.trackId, label: row.label },
     };
   } catch (err) {
+    console.error("[upload-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -133,6 +135,7 @@ export async function deleteVersionAction(input: {
     revalidatePath(CLIENTS_PROJECTS_PATH);
     return { ok: true };
   } catch (err) {
+    console.error("[upload-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -156,6 +159,7 @@ export async function initMultipartAction(input: {
     const res = await c.caller.audio.initMultipart(input);
     return { ok: true, data: res };
   } catch (err) {
+    console.error("[upload-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -171,6 +175,7 @@ export async function signPartAction(input: {
     const res = await c.caller.audio.signPart(input);
     return { ok: true, data: res };
   } catch (err) {
+    console.error("[upload-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -200,6 +205,7 @@ export async function completeMultipartAction(input: {
     revalidatePath(CLIENTS_PROJECTS_PATH);
     return { ok: true, data: res };
   } catch (err) {
+    console.error("[upload-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -221,6 +227,7 @@ export async function abortMultipartAction(input: {
     revalidatePath(CLIENTS_PROJECTS_PATH);
     return { ok: true, data: res };
   } catch (err) {
+    console.error("[upload-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -245,6 +252,7 @@ export async function setTrackStageAction(input: {
     revalidatePath(CLIENTS_PROJECTS_PATH);
     return { ok: true, data: res };
   } catch (err) {
+    console.error("[upload-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }

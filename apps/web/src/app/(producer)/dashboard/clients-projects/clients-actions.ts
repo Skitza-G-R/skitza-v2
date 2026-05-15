@@ -80,6 +80,7 @@ export async function sendClientInviteAction(input: {
       },
     };
   } catch (err) {
+    console.error("[clients-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -132,6 +133,7 @@ export async function createClientAction(input: {
       },
     };
   } catch (err) {
+    console.error("[clients-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -153,6 +155,7 @@ export async function reorderClientsAction(
     revalidatePath(CLIENTS_PATH);
     return { ok: true };
   } catch (err) {
+    console.error("[clients-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }
@@ -167,6 +170,7 @@ export async function reorderProjectsAction(
     revalidatePath(CLIENTS_PATH);
     return { ok: true };
   } catch (err) {
+    console.error("[clients-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }

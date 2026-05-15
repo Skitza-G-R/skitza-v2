@@ -148,7 +148,7 @@ export function NewClientModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="new-client-modal-body"
-          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[480px] rounded-[18px] bg-[rgb(var(--bg-background))] p-6 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
+          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[440px] rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -173,7 +173,7 @@ export function NewClientModal({
             </DialogPrimitive.Close>
           </div>
 
-          <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-4">
+          <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
             <FieldLabel htmlFor="new-client-name" required>
               Name
             </FieldLabel>
@@ -247,41 +247,39 @@ export function NewClientModal({
             <textarea
               id="new-client-notes"
               value={notes}
-              rows={3}
+              rows={2}
               maxLength={2000}
               onChange={(e) => {
                 setNotes(e.target.value);
               }}
               placeholder="Genre, references, anything to remember..."
-              className="w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+              className="w-full resize-none rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
               style={{ borderColor: "rgb(var(--border-subtle))" }}
             />
 
             <div
-              className="mt-1 flex items-start gap-2 rounded-[12px] border px-3 py-3 text-[12.5px]"
+              className="flex items-start gap-2 rounded-[10px] border px-3 py-2 text-[12px]"
               style={{
                 borderColor: "rgb(var(--brand-primary)/0.40)",
                 background: "rgb(var(--brand-primary)/0.10)",
               }}
             >
               <Mail
-                size={14}
+                size={13}
                 strokeWidth={2.2}
                 className="mt-0.5 shrink-0 text-[rgb(var(--brand-primary))]"
                 aria-hidden
               />
-              <div className="flex-1">
-                <p className="font-semibold text-[rgb(var(--fg-default))]">
-                  Invitation will be emailed
-                </p>
-                <p className="mt-0.5 leading-snug text-[rgb(var(--fg-muted))]">
-                  They&rsquo;ll get the artist app to comment on songs, sign
-                  contracts, and pay — linked to their real Skitza account.
-                </p>
-              </div>
+              <p className="leading-snug text-[rgb(var(--fg-muted))]">
+                <span className="font-semibold text-[rgb(var(--fg-default))]">
+                  Invitation will be emailed.
+                </span>{" "}
+                They&rsquo;ll get the artist app to comment, sign contracts, and
+                pay.
+              </p>
             </div>
 
-            <div className="mt-2 flex items-center justify-end gap-2">
+            <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={onClose}
@@ -318,7 +316,7 @@ function FieldLabel({
   return (
     <label
       htmlFor={htmlFor}
-      className="-mb-2 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+      className="-mb-2.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
     >
       {children}
       {required ? (
