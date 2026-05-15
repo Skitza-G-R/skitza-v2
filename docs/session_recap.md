@@ -1,92 +1,113 @@
 # Session Recap — Clients & Projects v3 Redesign
 
-> **For the next Claude session:** READ THIS FIRST. The work is mid-stream. Branch `clients-projects-redesign` is pushed to origin with 10 commits ahead of `origin/v3-clean`. PR #113 is open and **waiting on Raz's review** of the schema. Phase 0 is complete; Phases 1-4 are planned but not yet implemented.
+> **For the next Claude session:** READ THIS FIRST. Phase 1 is in PR #117 with the G1-G5 punch list applied. Awaiting Gili's manual Incognito QA before merge. Phase 0 already merged.
 
-**Last updated:** 2026-05-14
-**Branch:** `clients-projects-redesign` (pushed to origin)
-**Last commit:** `ed32a5e` — `feat(db): SQL migration 0011 for Clients & Projects v3`
-**PR:** [#113](https://github.com/Skitza-G-R/skitza-v2/pull/113) — Phase 0 (schema)
-**Status:** Pipeline green (typecheck + lint + 1617 tests). Waiting on Raz to review the migration.
+**Last updated:** 2026-05-15
+**Branch:** `clients-projects-phase-1` (pushed to origin; worktree at `/Users/giliasraf/skitza-phase-1`)
+**PR:** [#117](https://github.com/Skitza-G-R/skitza-v2/pull/117) — Phase 1 redesign (big-bang list + Client Space + invite + drag)
+**Status:** All gates green (typecheck clean, lint zero warnings, 1780 tests passing). Manual Incognito QA against the 12-item PR checklist is the last step before merge.
 
 ---
 
 ## TL;DR
 
-Started a 5-phase faithful port of the Clients Projects Room prototype into the producer app. New IA: List → Client Space → Album Page → Song Space, with a Single-Space rule that collapses 1-song projects directly into the Song Space. Phase 0 (schema migrations) is in PR #113; subsequent phases will replace the current 5-sub-tab Project Room with the new structure. **Reuses the existing PersistentPlayer** — no new audio infrastructure. TDD throughout; extra-cautious execution per Gili's brief.
+5-phase faithful port of the Clients Projects Room prototype into the producer app. New IA: List → Client Space → Album Page → Song Space, with a Single-Space rule. Phase 0 (schema) is **merged**; Phase 1 (list view + Client Space + invite flow + drag) is in **PR #117** awaiting QA. Reuses the existing PersistentPlayer — no new audio infrastructure. TDD throughout.
 
 ## Design and plan documents (source of truth)
 
 | File | Purpose |
 |---|---|
-| [`docs/plans/active/2026-05-14-clients-projects-redesign-design.md`](plans/active/2026-05-14-clients-projects-redesign-design.md) | Master design brief. Decisions log, routing/IA, schema, components, the 4 modals, phasing, testing strategy, safety rules. Approved by Gili 2026-05-14. |
-| [`docs/plans/active/2026-05-14-clients-projects-redesign-phase-0.md`](plans/active/2026-05-14-clients-projects-redesign-phase-0.md) | Phase 0 plan: 12 bite-sized TDD tasks for the schema migrations. Executed via subagent-driven development. All shipped on branch. |
-| `/Volumes/KINGSTON/Downloads/Clients Projects Room.html` | The HTML prototype — source of truth for visuals when the design doc is ambiguous. |
-| `/Volumes/KINGSTON/Downloads/DESIGN.md` | Design tokens + component spec from the prototype. |
+| [`docs/plans/active/2026-05-14-clients-projects-redesign-design.md`](plans/active/2026-05-14-clients-projects-redesign-design.md) | Master design brief. Approved by Gili 2026-05-14. |
+| [`docs/plans/active/2026-05-14-clients-projects-redesign-phase-1.md`](plans/active/2026-05-14-clients-projects-redesign-phase-1.md) | Original Phase 1 plan (Tasks 1-20). Executed 2026-05-14. |
+| [`docs/plans/active/2026-05-15-clients-projects-phase-1-punch-list.md`](plans/active/2026-05-15-clients-projects-phase-1-punch-list.md) | Punch list (G1-G5) from the 2026-05-15 audit. Executed 2026-05-15. |
+| `/Volumes/KINGSTON/Downloads/Clients Projects Room.html` | The HTML prototype — source of truth for visuals. |
+| `/Volumes/KINGSTON/Downloads/DESIGN.md` | Design tokens + component spec. |
 | `/Volumes/KINGSTON/Downloads/BUILD-NOTES.md` | Engineering handoff with data shapes + routing rules. |
 
-## What's done (on branch, awaiting Raz)
+## Phase status
 
-### Phase 0 — schema migrations (PR #113)
+| Phase | Status | PR | Ship to |
+|---|---|---|---|
+| 0 — Schema migrations | ✅ Merged | [#113](https://github.com/Skitza-G-R/skitza-v2/pull/113) | v3-clean |
+| 1 — List view + Client Space + invite + drag | 🟡 In review | [#117](https://github.com/Skitza-G-R/skitza-v2/pull/117) | v3-clean |
+| 2 — Album Page (replaces Project Room) | Planned | — | v3-clean |
+| 3 — Song Space + Single-Space rule | Planned | — | v3-clean |
+| 4 — Upload Track modal + manual stage edit | Planned | — | v3-clean |
+| 5 (opt) — PersistentPlayer visual polish | Planned | — | v3-clean |
 
-8 schema commits + 2 docs commits on `clients-projects-redesign`:
+## What's on PR #117
 
-- New enum `workflow_stage` (brief / production / mixing / mastering / done) — 5 values, NOT the prototype's 6 (Gili dropped Review and Delivery).
-- `client_contacts.invited_at` (timestamptz, nullable) — linkpill "Invited" state
-- `client_contacts.position` (int, NOT NULL, default 0) — drag-reorder
-- `projects.position` (int, NOT NULL, default 0) — drag-reorder
-- `projects.workflow_stage` (workflow_stage, NOT NULL, default 'brief') — parallel to legacy `stage`
-- `project_tracks.workflow_stage` (same enum) — per-song stepper
-- `bookings.song_id` (uuid, nullable, FK → project_tracks ON DELETE SET NULL) — per-song Sessions tab
-- SQL migration `packages/db/drizzle/0011_clients_projects_redesign.sql` — idempotent
+### Original Phase 1 (Tasks 1-20, executed 2026-05-14)
 
-7 new tests in `packages/db/src/__tests__/clients-projects-redesign.test.ts` — pure-runtime Drizzle column metadata assertions; no DB required.
+- Helpers: `deriveGradient` (name → 1-of-6 token), `heroBg` (token → dark hero CSS)
+- Atoms: `LinkPill`, `StatTile`, `HeroCTA`
+- Rows: `ProjectRow`, `ClientCard`
+- Composed surfaces: `ClientSpaceHero`, `WorkspaceListView`
+- `InviteToAppModal` (email via Resend + copy-link via clipboard)
+- tRPC mutations: `clientContacts.sendInvite`, `clientContacts.reorder`, `projects.reorder`
+- Two `page.tsx` files rebuilt (`/clients-projects` and `/clients-projects/clients/[id]`)
+- 13 obsolete files deleted (old 4-tab Client Space + old list components)
+- 17 new test files
+- Three C1/C2/I1 fixes (sort dropdown / drag persistence / dead code) applied after initial review
 
-Spec compliance: ✅ verified line-by-line by a spec-reviewer subagent.
-Code quality: ✅ "ship it" from code-reviewer subagent. Two minor follow-ups noted (FK `onDelete` and `withTimezone` not asserted by tests — non-blocking).
+### Punch-list fixes (executed 2026-05-15, this session — 8 commits)
 
-## What's NOT done
+| Commit | What |
+|---|---|
+| `b55caf2` | Deleted `seed-clients-projects-demo.mjs` (no longer needed) |
+| `03fc2d0` | **G3** — Project filter chip "Urgent" → "Needs attention" |
+| `6513f66` | **G2** — Clients tab first + default |
+| `cb1ca0d` | **G4** — Hide cards/table layout switcher on Projects tab |
+| `ccd3bb3` | **G1** — Page header with tab-aware "New client" / "New project" CTA |
+| `d5f0fa4` | Polish: `&amp;` sibling convention + whitespace-tolerant tab test |
+| `308ef58` | **G5** — Status pill labeled in title block + plain chevron column 8 |
+| `7fa0596` | Polish: drop redundant chevron aria-label + stale comment |
 
-### Phases 1 – 4 (planned, not yet started)
+## What still needs to happen for Phase 1 to merge
 
-| Phase | What ships | Risk |
-|---|---|---|
-| **1** | List view + Client Space polish + drag reorder + linkpill + Invite modal | Low |
-| **2** | New Album page (replaces current Project Room) + Studio Log + Payments tab | Medium |
-| **3** | Song Space (NEW route) + Single-rule routing + workflow stepper + wire VersionRow play to existing PersistentPlayer | Medium |
-| **4** | Upload Track modal with stage picker + manual stage edit | Low |
-| **(later, optional)** | PersistentPlayer visual polish to match prototype's `#player` spec | High |
+1. **Manual Incognito QA** against the 12-item checklist in the PR body. Memory: skitza.app has a service worker that caches stale UI — verify in Incognito, not hard-refresh. Vercel preview URLs are SSO-gated, so open the PR's "Ready" link directly.
+2. On QA pass: merge PR #117 into v3-clean. Vercel deploy hook ships the new UI.
+3. **Migration 0011 from Phase 0 must be applied to prod before merge** if not already done. Use `node packages/db/apply-migrations.mjs` with the unpooled Neon URL (drizzle-kit migrate is broken — journal stops at 0018).
+4. Start Phase 2 (Album Page) on a fresh branch off v3-clean.
 
-Each phase: TDD-first, `/skitza-verify` green, Incognito preview verified, separate PR.
+## Decisions baked into Phase 1 (do not re-litigate)
 
-### To ship Phase 0 to production
+Resolved during the 2026-05-15 punch-list session:
 
-1. **Raz reviews PR #113.** Schema is his territory per CLAUDE.md, but Gili authorized me to write these migrations directly for this redesign (recorded in memory `feedback_schema_authorized_clients_projects.md`). The 6 column adds + 1 new enum are all additive and idempotent.
-2. On Raz's approval: merge PR #113. Vercel deploy hook applies the migration to prod DB automatically.
-3. No need for Gili to apply locally — Task 10 of the Phase 0 plan was deliberately skipped after `apply-migrations.mjs` failed twice on quoted DATABASE_URL handling.
-4. Once merged: pull `v3-clean` locally, then start Phase 1 by writing `docs/plans/active/2026-05-14-clients-projects-redesign-phase-1.md`.
+1. **Clients tab is first + default** (G2). Matches DESIGN.md §4.1 + BUILD-NOTES §10. New IA has clients OWN projects.
+2. **Layout switcher hidden on Projects tab** (G4). Real table mode with sortable headers deferred to fast-follow.
+3. **"+ New client" CTA routes to `/clients-projects/new?clientFirst=1`** for v1 — no modal yet. A dedicated New Client modal is captured as a Phase 1.5 fast-follow.
+4. **No URL hydration for `?tab=` / `?sort=` / `?filter=`.** WorkspaceListView owns state locally for v1.
 
-## Decisions log (chronological, all 2026-05-14)
+Carried over from 2026-05-14:
 
-1. **Q1 Scope** — option A: full faithful port (replace current Project Room IA; add Song Space; add Single-Space rule).
-2. **Q2 Schema work** — option A: Gili authorized Claude to write the migrations directly. Raz reviews PR before merge. Scoped to this redesign only.
-3. **Q3 Notes tab** — drop entirely. `projects.notes` column stays in DB but no UI exposes it.
-4. **Q4a Project stage** — option A: ADD a new `workflow_stage` column rather than replace the legacy `stage` enum. Legacy enum keeps running billing; new column drives only the new UI.
-5. **Q4b Stage advancement** — option B: upload-driven + manual override. Upload Track modal has a stage picker; song page has a small "change stage" affordance.
-6. **5-stage workflow vs prototype's 6** — Gili dropped Review and Delivery. Final list: Brief → Production → Mixing → Mastering → Done.
-7. **Q5 Floating player** — reuse existing `PersistentPlayer` (mounted globally in `app-shell.tsx`). Comment at `app-shell.tsx:82-89` says Phase 4 will swap it; for now we wire VersionRow's play button to `playerPlay()` and use `useNowPlaying()` for the amber highlight. No new audio infrastructure.
-8. **Q6 Phasing** — 5 separate PRs (Phase 0 schema, 1 list+client, 2 album, 3 song space, 4 upload modal). Optional Phase 5: player visual polish.
+5. Full faithful port (replace current Project Room IA, add Song Space, add Single-Space rule).
+6. Gili authorized Claude to write the schema migrations directly for this redesign (Raz reviews PR before merge).
+7. Drop the Notes tab entirely. `projects.notes` column stays in DB but no UI exposes it.
+8. Add new `workflow_stage` column rather than replace the legacy `stage` enum. Old `stage` keeps running billing.
+9. 5-stage workflow: Brief → Production → Mixing → Mastering → Done (Gili dropped Review and Delivery vs the prototype's 6).
+10. Reuse existing `PersistentPlayer`. No new audio infrastructure.
+
+## Open follow-ups (NOT in Phase 1 — picked up later)
+
+- Real table mode for Projects (sortable column headers per BUILD-NOTES §5.1)
+- Dedicated "New Client" modal
+- URL hydration (`?tab=`, `?sort=`, `?filter=`)
+- Drag accessibility (keyboard arrow navigation)
+- PersistentPlayer visual polish (optional Phase 5)
+- Reconcile `pill-warn`/`pill-ok` class names with `globals.css`'s `pill-warning`/`pill-success` — pre-existing mismatch surfaced during G5 review
 
 ## How to resume in a new session
 
-1. **Read this recap first.** It points to everything.
-2. **Read the design brief.** `docs/plans/active/2026-05-14-clients-projects-redesign-design.md` is the source of truth for every decision.
-3. **Confirm branch state.** `git rev-parse --abbrev-ref HEAD` should be on `clients-projects-redesign` until PR #113 merges. After merge, `git checkout v3-clean && git pull` and start Phase 1 on a new branch off v3-clean.
-4. **Confirm pipeline.** `pnpm typecheck && pnpm -F web lint && pnpm test` should be green.
-5. **Ask Gili what's next.** Options on the table: (a) Phase 1 plan, (b) wait on PR #113 merge before starting any new phase work.
+1. Read this recap first. It points to everything.
+2. Read the master design brief: `docs/plans/active/2026-05-14-clients-projects-redesign-design.md`.
+3. Confirm branch state: `git rev-parse --abbrev-ref HEAD` should be `clients-projects-phase-1` until PR #117 merges. After merge, switch to v3-clean and start Phase 2 on a fresh branch.
+4. Confirm pipeline: `pnpm typecheck && pnpm -F web lint && pnpm test` — all green.
+5. Ask Gili what's next.
 
-## Token reality check (carry this forward)
+## Token reality check (carry forward)
 
-Same as storefront recap. The Skitza app uses ONLY these CSS custom properties:
+The Skitza app uses ONLY these CSS custom properties:
 
 ```
 --brand-primary       (212 150 10 — amber)
@@ -102,35 +123,17 @@ Same as storefront recap. The Skitza app uses ONLY these CSS custom properties:
 
 **Forbidden (do not exist):** `--surface-card`, `--surface-hover`, `--text-muted`, `--text-strong`, `--brand-primary-on`. Using them = invisible text + transparent backgrounds. Always grep `apps/web/src/styles/tokens.css` for the canonical list when in doubt.
 
+`--bg-base` and `--fg-primary` are **backward-compat aliases** that resolve through CSS `var()` recursion to `--bg-background` and `--fg-default` respectively. Both forms work, but new code prefers the canonical names.
+
 ## Testing convention (carry forward)
 
 Vitest in `node` env, no jsdom, no `@testing-library/react`. Two patterns:
 
-1. **Pure-function unit tests** — standard `expect(...)` on helpers (e.g. the Phase 0 column-metadata tests).
-2. **Source-grep tests on JSX shells** — `readFileSync` the `.tsx` file, assert it contains key imports / class names / attributes.
+1. **Pure-function unit tests** — standard `expect(...)` on helpers.
+2. **Source-grep tests on JSX shells** — `readFileSync` the `.tsx` file, assert it contains key imports / class names / attributes. **Use `\s*` in regexes** to stay whitespace-tolerant against `prettier --write` (lesson learned from the Phase 1 polish commit).
 
 No DOM interactions. Behavior is exercised by real consumers + manual preview verification.
 
 ## Auxiliary stashes (recoverable)
 
-- `stash@{0}: On clients-projects-redesign: pre-clients-projects-redesign: dashboard simplification WIP` — 4 files (page.tsx, page-helpers.ts, page-rebuild.test.ts, empty-onboarding.tsx). These were carried over from before our session; landed on `fix/dashboard-overview-after-onboarding` instead. Gili can `git stash pop` if useful; otherwise drop.
-
-## Branch state details
-
-```
-clients-projects-redesign
-├── 10 commits ahead of origin/v3-clean
-├── 8 schema commits + 2 docs commits
-├── Includes:
-│   ├── fcd4a7a  docs: design brief for v3 redesign
-│   ├── 96551a9  docs: Phase 0 implementation plan
-│   ├── eb332d9  feat(db): workflow_stage enum
-│   ├── 1c65ebf  feat(db): client_contacts.invited_at
-│   ├── 56484a2  feat(db): client_contacts.position
-│   ├── ae0e8ba  feat(db): projects.position
-│   ├── af917c4  feat(db): projects.workflow_stage
-│   ├── 53f3748  feat(db): project_tracks.workflow_stage
-│   ├── 01a7cb2  feat(db): bookings.song_id FK
-│   └── ed32a5e  feat(db): SQL migration 0011
-└── PR #113 open against v3-clean, awaiting Raz review
-```
+- `stash@{0}: On clients-projects-redesign: pre-clients-projects-redesign: dashboard simplification WIP` — 4 files (page.tsx, page-helpers.ts, page-rebuild.test.ts, empty-onboarding.tsx). Landed on `fix/dashboard-overview-after-onboarding` instead. Gili can `git stash drop`.
