@@ -9,7 +9,7 @@ import {
   producerInitials,
 } from "~/lib/_phase4-stubs/producer-color";
 
-// Status pill tone — drives a small uppercase tag on each row that
+// Status pill tone — drives a small uppercase pill on each row that
 // reads "Overdue" / "Awaiting reply" / "On track" / "Done" etc.
 // Four visual tones map to the same four tokens the rest of the
 // dashboard uses (danger / warn / ok / neutral).
@@ -232,10 +232,12 @@ export function ProjectRow({
         {deadline}
       </div>
 
+      {/* Decorative — lucide-react auto-marks the SVG aria-hidden when
+          no aria-* / role / title prop is set. The visible pill above
+          already conveys status text to screen readers. */}
       <ChevronRight
         size={14}
         style={{ color: "rgb(var(--fg-muted))" }}
-        aria-label={`Status: ${status}`}
       />
     </div>
   );
