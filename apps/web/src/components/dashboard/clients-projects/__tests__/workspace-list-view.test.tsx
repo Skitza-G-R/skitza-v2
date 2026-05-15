@@ -145,4 +145,15 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toMatch(/value:\s*["']urgent["'],\s*label:\s*["']Needs attention["']/);
     expect(SRC).not.toMatch(/label:\s*["']Urgent["']/);
   });
+
+  it("defaults to the Clients tab", () => {
+    expect(SRC).toMatch(/useState<Tab>\(["']clients["']\)/);
+  });
+
+  it("renders the Clients tab button before the Projects tab button", () => {
+    const clientsIdx = SRC.indexOf(">Clients<");
+    const projectsIdx = SRC.indexOf(">Projects<");
+    expect(clientsIdx).toBeGreaterThan(-1);
+    expect(projectsIdx).toBeGreaterThan(clientsIdx);
+  });
 });

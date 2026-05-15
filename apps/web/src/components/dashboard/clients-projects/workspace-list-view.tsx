@@ -115,7 +115,7 @@ export function WorkspaceListView({
   onReorderProjects,
   onReorderClients,
 }: WorkspaceListViewProps) {
-  const [tab, setTab] = useState<Tab>("projects");
+  const [tab, setTab] = useState<Tab>("clients");
   const [sort, setSort] = useState<SortValue>("custom");
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>("all");
   const [clientFilter, setClientFilter] = useState<ClientFilter>("all");
@@ -334,25 +334,6 @@ export function WorkspaceListView({
         <button
           type="button"
           role="tab"
-          aria-selected={tab === "projects"}
-          onClick={() => { setTab("projects"); }}
-          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
-          style={{
-            background:
-              tab === "projects"
-                ? "rgb(var(--brand-primary))"
-                : "transparent",
-            color:
-              tab === "projects"
-                ? "rgb(var(--bg-sidebar))"
-                : "rgb(var(--fg-muted))",
-          }}
-        >
-          Projects
-        </button>
-        <button
-          type="button"
-          role="tab"
           aria-selected={tab === "clients"}
           onClick={() => { setTab("clients"); }}
           className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
@@ -366,9 +347,24 @@ export function WorkspaceListView({
                 ? "rgb(var(--bg-sidebar))"
                 : "rgb(var(--fg-muted))",
           }}
-        >
-          Clients
-        </button>
+        >Clients</button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "projects"}
+          onClick={() => { setTab("projects"); }}
+          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
+          style={{
+            background:
+              tab === "projects"
+                ? "rgb(var(--brand-primary))"
+                : "transparent",
+            color:
+              tab === "projects"
+                ? "rgb(var(--bg-sidebar))"
+                : "rgb(var(--fg-muted))",
+          }}
+        >Projects</button>
       </div>
 
       {/* Toolbar — filter chips + layout switcher + sort dropdown */}
