@@ -169,8 +169,20 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toContain("Clients &amp; Projects");
   });
 
-  it("renders a 'New client' CTA when on the Clients tab", () => {
+  // The "+ New client" CTA was previously a <Link> to
+  // /dashboard/clients-projects/new?clientFirst=1. Phase 1 G6 swapped it
+  // for a <button> that opens NewClientModal. The "New project" CTA on
+  // the Projects tab stays as a <Link>.
+  it("renders a 'New client' CTA as a <button> on the Clients tab (opens modal)", () => {
     expect(SRC).toMatch(/tab\s*===\s*["']clients["'][\s\S]{0,500}New client/);
+    // CTA itself is now a <button> with onClick instead of a <Link>.
+    expect(SRC).toMatch(
+      /tab\s*===\s*["']clients["'][\s\S]{0,500}<button[\s\S]{0,500}New client/,
+    );
+  });
+
+  it("does NOT link the 'New client' CTA to /new?clientFirst=1 (route flow was replaced by the modal)", () => {
+    expect(SRC).not.toMatch(/clientFirst=1/);
   });
 
   it("renders a 'New project' CTA when on the Projects tab", () => {
@@ -181,7 +193,25 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toMatch(/href=["']\/dashboard\/clients-projects\/new["']/);
   });
 
-  it("links the 'New client' CTA to the new-project route with clientFirst=1", () => {
-    expect(SRC).toMatch(/href=["']\/dashboard\/clients-projects\/new\?clientFirst=1["']/);
+  // ── G6: NewClientModal wiring ───────────────────────────────────
+  it("imports NewClientModal from the clients folder", () => {
+    expect(SRC).toContain("NewClientModal");
+    expect(SRC).toContain("~/components/dashboard/clients/new-client-modal");
+  });
+
+  it("manages NewClientModal open state via local useState (setNewClientOpen)", () => {
+    expect(SRC).toContain("setNewClientOpen");
+    expect(SRC).toContain("newClientOpen");
+  });
+
+  it("mounts <NewClientModal> with open + onClose + onCreated handlers", () => {
+    expect(SRC).toMatch(/<NewClientModal/);
+    expect(SRC).toMatch(/open=\{newClientOpen\}/);
+    expect(SRC).toMatch(/onClose=\{/);
+    expect(SRC).toMatch(/onCreated=\{/);
+  });
+
+  it("wires the 'New client' CTA onClick to open the modal", () => {
+    expect(SRC).toMatch(/onClick=\{\(\)\s*=>\s*\{\s*setNewClientOpen\(true\)/);
   });
 });

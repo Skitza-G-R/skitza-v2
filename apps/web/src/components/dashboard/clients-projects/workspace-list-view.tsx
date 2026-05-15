@@ -14,6 +14,7 @@ import {
   type ClientCardData,
 } from "~/components/dashboard/clients/client-card";
 import { InviteToAppModal } from "~/components/dashboard/clients/invite-modal";
+import { NewClientModal } from "~/components/dashboard/clients/new-client-modal";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 
@@ -152,6 +153,12 @@ export function WorkspaceListView({
   const closeInvite = () => {
     setInviteTarget(null);
   };
+
+  // New Client modal state (G6). Opens from the "+ New client" CTA on
+  // the Clients tab. Replaces the previous routing-based flow (which
+  // sent the producer to the new-project form with a client-first
+  // query flag). DESIGN.md §6.1 / BUILD-NOTES §7.1.
+  const [newClientOpen, setNewClientOpen] = useState(false);
 
   const currency = kpis.currency ?? "USD";
 
@@ -319,14 +326,15 @@ export function WorkspaceListView({
           Clients &amp; Projects
         </h1>
         {tab === "clients" ? (
-          <Link
-            href="/dashboard/clients-projects/new?clientFirst=1"
+          <button
+            type="button"
+            onClick={() => { setNewClientOpen(true); }}
             className={HEADER_CTA_CLASS}
             style={HEADER_CTA_STYLE}
           >
             <Plus size={14} strokeWidth={2.4} />
             New client
-          </Link>
+          </button>
         ) : null}
         {tab === "projects" ? (
           <Link
@@ -592,6 +600,20 @@ export function WorkspaceListView({
           producerSlug={producerSlug}
         />
       ) : null}
+
+      <NewClientModal
+        open={newClientOpen}
+        onClose={() => {
+          setNewClientOpen(false);
+        }}
+        onCreated={() => {
+          // Server-driven refresh — createClientAction calls
+          // revalidatePath, the modal also calls router.refresh, so
+          // the new client appears on the next render without a
+          // hard reload.
+          setNewClientOpen(false);
+        }}
+      />
     </div>
   );
 }
