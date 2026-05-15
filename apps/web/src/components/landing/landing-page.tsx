@@ -1029,10 +1029,7 @@ function StackReplace() {
               className="relative flex flex-col items-center justify-center gap-3"
               style={{ minHeight: 144 }}
             >
-              <span className="font-syne flex items-baseline gap-px text-[56px] font-extrabold leading-none">
-                Skitza
-                <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
-              </span>
+              <LogoLockup markSize={60} wordmarkSize={56} />
               <div
                 className="font-mono text-center text-[12px]"
                 style={{ color: "rgb(255 255 255 / 0.6)" }}
