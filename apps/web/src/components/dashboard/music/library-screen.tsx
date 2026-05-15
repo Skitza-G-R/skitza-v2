@@ -9,7 +9,6 @@ import {
   MoreHorizontal,
   Play,
   Search,
-  Star,
   Upload,
   X,
 } from "lucide-react";
@@ -742,13 +741,6 @@ function SongCard({ song, isPlaying }: { song: MusicLibraryRow; isPlaying: boole
           shadow="hero"
           className="absolute inset-0"
         />
-        {/* Favorite star top-left, on a dimmed bg per design.md */}
-        <span
-          aria-hidden
-          className="absolute left-2.5 top-2.5 inline-flex h-[22px] w-[24px] items-center justify-center rounded-[4px] bg-black/28 text-white"
-        >
-          <Star size={11} strokeWidth={1.8} />
-        </span>
         {/* Version chip top-right */}
         <span className="absolute right-2.5 top-2.5 rounded-[4px] bg-black/35 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
           {song.label}
@@ -940,7 +932,6 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                 </span>
 
                 <span className="flex items-center justify-end gap-1.5">
-                  <FavoriteButton trackId={s.id} />
                   <button
                     type="button"
                     aria-label="More actions"
@@ -955,32 +946,6 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
         })}
       </ul>
     </div>
-  );
-}
-
-// Local-only favorite toggle. Persists nowhere — design.md mentions
-// favorites are local React state in v1 (real persistence is a follow-up).
-function FavoriteButton({ trackId }: { trackId: string }) {
-  const [on, setOn] = useState(false);
-  return (
-    <button
-      type="button"
-      aria-label={on ? "Remove favorite" : "Add favorite"}
-      aria-pressed={on}
-      title={on ? "In favorites" : "Add to favorites"}
-      data-track={trackId}
-      onClick={() => {
-        setOn((v) => !v);
-      }}
-      className="sk-press sk-trans rounded-full p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
-    >
-      <Star
-        size={13}
-        strokeWidth={1.8}
-        fill={on ? "rgb(var(--brand-primary))" : "none"}
-        color={on ? "rgb(var(--brand-primary-dark))" : "currentColor"}
-      />
-    </button>
   );
 }
 

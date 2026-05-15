@@ -42,6 +42,19 @@ export const GRADIENT_CSS: Record<GradientClass, string> = {
   "grad-indigo": "linear-gradient(135deg, #a5b4fc, #6366f1)",
 };
 
+// Solid base color per gradient — the first stop. Used as a fallback
+// background so the cover never renders empty even if linear-gradient
+// somehow fails to parse (and as a safe under-color for the gradient
+// image to paint over).
+export const GRADIENT_BASE_COLOR: Record<GradientClass, string> = {
+  "grad-rose": "#fb7185",
+  "grad-amber": "#fcd34d",
+  "grad-slate": "#cbd5e1",
+  "grad-emerald": "#6ee7b7",
+  "grad-violet": "#c4b5fd",
+  "grad-indigo": "#a5b4fc",
+};
+
 /** Deterministic 32-bit FNV-1a hash. Spreads well, no deps. */
 export function hashString(s: string): number {
   let h = 0x811c9dc5;

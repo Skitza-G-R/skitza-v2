@@ -3,14 +3,13 @@
 import {
   ChevronLeft,
   Clock3,
-  Heart,
   MoreHorizontal,
   Play,
   Share2,
   Shuffle,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
 import {
@@ -58,7 +57,6 @@ export interface ProjectPageData {
 
 export function ProjectPage({ data }: { data: ProjectPageData }) {
   const nowPlaying = useNowPlaying();
-  const [favorite, setFavorite] = useState(false);
 
   const gradient = useMemo(
     () => gradientForSeed(data.project.id),
@@ -267,20 +265,6 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
               onClick={handleShuffle}
             >
               <Shuffle size={16} strokeWidth={2.2} />
-            </CircleIconButton>
-            <CircleIconButton
-              ariaLabel={favorite ? "Remove favorite" : "Add favorite"}
-              onClick={() => {
-                setFavorite((v) => !v);
-              }}
-              active={favorite}
-            >
-              <Heart
-                size={16}
-                strokeWidth={2.2}
-                fill={favorite ? "rgb(var(--brand-primary))" : "none"}
-                color={favorite ? "rgb(var(--brand-primary-dark))" : "currentColor"}
-              />
             </CircleIconButton>
             <CircleIconButton ariaLabel="Share" onClick={() => void handleShare()}>
               <Share2 size={16} strokeWidth={2.2} />
