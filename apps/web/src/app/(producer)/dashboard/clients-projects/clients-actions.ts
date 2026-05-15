@@ -138,6 +138,61 @@ export async function createClientAction(input: {
   }
 }
 
+// New Project modal (Clients & Projects v3 redesign, Phase 1 G7).
+// Thin wrapper around project.create. The modal collects four new
+// optional fields (product, deadline, total, deposit) that the legacy
+// /new page didn't have; the underlying tRPC mutation handles all the
+// validation + the recordContact side-effect. We revalidate the
+// list path so the new project row shows up without a hard reload.
+//
+// Mirrors createClientAction's error-handling pattern: ZodError +
+// TRPCError both round-trip through toMessage() so the modal can
+// surface "field: message" hints directly.
+export async function createProjectAction(input: {
+  title: string;
+  artistName: string;
+  artistEmail: string;
+  productId?: string;
+  deadlineAt?: string;
+  engagementTotalCents?: number;
+  depositCents?: number;
+}): Promise<ActionDataResult<{ id: string }>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    // Conditional-spread to satisfy exactOptionalPropertyTypes — never
+    // pass `undefined` as a property value. The four G7 fields are
+    // forwarded only when the caller actually filled them in.
+    const payload: {
+      title: string;
+      artistName: string;
+      artistEmail: string;
+      productId?: string;
+      deadlineAt?: string;
+      engagementTotalCents?: number;
+      depositCents?: number;
+    } = {
+      title: input.title,
+      artistName: input.artistName,
+      artistEmail: input.artistEmail,
+    };
+    if (input.productId) payload.productId = input.productId;
+    if (input.deadlineAt) payload.deadlineAt = input.deadlineAt;
+    if (input.engagementTotalCents !== undefined) {
+      payload.engagementTotalCents = input.engagementTotalCents;
+    }
+    if (input.depositCents !== undefined) {
+      payload.depositCents = input.depositCents;
+    }
+    const res = await c.caller.project.create(payload);
+    revalidatePath(CLIENTS_PATH);
+    return { ok: true, data: { id: res.project.id } };
+  } catch (err) {
+    console.error("[clients-actions:createProject]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Reorder wrappers for the drag-to-reorder UX on the Clients & Projects
 // list view. The tRPC mutations (clientContacts.reorder, projects.reorder)
 // verify ownership + atomically rewrite the `position` column.
