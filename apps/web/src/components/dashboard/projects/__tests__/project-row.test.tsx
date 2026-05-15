@@ -108,3 +108,24 @@ describe("ProjectRow source — grid + drag + gradient + status pills", () => {
     expect(SRC).toContain("status");
   });
 });
+
+describe("ProjectRow G5 — status pill + plain chevron", () => {
+  it("renders the status label as a visible pill (not just aria-label)", () => {
+    // The pill rendering must reference `status` directly in JSX text
+    expect(SRC).toMatch(/>\s*\{status\}\s*</);
+  });
+
+  it("uses a plain ChevronRight in the 8th column with no pill styling", () => {
+    // The LAST ChevronRight in the file is the 8th column.
+    // Everything after it (through end of file) must NOT contain pill classes or tone style.
+    const lastChevronIdx = SRC.lastIndexOf("ChevronRight");
+    expect(lastChevronIdx).toBeGreaterThan(-1);
+    const tail = SRC.slice(lastChevronIdx);
+    expect(tail).not.toMatch(/pill-(danger|warn|ok|neutral)/);
+    expect(tail).not.toMatch(/style=\{tone\}/);
+  });
+
+  it("no longer accepts a 'tag' field on ProjectRowData", () => {
+    expect(SRC).not.toMatch(/\btag\?:/);
+  });
+});

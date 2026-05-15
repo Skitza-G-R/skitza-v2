@@ -24,7 +24,6 @@ export interface ProjectRowData {
   title: string;
   client: string;
   /** Optional second-line meta — e.g. client email or the song count. */
-  tag?: string;
   meta?: string;
   /** 0..100 progress percentage. */
   progress: number;
@@ -114,7 +113,6 @@ export function ProjectRow({
     id,
     title,
     client,
-    tag,
     meta,
     progress,
     balance,
@@ -168,14 +166,12 @@ export function ProjectRow({
         >
           {title}
         </Link>
-        {tag ? (
-          <span
-            className={`mt-0.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${toneCls}`}
-            style={tone}
-          >
-            {tag}
-          </span>
-        ) : null}
+        <span
+          className={`mt-0.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${toneCls}`}
+          style={tone}
+        >
+          {status}
+        </span>
         {meta ? (
           <p
             className="mt-0.5 truncate text-[11px]"
@@ -236,16 +232,11 @@ export function ProjectRow({
         {deadline}
       </div>
 
-      <span
-        className={`inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${toneCls}`}
-        style={tone}
+      <ChevronRight
+        size={14}
+        style={{ color: "rgb(var(--fg-muted))" }}
         aria-label={`Status: ${status}`}
-      >
-        <ChevronRight
-          size={12}
-          style={{ color: "rgb(var(--fg-muted))" }}
-        />
-      </span>
+      />
     </div>
   );
 }
