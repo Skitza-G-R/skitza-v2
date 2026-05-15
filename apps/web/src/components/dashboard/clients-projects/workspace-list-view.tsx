@@ -20,21 +20,15 @@ import {
 } from "~/components/dashboard/clients/new-project-modal";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+import { ClientCompactRow } from "~/components/dashboard/clients/client-compact-row";
 
+import { ClientsTableHeader } from "./clients-table-header";
+import { ProjectsTableHeader } from "./projects-table-header";
 // Sort order options (in display order). `custom` defaults — the user
 // last-set order, persisted via the reorder mutations. `recent` is the
 // most-recently-updated. `name` is alphabetical. Everything else
 // targets a specific column.
-const SORT_OPTIONS = [
-  { value: "custom", label: "Custom" },
-  { value: "recent", label: "Recent" },
-  { value: "deadline", label: "Deadline" },
-  { value: "balance", label: "Balance" },
-  { value: "progress", label: "Progress" },
-  { value: "name", label: "Name" },
-] as const;
-
-type SortValue = (typeof SORT_OPTIONS)[number]["value"];
+import { SORT_OPTIONS, type SortValue } from "./sort-value";
 
 // Project filter chips — `all` is implicit (no filter applied).
 const PROJECT_FILTERS = [
@@ -529,56 +523,59 @@ export function WorkspaceListView({
               })}
         </div>
         <div className="flex items-center gap-2">
-          {tab === "clients" ? (
-            <div
-              className="inline-flex items-center gap-0.5 rounded-full border p-0.5"
+          {/* G18 — Layout switcher available on BOTH tabs. Projects:
+              cards = vertical ProjectRow stack, table = same stack
+              with a sortable ProjectsTableHeader on top. Clients:
+              cards = 3-col ClientCard grid, table = ClientsTableHeader
+              + ClientCompactRow stack. */}
+          <div
+            className="inline-flex items-center gap-0.5 rounded-full border p-0.5"
+            style={{
+              background: "rgb(var(--bg-elevated))",
+              borderColor: "rgb(var(--border-subtle))",
+            }}
+            role="group"
+            aria-label="Layout"
+          >
+            <button
+              type="button"
+              onClick={() => { setLayout("cards"); }}
+              aria-pressed={layout === "cards"}
+              aria-label="Card layout"
+              className="rounded-full p-1.5"
               style={{
-                background: "rgb(var(--bg-elevated))",
-                borderColor: "rgb(var(--border-subtle))",
+                background:
+                  layout === "cards"
+                    ? "rgb(var(--brand-primary)/0.15)"
+                    : "transparent",
+                color:
+                  layout === "cards"
+                    ? "rgb(var(--brand-primary))"
+                    : "rgb(var(--fg-muted))",
               }}
-              role="group"
-              aria-label="Layout"
             >
-              <button
-                type="button"
-                onClick={() => { setLayout("cards"); }}
-                aria-pressed={layout === "cards"}
-                aria-label="Card layout"
-                className="rounded-full p-1.5"
-                style={{
-                  background:
-                    layout === "cards"
-                      ? "rgb(var(--brand-primary)/0.15)"
-                      : "transparent",
-                  color:
-                    layout === "cards"
-                      ? "rgb(var(--brand-primary))"
-                      : "rgb(var(--fg-muted))",
-                }}
-              >
-                <LayoutGrid size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => { setLayout("table"); }}
-                aria-pressed={layout === "table"}
-                aria-label="Table layout"
-                className="rounded-full p-1.5"
-                style={{
-                  background:
-                    layout === "table"
-                      ? "rgb(var(--brand-primary)/0.15)"
-                      : "transparent",
-                  color:
-                    layout === "table"
-                      ? "rgb(var(--brand-primary))"
-                      : "rgb(var(--fg-muted))",
-                }}
-              >
-                <List size={14} />
-              </button>
-            </div>
-          ) : null}
+              <LayoutGrid size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLayout("table"); }}
+              aria-pressed={layout === "table"}
+              aria-label="Table layout"
+              className="rounded-full p-1.5"
+              style={{
+                background:
+                  layout === "table"
+                    ? "rgb(var(--brand-primary)/0.15)"
+                    : "transparent",
+                color:
+                  layout === "table"
+                    ? "rgb(var(--brand-primary))"
+                    : "rgb(var(--fg-muted))",
+              }}
+            >
+              <List size={14} />
+            </button>
+          </div>
           <label className="relative inline-flex items-center">
             <select
               value={sort}
@@ -607,9 +604,12 @@ export function WorkspaceListView({
         </div>
       </div>
 
-      {/* The list */}
+      {/* The list — G18 wires layout switching for both tabs */}
       {tab === "projects" ? (
         <div className="flex flex-col gap-2">
+          {layout === "table" ? (
+            <ProjectsTableHeader sort={sort} onSortChange={setSort} />
+          ) : null}
           {filteredProjects.map((p) => (
             <ProjectRow
               key={p.id}
@@ -620,14 +620,22 @@ export function WorkspaceListView({
             />
           ))}
         </div>
+      ) : layout === "table" ? (
+        <div className="flex flex-col gap-2">
+          <ClientsTableHeader sort={sort} onSortChange={setSort} />
+          {filteredClients.map((c) => (
+            <ClientCompactRow
+              key={c.id}
+              client={c}
+              onInvite={handleInviteClient}
+              onDragStart={handleClientDragStart}
+              onDragOver={handleClientDragOver}
+              onDrop={handleClientDrop}
+            />
+          ))}
+        </div>
       ) : (
-        <div
-          className={
-            layout === "cards"
-              ? "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"
-              : "flex flex-col gap-2"
-          }
-        >
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filteredClients.map((c) => (
             <ClientCard
               key={c.id}
