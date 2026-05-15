@@ -1,9 +1,26 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+
+/** Pathname matcher for the producer Song page (/dashboard/music/<uuid>).
+ *  On this route the inline hero play button + waveform IS the
+ *  playback UI — the dock would just overlap the comment thread, so
+ *  we slide it off-screen and skip the body-padding reservation. The
+ *  audio element stays mounted so playback continues uninterrupted.
+ *  The dock slides back when the producer navigates away. */
+function isProducerSongPage(pathname: string | null): boolean {
+  if (!pathname) return false;
+  if (!pathname.startsWith("/dashboard/music/")) return false;
+  // /dashboard/music itself is the Library — not a song page.
+  // /dashboard/music/project/<id> is the Project page — not a song page.
+  if (pathname === "/dashboard/music") return false;
+  if (pathname.startsWith("/dashboard/music/project/")) return false;
+  return true;
+}
 
 // Public read-only state for "what's currently playing" — populated by
 // PersistentPlayer on every set / toggle / ended / close event so any
@@ -165,6 +182,13 @@ export function PersistentPlayer() {
   const [currentMs, setCurrentMs] = useState(0);
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const pathname = usePathname();
+  // Slide the dock off-screen when the producer is on a Song page —
+  // the inline waveform is the playback UI there. Audio element stays
+  // mounted so playback continues uninterrupted; only the visual chrome
+  // hides. The body padding-bottom reservation also clears (no point
+  // reserving space for a hidden dock).
+  const dockHidden = isProducerSongPage(pathname);
 
   // Wire incoming events once per mount. Downstream dispatchers fire
   // these from anywhere — library rows, side panels, mobile modals.
@@ -212,12 +236,12 @@ export function PersistentPlayer() {
 
   // Toggle a body data attribute so globals.css can reserve
   // padding-bottom equal to the dock's height on every dashboard
-  // page. Without it the dock overlays the bottom of long pages
-  // (founder reported the comment thread getting hidden under it).
-  // The attribute is removed on unmount + when the dock is closed.
+  // page. Skip the reservation when the dock is hidden by route
+  // (song page) — we don't want phantom space below the comments
+  // for a dock that isn't visible.
   useEffect(() => {
     if (typeof document === "undefined") return;
-    if (state.track) {
+    if (state.track && !dockHidden) {
       document.body.dataset.skitzaDock = "1";
     } else {
       delete document.body.dataset.skitzaDock;
@@ -225,7 +249,7 @@ export function PersistentPlayer() {
     return () => {
       delete document.body.dataset.skitzaDock;
     };
-  }, [state.track]);
+  }, [state.track, dockHidden]);
 
   // Drive the <audio> element imperatively from state. Split out so
   // setting a new track (id changes) resets the element before play
@@ -320,12 +344,14 @@ export function PersistentPlayer() {
         onTogglePlay={onTogglePlay}
         onScrub={onScrub}
         onSkip={onSkip}
+        hidden={dockHidden}
       />
       {/* Mobile dock — <md, sits above the bottom nav */}
       <MobileDock
         track={state.track}
         playing={state.playing}
         onTogglePlay={onTogglePlay}
+        hidden={dockHidden}
       />
       {/* Hidden audio element — sr-only keeps assistive tech from
           picking it up as a second player (the visible controls above
@@ -351,6 +377,7 @@ function DesktopDock({
   onTogglePlay,
   onScrub,
   onSkip,
+  hidden = false,
 }: {
   track: PlayerTrack;
   playing: boolean;
@@ -360,17 +387,30 @@ function DesktopDock({
   onTogglePlay: () => void;
   onScrub: (pct: number) => void;
   onSkip: (deltaPct: number) => void;
+  hidden?: boolean;
 }) {
   return (
     <div
       role="region"
       aria-label="Audio player"
+      aria-hidden={hidden}
       // Floats with margin from the sidebar (lg+) and from the right
       // edge — feels like a tactile dock, not a full-width bar. The
       // .persistent-player-dock class in globals.css contributes the
       // `bottom: <safe-area-inset>` offset; we layer the desktop
       // margins on top here.
-      className="persistent-player-dock fixed inset-x-0 z-40 hidden md:flex md:justify-center md:px-6 lg:ps-[calc(var(--sidebar-width,260px)+24px)] lg:pe-6"
+      //
+      // When `hidden` (route-driven, e.g. on the Song page where the
+      // inline waveform is the playback UI), the dock slides off-screen
+      // with a soft ease-out — audio keeps playing, only the chrome
+      // hides. inert prevents focus from landing on it while hidden.
+      className={[
+        "persistent-player-dock fixed inset-x-0 z-40 hidden md:flex md:justify-center md:px-6 lg:ps-[calc(var(--sidebar-width,260px)+24px)] lg:pe-6",
+        hidden ? "pointer-events-none translate-y-[140%]" : "translate-y-0",
+      ].join(" ")}
+      style={{
+        transition: "transform 320ms cubic-bezier(0.23, 1, 0.32, 1)",
+      }}
     >
       <div
         className="grid w-full max-w-[820px] grid-cols-[1fr_auto_1fr] items-center gap-4 rounded-[18px] border px-3 py-2.5 shadow-[0_18px_48px_rgba(0,0,0,0.42),_0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-md"
@@ -490,20 +530,29 @@ function MobileDock({
   track,
   playing,
   onTogglePlay,
+  hidden = false,
 }: {
   track: PlayerTrack;
   playing: boolean;
   onTogglePlay: () => void;
+  hidden?: boolean;
 }) {
   return (
     <div
       role="region"
       aria-label="Audio player"
+      aria-hidden={hidden}
       // Sits above the producer bottom nav (~62px tall) on <md.
       // .persistent-player-dock from globals.css already handles the
       // bottom-nav + safe-area offset; here we just ensure the dock
       // takes the dark pill aesthetic and only renders <md.
-      className="persistent-player-dock fixed inset-x-2 z-40 flex md:hidden"
+      className={[
+        "persistent-player-dock fixed inset-x-2 z-40 flex md:hidden",
+        hidden ? "pointer-events-none translate-y-[160%]" : "translate-y-0",
+      ].join(" ")}
+      style={{
+        transition: "transform 320ms cubic-bezier(0.23, 1, 0.32, 1)",
+      }}
     >
       <div
         className="flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]"

@@ -843,7 +843,12 @@ function SongCard({ song, isPlaying }: { song: MusicLibraryRow; isPlaying: boole
 
 function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
   const nowPlaying = useNowPlaying();
-  const cols = "44px minmax(0,2fr) minmax(0,1fr) 70px 64px 60px 64px 36px";
+  // 9 columns now: play/idx, cover thumb, title, artist, version, plays,
+  // notes, length, actions. The 40px cover sits between the play column
+  // and the title — same pattern Spotify + Apple Music use in their
+  // table view (small album art next to track title for visual identity).
+  const cols =
+    "44px 40px minmax(0,2fr) minmax(0,1fr) 70px 64px 60px 64px 36px";
 
   function handlePlay(song: MusicLibraryRow) {
     if (!song.audioUrl) return;
@@ -876,6 +881,7 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
         }}
       >
         <span className="text-right">#</span>
+        <span aria-hidden />
         <span>Title</span>
         <span>Artist</span>
         <span>Version</span>
@@ -941,6 +947,19 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                     {padIndex(idx)}
                   </span>
                 </div>
+
+                {/* Cover thumbnail — 36px, no wordmark/kind. Stable
+                    per project so all tracks from the same project
+                    share the same color identity in the table. */}
+                <ProjectCover
+                  seed={s.projectId}
+                  gradient={gradientForSeed(s.projectId)}
+                  kind={null}
+                  showKind={false}
+                  shadow="card"
+                  radius="6px"
+                  className="h-9 w-9"
+                />
 
                 {/* Title + project (deep link) */}
                 <Link
