@@ -138,7 +138,7 @@ export function ClientCard({
             Projects
           </span>
           <span
-            className="text-[14px] font-semibold tabular-nums"
+            className="font-mono text-[14px] font-bold tabular-nums"
             style={{ color: "rgb(var(--fg-default))" }}
           >
             {projects}
@@ -152,7 +152,7 @@ export function ClientCard({
             Lifetime
           </span>
           <span
-            className="text-[14px] font-semibold tabular-nums"
+            className="font-mono text-[14px] font-bold tabular-nums"
             style={{ color: "rgb(var(--fg-default))" }}
           >
             {formatMoney(lifetime, currency)}
@@ -166,7 +166,7 @@ export function ClientCard({
             Owed
           </span>
           <span
-            className="text-[14px] font-semibold tabular-nums"
+            className="font-mono text-[14px] font-bold tabular-nums"
             style={{
               color:
                 owed > 0

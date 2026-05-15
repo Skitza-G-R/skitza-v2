@@ -13,6 +13,7 @@ import {
   type WorkflowStage,
 } from "~/lib/clients/workflow-stage";
 import { HeroCTA } from "~/components/dashboard/common/hero-cta";
+import { HeroGlowOrbs } from "~/components/dashboard/common/hero-glow-orbs";
 
 // AlbumHero — the dark gradient band that anchors the new Album Page
 // (DESIGN.md §4.3, BUILD-NOTES §5.3). Mirrors ClientSpaceHero's shape:
@@ -70,29 +71,47 @@ export function AlbumHero({
 
   return (
     <section
-      className="relative overflow-hidden rounded-[var(--radius-lg)] px-6 py-7 text-white"
-      style={{ background: heroBg(token) }}
+      // Full-bleed dark band — DESIGN.md hero spec line 252: no
+      // border-radius, full edge-to-edge background. Negative
+      // horizontal margins cancel the page padding (`px-4 sm:px-6` on
+      // the parent <main>) so the hero stretches to the content-area
+      // edges while body content below keeps its gutters. Bottom
+      // border (--border-strong) creates the design's hairline beneath.
+      className="relative -mx-4 overflow-hidden border-b px-[34px] py-9 pb-7 text-white sm:-mx-6"
+      style={{
+        background: heroBg(token),
+        borderBottomColor: "rgb(var(--border-strong))",
+      }}
       aria-label={`Album page for ${name}`}
     >
-      <div className="flex items-start justify-between gap-6">
-        <div className="flex min-w-0 items-start gap-5">
+      <HeroGlowOrbs />
+
+      <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-6">
+        <div className="flex min-w-0 items-end gap-[22px]">
           <span
-            className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[28px] font-bold text-white shadow-[var(--shadow-md)]"
-            style={{ background: avatarBg }}
+            className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] font-syne text-[42px] font-extrabold text-white shadow-[0_18px_40px_rgba(0,0,0,0.36)]"
+            style={{
+              background: avatarBg,
+              boxShadow:
+                "0 18px 40px rgba(0,0,0,0.36), inset 0 0 0 1px rgba(255,255,255,0.16)",
+            }}
             aria-hidden
           >
             {initials}
           </span>
 
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-white/78">
               PROJECT · {stageEyebrow}
             </p>
-            <h1 className="mt-1.5 truncate font-syne text-[28px] font-bold leading-tight text-white">
+            <h1
+              className="my-1 truncate font-syne text-[54px] font-extrabold leading-[0.95] tracking-[-0.035em] text-white"
+              style={{ textShadow: "0 2px 20px rgba(0,0,0,0.25)" }}
+            >
               {name}
             </h1>
 
-            <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-white/70">
+            <ul className="mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px] text-white/92">
               <li className="inline-flex items-center gap-1.5">
                 <span className="truncate">{clientName}</span>
               </li>
@@ -117,7 +136,7 @@ export function AlbumHero({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 self-end">
           {onPlayLatest ? (
             <HeroCTA variant="play" onClick={onPlayLatest}>
               Play latest
