@@ -512,6 +512,57 @@ export const projectRouter = router({
     return row;
   }),
 
+  // Manual stage advance for a single track. Used by both the Upload
+  // Track modal (when the producer opts to bump the stage on upload)
+  // and the standalone ChangeStageMenu on Song Space. Ownership chain:
+  // track → project → producer. NOT_FOUND if the track id is bogus;
+  // FORBIDDEN if the producer doesn't own the parent project.
+  setTrackStage: producerProcedure
+    .input(
+      z.object({
+        trackId: z.string().uuid(),
+        workflowStage: z.enum([
+          "brief",
+          "production",
+          "mixing",
+          "mastering",
+          "done",
+        ]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [track] = await ctx.db
+        .select({
+          id: projectTracks.id,
+          projectId: projectTracks.projectId,
+        })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, input.trackId))
+        .limit(1);
+      if (!track) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const [project] = await ctx.db
+        .select({ producerId: projects.producerId })
+        .from(projects)
+        .where(eq(projects.id, track.projectId))
+        .limit(1);
+      if (!project || project.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      await ctx.db
+        .update(projectTracks)
+        .set({ workflowStage: input.workflowStage })
+        .where(eq(projectTracks.id, input.trackId));
+
+      await ctx.db
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(eq(projects.id, track.projectId));
+
+      return { ok: true as const, workflowStage: input.workflowStage };
+    }),
+
   // Inline-edit a track title from the Project Room music sub-tab.
   // Ownership-scoped via the UPDATE's WHERE clause (id + projectId +
   // producerId chain) so a tampered trackId from another project
