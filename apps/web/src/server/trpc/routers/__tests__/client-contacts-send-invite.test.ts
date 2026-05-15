@@ -235,6 +235,30 @@ describe("clientContacts.sendInvite", () => {
     expect(sendEmailSpy).not.toHaveBeenCalled();
   });
 
+  it("does NOT stamp invited_at when the email send throws", async () => {
+    // Email is sent BEFORE invited_at is stamped, so a Resend failure
+    // (sandbox / unverified domain / rate-limit) leaves the contact
+    // in its prior state — the LinkPill keeps showing "Invite to app"
+    // so the producer can retry. This regression guards the email-first
+    // ordering in client-contacts.ts:sendInvite.
+    ownerSelectMock.mockResolvedValueOnce([
+      {
+        id: CONTACT_ID,
+        producerId: PRODUCER_ID,
+        email: "noa@example.com",
+        name: "Noa Kirel",
+      },
+    ]);
+    sendEmailSpy.mockRejectedValueOnce(new Error("Resend sandbox reject"));
+    const caller = await buildCaller();
+    await expect(
+      caller.clientContacts.sendInvite({ id: CONTACT_ID, via: "email" }),
+    ).rejects.toThrow(/Resend sandbox reject/);
+    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid via values via zod", async () => {
     ownerSelectMock.mockResolvedValueOnce([
       {

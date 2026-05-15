@@ -127,7 +127,19 @@ export function NewClientModal({
         onClose();
         return;
       }
-      toast("Client added — invite sent", "success");
+      if (res.data.inviteEmailFailed) {
+        // Client row was inserted but the invite email didn't send
+        // (Resend rejection, sandbox limit, etc). Tell the producer
+        // it's saved and they can retry the invite from the client's
+        // space. The LinkPill there shows "Invite to app" because the
+        // procedure never stamped invited_at.
+        toast(
+          "Client added — invite email couldn't be sent. Try again from their page.",
+          "info",
+        );
+      } else {
+        toast("Client added — invite sent", "success");
+      }
       onCreated?.();
       // Server Action already called revalidatePath, but a manual
       // router.refresh keeps the list in sync if the parent isn't a

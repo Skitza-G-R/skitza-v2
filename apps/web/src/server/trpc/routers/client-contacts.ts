@@ -811,17 +811,13 @@ export const clientContactsRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
 
-      const invitedAt = new Date();
-      await ctx.db
-        .update(clientContacts)
-        .set({ invitedAt })
-        .where(eq(clientContacts.id, input.id));
-
       if (input.via === "email") {
-        // Look up the producer's slug + display name for the email body
-        // + invite URL. Both columns are NOT NULL on producers (slug is
-        // unique-indexed; displayName is nullable so we fall back to a
-        // generic label).
+        // Email is sent BEFORE invited_at is stamped. If Resend
+        // rejects (sandbox / unverified domain / rate-limit) the
+        // contact's invited_at stays NULL and the LinkPill keeps
+        // showing "Invite to app" so the producer can retry. Stamping
+        // first would leave a stale "Invited" state that lies about
+        // whether the email actually went out.
         const [producer] = await ctx.db
           .select({
             slug: producers.slug,
@@ -833,14 +829,20 @@ export const clientContactsRouter = router({
         const slug = producer?.slug ?? "";
         const producerName = producer?.displayName ?? "Your producer";
         const inviteUrl = `${SITE_URL}/invite/${slug}-${existing.id}`;
-        // Re-throws on Resend failure — caller decides whether to retry
-        // or fall back to the copy-link path.
+        // Re-throws on Resend failure — caller decides whether to
+        // retry or fall back to the copy-link path.
         await sendClientInviteEmail(existing.email, {
           clientName: existing.name,
           producerName,
           inviteUrl,
         });
       }
+
+      const invitedAt = new Date();
+      await ctx.db
+        .update(clientContacts)
+        .set({ invitedAt })
+        .where(eq(clientContacts.id, input.id));
 
       return { invitedAt, via: input.via };
     }),
