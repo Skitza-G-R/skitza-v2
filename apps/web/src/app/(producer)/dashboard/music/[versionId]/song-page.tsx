@@ -450,6 +450,18 @@ export function SongPage({ data }: { data: SongPageData }) {
         className="relative isolate overflow-hidden text-white"
         style={{ background: heroBg }}
       >
+        {/* Atmospheric overlay (design.md): a soft radial highlight in
+            the top-left + a linear fade so the gradient bleeds into
+            the page background instead of stopping at a hard edge.
+            pointer-events:none so clicks pass through to the content. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(80% 60% at 18% 16%, rgba(255,255,255,0.20), transparent 60%), linear-gradient(180deg, rgba(17,16,9,0), rgba(17,16,9,0.18) 72%, rgb(var(--bg-background)))",
+          }}
+        />
         <div className="mx-auto max-w-[1100px] px-4 pt-6 pb-7 sm:px-6 sm:pt-8">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <Link

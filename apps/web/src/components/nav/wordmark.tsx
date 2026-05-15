@@ -20,6 +20,7 @@ export function Wordmark({
   inverse = false,
   ariaLabel = "Skitza",
   className = "",
+  lowercase = false,
 }: {
   /** Font-size in px. Locked design uses 22 (sidebar header), 18 (mobile top bar). */
   size?: number;
@@ -27,6 +28,8 @@ export function Wordmark({
   inverse?: boolean;
   ariaLabel?: string;
   className?: string;
+  /** Render "skitza." instead of "Skitza." — used in the LogoMark + Wordmark lockup. */
+  lowercase?: boolean;
 }): ReactNode {
   return (
     <span
@@ -39,7 +42,8 @@ export function Wordmark({
           : "rgb(var(--fg-default))",
       }}
     >
-      Skitza<span className="dot">.</span>
+      {lowercase ? "skitza" : "Skitza"}
+      <span className="dot">.</span>
     </span>
   );
 }

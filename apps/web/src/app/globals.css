@@ -439,6 +439,22 @@
     50%      { box-shadow: 0 0 0 8px rgb(var(--brand-primary) / 0); }
   }
 
+  /* Now-playing glow — gentle continuous breathing brand-amber ring
+     around any button currently driving playback. Size-independent: the
+     keyframe pulses ONLY the ring layer, so it composes onto buttons
+     whether they're 26px (library row) or 60px (project hero) without
+     the consumer needing to know anything about the baseline shadow.
+     ease-in-out is intentional — this is decorative/ambient, not a UI
+     response, so the symmetric curve reads as alive rather than
+     reacting. */
+  @keyframes skitza-now-playing-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0.45); }
+    50%      { box-shadow: 0 0 0 6px rgb(var(--brand-primary) / 0.04); }
+  }
+  .skitza-playing-glow {
+    animation: skitza-now-playing-glow 2.4s ease-in-out infinite;
+  }
+
   /* ----------------------------------------------------------------
    * Reveal + entrance utilities
    * ---------------------------------------------------------------- */
@@ -1098,6 +1114,15 @@
     .sk-page-enter { animation: none !important; }
     .sk-stagger-item { animation: none !important; opacity: 1 !important; }
     .sk-trend-line { animation: none !important; stroke-dashoffset: 0 !important; }
+    /* Now-playing breathing glow — no-op for motion-sensitive users.
+       Drop the ring entirely; consumers (which set their own static
+       shadow) keep their elevation. */
+    .skitza-playing-glow { animation: none !important; box-shadow: none !important; }
+    .reveal-up,
+    .reveal-up-delay-1,
+    .reveal-up-delay-2,
+    .reveal-up-delay-3,
+    .reveal-up-delay-4 { animation: none !important; opacity: 1 !important; }
   }
 }
 
