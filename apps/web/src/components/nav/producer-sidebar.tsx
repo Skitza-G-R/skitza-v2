@@ -13,6 +13,7 @@ import type { ShellNotificationItem } from "~/server/shell-data";
 // LanguageSwitcher intentionally NOT imported in the rail — Skitza is
 // EN-only at v1 per CLAUDE.md §"Language". Re-add when he.json is
 // populated. (Removed 2026-05-15 — sidebar polish PR.)
+import { LogoMark } from "~/components/brand/logo-mark";
 import { NotificationBell } from "~/components/shell/notification-bell";
 import { SidebarShareChip } from "~/components/shell/sidebar-share-chip";
 import { ThemeToggle } from "~/components/shell/theme-toggle";
@@ -217,23 +218,15 @@ function SidebarBody({
         <Link
           href="/dashboard"
           aria-label="Skitza dashboard home"
-          className="sk-press flex items-center"
+          className="sk-press flex items-center gap-2"
         >
           {collapsed ? (
-            <span
-              className="skitza-wordmark"
-              style={{ fontSize: 18, color: "rgb(var(--fg-onsidebar))" }}
-              aria-hidden
-            >
-              <span
-                className="dot"
-                style={{ color: "rgb(var(--brand-primary))" }}
-              >
-                S
-              </span>
-            </span>
+            <LogoMark size={32} />
           ) : (
-            <Wordmark size={22} inverse />
+            <>
+              <LogoMark size={28} />
+              <Wordmark size={20} inverse lowercase />
+            </>
           )}
         </Link>
         <button

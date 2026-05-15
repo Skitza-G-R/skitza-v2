@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { UserButton } from "@clerk/nextjs";
 
 import { StudioSwitcher } from "~/components/artist/studio-switcher";
+import { LogoMark } from "~/components/brand/logo-mark";
 import type { Studio } from "~/server/artist/identity";
 
 import { Icon, type IconName } from "./icons";
@@ -71,10 +72,16 @@ export function ArtistDesktopSidebar({
         zIndex: 20,
       }}
     >
-      {/* Wordmark */}
-      <div style={{ padding: "4px 8px 18px" }}>
-        <Wordmark size={22} inverse />
-      </div>
+      {/* Logo lockup — mark + lowercase wordmark, matches producer rail. */}
+      <Link
+        href="/artist"
+        aria-label="Skitza artist home"
+        className="sk-press flex items-center gap-2"
+        style={{ padding: "4px 8px 18px" }}
+      >
+        <LogoMark size={28} />
+        <Wordmark size={20} inverse lowercase />
+      </Link>
 
       {/* Studio switcher — multi-producer artists need this on every
           surface, including desktop. Existing component; visually
