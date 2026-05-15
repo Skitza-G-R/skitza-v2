@@ -118,11 +118,17 @@ export default async function CalendarPage({
     autoConfirmBookings: false,
     cancellationPolicyHours: 24,
   };
+  // Week-start preference (DB-backed since the Settings redesign). The
+  // panel renders a Sunday/Monday toggle that writes back to the same
+  // column, so the value here drives both the initial render and the
+  // post-toggle persisted state.
+  let availabilityWeekStart: "sunday" | "monday" = "sunday";
   if (active === "availability") {
-    const [blocks, blackouts, settings] = await Promise.all([
+    const [blocks, blackouts, settings, profile] = await Promise.all([
       caller.booking.availability.list(),
       caller.booking.blackouts.list(),
       caller.booking.availability.getSettings(),
+      caller.producer.me(),
     ]);
     availabilityBlocks = blocks.map((b) => ({
       weekday: b.weekday,
@@ -139,6 +145,8 @@ export default async function CalendarPage({
       autoConfirmBookings: settings.autoConfirmBookings,
       cancellationPolicyHours: settings.cancellationPolicyHours,
     };
+    availabilityWeekStart =
+      profile.weekStart === "monday" ? "monday" : "sunday";
   }
 
   // Tab-aware eyebrow — gives the section dynamic context. Schedule
@@ -248,6 +256,7 @@ export default async function CalendarPage({
               blocks={availabilityBlocks}
               blackouts={availabilityBlackouts}
               settings={availabilitySettings}
+              initialWeekStart={availabilityWeekStart}
             />
           )}
         </div>

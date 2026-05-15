@@ -52,6 +52,40 @@ const BrandInput = z.object({
   font: z.string().max(64).optional(),
 });
 
+// Settings redesign — known notification event keys. Lives next to the
+// router so the input validator can pin the allowed keys at the wire
+// layer. Adding a new event is a one-line entry here + one row in the
+// client's NOTIFICATION_EVENTS list. Six events match the design spec
+// (booking, approval, payment, overdue, comment, weekly).
+export const NOTIFICATION_EVENT_KEYS = [
+  "booking",
+  "approval",
+  "payment",
+  "overdue",
+  "comment",
+  "weekly",
+] as const;
+export type NotificationEventKey = (typeof NOTIFICATION_EVENT_KEYS)[number];
+
+// Single-channel state for one event. Shape mirrors the jsonb column.
+const NotificationChannelInput = z.object({
+  email: z.boolean(),
+  app: z.boolean(),
+});
+
+// Full notification-prefs map — partial: a save can ship only the keys
+// that changed. The DB column merges (we fetch → spread → write) so
+// missing keys keep their existing values. Unknown keys are stripped
+// by the zod parser so a future event rename can't smuggle in stale
+// data via an old client.
+const NotificationPrefsInput = z
+  .object(
+    Object.fromEntries(
+      NOTIFICATION_EVENT_KEYS.map((k) => [k, NotificationChannelInput.optional()]),
+    ) as Record<NotificationEventKey, z.ZodOptional<typeof NotificationChannelInput>>,
+  )
+  .partial();
+
 const UpdateInput = z.object({
   displayName: z.string().min(1).max(80).optional(),
   slug: z
@@ -63,6 +97,14 @@ const UpdateInput = z.object({
   defaultCurrency: z.enum(["USD", "EUR", "GBP", "ILS"]).optional(),
   timezone: z.string().min(1).max(64).optional(),
   brand: BrandInput.optional(),
+  // Settings redesign — calendar week orientation. Two values only;
+  // the segmented control in Settings → Language & region writes here.
+  // Also written by the Calendar availability panel and the onboarding
+  // availability step (via useWeekStartPref).
+  weekStart: z.enum(["sunday", "monday"]).optional(),
+  // Settings redesign — per-event notification preferences. Partial
+  // merge: only the event keys present in the payload get rewritten.
+  notificationPrefs: NotificationPrefsInput.optional(),
 });
 
 // Marketing-grade meta the producer surfaces on their public /join page.
@@ -383,6 +425,17 @@ export const producerRouter = router({
         streamsSummary: row.streamsSummary,
         responseHours: row.responseHours,
       },
+      // Settings redesign — plan tier (UI-only for v1; no Stripe
+      // subscription wiring yet). Returned as a string the client
+      // narrows to 'free' | 'pro'.
+      plan: row.plan,
+      // Calendar week orientation. UI flips this between 'sun' / 'mon'.
+      weekStart: row.weekStart,
+      // Per-event notification preferences. Empty object when the
+      // producer hasn't touched the matrix yet — the client fills in
+      // design defaults for missing keys (see resolveNotificationPrefs
+      // on the client).
+      notificationPrefs: row.notificationPrefs,
     };
   }),
 
@@ -1436,20 +1489,42 @@ export const producerRouter = router({
       return { ok: true as const };
     }),
 
-  // Edit profile. brand merges over the existing JSONB (we fetch → spread
-  // → set) so a UI only touching `primary` doesn't wipe `logoUrl`.
+  // Edit profile. brand and notificationPrefs merge over the existing
+  // JSONB (we fetch → spread → set) so a UI patch can ship only the
+  // keys that changed without wiping the rest of the object.
   update: producerProcedure.input(UpdateInput).mutation(async ({ ctx, input }) => {
-    const { brand: brandPatch, ...fields } = input;
-    // Merge brand JSONB with existing. Drizzle's jsonb helpers do NOT
-    // support a built-in partial-update, so fetch + spread + write.
+    const {
+      brand: brandPatch,
+      notificationPrefs: notifPatch,
+      ...fields
+    } = input;
+
+    // Merge brand + notificationPrefs JSONB with existing. Drizzle's
+    // jsonb helpers do NOT support a built-in partial-update, so we
+    // fetch + spread + write. Two columns to merge → one SELECT covers
+    // both (cheaper than two round-trips).
     let brand: typeof producers.$inferSelect.brand | undefined;
-    if (brandPatch !== undefined) {
+    let notificationPrefs:
+      | typeof producers.$inferSelect.notificationPrefs
+      | undefined;
+    if (brandPatch !== undefined || notifPatch !== undefined) {
       const [existing] = await ctx.db
-        .select({ brand: producers.brand })
+        .select({
+          brand: producers.brand,
+          notificationPrefs: producers.notificationPrefs,
+        })
         .from(producers)
         .where(eq(producers.id, ctx.producerId))
         .limit(1);
-      brand = { ...(existing?.brand ?? {}), ...stripUndefined(brandPatch) };
+      if (brandPatch !== undefined) {
+        brand = { ...(existing?.brand ?? {}), ...stripUndefined(brandPatch) };
+      }
+      if (notifPatch !== undefined) {
+        notificationPrefs = {
+          ...(existing?.notificationPrefs ?? {}),
+          ...stripUndefined(notifPatch),
+        };
+      }
     }
 
     try {
@@ -1459,6 +1534,7 @@ export const producerRouter = router({
           stripUndefined({
             ...fields,
             ...(brand === undefined ? {} : { brand }),
+            ...(notificationPrefs === undefined ? {} : { notificationPrefs }),
             updatedAt: new Date(),
           }),
         )

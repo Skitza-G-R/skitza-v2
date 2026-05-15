@@ -1,0 +1,832 @@
+/* Settings redesign — page-scoped styles.
+ *
+ * Imported once from page.tsx. All selectors are prefixed `.s-`
+ * (settings) to keep them out of the global utility namespace.
+ *
+ * Tokens come from globals.css — we don't re-declare colors here.
+ * Reference: docs/plans/active/2026-05-14-settings-redesign-design.md
+ */
+
+/* ─── Outer 2-column layout ─────────────────────────────────────────── */
+.s-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100dvh;
+  background: rgb(var(--bg-background));
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .s-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Sub-nav (left column) ─────────────────────────────────────────── */
+.s-nav {
+  padding: 28px 16px 28px 24px;
+  border-right: 1px solid rgb(var(--border-subtle));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgb(var(--bg-background));
+}
+.s-nav .s-eyebrow {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgb(var(--fg-muted));
+  margin: 4px 10px 8px;
+}
+.s-nav h1 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 34px;
+  letter-spacing: -0.035em;
+  margin: 0 10px 18px;
+  line-height: 0.95;
+  color: rgb(var(--fg-default));
+}
+.s-nav button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgb(var(--fg-muted));
+  transition:
+    background 0.15s,
+    color 0.15s;
+  white-space: nowrap;
+}
+.s-nav button:hover {
+  background: rgb(17 16 9 / 0.04);
+  color: rgb(var(--fg-default));
+}
+.s-nav button.s-active {
+  background: rgb(var(--bg-sidebar));
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgb(17 16 9 / 0.16);
+}
+.s-nav button svg {
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.s-nav-dirty-dot {
+  /* Per-section unsaved-edits indicator. Right-aligned via auto
+     margin, brand-amber so it visually rhymes with the savebar pulse
+     (same colour, no animation — the savebar already pulses). 7px to
+     match the savebar dot. */
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgb(var(--brand-primary));
+  flex: none;
+}
+
+@media (max-width: 768px) {
+  .s-nav {
+    padding: 16px;
+    border-right: none;
+    border-bottom: 1px solid rgb(var(--border-subtle));
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 6px;
+  }
+  .s-nav .s-eyebrow,
+  .s-nav h1 {
+    display: none;
+  }
+  .s-nav button {
+    flex-shrink: 0;
+  }
+}
+
+/* ─── Content panel (right column) ──────────────────────────────────── */
+.s-content {
+  padding: 36px 48px 120px;
+  overflow-y: auto;
+}
+.s-content-inner {
+  max-width: 760px;
+}
+@media (max-width: 768px) {
+  .s-content {
+    padding: 24px 16px 120px;
+  }
+}
+
+/* Section head */
+.s-section-head {
+  margin-bottom: 18px;
+}
+.s-section-head h2 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 30px;
+  letter-spacing: -0.035em;
+  margin: 0;
+  line-height: 1;
+  color: rgb(var(--fg-default));
+}
+.s-section-head p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: rgb(var(--fg-muted));
+  max-width: 540px;
+  line-height: 1.5;
+}
+.s-section-eyebrow {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgb(var(--brand-primary));
+  display: block;
+  margin-bottom: 8px;
+}
+
+/* ─── Cards + rows ──────────────────────────────────────────────────── */
+.s-card {
+  background: rgb(var(--bg-elevated));
+  border: 1px solid rgb(var(--border-subtle));
+  border-radius: 16px;
+  overflow: hidden;
+}
+.s-card + .s-card {
+  margin-top: 12px;
+}
+.s-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 28px;
+  padding: 18px 24px;
+  border-bottom: 1px solid rgb(var(--border-subtle));
+  align-items: center;
+}
+.s-row:last-child {
+  border-bottom: none;
+}
+.s-row-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgb(var(--fg-default));
+  margin-bottom: 2px;
+  letter-spacing: -0.005em;
+}
+.s-row-hint {
+  font-size: 12px;
+  color: rgb(var(--fg-muted));
+  line-height: 1.5;
+}
+.s-row-field {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .s-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 16px 18px;
+  }
+}
+
+/* ─── Form controls ─────────────────────────────────────────────────── */
+.s-input,
+.s-select {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 420px;
+  padding: 10px 14px;
+  border: 1px solid rgb(var(--border-subtle));
+  border-radius: 10px;
+  background: rgb(var(--bg-elevated));
+  font-size: 13.5px;
+  font-weight: 500;
+  color: rgb(var(--fg-default));
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+  letter-spacing: -0.005em;
+}
+.s-input:hover,
+.s-select:hover {
+  border-color: rgb(var(--border-strong));
+}
+.s-input:focus,
+.s-select:focus {
+  border-color: rgb(var(--brand-primary));
+  box-shadow: 0 0 0 3px rgb(var(--brand-primary) / 0.12);
+}
+.s-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 5l3 3 3-3' stroke='%236b6359' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+/* ─── Slug preview (Profile section) ────────────────────────────────── */
+/* Read-only display of the producer's public share URL. The host
+   uses --fg-muted (it's context); the handle uses --fg-default (it's
+   the part that varies and matters). The 'Open ↗' link sits to the
+   right of the field so the row still feels balanced. */
+.s-row-field:has(.s-slug-preview) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.s-slug-preview {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 9px 14px;
+  border: 1px solid rgb(var(--border-subtle));
+  border-radius: 10px;
+  background: rgb(var(--bg-background));
+  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  letter-spacing: 0;
+  user-select: all;
+}
+.s-slug-host {
+  color: rgb(var(--fg-muted));
+}
+.s-slug-handle {
+  color: rgb(var(--fg-default));
+  font-weight: 700;
+}
+.s-slug-open {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: rgb(var(--fg-default));
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.s-slug-open:hover {
+  background: rgb(var(--bg-background));
+}
+
+/* ─── Buttons (settings-scoped) ─────────────────────────────────────── */
+.s-btn {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  transition:
+    transform 0.12s,
+    filter 0.15s,
+    background 0.15s;
+  white-space: nowrap;
+  justify-content: center;
+}
+.s-btn:active {
+  transform: scale(0.96);
+}
+.s-btn:hover {
+  filter: brightness(1.05);
+}
+.s-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+}
+.s-btn-primary {
+  background: rgb(var(--fg-default));
+  color: rgb(var(--bg-elevated));
+}
+.s-btn-amber {
+  background: rgb(var(--brand-primary));
+  color: #111009;
+}
+.s-btn-ghost {
+  background: rgb(var(--bg-elevated));
+  color: rgb(var(--fg-default));
+  border: 1px solid rgb(var(--border-subtle));
+}
+.s-btn-subtle {
+  background: rgb(var(--bg-background));
+  color: rgb(var(--fg-default));
+  border: 1px solid rgb(var(--border-subtle));
+}
+
+/* ─── Toggle ────────────────────────────────────────────────────────── */
+.s-toggle {
+  all: unset;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgb(var(--fg-muted) / 0.28);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.s-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+}
+.s-toggle[aria-checked="true"] {
+  background: rgb(var(--fg-default));
+}
+.s-toggle[aria-checked="true"]::after {
+  left: 18px;
+}
+.s-toggle:focus-visible {
+  box-shadow: 0 0 0 3px rgb(var(--brand-primary) / 0.35);
+}
+
+/* ─── Segmented control ─────────────────────────────────────────────── */
+.s-seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgb(var(--bg-background));
+  border: 1px solid rgb(var(--border-subtle));
+}
+.s-seg button {
+  all: unset;
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgb(var(--fg-muted));
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.s-seg button.s-active {
+  background: rgb(var(--bg-elevated));
+  color: rgb(var(--fg-default));
+  box-shadow: 0 1px 2px rgb(17 16 9 / 0.06);
+}
+
+/* ─── Plan hero ─────────────────────────────────────────────────────── */
+.s-plan-hero {
+  color: #fff;
+  padding: 24px 26px;
+  position: relative;
+  overflow: hidden;
+}
+.s-plan-hero-pro {
+  background: linear-gradient(140deg, #1f1b12 0%, #2e2412 55%, #5c3a0d 100%);
+}
+.s-plan-hero-pro::after {
+  content: "";
+  position: absolute;
+  top: -40%;
+  right: -10%;
+  width: 60%;
+  height: 180%;
+  background: radial-gradient(
+    closest-side,
+    rgb(var(--brand-primary) / 0.32),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+.s-plan-hero-free {
+  background: linear-gradient(140deg, #1f1b12 0%, #2b2a24 60%, #3a3933 100%);
+}
+.s-plan-hero > * {
+  position: relative;
+  z-index: 1;
+}
+.s-plan-crown {
+  font-weight: 700;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  white-space: nowrap;
+}
+.s-plan-crown-pro {
+  color: rgb(var(--brand-primary));
+}
+.s-plan-crown-free {
+  color: rgb(255 255 255 / 0.55);
+}
+.s-plan-hero h3 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 32px;
+  letter-spacing: -0.035em;
+  margin: 0;
+  line-height: 1;
+}
+.s-plan-ctas {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.s-plan-hero .s-btn-ghost {
+  background: rgb(255 255 255 / 0.08);
+  color: #fff;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  backdrop-filter: blur(6px);
+}
+.s-plan-link-muted {
+  all: unset;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: rgb(255 255 255 / 0.55);
+  padding: 9px 14px;
+}
+.s-plan-link-muted:hover {
+  color: #fff;
+}
+
+/* ─── Usage grid ────────────────────────────────────────────────────── */
+.s-usage-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.s-usage {
+  padding: 18px 24px;
+  border-right: 1px solid rgb(var(--border-subtle));
+  border-top: 1px solid rgb(var(--border-subtle));
+}
+.s-usage:last-child {
+  border-right: none;
+}
+.s-usage-num {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: rgb(var(--fg-default));
+}
+.s-usage-num-suffix {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgb(var(--fg-muted));
+  margin-left: 6px;
+  letter-spacing: 0;
+}
+.s-usage-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgb(var(--fg-muted));
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.s-usage-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgb(var(--border-subtle));
+  margin-top: 12px;
+  overflow: hidden;
+}
+.s-usage-bar > i {
+  display: block;
+  height: 100%;
+  background: rgb(var(--fg-default));
+  border-radius: 999px;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.s-usage-bar > i.s-amber {
+  background: rgb(var(--brand-primary));
+}
+.s-usage-soft {
+  /* Soft info line below the usage grid — explains the em-dash
+     placeholders while real usage measurement lands. Lives inside
+     the card so it visually anchors to the cells above. */
+  margin: 0;
+  padding: 12px 24px 16px;
+  font-size: 11.5px;
+  color: rgb(var(--fg-muted));
+  border-top: 1px solid rgb(var(--border-subtle));
+  background: rgb(var(--bg-background));
+  line-height: 1.45;
+}
+
+/* ─── Notif matrix ──────────────────────────────────────────────────── */
+/* Heads-up callout at the top of the notifications card. Pinned to the
+   card edge so the matrix below feels visually attached to the same
+   surface. The amber dot is a softer cousin of the savebar pulse —
+   same brand colour, no animation. */
+.s-notif-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 24px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgb(var(--fg-default));
+  background: rgb(var(--brand-primary) / 0.06);
+  border-bottom: 1px solid rgb(var(--border-subtle));
+}
+.s-notif-note b {
+  font-weight: 700;
+}
+.s-notif-note-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgb(var(--brand-primary));
+  flex: none;
+  margin-top: 7px;
+}
+
+.s-notif-head,
+.s-notif-row {
+  display: grid;
+  grid-template-columns: 1fr 80px 80px;
+  gap: 16px;
+  padding: 14px 24px;
+  border-bottom: 1px solid rgb(var(--border-subtle));
+}
+.s-notif-head {
+  background: transparent;
+}
+.s-notif-row:last-child {
+  border-bottom: none;
+}
+.s-notif-head .s-h {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgb(var(--fg-muted));
+  text-align: center;
+}
+.s-notif-head .s-h-lead {
+  text-align: left;
+}
+.s-notif-row {
+  align-items: center;
+}
+.s-notif-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: rgb(var(--fg-default));
+}
+.s-notif-sub {
+  font-size: 12px;
+  color: rgb(var(--fg-muted));
+  margin-top: 2px;
+}
+.s-notif-cell {
+  display: flex;
+  justify-content: center;
+}
+
+/* ─── Integrations list ─────────────────────────────────────────────── */
+.s-intlist {
+  padding: 6px;
+}
+.s-introw {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  transition: background 0.15s;
+}
+.s-introw:hover {
+  background: rgb(var(--bg-background));
+}
+.s-introw-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+}
+.s-introw-title {
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: -0.005em;
+  color: rgb(var(--fg-default));
+}
+.s-introw-sub {
+  font-size: 12px;
+  color: rgb(var(--fg-muted));
+  margin-top: 3px;
+}
+.s-introw-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ─── Payment alt-provider disclosure ───────────────────────────────── */
+/* The secondary regional payment provider tucks behind a native
+   <details>. Summary reads as a discoverable link, opens to reveal
+   the full block. We strip the default disclosure triangle and rely
+   on the inline arrow in the summary copy. */
+.s-payments-alt {
+  border-top: 1px dashed rgb(var(--border-subtle));
+  padding-top: 16px;
+}
+.s-payments-alt > summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: rgb(var(--fg-default));
+  padding: 8px 0;
+  user-select: none;
+}
+.s-payments-alt > summary::-webkit-details-marker {
+  display: none;
+}
+.s-payments-alt > summary:hover {
+  color: rgb(var(--brand-primary));
+}
+
+/* ─── Status chip ───────────────────────────────────────────────────── */
+.s-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  letter-spacing: 0.02em;
+}
+.s-chip-success {
+  background: rgb(var(--fg-success) / 0.12);
+  color: rgb(22 130 70);
+  border-color: rgb(var(--fg-success) / 0.25);
+}
+.s-chip-neutral {
+  background: rgb(var(--fg-muted) / 0.1);
+  color: rgb(var(--fg-muted));
+  border-color: rgb(var(--fg-muted) / 0.18);
+}
+.s-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex: none;
+  display: inline-block;
+}
+
+/* ─── Save bar ──────────────────────────────────────────────────────── */
+/*
+ * Fixed at the bottom of the viewport. We span the full width and live
+ * at z-index 5 — BELOW the ProducerSidebar (z-index 20) so the sidebar
+ * naturally covers the savebar's left edge instead of us having to know
+ * its current width (it animates between 64px and 232px). The producer
+ * sees the savebar starting cleanly at the right of the sidebar.
+ *
+ * On mobile (<lg) the sidebar isn't rendered, so the savebar uses the
+ * full width by default.
+ */
+.s-savebar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px 44px;
+  background: rgb(var(--bg-sidebar));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transform: translateY(120%);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 -8px 24px rgb(17 16 9 / 0.22);
+  z-index: 5;
+}
+.s-savebar.s-show {
+  transform: translateY(0);
+}
+.s-savebar-lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  min-width: 0;
+}
+.s-savebar-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(var(--brand-primary));
+  position: relative;
+  flex-shrink: 0;
+}
+.s-savebar-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  background: rgb(var(--brand-primary));
+  opacity: 0.4;
+  animation: s-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes s-ping {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  75%,
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+.s-savebar-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.s-savebar .s-btn-ghost {
+  background: rgb(255 255 255 / 0.08);
+  color: #fff;
+  border: 1px solid rgb(255 255 255 / 0.16);
+}
+.s-savebar .s-btn-amber {
+  background: rgb(var(--brand-primary));
+  color: #111009;
+}
+
+@media (max-width: 768px) {
+  .s-savebar {
+    padding: 10px 16px 76px;
+  }
+  .s-savebar-lead {
+    font-size: 12px;
+  }
+}
+
+/* ─── Section reveal animation ──────────────────────────────────────── */
+@keyframes s-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.s-reveal {
+  animation: s-reveal 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-reveal,
+  .s-usage-bar > i,
+  .s-savebar {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ─── Mono utility ──────────────────────────────────────────────────── */
+.s-mono {
+  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}

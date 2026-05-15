@@ -62,7 +62,18 @@ export default async function AvailabilityStepPage({
   }
   if (!userId) return null;
 
-  const blocks = await fetchAvailabilityBlocks(userId);
+  // Parallel fetch — blocks for the day rows, producer profile for the
+  // week-start preference (DB-backed since the Settings redesign so the
+  // value follows the producer across devices + surfaces).
+  const caller = appRouter.createCaller({ userId });
+  const [blocks, profile] = await Promise.all([
+    fetchAvailabilityBlocks(userId),
+    caller.producer.me(),
+  ]);
+  const initialWeekStart =
+    profile.weekStart === "monday" ? "monday" : "sunday";
 
-  return <AvailabilityStepClient blocks={blocks} />;
+  return (
+    <AvailabilityStepClient blocks={blocks} initialWeekStart={initialWeekStart} />
+  );
 }

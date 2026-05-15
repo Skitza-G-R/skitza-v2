@@ -1,4 +1,37 @@
-# Session Recap — Clients & Projects v3 Redesign
+# Session Recap
+
+## Active branches and PRs
+
+| Branch | PR | Subject | Status |
+|---|---|---|---|
+| `settings-redesign` | [#116](https://github.com/Skitza-G-R/skitza-v2/pull/116) | feat(settings): 5-section sub-nav with savebar | Pipeline green, schema migration 0012 pending apply |
+| `clients-projects-redesign` | [#113](https://github.com/Skitza-G-R/skitza-v2/pull/113) | Phase 0 (schema) | Pipeline green, waiting on Raz review |
+| `overview-first-week-empty` | — | Overview first-week empty state (predicate landed) | 1 commit ahead of `v3-clean`, pushed to origin |
+
+---
+
+## Settings redesign (2026-05-14, branch `settings-redesign`, PR #116)
+
+Replaced the 2-branch chip surface with the design's 5-section sub-nav layout from `/Volumes/KINGSTON/Downloads/scratch/settings-handoff/`. Five live sections (Profile · Plan & billing · Notifications · Integrations · Language & region). Studio is intentionally deferred — schema columns (business name, city, country, tax ID) don't exist yet.
+
+**Schema added (migration 0012):**
+- `producers.plan` text NOT NULL DEFAULT 'free'
+- `producers.week_start` text NOT NULL DEFAULT 'sun'
+- `producers.notification_prefs` jsonb NOT NULL DEFAULT '{}'
+
+**Removed from Settings UI** (data stays in DB, future `/dashboard/public-page` route picks them up): slug, brand colors, logo, portfolio image picks, marketing copy (genres/response/streams), Autopilot toggles, data-export button, replay-tour button.
+
+**Plan & Notifications are UI-only:** Plan reads `producers.plan` and renders fake free/pro hero + usage. CTAs toast "Coming soon." Notifications saves the 6-event × 2-channel matrix but the actual email/in-app delivery wiring lands feature-by-feature.
+
+**Payments unified:** one "Payments" row covers both Tranzila (Israel) and Stripe (rest of world). The existing PaymentCard + StripeCard render below the integrations card for actual connect flows.
+
+**Files:** `apps/web/src/app/(producer)/dashboard/settings/{page,settings-client,settings-keys,settings.css}.{tsx,ts,css}` + migration `packages/db/drizzle/0012_settings_redesign.sql`. Old `settings-form.tsx` deleted. `settings-cleanup.test.ts` rewritten.
+
+**After merge:** Gili runs `DATABASE_URL=… node packages/db/apply-migrations.mjs` to apply 0012.
+
+---
+
+# Earlier: Clients & Projects v3 Redesign
 
 > **For the next Claude session:** READ THIS FIRST. The work is mid-stream. Branch `clients-projects-redesign` is pushed to origin with 10 commits ahead of `origin/v3-clean`. PR #113 is open and **waiting on Raz's review** of the schema. Phase 0 is complete; Phases 1-4 are planned but not yet implemented.
 

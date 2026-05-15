@@ -8,7 +8,11 @@ import { setAvailabilityWeek } from "~/app/(producer)/dashboard/booking/actions"
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
 import { useToast } from "~/components/ui/toast";
-import { orderByWeekStart, useWeekStartPref } from "~/lib/time/week-start";
+import {
+  orderByWeekStart,
+  useWeekStartPref,
+  type WeekStart,
+} from "~/lib/time/week-start";
 
 import {
   AVAILABILITY_STEP_INDEX,
@@ -134,8 +138,13 @@ function buildInitialDays(blocks: ReadonlyArray<BlockInput>): DayConfig[] {
 
 export function AvailabilityStepClient({
   blocks,
+  initialWeekStart = "sunday",
 }: {
   blocks: BlockInput[];
+  // Producer's stored week-start (DB-backed since the Settings redesign).
+  // Optional with a sensible default so dev preview mode — which renders
+  // without a real producer row — still works.
+  initialWeekStart?: WeekStart;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -148,11 +157,11 @@ export function AvailabilityStepClient({
   const [cancellationHours, setCancellationHours] = useState(24);
   const [gcalConnected] = useState(false);
 
-  // Shared week-start preference — same localStorage key as the Calendar
-  // page, so flipping it here carries over once the producer reaches
-  // the dashboard. `days` stays canonically Sun-first; we only rotate
-  // the rendered slice.
-  const [weekStart, setWeekStart] = useWeekStartPref();
+  // Shared week-start preference — DB-backed, so flipping it here
+  // carries over to the Calendar availability tab and the Settings →
+  // Language & region segmented control. `days` stays canonically
+  // Sun-first; we only rotate the rendered slice.
+  const [weekStart, setWeekStart] = useWeekStartPref(initialWeekStart);
   const orderedDays = useMemo(
     () => orderByWeekStart(days, weekStart),
     [days, weekStart],
