@@ -304,7 +304,6 @@ export function BookingClient({
   // <lg so the TimeColumn gets the full card width. Desktop keeps the
   // 3-column layout regardless.
   const mobileHidden = selectedDate ? "hidden lg:block" : "block";
-  const mobileHiddenGrid = selectedDate ? "hidden lg:grid" : "grid";
 
   return (
     <div className="space-y-4">
@@ -323,9 +322,13 @@ export function BookingClient({
           boxShadow: "var(--shadow-md)",
         }}
       >
-        <div className="lg:grid lg:grid-cols-[minmax(280px,340px)_1fr]">
+        {/* One flat grid: LeftContext | Calendar | TimeColumn.
+            Third column is `auto` → 0 when no date is picked, so the
+            card sits at 2-column width and only expands sideways when
+            the TimeColumn mounts. */}
+        <div className="lg:grid lg:grid-cols-[260px_minmax(360px,1fr)_auto]">
           <LeftContext
-            className={mobileHidden}
+            className={`${mobileHidden} lg:border-r lg:border-[rgb(var(--border-subtle))]`}
             activeStudio={activeStudio ?? null}
             packages={activePackages}
             selectedProjectId={selectedPackageProjectId}
@@ -340,34 +343,31 @@ export function BookingClient({
             }}
           />
 
-          <div
-            className={`${mobileHiddenGrid} border-t border-[rgb(var(--border-subtle))] lg:grid lg:grid-cols-[1fr_auto] lg:border-l lg:border-t-0`}
-          >
-            <CalendarColumn
-              year={viewYear}
-              month0={viewMonth}
-              daysByDate={daysByDate}
-              today={today}
-              selectedDate={selectedDate}
-              hasAnyAvailability={hasAnyAvailability}
-              producerName={activeStudio?.name ?? null}
-              onPickDate={handlePickDate}
-              onPrevMonth={
-                canGoBack
-                  ? () => {
-                      const prev = new Date(Date.UTC(viewYear, viewMonth - 1));
-                      setViewYear(prev.getUTCFullYear());
-                      setViewMonth(prev.getUTCMonth());
-                    }
-                  : null
-              }
-              onNextMonth={() => {
-                const next = new Date(Date.UTC(viewYear, viewMonth + 1));
-                setViewYear(next.getUTCFullYear());
-                setViewMonth(next.getUTCMonth());
-              }}
-            />
-          </div>
+          <CalendarColumn
+            className={`${mobileHidden} border-t border-[rgb(var(--border-subtle))] lg:border-t-0`}
+            year={viewYear}
+            month0={viewMonth}
+            daysByDate={daysByDate}
+            today={today}
+            selectedDate={selectedDate}
+            hasAnyAvailability={hasAnyAvailability}
+            producerName={activeStudio?.name ?? null}
+            onPickDate={handlePickDate}
+            onPrevMonth={
+              canGoBack
+                ? () => {
+                    const prev = new Date(Date.UTC(viewYear, viewMonth - 1));
+                    setViewYear(prev.getUTCFullYear());
+                    setViewMonth(prev.getUTCMonth());
+                  }
+                : null
+            }
+            onNextMonth={() => {
+              const next = new Date(Date.UTC(viewYear, viewMonth + 1));
+              setViewYear(next.getUTCFullYear());
+              setViewMonth(next.getUTCMonth());
+            }}
+          />
 
           {selectedDate ? (
             <TimeColumn
@@ -452,7 +452,7 @@ function LeftContext({
         </div>
       </header>
 
-      <h1 className="font-display text-[28px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[rgb(var(--fg-default))]">
+      <h1 className="font-display text-[22px] font-extrabold leading-[1.05] tracking-[-0.025em] text-[rgb(var(--fg-default))] text-balance">
         Studio session
         <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
       </h1>
@@ -590,6 +590,7 @@ function CreditsBlock({
 // ──────────────────────────────────────────────────────────────────────
 
 function CalendarColumn({
+  className,
   year,
   month0,
   daysByDate,
@@ -601,6 +602,7 @@ function CalendarColumn({
   onPrevMonth,
   onNextMonth,
 }: {
+  className?: string;
   year: number;
   month0: number;
   daysByDate: Map<string, Day>;
@@ -698,7 +700,7 @@ function CalendarColumn({
   const tzLabel = useLiveTimeZoneLabel();
 
   return (
-    <div className="p-6 lg:min-w-[360px] lg:p-7">
+    <div className={`p-6 lg:p-7 ${className ?? ""}`}>
       <header className="mb-4 flex items-center justify-between">
         <h2 className="font-display text-[17px] font-extrabold leading-none tracking-[-0.015em] text-[rgb(var(--fg-default))]">
           {fmtMonthYear(year, month0)}
