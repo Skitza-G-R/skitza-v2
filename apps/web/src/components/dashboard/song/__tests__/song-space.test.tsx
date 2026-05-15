@@ -60,6 +60,12 @@ describe("SongSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toMatch(/trackId=\{song\.id\}/);
   });
 
+  it("mounts ChangeStageMenu so producers can advance stage without uploading (Phase 4)", () => {
+    expect(SRC).toContain("ChangeStageMenu");
+    expect(SRC).toMatch(/trackId=\{song\.id\}/);
+    expect(SRC).toMatch(/current=\{song\.workflowStage\}/);
+  });
+
   it("threads openUpload into both SongSpaceHero.onUploadNewVersion and VersionsTab.onAddVersion", () => {
     expect(SRC).toMatch(/onUploadNewVersion=\{openUpload\}/);
     expect(SRC).toMatch(/onAddVersion=\{openUpload\}/);
