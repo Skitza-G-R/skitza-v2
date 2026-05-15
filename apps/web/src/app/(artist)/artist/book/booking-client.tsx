@@ -393,6 +393,88 @@ export function BookingClient({
           ) : null}
         </div>
       </article>
+
+      {/* Shared motion keyframes scoped to /artist/book. All animations
+          stay on transform + opacity for hardware acceleration; all
+          custom curves use the strong ease-out from Emil's notes. */}
+      <style jsx global>{`
+        @keyframes book-stagger-in {
+          from {
+            opacity: 0;
+            transform: translateY(4px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes book-pulse-soft {
+          0%,
+          100% {
+            opacity: 0.7;
+            transform: scale(1);
+          }
+          50% {
+            opacity: 1;
+            transform: scale(1.18);
+          }
+        }
+        @keyframes book-avatar-pop {
+          from {
+            opacity: 0;
+            transform: scale(0.94);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+        .book-stagger {
+          animation: book-stagger-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+        }
+        .book-pulse {
+          animation: book-pulse-soft 2.4s ease-in-out infinite;
+          transform-origin: center;
+          will-change: transform, opacity;
+        }
+        .book-pulse-slow {
+          animation: book-pulse-soft 3.2s ease-in-out infinite;
+          transform-origin: center;
+          will-change: transform, opacity;
+        }
+        .book-avatar-pop {
+          animation: book-avatar-pop 360ms cubic-bezier(0.23, 1, 0.32, 1)
+            both;
+        }
+        .book-cta-lift {
+          transition:
+            transform 180ms cubic-bezier(0.23, 1, 0.32, 1),
+            box-shadow 220ms cubic-bezier(0.23, 1, 0.32, 1);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .book-cta-lift:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 24px -6px rgb(var(--brand-primary) / 0.45);
+          }
+          .book-cta-lift:active:not(:disabled) {
+            transform: translateY(0);
+          }
+          .book-day-available:hover:not([aria-selected="true"]) {
+            transform: scale(1.04);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .book-stagger,
+          .book-pulse,
+          .book-pulse-slow,
+          .book-avatar-pop {
+            animation: none !important;
+          }
+          .book-cta-lift {
+            transition: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -425,13 +507,13 @@ function LeftContext({
           <img
             src={activeStudio.logoUrl}
             alt=""
-            className="h-10 w-10 shrink-0 rounded-full object-cover"
+            className="book-avatar-pop h-10 w-10 shrink-0 rounded-full object-cover"
             style={{ boxShadow: "0 0 0 2px rgb(var(--brand-primary) / 0.3)" }}
           />
         ) : (
           <div
             aria-hidden
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-[16px] font-extrabold text-[rgb(var(--bg-sidebar))]"
+            className="book-avatar-pop flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-[16px] font-extrabold text-[rgb(var(--bg-sidebar))]"
             style={{
               background:
                 "linear-gradient(140deg, rgb(var(--brand-primary)), rgb(var(--brand-copper)))",
@@ -454,7 +536,12 @@ function LeftContext({
 
       <h1 className="font-display text-[22px] font-extrabold leading-[1.05] tracking-[-0.025em] text-[rgb(var(--fg-default))] text-balance">
         Studio session
-        <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+        <span
+          className="book-pulse-slow inline-block"
+          style={{ color: "rgb(var(--brand-primary))" }}
+        >
+          .
+        </span>
       </h1>
 
       <ul className="space-y-2.5 text-[13.5px] text-[rgb(var(--fg-secondary))]">
@@ -776,6 +863,7 @@ function CalendarColumn({
               isSelected={isSelected}
               tabIndex={isRoving ? 0 : -1}
               ariaLabel={fmtDateLong(cell.iso)}
+              staggerDelayMs={Math.floor(i / 7) * 25}
               registerRef={(el) => {
                 if (el) dayRefs.current.set(cell.iso, el);
                 else dayRefs.current.delete(cell.iso);
@@ -810,6 +898,7 @@ function DayCell({
   isSelected,
   tabIndex,
   ariaLabel,
+  staggerDelayMs,
   registerRef,
   onClick,
 }: {
@@ -819,6 +908,7 @@ function DayCell({
   isSelected: boolean;
   tabIndex: 0 | -1;
   ariaLabel: string;
+  staggerDelayMs: number;
   registerRef: (el: HTMLButtonElement | null) => void;
   onClick: () => void;
 }) {
@@ -848,27 +938,21 @@ function DayCell({
       aria-current={isToday ? "date" : undefined}
       aria-selected={isSelected}
       aria-label={ariaLabel}
-      className={`day-cell sk-press relative flex h-10 items-center justify-center rounded-full font-mono text-[13px] font-semibold tabular-nums disabled:cursor-not-allowed ${available ? "day-cell-available" : ""}`}
+      className={`book-stagger sk-press relative flex h-10 items-center justify-center rounded-full font-mono text-[13px] font-semibold tabular-nums disabled:cursor-not-allowed ${available ? "book-day-available" : ""}`}
       style={{
         ...tone,
-        transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}`,
+        transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, transform 180ms ${EASE_OUT}`,
+        animationDelay: `${String(staggerDelayMs)}ms`,
       }}
     >
       {dayNum}
       {isToday && !isSelected ? (
         <span
           aria-hidden
-          className="absolute bottom-1 h-1 w-1 rounded-full"
+          className="book-pulse absolute bottom-1 h-1 w-1 rounded-full"
           style={{ background: "rgb(var(--brand-primary))" }}
         />
       ) : null}
-      <style jsx>{`
-        @media (hover: hover) and (pointer: fine) {
-          .day-cell-available:hover:not([aria-selected="true"]) {
-            background-color: rgb(var(--brand-primary) / 0.2) !important;
-          }
-        }
-      `}</style>
     </button>
   );
 }
@@ -1005,7 +1089,7 @@ function TimeColumn({
               </p>
             ) : (
               <ul className="mt-2 space-y-1.5">
-                {products.map((p) => {
+                {products.map((p, i) => {
                   const sel = p.id === selectedProductId;
                   return (
                     <li key={p.id}>
@@ -1014,7 +1098,7 @@ function TimeColumn({
                         onClick={() => {
                           onPickProduct(p.id);
                         }}
-                        className="sk-press flex w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border px-2.5 py-2 text-left"
+                        className="book-stagger sk-press flex w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border px-2.5 py-2 text-left"
                         style={{
                           background: sel
                             ? "rgb(var(--brand-primary) / 0.06)"
@@ -1023,6 +1107,7 @@ function TimeColumn({
                             ? "rgb(var(--brand-primary))"
                             : "rgb(var(--border-subtle))",
                           transition: `background-color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}`,
+                          animationDelay: `${String(i * 35)}ms`,
                         }}
                       >
                         <span className="min-w-0">
@@ -1078,7 +1163,7 @@ function TimeColumn({
           type="button"
           onClick={onConfirm}
           disabled={isPending || result?.ok}
-          className="sk-press mt-4 w-full rounded-[var(--radius-md)] px-4 py-2.5 text-[13.5px] font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+          className="book-cta-lift sk-press mt-4 w-full rounded-[var(--radius-md)] px-4 py-2.5 text-[13.5px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
           style={{
             background: "rgb(var(--brand-primary))",
             color: "rgb(var(--bg-sidebar))",
@@ -1164,7 +1249,7 @@ function TimeGroup({
         {label}
       </p>
       <ul className="flex flex-col gap-1.5">
-        {starts.map((s) => {
+        {starts.map((s, i) => {
           const sel = s.minutes === chosenStart;
           return (
             <li key={s.minutes}>
@@ -1173,7 +1258,7 @@ function TimeGroup({
                 onClick={() => {
                   onPick(s);
                 }}
-                className="time-pill sk-press flex w-full items-center justify-center rounded-[var(--radius-md)] border px-3 py-2.5 font-mono text-[13px] font-semibold tabular-nums"
+                className="time-pill book-stagger sk-press flex w-full items-center justify-center rounded-[var(--radius-md)] border px-3 py-2.5 font-mono text-[13px] font-semibold tabular-nums"
                 style={{
                   background: sel
                     ? "rgb(var(--brand-primary))"
@@ -1184,7 +1269,8 @@ function TimeGroup({
                   borderColor: sel
                     ? "rgb(var(--brand-primary))"
                     : "rgb(var(--border-strong))",
-                  transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}`,
+                  transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, transform 180ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}`,
+                  animationDelay: `${String(i * 35)}ms`,
                 }}
               >
                 {fmtClock(s.minutes)}
@@ -1198,6 +1284,8 @@ function TimeGroup({
           .time-pill:not([style*="rgb(var(--brand-primary))"]):hover {
             background-color: rgb(var(--brand-primary) / 0.06) !important;
             border-color: rgb(var(--brand-primary)) !important;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px -6px rgb(var(--brand-primary) / 0.35);
           }
         }
       `}</style>
