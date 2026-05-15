@@ -201,45 +201,61 @@ export function NewClientModal({
               <ValidationHint state={nameState} />
             </div>
 
-            <FieldLabel htmlFor="new-client-email" required>
-              Email
-            </FieldLabel>
-            <div>
-              <input
-                id="new-client-email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                }}
-                onBlur={() => {
-                  setEmailTouched(true);
-                }}
-                aria-invalid={
-                  emailState.kind === "invalid" ||
-                  emailState.kind === "required"
-                }
-                placeholder="they@example.com"
-                className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
-                style={{ borderColor: "rgb(var(--border-subtle))" }}
-              />
-              <ValidationHint state={emailState} />
-            </div>
+            {/* Email + Phone in a 2-column row on the desktop modal.
+                Collapses to single-column on very narrow viewports
+                (the modal is desktop-first but defensive against
+                480px-wide phones in case the producer opens it on
+                their phone). */}
+            {/* Email + Phone share a row. The form's parent gap-3 +
+                FieldLabel's -mb-2.5 offsets keep label/input spacing
+                visually identical to the stacked Name field above.
+                Collapses to single-column under sm: in case the
+                producer opens the modal on a phone. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-3">
+                <FieldLabel htmlFor="new-client-email" required>
+                  Email
+                </FieldLabel>
+                <div>
+                  <input
+                    id="new-client-email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                    }}
+                    onBlur={() => {
+                      setEmailTouched(true);
+                    }}
+                    aria-invalid={
+                      emailState.kind === "invalid" ||
+                      emailState.kind === "required"
+                    }
+                    placeholder="they@example.com"
+                    className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                    style={{ borderColor: "rgb(var(--border-subtle))" }}
+                  />
+                  <ValidationHint state={emailState} />
+                </div>
+              </div>
 
-            <FieldLabel htmlFor="new-client-phone">Phone</FieldLabel>
-            <input
-              id="new-client-phone"
-              type="tel"
-              value={phone}
-              maxLength={40}
-              onChange={(e) => {
-                setPhone(e.target.value);
-              }}
-              placeholder="+972 50 ..."
-              className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
-              style={{ borderColor: "rgb(var(--border-subtle))" }}
-            />
+              <div className="flex flex-col gap-3">
+                <FieldLabel htmlFor="new-client-phone">Phone</FieldLabel>
+                <input
+                  id="new-client-phone"
+                  type="tel"
+                  value={phone}
+                  maxLength={40}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                  }}
+                  placeholder="+972 50 ..."
+                  className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                  style={{ borderColor: "rgb(var(--border-subtle))" }}
+                />
+              </div>
+            </div>
 
             <FieldLabel htmlFor="new-client-notes">
               Notes <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
