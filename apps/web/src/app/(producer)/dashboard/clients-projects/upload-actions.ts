@@ -83,8 +83,12 @@ export async function addTrackAction(input: {
 
 // Inserts a new track_versions row with audioUrl=null. The upload
 // pipeline patches this row inside completeMultipart once R2 confirms.
-// Revalidates the song-space path so the new version appears in the
-// list even if the producer reloads mid-upload.
+//
+// M2 — we intentionally do NOT revalidatePath here. addVersionAction
+// fires at step 2 of the chain (row created with audioUrl=null); a
+// mid-flight revalidate would flash a "no audio" row to the producer.
+// The terminal completeMultipartAction (and abortMultipartAction on
+// failure) revalidate once the row reaches a final state.
 export async function addVersionAction(input: {
   trackId: string;
   label: string;
@@ -104,7 +108,6 @@ export async function addVersionAction(input: {
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
       ...(input.description === undefined ? {} : { description: input.description }),
     });
-    revalidatePath(CLIENTS_PROJECTS_PATH);
     return {
       ok: true,
       data: { id: row.id, trackId: row.trackId, label: row.label },
