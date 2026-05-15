@@ -110,7 +110,9 @@ describe("project.create — Phase 1 G7 modal fields", () => {
     });
     expect(res.project.id).toBe(PROJECT_ID);
     expect(insertValuesSpy).toHaveBeenCalledTimes(1);
-    const payload = insertValuesSpy.mock.calls[0]![0]!;
+    const call = insertValuesSpy.mock.calls[0];
+    expect(call).toBeDefined();
+    const payload = call?.[0] as Row;
     expect(payload.title).toBe("Album mixing");
     expect(payload.artistName).toBe("Test Artist");
     expect(payload.artistEmail).toBe("artist@example.com");
@@ -129,7 +131,9 @@ describe("project.create — Phase 1 G7 modal fields", () => {
       artistEmail: "band@example.com",
       productId: PRODUCT_ID,
     });
-    const payload = insertValuesSpy.mock.calls[0]![0]!;
+    const call = insertValuesSpy.mock.calls[0];
+    expect(call).toBeDefined();
+    const payload = call?.[0] as Row;
     expect(payload.productId).toBe(PRODUCT_ID);
   });
 
@@ -141,7 +145,9 @@ describe("project.create — Phase 1 G7 modal fields", () => {
       artistEmail: "band@example.com",
       deadlineAt: "2026-06-15T00:00:00.000Z",
     });
-    const payload = insertValuesSpy.mock.calls[0]![0]!;
+    const call = insertValuesSpy.mock.calls[0];
+    expect(call).toBeDefined();
+    const payload = call?.[0] as Row;
     expect(payload.deadlineAt).toBeInstanceOf(Date);
     expect((payload.deadlineAt as Date).toISOString()).toBe(
       "2026-06-15T00:00:00.000Z",
@@ -170,7 +176,9 @@ describe("project.create — Phase 1 G7 modal fields", () => {
       engagementTotalCents: 200_000,
       depositCents: 50_000,
     });
-    const payload = insertValuesSpy.mock.calls[0]![0]!;
+    const call = insertValuesSpy.mock.calls[0];
+    expect(call).toBeDefined();
+    const payload = call?.[0] as Row;
     expect(payload.engagementTotalCents).toBe(200_000);
     expect(payload.depositCents).toBe(50_000);
   });
@@ -212,7 +220,9 @@ describe("project.create — Phase 1 G7 modal fields", () => {
       engagementTotalCents: 300_000,
       depositCents: 75_000,
     });
-    const payload = insertValuesSpy.mock.calls[0]![0]!;
+    const call = insertValuesSpy.mock.calls[0];
+    expect(call).toBeDefined();
+    const payload = call?.[0] as Row;
     expect(payload.productId).toBe(PRODUCT_ID);
     expect(payload.deadlineAt).toBeInstanceOf(Date);
     expect(payload.engagementTotalCents).toBe(300_000);
