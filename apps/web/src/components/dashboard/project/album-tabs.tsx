@@ -50,7 +50,9 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
             key={t.key}
             type="button"
             role="tab"
+            id={`tab-${t.key}`}
             aria-selected={isActive}
+            aria-controls={`panel-${t.key}`}
             onClick={() => { onChange(t.key); }}
             className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
             style={{

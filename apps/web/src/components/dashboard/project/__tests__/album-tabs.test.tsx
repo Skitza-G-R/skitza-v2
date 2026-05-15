@@ -80,4 +80,22 @@ describe("AlbumTabs — pill-shaped 4-tab segmented control", () => {
   it("forbids --brand-primary-on", () => {
     expect(SRC).not.toContain("--brand-primary-on");
   });
+
+  it("sets id + aria-controls on each tab button (matches aria-labelledby on panels)", () => {
+    // The button id + aria-controls must be wired so the panel's
+    // aria-labelledby="tab-<key>" has a corresponding labelling element.
+    // We accept either a template-literal interpolation form
+    //   id={`tab-${t.key}`} aria-controls={`panel-${t.key}`}
+    // or a static string form
+    //   id="tab-songs" aria-controls="panel-songs"
+    // for each of the 4 tab keys.
+    for (const key of ["songs", "files", "payments", "log"]) {
+      const idStatic = new RegExp(`id=["']tab-${key}["']`);
+      const idDynamic = /id=\{`tab-\$\{[^}]+\}`\}/;
+      const ctrlStatic = new RegExp(`aria-controls=["']panel-${key}["']`);
+      const ctrlDynamic = /aria-controls=\{`panel-\$\{[^}]+\}`\}/;
+      expect(idStatic.test(SRC) || idDynamic.test(SRC)).toBe(true);
+      expect(ctrlStatic.test(SRC) || ctrlDynamic.test(SRC)).toBe(true);
+    }
+  });
 });
