@@ -23,8 +23,11 @@ export interface ProjectRowData {
   id: string;
   title: string;
   client: string;
-  /** Optional second-line meta — e.g. client email or the song count. */
-  meta?: string;
+  /** Client email — rendered muted UNDER the client name in the client
+   *  column (G7 design alignment). Previously this was passed as `meta`
+   *  and rendered under the title; both column placement and label have
+   *  been corrected. */
+  clientEmail?: string;
   /** 0..100 progress percentage. */
   progress: number;
   /** Outstanding balance in cents (negative or zero = no balance). */
@@ -113,7 +116,7 @@ export function ProjectRow({
     id,
     title,
     client,
-    meta,
+    clientEmail,
     progress,
     balance,
     deadline,
@@ -126,6 +129,15 @@ export function ProjectRow({
 
   const tone = toneStyle(statusTone);
   const toneCls = toneClass(statusTone);
+  // G9 — 3px left accent bar (design HTML 170–172): paints a vertical
+  // attention strip on danger/warn rows so "needs attention" reads at
+  // a glance, not only via the small pill. Neutral/ok rows get no bar.
+  const accentBarColor =
+    statusTone === "danger"
+      ? "rgb(var(--fg-danger))"
+      : statusTone === "warn"
+        ? "rgb(var(--fg-warning))"
+        : null;
 
   return (
     <div
@@ -134,7 +146,7 @@ export function ProjectRow({
       onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
       onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
       onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
-      className="group grid items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 transition-colors hover:border-[rgb(var(--border-strong))]"
+      className="group relative grid items-center gap-3 overflow-hidden rounded-[var(--radius-md)] border px-3 py-2.5 transition-colors hover:border-[rgb(var(--border-strong))]"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
@@ -142,8 +154,19 @@ export function ProjectRow({
           "24px 44px minmax(0,1.6fr) minmax(0,1fr) 120px 100px 110px 36px",
       }}
     >
+      {accentBarColor ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 w-[3px]"
+          style={{ background: accentBarColor }}
+        />
+      ) : null}
+
       <span
-        className="flex h-6 w-6 cursor-grab items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
+        // G8 — grip is permanently visible at muted opacity so the user
+        // sees at-a-glance that rows are reorderable. Brightens on row
+        // hover for affordance.
+        className="flex h-6 w-6 cursor-grab items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
         style={{ color: "rgb(var(--fg-muted))" }}
         aria-hidden
       >
@@ -166,29 +189,32 @@ export function ProjectRow({
         >
           {title}
         </Link>
+        {/* G10 — solid tinted status pill matching design HTML 131–135:
+            6px radius, 9.5px uppercase with wide tracking, tinted fill +
+            22% border. toneStyle already gives the tinted colors. */}
         <span
-          className={`mt-0.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${toneCls}`}
+          className={`mt-1 inline-flex items-center rounded-[6px] border px-1.5 py-[2px] text-[9.5px] font-semibold uppercase tracking-[0.1em] ${toneCls}`}
           style={tone}
         >
           {status}
         </span>
-        {meta ? (
-          <p
-            className="mt-0.5 truncate text-[11px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
-            {meta}
-          </p>
-        ) : null}
       </div>
 
       <div className="min-w-0">
         <p
-          className="truncate text-[13px]"
+          className="truncate text-[13px] font-medium"
           style={{ color: "rgb(var(--fg-default))" }}
         >
           {client}
         </p>
+        {clientEmail ? (
+          <p
+            className="truncate text-[11px]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            {clientEmail}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2">

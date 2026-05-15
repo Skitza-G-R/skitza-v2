@@ -117,4 +117,19 @@ describe("NewClientModal", () => {
   it("closes onClose after a successful add", () => {
     expect(SRC).toMatch(/onClose\(\)/);
   });
+
+  it("handles the inviteEmailFailed soft case with an info toast", () => {
+    // Action decoupling: when the client row is created but the
+    // invite email fails, the action returns ok:true with
+    // inviteEmailFailed:true. The modal must show a softer toast
+    // (info, not success) instead of pretending the email went out.
+    expect(SRC).toMatch(/inviteEmailFailed/);
+    expect(SRC).toMatch(
+      /invite email couldn't be sent[\s\S]*?Try again from their page/,
+    );
+    // The fallback toast is `info`, not `success`.
+    expect(SRC).toMatch(
+      /toast\([\s\S]*?invite email could[\s\S]*?["']info["']/,
+    );
+  });
 });

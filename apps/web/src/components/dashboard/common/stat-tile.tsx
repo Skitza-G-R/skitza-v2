@@ -43,7 +43,13 @@ export function StatTile({
         {label}
       </span>
       <span
-        className="text-[22px] font-semibold leading-none tabular-nums"
+        // G16 — Syne 800 with tight negative tracking matches the design
+        // (HTML 305: `.stat .v{font-family:'Syne';font-weight:800;
+        // font-size:22px;letter-spacing:-.02em}`). The previous
+        // Outfit-semibold reading was too neutral against the heading
+        // hierarchy; Syne is what gives the prototype its "premium
+        // datum" feel.
+        className="font-syne text-[22px] font-extrabold leading-none tracking-[-0.02em] tabular-nums"
         style={{ color: valueColor(variant) }}
       >
         {value}

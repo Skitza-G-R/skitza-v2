@@ -212,10 +212,12 @@ export function VersionRow({
         {version.noteCount}
       </span>
 
-      {/* 6 — Play button (32px rounded square, amber when current) */}
+      {/* 6 — Play button (28px CIRCLE, amber when current). G25:
+          design HTML 586–590 uses `border-radius:50%` for the
+          iconic round play affordance, not a rounded square. */}
       <span
         aria-hidden
-        className="relative z-10 inline-flex h-[28px] w-[28px] items-center justify-center rounded-[var(--radius-sm)] border transition-colors"
+        className="relative z-10 inline-flex h-[28px] w-[28px] items-center justify-center rounded-full border transition-colors"
         style={{
           background: playBg,
           borderColor: isCurrent

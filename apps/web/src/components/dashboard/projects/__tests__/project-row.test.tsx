@@ -129,3 +129,43 @@ describe("ProjectRow G5 — status pill + plain chevron", () => {
     expect(SRC).not.toMatch(/\btag\?:/);
   });
 });
+
+describe("ProjectRow PR-A polish — G7..G10 design alignment", () => {
+  it("G7: declares clientEmail (not generic meta) and renders it under the client name", () => {
+    // Email was previously passed as `meta` and rendered under the
+    // title — design puts it as a muted sub-line under the client
+    // name in the dedicated client column. The type rename locks the
+    // contract; the JSX placement check below ensures the email lives
+    // in the cli column (next to `client`).
+    expect(SRC).toMatch(/clientEmail\?:/);
+    expect(SRC).not.toMatch(/\bmeta\?:/);
+    // The clientEmail render must come AFTER the client name span so
+    // it stacks visually as name → email muted sub-line. We anchor on
+    // {client} and require {clientEmail} after it within ~400 chars.
+    const clientIdx = SRC.indexOf("{client}");
+    const emailIdx = SRC.indexOf("{clientEmail}");
+    expect(clientIdx).toBeGreaterThan(-1);
+    expect(emailIdx).toBeGreaterThan(clientIdx);
+    expect(emailIdx - clientIdx).toBeLessThan(400);
+  });
+
+  it("G8: drag handle is permanently visible (opacity-60), not opacity-0", () => {
+    // Producers must see at-a-glance that rows are reorderable. The
+    // handle brightens on hover but never hides.
+    expect(SRC).toMatch(/cursor-grab[\s\S]*?opacity-60/);
+    expect(SRC).not.toMatch(/cursor-grab[\s\S]*?opacity-0\b/);
+  });
+
+  it("G9: renders a 3px left accent bar for danger/warn rows", () => {
+    expect(SRC).toMatch(/accentBarColor/);
+    expect(SRC).toMatch(/w-\[3px\]/);
+    expect(SRC).toMatch(/fg-danger[\s\S]*?fg-warning|fg-warning[\s\S]*?fg-danger/);
+  });
+
+  it("G10: status pill uses 6px radius + 9.5px uppercase tracking (not rounded-full)", () => {
+    // Design HTML 131–135 — solid tinted pill, not a rounded chip.
+    expect(SRC).toMatch(/rounded-\[6px\]/);
+    expect(SRC).toMatch(/text-\[9\.5px\]/);
+    expect(SRC).toMatch(/tracking-\[0\.1em\]/);
+  });
+});

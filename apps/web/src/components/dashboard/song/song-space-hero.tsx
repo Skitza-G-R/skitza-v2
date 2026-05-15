@@ -8,7 +8,9 @@ import {
   stageLabel,
   type WorkflowStage,
 } from "~/lib/clients/workflow-stage";
+import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { HeroCTA } from "~/components/dashboard/common/hero-cta";
+import { HeroGlowOrbs } from "~/components/dashboard/common/hero-glow-orbs";
 import { formatDuration } from "~/lib/format/duration";
 
 // SongSpaceHero — the dark gradient band that anchors the new Song
@@ -67,23 +69,53 @@ export function SongSpaceHero({
   const modeEyebrow = mode === "single" ? "SINGLE" : "SONG";
   const durationStr = formatDuration(song.durationMs);
   const noteSuffix = song.noteCount === 1 ? "note" : "notes";
+  // Avatar tile gradient — seeded by the song title so each track gets
+  // a stable, distinct color identity. Matches the AlbumHero pattern.
+  // QA against the design prototype (image of "Sunrise" song page)
+  // showed the avatar tile was missing in v1 — the older "no avatar
+  // on the song page" comment was wrong.
+  const avatarBg = producerGradient(song.title);
 
   return (
     <section
-      className="relative overflow-hidden rounded-[var(--radius-lg)] px-6 py-7 text-white"
-      style={{ background: heroBg(gradientToken) }}
+      // Full-bleed dark band — DESIGN.md hero spec line 252. See
+      // album-hero.tsx for the same pattern. Includes the 112px music-
+      // icon avatar on the left to match the design prototype.
+      className="relative -mx-4 overflow-hidden border-b px-[34px] py-9 pb-7 text-white sm:-mx-6"
+      style={{
+        background: heroBg(gradientToken),
+        borderBottomColor: "rgb(var(--border-strong))",
+      }}
       aria-label={`Song space for ${song.title}`}
     >
-      <div className="flex items-start justify-between gap-6">
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">
+      <HeroGlowOrbs />
+
+      <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-6">
+        <div className="flex min-w-0 flex-1 items-end gap-[22px]">
+          <span
+            className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] text-white"
+            style={{
+              background: avatarBg,
+              boxShadow:
+                "0 18px 40px rgba(0,0,0,0.36), inset 0 0 0 1px rgba(255,255,255,0.16)",
+            }}
+            aria-hidden
+          >
+            <Music size={44} strokeWidth={2.4} />
+          </span>
+
+          <div className="min-w-0 flex-1">
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-white/78">
             {modeEyebrow} · {stageEyebrow}
           </p>
-          <h1 className="mt-1.5 truncate font-syne text-[28px] font-bold leading-tight text-white">
+          <h1
+            className="my-1 truncate font-syne text-[54px] font-extrabold leading-[0.95] tracking-[-0.035em] text-white"
+            style={{ textShadow: "0 2px 20px rgba(0,0,0,0.25)" }}
+          >
             {song.title}
           </h1>
 
-          <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-white/70">
+          <ul className="mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px] text-white/92">
             {mode === "single" ? (
               <li className="inline-flex items-center gap-1.5">
                 <span className="truncate">{client.name}</span>
@@ -91,7 +123,7 @@ export function SongSpaceHero({
             ) : (
               <li className="inline-flex items-center gap-1.5">
                 <span className="truncate">
-                  from <span className="text-white/90">{project.name}</span>
+                  from <span className="text-white">{project.name}</span>
                 </span>
               </li>
             )}
@@ -111,9 +143,10 @@ export function SongSpaceHero({
               <span className="font-mono tabular-nums">{durationStr}</span>
             </li>
           </ul>
+          </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 self-end">
           {onPlayLatest ? (
             <HeroCTA variant="play" onClick={onPlayLatest}>
               Play latest

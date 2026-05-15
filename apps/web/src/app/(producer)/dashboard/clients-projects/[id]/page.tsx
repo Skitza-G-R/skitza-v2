@@ -5,6 +5,7 @@ import {
   AlbumSpace,
   type AlbumSpaceProject,
   type AlbumSpacePayments,
+  type AlbumSpacePlayLatest,
   type AlbumSpaceStudioLog,
 } from "~/components/dashboard/project/album-space";
 import { stageOrder, type WorkflowStage } from "~/lib/clients/workflow-stage";
@@ -273,6 +274,31 @@ export default async function ProjectDetail({ params }: PageProps) {
     sessions: sessionsList,
   };
 
+  // Newest playable version across the project — feeds the AlbumHero
+  // "Play latest" CTA. data.versions arrives newest-first, so the
+  // first row with a non-null audioUrl is the freshest playable one.
+  // The hero stays in its disabled "Coming soon" state when this is
+  // null (the album has no uploaded audio yet).
+  const playableVersion = data.versions.find((v) => v.audioUrl !== null);
+  const playLatest: AlbumSpacePlayLatest | null = playableVersion
+    ? (() => {
+        const track = data.tracks.find((t) => t.id === playableVersion.trackId);
+        const songTitle = track?.title ?? data.project.title;
+        const out: AlbumSpacePlayLatest = {
+          versionId: playableVersion.id,
+          // audioUrl was checked non-null above; narrow for TS.
+          audioUrl: playableVersion.audioUrl as string,
+          songTitle,
+          versionLabel: playableVersion.label,
+          projectName: data.project.title,
+        };
+        if (typeof playableVersion.durationMs === "number") {
+          out.durationMs = playableVersion.durationMs;
+        }
+        return out;
+      })()
+    : null;
+
   return (
     <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
       <AlbumSpace
@@ -280,6 +306,7 @@ export default async function ProjectDetail({ params }: PageProps) {
         tracks={tracks}
         payments={payments}
         studioLog={studioLog}
+        playLatest={playLatest}
       />
     </main>
   );

@@ -41,12 +41,21 @@ describe("AlbumTabs — pill-shaped 4-tab segmented control", () => {
     expect(SRC).toContain("songsCount");
   });
 
-  it("uses the brand-primary active background (matches WorkspaceListView pattern)", () => {
-    expect(SRC).toContain("--brand-primary");
+  it("uses the dark `--bg-sidebar` active background (PR C — match design's dark-fill pill)", () => {
+    // Active state flipped from brand-amber to dark-fill so the
+    // "you are here" pill reads quieter and matches the prototype.
+    expect(SRC).toContain("--bg-sidebar");
   });
 
-  it("uses bg-sidebar for the active-tab text contrast (matches WorkspaceListView)", () => {
-    expect(SRC).toContain("--bg-sidebar");
+  it("uses bg-elevated as the active-tab text color (white text on dark fill)", () => {
+    expect(SRC).toContain("--bg-elevated");
+  });
+
+  it("renders a leading icon on every tab (PR C — design polish)", () => {
+    // Each tab carries an Icon (Music / FolderOpen / DollarSign /
+    // Notebook) — design HTML 1023 shows these in every tab.
+    expect(SRC).toMatch(/from\s*["']lucide-react["']/);
+    expect(SRC).toMatch(/<Icon\s*size=/);
   });
 
   it("uses bg-elevated for the pill container background", () => {

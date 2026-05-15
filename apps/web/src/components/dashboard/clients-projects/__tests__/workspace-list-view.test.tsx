@@ -113,8 +113,12 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toContain("kpis");
   });
 
-  it("renders the Custom sort label so users see what 'custom' means", () => {
-    expect(SRC).toMatch(/Custom/);
+  it("imports SORT_OPTIONS + SortValue from the shared sort-value module", () => {
+    // SORT_OPTIONS (incl. the "Custom" label) was extracted to
+    // ./sort-value so ProjectsTableHeader + ClientsTableHeader can
+    // dispatch the same values without circular imports. The user-
+    // visible "Custom" label now lives in that file.
+    expect(SRC).toMatch(/import\s*\{[^}]*SORT_OPTIONS[^}]*\}\s*from\s*["']\.\/sort-value["']/);
   });
 
   // ── Task 12: InviteToAppModal wiring ────────────────────────────
@@ -161,8 +165,36 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(projectsIdx).toBeGreaterThan(clientsIdx);
   });
 
-  it("only renders the layout switcher when tab is 'clients'", () => {
-    expect(SRC).toMatch(/\{tab\s*===\s*["']clients["'][\s\S]{0,600}aria-label=["']Layout["']/);
+  it("renders the layout switcher on BOTH tabs (G18 — no tab gate)", () => {
+    // Pre-G18 the layout switcher only appeared on the Clients tab.
+    // G18 removes the gate so the producer can flip cards/table on
+    // Projects too. Locking the new behaviour: the switcher's
+    // aria-label="Layout" group must not sit inside a tab-=='clients'
+    // ternary anymore.
+    expect(SRC).toMatch(/aria-label=["']Layout["']/);
+    // Negative: the layout switcher block must NOT be wrapped by a
+    // `{tab === "clients" ? (...) : null}` ternary. We pinpoint by
+    // checking that the 600 chars BEFORE `aria-label="Layout"` don't
+    // contain that conditional.
+    const layoutIdx = SRC.indexOf('aria-label="Layout"');
+    expect(layoutIdx).toBeGreaterThan(-1);
+    const window = SRC.slice(Math.max(0, layoutIdx - 600), layoutIdx);
+    expect(window).not.toMatch(/tab\s*===\s*["']clients["']\s*\?\s*\(/);
+  });
+
+  it("imports ProjectsTableHeader + ClientsTableHeader + ClientCompactRow for table mode", () => {
+    expect(SRC).toContain("ProjectsTableHeader");
+    expect(SRC).toContain("ClientsTableHeader");
+    expect(SRC).toContain("ClientCompactRow");
+  });
+
+  it("renders ProjectsTableHeader when projects tab is in table layout", () => {
+    expect(SRC).toMatch(/layout\s*===\s*["']table["'][\s\S]{0,200}<ProjectsTableHeader/);
+  });
+
+  it("renders ClientsTableHeader + ClientCompactRow when clients tab is in table layout", () => {
+    expect(SRC).toMatch(/<ClientsTableHeader/);
+    expect(SRC).toMatch(/<ClientCompactRow/);
   });
 
   it("renders a header with the 'Clients & Projects' title", () => {

@@ -92,6 +92,14 @@ export async function sendClientInviteAction(input: {
 // invite. On `existed: true` the modal redirects to the client's space
 // instead of pretending an invite went out.
 //
+// Create + sendInvite are decoupled: a failed email send (Resend
+// sandbox / unverified domain / rate-limit) still reports the create
+// as a success with `inviteEmailFailed: true` so the producer doesn't
+// see a generic toast and assume nothing happened. The DB row exists
+// and invited_at stays NULL (sendInvite sends email before stamping),
+// so the LinkPill on the client space shows "Invite to app" and the
+// producer can retry from there.
+//
 // Field defaults: phone/notes are forwarded straight through. The
 // tRPC procedure trims + nulls whitespace and clamps the size — we
 // don't replicate that contract here.
@@ -103,11 +111,18 @@ export async function createClientAction(input: {
 }): Promise<
   ActionDataResult<
     | { existed: true; id: string }
-    | { existed: false; id: string; invitedAtIso: string }
+    | {
+        existed: false;
+        id: string;
+        inviteEmailFailed: false;
+        invitedAtIso: string;
+      }
+    | { existed: false; id: string; inviteEmailFailed: true }
   >
 > {
   const c = await callerOrError();
   if (!c.ok) return c;
+  let createdId: string;
   try {
     const created = await c.caller.clientContacts.create(input);
     if (created.existed) {
@@ -116,8 +131,17 @@ export async function createClientAction(input: {
       revalidatePath(CLIENTS_PATH);
       return { ok: true, data: { existed: true, id: created.id } };
     }
+    createdId = created.id;
+  } catch (err) {
+    console.error("[clients-actions]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+  // Client row is in the DB. From here, an email failure is reported
+  // as a soft failure (ok:true + inviteEmailFailed) so the modal can
+  // tell the producer the client was added but the email didn't go.
+  try {
     const sent = await c.caller.clientContacts.sendInvite({
-      id: created.id,
+      id: createdId,
       via: "email",
     });
     revalidatePath(CLIENTS_PATH);
@@ -125,16 +149,21 @@ export async function createClientAction(input: {
       ok: true,
       data: {
         existed: false,
-        id: created.id,
+        id: createdId,
+        inviteEmailFailed: false,
         invitedAtIso:
           sent.invitedAt instanceof Date
             ? sent.invitedAt.toISOString()
             : new Date(sent.invitedAt).toISOString(),
       },
     };
-  } catch (err) {
-    console.error("[clients-actions]", err);
-    return { ok: false, error: toMessage(err) };
+  } catch (sendErr) {
+    console.error("[clients-actions:createClient] invite send failed", sendErr);
+    revalidatePath(CLIENTS_PATH);
+    return {
+      ok: true,
+      data: { existed: false, id: createdId, inviteEmailFailed: true },
+    };
   }
 }
 
