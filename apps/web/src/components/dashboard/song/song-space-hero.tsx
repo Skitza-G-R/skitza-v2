@@ -8,6 +8,7 @@ import {
   stageLabel,
   type WorkflowStage,
 } from "~/lib/clients/workflow-stage";
+import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { HeroCTA } from "~/components/dashboard/common/hero-cta";
 import { HeroGlowOrbs } from "~/components/dashboard/common/hero-glow-orbs";
 import { formatDuration } from "~/lib/format/duration";
@@ -68,13 +69,18 @@ export function SongSpaceHero({
   const modeEyebrow = mode === "single" ? "SINGLE" : "SONG";
   const durationStr = formatDuration(song.durationMs);
   const noteSuffix = song.noteCount === 1 ? "note" : "notes";
+  // Avatar tile gradient — seeded by the song title so each track gets
+  // a stable, distinct color identity. Matches the AlbumHero pattern.
+  // QA against the design prototype (image of "Sunrise" song page)
+  // showed the avatar tile was missing in v1 — the older "no avatar
+  // on the song page" comment was wrong.
+  const avatarBg = producerGradient(song.title);
 
   return (
     <section
       // Full-bleed dark band — DESIGN.md hero spec line 252. See
-      // album-hero.tsx for the same pattern. No left-side avatar tile
-      // here (the song page leads with the title, not a gradient
-      // square — design HTML line 1019).
+      // album-hero.tsx for the same pattern. Includes the 112px music-
+      // icon avatar on the left to match the design prototype.
       className="relative -mx-4 overflow-hidden border-b px-[34px] py-9 pb-7 text-white sm:-mx-6"
       style={{
         background: heroBg(gradientToken),
@@ -85,7 +91,20 @@ export function SongSpaceHero({
       <HeroGlowOrbs />
 
       <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-6">
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 items-end gap-[22px]">
+          <span
+            className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] text-white"
+            style={{
+              background: avatarBg,
+              boxShadow:
+                "0 18px 40px rgba(0,0,0,0.36), inset 0 0 0 1px rgba(255,255,255,0.16)",
+            }}
+            aria-hidden
+          >
+            <Music size={44} strokeWidth={2.4} />
+          </span>
+
+          <div className="min-w-0 flex-1">
           <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-white/78">
             {modeEyebrow} · {stageEyebrow}
           </p>
@@ -124,6 +143,7 @@ export function SongSpaceHero({
               <span className="font-mono tabular-nums">{durationStr}</span>
             </li>
           </ul>
+          </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-2 self-end">
