@@ -28,15 +28,16 @@ async function callerOrError(): Promise<
 }
 
 function toMessage(err: unknown): string {
-  if (err instanceof ZodError) {
-    const first = err.issues[0];
-    if (first) {
-      const field = first.path.join(".");
-      return field ? `${field}: ${first.message}` : first.message;
-    }
-    return "Invalid input.";
-  }
   if (err instanceof TRPCError) {
+    // I4 — tRPC wraps Zod errors inside TRPCError with code=BAD_REQUEST
+    // and the original ZodError on `cause`. A bare `instanceof ZodError`
+    // check above never matched because the error is already wrapped by
+    // the time it reaches us. Unwrap the cause here so the user sees a
+    // human message ("Version label is required") instead of the
+    // serialised Zod issue dump.
+    if (err.cause instanceof ZodError) {
+      return err.cause.issues[0]?.message ?? "Invalid input.";
+    }
     switch (err.code) {
       case "UNAUTHORIZED":
         return "Please sign in to continue.";
