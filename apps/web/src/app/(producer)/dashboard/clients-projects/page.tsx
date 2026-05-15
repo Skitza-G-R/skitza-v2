@@ -270,7 +270,7 @@ function toProjectRowData(p: EnrichedProject): ProjectRowData {
     id: p.id,
     title: p.title,
     client: p.client.name,
-    meta: p.client.email,
+    clientEmail: p.client.email,
     progress: STAGE_PROGRESS[p.stage],
     balance: p.outstandingCents,
     deadline: formatDeadlineShort(p.nextSessionAt),

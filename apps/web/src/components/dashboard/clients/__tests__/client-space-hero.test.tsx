@@ -130,3 +130,35 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).toMatch(/products:\s*/);
   });
 });
+
+describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () => {
+  it("G4: hero is full-bleed (negative horizontal margins, no border-radius)", () => {
+    // Design HTML 252: hero band is full-width, no rounded corners.
+    // Negative margins cancel the page padding so the band reaches the
+    // content-area edges.
+    expect(SRC).toMatch(/-mx-4[\s\S]*?sm:-mx-6|sm:-mx-6[\s\S]*?-mx-4/);
+    expect(SRC).not.toMatch(/rounded-\[var\(--radius-lg\)\]/);
+  });
+
+  it("G4: h1 is 54px Syne with the design's negative tracking", () => {
+    expect(SRC).toMatch(/font-syne[\s\S]*?text-\[54px\][\s\S]*?tracking-\[-0\.035em\]/);
+  });
+
+  it("G5: includes HeroGlowOrbs decorative element", () => {
+    expect(SRC).toContain("HeroGlowOrbs");
+    expect(SRC).toContain("~/components/dashboard/common/hero-glow-orbs");
+  });
+
+  it("G23: avatar uses literal 24px radius (not --radius-md)", () => {
+    expect(SRC).toMatch(/rounded-\[24px\]/);
+  });
+
+  it("G14: '+ New project' CTA is solid white (not frosted glass)", () => {
+    // Design uses btn-light (white solid pill, dark text) for the
+    // hero's primary action; the frosted bg-white/10 backdrop-blur
+    // treatment was reserved for secondary actions on the album/song
+    // hero, where this CTA isn't the page's primary.
+    expect(SRC).not.toMatch(/bg-white\/10[\s\S]*?backdrop-blur/);
+    expect(SRC).toMatch(/bg-white[\s\S]*?New project|New project[\s\S]*?bg-white/);
+  });
+});

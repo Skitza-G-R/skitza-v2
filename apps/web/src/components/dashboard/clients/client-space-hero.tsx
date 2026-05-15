@@ -10,6 +10,7 @@ import {
 import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { heroBg } from "~/lib/clients/hero-bg";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
+import { HeroGlowOrbs } from "~/components/dashboard/common/hero-glow-orbs";
 
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
@@ -138,26 +139,43 @@ export function ClientSpaceHero({
 
   return (
     <section
-      className="relative overflow-hidden rounded-[var(--radius-lg)] px-6 py-7 text-white"
-      style={{ background: heroBg(token) }}
+      // Full-bleed dark band — DESIGN.md hero spec line 252. See
+      // album-hero.tsx for the same pattern: negative horizontal
+      // margins cancel the page padding so the hero stretches to the
+      // content-area edges. Stat-tile row sits inside the band, then a
+      // hairline bottom border separates it from the projects list.
+      className="relative -mx-4 overflow-hidden border-b px-[34px] py-9 pb-7 text-white sm:-mx-6"
+      style={{
+        background: heroBg(token),
+        borderBottomColor: "rgb(var(--border-strong))",
+      }}
       aria-label={`Client space for ${name}`}
     >
-      <div className="flex items-start justify-between gap-6">
-        <div className="flex min-w-0 items-start gap-5">
+      <HeroGlowOrbs />
+
+      <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-6">
+        <div className="flex min-w-0 items-end gap-[22px]">
           <span
-            className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[28px] font-bold text-white shadow-[var(--shadow-md)]"
-            style={{ background: avatarBg }}
+            className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] font-syne text-[42px] font-extrabold text-white"
+            style={{
+              background: avatarBg,
+              boxShadow:
+                "0 18px 40px rgba(0,0,0,0.36), inset 0 0 0 1px rgba(255,255,255,0.16)",
+            }}
             aria-hidden
           >
             {initials}
           </span>
 
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-white/78">
               CLIENT
             </p>
-            <div className="mt-1.5 flex flex-wrap items-center gap-3">
-              <h1 className="truncate font-syne text-[28px] font-bold leading-tight text-white">
+            <div className="my-1 flex flex-wrap items-center gap-3">
+              <h1
+                className="truncate font-syne text-[54px] font-extrabold leading-[0.95] tracking-[-0.035em] text-white"
+                style={{ textShadow: "0 2px 20px rgba(0,0,0,0.25)" }}
+              >
                 {name}
               </h1>
               {onInvite || canMountInvite ? (
@@ -167,7 +185,7 @@ export function ClientSpaceHero({
               )}
             </div>
 
-            <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-white/70">
+            <ul className="mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px] text-white/92">
               {email ? (
                 <li className="inline-flex items-center gap-1.5">
                   <Mail size={12} aria-hidden />
@@ -204,14 +222,18 @@ export function ClientSpaceHero({
               ? undefined
               : "Add an email to this client before creating a project for them."
           }
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white/10"
+          // Solid-white primary pill — G14: the client hero's only
+          // primary CTA should match the design's `btn-light`
+          // (background:#fff; color:#111009) for max prominence.
+          className="inline-flex shrink-0 items-center gap-1.5 self-end rounded-full bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
+          style={{ color: "rgb(var(--bg-sidebar))" }}
         >
           <Plus size={14} />
           New project
         </button>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="relative mx-auto mt-6 grid max-w-[1100px] grid-cols-2 gap-3 md:grid-cols-4">
         <StatTile
           label="Lifetime"
           value={formatMoney(lifetime, currency)}

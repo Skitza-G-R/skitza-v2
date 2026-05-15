@@ -70,4 +70,24 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
   it("forbids --brand-primary-on", () => {
     expect(SRC).not.toContain("--brand-primary-on");
   });
+
+  it("wires AlbumHero's onAddSong CTA (G1 design match — must not ship disabled)", () => {
+    // Polish PR A G1: hero's "+ Add song" must receive a callback so
+    // it renders as a primary pill instead of disabled "Coming soon".
+    expect(SRC).toMatch(/<AlbumHero[\s\S]*?onAddSong=/);
+  });
+
+  it("opens UploadTrackModal for the hero's '+ Add song' action", () => {
+    // The hero callback drives an UploadTrackModal mount; without
+    // this the producer can never upload from the hero.
+    expect(SRC).toMatch(/UploadTrackModal/);
+    expect(SRC).toMatch(/mode=["']new-song["']/);
+  });
+
+  it("accepts a playLatest prop and threads onPlayLatest to AlbumHero when present", () => {
+    // G1 second half — when page.tsx supplies a playable version, the
+    // hero's "Play latest" CTA must wire through playerPlay.
+    expect(SRC).toMatch(/playLatest/);
+    expect(SRC).toMatch(/playerPlay/);
+  });
 });

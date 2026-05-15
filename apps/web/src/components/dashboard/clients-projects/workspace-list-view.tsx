@@ -347,13 +347,21 @@ export function WorkspaceListView({
 
   return (
     <div className="flex flex-col gap-5">
-      <header className="flex items-center justify-between gap-3">
-        <h1
-          className="font-syne text-[24px] font-bold tracking-tight"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
-          Clients &amp; Projects
-        </h1>
+      <header className="flex items-end justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span
+            className="text-[10.5px] font-bold uppercase tracking-[0.14em]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            Workspace
+          </span>
+          <h1
+            className="font-syne text-[46px] font-extrabold leading-[0.96] tracking-[-0.035em]"
+            style={{ color: "rgb(var(--fg-default))" }}
+          >
+            Clients &amp; Projects
+          </h1>
+        </div>
         {tab === "clients" ? (
           <button
             type="button"
@@ -401,11 +409,14 @@ export function WorkspaceListView({
         <StatTile label="Next deadline" value={kpis.nextDeadline} />
       </div>
 
-      {/* Tab segmented control */}
+      {/* Tab segmented control — G20: design uses white-on-beige
+          (paper-on-beige) instead of brand-amber-on-white. The amber
+          is reserved for the page's primary CTA; the tab selection is
+          a softer signal that doesn't compete. */}
       <div
         className="inline-flex items-center gap-1 self-start rounded-full border p-1"
         style={{
-          background: "rgb(var(--bg-elevated))",
+          background: "rgb(var(--bg-background))",
           borderColor: "rgb(var(--border-subtle))",
         }}
         role="tablist"
@@ -419,13 +430,13 @@ export function WorkspaceListView({
           className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
           style={{
             background:
-              tab === "clients"
-                ? "rgb(var(--brand-primary))"
-                : "transparent",
+              tab === "clients" ? "rgb(var(--bg-elevated))" : "transparent",
             color:
               tab === "clients"
-                ? "rgb(var(--bg-sidebar))"
+                ? "rgb(var(--fg-default))"
                 : "rgb(var(--fg-muted))",
+            boxShadow:
+              tab === "clients" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
           }}
         >
           Clients
@@ -438,71 +449,84 @@ export function WorkspaceListView({
           className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
           style={{
             background:
-              tab === "projects"
-                ? "rgb(var(--brand-primary))"
-                : "transparent",
+              tab === "projects" ? "rgb(var(--bg-elevated))" : "transparent",
             color:
               tab === "projects"
-                ? "rgb(var(--bg-sidebar))"
+                ? "rgb(var(--fg-default))"
                 : "rgb(var(--fg-muted))",
+            boxShadow:
+              tab === "projects" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
           }}
         >
           Projects
         </button>
       </div>
 
-      {/* Toolbar — filter chips + layout switcher + sort dropdown */}
+      {/* Toolbar — filter chips + layout switcher + sort dropdown.
+          G21: active chip uses solid-ink (fg-default bg + white text)
+          instead of an amber tint. Reads as a stronger "filter on"
+          signal that doesn't compete with the brand CTA. G22: the
+          Needs-attention chip carries a pulsing red dot at all times
+          (not only when active) so the producer sees urgency at a
+          glance even when other filters are selected. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           {tab === "projects"
-            ? PROJECT_FILTERS.map((f) => (
-                <button
-                  key={f.value}
-                  type="button"
-                  onClick={() => { setProjectFilter(f.value); }}
-                  className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
-                  style={{
-                    background:
-                      projectFilter === f.value
-                        ? "rgb(var(--brand-primary)/0.15)"
+            ? PROJECT_FILTERS.map((f) => {
+                const active = projectFilter === f.value;
+                return (
+                  <button
+                    key={f.value}
+                    type="button"
+                    onClick={() => { setProjectFilter(f.value); }}
+                    className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
+                    style={{
+                      background: active
+                        ? "rgb(var(--fg-default))"
                         : "rgb(var(--bg-elevated))",
-                    borderColor:
-                      projectFilter === f.value
-                        ? "rgb(var(--brand-primary))"
+                      borderColor: active
+                        ? "rgb(var(--fg-default))"
                         : "rgb(var(--border-subtle))",
-                    color:
-                      projectFilter === f.value
-                        ? "rgb(var(--brand-primary))"
+                      color: active
+                        ? "rgb(var(--bg-elevated))"
                         : "rgb(var(--fg-muted))",
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))
-            : CLIENT_FILTERS.map((f) => (
-                <button
-                  key={f.value}
-                  type="button"
-                  onClick={() => { setClientFilter(f.value); }}
-                  className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
-                  style={{
-                    background:
-                      clientFilter === f.value
-                        ? "rgb(var(--brand-primary)/0.15)"
+                    }}
+                  >
+                    {f.value === "urgent" ? (
+                      <span
+                        aria-hidden
+                        className="inline-block h-1.5 w-1.5 rounded-full motion-safe:animate-[skitza-pulse-glow_2s_ease-in-out_infinite]"
+                        style={{ background: "rgb(var(--fg-danger))" }}
+                      />
+                    ) : null}
+                    {f.label}
+                  </button>
+                );
+              })
+            : CLIENT_FILTERS.map((f) => {
+                const active = clientFilter === f.value;
+                return (
+                  <button
+                    key={f.value}
+                    type="button"
+                    onClick={() => { setClientFilter(f.value); }}
+                    className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
+                    style={{
+                      background: active
+                        ? "rgb(var(--fg-default))"
                         : "rgb(var(--bg-elevated))",
-                    borderColor:
-                      clientFilter === f.value
-                        ? "rgb(var(--brand-primary))"
+                      borderColor: active
+                        ? "rgb(var(--fg-default))"
                         : "rgb(var(--border-subtle))",
-                    color:
-                      clientFilter === f.value
-                        ? "rgb(var(--brand-primary))"
+                      color: active
+                        ? "rgb(var(--bg-elevated))"
                         : "rgb(var(--fg-muted))",
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))}
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                );
+              })}
         </div>
         <div className="flex items-center gap-2">
           {tab === "clients" ? (
