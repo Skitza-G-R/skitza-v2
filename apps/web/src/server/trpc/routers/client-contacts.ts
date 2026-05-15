@@ -585,11 +585,21 @@ export const clientContactsRouter = router({
     });
   }),
 
+  // Phase 1 (G6) — accepts optional `phone` + `notes` to back the New
+  // Client modal in the Clients & Projects v3 redesign (DESIGN.md §6.1).
+  // The fields are nullable in the schema, so missing inputs map to
+  // NULL via `?? null` rather than skipping the column. If the email
+  // already exists for this producer we return the existing row
+  // UNCHANGED — we deliberately do NOT overwrite phone/notes here to
+  // avoid stomping data the producer entered through Edit. The modal
+  // detects `existed: true` and redirects to the client's space.
   create: producerProcedure
     .input(
       z.object({
         email: z.string().email(),
         name: z.string().trim().min(1).max(200),
+        phone: z.string().trim().max(40).optional(),
+        notes: z.string().trim().max(2000).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -605,6 +615,10 @@ export const clientContactsRouter = router({
         )
         .limit(1);
       if (existing) {
+        // Existing-row branch: return as-is. Phone/notes from the modal
+        // are intentionally NOT applied so a careless duplicate-add
+        // doesn't blow away the producer's existing CRM data. The UI
+        // surfaces this via `existed: true` and routes to the client.
         return {
           id: existing.id,
           email: existing.email,
@@ -613,6 +627,8 @@ export const clientContactsRouter = router({
         };
       }
       const now = new Date();
+      const phone = input.phone?.trim();
+      const notes = input.notes?.trim();
       const [row] = await ctx.db
         .insert(clientContacts)
         .values({
@@ -620,6 +636,8 @@ export const clientContactsRouter = router({
           emailHash: hash,
           email: lower,
           name: input.name.trim(),
+          phone: phone && phone.length > 0 ? phone : null,
+          notes: notes && notes.length > 0 ? notes : null,
           firstSeenAt: now,
           lastSeenAt: now,
         })
