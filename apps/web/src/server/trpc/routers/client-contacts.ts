@@ -1,8 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import {
   and,
+  asc,
   bookings,
   clientContacts,
+  producers,
   products,
   projectTracks,
   projects,
@@ -20,6 +22,7 @@ import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { emailHashFor } from "~/server/artist/identity";
+import { SITE_URL, sendClientInviteEmail } from "~/server/email/send";
 
 // Producer-scoped client CRM.
 //
@@ -109,7 +112,10 @@ export const clientContactsRouter = router({
         .leftJoin(products, eq(products.id, bookings.productId))
         .where(eq(projects.producerId, ctx.producerId))
         .groupBy(projects.id)
-        .orderBy(desc(projects.updatedAt));
+        // Custom drag-to-reorder takes precedence (`position` asc).
+        // For un-dragged rows (all default to position=0), fall back
+        // to most-recently-updated so existing behavior is preserved.
+        .orderBy(asc(projects.position), desc(projects.updatedAt));
 
       // Pre-compute last-comment timestamp + unresolved count per
       // project email (artistEmail/clientEmail) via a single aggregate.
@@ -190,12 +196,21 @@ export const clientContactsRouter = router({
             email: clientContacts.email,
             name: clientContacts.name,
             tags: clientContacts.tags,
+            invitedAt: clientContacts.invitedAt,
+            clerkUserId: clientContacts.clerkUserId,
           })
           .from(clientContacts)
           .where(eq(clientContacts.producerId, ctx.producerId));
         const contactByEmail = new Map<
           string,
-          { id: string; email: string; name: string; tags: string[] | null }
+          {
+            id: string;
+            email: string;
+            name: string;
+            tags: string[] | null;
+            invitedAt: Date | null;
+            clerkUserId: string | null;
+          }
         >();
         for (const c of contacts) {
           contactByEmail.set(c.email.toLowerCase(), {
@@ -203,6 +218,8 @@ export const clientContactsRouter = router({
             email: c.email,
             name: c.name,
             tags: c.tags,
+            invitedAt: c.invitedAt,
+            clerkUserId: c.clerkUserId,
           });
         }
         return {
@@ -218,12 +235,16 @@ export const clientContactsRouter = router({
                     email: ct.email,
                     name: ct.name,
                     tags: ct.tags,
+                    invitedAt: ct.invitedAt,
+                    clerkUserId: ct.clerkUserId,
                   }
                 : {
                     id: null,
                     email: p.clientEmail,
                     name: p.clientName ?? p.artistName,
                     tags: null as string[] | null,
+                    invitedAt: null as Date | null,
+                    clerkUserId: null as string | null,
                   },
             };
           }),
@@ -241,10 +262,17 @@ export const clientContactsRouter = router({
           tags: clientContacts.tags,
           notes: clientContacts.notes,
           referralSource: clientContacts.referralSource,
+          // Phase 1 (clients-projects redesign) — drives LinkPill state.
+          // `clerkUserId` set ⇒ "active" (artist signed up), else
+          // `invitedAt` set ⇒ "pending", else "none".
+          invitedAt: clientContacts.invitedAt,
+          clerkUserId: clientContacts.clerkUserId,
         })
         .from(clientContacts)
         .where(eq(clientContacts.producerId, ctx.producerId))
-        .orderBy(desc(clientContacts.lastSeenAt));
+        // Custom drag order first, then most-recently-seen for the
+        // un-dragged (position=0) tail.
+        .orderBy(asc(clientContacts.position), desc(clientContacts.lastSeenAt));
 
       type Agg = {
         active: number;
@@ -325,6 +353,8 @@ export const clientContactsRouter = router({
           tags: c.tags,
           notes: c.notes,
           referralSource: c.referralSource,
+          invitedAt: c.invitedAt,
+          clerkUserId: c.clerkUserId,
           activeProjectCount: agg.active,
           totalProjectCount: agg.total,
           outstandingCents: agg.outstanding,
@@ -555,11 +585,21 @@ export const clientContactsRouter = router({
     });
   }),
 
+  // Phase 1 (G6) — accepts optional `phone` + `notes` to back the New
+  // Client modal in the Clients & Projects v3 redesign (DESIGN.md §6.1).
+  // The fields are nullable in the schema, so missing inputs map to
+  // NULL via `?? null` rather than skipping the column. If the email
+  // already exists for this producer we return the existing row
+  // UNCHANGED — we deliberately do NOT overwrite phone/notes here to
+  // avoid stomping data the producer entered through Edit. The modal
+  // detects `existed: true` and redirects to the client's space.
   create: producerProcedure
     .input(
       z.object({
         email: z.string().email(),
         name: z.string().trim().min(1).max(200),
+        phone: z.string().trim().max(40).optional(),
+        notes: z.string().trim().max(2000).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -575,6 +615,10 @@ export const clientContactsRouter = router({
         )
         .limit(1);
       if (existing) {
+        // Existing-row branch: return as-is. Phone/notes from the modal
+        // are intentionally NOT applied so a careless duplicate-add
+        // doesn't blow away the producer's existing CRM data. The UI
+        // surfaces this via `existed: true` and routes to the client.
         return {
           id: existing.id,
           email: existing.email,
@@ -583,6 +627,8 @@ export const clientContactsRouter = router({
         };
       }
       const now = new Date();
+      const phone = input.phone?.trim();
+      const notes = input.notes?.trim();
       const [row] = await ctx.db
         .insert(clientContacts)
         .values({
@@ -590,6 +636,8 @@ export const clientContactsRouter = router({
           emailHash: hash,
           email: lower,
           name: input.name.trim(),
+          phone: phone && phone.length > 0 ? phone : null,
+          notes: notes && notes.length > 0 ? notes : null,
           firstSeenAt: now,
           lastSeenAt: now,
         })
@@ -678,6 +726,123 @@ export const clientContactsRouter = router({
       }
       await ctx.db.delete(clientContacts).where(eq(clientContacts.id, input.id));
       return { ok: true as const };
+    }),
+
+  // Clients & Projects v3 redesign — Phase 1 Task 14. Drag-to-reorder
+  // for the CRM list. Writes the new ordinals (position == index in
+  // orderedIds) inside a single ctx.db.transaction so a partial failure
+  // can't leave the list half-reordered. Ownership is verified by
+  // selecting all matching row producerIds in one query and asserting
+  // equality before any write. Idempotent: calling with the same order
+  // is a no-op DB write (setting position to its current value).
+  //
+  // Mirrors the precedent in booking.products.reorder.
+  reorder: producerProcedure
+    .input(
+      z.object({
+        orderedIds: z
+          .array(z.string().uuid())
+          .min(1)
+          .refine(
+            (arr) => new Set(arr).size === arr.length,
+            "duplicate ids are not allowed",
+          ),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({
+          id: clientContacts.id,
+          producerId: clientContacts.producerId,
+        })
+        .from(clientContacts)
+        .where(inArray(clientContacts.id, input.orderedIds));
+      if (rows.length !== input.orderedIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (rows.some((r) => r.producerId !== ctx.producerId)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db.transaction(async (tx) => {
+        for (const [idx, id] of input.orderedIds.entries()) {
+          await tx
+            .update(clientContacts)
+            .set({ position: idx })
+            .where(eq(clientContacts.id, id));
+        }
+      });
+      return { count: input.orderedIds.length };
+    }),
+
+  // Clients & Projects v3 redesign — Phase 1 Task 13. Stamps invited_at
+  // on the contact and (when via='email') dispatches the invite email
+  // via Resend. The link path is a no-op send — the producer copied the
+  // URL to their clipboard from the modal — but we still stamp
+  // invited_at so the LinkPill flips to "Invited" either way.
+  //
+  // Notification emit is deliberately skipped: this is a producer-
+  // initiated action, so notifying the producer about their own click
+  // would just add inbox noise. The visible feedback is the LinkPill
+  // state change. (Deviation from the brief; documented in PR notes.)
+  //
+  // Email failure is surfaced (the modal needs to know whether the send
+  // succeeded) — we do NOT swallow Resend errors here. If the producer
+  // wants the link path as a fallback, that's a separate click.
+  sendInvite: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        via: z.enum(["email", "link"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select({
+          id: clientContacts.id,
+          producerId: clientContacts.producerId,
+          email: clientContacts.email,
+          name: clientContacts.name,
+        })
+        .from(clientContacts)
+        .where(eq(clientContacts.id, input.id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      const invitedAt = new Date();
+      await ctx.db
+        .update(clientContacts)
+        .set({ invitedAt })
+        .where(eq(clientContacts.id, input.id));
+
+      if (input.via === "email") {
+        // Look up the producer's slug + display name for the email body
+        // + invite URL. Both columns are NOT NULL on producers (slug is
+        // unique-indexed; displayName is nullable so we fall back to a
+        // generic label).
+        const [producer] = await ctx.db
+          .select({
+            slug: producers.slug,
+            displayName: producers.displayName,
+          })
+          .from(producers)
+          .where(eq(producers.id, ctx.producerId))
+          .limit(1);
+        const slug = producer?.slug ?? "";
+        const producerName = producer?.displayName ?? "Your producer";
+        const inviteUrl = `${SITE_URL}/invite/${slug}-${existing.id}`;
+        // Re-throws on Resend failure — caller decides whether to retry
+        // or fall back to the copy-link path.
+        await sendClientInviteEmail(existing.email, {
+          clientName: existing.name,
+          producerName,
+          inviteUrl,
+        });
+      }
+
+      return { invitedAt, via: input.via };
     }),
 
   // Detailed view — contact + linked projects + contracts + recent
@@ -793,6 +958,10 @@ export const clientContactsRouter = router({
           tags: contact.tags,
           notes: contact.notes,
           referralSource: contact.referralSource,
+          // Phase 1 (clients-projects redesign) — drives LinkPill state
+          // on the Client Space hero.
+          invitedAt: contact.invitedAt,
+          clerkUserId: contact.clerkUserId,
         },
         stats: {
           activeProjectCount,

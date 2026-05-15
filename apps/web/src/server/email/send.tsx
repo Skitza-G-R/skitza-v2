@@ -14,6 +14,10 @@ import {
   type BookingRequestReceivedProps,
 } from "./templates/booking-request-received";
 import {
+  ClientInvite,
+  type ClientInviteProps,
+} from "./templates/client-invite";
+import {
   FinalPaymentDue,
   type FinalPaymentDueProps,
 } from "./templates/final-payment-due";
@@ -192,6 +196,25 @@ export async function sendBookingCancelledOrRescheduledEmail(
     from: FROM_ADDRESS,
     to,
     subject: `Session ${verb} · ${props.productName}`,
+    html,
+  });
+}
+
+// Clients & Projects v3 redesign — Phase 1 Task 13. Producer sends a
+// contact an invite from the LinkPill "Invite to app" CTA. Subject is
+// the same shape as the other transactional sends so the producer's
+// inbox stays consistent. Caller MUST wrap in try/catch + console.warn
+// so a transient Resend failure doesn't break the primary write
+// (invited_at stamp).
+export async function sendClientInviteEmail(
+  to: string,
+  props: ClientInviteProps,
+): Promise<void> {
+  const html = await render(<ClientInvite {...props} />);
+  await getResend().emails.send({
+    from: FROM_ADDRESS,
+    to,
+    subject: `${props.producerName} invited you to Skitza`,
     html,
   });
 }

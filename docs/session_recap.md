@@ -33,137 +33,178 @@ Replaced the 2-branch chip surface with the design's 5-section sub-nav layout fr
 
 # Earlier: Clients & Projects v3 Redesign
 
-> **For the next Claude session:** READ THIS FIRST. The work is mid-stream. Branch `clients-projects-redesign` is pushed to origin with 10 commits ahead of `origin/v3-clean`. PR #113 is open and **waiting on Raz's review** of the schema. Phase 0 is complete; Phases 1-4 are planned but not yet implemented.
+> **For the next Claude session:** READ THIS FIRST. Phases 1-4 are DONE on PR #117. Awaiting Gili's manual Incognito QA + merge. Phase 5 (optional player visual polish) is deferred.
 
-**Last updated:** 2026-05-14
-**Branch:** `clients-projects-redesign` (pushed to origin)
-**Last commit:** `ed32a5e` — `feat(db): SQL migration 0011 for Clients & Projects v3`
-**PR:** [#113](https://github.com/Skitza-G-R/skitza-v2/pull/113) — Phase 0 (schema)
-**Status:** Pipeline green (typecheck + lint + 1617 tests). Waiting on Raz to review the migration.
+**Last updated:** 2026-05-15 (evening)
+**Branch:** `clients-projects-phase-1` (pushed to origin; worktree at `/Users/giliasraf/skitza-phase-1`)
+**PR:** [#117](https://github.com/Skitza-G-R/skitza-v2/pull/117) — Full Phase 1-4 redesign as one deliverable
+**Status:** All gates green (typecheck clean, lint zero warnings, **2209 tests passing**). Awaiting manual QA + 2 prod migrations + merge.
 
 ---
 
 ## TL;DR
 
-Started a 5-phase faithful port of the Clients Projects Room prototype into the producer app. New IA: List → Client Space → Album Page → Song Space, with a Single-Space rule that collapses 1-song projects directly into the Song Space. Phase 0 (schema migrations) is in PR #113; subsequent phases will replace the current 5-sub-tab Project Room with the new structure. **Reuses the existing PersistentPlayer** — no new audio infrastructure. TDD throughout; extra-cautious execution per Gili's brief.
+5-phase faithful port of the Clients Projects Room prototype into the producer app. New IA: List → Client Space → Album Page → Song Space (with Single-Space rule for 1-song projects). PR #117 ships Phase 1-4 as one deliverable per Gili's "100% the design" request on 2026-05-15.
+
+## Phase status
+
+| Phase | Status | Where | Commits |
+|---|---|---|---|
+| 0 — Schema migrations | ✅ Merged | [#113](https://github.com/Skitza-G-R/skitza-v2/pull/113) (in `v3-clean`) | 10 |
+| 1 — List view + Client Space + invite + drag | ✅ In PR #117 | + G6 New Client modal | ~30 |
+| 2 — Album Page (replaces Project Room) | ✅ In PR #117 | New 4-tab IA | 18 |
+| 3 — Song Space + Single-Space rule | ✅ In PR #117 | New route + WorkflowStepper + VersionRow | 19 |
+| 4 — Upload Track modal + manual stage edit | ✅ In PR #117 | Full multipart orchestration | 16 |
+| 5 (optional) — PersistentPlayer visual polish | ⏳ Deferred | Fast-follow PR if/when wanted | — |
 
 ## Design and plan documents (source of truth)
 
 | File | Purpose |
 |---|---|
-| [`docs/plans/active/2026-05-14-clients-projects-redesign-design.md`](plans/active/2026-05-14-clients-projects-redesign-design.md) | Master design brief. Decisions log, routing/IA, schema, components, the 4 modals, phasing, testing strategy, safety rules. Approved by Gili 2026-05-14. |
-| [`docs/plans/active/2026-05-14-clients-projects-redesign-phase-0.md`](plans/active/2026-05-14-clients-projects-redesign-phase-0.md) | Phase 0 plan: 12 bite-sized TDD tasks for the schema migrations. Executed via subagent-driven development. All shipped on branch. |
-| `/Volumes/KINGSTON/Downloads/Clients Projects Room.html` | The HTML prototype — source of truth for visuals when the design doc is ambiguous. |
-| `/Volumes/KINGSTON/Downloads/DESIGN.md` | Design tokens + component spec from the prototype. |
-| `/Volumes/KINGSTON/Downloads/BUILD-NOTES.md` | Engineering handoff with data shapes + routing rules. |
+| `docs/plans/active/2026-05-14-clients-projects-redesign-design.md` | Master design brief. Approved by Gili 2026-05-14. |
+| `docs/plans/active/2026-05-14-clients-projects-redesign-phase-1.md` | Original Phase 1 plan (Tasks 1-20). Executed 2026-05-14. |
+| `docs/plans/active/2026-05-15-clients-projects-phase-1-punch-list.md` | G1-G6 punch list. Executed 2026-05-15. |
+| `docs/plans/active/2026-05-15-clients-projects-phase-2-album-page.md` | Phase 2 plan. Executed 2026-05-15. |
+| `docs/plans/active/2026-05-15-clients-projects-phase-3-song-space.md` | Phase 3 plan. Executed 2026-05-15. |
+| `docs/plans/active/2026-05-15-clients-projects-phase-4-upload-modal.md` | Phase 4 plan. Executed 2026-05-15. |
+| `/Volumes/KINGSTON/Downloads/Clients Projects Room.html` | HTML prototype (source of truth for visuals). |
+| `/Volumes/KINGSTON/Downloads/DESIGN.md` | Design tokens + component spec. |
+| `/Volumes/KINGSTON/Downloads/BUILD-NOTES.md` | Engineering handoff. |
 
-## What's done (on branch, awaiting Raz)
+## What's on PR #117 — the full picture
 
-### Phase 0 — schema migrations (PR #113)
+### Phase 1 — List view + Client Space + invite + drag
 
-8 schema commits + 2 docs commits on `clients-projects-redesign`:
+- Helpers: `deriveGradient`, `heroBg`
+- Atoms: `LinkPill`, `StatTile`, `HeroCTA`
+- Rows: `ProjectRow`, `ClientCard`
+- Composed: `ClientSpaceHero`, `WorkspaceListView` (with KPI strip, tab segmented control, filter chips, sort dropdown, layout switcher)
+- `InviteToAppModal` (email via Resend + copy-link via clipboard)
+- `NewClientModal` (G6 — added 2026-05-15)
+- tRPC mutations: `clientContacts.sendInvite/reorder/create`, `projects.reorder`
+- G1-G5 punch list applied
+- Demo seed deleted; 13 obsolete files deleted
 
-- New enum `workflow_stage` (brief / production / mixing / mastering / done) — 5 values, NOT the prototype's 6 (Gili dropped Review and Delivery).
-- `client_contacts.invited_at` (timestamptz, nullable) — linkpill "Invited" state
-- `client_contacts.position` (int, NOT NULL, default 0) — drag-reorder
-- `projects.position` (int, NOT NULL, default 0) — drag-reorder
-- `projects.workflow_stage` (workflow_stage, NOT NULL, default 'brief') — parallel to legacy `stage`
-- `project_tracks.workflow_stage` (same enum) — per-song stepper
-- `bookings.song_id` (uuid, nullable, FK → project_tracks ON DELETE SET NULL) — per-song Sessions tab
-- SQL migration `packages/db/drizzle/0011_clients_projects_redesign.sql` — idempotent
+### Phase 2 — Album Page
 
-7 new tests in `packages/db/src/__tests__/clients-projects-redesign.test.ts` — pure-runtime Drizzle column metadata assertions; no DB required.
+- `workflow-stage.ts` helper — 5 stages (brief / production / mixing / mastering / done)
+- `TrackRow` component — new 8-col grid tracklist row
+- `AlbumHero` + `AlbumStatStrip` + `AlbumTabs` + `AlbumSpace` shell
+- 4 tab panels: Songs / Files / Payments / Studio Log
+- `[id]/page.tsx` rewritten to render AlbumSpace
+- 15 legacy files deleted (old Project Room sub-tabs)
 
-Spec compliance: ✅ verified line-by-line by a spec-reviewer subagent.
-Code quality: ✅ "ship it" from code-reviewer subagent. Two minor follow-ups noted (FK `onDelete` and `withTimezone` not asserted by tests — non-blocking).
+### Phase 3 — Song Space + Single-Space rule
 
-## What's NOT done
+- New route `[id]/songs/[songId]/page.tsx`
+- `VersionRow` wired to PersistentPlayer (`playerPlay` + `useNowPlaying`)
+- `AddVersionDropZone` (first row of Versions tab)
+- `WorkflowStepper` (5-stage horizontal with green fill + amber pulse, motion-reduce gated)
+- `SongSpaceHero` (mode-aware: SONG vs SINGLE eyebrow) + `SongSpaceStatStrip` + `SongTabs`
+- 4 tab panels: Overview / Versions / Sessions / Payments (single-mode only)
+- `SongSpace` shell
+- Single-Space redirect in `[id]/page.tsx` (1-track projects → song space)
+- `loading.tsx` for the songs route
+- Shared `formatDuration` helper at `~/lib/format/duration.ts`
 
-### Phases 1 – 4 (planned, not yet started)
+### Phase 4 — Upload Track modal + manual stage edit
 
-| Phase | What ships | Risk |
-|---|---|---|
-| **1** | List view + Client Space polish + drag reorder + linkpill + Invite modal | Low |
-| **2** | New Album page (replaces current Project Room) + Studio Log + Payments tab | Medium |
-| **3** | Song Space (NEW route) + Single-rule routing + workflow stepper + wire VersionRow play to existing PersistentPlayer | Medium |
-| **4** | Upload Track modal with stage picker + manual stage edit | Low |
-| **(later, optional)** | PersistentPlayer visual polish to match prototype's `#player` spec | High |
+- DB migration **0013** — `track_versions.description` column
+- `project.setTrackStage` + `project.deleteVersion` mutations
+- `upload-actions.ts` — 8 Server Action wrappers around audio multipart API
+- `UploadTrackModal` — Radix Dialog with **full client-side multipart upload orchestration** (5MB chunks, presigned PUT to R2, progress bar, abort on close, optional duration probe, orphan cleanup on failure)
+- `ChangeStageMenu` — hand-rolled accessible dropdown for manual stage edit, mounted IN the Status stat tile
+- All 3 upload entry points wired (Album Songs "+ Add song", Song Space "Upload new version", AddVersionDropZone)
+- **Critical fix**: artist email moved from `addVersion` to `completeMultipart` (no more premature "uploaded" emails)
+- Version description threaded modal → action → mutation → DB
+- Whitespace-tolerant tests, friendly Zod error messages, MIME-empty file fallback
 
-Each phase: TDD-first, `/skitza-verify` green, Incognito preview verified, separate PR.
+## ⚠️ Before merging PR #117 — apply migrations to prod DB
 
-### To ship Phase 0 to production
+Two migrations are pending application to prod (Vercel doesn't auto-apply):
+- `0012_client_contacts_phone.sql` (Phase 1 G6 — adds `client_contacts.phone`)
+- `0013_track_versions_description.sql` (Phase 4 C2 — adds `track_versions.description`)
 
-1. **Raz reviews PR #113.** Schema is his territory per CLAUDE.md, but Gili authorized me to write these migrations directly for this redesign (recorded in memory `feedback_schema_authorized_clients_projects.md`). The 6 column adds + 1 new enum are all additive and idempotent.
-2. On Raz's approval: merge PR #113. Vercel deploy hook applies the migration to prod DB automatically.
-3. No need for Gili to apply locally — Task 10 of the Phase 0 plan was deliberately skipped after `apply-migrations.mjs` failed twice on quoted DATABASE_URL handling.
-4. Once merged: pull `v3-clean` locally, then start Phase 1 by writing `docs/plans/active/2026-05-14-clients-projects-redesign-phase-1.md`.
+```bash
+cd packages/db
+DATABASE_URL=<unpooled-url-from-Neon> node apply-migrations.mjs
+```
 
-## Decisions log (chronological, all 2026-05-14)
+Both are idempotent (`ADD COLUMN IF NOT EXISTS`). Safe to re-run.
 
-1. **Q1 Scope** — option A: full faithful port (replace current Project Room IA; add Song Space; add Single-Space rule).
-2. **Q2 Schema work** — option A: Gili authorized Claude to write the migrations directly. Raz reviews PR before merge. Scoped to this redesign only.
-3. **Q3 Notes tab** — drop entirely. `projects.notes` column stays in DB but no UI exposes it.
-4. **Q4a Project stage** — option A: ADD a new `workflow_stage` column rather than replace the legacy `stage` enum. Legacy enum keeps running billing; new column drives only the new UI.
-5. **Q4b Stage advancement** — option B: upload-driven + manual override. Upload Track modal has a stage picker; song page has a small "change stage" affordance.
-6. **5-stage workflow vs prototype's 6** — Gili dropped Review and Delivery. Final list: Brief → Production → Mixing → Mastering → Done.
-7. **Q5 Floating player** — reuse existing `PersistentPlayer` (mounted globally in `app-shell.tsx`). Comment at `app-shell.tsx:82-89` says Phase 4 will swap it; for now we wire VersionRow's play button to `playerPlay()` and use `useNowPlaying()` for the amber highlight. No new audio infrastructure.
-8. **Q6 Phasing** — 5 separate PRs (Phase 0 schema, 1 list+client, 2 album, 3 song space, 4 upload modal). Optional Phase 5: player visual polish.
+## Decisions baked into the redesign (do not re-litigate)
+
+Carried over from 2026-05-14:
+1. Full faithful port (replace current Project Room IA; add Song Space; add Single-Space rule)
+2. Gili authorized Claude to write the schema migrations directly for this redesign
+3. Drop Notes tab entirely
+4. Add new `workflow_stage` column rather than replace the legacy `stage` enum
+5. 5-stage workflow (Brief → Production → Mixing → Mastering → Done — Gili dropped Review + Delivery)
+6. Reuse existing `PersistentPlayer` for audio
+
+From 2026-05-15 punch list:
+7. Clients tab is first + default
+8. Layout switcher hidden on Projects tab
+9. No URL hydration for `?tab=` / `?sort=` / `?filter=`
+
+From 2026-05-15 Phase 4:
+10. Upload modal handles full multipart orchestration client-side (5MB chunks)
+11. ChangeStageMenu lives IN the Status stat tile (no duplicate row)
+
+## What still needs to happen for PR #117 to merge
+
+1. **Apply migrations 0012 + 0013** to prod DB.
+2. **Manual Incognito QA** against the design (no comprehensive checklist exists for the full PR yet — recommend walking through:
+   - List view → Client Space → click into a multi-track project → Album Page → click a track → Song Space (album mode)
+   - Visit a 1-track project directly → should redirect to Song Space (single mode)
+   - Upload a new version via the drop zone OR the hero CTA — full multipart upload
+   - Use ChangeStageMenu to manually advance a stage
+   - Create a new client via the modal
+   - Drag-reorder projects + clients in the list view
+   - Verify the LinkPill states (Active / Invited / Invite to app)
+3. **On QA pass:** merge PR #117 into v3-clean. Vercel deploys.
+4. **Start Phase 5** (optional player visual polish) on a fresh branch IF wanted.
+
+## Open follow-ups (NOT in this PR — picked up later)
+
+- **Phase 5: PersistentPlayer visual polish** — restyle the dock to match `#player` spec (waveform, EQ bars, larger duration mono). Pure CSS/DOM.
+- Real Projects table mode with sortable column headers
+- URL hydration (`?tab=`, `?sort=`, `?filter=`)
+- Drag accessibility (keyboard arrow navigation)
+- Re-upload a failed/partial upload (currently abort + manual retry)
+- Drag-to-reorder versions within the Versions tab
+- "Edit version" affordance (rename, change description after upload)
+- Real-time progress sync across tabs
 
 ## How to resume in a new session
 
-1. **Read this recap first.** It points to everything.
-2. **Read the design brief.** `docs/plans/active/2026-05-14-clients-projects-redesign-design.md` is the source of truth for every decision.
-3. **Confirm branch state.** `git rev-parse --abbrev-ref HEAD` should be on `clients-projects-redesign` until PR #113 merges. After merge, `git checkout v3-clean && git pull` and start Phase 1 on a new branch off v3-clean.
-4. **Confirm pipeline.** `pnpm typecheck && pnpm -F web lint && pnpm test` should be green.
-5. **Ask Gili what's next.** Options on the table: (a) Phase 1 plan, (b) wait on PR #113 merge before starting any new phase work.
+1. Read this recap first.
+2. Confirm branch: `git rev-parse --abbrev-ref HEAD` should be `clients-projects-phase-1` until PR #117 merges.
+3. Confirm pipeline: `pnpm typecheck && pnpm -F web lint && pnpm test` — all green.
+4. Ask Gili what's next (Phase 5? Move to Phase 6+ work after merge?).
 
-## Token reality check (carry this forward)
+## Token reality check (carry forward)
 
-Same as storefront recap. The Skitza app uses ONLY these CSS custom properties:
+The Skitza app uses ONLY these CSS custom properties:
 
 ```
 --brand-primary       (212 150 10 — amber)
 --bg-background       (242 237 230 — warm off-white page bg)
---bg-elevated         (255 255 255 — white, USE FOR MODAL/CARD BG)
---bg-sidebar          (17 16 9 — near-black; dark surface AND dark text on amber)
---fg-default          (17 16 9 — body text, USE INSTEAD OF --text-strong)
---fg-muted            (107 99 89 — secondary text, USE INSTEAD OF --text-muted)
---fg-faint            (165 158 145 — placeholder/empty)
+--bg-elevated         (255 255 255 — white)
+--bg-sidebar          (17 16 9 — near-black)
+--fg-default          (17 16 9 — body text)
+--fg-muted            (107 99 89 — secondary text)
+--fg-faint            (165 158 145 — placeholder)
 --fg-success / --fg-danger / --fg-warning
 --border-subtle / --border-strong
 ```
 
-**Forbidden (do not exist):** `--surface-card`, `--surface-hover`, `--text-muted`, `--text-strong`, `--brand-primary-on`. Using them = invisible text + transparent backgrounds. Always grep `apps/web/src/styles/tokens.css` for the canonical list when in doubt.
+**Forbidden:** `--surface-card`, `--surface-hover`, `--text-muted`, `--text-strong`, `--brand-primary-on`. `--bg-base` and `--fg-primary` are backward-compat aliases that resolve to `--bg-background` and `--fg-default`.
 
 ## Testing convention (carry forward)
 
-Vitest in `node` env, no jsdom, no `@testing-library/react`. Two patterns:
+Vitest in `node` env, no jsdom, no `@testing-library/react`.
 
-1. **Pure-function unit tests** — standard `expect(...)` on helpers (e.g. the Phase 0 column-metadata tests).
-2. **Source-grep tests on JSX shells** — `readFileSync` the `.tsx` file, assert it contains key imports / class names / attributes.
-
-No DOM interactions. Behavior is exercised by real consumers + manual preview verification.
-
-## Auxiliary stashes (recoverable)
-
-- `stash@{0}: On clients-projects-redesign: pre-clients-projects-redesign: dashboard simplification WIP` — 4 files (page.tsx, page-helpers.ts, page-rebuild.test.ts, empty-onboarding.tsx). These were carried over from before our session; landed on `fix/dashboard-overview-after-onboarding` instead. Gili can `git stash pop` if useful; otherwise drop.
-
-## Branch state details
-
-```
-clients-projects-redesign
-├── 10 commits ahead of origin/v3-clean
-├── 8 schema commits + 2 docs commits
-├── Includes:
-│   ├── fcd4a7a  docs: design brief for v3 redesign
-│   ├── 96551a9  docs: Phase 0 implementation plan
-│   ├── eb332d9  feat(db): workflow_stage enum
-│   ├── 1c65ebf  feat(db): client_contacts.invited_at
-│   ├── 56484a2  feat(db): client_contacts.position
-│   ├── ae0e8ba  feat(db): projects.position
-│   ├── af917c4  feat(db): projects.workflow_stage
-│   ├── 53f3748  feat(db): project_tracks.workflow_stage
-│   ├── 01a7cb2  feat(db): bookings.song_id FK
-│   └── ed32a5e  feat(db): SQL migration 0011
-└── PR #113 open against v3-clean, awaiting Raz review
-```
+1. **Pure-function unit tests** — standard `expect(...)` on helpers.
+2. **Source-grep tests on JSX shells** — `readFileSync` the `.tsx`, assert imports/classNames/structure. **Use `\s*` in regexes** to stay whitespace-tolerant.
+3. **Server Actions are the ONLY way client components call tRPC** — enforced by `invite-modal.test.tsx` asserting `expect(SRC).not.toMatch(/useMutation/)`. Mirror this pattern for any new client modals.

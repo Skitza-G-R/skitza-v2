@@ -457,6 +457,30 @@ export const projects = pgTable("projects", {
   // tile. Decoupled from the legacy `stage` (lifecycle) column — both
   // co-exist; the new UI only ever shows this one.
   workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
+  // ─── Phase 1 G7 — New Project modal fields ───────────────────────
+  // Producer picks one of their store products at create time. SET
+  // NULL on delete so archiving a product doesn't nuke the project's
+  // engagement history; the row-level priceCents/depositCents
+  // snapshots below preserve what was charged.
+  productId: uuid("product_id").references((): AnyPgColumn => products.id, {
+    onDelete: "set null",
+  }),
+  // Optional deliverable due-date the producer commits to. Drives the
+  // hero countdown + the Calendar's "deadline" markers. Null = no
+  // explicit deadline.
+  deadlineAt: timestamp("deadline_at", { withTimezone: true }),
+  // Snapshot of the engagement total at create-time (minor units).
+  // Defaults from product.priceCents in the modal; producer can edit
+  // before submit. Stays stable even if the underlying product price
+  // changes later — that's the snapshot guarantee. Nullable for legacy
+  // rows pre-G7.
+  engagementTotalCents: integer("engagement_total_cents"),
+  // Snapshot of the upfront deposit (minor units) the modal computed
+  // from product.priceCents * depositPct / 100, with optional manual
+  // override. Read downstream by the deposit-collection flow so a
+  // mid-engagement product price change can't recalculate what the
+  // artist owes. Nullable for legacy rows pre-G7.
+  depositCents: integer("deposit_cents"),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
@@ -492,6 +516,10 @@ export const trackVersions = pgTable("track_versions", {
   audioR2Key: text("audio_r2_key"),
   sizeBytes: bigint("size_bytes", { mode: "number" }),
   peaksR2Key: text("peaks_r2_key"),
+  // Phase 4 Upload Track modal — optional notes the producer types when
+  // uploading a new version (DESIGN.md §6.4). Nullable; surfaces on the
+  // artist-facing version page.
+  description: text("description"),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
   // G.11 — producer marks a version "final/approved". Presence of a
   // timestamp is the approved flag; null means unapproved. When the
@@ -549,6 +577,12 @@ export const clientContacts = pgTable("client_contacts", {
   // simplifies the tag-pill renderers on Project Room + CRM.
   tags: text("tags").array().notNull().default(sql`'{}'`),
   notes: text("notes"),
+  // Optional phone-of-record, captured by the New Client modal in the
+  // Clients & Projects v3 redesign (DESIGN.md §6.1). Nullable so every
+  // pre-existing row + auto-upsert path can ignore it. Free-text — we
+  // don't validate format server-side beyond a 40-char ceiling because
+  // producers paste WhatsApp / international strings in many shapes.
+  phone: text("phone"),
   referralSource: text("referral_source"),
   // Stamped by the Clerk user.created webhook on first artist sign-in.
   // Null = client has never signed in. Once stamped, the artist app can

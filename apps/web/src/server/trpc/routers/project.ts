@@ -25,7 +25,6 @@ import {
   SITE_URL,
   sendPaymentReceivedEmail,
   sendProducerRepliedToCommentEmail,
-  sendTrackVersionUploadedEmail,
 } from "~/server/email/send";
 import { calculateCharges } from "~/server/payments/plan";
 import { getStripe } from "~/server/stripe/client";
@@ -59,11 +58,22 @@ const ALL_STAGES = [
 type Stage = (typeof ALL_STAGES)[number];
 
 // ─── Inputs ──────────────────────────────────────────────────────────
+// Phase 1 G7 — the redesigned New Project modal sends the four
+// product/deadline/total/deposit fields below alongside the legacy
+// title/artistName/artistEmail. All four are optional so the old
+// onboarding-wizard / booking-conversion call paths that still post
+// only the legacy fields continue to work untouched.
 const CreateProjectInput = z.object({
   title: z.string().min(1).max(120),
   artistName: z.string().min(1).max(80),
   artistEmail: z.string().email(),
   bookingId: z.string().uuid().optional(),
+  productId: z.string().uuid().optional(),
+  // ISO 8601 — parsed into a Date for the timestamptz column.
+  deadlineAt: z.string().datetime().optional(),
+  // Minor units. Stored verbatim — no currency conversion here.
+  engagementTotalCents: z.number().int().min(0).optional(),
+  depositCents: z.number().int().min(0).optional(),
 });
 
 // Edit-project modal payload. All fields optional so the modal can
@@ -99,6 +109,10 @@ const AddVersionInput = z.object({
   // filled later by audio.completeMultipart patching the same row.
   audioUrl: z.string().url().nullable(),
   durationMs: z.number().int().min(1).max(1000 * 60 * 60 * 3).optional(), // cap 3h
+  // Phase 4 (C2) — optional producer notes typed in the Upload Track
+  // modal. Trimmed + capped to keep the textarea honest. Stored on
+  // track_versions.description.
+  description: z.string().trim().max(2000).optional(),
 });
 
 const SetPaidInput = z.object({
@@ -297,6 +311,20 @@ export const projectRouter = router({
         // verify the URL the artist clicked. Unique constraint at the
         // schema level guards against guess collisions.
         inviteToken: token.raw,
+        // Phase 1 G7 — write the new modal fields only when present
+        // so legacy callers don't accidentally null these columns.
+        // `exactOptionalPropertyTypes` requires the conditional-spread
+        // shape; passing `undefined` would be a type error.
+        ...(input.productId ? { productId: input.productId } : {}),
+        ...(input.deadlineAt
+          ? { deadlineAt: new Date(input.deadlineAt) }
+          : {}),
+        ...(input.engagementTotalCents !== undefined
+          ? { engagementTotalCents: input.engagementTotalCents }
+          : {}),
+        ...(input.depositCents !== undefined
+          ? { depositCents: input.depositCents }
+          : {}),
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -512,6 +540,57 @@ export const projectRouter = router({
     return row;
   }),
 
+  // Manual stage advance for a single track. Used by both the Upload
+  // Track modal (when the producer opts to bump the stage on upload)
+  // and the standalone ChangeStageMenu on Song Space. Ownership chain:
+  // track → project → producer. NOT_FOUND if the track id is bogus;
+  // FORBIDDEN if the producer doesn't own the parent project.
+  setTrackStage: producerProcedure
+    .input(
+      z.object({
+        trackId: z.string().uuid(),
+        workflowStage: z.enum([
+          "brief",
+          "production",
+          "mixing",
+          "mastering",
+          "done",
+        ]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [track] = await ctx.db
+        .select({
+          id: projectTracks.id,
+          projectId: projectTracks.projectId,
+        })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, input.trackId))
+        .limit(1);
+      if (!track) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const [project] = await ctx.db
+        .select({ producerId: projects.producerId })
+        .from(projects)
+        .where(eq(projects.id, track.projectId))
+        .limit(1);
+      if (!project || project.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      await ctx.db
+        .update(projectTracks)
+        .set({ workflowStage: input.workflowStage })
+        .where(eq(projectTracks.id, input.trackId));
+
+      await ctx.db
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(eq(projects.id, track.projectId));
+
+      return { ok: true as const, workflowStage: input.workflowStage };
+    }),
+
   // Inline-edit a track title from the Project Room music sub-tab.
   // Ownership-scoped via the UPDATE's WHERE clause (id + projectId +
   // producerId chain) so a tampered trackId from another project
@@ -603,12 +682,7 @@ export const projectRouter = router({
       .limit(1);
     if (!track) throw new TRPCError({ code: "NOT_FOUND" });
     const [project] = await ctx.db
-      .select({
-        producerId: projects.producerId,
-        title: projects.title,
-        artistName: projects.artistName,
-        artistEmail: projects.artistEmail,
-      })
+      .select({ producerId: projects.producerId })
       .from(projects)
       .where(eq(projects.id, track.projectId))
       .limit(1);
@@ -622,6 +696,9 @@ export const projectRouter = router({
         label: input.label,
         audioUrl: input.audioUrl,
         ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
+        ...(input.description && input.description.length > 0
+          ? { description: input.description }
+          : {}),
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -630,27 +707,52 @@ export const projectRouter = router({
       .set({ updatedAt: new Date() })
       .where(eq(projects.id, track.projectId));
 
-    const [producerRow] = await ctx.db
-      .select({ displayName: producers.displayName })
-      .from(producers)
-      .where(eq(producers.id, ctx.producerId))
-      .limit(1);
-    after(async () => {
-      try {
-        await sendTrackVersionUploadedEmail(project.artistEmail, {
-          artistName: project.artistName,
-          producerName: producerRow?.displayName ?? "Your producer",
-          projectName: project.title,
-          versionLabel: input.label,
-          reviewUrl: `${SITE_URL}/artist/music`,
-        });
-      } catch (err) {
-        console.error("[email] track-version-uploaded failed", err);
-      }
-    });
+    // NOTE: artist email moved to audio.completeMultipart (C1). When the
+    // modal creates this row with audioUrl=null and patches the URL after
+    // R2 completion, sending the email here would point the artist at a
+    // missing file.
 
     return row;
   }),
+
+  // Phase 4 (I1) — delete an orphan track_versions row created by the
+  // Upload Track modal when its multipart upload fails. The modal
+  // creates the row at step 2 of the chain (audioUrl=null) and patches
+  // it later in completeMultipart; if any chunk PUT or the finalise
+  // step throws, the row stayed around forever. This mutation lets the
+  // modal's catch-branch fire a best-effort cleanup.
+  //
+  // Ownership chain: version -> track -> project -> producer. Same shape
+  // as updateVersionLabel. NOT_FOUND for both missing and foreign rows
+  // so a tampered id can't enumerate the track_versions space.
+  deleteVersion: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({
+          projectId: projectTracks.projectId,
+          producerId: projects.producerId,
+        })
+        .from(trackVersions)
+        .innerJoin(
+          projectTracks,
+          eq(projectTracks.id, trackVersions.trackId),
+        )
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(eq(trackVersions.id, input.id))
+        .limit(1);
+      if (!row || row.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      await ctx.db
+        .delete(trackVersions)
+        .where(eq(trackVersions.id, input.id));
+      await ctx.db
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(eq(projects.id, row.projectId));
+      return { ok: true as const };
+    }),
 
   setPaid: producerProcedure.input(SetPaidInput).mutation(async ({ ctx, input }) => {
     const [project] = await ctx.db
@@ -1151,6 +1253,48 @@ export const projectRouter = router({
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       return { project: stripHash(row), shareToken: token.raw, existing: false };
+    }),
+
+  // Clients & Projects v3 redesign — Phase 1 Task 15. Drag-to-reorder
+  // for the Projects list. Writes the new ordinals (position == index
+  // in orderedIds) inside a single ctx.db.transaction so a partial
+  // failure can't leave the list half-reordered. Ownership verified by
+  // selecting all matching producerIds in one query before any write.
+  // Idempotent: calling with the same order is a no-op DB write.
+  // Mirrors the precedents in booking.products.reorder and
+  // clientContacts.reorder.
+  reorder: producerProcedure
+    .input(
+      z.object({
+        orderedIds: z
+          .array(z.string().uuid())
+          .min(1)
+          .refine(
+            (arr) => new Set(arr).size === arr.length,
+            "duplicate ids are not allowed",
+          ),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({ id: projects.id, producerId: projects.producerId })
+        .from(projects)
+        .where(inArray(projects.id, input.orderedIds));
+      if (rows.length !== input.orderedIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (rows.some((r) => r.producerId !== ctx.producerId)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await ctx.db.transaction(async (tx) => {
+        for (const [idx, id] of input.orderedIds.entries()) {
+          await tx
+            .update(projects)
+            .set({ position: idx })
+            .where(eq(projects.id, id));
+        }
+      });
+      return { count: input.orderedIds.length };
     }),
 
 });

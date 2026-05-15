@@ -5,7 +5,6 @@ import { TRPCError } from "@trpc/server";
 import { ZodError } from "zod";
 import { auth } from "@clerk/nextjs/server";
 
-import type { Stage } from "~/lib/projects/stages";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -52,127 +51,181 @@ function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong.";
 }
 
-export async function createClient(input: {
-  name: string;
-  email: string;
-}): Promise<ActionDataResult<{ id: string; existed: boolean }>> {
+// Thin wrapper for clientContacts.sendInvite. The Invite-to-App modal
+// calls this with via='email' (real Resend dispatch) or via='link'
+// (the producer copied the URL to clipboard — server side only stamps
+// invited_at). On success, revalidates the list path so the LinkPill
+// flips from "Invite to app" → "Invited" without a hard reload.
+//
+// All other server actions from the pre-Phase-1 panels (createClient /
+// removeClient / updateClient / fetchClientDetail) were dropped along
+// with the panels themselves in the redesign deletion sweep.
+export async function sendClientInviteAction(input: {
+  id: string;
+  via: "email" | "link";
+}): Promise<ActionDataResult<{ invitedAtIso: string; via: "email" | "link" }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    const res = await c.caller.clientContacts.create(input);
+    const res = await c.caller.clientContacts.sendInvite(input);
     revalidatePath(CLIENTS_PATH);
-    return { ok: true, data: { id: res.id, existed: res.existed } };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-export async function removeClient(input: {
-  id: string;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.clientContacts.remove({ id: input.id });
-    revalidatePath(CLIENTS_PATH);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-// Dispatches to two tRPC procedures based on which fields are passed:
-//   - clientContacts.update       — name / email (id-collision aware)
-//   - clientContacts.updateClientMeta — notes / tags (CRM meta)
-// Brief said "updateClientMeta" only, but verifying its schema showed
-// name + email aren't accepted there, so we route them to `update`.
-export async function updateClient(input: {
-  id: string;
-  name?: string;
-  email?: string;
-  notes?: string;
-  tags?: string[];
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    if (input.name !== undefined || input.email !== undefined) {
-      await c.caller.clientContacts.update({
-        id: input.id,
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.email !== undefined ? { email: input.email } : {}),
-      });
-    }
-    if (input.notes !== undefined || input.tags !== undefined) {
-      await c.caller.clientContacts.updateClientMeta({
-        id: input.id,
-        ...(input.notes !== undefined ? { notes: input.notes } : {}),
-        ...(input.tags !== undefined ? { tags: input.tags } : {}),
-      });
-    }
-    revalidatePath(CLIENTS_PATH);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-export type ClientDetailProjectRow = {
-  id: string;
-  title: string;
-  stage: Stage;
-  updatedAtIso: string;
-  priceCents: number;
-  currency: string;
-  outstandingCents: number;
-  finalPaid: boolean;
-};
-
-export type ClientDetailData = {
-  contact: {
-    id: string;
-    email: string;
-    name: string;
-    notes: string | null;
-    tags: string[] | null;
-  };
-  projects: ClientDetailProjectRow[];
-};
-
-export async function fetchClientDetail(input: {
-  id: string;
-}): Promise<ActionDataResult<ClientDetailData>> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    const res = await c.caller.clientContacts.detail({ id: input.id });
-    const projects: ClientDetailProjectRow[] = res.projects.map((p) => ({
-      id: p.id,
-      title: p.title,
-      stage: p.stage,
-      updatedAtIso:
-        p.updatedAt instanceof Date
-          ? p.updatedAt.toISOString()
-          : new Date(p.updatedAt).toISOString(),
-      priceCents: p.priceCents,
-      currency: p.currency ?? "USD",
-      outstandingCents: p.outstandingCents,
-      finalPaid: p.finalPaid,
-    }));
     return {
       ok: true,
       data: {
-        contact: {
-          id: res.contact.id,
-          email: res.contact.email,
-          name: res.contact.name,
-          notes: res.contact.notes,
-          tags: res.contact.tags,
-        },
-        projects,
+        invitedAtIso:
+          res.invitedAt instanceof Date
+            ? res.invitedAt.toISOString()
+            : new Date(res.invitedAt).toISOString(),
+        via: res.via,
       },
     };
   } catch (err) {
+    console.error("[clients-actions]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// New Client modal (Clients & Projects v3 redesign, Phase 1 G6).
+// Creates a client + auto-sends the invite email so the modal can be
+// a single "Add client" CTA. Two-step internally so we can surface the
+// `existed: true` short-circuit to the UI without sending a duplicate
+// invite. On `existed: true` the modal redirects to the client's space
+// instead of pretending an invite went out.
+//
+// Field defaults: phone/notes are forwarded straight through. The
+// tRPC procedure trims + nulls whitespace and clamps the size — we
+// don't replicate that contract here.
+export async function createClientAction(input: {
+  name: string;
+  email: string;
+  phone?: string;
+  notes?: string;
+}): Promise<
+  ActionDataResult<
+    | { existed: true; id: string }
+    | { existed: false; id: string; invitedAtIso: string }
+  >
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const created = await c.caller.clientContacts.create(input);
+    if (created.existed) {
+      // Existing row — do NOT re-send an invite. The UI redirects to
+      // the client's space so the producer sees what they already have.
+      revalidatePath(CLIENTS_PATH);
+      return { ok: true, data: { existed: true, id: created.id } };
+    }
+    const sent = await c.caller.clientContacts.sendInvite({
+      id: created.id,
+      via: "email",
+    });
+    revalidatePath(CLIENTS_PATH);
+    return {
+      ok: true,
+      data: {
+        existed: false,
+        id: created.id,
+        invitedAtIso:
+          sent.invitedAt instanceof Date
+            ? sent.invitedAt.toISOString()
+            : new Date(sent.invitedAt).toISOString(),
+      },
+    };
+  } catch (err) {
+    console.error("[clients-actions]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// New Project modal (Clients & Projects v3 redesign, Phase 1 G7).
+// Thin wrapper around project.create. The modal collects four new
+// optional fields (product, deadline, total, deposit) that the legacy
+// /new page didn't have; the underlying tRPC mutation handles all the
+// validation + the recordContact side-effect. We revalidate the
+// list path so the new project row shows up without a hard reload.
+//
+// Mirrors createClientAction's error-handling pattern: ZodError +
+// TRPCError both round-trip through toMessage() so the modal can
+// surface "field: message" hints directly.
+export async function createProjectAction(input: {
+  title: string;
+  artistName: string;
+  artistEmail: string;
+  productId?: string;
+  deadlineAt?: string;
+  engagementTotalCents?: number;
+  depositCents?: number;
+}): Promise<ActionDataResult<{ id: string }>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    // Conditional-spread to satisfy exactOptionalPropertyTypes — never
+    // pass `undefined` as a property value. The four G7 fields are
+    // forwarded only when the caller actually filled them in.
+    const payload: {
+      title: string;
+      artistName: string;
+      artistEmail: string;
+      productId?: string;
+      deadlineAt?: string;
+      engagementTotalCents?: number;
+      depositCents?: number;
+    } = {
+      title: input.title,
+      artistName: input.artistName,
+      artistEmail: input.artistEmail,
+    };
+    if (input.productId) payload.productId = input.productId;
+    if (input.deadlineAt) payload.deadlineAt = input.deadlineAt;
+    if (input.engagementTotalCents !== undefined) {
+      payload.engagementTotalCents = input.engagementTotalCents;
+    }
+    if (input.depositCents !== undefined) {
+      payload.depositCents = input.depositCents;
+    }
+    const res = await c.caller.project.create(payload);
+    revalidatePath(CLIENTS_PATH);
+    return { ok: true, data: { id: res.project.id } };
+  } catch (err) {
+    console.error("[clients-actions:createProject]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Reorder wrappers for the drag-to-reorder UX on the Clients & Projects
+// list view. The tRPC mutations (clientContacts.reorder, projects.reorder)
+// verify ownership + atomically rewrite the `position` column.
+// revalidatePath fires after success so the next read returns rows in
+// the new order. Ownership re-check lives inside the tRPC procedures
+// — do not remove it there.
+
+export async function reorderClientsAction(
+  orderedIds: string[],
+): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.clientContacts.reorder({ orderedIds });
+    revalidatePath(CLIENTS_PATH);
+    return { ok: true };
+  } catch (err) {
+    console.error("[clients-actions]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function reorderProjectsAction(
+  orderedIds: string[],
+): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.reorder({ orderedIds });
+    revalidatePath(CLIENTS_PATH);
+    return { ok: true };
+  } catch (err) {
+    console.error("[clients-actions]", err);
     return { ok: false, error: toMessage(err) };
   }
 }

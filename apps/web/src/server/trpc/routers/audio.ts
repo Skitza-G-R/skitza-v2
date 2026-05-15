@@ -5,12 +5,24 @@ import {
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
-import { projectTracks, projects, eq, trackVersions, type Db } from "@skitza/db";
+import {
+  producers,
+  projectTracks,
+  projects,
+  eq,
+  trackVersions,
+  type Db,
+} from "@skitza/db";
 import { z } from "zod";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
+import {
+  SITE_URL,
+  sendTrackVersionUploadedEmail,
+} from "~/server/email/send";
 import { BUCKETS, buildAudioKey, getR2, publicUrl } from "~/server/storage/r2";
 
 // 500MB is the cap for a single audio upload — comfortably above a
@@ -200,6 +212,52 @@ export const audioRouter = router({
         .update(projects)
         .set({ updatedAt: new Date() })
         .where(eq(projects.id, projectId));
+
+      // C1 — fire the "new version uploaded" email AFTER the audioUrl is
+      // patched. addVersion runs at the START of the upload chain (with
+      // audioUrl=null) so emailing there would point the artist at a
+      // missing file. Look up the version label + project recipient
+      // details and enqueue via after() so the response returns fast.
+      const [versionRow] = await ctx.db
+        .select({ label: trackVersions.label })
+        .from(trackVersions)
+        .where(eq(trackVersions.id, input.trackVersionId))
+        .limit(1);
+      const [projectRow] = await ctx.db
+        .select({
+          title: projects.title,
+          artistName: projects.artistName,
+          artistEmail: projects.artistEmail,
+        })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1);
+      const [producerRow] = await ctx.db
+        .select({ displayName: producers.displayName })
+        .from(producers)
+        .where(eq(producers.id, ctx.producerId))
+        .limit(1);
+      if (versionRow && projectRow) {
+        const label = versionRow.label;
+        const artistEmail = projectRow.artistEmail;
+        const artistName = projectRow.artistName;
+        const projectTitle = projectRow.title;
+        const producerName = producerRow?.displayName ?? "Your producer";
+        after(async () => {
+          try {
+            await sendTrackVersionUploadedEmail(artistEmail, {
+              artistName,
+              producerName,
+              projectName: projectTitle,
+              versionLabel: label,
+              reviewUrl: `${SITE_URL}/artist/music`,
+            });
+          } catch (err) {
+            console.error("[email] track-version-uploaded failed", err);
+          }
+        });
+      }
+
       return { url, key: input.key };
     }),
 
