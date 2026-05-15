@@ -25,7 +25,6 @@ import {
   SITE_URL,
   sendPaymentReceivedEmail,
   sendProducerRepliedToCommentEmail,
-  sendTrackVersionUploadedEmail,
 } from "~/server/email/send";
 import { calculateCharges } from "~/server/payments/plan";
 import { getStripe } from "~/server/stripe/client";
@@ -654,12 +653,7 @@ export const projectRouter = router({
       .limit(1);
     if (!track) throw new TRPCError({ code: "NOT_FOUND" });
     const [project] = await ctx.db
-      .select({
-        producerId: projects.producerId,
-        title: projects.title,
-        artistName: projects.artistName,
-        artistEmail: projects.artistEmail,
-      })
+      .select({ producerId: projects.producerId })
       .from(projects)
       .where(eq(projects.id, track.projectId))
       .limit(1);
@@ -681,24 +675,10 @@ export const projectRouter = router({
       .set({ updatedAt: new Date() })
       .where(eq(projects.id, track.projectId));
 
-    const [producerRow] = await ctx.db
-      .select({ displayName: producers.displayName })
-      .from(producers)
-      .where(eq(producers.id, ctx.producerId))
-      .limit(1);
-    after(async () => {
-      try {
-        await sendTrackVersionUploadedEmail(project.artistEmail, {
-          artistName: project.artistName,
-          producerName: producerRow?.displayName ?? "Your producer",
-          projectName: project.title,
-          versionLabel: input.label,
-          reviewUrl: `${SITE_URL}/artist/music`,
-        });
-      } catch (err) {
-        console.error("[email] track-version-uploaded failed", err);
-      }
-    });
+    // NOTE: artist email moved to audio.completeMultipart (C1). When the
+    // modal creates this row with audioUrl=null and patches the URL after
+    // R2 completion, sending the email here would point the artist at a
+    // missing file.
 
     return row;
   }),
