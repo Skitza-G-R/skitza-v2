@@ -34,7 +34,7 @@ type SortValue = (typeof SORT_OPTIONS)[number]["value"];
 // Project filter chips — `all` is implicit (no filter applied).
 const PROJECT_FILTERS = [
   { value: "all", label: "All" },
-  { value: "urgent", label: "Urgent" },
+  { value: "urgent", label: "Needs attention" },
   { value: "active", label: "Active" },
   { value: "done", label: "Done" },
 ] as const;

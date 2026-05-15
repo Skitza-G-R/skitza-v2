@@ -140,4 +140,9 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toMatch(/<InviteToAppModal/);
     expect(SRC).toMatch(/producerSlug=\{producerSlug\}/);
   });
+
+  it("labels the danger-tone project filter 'Needs attention' (matches DESIGN.md §4.1 + KPI tile)", () => {
+    expect(SRC).toMatch(/value:\s*["']urgent["'],\s*label:\s*["']Needs attention["']/);
+    expect(SRC).not.toMatch(/label:\s*["']Urgent["']/);
+  });
 });
