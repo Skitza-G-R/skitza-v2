@@ -108,13 +108,13 @@ export default async function ProjectDetail({ params }: PageProps) {
     const d = b.startsAt;
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   }).length;
-  const firstBooking = projectBookings[0];
-  const lastSessionDate: Date | null =
-    firstBooking === undefined
-      ? null
-      : projectBookings.reduce<Date>((latest, b) => {
-          return b.startsAt > latest ? b.startsAt : latest;
-        }, firstBooking.startsAt);
+  // "Last session" must reflect a session that has actually happened —
+  // not the max across future-scheduled bookings. booking.list returns
+  // bookings ordered ascending by startsAt, so the last past booking
+  // is the freshest historical session.
+  const pastBookings = projectBookings.filter((b) => b.startsAt < now);
+  const lastPast = pastBookings[pastBookings.length - 1];
+  const lastSessionDate: Date | null = lastPast ? lastPast.startsAt : null;
 
   // Build the TrackRow data from the project.detail payload. For each
   // track we derive:

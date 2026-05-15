@@ -70,4 +70,8 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).not.toContain("--surface-hover");
     expect(SRC).not.toContain("--brand-primary-on");
   });
+
+  it("filters past bookings for the 'last session' computation", () => {
+    expect(SRC).toMatch(/startsAt\s*<\s*now|startsAt\s*<=\s*now|past\s*[Bb]ookings/);
+  });
 });
