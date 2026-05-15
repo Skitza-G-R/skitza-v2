@@ -38,6 +38,18 @@ describe("Phase 0 — client_contacts.position", () => {
   });
 });
 
+// Phase 1 (G6) — Adds `phone` to support the New Client modal in the
+// Clients & Projects v3 redesign (DESIGN.md §6.1, migration 0012).
+describe("Phase 1 — client_contacts.phone", () => {
+  it("exists as a nullable text column on client_contacts", () => {
+    const col = clientContacts.phone;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("phone");
+    expect(col.dataType).toBe("string");
+    expect(col.notNull).toBe(false);
+  });
+});
+
 describe("Phase 0 — projects.position", () => {
   it("exists as an integer with default 0 for drag-reorder", () => {
     const col = projects.position;

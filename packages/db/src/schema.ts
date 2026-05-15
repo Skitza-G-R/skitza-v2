@@ -525,6 +525,12 @@ export const clientContacts = pgTable("client_contacts", {
   // simplifies the tag-pill renderers on Project Room + CRM.
   tags: text("tags").array().notNull().default(sql`'{}'`),
   notes: text("notes"),
+  // Optional phone-of-record, captured by the New Client modal in the
+  // Clients & Projects v3 redesign (DESIGN.md §6.1). Nullable so every
+  // pre-existing row + auto-upsert path can ignore it. Free-text — we
+  // don't validate format server-side beyond a 40-char ceiling because
+  // producers paste WhatsApp / international strings in many shapes.
+  phone: text("phone"),
   referralSource: text("referral_source"),
   // Stamped by the Clerk user.created webhook on first artist sign-in.
   // Null = client has never signed in. Once stamped, the artist app can
