@@ -57,9 +57,10 @@ export async function updateProducer(input: {
     accent?: string;
     logoUrl?: string;
   };
-  // Settings redesign — calendar week orientation. UI flips between
-  // Sunday-first ('sun') and Monday-first ('mon').
-  weekStart?: "sun" | "mon";
+  // Calendar week orientation. UI flips between Sunday-first ('sunday')
+  // and Monday-first ('monday'). Long form matches the producers.week_start
+  // column shape and the useWeekStartPref hook in lib/time/week-start.ts.
+  weekStart?: "sunday" | "monday";
   // Settings redesign — per-event notification preferences. Partial
   // map: keys not in the patch keep their existing values server-side.
   notificationPrefs?: Record<string, { email: boolean; app: boolean }>;
@@ -75,6 +76,13 @@ export async function updateProducer(input: {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/portfolio");
     revalidatePath("/dashboard/leads");
+    // weekStart is read server-side by the Calendar (availability tab)
+    // and the onboarding availability step; both need to see the new
+    // value on next visit. Bust both even when only weekStart changes.
+    if (input.weekStart) {
+      revalidatePath("/dashboard/calendar");
+      revalidatePath("/onboarding/availability");
+    }
     // Post-Story-03: slug changes invalidate the /join/<slug> teaser.
     if (input.slug) revalidatePath(`/join/${input.slug}`);
     return { ok: true };

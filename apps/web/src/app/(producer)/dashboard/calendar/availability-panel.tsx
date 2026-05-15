@@ -68,14 +68,19 @@ export type AvailabilityPanelProps = {
     cancellationPolicyHours: number;
     bufferMin?: number;
   };
+  // Producer's stored week-start preference (DB-backed since the
+  // Settings redesign). The toggle here persists to the same column,
+  // so editing in one place updates the other on next visit.
+  initialWeekStart: WeekStart;
 };
 
 export function AvailabilityPanel({
   blocks: initialBlocks,
   blackouts: initialBlackouts,
   settings,
+  initialWeekStart,
 }: AvailabilityPanelProps) {
-  const [weekStart, setWeekStart] = useWeekStartPref();
+  const [weekStart, setWeekStart] = useWeekStartPref(initialWeekStart);
   const orderedDays = useMemo(
     () => orderByWeekStart(DAYS, weekStart),
     [weekStart],

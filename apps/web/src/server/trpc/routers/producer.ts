@@ -99,7 +99,9 @@ const UpdateInput = z.object({
   brand: BrandInput.optional(),
   // Settings redesign — calendar week orientation. Two values only;
   // the segmented control in Settings → Language & region writes here.
-  weekStart: z.enum(["sun", "mon"]).optional(),
+  // Also written by the Calendar availability panel and the onboarding
+  // availability step (via useWeekStartPref).
+  weekStart: z.enum(["sunday", "monday"]).optional(),
   // Settings redesign — per-event notification preferences. Partial
   // merge: only the event keys present in the payload get rewritten.
   notificationPrefs: NotificationPrefsInput.optional(),

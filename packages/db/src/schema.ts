@@ -98,10 +98,12 @@ export const producers = pgTable("producers", {
   // not gate features. Real billing follows in a separate task.
   plan: text("plan").notNull().default("free"),
   // Calendar week-grid orientation. Used by the Calendar's week view
-  // to decide whether columns start Sunday or Monday. Default 'sun'
-  // matches the design's default; producers in MON-first locales flip
-  // it on Settings → Language & region.
-  weekStart: text("week_start").notNull().default("sun"),
+  // and the onboarding availability step. Two values: 'sunday' | 'monday'
+  // — long form matches the existing `useWeekStartPref` hook in
+  // lib/time/week-start.ts so the same string flows from DB → server →
+  // client without translation. Settings → Language & region writes
+  // here; Calendar / Onboarding read from here.
+  weekStart: text("week_start").notNull().default("sunday"),
   // Per-event notification preferences. Shape:
   //   { booking: { email: bool, app: bool }, approval: {...}, ... }
   // Six known event keys (booking, approval, payment, overdue, comment,

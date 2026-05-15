@@ -122,7 +122,7 @@ export default async function SettingsPage({
           | "EUR"
           | "GBP"
           | "ILS",
-        weekStart: profile.weekStart === "mon" ? "mon" : "sun",
+        weekStart: profile.weekStart === "monday" ? "monday" : "sunday",
         plan: profile.plan === "pro" ? "pro" : "free",
         notifications: resolveNotifications(profile.notificationPrefs),
       }}

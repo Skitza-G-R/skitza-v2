@@ -28,7 +28,7 @@ import {
 interface InitialState {
   displayName: string;
   defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
-  weekStart: "sun" | "mon";
+  weekStart: "sunday" | "monday";
   plan: "free" | "pro";
   notifications: NotificationState;
 }
@@ -50,7 +50,7 @@ interface IntegrationsState {
 interface FormState {
   displayName: string;
   defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
-  weekStart: "sun" | "mon";
+  weekStart: "sunday" | "monday";
 }
 
 export function SettingsClient({
@@ -867,8 +867,8 @@ function RegionSection({
             <div className="s-seg" role="radiogroup" aria-label="Week starts on">
               {(
                 [
-                  ["sun", "Sunday"],
-                  ["mon", "Monday"],
+                  ["sunday", "Sunday"],
+                  ["monday", "Monday"],
                 ] as const
               ).map(([k, label]) => {
                 const isOn = form.weekStart === k;

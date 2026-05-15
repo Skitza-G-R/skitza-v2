@@ -11,7 +11,7 @@ ALTER TABLE producers
   ADD COLUMN IF NOT EXISTS plan text NOT NULL DEFAULT 'free';
 
 ALTER TABLE producers
-  ADD COLUMN IF NOT EXISTS week_start text NOT NULL DEFAULT 'sun';
+  ADD COLUMN IF NOT EXISTS week_start text NOT NULL DEFAULT 'sunday';
 
 ALTER TABLE producers
   ADD COLUMN IF NOT EXISTS notification_prefs jsonb NOT NULL DEFAULT '{}'::jsonb;
