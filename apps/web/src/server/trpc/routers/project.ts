@@ -58,11 +58,22 @@ const ALL_STAGES = [
 type Stage = (typeof ALL_STAGES)[number];
 
 // ─── Inputs ──────────────────────────────────────────────────────────
+// Phase 1 G7 — the redesigned New Project modal sends the four
+// product/deadline/total/deposit fields below alongside the legacy
+// title/artistName/artistEmail. All four are optional so the old
+// onboarding-wizard / booking-conversion call paths that still post
+// only the legacy fields continue to work untouched.
 const CreateProjectInput = z.object({
   title: z.string().min(1).max(120),
   artistName: z.string().min(1).max(80),
   artistEmail: z.string().email(),
   bookingId: z.string().uuid().optional(),
+  productId: z.string().uuid().optional(),
+  // ISO 8601 — parsed into a Date for the timestamptz column.
+  deadlineAt: z.string().datetime().optional(),
+  // Minor units. Stored verbatim — no currency conversion here.
+  engagementTotalCents: z.number().int().min(0).optional(),
+  depositCents: z.number().int().min(0).optional(),
 });
 
 // Edit-project modal payload. All fields optional so the modal can
@@ -300,6 +311,20 @@ export const projectRouter = router({
         // verify the URL the artist clicked. Unique constraint at the
         // schema level guards against guess collisions.
         inviteToken: token.raw,
+        // Phase 1 G7 — write the new modal fields only when present
+        // so legacy callers don't accidentally null these columns.
+        // `exactOptionalPropertyTypes` requires the conditional-spread
+        // shape; passing `undefined` would be a type error.
+        ...(input.productId ? { productId: input.productId } : {}),
+        ...(input.deadlineAt
+          ? { deadlineAt: new Date(input.deadlineAt) }
+          : {}),
+        ...(input.engagementTotalCents !== undefined
+          ? { engagementTotalCents: input.engagementTotalCents }
+          : {}),
+        ...(input.depositCents !== undefined
+          ? { depositCents: input.depositCents }
+          : {}),
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
