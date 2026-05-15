@@ -151,8 +151,9 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
   });
 
   it("renders the Clients tab button before the Projects tab button", () => {
-    const clientsIdx = SRC.indexOf(">Clients<");
-    const projectsIdx = SRC.indexOf(">Projects<");
+    // Whitespace-tolerant so future `prettier --write` doesn't break the test.
+    const clientsIdx = SRC.search(/>\s*Clients\s*</);
+    const projectsIdx = SRC.search(/>\s*Projects\s*</);
     expect(clientsIdx).toBeGreaterThan(-1);
     expect(projectsIdx).toBeGreaterThan(clientsIdx);
   });
@@ -162,7 +163,10 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
   });
 
   it("renders a header with the 'Clients & Projects' title", () => {
-    expect(SRC).toContain("Clients & Projects");
+    // Sibling convention in apps/web/src/components/dashboard uses the
+    // &amp; HTML entity (see project-room-hero.tsx, overview-screen.tsx,
+    // overview-sub-tab.tsx). Match that.
+    expect(SRC).toContain("Clients &amp; Projects");
   });
 
   it("renders a 'New client' CTA when on the Clients tab", () => {

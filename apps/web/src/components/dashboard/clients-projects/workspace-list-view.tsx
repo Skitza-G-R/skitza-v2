@@ -316,7 +316,7 @@ export function WorkspaceListView({
           className="font-syne text-[24px] font-bold tracking-tight"
           style={{ color: "rgb(var(--fg-default))" }}
         >
-          {"Clients & Projects"}
+          Clients &amp; Projects
         </h1>
         {tab === "clients" ? (
           <Link
@@ -389,7 +389,9 @@ export function WorkspaceListView({
                 ? "rgb(var(--bg-sidebar))"
                 : "rgb(var(--fg-muted))",
           }}
-        >Clients</button>
+        >
+          Clients
+        </button>
         <button
           type="button"
           role="tab"
@@ -406,7 +408,9 @@ export function WorkspaceListView({
                 ? "rgb(var(--bg-sidebar))"
                 : "rgb(var(--fg-muted))",
           }}
-        >Projects</button>
+        >
+          Projects
+        </button>
       </div>
 
       {/* Toolbar — filter chips + layout switcher + sort dropdown */}
