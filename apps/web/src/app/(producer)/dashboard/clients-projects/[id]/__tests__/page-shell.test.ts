@@ -74,4 +74,17 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
   it("filters past bookings for the 'last session' computation", () => {
     expect(SRC).toMatch(/startsAt\s*<\s*now|startsAt\s*<=\s*now|past\s*[Bb]ookings/);
   });
+
+  it("redirects to /songs/[songId] when the project has exactly 1 track (Single-Space rule)", () => {
+    // The Single-Space rule: a project with exactly one track is its
+    // song — the album route bounces straight to the song route.
+    // Assertion is whitespace-tolerant + accepts either tracks[0].id
+    // or a small destructure / lookup variant.
+    expect(SRC).toMatch(/data\.tracks\.length\s*===\s*1/);
+    // Allow multi-line redirect call. Check the template literal
+    // shape includes the dashboard + songs path with two interpolations.
+    expect(SRC).toMatch(
+      /redirect\([\s\S]*?`\/dashboard\/clients-projects\/\$\{[^}]+\}\/songs\/\$\{[^}]+\}`[\s\S]*?\)/,
+    );
+  });
 });

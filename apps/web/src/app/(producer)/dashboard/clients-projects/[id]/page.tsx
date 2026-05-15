@@ -67,6 +67,19 @@ export default async function ProjectDetail({ params }: PageProps) {
     notFound();
   }
 
+  // Single-Space rule (DESIGN.md §2 + Phase 3 plan, decision 4) —
+  // when a project has exactly one track, the project IS that song.
+  // We redirect the album route to the song route server-side so EVERY
+  // entry point (clients list, client space, deep link, breadcrumb)
+  // collapses to the same Song Space surface. Implemented BEFORE any
+  // rendering so the AlbumSpace shell never lights up for single-song
+  // projects.
+  if (data.tracks.length === 1 && data.tracks[0]) {
+    redirect(
+      `/dashboard/clients-projects/${id}/songs/${data.tracks[0].id}`,
+    );
+  }
+
   // Parallel: money + sessions list (filtered to this project).
   const [moneyResult, bookingsResult] = await Promise.allSettled([
     caller.project.money({ projectId: id }),
