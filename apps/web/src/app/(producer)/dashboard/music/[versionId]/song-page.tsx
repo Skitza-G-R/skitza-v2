@@ -525,9 +525,9 @@ export function SongPage({ data }: { data: SongPageData }) {
           }}
         />
 
-        <div className="relative mx-auto max-w-[1120px] px-4 pt-7 pb-9 sm:px-6 sm:pt-9 sm:pb-12">
+        <div className="relative mx-auto max-w-[1120px] px-4 pt-4 pb-5 sm:px-6 sm:pt-6 sm:pb-7">
           {/* Top breadcrumb row — quiet glass pills, no visual heft */}
-          <div className="mb-7 flex flex-wrap items-center justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/dashboard/music"
               className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
@@ -544,28 +544,28 @@ export function SongPage({ data }: { data: SongPageData }) {
             </Link>
           </div>
 
-          <div className="flex flex-col gap-7 md:flex-row md:items-end md:gap-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:gap-5">
             {/* Album-art tile — Double-bezel: glass outer ring + inner
                 gradient core with reflection + a centered audio glyph.
                 Reads as physical hardware, not a placeholder box. */}
             <div className="reveal-up shrink-0">
               <div
                 aria-hidden
-                className="relative rounded-[28px] p-[3px]"
+                className="relative rounded-[20px] p-[2px]"
                 style={{
                   background:
                     "linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.08) 40%, rgba(255,255,255,0.18) 100%)",
                   boxShadow:
-                    "0 30px 80px -20px rgba(0,0,0,0.55), 0 2px 0 0 rgba(255,255,255,0.18) inset",
+                    "0 18px 48px -16px rgba(0,0,0,0.5), 0 2px 0 0 rgba(255,255,255,0.18) inset",
                 }}
               >
                 <div
-                  className="relative flex h-[132px] w-[132px] items-center justify-center overflow-hidden rounded-[25px] text-white"
+                  className="relative flex h-[88px] w-[88px] items-center justify-center overflow-hidden rounded-[18px] text-white"
                   style={{
                     background:
                       "linear-gradient(155deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.1) 60%, rgba(255,255,255,0.06) 100%)",
                     boxShadow:
-                      "inset 0 1px 0 0 rgba(255,255,255,0.18), inset 0 -40px 50px -20px rgba(0,0,0,0.4)",
+                      "inset 0 1px 0 0 rgba(255,255,255,0.18), inset 0 -28px 40px -16px rgba(0,0,0,0.4)",
                   }}
                 >
                   <WaveformGlyph />
@@ -584,16 +584,16 @@ export function SongPage({ data }: { data: SongPageData }) {
 
             {/* Title block + meta */}
             <div className="reveal-up reveal-up-delay-1 min-w-0 flex-1">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-white/70">
+              <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-white/65">
                 Song · {data.track.projectTitle}
               </span>
               <h1
-                className="font-display mt-2 text-[clamp(34px,5vw,56px)] font-extrabold leading-[1] tracking-[-0.035em]"
-                style={{ textShadow: "0 2px 22px rgba(0,0,0,0.22)" }}
+                className="font-display mt-1.5 text-[clamp(24px,3.5vw,40px)] font-extrabold leading-[1.02] tracking-[-0.03em]"
+                style={{ textShadow: "0 2px 14px rgba(0,0,0,0.2)" }}
               >
                 {data.track.title}
               </h1>
-              <div className="mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-white/85">
+              <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-white/80">
                 {clientLabel ? (
                   <span className="font-medium">{clientLabel}</span>
                 ) : null}
@@ -621,8 +621,8 @@ export function SongPage({ data }: { data: SongPageData }) {
 
               {/* Version pills — magnetic hover, monospace labels */}
               {data.versions.length > 1 ? (
-                <div className="mt-5 flex flex-wrap items-center gap-1.5">
-                  <span className="mr-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-white/55">
+                <div className="mt-3 flex flex-wrap items-center gap-1">
+                  <span className="mr-1 font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-white/55">
                     Version
                   </span>
                   {data.versions.map((v, i) => {
@@ -818,18 +818,18 @@ export function SongPage({ data }: { data: SongPageData }) {
           double-bezel pattern — an outer hairline sheath + inner core
           with a soft inset highlight, so it sits on the page like a
           piece of polished hardware instead of a flat content rectangle. */}
-      <section className="mx-auto max-w-[1120px] px-4 py-7 sm:px-6 sm:py-10">
+      <section className="mx-auto max-w-[1120px] px-4 py-5 sm:px-6 sm:py-7">
         {/* Waveform — Double-Bezel card */}
         <div
-          className="reveal-up rounded-[28px] p-[1.5px]"
+          className="reveal-up rounded-[20px] p-[1.5px]"
           style={{
             background:
               "linear-gradient(180deg, rgb(var(--fg-default) / 0.08) 0%, rgb(var(--fg-default) / 0.02) 60%, rgb(var(--brand-primary) / 0.18) 100%)",
-            boxShadow: "var(--shadow-lg)",
+            boxShadow: "var(--shadow-md)",
           }}
         >
           <div
-            className="rounded-[26px] bg-[rgb(var(--bg-elevated))] p-6 sm:p-7"
+            className="rounded-[18.5px] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5"
             style={{
               boxShadow:
                 "inset 0 1px 0 0 rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(var(--fg-default) / 0.04)",
@@ -848,7 +848,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 wave without reaching back up to the hero. Same toggle
                 path (handlePlayToggle) as the hero CTA, kept in lock-
                 step by source-grep test. */}
-            <div className="mt-6 flex items-center justify-center gap-2.5">
+            <div className="mt-4 flex items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -861,7 +861,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 disabled={playState.disabled}
                 aria-label="Back 5 seconds"
                 title="Back 5 seconds"
-                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
+                className="sk-press inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Skip5Icon dir="back" />
               </button>
@@ -875,11 +875,11 @@ export function SongPage({ data }: { data: SongPageData }) {
                   playState.disabled ? "Audio is still uploading" : playState.label
                 }
                 className={[
-                  "sk-press inline-flex h-14 w-14 items-center justify-center rounded-full",
+                  "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full",
                   "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   isPlayingThis
-                    ? "bg-[rgb(var(--brand-primary))] text-white shadow-[0_0_0_6px_rgb(var(--brand-primary)/0.12),0_18px_36px_-10px_rgb(var(--brand-primary)/0.55)]"
-                    : "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))] shadow-[0_12px_28px_-8px_rgb(var(--fg-default)/0.35)] hover:-translate-y-px hover:shadow-[0_18px_38px_-10px_rgb(var(--fg-default)/0.45)]",
+                    ? "bg-[rgb(var(--brand-primary))] text-white shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12),0_12px_24px_-8px_rgb(var(--brand-primary)/0.5)]"
+                    : "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))] shadow-[0_8px_18px_-6px_rgb(var(--fg-default)/0.32)] hover:-translate-y-px hover:shadow-[0_12px_28px_-8px_rgb(var(--fg-default)/0.42)]",
                   "disabled:cursor-not-allowed disabled:opacity-40",
                 ].join(" ")}
               >
@@ -898,13 +898,13 @@ export function SongPage({ data }: { data: SongPageData }) {
                 disabled={playState.disabled}
                 aria-label="Forward 5 seconds"
                 title="Forward 5 seconds"
-                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
+                className="sk-press inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Skip5Icon dir="fwd" />
               </button>
             </div>
 
-            <p className="mt-5 text-center font-mono text-[10px] tracking-[0.16em] uppercase text-[rgb(var(--fg-muted))]">
+            <p className="mt-3 text-center font-mono text-[9.5px] tracking-[0.14em] uppercase text-[rgb(var(--fg-muted))]">
               Click to seek · Drag to scrub · Hover to preview
             </p>
           </div>
@@ -914,13 +914,13 @@ export function SongPage({ data }: { data: SongPageData }) {
             Header → Composer → List. Composer floats at the top so the
             primary action (drop a note at the playhead) is the first
             thing a producer sees after the waveform. */}
-        <div className="reveal-up reveal-up-delay-2 mt-8">
-          <div className="mb-3 flex items-baseline justify-between">
-            <div className="flex items-baseline gap-2.5">
-              <h2 className="font-display text-[20px] font-bold tracking-[-0.018em] text-[rgb(var(--fg-default))]">
+        <div className="reveal-up reveal-up-delay-2 mt-6">
+          <div className="mb-2.5 flex items-baseline justify-between">
+            <div className="flex items-baseline gap-2">
+              <h2 className="font-display text-[17px] font-bold tracking-[-0.018em] text-[rgb(var(--fg-default))]">
                 Notes
               </h2>
-              <span className="font-mono text-[11px] font-bold tabular-nums text-[rgb(var(--fg-muted))]">
+              <span className="font-mono text-[10.5px] font-bold tabular-nums text-[rgb(var(--fg-muted))]">
                 {String(visibleComments.length)}
                 {visibleComments.length !== allCommentsForVersion.length
                   ? ` of ${String(allCommentsForVersion.length)}`
@@ -952,7 +952,7 @@ export function SongPage({ data }: { data: SongPageData }) {
           {/* Composer — premium pill, focus-state with amber ring. */}
           <div
             className={[
-              "group/composer mb-5 flex items-center gap-2.5 rounded-full border bg-[rgb(var(--bg-elevated))] py-1.5 pl-2 pr-1.5",
+              "group/composer mb-3 flex items-center gap-2 rounded-full border bg-[rgb(var(--bg-elevated))] py-1 pl-2 pr-1",
               "border-[rgb(var(--border-subtle))]",
               "transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
               "focus-within:border-[rgb(var(--brand-primary)/0.5)] focus-within:shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12)]",
@@ -1005,7 +1005,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                     key={c.id}
                     className={[
                       "group/note reveal-up",
-                      "flex items-start gap-3 rounded-[18px] border px-4 py-3.5",
+                      "flex items-start gap-2.5 rounded-[14px] border px-3 py-2.5",
                       "transition-[transform,box-shadow,background-color,border-color] duration-[260ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                       c.fromProducer
                         ? "border-[rgb(var(--brand-primary)/0.22)] bg-[rgb(var(--brand-primary)/0.05)]"
@@ -1019,7 +1019,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                     <span
                       aria-hidden
                       className={[
-                        "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10.5px] font-bold uppercase tracking-wider text-white",
+                        "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold uppercase tracking-wider text-white",
                         c.fromProducer
                           ? "bg-[rgb(var(--brand-primary))] shadow-[0_2px_8px_-2px_rgb(var(--brand-primary)/0.55)]"
                           : "bg-[rgb(var(--fg-muted))]",
@@ -1060,7 +1060,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                       >
                         {c.body}
                       </p>
-                      <div className="mt-2.5 flex gap-3.5 text-[10.5px] font-bold tracking-wide opacity-0 transition-opacity duration-200 group-hover/note:opacity-100">
+                      <div className="mt-1.5 flex gap-3 text-[10px] font-bold tracking-wide opacity-0 transition-opacity duration-200 group-hover/note:opacity-100">
                         <button
                           type="button"
                           data-test="comment-jump"
