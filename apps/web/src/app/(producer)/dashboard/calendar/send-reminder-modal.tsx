@@ -100,7 +100,7 @@ export function SendReminderModal({
             >
               Template
             </p>
-            <div className="inline-flex rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-0.5">
+            <div className="inline-flex rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-0.5">
               {(["friendly", "formal", "short"] as const).map((t) => (
                 <button
                   key={t}
@@ -110,7 +110,7 @@ export function SendReminderModal({
                   }}
                   aria-pressed={template === t}
                   className={[
-                    "sk-press inline-flex h-7 items-center justify-center rounded-full px-3 text-[11px] capitalize transition-colors",
+                    "sk-press inline-flex h-7 items-center justify-center rounded-[var(--radius-sm)] px-3 text-[11px] capitalize transition-colors",
                     template === t
                       ? "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9_/_0.08)]"
                       : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",

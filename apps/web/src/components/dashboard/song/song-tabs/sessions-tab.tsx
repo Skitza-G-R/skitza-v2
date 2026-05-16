@@ -160,7 +160,7 @@ export function SessionsTab({ sessions }: SessionsTabProps) {
             type="button"
             disabled
             title="Coming soon"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             style={{
               background: "transparent",
               borderColor: "rgb(var(--border-subtle))",

@@ -132,12 +132,18 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
 });
 
 describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () => {
-  it("G4: hero is full-bleed (negative horizontal margins, no border-radius)", () => {
+  it("G4: hero is full-bleed (negative horizontal margins, no border-radius on the band)", () => {
     // Design HTML 252: hero band is full-width, no rounded corners.
     // Negative margins cancel the page padding so the band reaches the
-    // content-area edges.
+    // content-area edges. The assertion targets the <section> wrapper
+    // specifically so inner CTAs are free to use the standard rectangle
+    // radius (`--radius-lg`) per docs/design/buttons.md.
     expect(SRC).toMatch(/-mx-4[\s\S]*?sm:-mx-6|sm:-mx-6[\s\S]*?-mx-4/);
-    expect(SRC).not.toMatch(/rounded-\[var\(--radius-lg\)\]/);
+    const sectionMatch = SRC.match(/<section[\s\S]*?className="([^"]+)"/);
+    expect(sectionMatch).not.toBeNull();
+    const sectionCls = sectionMatch?.[1] ?? "";
+    expect(sectionCls).toMatch(/-mx-4/);
+    expect(sectionCls).not.toMatch(/\brounded-/);
   });
 
   it("G4: h1 is 54px Syne with the design's negative tracking", () => {

@@ -90,7 +90,7 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
       <ConfettiBurst />
       <div className="ob-stagger flex flex-col items-center text-center">
         {/* Live-dot pill: gold-tinted bg + pulsing dot. */}
-        <span className="mb-7 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
+        <span className="mb-7 inline-flex items-center gap-2 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
           <span
             aria-hidden
             className="ob-alive-dot inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"

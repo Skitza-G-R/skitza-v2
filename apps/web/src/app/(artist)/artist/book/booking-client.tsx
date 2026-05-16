@@ -636,7 +636,7 @@ function CreditsBlock({
                   {pkg.packageName ?? pkg.title}
                 </span>
                 <span
-                  className="shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums"
+                  className="shrink-0 rounded-[var(--radius-sm)] px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums"
                   style={{
                     background: sel
                       ? "rgb(var(--bg-sidebar) / 0.15)"

@@ -198,7 +198,7 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
-      className="sk-press rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors"
+      className="sk-press rounded-[var(--radius-sm)] border px-3 py-1 text-[12px] font-semibold transition-colors"
       style={{
         background: active
           ? "rgb(var(--bg-sidebar))"

@@ -319,7 +319,7 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
             {shareConfirm ? (
               <span
                 role="status"
-                className="reveal-up rounded-full bg-white/90 px-3 py-1.5 text-[11.5px] font-bold text-[rgb(17_16_9)] backdrop-blur-sm"
+                className="reveal-up rounded-[var(--radius-sm)] bg-white/90 px-3 py-1.5 text-[11.5px] font-bold text-[rgb(17_16_9)] backdrop-blur-sm"
               >
                 {shareConfirm === "copied" ? "Link copied" : "Shared"}
               </span>

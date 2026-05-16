@@ -9,7 +9,7 @@ import { cn } from "~/lib/cn";
 // in globals.css. 10px bold uppercase tracking-widest matches the
 // design-system.md spec for "section labels / status pills".
 const badgeVariants = cva(
-  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] whitespace-nowrap",
+  "inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] whitespace-nowrap",
   {
     variants: {
       variant: {
