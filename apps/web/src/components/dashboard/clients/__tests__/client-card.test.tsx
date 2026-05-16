@@ -109,4 +109,15 @@ describe("ClientCard source — avatar / link pill / stats / whole-card link", (
   it("respects prefers-reduced-motion via motion-reduce escape hatches", () => {
     expect(SRC).toMatch(/motion-reduce:hover:translate-y-0/);
   });
+
+  it("renders the avatar tile as a circle (mockup-match, not rounded-md)", () => {
+    // HTML mockup's .clicard uses circular avatars on the workspace
+    // grid — the locked design's family of "round small profile, big
+    // square hero" stays intact. Pinning so a future cleanup doesn't
+    // quietly flip this back to rounded-[var(--radius-md)].
+    expect(SRC).toMatch(
+      /h-12\s+w-12[\s\S]{0,80}rounded-full|rounded-full[\s\S]{0,80}h-12\s+w-12/,
+    );
+    expect(SRC).not.toMatch(/h-12\s+w-12[\s\S]{0,40}rounded-\[var\(--radius-md\)\]/);
+  });
 });

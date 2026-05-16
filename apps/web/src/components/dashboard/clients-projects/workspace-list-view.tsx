@@ -450,6 +450,7 @@ export function WorkspaceListView({
               : "—"
           }
           variant={kpis.outstanding > 0 ? "danger" : "default"}
+          glow={kpis.outstanding > 0 ? "danger" : "none"}
           sub={
             kpis.outstanding > 0
               ? `${String(kpis.needsAttention)} ${kpis.needsAttention === 1 ? "project needs" : "projects need"} a nudge`
@@ -469,6 +470,7 @@ export function WorkspaceListView({
         <StatTile
           label="Next deadline"
           value={kpis.nextDeadline}
+          glow={kpis.nextDeadlineLabel ? "brand" : "none"}
           sub={kpis.nextDeadlineLabel ?? "Upcoming work"}
         />
       </div>

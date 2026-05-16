@@ -87,7 +87,11 @@ export function ClientCard({
 
       <div className="relative z-10 flex items-start gap-3">
         <span
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[14px] font-bold text-white"
+          // Mockup-match: client-card avatars are circular tiles on the
+          // workspace grid (matches the HTML's .clicard avatar). The
+          // larger 112px hero avatar elsewhere stays square — the small
+          // tile reads better as a circle in a 3-up grid.
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[14px] font-bold text-white"
           style={{ background: avatarBg }}
           aria-hidden
         >

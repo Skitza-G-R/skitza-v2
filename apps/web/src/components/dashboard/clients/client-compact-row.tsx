@@ -85,7 +85,10 @@ export function ClientCompactRow({
       </span>
 
       <span
-        className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] font-mono text-[12px] font-bold text-white"
+        // Mockup-match: avatars on the workspace client list are
+        // circular (matches ClientCard's tile). The compact-row uses
+        // a slightly smaller 44px circle.
+        className="flex h-11 w-11 items-center justify-center rounded-full font-mono text-[12px] font-bold text-white"
         style={{ background: avatarBg }}
         aria-hidden
       >

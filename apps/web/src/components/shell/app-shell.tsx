@@ -43,7 +43,8 @@ import { ShortcutsBridge } from "./shortcuts-bridge";
 // docs/qa/phase-2-handoff.md under "FloatingPlayer slot".
 
 export async function AppShell({ children }: { children: ReactNode }) {
-  const { slug, unreadCount, unreadItems } = await getShellState();
+  const { slug, displayName, plan, unreadCount, unreadItems } =
+    await getShellState();
   // Public origin used by the SidebarShareChip to render the
   // /join/<slug> URL. Always the canonical brand origin — share links
   // land in producer bios + socials, so they must always read as
@@ -64,6 +65,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
         publicBaseUrl={publicBaseUrl}
         unreadCount={unreadCount}
         unreadItems={unreadItems}
+        displayName={displayName}
+        plan={plan}
       />
       {/* `pb-20` on mobile reserves space for the fixed bottom nav
           (56px tab row + 8px safe-area buffer). `lg:pb-0` strips it
