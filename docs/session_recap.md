@@ -4,9 +4,34 @@
 
 | Branch | PR | Subject | Status |
 |---|---|---|---|
+| `per-song-pricing-design` | [#134](https://github.com/Skitza-G-R/skitza-v2/pull/134) | feat: per-song pricing for storefront products | Pipeline green (2417 tests), **migrations 0015 + 0016 pending apply** — see [handoff](plans/active/2026-05-16-per-song-pricing-handoff.md) |
 | `settings-redesign` | [#116](https://github.com/Skitza-G-R/skitza-v2/pull/116) | feat(settings): 5-section sub-nav with savebar | Pipeline green, schema migration 0012 pending apply |
 | `clients-projects-redesign` | [#113](https://github.com/Skitza-G-R/skitza-v2/pull/113) | Phase 0 (schema) | Pipeline green, waiting on Raz review |
 | `overview-first-week-empty` | — | Overview first-week empty state (predicate landed) | 1 commit ahead of `v3-clean`, pushed to origin |
+
+---
+
+## Per-song pricing (2026-05-16, branch `per-song-pricing-design`, PR #134)
+
+Adds **per-song pricing** to storefront products. Producer toggles "Per song" in the wizard's Pricing step → rate-card ladder (base + optional discount tiers) → "Artists will see" preview renders the exact store-card copy live. Artist sees "From $X/song · Discounts for bigger projects" on the store list, taps a `– / +` stepper to pick song count, checks out. Producer dashboard shows "Mixing × N songs" on the resulting project.
+
+**Math foundation:** new `apps/web/src/lib/pricing.ts` — pure helpers (`unitPriceFor`, `totalFor`, `fromPrice`, `validateTiers`) used by the wizard preview, artist card, artist stepper, AND server-side checkout re-validation. Single source for all tier math — no drift possible across the five paths.
+
+**Schema added (migrations 0015 + 0016):**
+- `bookings.song_qty` integer NULL + `bookings.unit_price_cents` integer NULL
+- `projects.song_qty` integer NULL + `projects.unit_price_cents` integer NULL
+
+Per-song checkouts denormalise qty + locked-in rate onto the project row so the producer dashboard renders "× N songs" without re-running tier math against possibly-edited `volumeTiers`.
+
+**Security:** the checkout mutation re-validates `unitPriceCents` server-side against `product.volumeTiers` using the same `unitPriceFor()` helper. A tampered client payload can't lock in an unauthorised rate — `BAD_REQUEST: "Pricing changed — refresh the page and try again."`
+
+**Files:** see the full list in the [handoff doc](plans/active/2026-05-16-per-song-pricing-handoff.md). Touches the producer wizard, the producer dashboard project hero, both artist-side store pages, the shared `checkout-initiator.ts` helper, and the `artist.store` tRPC router. 13 commits.
+
+**Worktree:** all work happened in `/Users/giliasraf/skitza-per-song-pricing` (a `git worktree` of the same repo pinned to `per-song-pricing-design`) because a parallel Claude session kept `git checkout`ing the main repo mid-task. Clean up with `git worktree remove /Users/giliasraf/skitza-per-song-pricing` after the PR merges.
+
+**Sensitive env var gotcha:** Vercel's `DATABASE_URL_NEON` is marked "Sensitive" — `vercel env pull` returns the name but not the value. Migrations need the URL passed inline (`DATABASE_URL="..." node apply-migrations.mjs`). Documented in `apply-migrations.mjs` which now accepts any of `DATABASE_URL` / `DATABASE_URL_NEON` / `POSTGRES_URL_NON_POOLING` / `POSTGRES_URL`.
+
+**After merge:** Gili applies migrations 0015 + 0016 to production with the same inline-paste workflow.
 
 ---
 
