@@ -30,23 +30,28 @@ export function pickWaveformTime(input: {
   return input.internalMs;
 }
 
-// Premium 80-bar stylized waveform used on the L3 song page.
+// DAW-style waveform for the producer L3 song page.
 //
-//   • 80 bars with seeded heights (envelope-like, stable across renders).
-//   • Played bars in `--brand-primary`, unplayed in `--fg-muted/18`.
-//   • Bars near the playhead get a soft amber halo (perceived liveness).
-//   • Premium playhead: glowing dot + vertical gradient line + glass pill.
-//   • Hover-scrub ghost: faint ghost playhead + time tooltip follow cursor.
+//   • 220 thin bars at 1px gap — reads as a real audio envelope
+//     (Samply / SoundCloud density).
+//   • Sharp 1px-radius rectangles (not rounded pills) so the silhouette
+//     resolves as a continuous shape rather than discrete dots.
+//   • Seeded envelope with sine harmonics + grain, biased toward
+//     song-shaped peaks (quieter intro, louder body, soft tail).
+//   • Played bars in `--brand-primary`, unplayed in `white/18` (tuned
+//     for the dark waveform-card surface).
+//   • Premium playhead: glowing amber dot + amber vertical line +
+//     dark glass time pill.
+//   • Hover-scrub ghost: dim white line + dark glass time tooltip.
 //   • Click-to-seek + drag-to-scrub + keyboard arrows.
-//   • Comment markers render as tall thin amber ticks above the wave.
+//   • Comment markers above the wave as 10-14px amber/gray ticks.
 //
 // The persistent player owns audio playback; this component is purely
 // presentational. `onProgress` is driven by the parent subscribing to
 // PersistentPlayer's `skitza:player:time` event; `onSeek` is the
 // click-to-seek hook the parent wires to `playerSeek`.
 
-const BAR_COUNT = 80;
-const GLOW_RANGE = 6;
+const BAR_COUNT = 220;
 
 export interface WaveformComment {
   id: string;
@@ -73,15 +78,16 @@ interface Waveform50Props {
   onProgress?: (ms: number) => void;
   /** Fires once per click-to-seek action (terminates a drag, too). */
   onSeek?: (ms: number) => void;
-  /** Visual height in px (default 112 — fits the L3 hero card). */
+  /** Visual height in px (default 140 — fits the L3 hero card). */
   height?: number;
   /** Optional className passthrough. */
   className?: string;
 }
 
-// Tiny mulberry32 PRNG so each version's bars are stable across renders.
-// Heights skew toward the middle with sine harmonics so the silhouette
-// reads as an envelope, not a barcode.
+// Mulberry32 PRNG so each version's bars are stable across renders.
+// Heights are sculpted by sine harmonics on top of the random floor —
+// produces a song-shaped silhouette (soft intro → loud body → quieter
+// tail) instead of a uniform noise carpet.
 function seededHeights(seed: string, n: number): number[] {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i += 1) {
@@ -96,12 +102,19 @@ function seededHeights(seed: string, n: number): number[] {
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     const r = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    // Two-harmonic envelope: long-wave swell (entry+climax+outro) plus a
-    // fast jitter for grain. Result reads as a real audio envelope.
-    const swell = Math.sin((i / n) * Math.PI) * 0.45;
-    const jitter = Math.sin(i * 0.81) * 0.08 + r * 0.42;
-    const v = 0.22 + swell + jitter;
-    out.push(Math.max(0.16, Math.min(1, v)));
+
+    const x = i / n;
+    // Song-shape envelope: low intro, mid-section climax, soft outro.
+    const macro = Math.sin(x * Math.PI) * 0.55;
+    // Sub-envelope for verse / chorus blocks.
+    const phrase = Math.sin(x * Math.PI * 4) * 0.18;
+    // Bar-level texture — uneven peaks within a phrase.
+    const detail = Math.sin(i * 0.41) * 0.12 + Math.sin(i * 1.17) * 0.08;
+    // Random grain — keeps adjacent bars from being identical.
+    const grain = (r - 0.5) * 0.42;
+
+    const v = 0.18 + macro + phrase + detail + grain;
+    out.push(Math.max(0.05, Math.min(1, v)));
   }
   return out;
 }
@@ -113,7 +126,7 @@ export function Waveform50({
   initialMs = 0,
   onProgress,
   onSeek,
-  height = 112,
+  height = 140,
   className,
 }: Waveform50Props) {
   const [internalMs, setInternalMs] = useState(initialMs);
@@ -139,9 +152,7 @@ export function Waveform50({
   const isLive = nowPlaying.trackId === seed;
   const isPlaying = isLive && nowPlaying.playing;
 
-  // Subscribe to the dock's time broadcast. We listen unconditionally
-  // (cheap — single window event) and short-circuit pickWaveformTime
-  // by `isLive` so non-active waveforms ignore ticks for other tracks.
+  // Subscribe to the dock's time broadcast.
   useEffect(() => {
     function onTime(e: Event) {
       const ms = (e as CustomEvent<number>).detail;
@@ -153,8 +164,7 @@ export function Waveform50({
     };
   }, []);
 
-  // Reset both timers when the seed (active version) changes — same
-  // pattern as wavesurfer cleaning up between sources.
+  // Reset both timers when the seed (active version) changes.
   useEffect(() => {
     setInternalMs(0);
     setLiveMs(0);
@@ -179,10 +189,6 @@ export function Waveform50({
     (clientX: number, fireSeek: boolean) => {
       const pct = pctFromClientX(clientX);
       const ms = Math.round((pct / 100) * durationMs);
-      // Live mode: seek the dock so the dock's <audio> element jumps
-      // — broadcast comes back over PLAYER_EVENTS.time and updates
-      // liveMs. Static mode: keep an internal pointer (no audio engine
-      // attached, so we drive the bar visually only).
       if (isLive) {
         playerSeek(ms);
         setLiveMs(ms);
@@ -195,9 +201,6 @@ export function Waveform50({
     [durationMs, isLive, pctFromClientX],
   );
 
-  // Drag state — flip on pointerdown, off on pointerup. Pointer move
-  // handlers attach to the container with pointer capture so a drag
-  // continues if the cursor leaves the bar box.
   const draggingRef = useRef(false);
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     draggingRef.current = true;
@@ -221,9 +224,6 @@ export function Waveform50({
     setHoverPct(null);
   }
 
-  // Keyboard support — arrow keys nudge the playhead by 5%. Mirrors
-  // seekFromClientX's branch: live mode dispatches to the dock,
-  // static mode mutates the internal timer.
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
@@ -244,11 +244,10 @@ export function Waveform50({
 
   return (
     <div className={["w-full", className ?? ""].join(" ")}>
-      {/* Top rail — holds comment markers ABOVE the bar surface so they
-          don't crowd the audio envelope. Height matches the marker hit
-          target so hover popovers anchor cleanly. */}
+      {/* Top rail — comment markers ABOVE the bar surface so they don't
+          crowd the audio envelope. */}
       {comments && comments.length > 0 && durationMs > 0 ? (
-        <div aria-hidden className="relative mb-1.5 h-4">
+        <div aria-hidden className="relative mb-2 h-3.5">
           {comments.map((c) => {
             const pct = (c.timeMs / durationMs) * 100;
             if (pct < 0 || pct > 100) return null;
@@ -276,17 +275,17 @@ export function Waveform50({
                 }}
                 aria-label={`Jump to ${fmt(c.timeMs)}`}
                 className={[
-                  "sk-press pointer-events-auto absolute bottom-0 -translate-x-1/2 rounded-full",
+                  "sk-press pointer-events-auto absolute bottom-0 -translate-x-1/2",
                   "transition-[height,width,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
-                  isHovered ? "h-4 w-[3px] opacity-100" : "h-3 w-[2px] opacity-90",
+                  isHovered ? "h-3.5 w-[3px] opacity-100" : "h-2.5 w-[2px] opacity-90",
                   c.fromProducer
                     ? "bg-[rgb(var(--brand-primary))]"
-                    : "bg-[rgb(var(--fg-muted))]",
+                    : "bg-white/55",
                 ].join(" ")}
                 style={{
                   left: `${pct.toFixed(2)}%`,
                   boxShadow: c.fromProducer
-                    ? `0 0 ${isHovered ? "10px" : "6px"} rgb(var(--brand-primary) / ${isHovered ? "0.55" : "0.35"})`
+                    ? `0 0 ${isHovered ? "8px" : "5px"} rgb(var(--brand-primary) / ${isHovered ? "0.7" : "0.45"})`
                     : "none",
                 }}
               />
@@ -309,23 +308,23 @@ export function Waveform50({
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerLeave}
         onKeyDown={onKeyDown}
-        className="group relative w-full cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-4 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:rounded-[8px]"
+        className="group relative w-full cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:rounded-[4px]"
         style={{ height }}
       >
-        {/* Bars layer */}
-        <div className="absolute inset-0 flex items-center justify-between gap-[2.5px]">
+        {/* Center baseline — barely-visible reference line that anchors
+            the eye like a DAW spectrogram's zero axis. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-px bg-white/[0.04]"
+        />
+
+        {/* Bars layer — 220 thin sharp bars at 1px gap. The flex layout
+            distributes them edge-to-edge so the wave reads as a
+            continuous envelope, not a row of dots. */}
+        <div className="absolute inset-0 flex items-center justify-between gap-px">
           {heights.map((h, i) => {
             const isPlayed = i < playedBars;
-            const distFromPlayhead = playedBars - i;
-            // Bars within GLOW_RANGE of the playhead get a soft amber halo;
-            // intensity decays linearly out, so the cluster reads as "lit"
-            // rather than uniformly painted. Spotify uses the same trick.
-            const glowStrength =
-              isPlayed && distFromPlayhead > 0 && distFromPlayhead <= GLOW_RANGE
-                ? (GLOW_RANGE - distFromPlayhead + 1) / GLOW_RANGE
-                : 0;
-            // Hovered bars (not yet played) get a subtle ghost amber to
-            // preview the seek target — visible only while scrubbing.
+            // Hovered bars (not yet played) get a ghost amber tint.
             const hoverBar = hoverPct !== null ? Math.floor((hoverPct / 100) * BAR_COUNT) : -1;
             const isUnderHover = hoverBar >= 0 && i >= playedBars && i <= hoverBar;
             return (
@@ -333,59 +332,53 @@ export function Waveform50({
                 key={`b-${String(i)}`}
                 aria-hidden
                 className={[
-                  "block flex-1 rounded-full",
-                  "transition-[background-color,box-shadow,opacity] duration-[280ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                  "block flex-1 rounded-[1px]",
+                  "transition-[background-color] duration-[180ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   isPlayed
                     ? "bg-[rgb(var(--brand-primary))]"
                     : isUnderHover
-                      ? "bg-[rgb(var(--brand-primary)/0.4)]"
-                      : "bg-[rgb(var(--fg-muted)/0.22)]",
+                      ? "bg-[rgb(var(--brand-primary)/0.42)]"
+                      : "bg-white/[0.18]",
                 ].join(" ")}
                 style={{
-                  height: `${String(Math.max(8, h * 100))}%`,
-                  minHeight: "4px",
-                  boxShadow:
-                    glowStrength > 0
-                      ? `0 0 ${String(glowStrength * 14)}px rgb(var(--brand-primary) / ${String(glowStrength * 0.55)})`
-                      : "none",
+                  height: `${String(Math.max(4, h * 100))}%`,
+                  minHeight: "2px",
                 }}
               />
             );
           })}
         </div>
 
-        {/* Hover scrub ghost — only visible while pointer is over and we
-            aren't already at the same position as the live playhead. */}
+        {/* Hover scrub ghost — dim white line + glass tooltip. */}
         {hoverPct !== null && Math.abs(hoverPct - progressPct) > 0.5 ? (
           <div
             aria-hidden
             className="pointer-events-none absolute top-0 bottom-0 z-10"
             style={{ left: `${hoverPct.toFixed(2)}%` }}
           >
-            <div className="absolute inset-y-2 left-0 w-px bg-[rgb(var(--fg-default)/0.35)]" />
-            <span className="absolute -bottom-7 left-0 -translate-x-1/2 whitespace-nowrap rounded-full bg-[rgb(var(--bg-elevated)/0.92)] px-2 py-0.5 font-mono text-[10.5px] font-semibold tabular-nums text-[rgb(var(--fg-muted))] shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))] backdrop-blur-md">
+            <div className="absolute inset-y-1 left-0 w-px bg-white/35" />
+            <span className="absolute -bottom-7 left-0 -translate-x-1/2 whitespace-nowrap rounded-[6px] bg-black/70 px-1.5 py-0.5 font-mono text-[10.5px] font-semibold tabular-nums text-white/85 ring-1 ring-white/10 backdrop-blur-md">
               {fmt(hoverMs)}
             </span>
           </div>
         ) : null}
 
-        {/* Playhead — gradient line + glowing dot + glass time pill */}
+        {/* Playhead — thin amber line + glowing dot + glass time pill. */}
         <div
           aria-hidden
           className="pointer-events-none absolute top-0 bottom-0 z-20"
           style={{ left: `${progressPct.toFixed(2)}%` }}
         >
-          {/* Vertical line — soft top, solid amber bottom */}
+          {/* Vertical line — strong amber, full height. */}
           <div
-            className="absolute inset-y-1 left-0 w-px"
+            className="absolute inset-y-0 left-0 w-px bg-[rgb(var(--brand-primary))]"
             style={{
-              background:
-                "linear-gradient(to bottom, rgb(var(--brand-primary) / 0) 0%, rgb(var(--brand-primary) / 0.6) 30%, rgb(var(--brand-primary)) 100%)",
+              boxShadow: "0 0 8px rgb(var(--brand-primary) / 0.6)",
             }}
           />
           {/* Glow dot — wrapped so the breathing ring lives on the parent
-              while the dot keeps its static halo + inner highlight. */}
-          <div className="absolute top-1/2 left-0 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full">
+              while the dot keeps its static halo. */}
+          <div className="absolute top-1/2 left-0 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full">
             {isPlaying ? (
               <span
                 aria-hidden
@@ -396,29 +389,23 @@ export function Waveform50({
               className="relative h-full w-full rounded-full bg-[rgb(var(--brand-primary))]"
               style={{
                 boxShadow:
-                  "0 0 0 3px rgb(var(--bg-elevated)), 0 0 22px 4px rgb(var(--brand-primary) / 0.5), 0 0 4px 1px rgb(var(--brand-primary))",
+                  "0 0 0 2px rgb(28 26 20), 0 0 14px 2px rgb(var(--brand-primary) / 0.55)",
               }}
             />
           </div>
-          {/* Time pill — glass with backdrop-blur and subtle amber ring */}
+          {/* Time pill — dark glass for the dark surface, amber text. */}
           <span
-            className="absolute -top-9 left-0 -translate-x-1/2 whitespace-nowrap rounded-full px-2.5 py-1 font-mono text-[11px] font-bold tabular-nums shadow-[0_8px_24px_-8px_rgb(var(--brand-primary)/0.35)] backdrop-blur-md"
+            className="absolute -top-8 left-0 -translate-x-1/2 whitespace-nowrap rounded-[6px] px-1.5 py-0.5 font-mono text-[10.5px] font-bold tabular-nums backdrop-blur-md"
             style={{
-              background: "rgb(var(--bg-elevated) / 0.88)",
-              color: "rgb(var(--fg-default))",
+              background: "rgb(28 26 20 / 0.92)",
+              color: "rgb(var(--brand-primary))",
               boxShadow:
-                "0 0 0 1px rgb(var(--brand-primary) / 0.32), 0 8px 28px -8px rgb(var(--brand-primary) / 0.4)",
+                "0 0 0 1px rgb(var(--brand-primary) / 0.45), 0 4px 12px -2px rgba(0,0,0,0.5)",
             }}
           >
             {fmt(currentMs)}
           </span>
         </div>
-      </div>
-
-      {/* Time labels — bottom rail */}
-      <div className="mt-3 flex items-center justify-between font-mono text-[10.5px] tabular-nums">
-        <span className="text-[rgb(var(--fg-muted))]">{fmt(currentMs)}</span>
-        <span className="text-[rgb(var(--fg-muted))]">{fmt(durationMs)}</span>
       </div>
     </div>
   );
