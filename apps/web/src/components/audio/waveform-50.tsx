@@ -64,6 +64,18 @@ interface Waveform50Props {
   /** Stable seed for deterministic bar heights — typically `version.id`. */
   seed?: string;
   /**
+   * Optional same-origin URL to fetch + decode for REAL audio peaks.
+   * When provided, we fetch the bytes via `fetch()`, decode them via
+   * Web Audio's `decodeAudioData`, reduce to N RMS-block peaks, and
+   * replace the seeded heights with real envelope data. Until the
+   * decode resolves we render the seeded fallback so there's never a
+   * loading-empty state. Cached per-URL across remounts.
+   *
+   * Should be the same-origin /api/download/<id> route, NOT the raw
+   * R2 URL — R2 doesn't honour CORS for our preview origins.
+   */
+  peaksUrl?: string;
+  /**
    * Optional starting playhead position in ms. The component owns its
    * playhead state internally so click-to-seek + drag both work without
    * round-tripping through a parent every frame.
@@ -77,6 +89,112 @@ interface Waveform50Props {
   height?: number;
   /** Optional className passthrough. */
   className?: string;
+}
+
+// ─── Real-peak decoding ──────────────────────────────────────────────
+
+// Module-level cache. Same URL → same peaks, so we only decode each
+// audio file once per session. Cleared on full page reload.
+const peaksCache = new Map<string, number[]>();
+
+// Lazy singleton AudioContext — created on first decode so SSR doesn't
+// trip on `new AudioContext()`. We never play through it, just decode.
+let _audioCtx: AudioContext | null = null;
+function getAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  if (_audioCtx) return _audioCtx;
+  const Ctor =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+  if (!Ctor) return null;
+  _audioCtx = new Ctor();
+  return _audioCtx;
+}
+
+/**
+ * Reduce a Float32 PCM array to N normalized RMS peaks (0..1).
+ * Exported for unit testing the math without booting Web Audio.
+ */
+export function rmsPeaks(data: Float32Array, barCount: number): number[] {
+  if (data.length === 0 || barCount <= 0) return [];
+  const blockSize = Math.max(1, Math.floor(data.length / barCount));
+  const out: number[] = [];
+  for (let i = 0; i < barCount; i += 1) {
+    const start = i * blockSize;
+    const end = Math.min(start + blockSize, data.length);
+    let sumSq = 0;
+    for (let j = start; j < end; j += 1) {
+      const v = data[j] ?? 0;
+      sumSq += v * v;
+    }
+    out.push(Math.sqrt(sumSq / Math.max(1, end - start)));
+  }
+  const max = Math.max(...out, 1e-9);
+  // Normalize 0..1 and floor at 0.06 so silent sections still render
+  // as a sliver — matches the seeded envelope's visual rhythm.
+  return out.map((p) => Math.max(0.06, Math.min(1, p / max)));
+}
+
+/**
+ * Fetch + decode `url` into N peaks. Falls back to `fallback` until
+ * resolved, and silently keeps the fallback if decode fails.
+ */
+function useAudioPeaks(
+  url: string | null | undefined,
+  barCount: number,
+  fallback: number[],
+): number[] {
+  const [peaks, setPeaks] = useState<number[]>(() => {
+    if (url && peaksCache.has(url)) return peaksCache.get(url) ?? fallback;
+    return fallback;
+  });
+
+  // Keep peaks in sync with seed changes when no URL is provided.
+  // (When URL changes, the effect below overrides this with the cache
+  // hit or the decode result.)
+  useEffect(() => {
+    if (!url) {
+      setPeaks(fallback);
+    }
+    // fallback is recomputed per seed by the parent useMemo; safe to
+    // depend on its identity.
+  }, [url, fallback]);
+
+  useEffect(() => {
+    if (!url) return;
+    const cached = peaksCache.get(url);
+    if (cached) {
+      setPeaks(cached);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const buf = await res.arrayBuffer();
+        // decodeAudioData mutates the buffer in some browsers (Safari);
+        // give it a fresh copy in case we want to reuse the bytes.
+        const audio = await ctx.decodeAudioData(buf.slice(0));
+        if (cancelled) return;
+        const computed = rmsPeaks(audio.getChannelData(0), barCount);
+        peaksCache.set(url, computed);
+        setPeaks(computed);
+      } catch {
+        // Network / codec / CORS failure — silently keep the seeded
+        // fallback. The waveform still works as a click-to-seek
+        // surface, just without a real envelope.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [url, barCount]);
+
+  return peaks;
 }
 
 // Tiny mulberry32 PRNG so each version's bars are stable across renders.
@@ -110,6 +228,7 @@ export function Waveform50({
   durationMs,
   comments,
   seed = "default",
+  peaksUrl,
   initialMs = 0,
   onProgress,
   onSeek,
@@ -163,7 +282,12 @@ export function Waveform50({
 
   const currentMs = pickWaveformTime({ isLive, liveMs, internalMs });
 
-  const heights = useMemo(() => seededHeights(seed, BAR_COUNT), [seed]);
+  // Seeded heights serve as the loading fallback so the bar layer
+  // is never empty. When `peaksUrl` resolves, real RMS peaks replace
+  // them and the CSS height transition morphs the silhouette into the
+  // real audio envelope.
+  const seededFallback = useMemo(() => seededHeights(seed, BAR_COUNT), [seed]);
+  const heights = useAudioPeaks(peaksUrl, BAR_COUNT, seededFallback);
   const progressPct = durationMs > 0 ? Math.min(100, Math.max(0, (currentMs / durationMs) * 100)) : 0;
   const playedBars = Math.floor((progressPct / 100) * BAR_COUNT);
 
@@ -334,7 +458,7 @@ export function Waveform50({
                 aria-hidden
                 className={[
                   "block flex-1 rounded-full",
-                  "transition-[background-color,box-shadow,opacity] duration-[280ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                  "transition-[background-color,box-shadow,opacity,height] duration-[280ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   isPlayed
                     ? "bg-[rgb(var(--brand-primary))]"
                     : isUnderHover

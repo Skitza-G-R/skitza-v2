@@ -850,6 +850,16 @@ export function SongPage({ data }: { data: SongPageData }) {
               durationMs={activeVersion.durationMs ?? 240_000}
               comments={waveformComments}
               seed={activeVersion.id}
+              // Real audio peaks: fetch same-origin /api/download/<id>
+              // (server proxies R2 to dodge CORS). Decoded once per
+              // session via Web Audio's decodeAudioData, cached in a
+              // module-level Map. Until decode resolves, the seeded
+              // envelope shows so there's no empty loading state.
+              peaksUrl={
+                activeVersion.audioUrl
+                  ? `/api/download/${activeVersion.id}`
+                  : undefined
+              }
               onProgress={setCurrentMs}
               height={120}
             />
