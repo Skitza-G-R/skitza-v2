@@ -1003,6 +1003,7 @@ const storeSubrouter = router({
           sessionCount: products.sessionCount,
           kind: products.kind,
           pricingModel: products.pricingModel,
+          volumeTiers: products.volumeTiers,
           paymentPlans: products.paymentPlans,
           position: products.position,
           producerId: products.producerId,
@@ -1016,13 +1017,13 @@ const storeSubrouter = router({
             inArray(products.producerId, scopedProducerIds),
             eq(products.active, true),
             isNull(products.archivedAt),
-            // MVP: Store self-checkout only supports flat pricing.
-            // per_song / hourly / bundle products have 0 or placeholder
-            // priceCents — they go through the signed-in artist Book
-            // tab (the legacy `/p/[slug]/book` public flow was removed
-            // in Story 03 per PRD §6.6). Paired with a guard in
-            // store.checkout so a hand-crafted productId can't bypass.
-            eq(products.pricingModel, "flat"),
+            // Per-song and flat products both list. hourly/bundle stay
+            // hidden until their flows ship — keep the guard narrow so
+            // the artist Store doesn't surface a product its detail
+            // page can't checkout. store.checkout enforces the same
+            // gate server-side so a hand-crafted productId can't
+            // bypass the flat-only Stripe self-checkout path.
+            inArray(products.pricingModel, ["flat", "per_song"]),
           ),
         )
         .orderBy(asc(producers.displayName), asc(products.position));
@@ -1041,6 +1042,7 @@ const storeSubrouter = router({
           | "per_song"
           | "hourly"
           | "bundle",
+        volumeTiers: r.volumeTiers ?? null,
         paymentPlans: r.paymentPlans,
         producerId: r.producerId,
         producerName: r.producerName ?? "Untitled Studio",
@@ -1067,6 +1069,7 @@ const storeSubrouter = router({
           sessionCount: products.sessionCount,
           kind: products.kind,
           pricingModel: products.pricingModel,
+          volumeTiers: products.volumeTiers,
           paymentPlans: products.paymentPlans,
           position: products.position,
           producerId: products.producerId,
@@ -1117,6 +1120,7 @@ const storeSubrouter = router({
           | "per_song"
           | "hourly"
           | "bundle",
+        volumeTiers: row.volumeTiers ?? null,
         paymentPlans: row.paymentPlans,
         producerId: row.producerId,
         producerName: row.producerName ?? "Untitled Studio",
@@ -1293,6 +1297,7 @@ export type StoreProductRow = {
   sessionCount: number;
   kind: string;
   pricingModel: "flat" | "per_song" | "hourly" | "bundle";
+  volumeTiers: { minQty: number; pricePerUnitCents: number }[] | null;
   paymentPlans: PaymentPlan[];
   producerId: string;
   producerName: string;

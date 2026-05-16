@@ -96,6 +96,7 @@ export default async function StorePage({ searchParams }: PageProps) {
                 priceCents: p.priceCents,
                 currency: p.currency,
                 pricingModel: p.pricingModel,
+                volumeTiers: p.volumeTiers,
                 producerName: p.producerName,
                 sessionCount: p.sessionCount,
                 durationMin: p.durationMin,

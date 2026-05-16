@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "product-editor.tsx"), "utf8");
+const PAYLOAD_SRC = readFileSync(
+  join(here, "..", "build-package-payload.ts"),
+  "utf8",
+);
 
 describe("ProductEditor orchestrator", () => {
   it("declares both NEW_STEPS and EDIT_STEPS arrays", () => {
@@ -31,9 +35,11 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/<ContractStep/);
   });
 
-  it("imports encodeDescription + decodeDescription to round-trip the meta block", () => {
-    expect(SRC).toMatch(/encodeDescription/);
+  it("imports decodeDescription for edit-mode round-trip (encode lives in build-package-payload)", () => {
     expect(SRC).toMatch(/decodeDescription/);
+    // After the Task 11 extraction, encodeDescription is called by
+    // buildPackagePayload at save time — assert there, not here.
+    expect(PAYLOAD_SRC).toMatch(/encodeDescription/);
   });
 
   it("mounts the EditorShell", () => {
@@ -44,8 +50,9 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/createPackage|updatePackage|packages\.create|packages\.update/);
   });
 
-  it("maps preset type 'consult' to schema kind 'custom' on save", () => {
-    expect(SRC).toMatch(/kind:\s*draft\.type\s*===\s*["']consult["']/);
+  it("maps preset type 'consult' to schema kind 'custom' on save (logic in build-package-payload)", () => {
+    expect(PAYLOAD_SRC).toMatch(/draft\.type\s*===\s*["']consult["']/);
+    expect(PAYLOAD_SRC).toMatch(/["']custom["']\s+as\s+PackageKind/);
   });
 
   it("does NOT use window.confirm anywhere", () => {

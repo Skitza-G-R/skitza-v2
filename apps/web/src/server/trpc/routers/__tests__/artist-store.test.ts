@@ -509,19 +509,19 @@ describe("artist.store.products (query)", () => {
     expect(hasIsNullArchived).toBe(true);
   });
 
-  // Test 5b — defense against non-flat pricing in the Store catalog.
-  // per_song / hourly / bundle products carry priceCents=0 (or a
-  // placeholder) because their real total depends on runtime inputs.
-  // A flat-only WHERE predicate keeps them out of the Store list so
-  // the self-checkout flow never sees a product it can't charge. The
-  // artist-app Book tab still serves them (the legacy public
-  // /p/[slug]/book flow was removed in Story 03 per PRD §6.6).
-  it("store.products excludes non-flat pricing models from the catalog", async () => {
+  // Test 5b — Store catalog visibility rule. Flat AND per_song
+  // products list (per_song landed with the per-song-pricing feature
+  // 2026-05-16 — the rate-card products go through a song-count
+  // stepper in the detail page before the booking action). hourly /
+  // bundle stay hidden until their flows ship. store.checkout
+  // enforces the same gate server-side so a hand-crafted productId
+  // can't bypass the flat-only Stripe self-checkout path.
+  it("store.products lists flat + per_song, hides hourly + bundle", async () => {
     seedValidContact();
-    // The DB-layer filter would only return the flat row; we reflect
-    // that in the seeded response AND assert the predicate at the
-    // WHERE level so a regression that removes the predicate but
-    // happens to match tight fixtures still fails.
+    // The DB-layer filter returns flat + per_song; reflect that in
+    // the seeded response. The assertion below checks the WHERE
+    // predicate so a regression that removes the gate but happens
+    // to match tight fixtures still fails.
     productsSelectQueue.push([
       {
         id: "flat-1",
@@ -539,6 +539,26 @@ describe("artist.store.products (query)", () => {
         producerName: "Alpha",
         producerSlug: "alpha",
       },
+      {
+        id: "per-song-1",
+        name: "Per-song Mix",
+        description: null,
+        priceCents: 20000,
+        currency: "USD",
+        durationMin: 0,
+        sessionCount: 1,
+        kind: "mix",
+        pricingModel: "per_song",
+        volumeTiers: [
+          { minQty: 1, pricePerUnitCents: 20000 },
+          { minQty: 5, pricePerUnitCents: 15000 },
+        ],
+        paymentPlans: [{ kind: "full" }],
+        position: 1,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha",
+        producerSlug: "alpha",
+      },
     ]);
 
     const caller = await buildCaller();
@@ -546,22 +566,27 @@ describe("artist.store.products (query)", () => {
       producerId: PRODUCER_ID,
     });
 
-    // Only the flat product made it through (the non-flat rows never
-    // would have come back from the DB given the WHERE predicate).
-    expect(result.products).toHaveLength(1);
-    expect(result.products[0]?.id).toBe("flat-1");
+    // Both rows came through.
+    expect(result.products).toHaveLength(2);
     expect(result.products[0]?.pricingModel).toBe("flat");
+    expect(result.products[1]?.pricingModel).toBe("per_song");
+    expect(result.products[1]?.volumeTiers).toEqual([
+      { minQty: 1, pricePerUnitCents: 20000 },
+      { minQty: 5, pricePerUnitCents: 15000 },
+    ]);
 
-    // The real assertion: the WHERE clause pins pricingModel to "flat"
-    // so non-flat products never appear in the Store catalog.
+    // WHERE predicate uses inArray over the allowed set so hourly +
+    // bundle stay hidden. Walk the and(...) tree and look for an
+    // inArray entry pointing at products.pricing_model.
     const where = productsWhereSpy.mock.calls[0]?.[0];
-    const pricingModelPred = findPredicate(
-      where,
-      "eq",
-      products.pricingModel,
-    );
-    expect(pricingModelPred).not.toBeNull();
-    expect(pricingModelPred?.[1]).toBe("flat");
+    const whereJson = JSON.stringify(where);
+    expect(whereJson).toContain('"inArray":');
+    expect(whereJson).toContain('"products.pricing_model"');
+    expect(whereJson).toContain('"flat"');
+    expect(whereJson).toContain('"per_song"');
+    // Defensive: confirm the excluded models are not present.
+    expect(whereJson).not.toContain('"hourly"');
+    expect(whereJson).not.toContain('"bundle"');
   });
 
   // Test 6
