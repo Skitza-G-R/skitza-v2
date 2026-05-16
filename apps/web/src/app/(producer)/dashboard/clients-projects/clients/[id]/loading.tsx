@@ -15,6 +15,10 @@ export default function ClientSpaceLoading() {
   return (
     <main aria-hidden aria-label="Loading client">
       <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
+        {/* Breadcrumb placeholder — matches the real page's
+            "Clients & Projects › {client}" crumb row above the hero. */}
+        <Skel className="mb-4 h-4 w-48 rounded" />
+
         {/* Full-bleed dark hero band (negative horizontal margins
             cancel the page padding, matching the real hero's pattern). */}
         <Skel

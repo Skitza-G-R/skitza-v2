@@ -155,11 +155,66 @@ describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () =>
 
   it("G14: '+ New project' CTA is solid white (not frosted glass)", () => {
     // Design uses btn-light (white solid pill, dark text) for the
-    // hero's primary action; the frosted bg-white/10 backdrop-blur
-    // treatment was reserved for secondary actions on the album/song
-    // hero, where this CTA isn't the page's primary.
-    expect(SRC).not.toMatch(/bg-white\/10[\s\S]*?backdrop-blur/);
-    expect(SRC).toMatch(/bg-white[\s\S]*?New project|New project[\s\S]*?bg-white/);
+    // hero's primary action. PR #130 introduced a sibling kebab menu
+    // that DOES use the frosted bg-white/10 backdrop-blur treatment,
+    // so we anchor on the New Project button's unique title attribute
+    // to slice out JUST that button and assert against it.
+    const titleAnchor = SRC.indexOf("Add an email to this client");
+    expect(titleAnchor).toBeGreaterThan(0);
+    const buttonStart = SRC.lastIndexOf("<button", titleAnchor);
+    expect(buttonStart).toBeGreaterThan(-1);
+    const labelIdx = SRC.indexOf("New project", titleAnchor);
+    expect(labelIdx).toBeGreaterThan(buttonStart);
+    const buttonSlice = SRC.slice(buttonStart, labelIdx);
+    expect(buttonSlice).toMatch(/bg-white\s+px/);
+    expect(buttonSlice).not.toMatch(/bg-white\/10/);
+  });
+});
+
+describe("ClientSpaceHero — kebab menu wiring (Edit / Remove) — PR #130", () => {
+  it("imports EditClientModal + RemoveClientConfirmModal", () => {
+    expect(SRC).toContain("EditClientModal");
+    expect(SRC).toContain("./edit-client-modal");
+    expect(SRC).toContain("RemoveClientConfirmModal");
+    expect(SRC).toContain("./remove-client-confirm-modal");
+  });
+
+  it("imports MoreVertical / Pencil / Trash2 lucide icons", () => {
+    expect(SRC).toMatch(/MoreVertical/);
+    expect(SRC).toMatch(/Pencil/);
+    expect(SRC).toMatch(/Trash2/);
+  });
+
+  it("renders a kebab trigger with aria-label='Client actions'", () => {
+    expect(SRC).toMatch(/aria-label="Client actions"/);
+    expect(SRC).toMatch(/aria-haspopup="menu"/);
+  });
+
+  it("renders 'Edit details' + 'Remove client' menu items", () => {
+    expect(SRC).toContain("Edit details");
+    expect(SRC).toContain("Remove client");
+  });
+
+  it("closes the kebab menu on outside-click + Escape", () => {
+    // Hand-rolled accessibility — the menu uses a single useEffect that
+    // attaches a mousedown listener (for outside-click) and a keydown
+    // listener (for Escape). Both fire only while the menu is open.
+    expect(SRC).toMatch(/addEventListener\(\s*["']mousedown["']/);
+    expect(SRC).toMatch(/Escape/);
+  });
+
+  it("uses notes on ClientSpaceHeroData (so the Edit modal can prefill)", () => {
+    // The interface gained a `notes: string | null` field — without it
+    // the modal would have no way to prefill the textarea on open.
+    expect(SRC).toMatch(/notes:\s*string\s*\|\s*null/);
+  });
+
+  it("mounts <EditClientModal> with the current client's phone + notes", () => {
+    expect(SRC).toMatch(/<EditClientModal[\s\S]*?phone[\s\S]*?notes/);
+  });
+
+  it("mounts <RemoveClientConfirmModal> with id + name", () => {
+    expect(SRC).toMatch(/<RemoveClientConfirmModal/);
   });
 });
 
