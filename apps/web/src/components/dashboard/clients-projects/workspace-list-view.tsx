@@ -292,6 +292,11 @@ export function WorkspaceListView({
       case "recent":
         sorted.sort((a, b) => isoMs(b.lastActivityIso) - isoMs(a.lastActivityIso));
         break;
+      case "joined":
+        // Newest-joined first (descending firstSeenAt). Rows without
+        // a joined timestamp sink to the bottom.
+        sorted.sort((a, b) => isoMs(b.joinedAtIso) - isoMs(a.joinedAtIso));
+        break;
       case "deadline":
         // Clients have no individual deadline. Keep current order
         // (matching the upstream listWithProjects ordering).
@@ -752,18 +757,31 @@ export function WorkspaceListView({
           ))}
         </div>
       ) : layout === "table" ? (
-        <div className="flex flex-col gap-2">
+        // Unified table container — mockup-match. Header + rows live
+        // inside ONE rounded card with no inter-row margins. Hairlines
+        // between rows are rendered by ClientCompactRow's border-b.
+        // overflow-hidden clips the row's rounded-corner fill against
+        // the container's outer radius so the seam is invisible.
+        <div
+          className="overflow-hidden rounded-[var(--radius-md)] border"
+          style={{
+            background: "rgb(var(--bg-elevated))",
+            borderColor: "rgb(var(--border-subtle))",
+          }}
+        >
           <ClientsTableHeader sort={sort} onSortChange={setSort} />
-          {filteredClients.map((c) => (
-            <ClientCompactRow
-              key={c.id}
-              client={c}
-              onInvite={handleInviteClient}
-              onDragStart={handleClientDragStart}
-              onDragOver={handleClientDragOver}
-              onDrop={handleClientDrop}
-            />
-          ))}
+          <div className="flex flex-col" data-testid="clients-table-body">
+            {filteredClients.map((c) => (
+              <ClientCompactRow
+                key={c.id}
+                client={c}
+                onInvite={handleInviteClient}
+                onDragStart={handleClientDragStart}
+                onDragOver={handleClientDragOver}
+                onDrop={handleClientDrop}
+              />
+            ))}
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">

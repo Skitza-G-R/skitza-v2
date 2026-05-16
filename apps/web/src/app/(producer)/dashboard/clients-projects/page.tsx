@@ -93,6 +93,10 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
             c.lastActivity instanceof Date
               ? c.lastActivity.toISOString()
               : new Date(c.lastActivity).toISOString(),
+          joinedAtIso:
+            c.firstSeenAt instanceof Date
+              ? c.firstSeenAt.toISOString()
+              : new Date(c.firstSeenAt).toISOString(),
         }))
       : [];
 

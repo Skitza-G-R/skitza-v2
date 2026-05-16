@@ -8,14 +8,18 @@ import {
   producerGradient,
   producerInitials,
 } from "~/lib/_phase4-stubs/producer-color";
+import { CLIENTS_TABLE_GRID } from "~/components/dashboard/clients-projects/clients-table-header";
 
 import { LinkPill } from "./link-pill";
 import type { ClientCardData } from "./client-card";
 
-// Compact horizontal client row used in the Clients tab's TABLE mode
-// (G18 follow-up). Mirrors ClientCard's data contract but lays the
-// stats out in a single 8-column grid that lines up with
-// ClientsTableHeader. Cards mode keeps the full ClientCard.
+// Real-table compact row for the Clients tab's TABLE mode. Mockup-
+// match: 10 columns aligned to ClientsTableHeader's grid via the
+// shared CLIENTS_TABLE_GRID export. NO per-row card chrome — rows
+// sit inside a single shared container (mounted in
+// WorkspaceListView), separated by hairlines, with a subtle hover
+// fill. Each row is fully clickable via an absolute-positioned Link
+// overlay (same idea as ClientCard).
 //
 // Drag-to-reorder uses the same HTML5 contract as ClientCard so the
 // parent's drag handlers don't need to branch on layout.
@@ -40,6 +44,21 @@ function formatMoney(cents: number, currency: string): string {
   }
 }
 
+// Short joined-date label — "Nov 2025" / "Mar 2026". Falls back to "—"
+// when the ISO timestamp is missing (legacy rows without firstSeenAt
+// pre-migration 0028).
+function formatJoined(iso: string | undefined): string {
+  if (!iso) return "—";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      year: "numeric",
+    }).format(new Date(iso));
+  } catch {
+    return "—";
+  }
+}
+
 export function ClientCompactRow({
   client,
   onInvite,
@@ -56,6 +75,7 @@ export function ClientCompactRow({
     lifetime,
     owed,
     currency = "USD",
+    joinedAtIso,
   } = client;
 
   const initials = producerInitials(name);
@@ -65,81 +85,62 @@ export function ClientCompactRow({
     <div
       draggable="true"
       data-id={id}
+      data-testid="clients-table-row"
       onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
       onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
       onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
-      className="group relative grid items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 transition-colors hover:border-[rgb(var(--border-strong))]"
+      className="group relative grid items-center gap-3 border-b px-3 py-3 transition-colors duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] last:border-b-0 hover:bg-[rgb(var(--bg-background)/0.55)]"
       style={{
-        background: "rgb(var(--bg-elevated))",
-        borderColor: "rgb(var(--border-subtle))",
-        gridTemplateColumns:
-          "24px 44px minmax(0,1.5fr) 80px 110px 110px 110px 36px",
+        borderBottomColor: "rgb(var(--border-subtle))",
+        gridTemplateColumns: CLIENTS_TABLE_GRID,
       }}
     >
+      {/* Whole-row click target — sits at z-0 so per-cell interactive
+          elements (LinkPill in 'none' state, drag handle) stay
+          clickable on top via z-10. */}
+      <Link
+        href={`/dashboard/clients-projects/clients/${id}`}
+        className="absolute inset-0 z-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary)/0.4)]"
+        aria-label={`Open ${name}`}
+      />
+
+      {/* Grip — opacity 0 by default, 0.6 on row hover. Pointer-events
+          on so dragstart works without bubbling to the Link. */}
       <span
-        className="flex h-6 w-6 cursor-grab items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
+        className="relative z-10 flex h-6 w-6 cursor-grab items-center justify-center opacity-0 transition-opacity group-hover:opacity-60"
         style={{ color: "rgb(var(--fg-muted))" }}
         aria-hidden
       >
         <GripVertical size={14} />
       </span>
 
+      {/* Circular avatar */}
       <span
-        // Mockup-match: avatars on the workspace client list are
-        // circular (matches ClientCard's tile). The compact-row uses
-        // a slightly smaller 44px circle.
-        className="flex h-11 w-11 items-center justify-center rounded-full font-mono text-[12px] font-bold text-white"
+        className="relative z-10 flex h-10 w-10 items-center justify-center rounded-full font-mono text-[12px] font-bold text-white"
         style={{ background: avatarBg }}
         aria-hidden
       >
         {initials}
       </span>
 
-      <div className="min-w-0">
-        <Link
-          href={`/dashboard/clients-projects/clients/${id}`}
-          className="block truncate text-[14px] font-semibold focus-visible:outline-none focus-visible:underline"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
-          {name}
-        </Link>
-        {email ? (
-          <p
-            className="truncate text-[11px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
-            {email}
-          </p>
-        ) : null}
-      </div>
-
+      {/* Client name (CLIENT column) */}
       <span
-        className="text-right font-mono text-[14px] font-bold tabular-nums"
+        className="relative z-10 min-w-0 truncate text-[13.5px] font-semibold"
         style={{ color: "rgb(var(--fg-default))" }}
       >
-        {projects}
+        {name}
       </span>
 
+      {/* Email (separate EMAIL column — was nested under name before) */}
       <span
-        className="text-right font-mono text-[14px] font-bold tabular-nums"
-        style={{ color: "rgb(var(--fg-default))" }}
+        className="relative z-10 min-w-0 truncate text-[12.5px]"
+        style={{ color: "rgb(var(--fg-muted))" }}
       >
-        {formatMoney(lifetime, currency)}
+        {email ?? "—"}
       </span>
 
-      <span
-        className="text-right font-mono text-[14px] font-bold tabular-nums"
-        style={{
-          color:
-            owed > 0
-              ? "rgb(var(--fg-danger))"
-              : "rgb(var(--fg-muted))",
-        }}
-      >
-        {owed > 0 ? formatMoney(owed, currency) : "—"}
-      </span>
-
-      <div className="flex items-center">
+      {/* Link state (LINK column) — interactive only when state='none' */}
+      <span className="relative z-10 inline-flex">
         {onInvite ? (
           <LinkPill
             state={linkState}
@@ -150,10 +151,49 @@ export function ClientCompactRow({
         ) : (
           <LinkPill state={linkState} />
         )}
-      </div>
+      </span>
 
+      {/* Projects (right-aligned numeric) */}
+      <span
+        className="relative z-10 text-right font-mono text-[13.5px] font-bold tabular-nums"
+        style={{ color: "rgb(var(--fg-default))" }}
+      >
+        {projects}
+      </span>
+
+      {/* Lifetime (right-aligned, neutral) */}
+      <span
+        className="relative z-10 text-right font-mono text-[13.5px] font-bold tabular-nums"
+        style={{ color: "rgb(var(--fg-default))" }}
+      >
+        {formatMoney(lifetime, currency)}
+      </span>
+
+      {/* Owed (right-aligned, danger when > 0) */}
+      <span
+        className="relative z-10 text-right font-mono text-[13.5px] font-bold tabular-nums"
+        style={{
+          color:
+            owed > 0
+              ? "rgb(var(--fg-danger))"
+              : "rgb(var(--fg-muted))",
+        }}
+      >
+        {owed > 0 ? formatMoney(owed, currency) : "—"}
+      </span>
+
+      {/* Joined (Mon YYYY) */}
+      <span
+        className="relative z-10 text-[12.5px]"
+        style={{ color: "rgb(var(--fg-muted))" }}
+      >
+        {formatJoined(joinedAtIso)}
+      </span>
+
+      {/* Trailing chevron */}
       <ChevronRight
         size={14}
+        className="relative z-10"
         style={{ color: "rgb(var(--fg-muted))" }}
         aria-hidden
       />

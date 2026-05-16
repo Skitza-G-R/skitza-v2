@@ -24,6 +24,10 @@ export interface ClientCardData {
   currency?: string;
   /** Last activity timestamp (ISO) — drives "recent" sort. */
   lastActivityIso?: string;
+  /** Producer-roster join date (ISO) — drives the JOINED column on
+   *  the table-mode view + the "joined" sort. From
+   *  clientContacts.firstSeenAt server-side. */
+  joinedAtIso?: string;
 }
 
 interface ClientCardProps {
