@@ -73,7 +73,7 @@ export function ClientCard({
       onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
       onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
       onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
-      className="group relative flex flex-col gap-3.5 rounded-[var(--radius-md)] border p-4 transition-colors hover:border-[rgb(var(--border-strong))]"
+      className="group relative flex flex-col gap-3.5 rounded-[var(--radius-md)] border p-4 transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-0.5 hover:border-[rgb(var(--border-strong))] hover:shadow-[0_10px_24px_-12px_rgb(17_16_9/0.18),0_3px_8px_-3px_rgb(17_16_9/0.10)] active:translate-y-0 active:scale-[0.995] motion-reduce:hover:translate-y-0 motion-reduce:hover:shadow-none"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",

@@ -77,6 +77,10 @@ export interface WorkspaceKPIs {
   needsAttention: number;
   /** Human-formatted next deadline string e.g. "3d" or "May 28". */
   nextDeadline: string;
+  /** Optional sub-line on the Next deadline tile — the project name
+   *  whose deadline we surfaced (matches the HTML mockup where the
+   *  tile reads "Oct 15 / Noa Kirel — Debut Album"). */
+  nextDeadlineLabel?: string;
   /** Currency code — defaults to USD. */
   currency?: string;
 }
@@ -107,8 +111,14 @@ export interface WorkspaceListViewProps {
 // JSX between the `tab === "clients"` branch and the visible label
 // stays readable (and source-grep tests can find the label close to
 // the conditional).
+//
+// Sizing + shadow tuned to match the HTML mockup's "+ New client" pill
+// (px-5 py-2.5, layered amber elevation, Emil-style press feedback).
+// The custom strong ease-out curve (cubic-bezier(0.23, 1, 0.32, 1))
+// makes the hover lift feel intentional, not springy. active:scale
+// gives the "pressed-down" tactile beat per emil-design-eng.
 const HEADER_CTA_CLASS =
-  "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-semibold shadow-[0_2px_8px_-2px_rgb(var(--brand-primary)/0.5)] transition-transform hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2";
+  "inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-[13px] font-semibold shadow-[0_8px_20px_-6px_rgb(var(--brand-primary)/0.45),0_2px_6px_-2px_rgb(var(--brand-primary)/0.35)] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:scale-[1.02] hover:shadow-[0_12px_26px_-6px_rgb(var(--brand-primary)/0.55),0_3px_8px_-2px_rgb(var(--brand-primary)/0.4)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2";
 
 const HEADER_CTA_STYLE = {
   background: "rgb(var(--brand-primary))",
@@ -355,6 +365,48 @@ export function WorkspaceListView({
           >
             Clients &amp; Projects
           </h1>
+          {/* Sub-line under the H1: at-a-glance counts that match the
+              HTML mockup's "6 projects · 4 active · 5 clients ·
+              $2,250 outstanding". Each datum is dot-separated; the
+              outstanding figure flips to danger color when non-zero
+              so the producer can scan urgency without reading. */}
+          <p
+            className="mt-1 text-[12.5px]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            <span data-testid="workspace-subline-projects">
+              {orderedProjects.length}{" "}
+              {orderedProjects.length === 1 ? "project" : "projects"}
+            </span>
+            <span aria-hidden> &middot; </span>
+            <span>
+              {
+                orderedProjects.filter(
+                  (p) =>
+                    p.statusTone === "warn" ||
+                    p.statusTone === "ok" ||
+                    p.statusTone === "danger",
+                ).length
+              }{" "}
+              active
+            </span>
+            <span aria-hidden> &middot; </span>
+            <span>
+              {orderedClients.length}{" "}
+              {orderedClients.length === 1 ? "client" : "clients"}
+            </span>
+            {kpis.outstanding > 0 ? (
+              <>
+                <span aria-hidden> &middot; </span>
+                <span
+                  style={{ color: "rgb(var(--fg-danger))" }}
+                  className="font-semibold tabular-nums"
+                >
+                  {formatMoney(kpis.outstanding, currency)} outstanding
+                </span>
+              </>
+            ) : null}
+          </p>
         </div>
         {tab === "clients" ? (
           <button
@@ -380,11 +432,15 @@ export function WorkspaceListView({
         ) : null}
       </header>
 
-      {/* KPI strip — 4 cards across, full bleed */}
+      {/* KPI strip — 4 cards across, full bleed. Labels include the
+          implied time window ("This month") and each tile carries an
+          explanatory sub-line so the producer can scan with full
+          context (mockup-match — every tile has "headline + meaning"). */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatTile
-          label="Earnings"
+          label="Earnings · this month"
           value={formatMoney(kpis.earnings, currency)}
+          sub="Across active projects"
         />
         <StatTile
           label="Outstanding"
@@ -394,13 +450,27 @@ export function WorkspaceListView({
               : "—"
           }
           variant={kpis.outstanding > 0 ? "danger" : "default"}
+          sub={
+            kpis.outstanding > 0
+              ? `${String(kpis.needsAttention)} ${kpis.needsAttention === 1 ? "project needs" : "projects need"} a nudge`
+              : "All settled"
+          }
         />
         <StatTile
-          label="Needs attention"
+          label="Needs your attention"
           value={kpis.needsAttention}
           variant={kpis.needsAttention > 0 ? "danger" : "default"}
+          sub={
+            kpis.needsAttention > 0
+              ? "Overdue or awaiting reply"
+              : "You're all caught up"
+          }
         />
-        <StatTile label="Next deadline" value={kpis.nextDeadline} />
+        <StatTile
+          label="Next deadline"
+          value={kpis.nextDeadline}
+          sub={kpis.nextDeadlineLabel ?? "Upcoming work"}
+        />
       </div>
 
       {/* Tab segmented control — G20: design uses white-on-beige
@@ -421,7 +491,7 @@ export function WorkspaceListView({
           role="tab"
           aria-selected={tab === "clients"}
           onClick={() => { setTab("clients"); }}
-          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
+          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]"
           style={{
             background:
               tab === "clients" ? "rgb(var(--bg-elevated))" : "transparent",
@@ -440,7 +510,7 @@ export function WorkspaceListView({
           role="tab"
           aria-selected={tab === "projects"}
           onClick={() => { setTab("projects"); }}
-          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
+          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]"
           style={{
             background:
               tab === "projects" ? "rgb(var(--bg-elevated))" : "transparent",
@@ -473,7 +543,8 @@ export function WorkspaceListView({
                     key={f.value}
                     type="button"
                     onClick={() => { setProjectFilter(f.value); }}
-                    className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
+                    aria-pressed={active}
+                    className="inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -504,7 +575,8 @@ export function WorkspaceListView({
                     key={f.value}
                     type="button"
                     onClick={() => { setClientFilter(f.value); }}
-                    className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
+                    aria-pressed={active}
+                    className="rounded-full border px-3.5 py-1 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -542,7 +614,7 @@ export function WorkspaceListView({
               onClick={() => { setLayout("cards"); }}
               aria-pressed={layout === "cards"}
               aria-label="Card layout"
-              className="rounded-full p-1.5"
+              className="rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
               style={{
                 background:
                   layout === "cards"
@@ -561,7 +633,7 @@ export function WorkspaceListView({
               onClick={() => { setLayout("table"); }}
               aria-pressed={layout === "table"}
               aria-label="Table layout"
-              className="rounded-full p-1.5"
+              className="rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
               style={{
                 background:
                   layout === "table"

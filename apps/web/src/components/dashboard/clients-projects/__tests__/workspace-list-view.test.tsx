@@ -286,3 +286,65 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toMatch(/products:\s*/);
   });
 });
+
+describe("WorkspaceListView — mockup-match polish (KPI subtitles, H1 sub-line, CTA shadow)", () => {
+  it("KPI 'Earnings · this month' label matches the HTML mockup eyebrow", () => {
+    // HTML uses 'EARNINGS · THIS MONTH' — the live label folds that
+    // time-window into the label itself instead of needing a second
+    // line for it.
+    expect(SRC).toContain("Earnings · this month");
+  });
+
+  it("KPI 'Needs your attention' label matches the HTML mockup wording", () => {
+    expect(SRC).toContain("Needs your attention");
+  });
+
+  it("Outstanding KPI carries a sub line that pluralises projects-need-a-nudge", () => {
+    // The ternary splits the noun-verb pair from the trailing 'a
+    // nudge' across two source literals, so we assert on the
+    // fragments separately instead of trying to match the rendered
+    // combined string.
+    expect(SRC).toMatch(/"project[s]?\s+need[s]?"/);
+    expect(SRC).toContain("a nudge");
+  });
+
+  it("Needs your attention KPI carries the 'Overdue or awaiting reply' sub", () => {
+    expect(SRC).toContain("Overdue or awaiting reply");
+  });
+
+  it("Next deadline KPI surfaces the project title via nextDeadlineLabel", () => {
+    expect(SRC).toMatch(/nextDeadlineLabel/);
+  });
+
+  it("renders the H1 sub-line with project / active / client counts", () => {
+    // Mirrors the HTML mockup's '6 projects · 4 active · 5 clients · …' bar.
+    expect(SRC).toMatch(/orderedProjects\.length/);
+    expect(SRC).toMatch(/orderedClients\.length/);
+    expect(SRC).toContain("active");
+  });
+
+  it("H1 sub-line surfaces a danger-tinted outstanding total when > 0", () => {
+    expect(SRC).toMatch(/kpis\.outstanding\s*>\s*0/);
+    expect(SRC).toMatch(/outstanding/);
+  });
+
+  it("header CTA uses layered shadow + ease-out cubic-bezier (premium pill)", () => {
+    // Pin the curve + scale press-feedback so a future "let's simplify"
+    // edit doesn't quietly regress the motion.
+    expect(SRC).toMatch(/cubic-bezier\(0\.23,\s*1,\s*0\.32,\s*1\)/);
+    expect(SRC).toMatch(/active:scale-\[0\.97\]/);
+  });
+
+  it("filter chips have press feedback (active:scale) + custom easing", () => {
+    // The same Emil-style motion utilities are applied to every
+    // interactive chip / toggle in the toolbar.
+    const activeScaleCount = (SRC.match(/active:scale-\[/g) ?? []).length;
+    // Header CTA + filter chips (×2) + tab seg (×2) + layout switcher (×2)
+    // = at least 7 distinct active:scale call sites in the file.
+    expect(activeScaleCount).toBeGreaterThanOrEqual(7);
+  });
+
+  it("filter chips ship aria-pressed for screen readers", () => {
+    expect(SRC).toMatch(/aria-pressed=\{active\}/);
+  });
+});

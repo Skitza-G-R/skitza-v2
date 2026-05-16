@@ -8,6 +8,7 @@ import { getShellState } from "~/server/shell-data";
 
 import { CoachmarkTour } from "./coachmark-tour";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
+import { DashboardTopBar } from "./dashboard-topbar";
 import { ShortcutsBridge } from "./shortcuts-bridge";
 
 // AppShell — Phase 2 (locked design system).
@@ -74,6 +75,12 @@ export async function AppShell({ children }: { children: ReactNode }) {
         tabIndex={-1}
         className="min-w-0 flex-1 pb-20 lg:pb-0"
       >
+        {/* Sticky topbar from the HTML mockup: section label · search
+            trigger · notifications bell. Sits at the top of <main> so
+            it spans the content area (not the sidebar), and uses
+            position:sticky so it stays pinned during scroll without
+            stealing focus order from the page below. */}
+        <DashboardTopBar unreadCount={unreadCount} />
         {children}
       </main>
 
