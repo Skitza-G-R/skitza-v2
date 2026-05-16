@@ -331,12 +331,20 @@ export function Waveform50({
 
   const currentMs = pickWaveformTime({ isLive, liveMs, internalMs });
 
-  // Seeded heights serve as the loading fallback so the bar layer
-  // is never empty. When `peaksUrl` resolves, real RMS peaks replace
-  // them and the CSS height transition morphs the silhouette into the
-  // real audio envelope.
+  // Loading baseline: until real peaks decode, render a FLAT low row
+  // of bars — not the seeded fake envelope. The user explicitly
+  // doesn't want the fake-then-real flip. A flat baseline reads as
+  // "loading" (because no envelope shape = no song info yet), and
+  // when peaks land they bloom upward via the height transition.
+  // If no peaksUrl is provided (audio still uploading), keep seeded
+  // heights so the bar layer isn't a dead line.
   const seededFallback = useMemo(() => seededHeights(seed, BAR_COUNT), [seed]);
-  const heights = useAudioPeaks(peaksUrl, BAR_COUNT, seededFallback);
+  const flatBaseline = useMemo(
+    () => Array.from({ length: BAR_COUNT }, () => 0.12),
+    [],
+  );
+  const initialHeights = peaksUrl ? flatBaseline : seededFallback;
+  const heights = useAudioPeaks(peaksUrl, BAR_COUNT, initialHeights);
   const progressPct = durationMs > 0 ? Math.min(100, Math.max(0, (currentMs / durationMs) * 100)) : 0;
   const playedBars = Math.floor((progressPct / 100) * BAR_COUNT);
 

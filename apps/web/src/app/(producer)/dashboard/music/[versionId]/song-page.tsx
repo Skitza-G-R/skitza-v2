@@ -863,7 +863,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                   : undefined
               }
               onProgress={setCurrentMs}
-              height={96}
+              height={68}
             />
           </div>
         </div>
@@ -967,10 +967,14 @@ export function SongPage({ data }: { data: SongPageData }) {
                 // "Reopen" action. Saves a lot of vertical space when
                 // a producer has 10+ resolved notes on a track.
                 if (isResolved) {
+                  // Collapsed by default — single greyed line. On
+                  // hover, the row expands: body un-truncates onto a
+                  // second line + padding grows + actions slide in.
+                  // Producer can re-read context without reopening.
                   return (
                     <li
                       key={c.id}
-                      className="group/note reveal-up flex items-center gap-2 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--fg-default)/0.02)] px-2.5 py-1 text-[12px] opacity-65 transition-opacity duration-200 hover:opacity-100"
+                      className="group/note reveal-up flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--fg-default)/0.02)] px-2.5 py-1 text-[12px] opacity-65 transition-[opacity,padding] duration-200 hover:py-2 hover:opacity-100"
                       style={{ animationDelay: `${String(staggerMs)}ms` }}
                     >
                       <span
@@ -993,7 +997,10 @@ export function SongPage({ data }: { data: SongPageData }) {
                       <span className="shrink-0 text-[11.5px] font-semibold text-[rgb(var(--fg-muted))]">
                         {c.authorName}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                      {/* Body: truncated single line by default; on
+                          row hover, basis grows + line-clamp lifts so
+                          the full body wraps onto subsequent lines. */}
+                      <span className="min-w-0 flex-1 basis-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))] transition-[max-height,color] duration-200 group-hover/note:whitespace-normal group-hover:text-[rgb(var(--fg-default))]">
                         {c.body}
                       </span>
                       <button

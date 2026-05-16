@@ -183,12 +183,20 @@ export function PersistentPlayer() {
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pathname = usePathname();
-  // Slide the dock off-screen when the producer is on a Song page —
-  // the inline waveform is the playback UI there. Audio element stays
-  // mounted so playback continues uninterrupted; only the visual chrome
-  // hides. The body padding-bottom reservation also clears (no point
-  // reserving space for a hidden dock).
-  const dockHidden = isProducerSongPage(pathname);
+  // Earlier: dockHidden = isProducerSongPage(pathname) — the song page
+  // had its own in-card transport (Skip/Play/Skip) so the floating
+  // dock was suppressed there. That in-card transport has since been
+  // removed, and the producer asked for the floating player back on
+  // the song page. Always-visible is simpler and matches the rest of
+  // the dashboard's behaviour. The body-data-attribute padding rule
+  // in globals.css (body[data-skitza-dock="1"] main#main-content {
+  // padding-bottom: 110px }) automatically clears the comments thread
+  // from the dock's footprint.
+  //
+  // `pathname` is kept on hand in case we want per-route variants
+  // later (e.g. hide on auth pages), but currently unused.
+  void pathname;
+  const dockHidden = false;
 
   // Wire incoming events once per mount. Downstream dispatchers fire
   // these from anywhere — library rows, side panels, mobile modals.
