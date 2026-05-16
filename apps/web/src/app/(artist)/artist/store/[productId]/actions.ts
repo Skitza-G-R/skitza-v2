@@ -16,6 +16,11 @@ import { appRouter } from "~/server/trpc/routers/_app";
 export async function startStoreCheckoutAction(input: {
   productId: string;
   paymentPlan: PaymentPlan;
+  // Per-song pricing — populated by the SongCountStepper on per_song
+  // products. The mutation uses these to compute the locked-in total
+  // (songQty × unitPriceCents) and ignores them for flat products.
+  songQty?: number;
+  unitPriceCents?: number;
 }): Promise<
   | { ok: true; checkoutUrl: string | null; projectId: string }
   | { ok: false; error: string }

@@ -927,13 +927,15 @@ describe("artist.store.checkout (mutation)", () => {
   });
 
   // Test 15 — defense-in-depth at the mutation layer.
-  // The Store list filters pricingModel='flat' at the DB, but a
-  // hand-crafted productId URL (or a client skipping the list) could
-  // still hit the mutation for a non-flat product. We reject with
-  // BAD_REQUEST *before* calling into calculateCharges — otherwise the
-  // shared helper would throw "totalCents must be a positive integer"
-  // since per_song/hourly/bundle products have priceCents=0.
-  it("store.checkout rejects non-flat pricing with BAD_REQUEST", async () => {
+  // Store list filters to flat + per_song at the DB. A hand-crafted
+  // productId URL (or a client skipping the list) could still hit
+  // this mutation for hourly/bundle products. We reject those with
+  // BAD_REQUEST *before* calling into calculateCharges — the shared
+  // helper would otherwise throw "totalCents must be a positive
+  // integer" since hourly/bundle products have priceCents=0.
+  // Per-song products are valid here when songQty + unitPriceCents
+  // are provided (Test 15c covers the happy path).
+  it("store.checkout rejects hourly + bundle pricing with BAD_REQUEST", async () => {
     productsSelectQueue.push([
       {
         id: PRODUCT_ID,
@@ -971,6 +973,70 @@ describe("artist.store.checkout (mutation)", () => {
     });
     // No Stripe session minted — we short-circuited before the helper.
     expect(stripeSessionCreateMock).not.toHaveBeenCalled();
+  });
+
+  // Test 15c — per-song happy path. Artist picked 5 songs at $150
+  // each on the stepper; the mutation computes the locked-in total
+  // (75000 cents) and passes it to the shared helper, which in turn
+  // inserts a project row with the right total and mints a Stripe
+  // Checkout session.
+  it("store.checkout accepts per_song with songQty + unitPriceCents and uses the locked-in total", async () => {
+    productsSelectQueue.push([
+      {
+        id: PRODUCT_ID,
+        name: "Per-song Mix",
+        description: null,
+        priceCents: 20000, // mirrors the base tier
+        currency: "USD",
+        durationMin: 0,
+        sessionCount: 1,
+        kind: "mix",
+        pricingModel: "per_song",
+        paymentPlans: [{ kind: "full" }],
+        position: 0,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha",
+        producerSlug: "alpha",
+        active: true,
+        archivedAt: null,
+        depositPct: 0,
+        volumeTiers: [
+          { minQty: 1, pricePerUnitCents: 20000 },
+          { minQty: 5, pricePerUnitCents: 15000 },
+        ],
+      },
+    ]);
+    seedValidContact();
+    producersSelectQueue.push([
+      {
+        stripeAccountId: "acct_connected",
+        stripeChargesEnabled: true,
+        slug: "alpha",
+      },
+    ]);
+    insertReturningSpy.mockImplementation(() =>
+      Promise.resolve([{ id: "project-new-1" }]),
+    );
+
+    const caller = await buildCaller();
+    const result = await caller.artist.store.checkout({
+      productId: PRODUCT_ID,
+      paymentPlan: { kind: "full" },
+      songQty: 5,
+      unitPriceCents: 15000,
+    });
+
+    expect(result.checkoutUrl).toBe("https://stripe.test/cs_test_123");
+    expect(stripeSessionCreateMock).toHaveBeenCalled();
+
+    // The project row insert was called with totalAmountCents = 75000
+    // (= songQty × unitPriceCents), not the product's base
+    // priceCents (20000). Find the projects insert in the spy log.
+    const projectInsert = insertValuesSpy.mock.calls.find(
+      (c) => "totalAmountCents" in c[0],
+    );
+    expect(projectInsert).toBeDefined();
+    expect(projectInsert?.[0]?.totalAmountCents).toBe(75000);
   });
 });
 
