@@ -40,7 +40,7 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
 
   return (
     <div
-      className="inline-flex items-center gap-1 self-start rounded-[var(--radius-lg)] border p-1 shadow-[var(--shadow-sm)]"
+      className="inline-flex items-center gap-1 self-start rounded-[var(--radius-sm)] border p-1 shadow-[var(--shadow-sm)]"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
@@ -60,7 +60,7 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
             aria-selected={isActive}
             aria-controls={`panel-${t.key}`}
             onClick={() => { onChange(t.key); }}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-1.5 text-[12px] font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-4 py-1.5 text-[12px] font-semibold transition-colors"
             style={{
               background: isActive
                 ? "rgb(var(--bg-sidebar))"

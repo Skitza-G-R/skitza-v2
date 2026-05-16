@@ -39,7 +39,7 @@ export function ScheduleWeekNav({
           onClick={onToday}
           aria-pressed={onCurrentWeek}
           className={[
-            "sk-press inline-flex h-8 items-center justify-center rounded-[var(--radius-lg)] px-3.5 text-[0.72rem] tracking-tight transition-colors",
+            "sk-press inline-flex h-8 items-center justify-center rounded-[var(--radius-md)] px-3.5 text-[0.72rem] tracking-tight transition-colors",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
             onCurrentWeek
               ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"

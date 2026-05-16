@@ -327,7 +327,7 @@ export function AvailabilityStepClient({
                   aria-pressed={isActive}
                   onClick={() => { setWeekStart(opt); }}
                   className={[
-                    "inline-flex h-6 items-center justify-center rounded-[var(--radius-lg)] border px-2.5 font-mono text-[10.5px] transition-colors",
+                    "inline-flex h-6 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[10.5px] transition-colors",
                     isActive
                       ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                       : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",

@@ -148,7 +148,7 @@ export function SongsTab({
         <button
           type="button"
           onClick={handleAddSong}
-          className="mt-5 inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold shadow-[var(--shadow-sm)] transition-colors"
+          className="mt-5 inline-flex items-center gap-1.5 rounded-[var(--radius-md)] px-4 py-2 text-[13px] font-semibold shadow-[var(--shadow-sm)] transition-colors"
           style={{
             background: "rgb(var(--brand-primary))",
             color: "rgb(var(--bg-sidebar))",
@@ -179,7 +179,7 @@ export function SongsTab({
         <button
           type="button"
           onClick={handleAddSong}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-1.5 text-[12px] font-semibold transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors"
           style={{
             background: "transparent",
             borderColor: "rgb(var(--border-subtle))",

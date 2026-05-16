@@ -224,7 +224,7 @@ export function PortfolioStepClient() {
               return (
                 <span
                   aria-hidden
-                  className="flex h-6 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.18)] px-2 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))]"
+                  className="flex h-6 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.18)] px-2 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))]"
                   title={`${String(customCount)} custom link${customCount === 1 ? "" : "s"}`}
                 >
                   +{customCount}
@@ -305,7 +305,7 @@ export function PortfolioStepClient() {
             <button
               type="button"
               onClick={addRow}
-              className="sk-pop flex items-center justify-center gap-1.5 self-start rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-strong))] px-3.5 py-1.5 text-[12px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+              className="sk-pop flex items-center justify-center gap-1.5 self-start rounded-[var(--radius-sm)] border border-dashed border-[rgb(var(--border-strong))] px-3.5 py-1.5 text-[12px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
             >
               <Plus size={12} aria-hidden />
               Add another link

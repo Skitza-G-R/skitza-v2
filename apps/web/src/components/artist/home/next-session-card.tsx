@@ -35,7 +35,7 @@ export function NextSessionCard({ session }: { session: NextSession | null }) {
         </p>
         <Link
           href="/artist/book"
-          className="sk-press mt-4 inline-flex items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-sidebar))]"
+          className="sk-press mt-4 inline-flex items-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-sidebar))]"
         >
           Book a session
           <span aria-hidden style={{ opacity: 0.6 }}>

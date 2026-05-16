@@ -241,11 +241,11 @@ function AddFromLibraryButton({
                             {row.projectTitle} · {row.artistName} · {date}
                           </span>
                           {alreadyAdded ? (
-                            <span className="mt-1 inline-flex items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
+                            <span className="mt-1 inline-flex items-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
                               Already added
                             </span>
                           ) : noAudio ? (
-                            <span className="mt-1 inline-flex items-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-muted)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
+                            <span className="mt-1 inline-flex items-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-muted)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
                               No audio yet
                             </span>
                           ) : null}
@@ -406,7 +406,7 @@ function ExternalLinksSection({ links }: { links: ExternalLinkRow[] }) {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.12)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
+                  <span className="inline-flex items-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.12)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
                     {PLATFORM_LABEL[l.platform]}
                   </span>
                   {l.title ? (

@@ -156,7 +156,7 @@ export function TrackRow({
 
       {/* 5 — Stage pill (colored dot + label) */}
       <span
-        className="relative z-10 inline-flex items-center gap-1.5 self-center justify-self-start rounded-[var(--radius-lg)] border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+        className="relative z-10 inline-flex items-center gap-1.5 self-center justify-self-start rounded-[var(--radius-sm)] border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
         style={{
           color: stageHue,
           borderColor: stageHue,

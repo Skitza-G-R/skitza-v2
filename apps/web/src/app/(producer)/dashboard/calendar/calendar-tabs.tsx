@@ -32,7 +32,7 @@ export function CalendarTabs({ active }: { active: CalendarTabKey }) {
       aria-label="Calendar sections"
       className="sk-scroll-x -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0"
     >
-      <div className="inline-flex min-w-max items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-1">
+      <div className="inline-flex min-w-max items-center gap-1 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-1">
         {TABS.map((tab) => {
           const isActive = active === tab.id;
           return (

@@ -118,7 +118,7 @@ function StatusBadge({
 }) {
   if (chargesEnabled) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+      <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
         Connected
       </span>
@@ -126,14 +126,14 @@ function StatusBadge({
   }
   if (connected) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+      <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
         <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
         Pending verification
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2.5 py-1 text-xs font-medium text-[rgb(var(--fg-muted))]">
+    <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2.5 py-1 text-xs font-medium text-[rgb(var(--fg-muted))]">
       Not connected
     </span>
   );

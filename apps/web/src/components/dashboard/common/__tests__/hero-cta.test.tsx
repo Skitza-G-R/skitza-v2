@@ -15,11 +15,13 @@ describe("HeroCTA", () => {
     expect(SRC).toMatch(/export function HeroCTA/);
   });
 
-  it("uses the canonical rounded-rectangle radius (var(--radius-lg) = 16px)", () => {
-    // Skitza design system: every rectangular CTA uses `--radius-lg` (16px).
-    // See docs/design/buttons.md. Pills (`rounded-full`) are reserved for
-    // square circles (avatars, icon-only buttons).
-    expect(SRC).toContain("rounded-[var(--radius-lg)]");
+  it("uses the height-scaled rounded-rectangle radius (medium tier — var(--radius-md) at 36px height)", () => {
+    // Skitza design system: rectangle radius scales with button height.
+    // HeroCTA is `px-4 py-2 text-[13px]` ≈ 34-36px tall, which lands in
+    // the medium tier (12px). See docs/design/buttons.md.
+    // Pills (`rounded-full`) are reserved for square circles (avatars,
+    // icon-only buttons).
+    expect(SRC).toContain("rounded-[var(--radius-md)]");
     expect(SRC).not.toContain("rounded-full");
   });
 

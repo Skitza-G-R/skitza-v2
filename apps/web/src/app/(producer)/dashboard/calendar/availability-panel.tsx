@@ -375,7 +375,7 @@ function DayRow({
             <button
               type="button"
               onClick={onAddWindow}
-              className="sk-press inline-flex h-6 items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--brand-primary)/0.5)] bg-transparent px-2.5 text-[10.5px] text-[rgb(var(--brand-primary-dark))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.06)]"
+              className="sk-press inline-flex h-6 items-center justify-center rounded-[var(--radius-sm)] border border-dashed border-[rgb(var(--brand-primary)/0.5)] bg-transparent px-2.5 text-[10.5px] text-[rgb(var(--brand-primary-dark))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.06)]"
               style={{ fontWeight: 700 }}
             >
               + Add window
@@ -551,7 +551,7 @@ function BookingPrefsCard({
                     onWeekStartChange(opt);
                   }}
                   className={[
-                    "sk-press inline-flex h-7 items-center justify-center rounded-[var(--radius-lg)] border px-2.5 font-mono text-[11.5px] transition-colors",
+                    "sk-press inline-flex h-7 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors",
                     isActive
                       ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                       : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -636,7 +636,7 @@ function ChipGroup<T extends number | string>({
             }}
             aria-pressed={isActive}
             className={[
-              "sk-press inline-flex h-7 items-center justify-center rounded-[var(--radius-lg)] border px-2.5 font-mono text-[11.5px] transition-colors",
+              "sk-press inline-flex h-7 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors",
               isActive
                 ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                 : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",

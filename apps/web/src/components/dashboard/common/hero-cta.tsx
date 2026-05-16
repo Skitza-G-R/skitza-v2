@@ -31,7 +31,7 @@ export function HeroCTA({ variant, children, onClick, disabled }: HeroCTAProps) 
         onClick={onClick}
         disabled={disabled}
         title={title}
-        className="inline-flex items-center gap-2 rounded-[var(--radius-lg)] bg-white px-4 py-2 text-[13px] font-semibold text-[#111] shadow-[var(--shadow-md)] transition-transform hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+        className="inline-flex items-center gap-2 rounded-[var(--radius-md)] bg-white px-4 py-2 text-[13px] font-semibold text-[#111] shadow-[var(--shadow-md)] transition-transform hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
       >
         <Play size={14} fill="currentColor" />
         {children ?? "Play latest"}
@@ -45,7 +45,7 @@ export function HeroCTA({ variant, children, onClick, disabled }: HeroCTAProps) 
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="inline-flex items-center gap-2 rounded-[var(--radius-lg)] border border-white/25 bg-white/10 px-4 py-2 text-[13px] font-medium text-white backdrop-blur-md transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/10"
+      className="inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-white/25 bg-white/10 px-4 py-2 text-[13px] font-medium text-white backdrop-blur-md transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/10"
     >
       <Upload size={14} />
       {children ?? "Upload"}

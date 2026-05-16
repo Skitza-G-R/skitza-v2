@@ -106,7 +106,7 @@ export default function ChangelogPage() {
                     >
                       <span
                         aria-hidden
-                        className={`mt-1 rounded-[var(--radius-lg)] px-1.5 py-0.5 font-mono text-[0.625rem] uppercase tracking-wider ${
+                        className={`mt-1 rounded-[var(--radius-sm)] px-1.5 py-0.5 font-mono text-[0.625rem] uppercase tracking-wider ${
                           item.kind === "fix"
                             ? "bg-[rgb(var(--fg-danger)/0.12)] text-[rgb(var(--fg-danger))]"
                             : "bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]"

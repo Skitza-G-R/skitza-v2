@@ -73,7 +73,7 @@ export function RecentUploadCard({ upload }: RecentUploadCardProps) {
         {badge !== null && (
           <span
             aria-label={`${String(upload.unreadComments)} unread comments`}
-            className="absolute -end-1 -top-1 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-1 font-mono text-[0.65rem] font-semibold text-[rgb(var(--fg-inverse))] ring-2 ring-[rgb(var(--bg-base))]"
+            className="absolute -end-1 -top-1 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary))] px-1 font-mono text-[0.65rem] font-semibold text-[rgb(var(--fg-inverse))] ring-2 ring-[rgb(var(--bg-base))]"
           >
             {badge}
           </span>

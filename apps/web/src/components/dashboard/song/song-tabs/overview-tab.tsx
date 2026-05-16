@@ -111,7 +111,7 @@ export function OverviewTab({
             <button
               type="button"
               onClick={onShowAllVersions}
-              className="inline-flex items-center gap-1 rounded-[var(--radius-lg)] px-2.5 py-1 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))]"
+              className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2.5 py-1 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))]"
               style={{ color: "rgb(var(--brand-primary))" }}
             >
               See all
@@ -197,7 +197,7 @@ export function OverviewTab({
               {client.id ? (
                 <Link
                   href={`/dashboard/clients-projects/clients/${client.id}`}
-                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))]"
+                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))]"
                   style={{
                     background: "transparent",
                     borderColor: "rgb(var(--border-subtle))",
@@ -212,7 +212,7 @@ export function OverviewTab({
                 type="button"
                 disabled
                 title="Coming soon"
-                className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   background: "transparent",
                   borderColor: "rgb(var(--border-subtle))",

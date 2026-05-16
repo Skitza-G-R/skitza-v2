@@ -148,10 +148,10 @@ export function ServicesSection({
                     <h3 className="font-display text-xl tracking-tight" style={{ fontWeight: 700 }}>
                       {p.name}
                     </h3>
-                    <span className="inline-flex items-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-muted)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
+                    <span className="inline-flex items-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-muted)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
                       {KIND_LABEL[p.kind] ?? p.kind}
                     </span>
-                    <span className="inline-flex items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.12)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
+                    <span className="inline-flex items-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.12)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
                       {LOCATION_LABEL[p.locationType] ?? p.locationType}
                     </span>
                   </div>

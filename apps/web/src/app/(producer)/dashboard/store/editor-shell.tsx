@@ -148,7 +148,7 @@ export function EditorShell({
                   <button
                     type="button"
                     onClick={onBack}
-                    className="sk-press inline-flex h-9 items-center rounded-[var(--radius-lg)] px-3 text-[13px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
+                    className="sk-press inline-flex h-9 items-center rounded-[var(--radius-md)] px-3 text-[13px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
                   >
                     ← Back
                   </button>
@@ -160,7 +160,7 @@ export function EditorShell({
                     type="button"
                     onClick={onSave}
                     disabled={!canContinue || pending}
-                    className="sk-press inline-flex h-9 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="sk-press inline-flex h-9 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {pending ? "Saving…" : mode === "new" ? "Create product" : "Save changes"}
                   </button>
@@ -169,7 +169,7 @@ export function EditorShell({
                     type="button"
                     onClick={onContinue}
                     disabled={!canContinue}
-                    className="sk-press inline-flex h-9 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="sk-press inline-flex h-9 items-center rounded-[var(--radius-md)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Continue →
                   </button>

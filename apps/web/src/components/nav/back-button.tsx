@@ -70,7 +70,7 @@ export function BackButton({
       type="button"
       title={`${label} (Escape)`}
       aria-label={`${label} (Escape)`}
-      className="sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+      className="sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-1.5 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
       style={{
         background: light
           ? "rgb(var(--bg-elevated))"

@@ -72,7 +72,7 @@ export function ProductCard({
           View details
         </Link>
         <span
-          className="rounded-[var(--radius-lg)] border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
+          className="rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-[rgb(var(--fg-muted))]"
           style={{ borderColor: "rgb(var(--border-subtle))" }}
         >
           Stripe · soon
