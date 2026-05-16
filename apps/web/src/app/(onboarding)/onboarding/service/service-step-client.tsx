@@ -343,6 +343,9 @@ export function ServiceStepClient({
               unlimitedSessions={draft.unlimitedSessions}
               paymentPlan={draft.paymentPlan}
               installmentsCount={draft.installmentsCount}
+              pricingModel="flat"
+              volumeTiers={[]}
+              allowPerSong={false}
               onChange={(patch) => {
                 setDraft((d) => ({ ...d, ...patch }));
               }}

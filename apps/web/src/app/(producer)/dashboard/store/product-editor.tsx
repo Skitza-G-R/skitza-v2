@@ -439,6 +439,8 @@ export function ProductEditor({
             unlimitedSessions={draft.unlimitedSessions}
             paymentPlan={draft.paymentPlan}
             installmentsCount={draft.installmentsCount}
+            pricingModel={draft.pricingModel}
+            volumeTiers={draft.volumeTiers}
             onChange={(patch) => {
               setDraft((d) => ({ ...d, ...patch }));
             }}

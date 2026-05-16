@@ -6,7 +6,9 @@ export interface VolumeTier {
 export function unitPriceFor(qty: number, tiers: VolumeTier[]): number {
   if (tiers.length === 0) return 0;
   const sorted = [...tiers].sort((a, b) => a.minQty - b.minQty);
-  let active: VolumeTier = sorted[0]!;
+  const first = sorted[0];
+  if (!first) return 0;
+  let active: VolumeTier = first;
   for (const tier of sorted) {
     if (qty >= tier.minQty) active = tier;
   }
@@ -38,8 +40,9 @@ export function validateTiers(tiers: VolumeTier[]): TierValidation {
     seen.add(t.minQty);
   }
   for (let i = 1; i < sorted.length; i++) {
-    const cur = sorted[i]!;
-    const prev = sorted[i - 1]!;
+    const cur = sorted[i];
+    const prev = sorted[i - 1];
+    if (!cur || !prev) continue;
     if (cur.pricePerUnitCents >= prev.pricePerUnitCents) {
       warnings.push("PRICE_NOT_DECREASING");
       break;
