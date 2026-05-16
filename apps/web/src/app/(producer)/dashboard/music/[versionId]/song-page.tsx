@@ -807,29 +807,27 @@ export function SongPage({ data }: { data: SongPageData }) {
           with a soft inset highlight, so it sits on the page like a
           piece of polished hardware instead of a flat content rectangle. */}
       <section className="mx-auto max-w-[1120px] px-4 py-5 sm:px-6 sm:py-7">
-        {/* Waveform — DAW-style card. Surface is a deep warm wash that
-            picks up Skitza's espresso palette instead of pure white, so
-            the amber bars pop the way they do in Samply / Logic. */}
+        {/* Waveform — light double-bezel card. The v1 premium waveform
+            (80-bar amber pills with glow halo + hover scrub) reads on
+            a cream surface, so the card stays light to match. */}
         <div
           className="reveal-up rounded-[20px] p-[1.5px]"
           style={{
             background:
-              "linear-gradient(180deg, rgb(var(--fg-default) / 0.10) 0%, rgb(var(--fg-default) / 0.04) 100%)",
+              "linear-gradient(180deg, rgb(var(--fg-default) / 0.08) 0%, rgb(var(--fg-default) / 0.02) 60%, rgb(var(--brand-primary) / 0.16) 100%)",
             boxShadow: "var(--shadow-lg)",
           }}
         >
           <div
-            className="relative rounded-[18.5px] p-5 sm:p-6"
+            className="relative rounded-[18.5px] bg-[rgb(var(--bg-elevated))] p-5 sm:p-6"
             style={{
-              background:
-                "linear-gradient(180deg, rgb(28 26 20) 0%, rgb(22 21 16) 100%)",
               boxShadow:
-                "inset 0 1px 0 0 rgb(255 255 255 / 0.05), inset 0 -1px 0 0 rgb(0 0 0 / 0.3)",
+                "inset 0 1px 0 0 rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(var(--fg-default) / 0.04)",
             }}
           >
-            {/* In-context transport bar — compact horizontal strip:
-                Skip-5 · Play · Skip+5, sits to the LEFT of the live
-                time read. Same handler as the hero CTA. */}
+            {/* In-context transport bar — Skip-5 · Play · Skip+5 on the
+                left, live time read on the right. Same handler as the
+                hero CTA. */}
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-1.5">
                 <button
@@ -844,7 +842,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                   disabled={playState.disabled}
                   aria-label="Back 5 seconds"
                   title="Back 5 seconds"
-                  className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/85 transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-white/[0.10] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Skip5Icon dir="back" />
                 </button>
@@ -861,8 +859,8 @@ export function SongPage({ data }: { data: SongPageData }) {
                     "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full",
                     "transition-[transform,box-shadow,background-color] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                     isPlayingThis
-                      ? "bg-[rgb(var(--brand-primary))] text-white shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.18),0_10px_24px_-8px_rgb(var(--brand-primary)/0.6)]"
-                      : "bg-white text-[rgb(17_16_9)] shadow-[0_8px_18px_-6px_rgba(0,0,0,0.4)] hover:-translate-y-px",
+                      ? "bg-[rgb(var(--brand-primary))] text-white shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.18),0_10px_24px_-8px_rgb(var(--brand-primary)/0.5)]"
+                      : "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))] shadow-[0_8px_18px_-6px_rgb(var(--fg-default)/0.3)] hover:-translate-y-px",
                     "disabled:cursor-not-allowed disabled:opacity-40",
                   ].join(" ")}
                 >
@@ -881,14 +879,14 @@ export function SongPage({ data }: { data: SongPageData }) {
                   disabled={playState.disabled}
                   aria-label="Forward 5 seconds"
                   title="Forward 5 seconds"
-                  className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/85 transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-white/[0.10] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Skip5Icon dir="fwd" />
                 </button>
               </div>
-              <div className="font-mono text-[11px] tabular-nums text-white/55">
-                <span className="text-white/85">{fmtMs(currentMs)}</span>
-                <span className="mx-1 text-white/30">/</span>
+              <div className="font-mono text-[11px] tabular-nums text-[rgb(var(--fg-muted))]">
+                <span className="text-[rgb(var(--fg-default))]">{fmtMs(currentMs)}</span>
+                <span className="mx-1 opacity-50">/</span>
                 <span>{fmtMs(activeVersion.durationMs ?? 0)}</span>
               </div>
             </div>
@@ -898,7 +896,7 @@ export function SongPage({ data }: { data: SongPageData }) {
               comments={waveformComments}
               seed={activeVersion.id}
               onProgress={setCurrentMs}
-              height={140}
+              height={120}
             />
           </div>
         </div>
