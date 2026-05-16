@@ -183,21 +183,54 @@ function useAudioPeaks(
     void (async () => {
       try {
         const ctx = getAudioContext();
-        if (!ctx) return;
-        const res = await fetch(url);
-        if (!res.ok) return;
+        if (!ctx) {
+          console.warn("[waveform peaks] AudioContext unavailable");
+          return;
+        }
+        // The cookie-based session needs to travel with same-origin
+        // fetch. Defaults are 'same-origin' but explicit is safer.
+        const res = await fetch(url, { credentials: "same-origin" });
+        if (!res.ok) {
+          console.warn(
+            `[waveform peaks] fetch ${String(res.status)} for ${url}`,
+          );
+          return;
+        }
         const buf = await res.arrayBuffer();
-        // decodeAudioData mutates the buffer in some browsers (Safari);
-        // give it a fresh copy in case we want to reuse the bytes.
-        const audio = await ctx.decodeAudioData(buf.slice(0));
+        // decodeAudioData in older Safari is callback-only; the Promise
+        // form throws TypeError. Use the universally-supported callback
+        // form wrapped in a Promise so both code paths work.
+        const audio = await new Promise<AudioBuffer>((resolve, reject) => {
+          // Some browsers (Safari) detach the buffer on decode; give a
+          // fresh copy in case anything else wants the bytes.
+          ctx.decodeAudioData(
+            buf.slice(0),
+            (decoded) => {
+              resolve(decoded);
+            },
+            (err) => {
+              reject(err instanceof Error ? err : new Error(String(err)));
+            },
+          );
+        });
         if (flag.cancelled) return;
         const computed = rmsPeaks(audio.getChannelData(0), barCount);
         peaksCache.set(url, computed);
         setPeaks(computed);
-      } catch {
-        // Network / codec / CORS failure — silently keep the seeded
-        // fallback. The waveform still works as a click-to-seek
-        // surface, just without a real envelope.
+        if (typeof window !== "undefined") {
+          // Soft signal for the song page (or anyone curious) to verify
+          // peaks landed — listen with:
+          //   addEventListener('skitza:waveform:peaks', e => console.log(e.detail))
+          window.dispatchEvent(
+            new CustomEvent("skitza:waveform:peaks", {
+              detail: { url, sampleRate: audio.sampleRate, duration: audio.duration },
+            }),
+          );
+        }
+      } catch (err) {
+        // Surface the failure so dev tools shows WHY peaks didn't load,
+        // but keep the seeded fallback so the UI never breaks.
+        console.warn("[waveform peaks] decode failed:", err);
       }
     })();
     return () => {
