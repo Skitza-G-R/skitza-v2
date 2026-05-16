@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fromPrice, totalFor, unitPriceFor } from "../pricing";
+import { fromPrice, totalFor, unitPriceFor, validateTiers } from "../pricing";
 
 const TIERS = [
   { minQty: 1, pricePerUnitCents: 20000 },
@@ -54,5 +54,30 @@ describe("fromPrice", () => {
   });
   it("works with a single base tier", () => {
     expect(fromPrice([{ minQty: 1, pricePerUnitCents: 20000 }])).toBe(20000);
+  });
+});
+
+describe("validateTiers", () => {
+  it("returns no errors for a valid ascending ladder", () => {
+    expect(validateTiers(TIERS)).toEqual({ errors: [], warnings: [] });
+  });
+  it("errors on duplicate minQty", () => {
+    const bad = [
+      { minQty: 1, pricePerUnitCents: 20000 },
+      { minQty: 1, pricePerUnitCents: 17000 },
+    ];
+    expect(validateTiers(bad).errors).toContain("DUPLICATE_MIN_QTY");
+  });
+  it("errors on minQty < 1", () => {
+    expect(validateTiers([{ minQty: 0, pricePerUnitCents: 100 }]).errors).toContain(
+      "MIN_QTY_TOO_LOW",
+    );
+  });
+  it("warns when price doesn't decrease with quantity", () => {
+    const flat = [
+      { minQty: 1, pricePerUnitCents: 20000 },
+      { minQty: 5, pricePerUnitCents: 25000 },
+    ];
+    expect(validateTiers(flat).warnings).toContain("PRICE_NOT_DECREASING");
   });
 });
