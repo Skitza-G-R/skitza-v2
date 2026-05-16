@@ -186,7 +186,7 @@ export function PaymentsTab({
             }}
           >
             <Mail size={12} />
-            Send reminder
+            Send friendly reminder
           </button>
           <button
             type="button"
@@ -198,7 +198,7 @@ export function PaymentsTab({
             }}
           >
             <FileText size={12} />
-            Send invoice
+            Invoice
           </button>
         </div>
       </div>

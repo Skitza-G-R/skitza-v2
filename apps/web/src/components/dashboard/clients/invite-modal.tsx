@@ -114,14 +114,13 @@ export function InviteToAppModal({
             </span>
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="font-display text-[17px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-                {`Invite ${client.name}`}
+                Invite to app
               </DialogPrimitive.Title>
               <DialogPrimitive.Description
                 id="invite-modal-body"
                 className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]"
               >
-                Send them a Skitza invite. They&apos;ll see your projects,
-                hear their mixes, and book new sessions.
+                Give your client access to the artist app.
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild>

@@ -142,4 +142,13 @@ describe("NewProjectModal", () => {
   it("closes via onClose after a successful create", () => {
     expect(SRC).toMatch(/onClose\(\)/);
   });
+
+  it("renders the amber 'Stage starts at Brief' info banner (mockup-match)", () => {
+    // HTML mockup carries an amber explainer above the form telling
+    // the producer that stage progression is upload-driven (and now
+    // also manually editable from the song page).
+    expect(SRC).toContain("Stage starts at Brief");
+    // 'song&rsquo;s page' in source → tolerate the HTML-entity apostrophe.
+    expect(SRC).toMatch(/from any song(?:&rsquo;|')?s\s+page/);
+  });
 });

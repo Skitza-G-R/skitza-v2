@@ -1,44 +1,63 @@
 import { Skeleton } from "~/components/ui/skeleton";
 
-// Route-segment loading state for /dashboard/projects. Shown during
-// navigation while `project.listByStage` is in-flight. Mirrors the
-// chip filter bar + grouped stage columns the real page renders, so
-// the page swap-in avoids a layout jump.
-export default function ProjectsLoading() {
+// Route-segment loading state for /dashboard/clients-projects.
+// Mirrors the WorkspaceListView shape: header strip with eyebrow + h1 +
+// primary CTA, then a 4-tile KPI strip, then the segmented Clients /
+// Projects tab control, then the filter-chip + layout + sort toolbar,
+// and finally the card grid body. The previous version of this file
+// mirrored the old stage-grouped /dashboard/projects page and caused a
+// visible layout jump when the new workspace mounted.
+export default function ClientsProjectsLoading() {
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
-      <div className="space-y-3">
-        <Skeleton className="h-3 w-20" />
-        <Skeleton className="h-10 w-1/2" />
-        <Skeleton className="h-4 w-2/3" />
+    <div
+      aria-hidden
+      aria-label="Loading workspace"
+      className="mx-auto max-w-[1400px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10"
+    >
+      {/* Header strip: eyebrow + h1 + right CTA pill */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-10 w-72 max-w-full" />
+        </div>
+        <Skeleton className="h-10 w-32 rounded-full" />
       </div>
-      {/* Stage chip filter strip */}
-      <div className="mt-8 flex gap-2 overflow-x-auto">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-8 w-20 shrink-0 rounded-full" />
-        ))}
+
+      {/* 4-tile KPI strip */}
+      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Skeleton className="h-[88px]" />
+        <Skeleton className="h-[88px]" />
+        <Skeleton className="h-[88px]" />
+        <Skeleton className="h-[88px]" />
       </div>
-      {/* Two stage sections, each with a header + 3 rows */}
-      <div className="mt-8 space-y-8">
-        {Array.from({ length: 2 }).map((_, s) => (
-          <div key={s} className="space-y-2">
-            <Skeleton className="h-3.5 w-32" />
-            <div className="overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-3 border-b border-[rgb(var(--border-subtle))] p-4 last:border-b-0"
-                >
-                  <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-3.5 w-2/3" />
-                    <Skeleton className="h-3 w-1/4" />
-                  </div>
-                  <Skeleton className="h-5 w-20 rounded-full" />
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+
+      {/* Tab seg (Clients / Projects) */}
+      <div className="mt-6 flex gap-2">
+        <Skeleton className="h-9 w-24 rounded-full" />
+        <Skeleton className="h-9 w-24 rounded-full" />
+      </div>
+
+      {/* Toolbar: filter chips + (sort/layout cluster) */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Skeleton className="h-8 w-14 rounded-full" />
+        <Skeleton className="h-8 w-32 rounded-full" />
+        <Skeleton className="h-8 w-20 rounded-full" />
+        <Skeleton className="h-8 w-16 rounded-full" />
+        <div className="ml-auto flex gap-2">
+          <Skeleton className="h-8 w-16" />
+          <Skeleton className="h-8 w-32" />
+        </div>
+      </div>
+
+      {/* List body — card grid placeholder. 1 col on mobile, 2 col on
+          tablet, 3 col on desktop matches the live WorkspaceListView. */}
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Skeleton className="h-[124px]" />
+        <Skeleton className="h-[124px]" />
+        <Skeleton className="h-[124px]" />
+        <Skeleton className="h-[124px]" />
+        <Skeleton className="h-[124px]" />
+        <Skeleton className="h-[124px]" />
       </div>
     </div>
   );

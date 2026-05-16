@@ -162,3 +162,38 @@ describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () =>
     expect(SRC).toMatch(/bg-white[\s\S]*?New project|New project[\s\S]*?bg-white/);
   });
 });
+
+describe("ClientSpaceHero — inline link-state meta (Resend / Active in artist app)", () => {
+  // HTML mockup hero meta row includes the link state as inline text
+  // ("Invitation sent · Resend invite link" / "Active in artist app").
+  // The LinkPill next to the h1 is the at-a-glance signal; this line
+  // adds the verb so the producer can one-click resend a pending invite
+  // without re-opening the modal.
+
+  it("imports sendClientInviteAction for the resend handler", () => {
+    expect(SRC).toContain("sendClientInviteAction");
+  });
+
+  it("imports useTransition for the resend pending state", () => {
+    expect(SRC).toMatch(/useTransition/);
+  });
+
+  it("renders the 'Resend invite link' affordance for pending state", () => {
+    expect(SRC).toMatch(/linkState\s*===\s*["']pending["']/);
+    expect(SRC).toContain("Resend invite link");
+    expect(SRC).toContain("Invitation sent");
+  });
+
+  it("renders the 'Active in artist app' affirmation for active state", () => {
+    expect(SRC).toMatch(/linkState\s*===\s*["']active["']/);
+    expect(SRC).toContain("Active in artist app");
+  });
+
+  it("wires the resend handler through sendClientInviteAction({ via: 'email' })", () => {
+    expect(SRC).toMatch(/sendClientInviteAction\([\s\S]*?via:\s*["']email["']/);
+  });
+
+  it("uses useToast for resend success / error feedback", () => {
+    expect(SRC).toContain("useToast");
+  });
+});
