@@ -10,6 +10,10 @@ export const SORT_OPTIONS = [
   { value: "deadline", label: "Deadline" },
   { value: "balance", label: "Balance" },
   { value: "progress", label: "Progress" },
+  // 'joined' (round-4 table polish): the Clients table JOINED column
+  // dispatches this. On the Projects tab it maps to project.createdAt
+  // so the same dropdown option keeps a parallel meaning.
+  { value: "joined", label: "Joined" },
   { value: "name", label: "Name" },
 ] as const;
 

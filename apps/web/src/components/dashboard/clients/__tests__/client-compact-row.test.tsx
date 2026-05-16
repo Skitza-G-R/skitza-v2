@@ -17,10 +17,13 @@ describe("ClientCompactRow — compact horizontal row for clients table mode", (
     expect(SRC).toMatch(/export function ClientCompactRow/);
   });
 
-  it("uses an 8-column grid matching ClientsTableHeader", () => {
-    expect(SRC).toContain(
-      "24px 44px minmax(0,1.5fr) 80px 110px 110px 110px 36px",
-    );
+  it("imports the shared CLIENTS_TABLE_GRID from the header (round-4 polish)", () => {
+    // 2026-05-16: the row + header grid is exported from the header
+    // module so the two components can never drift out of alignment.
+    // Pinning the import + the gridTemplateColumns prop forwards the
+    // contract.
+    expect(SRC).toContain("CLIENTS_TABLE_GRID");
+    expect(SRC).toMatch(/gridTemplateColumns:\s*CLIENTS_TABLE_GRID/);
   });
 
   it("is draggable for the parent reorder controller", () => {

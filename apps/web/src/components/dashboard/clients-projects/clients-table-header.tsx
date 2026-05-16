@@ -4,12 +4,15 @@ import { ArrowUpDown } from "lucide-react";
 
 import type { SortValue } from "./sort-value";
 
-// Sortable column header for the Clients table mode (G18). Mirrors
-// ClientCompactRow's grid so each header cell sits over its row
-// counterpart. Reuses the same SortValue contract as the Projects
-// header — `name` is the only column that maps directly; the other
-// sortable columns (balance) reuse the existing sort dropdown's
-// vocabulary so the dropdown and headers stay in sync.
+// Sortable column header for the Clients table mode. Mockup-match
+// against /Volumes/KINGSTON/Downloads/Clients Projects Room.html
+// table view — 7 data columns (Client / Email / Link / Projects /
+// Lifetime / Owed / Joined) plus the grip + avatar + chevron
+// utility columns.
+//
+// Every data column is sortable. The arrow icon highlights the
+// active column. Width units mirror ClientCompactRow's grid so each
+// header cell sits over its row counterpart.
 
 interface ClientsTableHeaderProps {
   sort: SortValue;
@@ -22,19 +25,28 @@ interface ColumnSpec {
   align?: "left" | "right";
 }
 
-// Column lineup matches ClientCompactRow's grid:
-//   24px(grip) 44px(avatar) minmax(0,1.5fr)(name+email)
-//   80px(projects) 110px(lifetime) 110px(owed) 110px(status) 36px(chevron)
+// Column lineup (matches ClientCompactRow's grid exactly):
+//   24px(grip) 44px(avatar) minmax(0,1.4fr)(client name)
+//   minmax(0,1.5fr)(email) 110px(link state)
+//   90px(projects) 110px(lifetime) 100px(owed) 110px(joined) 36px(chevron)
 const COLUMNS: ColumnSpec[] = [
   { label: "" }, // grip
   { label: "" }, // avatar
   { label: "Client", sortKey: "name", align: "left" },
-  { label: "Projects", align: "right" },
-  { label: "Lifetime", align: "right" },
+  { label: "Email", align: "left" },
+  { label: "Link", align: "left" },
+  { label: "Projects", sortKey: "progress", align: "right" },
+  { label: "Lifetime", sortKey: "recent", align: "right" },
   { label: "Owed", sortKey: "balance", align: "right" },
-  { label: "Status", align: "left" },
+  { label: "Joined", sortKey: "joined", align: "left" },
   { label: "" }, // chevron
 ];
+
+const GRID_TEMPLATE =
+  "24px 44px minmax(0,1.4fr) minmax(0,1.5fr) 110px 90px 110px 100px 110px 36px";
+
+// Shared with ClientCompactRow so the header + rows align.
+export const CLIENTS_TABLE_GRID = GRID_TEMPLATE;
 
 export function ClientsTableHeader({
   sort,
@@ -43,11 +55,12 @@ export function ClientsTableHeader({
   return (
     <div
       role="row"
-      className="grid items-center gap-3 border-b px-3 py-2"
+      data-testid="clients-table-header"
+      className="grid items-center gap-3 border-b px-3 py-2.5"
       style={{
-        gridTemplateColumns:
-          "24px 44px minmax(0,1.5fr) 80px 110px 110px 110px 36px",
+        gridTemplateColumns: GRID_TEMPLATE,
         borderBottomColor: "rgb(var(--border-subtle))",
+        background: "rgb(var(--bg-background) / 0.6)",
       }}
     >
       {COLUMNS.map((col, i) => {
@@ -83,9 +96,10 @@ export function ClientsTableHeader({
                   if (col.sortKey) onSortChange(col.sortKey);
                 }}
                 aria-sort={isActive ? "ascending" : "none"}
-                className="inline-flex w-full items-center gap-1 hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.4)]"
+                className="inline-flex w-full items-center gap-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.4)]"
                 style={{
-                  justifyContent: col.align === "right" ? "flex-end" : "flex-start",
+                  justifyContent:
+                    col.align === "right" ? "flex-end" : "flex-start",
                 }}
               >
                 {content}

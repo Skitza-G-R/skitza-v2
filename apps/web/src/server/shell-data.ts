@@ -36,24 +36,48 @@ export interface ShellNotificationItem {
 
 export interface ShellState {
   slug: string | null;
+  /** Producer's display name (Studio name) — used by the sidebar
+   *  footer chip ("GS · Gili Studio · Pro plan"). Falls back to null
+   *  when the producer hasn't filled it in; the chip then renders
+   *  just the Clerk avatar with no label. */
+  displayName: string | null;
+  /** Producer's plan tier — surfaced on the sidebar footer chip
+   *  ("Pro plan"). Settings redesign added the column (migration
+   *  0012); defaults to 'free' on rows from before the migration.
+   *  Stored as text so we can introduce additional tiers without a
+   *  type churn. */
+  plan: string;
   unreadCount: number;
   unreadItems: ShellNotificationItem[];
 }
 
 const UNREAD_ITEMS_LIMIT = 10;
 
+const DEFAULT_STATE: ShellState = {
+  slug: null,
+  displayName: null,
+  plan: "free",
+  unreadCount: 0,
+  unreadItems: [],
+};
+
 export const getShellState = cache(async (): Promise<ShellState> => {
   const { userId } = await auth();
-  if (!userId) return { slug: null, unreadCount: 0, unreadItems: [] };
+  if (!userId) return DEFAULT_STATE;
   const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) return { slug: null, unreadCount: 0, unreadItems: [] };
+  if (!dbUrl) return DEFAULT_STATE;
   const db = createDb(dbUrl);
   const [row] = await db
-    .select({ id: producers.id, slug: producers.slug })
+    .select({
+      id: producers.id,
+      slug: producers.slug,
+      displayName: producers.displayName,
+      plan: producers.plan,
+    })
     .from(producers)
     .where(eq(producers.clerkUserId, userId))
     .limit(1);
-  if (!row) return { slug: null, unreadCount: 0, unreadItems: [] };
+  if (!row) return DEFAULT_STATE;
   const unreadRows = await db
     .select({
       id: notifications.id,
@@ -88,5 +112,11 @@ export const getShellState = cache(async (): Promise<ShellState> => {
       commentId: r.commentId,
       bookingId: r.bookingId,
     }));
-  return { slug: row.slug, unreadCount: unreadRows.length, unreadItems };
+  return {
+    slug: row.slug,
+    displayName: row.displayName,
+    plan: row.plan,
+    unreadCount: unreadRows.length,
+    unreadItems,
+  };
 });

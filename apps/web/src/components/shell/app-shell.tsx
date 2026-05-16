@@ -8,6 +8,7 @@ import { getShellState } from "~/server/shell-data";
 
 import { CoachmarkTour } from "./coachmark-tour";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
+import { DashboardTopBar } from "./dashboard-topbar";
 import { ShortcutsBridge } from "./shortcuts-bridge";
 
 // AppShell — Phase 2 (locked design system).
@@ -42,7 +43,8 @@ import { ShortcutsBridge } from "./shortcuts-bridge";
 // docs/qa/phase-2-handoff.md under "FloatingPlayer slot".
 
 export async function AppShell({ children }: { children: ReactNode }) {
-  const { slug, unreadCount, unreadItems } = await getShellState();
+  const { slug, displayName, plan, unreadCount, unreadItems } =
+    await getShellState();
   // Public origin used by the SidebarShareChip to render the
   // /join/<slug> URL. Always the canonical brand origin — share links
   // land in producer bios + socials, so they must always read as
@@ -63,6 +65,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
         publicBaseUrl={publicBaseUrl}
         unreadCount={unreadCount}
         unreadItems={unreadItems}
+        displayName={displayName}
+        plan={plan}
       />
       {/* `pb-20` on mobile reserves space for the fixed bottom nav
           (56px tab row + 8px safe-area buffer). `lg:pb-0` strips it
@@ -74,6 +78,12 @@ export async function AppShell({ children }: { children: ReactNode }) {
         tabIndex={-1}
         className="min-w-0 flex-1 pb-20 lg:pb-0"
       >
+        {/* Sticky topbar from the HTML mockup: section label · search
+            trigger · notifications bell. Sits at the top of <main> so
+            it spans the content area (not the sidebar), and uses
+            position:sticky so it stays pinned during scroll without
+            stealing focus order from the page below. */}
+        <DashboardTopBar unreadCount={unreadCount} />
         {children}
       </main>
 
