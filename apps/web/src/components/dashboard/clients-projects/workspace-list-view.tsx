@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react";
 import type { DragEvent } from "react";
-import { ChevronDown, LayoutGrid, List, Plus } from "lucide-react";
+import {
+  ChevronDown,
+  FolderKanban,
+  LayoutGrid,
+  List,
+  Plus,
+  Users,
+} from "lucide-react";
 
 import {
   ProjectRow,
@@ -40,11 +47,17 @@ const PROJECT_FILTERS = [
 
 type ProjectFilter = (typeof PROJECT_FILTERS)[number]["value"];
 
-// Client filter chips.
+// Client filter chips — mockup-match: same 4 filters as Projects so
+// the toolbar stays consistent across tabs (the locked HTML mockup
+// shows All / Needs attention / Active / Done on both Clients and
+// Projects). 'needs-attention' for clients = at least one of their
+// projects has an outstanding balance OR an unresolved comment.
+// 'done' = client has no active projects.
 const CLIENT_FILTERS = [
   { value: "all", label: "All" },
+  { value: "needs-attention", label: "Needs attention" },
   { value: "active", label: "Active" },
-  { value: "balance", label: "Balance" },
+  { value: "done", label: "Done" },
 ] as const;
 
 // Returns the row's ISO timestamp as ms, or 0 if missing/invalid. Used
@@ -248,9 +261,16 @@ export function WorkspaceListView({
       clientFilter === "all"
         ? orderedClients
         : orderedClients.filter((c) => {
+            if (clientFilter === "needs-attention") {
+              // A client "needs attention" when they have a non-zero
+              // outstanding balance — the same urgency signal as the
+              // Projects tab. Pulsing red dot in the chip + matching
+              // semantics keeps the toolbar consistent.
+              return c.owed > 0;
+            }
             if (clientFilter === "active") return c.projects > 0;
-            // balance
-            return c.owed > 0;
+            // done — no active projects on the books
+            return c.projects === 0;
           });
 
     if (sort === "custom") return base;
@@ -475,67 +495,78 @@ export function WorkspaceListView({
         />
       </div>
 
-      {/* Tab segmented control — G20: design uses white-on-beige
-          (paper-on-beige) instead of brand-amber-on-white. The amber
-          is reserved for the page's primary CTA; the tab selection is
-          a softer signal that doesn't compete. */}
-      <div
-        className="inline-flex items-center gap-1 self-start rounded-full border p-1"
-        style={{
-          background: "rgb(var(--bg-background))",
-          borderColor: "rgb(var(--border-subtle))",
-        }}
-        role="tablist"
-        aria-label="Workspace tab"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "clients"}
-          onClick={() => { setTab("clients"); }}
-          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]"
+      {/* Toolbar — single row, mockup-match alignment.
+          Layout: [tab seg] [filter chips] (flex-1 spacer) [layout] [sort]
+          All controls live on ONE row in the HTML mockup, separated
+          only by whitespace. Wraps on narrow viewports (flex-wrap).
+          G20: tab pill uses white-on-beige (paper-on-beige) — amber
+          is reserved for the page CTA, the tab selection is a softer
+          signal.
+          G21: active filter chip uses solid-ink (fg-default bg + light
+          text), stronger "filter on" signal without competing with
+          the brand CTA.
+          G22: the Needs-attention chip carries a pulsing red dot at
+          all times (not only when active) so the producer sees urgency
+          at a glance even when other filters are selected. */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        {/* Tab segmented control with icons (Users + FolderKanban),
+            matching the HTML mockup's iconified pill. The icon
+            tightens the at-a-glance scan — even before reading the
+            label you know which surface you're switching to. */}
+        <div
+          className="inline-flex items-center gap-1 rounded-full border p-1"
           style={{
-            background:
-              tab === "clients" ? "rgb(var(--bg-elevated))" : "transparent",
-            color:
-              tab === "clients"
-                ? "rgb(var(--fg-default))"
-                : "rgb(var(--fg-muted))",
-            boxShadow:
-              tab === "clients" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
+            background: "rgb(var(--bg-background))",
+            borderColor: "rgb(var(--border-subtle))",
           }}
+          role="tablist"
+          aria-label="Workspace tab"
         >
-          Clients
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "projects"}
-          onClick={() => { setTab("projects"); }}
-          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]"
-          style={{
-            background:
-              tab === "projects" ? "rgb(var(--bg-elevated))" : "transparent",
-            color:
-              tab === "projects"
-                ? "rgb(var(--fg-default))"
-                : "rgb(var(--fg-muted))",
-            boxShadow:
-              tab === "projects" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
-          }}
-        >
-          Projects
-        </button>
-      </div>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "clients"}
+            onClick={() => { setTab("clients"); }}
+            className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]"
+            style={{
+              background:
+                tab === "clients" ? "rgb(var(--bg-elevated))" : "transparent",
+              color:
+                tab === "clients"
+                  ? "rgb(var(--fg-default))"
+                  : "rgb(var(--fg-muted))",
+              boxShadow:
+                tab === "clients" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
+            }}
+          >
+            <Users size={12} strokeWidth={2.3} aria-hidden />
+            Clients
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "projects"}
+            onClick={() => { setTab("projects"); }}
+            className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]"
+            style={{
+              background:
+                tab === "projects" ? "rgb(var(--bg-elevated))" : "transparent",
+              color:
+                tab === "projects"
+                  ? "rgb(var(--fg-default))"
+                  : "rgb(var(--fg-muted))",
+              boxShadow:
+                tab === "projects" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
+            }}
+          >
+            <FolderKanban size={12} strokeWidth={2.3} aria-hidden />
+            Projects
+          </button>
+        </div>
 
-      {/* Toolbar — filter chips + layout switcher + sort dropdown.
-          G21: active chip uses solid-ink (fg-default bg + white text)
-          instead of an amber tint. Reads as a stronger "filter on"
-          signal that doesn't compete with the brand CTA. G22: the
-          Needs-attention chip carries a pulsing red dot at all times
-          (not only when active) so the producer sees urgency at a
-          glance even when other filters are selected. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Filter chips, inline with the tab seg on the same row.
+            'Needs attention' carries the pulsing red dot on both
+            tabs (mockup-match). */}
         <div className="flex flex-wrap items-center gap-1.5">
           {tab === "projects"
             ? PROJECT_FILTERS.map((f) => {
@@ -546,7 +577,7 @@ export function WorkspaceListView({
                     type="button"
                     onClick={() => { setProjectFilter(f.value); }}
                     aria-pressed={active}
-                    className="inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+                    className="inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -578,7 +609,7 @@ export function WorkspaceListView({
                     type="button"
                     onClick={() => { setClientFilter(f.value); }}
                     aria-pressed={active}
-                    className="rounded-full border px-3.5 py-1 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+                    className="inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -591,12 +622,23 @@ export function WorkspaceListView({
                         : "rgb(var(--fg-muted))",
                     }}
                   >
+                    {f.value === "needs-attention" ? (
+                      <span
+                        aria-hidden
+                        className="inline-block h-1.5 w-1.5 rounded-full motion-safe:animate-[skitza-pulse-glow_2s_ease-in-out_infinite]"
+                        style={{ background: "rgb(var(--fg-danger))" }}
+                      />
+                    ) : null}
                     {f.label}
                   </button>
                 );
               })}
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Right cluster — layout switcher + sort.
+            ml-auto pushes them to the right edge on wide rows;
+            collapses inline on narrow viewports via flex-wrap. */}
+        <div className="ml-auto flex items-center gap-2">
           {/* G18 — Layout switcher available on BOTH tabs. Projects:
               cards = vertical ProjectRow stack, table = same stack
               with a sortable ProjectsTableHeader on top. Clients:
@@ -677,6 +719,21 @@ export function WorkspaceListView({
           </label>
         </div>
       </div>
+
+      {/* List-header eyebrow — mockup-match "CLIENTS · 5" / "PROJECTS · 5"
+          tiny uppercase label above the list. Reads as a quiet
+          breadcrumb between the toolbar and the rows: tells the
+          producer "what list am I scanning" + the count, without
+          competing with the KPI tiles for attention. */}
+      <p
+        className="-mb-1 mt-2 text-[10.5px] font-bold uppercase tracking-[0.14em]"
+        style={{ color: "rgb(var(--fg-muted))" }}
+        data-testid="workspace-list-header"
+      >
+        {tab === "projects"
+          ? `Projects · ${String(filteredProjects.length)}`
+          : `Clients · ${String(filteredClients.length)}`}
+      </p>
 
       {/* The list — G18 wires layout switching for both tabs */}
       {tab === "projects" ? (

@@ -93,8 +93,8 @@ describe("ProducerSidebar — Insights placeholder + footer chip", () => {
   });
 
   it("accepts displayName + plan props on ProducerSidebar (footer chip data)", () => {
-    expect(SIDEBAR_SRC).toMatch(/displayName\?\:\s*string\s*\|\s*null/);
-    expect(SIDEBAR_SRC).toMatch(/plan\?\:\s*string/);
+    expect(SIDEBAR_SRC).toMatch(/displayName\?:\s*string\s*\|\s*null/);
+    expect(SIDEBAR_SRC).toMatch(/plan\?:\s*string/);
   });
 
   it("renders the footer chip with display name + plan label when expanded", () => {
