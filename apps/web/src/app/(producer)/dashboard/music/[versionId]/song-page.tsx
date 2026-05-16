@@ -185,6 +185,30 @@ export function SongPage({ data }: { data: SongPageData }) {
   // is added on the server.
   const [isFavorite, setIsFavorite] = useState(false);
 
+  // Secondary actions overflow menu (heart/share/download). Click-out
+  // closes it. Premium players keep utility actions out of the primary
+  // sightline — the menu collapses into a single circular trigger.
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!overflowOpen) return;
+    function onDown(e: MouseEvent) {
+      const node = overflowRef.current;
+      if (node && !node.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOverflowOpen(false);
+    }
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [overflowOpen]);
+
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const draftRef = useRef<HTMLInputElement | null>(null);
@@ -423,16 +447,36 @@ export function SongPage({ data }: { data: SongPageData }) {
     playerPlay(activeVersionToPlayerTrack(data.track, activeVersion));
   }
 
+  function handleShare() {
+    if (typeof window === "undefined") return;
+    const url = window.location.href;
+    // DOM lib types `navigator.share` as required, but browsers without
+    // the Web Share API throw on call — synchronous TypeError, not
+    // rejected promise. try/catch handles both that path AND a missing
+    // navigator.clipboard (insecure contexts) without tripping the
+    // strict-truthy lint rule.
+    try {
+      void navigator.share({ title: data.track.title, url }).catch(() => undefined);
+    } catch {
+      try {
+        void navigator.clipboard.writeText(url).catch(() => undefined);
+      } catch {
+        // Neither API available; affordance is non-destructive.
+      }
+    }
+    setOverflowOpen(false);
+  }
+
   if (!activeVersion) {
     return (
-      <main className="mx-auto max-w-[1100px] px-4 py-12 sm:px-6">
+      <main className="mx-auto max-w-[1120px] px-4 py-12 sm:px-6">
         <Link
           href="/dashboard/music"
           className="text-[12.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
         >
           ← Back to Library
         </Link>
-        <p className="mt-6 rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 text-center text-[13px] text-[rgb(var(--fg-muted))]">
+        <p className="mt-6 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 text-center text-[13px] text-[rgb(var(--fg-muted))]">
           This track has no versions yet.
         </p>
       </main>
@@ -440,91 +484,148 @@ export function SongPage({ data }: { data: SongPageData }) {
   }
 
   const isApproved = activeVersion.approvedAtIso !== null;
+  const playState = playButtonState({
+    activeVersionId: activeVersion.id,
+    audioUrl: activeVersion.audioUrl,
+    nowPlaying,
+  });
+  const isPlayingThis =
+    playState.action === "toggle" && playState.label === "Pause";
 
   return (
     <main className="sk-page-enter">
-      {/* Hero band — gradient backdrop derived from client name (same
-          deterministic palette the rest of the producer dashboard uses
-          for project covers). White text floats above. */}
+      {/* ───── Hero band ─────────────────────────────────────────────
+          Editorial-luxury treatment: gradient backdrop bleeds out via
+          a deep radial mask + two-stop linear fade, so the band feels
+          like the OPENING of a record sleeve rather than a card glued
+          to the top of the page. */}
       <header
         className="relative isolate overflow-hidden text-white"
         style={{ background: heroBg }}
       >
-        {/* Atmospheric overlay (design.md): a soft radial highlight in
-            the top-left + a linear fade so the gradient bleeds into
-            the page background instead of stopping at a hard edge.
-            pointer-events:none so clicks pass through to the content. */}
+        {/* Atmosphere — soft highlight at top-left + ambient bottom fade
+            so the gradient melts into the canvas with no hard edge. */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0"
           style={{
             background:
-              "radial-gradient(80% 60% at 18% 16%, rgba(255,255,255,0.20), transparent 60%), linear-gradient(180deg, rgba(17,16,9,0), rgba(17,16,9,0.18) 72%, rgb(var(--bg-background)))",
+              "radial-gradient(120% 80% at 12% 8%, rgba(255,255,255,0.22), transparent 55%), radial-gradient(80% 60% at 88% 0%, rgba(255,255,255,0.08), transparent 60%), linear-gradient(180deg, rgba(17,16,9,0) 0%, rgba(17,16,9,0.18) 60%, rgb(var(--bg-background)) 100%)",
           }}
         />
-        <div className="mx-auto max-w-[1100px] px-4 pt-6 pb-7 sm:px-6 sm:pt-8">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {/* Subtle film-grain hint — adds physical texture without
+            cooking the gradient. Only at very low opacity. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.035] mix-blend-overlay"
+          style={{
+            backgroundImage:
+              "radial-gradient(rgb(255 255 255) 1px, transparent 1px)",
+            backgroundSize: "3px 3px",
+          }}
+        />
+
+        <div className="relative mx-auto max-w-[1120px] px-4 pt-7 pb-9 sm:px-6 sm:pt-9 sm:pb-12">
+          {/* Top breadcrumb row — quiet glass pills, no visual heft */}
+          <div className="mb-7 flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/dashboard/music"
-              className="sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/25 bg-white/10 px-3 py-1.5 text-[11.5px] font-semibold backdrop-blur-sm"
+              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
             >
-              <ChevronLeftIcon /> Back to Library
+              <ChevronLeftIcon />
+              <span>Library</span>
             </Link>
             <Link
               href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
-              className="sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/25 bg-white/10 px-3 py-1.5 text-[11.5px] font-semibold backdrop-blur-sm"
+              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
             >
-              Open in project room <ChevronRightIcon />
+              <span>Open in project room</span>
+              <ChevronRightIcon />
             </Link>
           </div>
 
-          <div className="flex flex-wrap items-end gap-5">
-            {/* Album-art tile — gradient + waveform glyph. Click toggles
-                the persistent player (deferred — not wired in this slice
-                because v3-clean's player API is a side-tab dock, not a
-                hero overlay). */}
-            <div
-              aria-hidden
-              className="relative flex h-[100px] w-[100px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-black/20 shadow-[0_12px_32px_rgba(0,0,0,0.28)]"
-            >
-              <WaveformGlyph />
+          <div className="flex flex-col gap-7 md:flex-row md:items-end md:gap-8">
+            {/* Album-art tile — Double-bezel: glass outer ring + inner
+                gradient core with reflection + a centered audio glyph.
+                Reads as physical hardware, not a placeholder box. */}
+            <div className="reveal-up shrink-0">
+              <div
+                aria-hidden
+                className="relative rounded-[28px] p-[3px]"
+                style={{
+                  background:
+                    "linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.08) 40%, rgba(255,255,255,0.18) 100%)",
+                  boxShadow:
+                    "0 30px 80px -20px rgba(0,0,0,0.55), 0 2px 0 0 rgba(255,255,255,0.18) inset",
+                }}
+              >
+                <div
+                  className="relative flex h-[132px] w-[132px] items-center justify-center overflow-hidden rounded-[25px] text-white"
+                  style={{
+                    background:
+                      "linear-gradient(155deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.1) 60%, rgba(255,255,255,0.06) 100%)",
+                    boxShadow:
+                      "inset 0 1px 0 0 rgba(255,255,255,0.18), inset 0 -40px 50px -20px rgba(0,0,0,0.4)",
+                  }}
+                >
+                  <WaveformGlyph />
+                  {/* Reflection slash — a subtle diagonal highlight. */}
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0"
+                    style={{
+                      background:
+                        "linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.10) 45%, transparent 55%)",
+                    }}
+                  />
+                </div>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] opacity-80">
+
+            {/* Title block + meta */}
+            <div className="reveal-up reveal-up-delay-1 min-w-0 flex-1">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-white/70">
                 Song · {data.track.projectTitle}
               </span>
-              <h1 className="font-display mt-1 text-[clamp(28px,4vw,44px)] font-extrabold leading-none tracking-[-0.03em] [text-shadow:0_2px_14px_rgba(0,0,0,0.18)]">
+              <h1
+                className="font-display mt-2 text-[clamp(34px,5vw,56px)] font-extrabold leading-[1] tracking-[-0.035em]"
+                style={{ textShadow: "0 2px 22px rgba(0,0,0,0.22)" }}
+              >
                 {data.track.title}
               </h1>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] opacity-90">
-                {clientLabel ? <span>{clientLabel}</span> : null}
+              <div className="mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-white/85">
+                {clientLabel ? (
+                  <span className="font-medium">{clientLabel}</span>
+                ) : null}
                 {activeVersion.durationMs ? (
                   <>
-                    <span aria-hidden>·</span>
+                    <span aria-hidden className="text-white/40">·</span>
                     <span className="font-mono tabular-nums">
                       {fmtMs(activeVersion.durationMs)}
                     </span>
                   </>
                 ) : null}
-                <span aria-hidden>·</span>
-                <span>uploaded {fmtRelativeIso(activeVersion.uploadedAtIso)}</span>
+                <span aria-hidden className="text-white/40">·</span>
+                <span className="text-white/70">
+                  uploaded {fmtRelativeIso(activeVersion.uploadedAtIso)}
+                </span>
                 {isApproved ? (
                   <>
-                    <span aria-hidden>·</span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-white/85 px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wider text-[rgb(17_16_9)]">
+                    <span aria-hidden className="text-white/40">·</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(17_16_9)]">
                       <CheckIcon /> Approved
                     </span>
                   </>
                 ) : null}
               </div>
 
-              {/* Version switcher — pill cluster, current version flagged */}
+              {/* Version pills — magnetic hover, monospace labels */}
               {data.versions.length > 1 ? (
-                <div className="mt-4 flex flex-wrap items-center gap-1.5">
-                  <span className="mr-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] opacity-75">
+                <div className="mt-5 flex flex-wrap items-center gap-1.5">
+                  <span className="mr-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-white/55">
                     Version
                   </span>
-                  {data.versions.map((v) => {
+                  {data.versions.map((v, i) => {
                     const isActive = v.id === activeVersion.id;
                     const isLatest = v.id === data.versions[0]?.id;
                     return (
@@ -534,11 +635,13 @@ export function SongPage({ data }: { data: SongPageData }) {
                         onClick={() => {
                           setActiveVersionId(v.id);
                         }}
+                        style={{ animationDelay: `${String(120 + i * 50)}ms` }}
                         className={[
-                          "sk-press rounded-full border px-2.5 py-1 font-mono text-[10.5px] font-bold transition",
+                          "sk-press reveal-up rounded-full border px-3 py-1 font-mono text-[10.5px] font-bold tracking-wide",
+                          "transition-[background-color,border-color,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                           isActive
-                            ? "border-white bg-white text-[rgb(17_16_9)]"
-                            : "border-white/25 bg-white/10 text-white",
+                            ? "border-white bg-white text-[rgb(17_16_9)] shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)]"
+                            : "border-white/22 bg-white/[0.08] text-white/85 hover:-translate-y-px hover:bg-white/[0.16]",
                         ].join(" ")}
                       >
                         {v.label}
@@ -551,208 +654,286 @@ export function SongPage({ data }: { data: SongPageData }) {
               ) : null}
             </div>
 
-            {/* Action rail — Play/Pause + approve. The Play button is the
-                primary CTA: clicking it pushes this version into the
-                PersistentPlayer (mounted at AppShell), which exposes the
-                fixed-bottom dock and survives client-side navigation so
-                the producer can keep listening while clicking around. */}
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              {(() => {
-                const playState = playButtonState({
-                  activeVersionId: activeVersion.id,
-                  audioUrl: activeVersion.audioUrl,
-                  nowPlaying,
-                });
-                const isPlayingThis =
-                  playState.action === "toggle" && playState.label === "Pause";
-                return (
-                  <button
-                    type="button"
-                    onClick={handlePlayToggle}
-                    disabled={playState.disabled}
-                    aria-label={playState.label}
-                    title={
-                      playState.disabled
-                        ? "Audio is still uploading"
-                        : playState.label
-                    }
-                    className={[
-                      "sk-press inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-bold transition",
-                      "bg-white text-[rgb(17_16_9)] shadow-[0_4px_14px_rgba(0,0,0,0.18)]",
-                      "disabled:cursor-not-allowed disabled:opacity-50",
-                    ].join(" ")}
-                  >
-                    {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
-                    {playState.label}
-                  </button>
-                );
-              })()}
+            {/* Action rail — ONE confident Play CTA + a single secondary
+                overflow trigger + a quiet Approve. The brand color now
+                belongs to the playhead, NOT the chrome — Approve uses
+                a glass outline + check icon, flipping to filled white
+                once already approved. */}
+            <div className="reveal-up reveal-up-delay-2 flex shrink-0 flex-wrap items-center gap-2.5">
+              {/* Play CTA — primary, magnetic, glow when playing. The
+                  in-context play button inside the waveform card below
+                  reuses the same handler so the two stay locked. */}
               <button
                 type="button"
-                aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-                aria-pressed={isFavorite}
-                title={isFavorite ? "In favorites" : "Add to favorites"}
-                onClick={() => {
-                  setIsFavorite((f) => !f);
-                }}
+                onClick={handlePlayToggle}
+                disabled={playState.disabled}
+                aria-label={playState.label}
+                title={
+                  playState.disabled
+                    ? "Audio is still uploading"
+                    : playState.label
+                }
                 className={[
-                  "sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border transition",
-                  isFavorite
-                    ? "border-white bg-white text-[rgb(var(--brand-primary-dark))]"
-                    : "border-white/22 bg-white/14 text-white",
+                  "sk-press group relative inline-flex items-center gap-2 rounded-full pl-2 pr-5 py-2 text-[13px] font-bold",
+                  "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                  "bg-white text-[rgb(17_16_9)] disabled:cursor-not-allowed disabled:opacity-50",
+                  isPlayingThis
+                    ? "shadow-[0_10px_30px_-8px_rgba(255,255,255,0.5),0_0_0_1px_rgba(255,255,255,0.4)]"
+                    : "shadow-[0_8px_24px_-6px_rgba(0,0,0,0.35)] hover:-translate-y-px hover:shadow-[0_14px_36px_-8px_rgba(0,0,0,0.4)]",
                 ].join(" ")}
               >
-                <StarIcon filled={isFavorite} />
-              </button>
-              <button
-                type="button"
-                aria-label="Share with artist"
-                title="Share with artist"
-                onClick={() => {
-                  if (typeof window === "undefined") return;
-                  const url = window.location.href;
-                  // DOM lib types `navigator.share` as required, but
-                  // browsers without the Web Share API throw on call
-                  // — synchronous TypeError, not rejected promise.
-                  // try/catch handles both that path AND a missing
-                  // navigator.clipboard (insecure contexts) without
-                  // tripping the strict-truthy lint rule.
-                  try {
-                    void navigator.share({ title: data.track.title, url }).catch(() => {
-                      // User dismissed the native sheet — no-op.
-                    });
-                  } catch {
-                    try {
-                      void navigator.clipboard.writeText(url).catch(() => {
-                        // Permission denied or no focus — silent.
-                      });
-                    } catch {
-                      // Neither API available; the affordance is non-
-                      // destructive, so silent fall-through is fine.
-                    }
-                  }
-                }}
-                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white"
-              >
-                <ShareIcon />
-              </button>
-              {activeVersion.audioUrl ? (
-                // Anchor through our same-origin /api/download/<id>
-                // route. The route fetches R2 server-side and re-emits
-                // with Content-Disposition: attachment, dodging the
-                // R2 CORS issue that broke the previous client-side
-                // fetch path. `download` triggers the browser's
-                // native save dialog with the filename the route
-                // sets via Content-Disposition.
-                <a
-                  aria-label="Download"
-                  title="Download"
-                  href={`/api/download/${activeVersion.id}`}
-                  download
-                  className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white"
+                <span
+                  className={[
+                    "flex h-8 w-8 items-center justify-center rounded-full",
+                    "transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover:scale-[1.05]",
+                    isPlayingThis
+                      ? "bg-[rgb(var(--brand-primary))] text-white"
+                      : "bg-[rgb(17_16_9)] text-white",
+                  ].join(" ")}
                 >
-                  <DownloadIcon />
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  aria-label="Download"
-                  title="Download (no audio uploaded yet)"
-                  disabled
-                  className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white opacity-50"
-                >
-                  <DownloadIcon />
-                </button>
-              )}
+                  {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
+                </span>
+                <span className="tracking-[-0.005em]">{playState.label}</span>
+              </button>
+
+              {/* Approve — quiet glass outline by default; filled cream
+                  once approved. Brand amber is reserved for the playhead. */}
               <button
                 type="button"
                 onClick={handleApproveToggle}
                 disabled={isPending}
+                title={isApproved ? "Approved" : "Approve version"}
+                aria-label={isApproved ? "Approved" : "Approve version"}
                 className={[
-                  "sk-press inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-bold transition",
+                  "sk-press inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-bold",
+                  "transition-[background-color,border-color,box-shadow,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   isApproved
-                    ? "bg-white text-[rgb(17_16_9)]"
-                    : "bg-[rgb(var(--brand-primary))] text-[rgb(17_16_9)]",
+                    ? "border border-white/0 bg-white/95 text-[rgb(17_16_9)] shadow-[0_6px_20px_-6px_rgba(255,255,255,0.45)]"
+                    : "border border-white/28 bg-white/[0.06] text-white hover:bg-white/[0.14] hover:-translate-y-px",
                   "disabled:opacity-60",
                 ].join(" ")}
               >
-                <CheckIcon /> {isApproved ? "Approved" : "Approve version"}
+                <CheckIcon /> {isApproved ? "Approved" : "Approve"}
               </button>
+
+              {/* Overflow — single glass circle for share / favorite /
+                  download. Origin-aware popover scales from this trigger. */}
+              <div ref={overflowRef} className="relative">
+                <button
+                  type="button"
+                  aria-label="More actions"
+                  aria-haspopup="menu"
+                  aria-expanded={overflowOpen}
+                  onClick={() => {
+                    setOverflowOpen((o) => !o);
+                  }}
+                  className={[
+                    "sk-press inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/22",
+                    "transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
+                    overflowOpen
+                      ? "bg-white/[0.22]"
+                      : "bg-white/[0.08] hover:bg-white/[0.16]",
+                  ].join(" ")}
+                >
+                  <MoreIcon />
+                </button>
+                {overflowOpen ? (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 origin-top-right overflow-hidden rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.35)]"
+                    style={{
+                      animation:
+                        "skitza-pop-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-label={
+                        isFavorite ? "Remove from favorites" : "Add to favorites"
+                      }
+                      aria-pressed={isFavorite}
+                      onClick={() => {
+                        setIsFavorite((f) => !f);
+                        setOverflowOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                    >
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
+                        <StarIcon filled={isFavorite} />
+                      </span>
+                      {isFavorite ? "Remove from favorites" : "Add to favorites"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-label="Share with artist"
+                      onClick={handleShare}
+                      className="flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                    >
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
+                        <ShareIcon />
+                      </span>
+                      Share with artist
+                    </button>
+                    {activeVersion.audioUrl ? (
+                      <a
+                        role="menuitem"
+                        aria-label="Download"
+                        href={`/api/download/${activeVersion.id}`}
+                        download
+                        onClick={() => {
+                          setOverflowOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                      >
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
+                          <DownloadIcon />
+                        </span>
+                        Download audio
+                      </a>
+                    ) : (
+                      <span
+                        role="menuitem"
+                        aria-label="Download"
+                        aria-disabled
+                        className="flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
+                      >
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
+                          <DownloadIcon />
+                        </span>
+                        Download (uploading…)
+                      </span>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Body — waveform + comments */}
-      <section className="mx-auto max-w-[1100px] px-4 py-6 sm:px-6 sm:py-8">
-        {/* Waveform card */}
-        <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5">
-          <Waveform50
-            durationMs={activeVersion.durationMs ?? 240_000}
-            comments={waveformComments}
-            seed={activeVersion.id}
-            onProgress={setCurrentMs}
-          />
-          {/* Inline play/pause CTA — sits centered under the waveform.
-              Pinned with a data-test attr so source-grep tests can
-              ensure both this and the hero CTA stay wired through
-              handlePlayToggle (single toggle path → no drift between
-              them and the dock). */}
-          {(() => {
-            const wfState = playButtonState({
-              activeVersionId: activeVersion.id,
-              audioUrl: activeVersion.audioUrl,
-              nowPlaying,
-            });
-            const isPlayingThis =
-              wfState.action === "toggle" && wfState.label === "Pause";
-            return (
-              <div className="mt-4 flex items-center justify-center">
-                <button
-                  type="button"
-                  data-test="waveform-play-button"
-                  onClick={handlePlayToggle}
-                  disabled={wfState.disabled}
-                  aria-label={wfState.label}
-                  title={
-                    wfState.disabled ? "Audio is still uploading" : wfState.label
+      {/* ───── Body ──────────────────────────────────────────────────
+          Waveform first, then comments. The waveform card uses the
+          double-bezel pattern — an outer hairline sheath + inner core
+          with a soft inset highlight, so it sits on the page like a
+          piece of polished hardware instead of a flat content rectangle. */}
+      <section className="mx-auto max-w-[1120px] px-4 py-7 sm:px-6 sm:py-10">
+        {/* Waveform — Double-Bezel card */}
+        <div
+          className="reveal-up rounded-[28px] p-[1.5px]"
+          style={{
+            background:
+              "linear-gradient(180deg, rgb(var(--fg-default) / 0.08) 0%, rgb(var(--fg-default) / 0.02) 60%, rgb(var(--brand-primary) / 0.18) 100%)",
+            boxShadow: "var(--shadow-lg)",
+          }}
+        >
+          <div
+            className="rounded-[26px] bg-[rgb(var(--bg-elevated))] p-6 sm:p-7"
+            style={{
+              boxShadow:
+                "inset 0 1px 0 0 rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(var(--fg-default) / 0.04)",
+            }}
+          >
+            <Waveform50
+              durationMs={activeVersion.durationMs ?? 240_000}
+              comments={waveformComments}
+              seed={activeVersion.id}
+              onProgress={setCurrentMs}
+              height={120}
+            />
+
+            {/* In-context transport bar — Skip ±5s + slim Play in the
+                waveform card so a producer can keep their eye on the
+                wave without reaching back up to the hero. Same toggle
+                path (handlePlayToggle) as the hero CTA, kept in lock-
+                step by source-grep test. */}
+            <div className="mt-6 flex items-center justify-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Math.max(0, currentMs - 5_000);
+                  if (nowPlaying.trackId === activeVersion.id) {
+                    playerSeek(next);
                   }
-                  className={[
-                    "sk-press inline-flex h-12 w-12 items-center justify-center rounded-full",
-                    "bg-[rgb(var(--fg-default,17_16_9))] text-[rgb(var(--bg-elevated,255_255_255))]",
-                    "shadow-[0_4px_18px_rgba(0,0,0,0.22)]",
-                    "disabled:cursor-not-allowed disabled:opacity-40",
-                  ].join(" ")}
-                >
-                  {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
-                </button>
-              </div>
-            );
-          })()}
-          <p className="mt-3 text-center font-mono text-[10px] tracking-wider text-[rgb(var(--fg-muted))]">
-            Click the waveform to seek · Click a marker to jump to a note
-          </p>
+                  setCurrentMs(next);
+                }}
+                disabled={playState.disabled}
+                aria-label="Back 5 seconds"
+                title="Back 5 seconds"
+                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Skip5Icon dir="back" />
+              </button>
+              <button
+                type="button"
+                data-test="waveform-play-button"
+                onClick={handlePlayToggle}
+                disabled={playState.disabled}
+                aria-label={playState.label}
+                title={
+                  playState.disabled ? "Audio is still uploading" : playState.label
+                }
+                className={[
+                  "sk-press inline-flex h-14 w-14 items-center justify-center rounded-full",
+                  "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                  isPlayingThis
+                    ? "bg-[rgb(var(--brand-primary))] text-white shadow-[0_0_0_6px_rgb(var(--brand-primary)/0.12),0_18px_36px_-10px_rgb(var(--brand-primary)/0.55)]"
+                    : "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))] shadow-[0_12px_28px_-8px_rgb(var(--fg-default)/0.35)] hover:-translate-y-px hover:shadow-[0_18px_38px_-10px_rgb(var(--fg-default)/0.45)]",
+                  "disabled:cursor-not-allowed disabled:opacity-40",
+                ].join(" ")}
+              >
+                {isPlayingThis ? <PauseIconLg /> : <PlayIconLg />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const dur = activeVersion.durationMs ?? 240_000;
+                  const next = Math.min(dur, currentMs + 5_000);
+                  if (nowPlaying.trackId === activeVersion.id) {
+                    playerSeek(next);
+                  }
+                  setCurrentMs(next);
+                }}
+                disabled={playState.disabled}
+                aria-label="Forward 5 seconds"
+                title="Forward 5 seconds"
+                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Skip5Icon dir="fwd" />
+              </button>
+            </div>
+
+            <p className="mt-5 text-center font-mono text-[10px] tracking-[0.16em] uppercase text-[rgb(var(--fg-muted))]">
+              Click to seek · Drag to scrub · Hover to preview
+            </p>
+          </div>
         </div>
 
-        {/* Comments thread */}
-        <div className="mt-5">
-          <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="font-display text-[15px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
-              Notes at timestamp
-              <span className="ml-2 font-mono text-[11px] font-normal text-[rgb(var(--fg-muted))] tabular-nums">
+        {/* ───── Comments thread ─────────────────────────────────────
+            Header → Composer → List. Composer floats at the top so the
+            primary action (drop a note at the playhead) is the first
+            thing a producer sees after the waveform. */}
+        <div className="reveal-up reveal-up-delay-2 mt-8">
+          <div className="mb-3 flex items-baseline justify-between">
+            <div className="flex items-baseline gap-2.5">
+              <h2 className="font-display text-[20px] font-bold tracking-[-0.018em] text-[rgb(var(--fg-default))]">
+                Notes
+              </h2>
+              <span className="font-mono text-[11px] font-bold tabular-nums text-[rgb(var(--fg-muted))]">
                 {String(visibleComments.length)}
                 {visibleComments.length !== allCommentsForVersion.length
                   ? ` of ${String(allCommentsForVersion.length)}`
                   : ""}
               </span>
-            </h2>
+            </div>
             {hasResolvedComments ? (
               <button
                 type="button"
                 onClick={() => {
                   setShowResolved((s) => !s);
                 }}
-                className="font-mono text-[10.5px] font-bold uppercase tracking-[0.08em] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                className="sk-press rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-default)/0.04)] hover:text-[rgb(var(--fg-default))]"
               >
                 {showResolved ? "Hide resolved" : "Show resolved"}
               </button>
@@ -762,19 +943,22 @@ export function SongPage({ data }: { data: SongPageData }) {
           {error ? (
             <p
               role="alert"
-              className="mb-3 rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.3)] bg-[rgb(var(--fg-danger)/0.08)] px-3 py-2 text-[12px] text-[rgb(var(--fg-danger))]"
+              className="mb-4 rounded-[14px] border border-[rgb(var(--fg-danger)/0.3)] bg-[rgb(var(--fg-danger)/0.08)] px-3 py-2 text-[12px] text-[rgb(var(--fg-danger))]"
             >
               {error}
             </p>
           ) : null}
 
-          {/* Composer — anchors to the live playhead. Lives ABOVE the
-              comment list per founder feedback so the action is the
-              first thing producers see. Focusing the input pauses
-              playback (so the producer can think + type without the
-              audio racing past); submitting or blurring resumes it. */}
-          <div className="mb-3 flex items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2">
-            <span className="shrink-0 rounded-full bg-[rgb(var(--brand-primary)/0.18)] px-1.5 py-px font-mono text-[9.5px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums">
+          {/* Composer — premium pill, focus-state with amber ring. */}
+          <div
+            className={[
+              "group/composer mb-5 flex items-center gap-2.5 rounded-full border bg-[rgb(var(--bg-elevated))] py-1.5 pl-2 pr-1.5",
+              "border-[rgb(var(--border-subtle))]",
+              "transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
+              "focus-within:border-[rgb(var(--brand-primary)/0.5)] focus-within:shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12)]",
+            ].join(" ")}
+          >
+            <span className="shrink-0 rounded-full bg-[rgb(var(--brand-primary)/0.14)] px-2.5 py-1 font-mono text-[10.5px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))]">
               @{fmtMs(currentMs)}
             </span>
             <input
@@ -782,7 +966,7 @@ export function SongPage({ data }: { data: SongPageData }) {
               type="text"
               maxLength={2000}
               placeholder="Add a note at this timestamp…"
-              className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
+              className="flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
               onFocus={handleComposerFocus}
               onBlur={handleComposerBlur}
               onKeyDown={(e) => {
@@ -796,40 +980,48 @@ export function SongPage({ data }: { data: SongPageData }) {
               type="button"
               onClick={handleAddComment}
               disabled={isPending}
-              className="sk-press rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-3 py-1.5 text-[11.5px] font-bold text-[rgb(var(--bg-elevated))] disabled:opacity-60"
+              className="sk-press rounded-full bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60"
             >
               Post
             </button>
           </div>
 
           {visibleComments.length === 0 ? (
-            <p className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-8 text-center text-[13px] text-[rgb(var(--fg-muted))]">
+            <p className="rounded-[18px] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-10 text-center text-[13px] text-[rgb(var(--fg-muted))]">
               No notes yet on this version. Type one above to drop it at the
               current playhead.
             </p>
           ) : (
-            <ul className="flex flex-col gap-1">
-              {visibleComments.map((c) => {
+            <ul className="flex flex-col gap-2">
+              {visibleComments.map((c, i) => {
                 const override = resolvedOverrides[c.id];
                 const isResolved =
                   override !== undefined ? override : c.resolvedAtIso !== null;
+                // Stagger entry by index, capped at 5 (after that the cascade
+                // gets noticeably slow without adding polish).
+                const staggerMs = Math.min(i, 5) * 50;
                 return (
                   <li
                     key={c.id}
                     className={[
-                      "flex items-start gap-3 rounded-[var(--radius-md)] px-3 py-2.5",
+                      "group/note reveal-up",
+                      "flex items-start gap-3 rounded-[18px] border px-4 py-3.5",
+                      "transition-[transform,box-shadow,background-color,border-color] duration-[260ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                       c.fromProducer
-                        ? "bg-[rgb(var(--brand-primary)/0.06)]"
-                        : "",
-                      isResolved ? "opacity-60" : "",
+                        ? "border-[rgb(var(--brand-primary)/0.22)] bg-[rgb(var(--brand-primary)/0.05)]"
+                        : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]",
+                      isResolved
+                        ? "opacity-55"
+                        : "hover:-translate-y-px hover:shadow-[0_10px_28px_-12px_rgb(var(--fg-default)/0.16)]",
                     ].join(" ")}
+                    style={{ animationDelay: `${String(staggerMs)}ms` }}
                   >
                     <span
                       aria-hidden
                       className={[
-                        "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold uppercase tracking-wider text-white",
+                        "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10.5px] font-bold uppercase tracking-wider text-white",
                         c.fromProducer
-                          ? "bg-[rgb(var(--brand-primary))]"
+                          ? "bg-[rgb(var(--brand-primary))] shadow-[0_2px_8px_-2px_rgb(var(--brand-primary)/0.55)]"
                           : "bg-[rgb(var(--fg-muted))]",
                       ].join(" ")}
                     >
@@ -837,12 +1029,9 @@ export function SongPage({ data }: { data: SongPageData }) {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[12.5px] font-bold text-[rgb(var(--fg-default))]">
+                        <span className="text-[13px] font-bold text-[rgb(var(--fg-default))]">
                           {c.authorName}
                         </span>
-                        {/* Timestamp chip — clicking jumps the player
-                            to that moment so the producer can hear the
-                            issue the artist flagged. */}
                         <button
                           type="button"
                           data-test="comment-timestamp"
@@ -850,7 +1039,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                             handleJumpToComment(c.timeMs);
                           }}
                           aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                          className="sk-press rounded-full bg-[rgb(var(--brand-primary)/0.18)] px-1.5 py-px font-mono text-[9.5px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums hover:bg-[rgb(var(--brand-primary)/0.28)]"
+                          className="sk-press rounded-full bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))] transition-colors duration-200 hover:bg-[rgb(var(--brand-primary)/0.24)]"
                         >
                           @{fmtMs(c.timeMs)}
                         </button>
@@ -858,27 +1047,27 @@ export function SongPage({ data }: { data: SongPageData }) {
                           {fmtRelativeIso(c.createdAtIso)}
                         </span>
                         {isResolved ? (
-                          <span className="rounded-full bg-[rgb(var(--brand-primary)/0.18)] px-1.5 py-px text-[9px] font-bold uppercase tracking-wider text-[rgb(var(--brand-primary-dark))]">
+                          <span className="rounded-full bg-[rgb(var(--fg-default)/0.06)] px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
                             ✓ Resolved
                           </span>
                         ) : null}
                       </div>
                       <p
                         className={[
-                          "mt-1 text-[13px] leading-snug text-[rgb(var(--fg-default))]",
-                          isResolved ? "line-through" : "",
+                          "mt-1.5 text-[13.5px] leading-relaxed text-[rgb(var(--fg-default))]",
+                          isResolved ? "" : "",
                         ].join(" ")}
                       >
                         {c.body}
                       </p>
-                      <div className="mt-1.5 flex gap-3">
+                      <div className="mt-2.5 flex gap-3.5 text-[10.5px] font-bold tracking-wide opacity-0 transition-opacity duration-200 group-hover/note:opacity-100">
                         <button
                           type="button"
                           data-test="comment-jump"
                           onClick={() => {
                             handleJumpToComment(c.timeMs);
                           }}
-                          className="text-[10.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                          className="text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
                         >
                           Jump to
                         </button>
@@ -888,7 +1077,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                           onClick={() => {
                             handleReplyToComment(c.authorName);
                           }}
-                          className="text-[10.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                          className="text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
                         >
                           Reply
                         </button>
@@ -897,7 +1086,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                           onClick={() => {
                             handleResolveToggle(c);
                           }}
-                          className="text-[10.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                          className="text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
                         >
                           {isResolved ? "Reopen" : "Resolve"}
                         </button>
@@ -945,7 +1134,7 @@ function initials(name: string): string {
 
 function ChevronLeftIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <polyline points="10 4 6 8 10 12" />
     </svg>
   );
@@ -953,7 +1142,7 @@ function ChevronLeftIcon() {
 
 function ChevronRightIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <polyline points="6 4 10 8 6 12" />
     </svg>
   );
@@ -969,19 +1158,21 @@ function CheckIcon() {
 
 function WaveformGlyph() {
   return (
-    <svg width="48" height="48" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>
-      <line x1="6" y1="11" x2="6" y2="21" />
-      <line x1="11" y1="7" x2="11" y2="25" />
-      <line x1="16" y1="4" x2="16" y2="28" />
-      <line x1="21" y1="9" x2="21" y2="23" />
-      <line x1="26" y1="13" x2="26" y2="19" />
+    <svg width="56" height="56" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden>
+      <line x1="4" y1="14" x2="4" y2="18" opacity="0.7" />
+      <line x1="8" y1="11" x2="8" y2="21" opacity="0.8" />
+      <line x1="12" y1="7" x2="12" y2="25" opacity="0.95" />
+      <line x1="16" y1="3" x2="16" y2="29" />
+      <line x1="20" y1="7" x2="20" y2="25" opacity="0.95" />
+      <line x1="24" y1="11" x2="24" y2="21" opacity="0.8" />
+      <line x1="28" y1="14" x2="28" y2="18" opacity="0.7" />
     </svg>
   );
 }
 
 function PlayIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+    <svg width="13" height="13" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
       <path d="M3.5 2.5v7L9.5 6z" />
     </svg>
   );
@@ -989,7 +1180,7 @@ function PlayIcon() {
 
 function PauseIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+    <svg width="13" height="13" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
       <rect x="3" y="2.5" width="2" height="7" rx="0.5" />
       <rect x="7" y="2.5" width="2" height="7" rx="0.5" />
     </svg>
@@ -1025,6 +1216,72 @@ function DownloadIcon() {
       <path d="M8 2v8" />
       <polyline points="4.5 7 8 10.5 11.5 7" />
       <line x1="2.5" y1="13.5" x2="13.5" y2="13.5" />
+    </svg>
+  );
+}
+
+function MoreIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+      <circle cx="3" cy="8" r="1.4" />
+      <circle cx="8" cy="8" r="1.4" />
+      <circle cx="13" cy="8" r="1.4" />
+    </svg>
+  );
+}
+
+function PlayIconLg() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+      <path d="M3.5 2.5v7L9.5 6z" />
+    </svg>
+  );
+}
+
+function PauseIconLg() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+      <rect x="3" y="2.5" width="2" height="7" rx="0.5" />
+      <rect x="7" y="2.5" width="2" height="7" rx="0.5" />
+    </svg>
+  );
+}
+
+function Skip5Icon({ dir }: { dir: "back" | "fwd" }) {
+  // Circular skip arrow with a "5" inside the bow — the visual cue most
+  // music apps use (Spotify, Apple Podcasts, Overcast). We mirror by
+  // flipping the X transform for the forward variant.
+  const transform = dir === "back" ? undefined : "scale(-1, 1) translate(-16, 0)";
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <g transform={transform}>
+        <path
+          d="M3 4 V 7 H 6"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+        <path
+          d="M3.4 7 A 5.2 5.2 0 1 1 3 8"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          fill="none"
+        />
+      </g>
+      <text
+        x="8"
+        y="11.5"
+        textAnchor="middle"
+        fontSize="6.2"
+        fontWeight="700"
+        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+        fill="currentColor"
+      >
+        5
+      </text>
     </svg>
   );
 }

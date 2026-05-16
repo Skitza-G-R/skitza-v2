@@ -30,37 +30,23 @@ export function pickWaveformTime(input: {
   return input.internalMs;
 }
 
-// 50-bar stylized waveform used on the L3 song page. This is NOT the
-// real wavesurfer-driven waveform (that's `WaveformPlayer` and decodes
-// the audio peaks). Instead, it's a deterministic visual pseudo-wave
-// that:
+// Premium 80-bar stylized waveform used on the L3 song page.
 //
-//   • Renders 50 bars with seeded heights (stable across re-renders for
-//     a given track).
-//   • Shows played bars in `--brand-primary`, unplayed in `--border-subtle`.
-//   • Renders a draggable amber playhead with a JetBrains Mono tooltip
-//     showing the live current-time.
-//   • Click-to-seek + drag-to-scrub.
-//   • Renders comment markers (producer = amber, artist = muted).
+//   • 80 bars with seeded heights (envelope-like, stable across renders).
+//   • Played bars in `--brand-primary`, unplayed in `--fg-muted/18`.
+//   • Bars near the playhead get a soft amber halo (perceived liveness).
+//   • Premium playhead: glowing dot + vertical gradient line + glass pill.
+//   • Hover-scrub ghost: faint ghost playhead + time tooltip follow cursor.
+//   • Click-to-seek + drag-to-scrub + keyboard arrows.
+//   • Comment markers render as tall thin amber ticks above the wave.
 //
-// Why a fake wave instead of wavesurfer:
-//   • The L3 page is a producer-first surface. Wiring decoded peaks
-//     here would mean either (a) re-decoding audio on every nav, or
-//     (b) plumbing a peaks-cache through R2. Both are out of scope
-//     for the v3-clean slice.
-//   • The deterministic seeded-bar waveform reads as a confident visual
-//     anchor for the comments thread without claiming to be a real
-//     spectrogram. The persistent player owns audio playback.
-//   • If we later want true peaks, swap the SVG layer for WaveformPlayer
-//     and keep this component's API. The composer + comments thread
-//     don't care.
-//
-// This component is purely presentational — it doesn't load audio.
-// `onProgress` is driven by the parent (typically subscribing to the
-// PersistentPlayer's `skitza:player:time` event), and `onSeek` is the
+// The persistent player owns audio playback; this component is purely
+// presentational. `onProgress` is driven by the parent subscribing to
+// PersistentPlayer's `skitza:player:time` event; `onSeek` is the
 // click-to-seek hook the parent wires to `playerSeek`.
 
-const BAR_COUNT = 50;
+const BAR_COUNT = 80;
+const GLOW_RANGE = 6;
 
 export interface WaveformComment {
   id: string;
@@ -87,14 +73,15 @@ interface Waveform50Props {
   onProgress?: (ms: number) => void;
   /** Fires once per click-to-seek action (terminates a drag, too). */
   onSeek?: (ms: number) => void;
-  /** Visual height in px (default 96 — fits the L3 hero card). */
+  /** Visual height in px (default 112 — fits the L3 hero card). */
   height?: number;
   /** Optional className passthrough. */
   className?: string;
 }
 
 // Tiny mulberry32 PRNG so each version's bars are stable across renders.
-// Same seed → same heights, no useState needed inside the bar map.
+// Heights skew toward the middle with sine harmonics so the silhouette
+// reads as an envelope, not a barcode.
 function seededHeights(seed: string, n: number): number[] {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i += 1) {
@@ -109,10 +96,12 @@ function seededHeights(seed: string, n: number): number[] {
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     const r = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    // Skew toward the middle of the range so the waveform doesn't have
-    // jagged outliers — feels more like a real audio envelope.
-    const skewed = 0.25 + r * 0.7 + Math.sin(i * 0.7) * 0.1;
-    out.push(Math.max(0.18, Math.min(1, skewed)));
+    // Two-harmonic envelope: long-wave swell (entry+climax+outro) plus a
+    // fast jitter for grain. Result reads as a real audio envelope.
+    const swell = Math.sin((i / n) * Math.PI) * 0.45;
+    const jitter = Math.sin(i * 0.81) * 0.08 + r * 0.42;
+    const v = 0.22 + swell + jitter;
+    out.push(Math.max(0.16, Math.min(1, v)));
   }
   return out;
 }
@@ -124,11 +113,13 @@ export function Waveform50({
   initialMs = 0,
   onProgress,
   onSeek,
-  height = 96,
+  height = 112,
   className,
 }: Waveform50Props) {
   const [internalMs, setInternalMs] = useState(initialMs);
   const [liveMs, setLiveMs] = useState(0);
+  const [hoverPct, setHoverPct] = useState<number | null>(null);
+  const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onProgressRef = useRef(onProgress);
   const onSeekRef = useRef(onSeek);
@@ -146,6 +137,7 @@ export function Waveform50({
   // and the little bar are the same playback."
   const nowPlaying = useNowPlaying();
   const isLive = nowPlaying.trackId === seed;
+  const isPlaying = isLive && nowPlaying.playing;
 
   // Subscribe to the dock's time broadcast. We listen unconditionally
   // (cheap — single window event) and short-circuit pickWaveformTime
@@ -175,14 +167,18 @@ export function Waveform50({
   const progressPct = durationMs > 0 ? Math.min(100, Math.max(0, (currentMs / durationMs) * 100)) : 0;
   const playedBars = Math.floor((progressPct / 100) * BAR_COUNT);
 
+  const pctFromClientX = useCallback((clientX: number): number => {
+    const el = containerRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    return rect.width > 0 ? (x / rect.width) * 100 : 0;
+  }, []);
+
   const seekFromClientX = useCallback(
     (clientX: number, fireSeek: boolean) => {
-      const el = containerRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
-      const pct = rect.width > 0 ? x / rect.width : 0;
-      const ms = Math.round(pct * durationMs);
+      const pct = pctFromClientX(clientX);
+      const ms = Math.round((pct / 100) * durationMs);
       // Live mode: seek the dock so the dock's <audio> element jumps
       // — broadcast comes back over PLAYER_EVENTS.time and updates
       // liveMs. Static mode: keep an internal pointer (no audio engine
@@ -196,12 +192,12 @@ export function Waveform50({
       onProgressRef.current?.(ms);
       if (fireSeek) onSeekRef.current?.(ms);
     },
-    [durationMs, isLive],
+    [durationMs, isLive, pctFromClientX],
   );
 
   // Drag state — flip on pointerdown, off on pointerup. Pointer move
-  // handlers attach to window so a drag continues if the cursor leaves
-  // the bar box. Same pattern as a slider knob.
+  // handlers attach to the container with pointer capture so a drag
+  // continues if the cursor leaves the bar box.
   const draggingRef = useRef(false);
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     draggingRef.current = true;
@@ -209,14 +205,20 @@ export function Waveform50({
     seekFromClientX(e.clientX, false);
   }
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (!draggingRef.current) return;
-    seekFromClientX(e.clientX, false);
+    if (draggingRef.current) {
+      seekFromClientX(e.clientX, false);
+      return;
+    }
+    setHoverPct(pctFromClientX(e.clientX));
   }
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
     if (!draggingRef.current) return;
     draggingRef.current = false;
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     seekFromClientX(e.clientX, true);
+  }
+  function onPointerLeave() {
+    setHoverPct(null);
   }
 
   // Keyboard support — arrow keys nudge the playhead by 5%. Mirrors
@@ -238,8 +240,61 @@ export function Waveform50({
     }
   }
 
+  const hoverMs = hoverPct !== null ? Math.round((hoverPct / 100) * durationMs) : 0;
+
   return (
     <div className={["w-full", className ?? ""].join(" ")}>
+      {/* Top rail — holds comment markers ABOVE the bar surface so they
+          don't crowd the audio envelope. Height matches the marker hit
+          target so hover popovers anchor cleanly. */}
+      {comments && comments.length > 0 && durationMs > 0 ? (
+        <div aria-hidden className="relative mb-1.5 h-4">
+          {comments.map((c) => {
+            const pct = (c.timeMs / durationMs) * 100;
+            if (pct < 0 || pct > 100) return null;
+            const isHovered = hoveredCommentId === c.id;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isLive) {
+                    playerSeek(c.timeMs);
+                    setLiveMs(c.timeMs);
+                  } else {
+                    setInternalMs(c.timeMs);
+                  }
+                  onProgressRef.current?.(c.timeMs);
+                  onSeekRef.current?.(c.timeMs);
+                }}
+                onMouseEnter={() => {
+                  setHoveredCommentId(c.id);
+                }}
+                onMouseLeave={() => {
+                  setHoveredCommentId((p) => (p === c.id ? null : p));
+                }}
+                aria-label={`Jump to ${fmt(c.timeMs)}`}
+                className={[
+                  "sk-press pointer-events-auto absolute bottom-0 -translate-x-1/2 rounded-full",
+                  "transition-[height,width,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
+                  isHovered ? "h-4 w-[3px] opacity-100" : "h-3 w-[2px] opacity-90",
+                  c.fromProducer
+                    ? "bg-[rgb(var(--brand-primary))]"
+                    : "bg-[rgb(var(--fg-muted))]",
+                ].join(" ")}
+                style={{
+                  left: `${pct.toFixed(2)}%`,
+                  boxShadow: c.fromProducer
+                    ? `0 0 ${isHovered ? "10px" : "6px"} rgb(var(--brand-primary) / ${isHovered ? "0.55" : "0.35"})`
+                    : "none",
+                }}
+              />
+            );
+          })}
+        </div>
+      ) : null}
+
       <div
         ref={containerRef}
         role="slider"
@@ -252,89 +307,118 @@ export function Waveform50({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerLeave={onPointerLeave}
         onKeyDown={onKeyDown}
-        className="relative w-full cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
+        className="group relative w-full cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-4 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:rounded-[8px]"
         style={{ height }}
       >
         {/* Bars layer */}
-        <div className="absolute inset-x-0 bottom-0 top-0 flex items-center justify-between gap-[2px]">
+        <div className="absolute inset-0 flex items-center justify-between gap-[2.5px]">
           {heights.map((h, i) => {
             const isPlayed = i < playedBars;
+            const distFromPlayhead = playedBars - i;
+            // Bars within GLOW_RANGE of the playhead get a soft amber halo;
+            // intensity decays linearly out, so the cluster reads as "lit"
+            // rather than uniformly painted. Spotify uses the same trick.
+            const glowStrength =
+              isPlayed && distFromPlayhead > 0 && distFromPlayhead <= GLOW_RANGE
+                ? (GLOW_RANGE - distFromPlayhead + 1) / GLOW_RANGE
+                : 0;
+            // Hovered bars (not yet played) get a subtle ghost amber to
+            // preview the seek target — visible only while scrubbing.
+            const hoverBar = hoverPct !== null ? Math.floor((hoverPct / 100) * BAR_COUNT) : -1;
+            const isUnderHover = hoverBar >= 0 && i >= playedBars && i <= hoverBar;
             return (
               <span
                 key={`b-${String(i)}`}
                 aria-hidden
                 className={[
-                  "block flex-1 rounded-full transition-colors",
+                  "block flex-1 rounded-full",
+                  "transition-[background-color,box-shadow,opacity] duration-[280ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   isPlayed
                     ? "bg-[rgb(var(--brand-primary))]"
-                    : "bg-[rgb(var(--border-subtle))]",
+                    : isUnderHover
+                      ? "bg-[rgb(var(--brand-primary)/0.4)]"
+                      : "bg-[rgb(var(--fg-muted)/0.22)]",
                 ].join(" ")}
-                style={{ height: `${String(h * 100)}%` }}
+                style={{
+                  height: `${String(Math.max(8, h * 100))}%`,
+                  minHeight: "4px",
+                  boxShadow:
+                    glowStrength > 0
+                      ? `0 0 ${String(glowStrength * 14)}px rgb(var(--brand-primary) / ${String(glowStrength * 0.55)})`
+                      : "none",
+                }}
               />
             );
           })}
         </div>
 
-        {/* Playhead — amber line + JetBrains Mono tooltip */}
+        {/* Hover scrub ghost — only visible while pointer is over and we
+            aren't already at the same position as the live playhead. */}
+        {hoverPct !== null && Math.abs(hoverPct - progressPct) > 0.5 ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute top-0 bottom-0 z-10"
+            style={{ left: `${hoverPct.toFixed(2)}%` }}
+          >
+            <div className="absolute inset-y-2 left-0 w-px bg-[rgb(var(--fg-default)/0.35)]" />
+            <span className="absolute -bottom-7 left-0 -translate-x-1/2 whitespace-nowrap rounded-full bg-[rgb(var(--bg-elevated)/0.92)] px-2 py-0.5 font-mono text-[10.5px] font-semibold tabular-nums text-[rgb(var(--fg-muted))] shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))] backdrop-blur-md">
+              {fmt(hoverMs)}
+            </span>
+          </div>
+        ) : null}
+
+        {/* Playhead — gradient line + glowing dot + glass time pill */}
         <div
           aria-hidden
-          className="pointer-events-none absolute top-0 bottom-0 w-px bg-[rgb(var(--brand-primary))]"
+          className="pointer-events-none absolute top-0 bottom-0 z-20"
           style={{ left: `${progressPct.toFixed(2)}%` }}
         >
+          {/* Vertical line — soft top, solid amber bottom */}
+          <div
+            className="absolute inset-y-1 left-0 w-px"
+            style={{
+              background:
+                "linear-gradient(to bottom, rgb(var(--brand-primary) / 0) 0%, rgb(var(--brand-primary) / 0.6) 30%, rgb(var(--brand-primary)) 100%)",
+            }}
+          />
+          {/* Glow dot — wrapped so the breathing ring lives on the parent
+              while the dot keeps its static halo + inner highlight. */}
+          <div className="absolute top-1/2 left-0 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full">
+            {isPlaying ? (
+              <span
+                aria-hidden
+                className="skitza-playing-glow absolute inset-0 rounded-full"
+              />
+            ) : null}
+            <div
+              className="relative h-full w-full rounded-full bg-[rgb(var(--brand-primary))]"
+              style={{
+                boxShadow:
+                  "0 0 0 3px rgb(var(--bg-elevated)), 0 0 22px 4px rgb(var(--brand-primary) / 0.5), 0 0 4px 1px rgb(var(--brand-primary))",
+              }}
+            />
+          </div>
+          {/* Time pill — glass with backdrop-blur and subtle amber ring */}
           <span
-            className="absolute -top-7 -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-sm)] bg-[rgb(var(--bg-default,var(--bg-elevated)))] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--brand-primary)/0.4)]"
-            style={{ left: 0 }}
+            className="absolute -top-9 left-0 -translate-x-1/2 whitespace-nowrap rounded-full px-2.5 py-1 font-mono text-[11px] font-bold tabular-nums shadow-[0_8px_24px_-8px_rgb(var(--brand-primary)/0.35)] backdrop-blur-md"
+            style={{
+              background: "rgb(var(--bg-elevated) / 0.88)",
+              color: "rgb(var(--fg-default))",
+              boxShadow:
+                "0 0 0 1px rgb(var(--brand-primary) / 0.32), 0 8px 28px -8px rgb(var(--brand-primary) / 0.4)",
+            }}
           >
             {fmt(currentMs)}
           </span>
-          <span
-            aria-hidden
-            className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 h-3 w-3 rounded-full bg-[rgb(var(--brand-primary))] ring-2 ring-[rgb(var(--bg-elevated))]"
-          />
         </div>
-
-        {/* Comment markers — pinned above the bars */}
-        {comments && comments.length > 0 && durationMs > 0 ? (
-          <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5">
-            {comments.map((c) => {
-              const pct = (c.timeMs / durationMs) * 100;
-              if (pct < 0 || pct > 100) return null;
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (isLive) {
-                      playerSeek(c.timeMs);
-                      setLiveMs(c.timeMs);
-                    } else {
-                      setInternalMs(c.timeMs);
-                    }
-                    onProgressRef.current?.(c.timeMs);
-                    onSeekRef.current?.(c.timeMs);
-                  }}
-                  aria-label={`Jump to ${fmt(c.timeMs)}`}
-                  className={[
-                    "sk-press pointer-events-auto absolute -translate-x-1/2 rounded-full",
-                    "h-1.5 w-1.5",
-                    c.fromProducer
-                      ? "bg-[rgb(var(--brand-primary))]"
-                      : "bg-[rgb(var(--fg-muted))]",
-                  ].join(" ")}
-                  style={{ left: `${pct.toFixed(2)}%` }}
-                />
-              );
-            })}
-          </div>
-        ) : null}
       </div>
 
-      {/* Time labels */}
-      <div className="mt-2 flex items-center justify-between font-mono text-[10.5px] tabular-nums text-[rgb(var(--fg-muted))]">
-        <span>{fmt(currentMs)}</span>
-        <span>{fmt(durationMs)}</span>
+      {/* Time labels — bottom rail */}
+      <div className="mt-3 flex items-center justify-between font-mono text-[10.5px] tabular-nums">
+        <span className="text-[rgb(var(--fg-muted))]">{fmt(currentMs)}</span>
+        <span className="text-[rgb(var(--fg-muted))]">{fmt(durationMs)}</span>
       </div>
     </div>
   );
