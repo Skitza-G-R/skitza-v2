@@ -72,6 +72,11 @@ export async function createPackage(input: {
   minLeadHours?: number;
   paymentPlans?: PaymentPlan[];
   contractUrl?: string | null;
+  // Per-song pricing. pricingModel='per_song' requires volumeTiers to
+  // include a base tier at minQty=1 (server-side zod superRefine
+  // enforces this). Both fields default to flat / [] when omitted.
+  pricingModel?: "flat" | "per_song";
+  volumeTiers?: { minQty: number; pricePerUnitCents: number }[];
 }): Promise<ActionDataResult<{ id: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -101,6 +106,9 @@ export async function updatePackage(input: {
   minLeadHours?: number;
   paymentPlans?: PaymentPlan[];
   contractUrl?: string | null;
+  // Per-song pricing — see createPackage's input comment.
+  pricingModel?: "flat" | "per_song";
+  volumeTiers?: { minQty: number; pricePerUnitCents: number }[];
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
