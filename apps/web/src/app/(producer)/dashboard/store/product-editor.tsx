@@ -21,16 +21,17 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { PaymentPlan } from "@skitza/db";
 
 import {
   createPackage,
-  type PackageKind,
   updatePackage,
 } from "~/app/(producer)/dashboard/booking/actions";
+import type { PaymentPlan } from "@skitza/db";
 import { useToast } from "~/components/ui/toast";
+import type { VolumeTier } from "~/lib/pricing";
 
-import { decodeDescription, encodeDescription } from "./description-encoding";
+import { buildPackagePayload } from "./build-package-payload";
+import { decodeDescription } from "./description-encoding";
 import { ContractStep, type ContractMode } from "./editor-steps/contract-step";
 import { IncludesStep } from "./editor-steps/includes-step";
 import { LogisticsStep } from "./editor-steps/logistics-step";
@@ -87,6 +88,12 @@ interface Draft {
   contractMode: ContractMode;
   contractUrl: string;
   contractText: string;
+  // Per-song pricing — pricingModel='per_song' flips the Pricing step
+  // into the calculator panel. volumeTiers is the ascending discount
+  // ladder; the first tier (minQty=1) is the base per-song price.
+  // Empty array when pricingModel='flat'.
+  pricingModel: "flat" | "per_song";
+  volumeTiers: VolumeTier[];
 }
 
 interface ProductEditorProps {
@@ -125,6 +132,8 @@ function emptyDraft(currency: Currency): Draft {
     contractMode: "link",
     contractUrl: "",
     contractText: "",
+    pricingModel: "flat",
+    volumeTiers: [],
   };
 }
 
@@ -177,6 +186,11 @@ function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft
     const maybe = (p as unknown as { deliverables?: string[] }).deliverables;
     return Array.isArray(maybe) ? maybe : [];
   })();
+  // pricingModel comes back from the DB as plain text — narrow to the
+  // two values the wizard understands. Unknown values (legacy 'hourly',
+  // 'bundle') fall back to 'flat' so the editor doesn't crash on edit.
+  const pricingModel: "flat" | "per_song" =
+    p.pricingModel === "per_song" ? "per_song" : "flat";
   return {
     _picked: null, // edit mode skips the type picker
     name: p.name,
@@ -195,6 +209,8 @@ function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft
     contractMode,
     contractUrl: p.contractUrl ?? "",
     contractText: decoded.contractText,
+    pricingModel,
+    volumeTiers: p.volumeTiers ?? [],
   };
 }
 
@@ -281,76 +297,15 @@ export function ProductEditor({
   }
 
   function save() {
-    // Only round-trip contractText through the description meta when
-    // the producer actually chose the "text" mode. File/Link modes
-    // clear any prior inline text so a mode switch doesn't leak terms.
-    const description = encodeDescription({
-      tagline: draft.tagline,
-      revisions: draft.revisions,
-      unlimitedRevisions: draft.unlimitedRevisions,
-      contractText: draft.contractMode === "text" ? draft.contractText : "",
-    });
-    // Parse the duration string ("60 min", "120 min", "180 min", or
-    // a custom "{N} min") into an int. canContinue already guarantees
-    // the format matches; the fallback to 0 is defensive only.
-    const durationMatch = draft.duration.match(/(\d+)\s*min/i);
-    const durationMin = durationMatch
-      ? parseInt(durationMatch[1] ?? "0", 10)
-      : 0;
-    const sessionCount = draft.unlimitedSessions ? 0 : Math.max(1, draft.sessions);
-    const paymentPlans: PaymentPlan[] = (() => {
-      if (draft.paymentPlan === "full") return [{ kind: "full" }];
-      if (draft.paymentPlan === "split") return [{ kind: "split_50_50" }];
-      return [
-        {
-          kind: "monthly",
-          installments: Math.max(2, draft.installmentsCount),
-        },
-      ];
-    })();
-    // EDIT: preserve the existing DB kind exactly (legacy kinds like
-    // "session"/"mixing"/etc. are valid). NEW: map preset type, with
-    // "consult" routed to "custom" because the ProductKind enum has no
-    // "consult" variant.
-    const priceCents = Math.round(draft.price * 100);
-    // contractUrl: link mode writes the trimmed URL (or null when
-    // empty). text mode writes null — the terms are in the description
-    // meta block instead.
-    const trimmedUrl = draft.contractUrl.trim();
-    const contractUrlOut: string | null =
-      draft.contractMode === "text"
-        ? null
-        : trimmedUrl.length > 0
-          ? trimmedUrl
-          : null;
-    const basePayload = {
-      name: draft.name.trim(),
-      description,
-      kind: draft.type === "consult"
-        ? ("custom" as PackageKind)
-        : (draft.type as PackageKind),
-      priceCents,
-      currency: draft.currency,
-      durationMin,
-      sessionCount,
-      paymentPlans,
-      // The wizard dropped the Deposit field when PricingStep was
-      // simplified, but the server schema still defaults depositModel
-      // to "flat" and then requires depositPct to be set. Sending 0
-      // means "no upfront deposit — the paymentPlans schedule controls
-      // when money moves." Works for all three plan options:
-      //   * Pay in full    → no deposit, single payment per plan
-      //   * 50/50 split    → the split lives in paymentPlans, not here
-      //   * Installments   → installments live in paymentPlans, not here
-      depositPct: 0,
-      contractUrl: contractUrlOut,
-    };
-    // EDIT mode: overwrite kind with the original DB value so legacy
-    // kinds (session/mixing/etc.) survive without our preset mapping
-    // clobbering them.
-    if (product != null) {
-      basePayload.kind = product.kind as PackageKind;
-    }
+    // Wire shape lives in build-package-payload.ts as a pure mapping
+    // so it can be unit-tested without rendering the modal. On edit,
+    // we thread the existing product's kind to preserve legacy DB
+    // values ("session"/"mixing"/etc.) that the wizard's presets
+    // don't map back to.
+    const basePayload = buildPackagePayload(
+      draft,
+      product != null ? product.kind : undefined,
+    );
 
     startTransition(async () => {
       if (product != null) {
@@ -423,6 +378,8 @@ export function ProductEditor({
             unlimitedSessions={draft.unlimitedSessions}
             paymentPlan={draft.paymentPlan}
             installmentsCount={draft.installmentsCount}
+            pricingModel={draft.pricingModel}
+            volumeTiers={draft.volumeTiers}
             onChange={(patch) => {
               setDraft((d) => ({ ...d, ...patch }));
             }}

@@ -63,6 +63,8 @@ export default async function StoreProductPage({ params }: PageProps) {
           priceCents: product.priceCents,
           currency: product.currency,
           paymentPlans: product.paymentPlans,
+          pricingModel: product.pricingModel,
+          volumeTiers: product.volumeTiers,
         }}
       />
     </div>

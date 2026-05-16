@@ -42,6 +42,12 @@ export interface StoreProduct extends ProductCardData {
   minLeadHours: number;
   contractUrl: string | null;
   deliverables: string[];
+  // Per-song pricing — pricingModel='per_song' opens the calculator
+  // panel in the wizard's Pricing step and the song-count stepper on
+  // the artist's product page. volumeTiers is the ascending ladder
+  // ({minQty, pricePerUnitCents}); null for flat-price products.
+  pricingModel: string;
+  volumeTiers: { minQty: number; pricePerUnitCents: number }[] | null;
 }
 
 interface StoreScreenProps {

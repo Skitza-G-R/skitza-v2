@@ -509,19 +509,19 @@ describe("artist.store.products (query)", () => {
     expect(hasIsNullArchived).toBe(true);
   });
 
-  // Test 5b — defense against non-flat pricing in the Store catalog.
-  // per_song / hourly / bundle products carry priceCents=0 (or a
-  // placeholder) because their real total depends on runtime inputs.
-  // A flat-only WHERE predicate keeps them out of the Store list so
-  // the self-checkout flow never sees a product it can't charge. The
-  // artist-app Book tab still serves them (the legacy public
-  // /p/[slug]/book flow was removed in Story 03 per PRD §6.6).
-  it("store.products excludes non-flat pricing models from the catalog", async () => {
+  // Test 5b — Store catalog visibility rule. Flat AND per_song
+  // products list (per_song landed with the per-song-pricing feature
+  // 2026-05-16 — the rate-card products go through a song-count
+  // stepper in the detail page before the booking action). hourly /
+  // bundle stay hidden until their flows ship. store.checkout
+  // enforces the same gate server-side so a hand-crafted productId
+  // can't bypass the flat-only Stripe self-checkout path.
+  it("store.products lists flat + per_song, hides hourly + bundle", async () => {
     seedValidContact();
-    // The DB-layer filter would only return the flat row; we reflect
-    // that in the seeded response AND assert the predicate at the
-    // WHERE level so a regression that removes the predicate but
-    // happens to match tight fixtures still fails.
+    // The DB-layer filter returns flat + per_song; reflect that in
+    // the seeded response. The assertion below checks the WHERE
+    // predicate so a regression that removes the gate but happens
+    // to match tight fixtures still fails.
     productsSelectQueue.push([
       {
         id: "flat-1",
@@ -539,6 +539,26 @@ describe("artist.store.products (query)", () => {
         producerName: "Alpha",
         producerSlug: "alpha",
       },
+      {
+        id: "per-song-1",
+        name: "Per-song Mix",
+        description: null,
+        priceCents: 20000,
+        currency: "USD",
+        durationMin: 0,
+        sessionCount: 1,
+        kind: "mix",
+        pricingModel: "per_song",
+        volumeTiers: [
+          { minQty: 1, pricePerUnitCents: 20000 },
+          { minQty: 5, pricePerUnitCents: 15000 },
+        ],
+        paymentPlans: [{ kind: "full" }],
+        position: 1,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha",
+        producerSlug: "alpha",
+      },
     ]);
 
     const caller = await buildCaller();
@@ -546,22 +566,27 @@ describe("artist.store.products (query)", () => {
       producerId: PRODUCER_ID,
     });
 
-    // Only the flat product made it through (the non-flat rows never
-    // would have come back from the DB given the WHERE predicate).
-    expect(result.products).toHaveLength(1);
-    expect(result.products[0]?.id).toBe("flat-1");
+    // Both rows came through.
+    expect(result.products).toHaveLength(2);
     expect(result.products[0]?.pricingModel).toBe("flat");
+    expect(result.products[1]?.pricingModel).toBe("per_song");
+    expect(result.products[1]?.volumeTiers).toEqual([
+      { minQty: 1, pricePerUnitCents: 20000 },
+      { minQty: 5, pricePerUnitCents: 15000 },
+    ]);
 
-    // The real assertion: the WHERE clause pins pricingModel to "flat"
-    // so non-flat products never appear in the Store catalog.
+    // WHERE predicate uses inArray over the allowed set so hourly +
+    // bundle stay hidden. Walk the and(...) tree and look for an
+    // inArray entry pointing at products.pricing_model.
     const where = productsWhereSpy.mock.calls[0]?.[0];
-    const pricingModelPred = findPredicate(
-      where,
-      "eq",
-      products.pricingModel,
-    );
-    expect(pricingModelPred).not.toBeNull();
-    expect(pricingModelPred?.[1]).toBe("flat");
+    const whereJson = JSON.stringify(where);
+    expect(whereJson).toContain('"inArray":');
+    expect(whereJson).toContain('"products.pricing_model"');
+    expect(whereJson).toContain('"flat"');
+    expect(whereJson).toContain('"per_song"');
+    // Defensive: confirm the excluded models are not present.
+    expect(whereJson).not.toContain('"hourly"');
+    expect(whereJson).not.toContain('"bundle"');
   });
 
   // Test 6
@@ -902,13 +927,15 @@ describe("artist.store.checkout (mutation)", () => {
   });
 
   // Test 15 — defense-in-depth at the mutation layer.
-  // The Store list filters pricingModel='flat' at the DB, but a
-  // hand-crafted productId URL (or a client skipping the list) could
-  // still hit the mutation for a non-flat product. We reject with
-  // BAD_REQUEST *before* calling into calculateCharges — otherwise the
-  // shared helper would throw "totalCents must be a positive integer"
-  // since per_song/hourly/bundle products have priceCents=0.
-  it("store.checkout rejects non-flat pricing with BAD_REQUEST", async () => {
+  // Store list filters to flat + per_song at the DB. A hand-crafted
+  // productId URL (or a client skipping the list) could still hit
+  // this mutation for hourly/bundle products. We reject those with
+  // BAD_REQUEST *before* calling into calculateCharges — the shared
+  // helper would otherwise throw "totalCents must be a positive
+  // integer" since hourly/bundle products have priceCents=0.
+  // Per-song products are valid here when songQty + unitPriceCents
+  // are provided (Test 15c covers the happy path).
+  it("store.checkout rejects hourly + bundle pricing with BAD_REQUEST", async () => {
     productsSelectQueue.push([
       {
         id: PRODUCT_ID,
@@ -946,6 +973,70 @@ describe("artist.store.checkout (mutation)", () => {
     });
     // No Stripe session minted — we short-circuited before the helper.
     expect(stripeSessionCreateMock).not.toHaveBeenCalled();
+  });
+
+  // Test 15c — per-song happy path. Artist picked 5 songs at $150
+  // each on the stepper; the mutation computes the locked-in total
+  // (75000 cents) and passes it to the shared helper, which in turn
+  // inserts a project row with the right total and mints a Stripe
+  // Checkout session.
+  it("store.checkout accepts per_song with songQty + unitPriceCents and uses the locked-in total", async () => {
+    productsSelectQueue.push([
+      {
+        id: PRODUCT_ID,
+        name: "Per-song Mix",
+        description: null,
+        priceCents: 20000, // mirrors the base tier
+        currency: "USD",
+        durationMin: 0,
+        sessionCount: 1,
+        kind: "mix",
+        pricingModel: "per_song",
+        paymentPlans: [{ kind: "full" }],
+        position: 0,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha",
+        producerSlug: "alpha",
+        active: true,
+        archivedAt: null,
+        depositPct: 0,
+        volumeTiers: [
+          { minQty: 1, pricePerUnitCents: 20000 },
+          { minQty: 5, pricePerUnitCents: 15000 },
+        ],
+      },
+    ]);
+    seedValidContact();
+    producersSelectQueue.push([
+      {
+        stripeAccountId: "acct_connected",
+        stripeChargesEnabled: true,
+        slug: "alpha",
+      },
+    ]);
+    insertReturningSpy.mockImplementation(() =>
+      Promise.resolve([{ id: "project-new-1" }]),
+    );
+
+    const caller = await buildCaller();
+    const result = await caller.artist.store.checkout({
+      productId: PRODUCT_ID,
+      paymentPlan: { kind: "full" },
+      songQty: 5,
+      unitPriceCents: 15000,
+    });
+
+    expect(result.checkoutUrl).toBe("https://stripe.test/cs_test_123");
+    expect(stripeSessionCreateMock).toHaveBeenCalled();
+
+    // The project row insert was called with totalAmountCents = 75000
+    // (= songQty × unitPriceCents), not the product's base
+    // priceCents (20000). Find the projects insert in the spy log.
+    const projectInsert = insertValuesSpy.mock.calls.find(
+      (c) => "totalAmountCents" in c[0],
+    );
+    expect(projectInsert).toBeDefined();
+    expect(projectInsert?.[0]?.totalAmountCents).toBe(75000);
   });
 });
 

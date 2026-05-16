@@ -330,6 +330,15 @@ export const bookings = pgTable("bookings", {
   songId: uuid("song_id").references((): AnyPgColumn => projectTracks.id, {
     onDelete: "set null",
   }),
+  // Per-song pricing — populated only when the product had
+  // pricingModel='per_song' at booking time. songQty is how many songs
+  // the artist picked in the pre-booking stepper; unitPriceCents is the
+  // per-song rate they locked in (already after tier discount). Both
+  // null for flat-price bookings. Denormalised so the producer
+  // dashboard can render "Mixing × 5 songs — $750" without re-running
+  // tier math against (possibly mutated) product.volumeTiers.
+  songQty: integer("song_qty"),
+  unitPriceCents: integer("unit_price_cents"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Booking = typeof bookings.$inferSelect;
@@ -481,6 +490,16 @@ export const projects = pgTable("projects", {
   // mid-engagement product price change can't recalculate what the
   // artist owes. Nullable for legacy rows pre-G7.
   depositCents: integer("deposit_cents"),
+  // Per-song pricing — populated only when the project was created
+  // via a per-song product checkout. songQty is how many songs the
+  // artist picked in the SongCountStepper; unitPriceCents is the
+  // per-song rate they locked in (after tier discount). Both null
+  // for flat-price projects. Denormalised so the producer dashboard
+  // can render "Mixing × 5 songs — $750" without re-running tier
+  // math against product.volumeTiers (which may have been edited
+  // since the booking).
+  songQty: integer("song_qty"),
+  unitPriceCents: integer("unit_price_cents"),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;

@@ -12,12 +12,22 @@ import { neon } from "@neondatabase/serverless";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-if (!process.env.DATABASE_URL) {
-  console.error("DATABASE_URL env var is required");
+// Accept any of the common env-var names Skitza has seen in the wild.
+// Vercel's Neon integration sets DATABASE_URL_NEON / POSTGRES_URL on
+// project pull; older `.env.local` files use plain DATABASE_URL.
+const dbUrl =
+  process.env.DATABASE_URL ||
+  process.env.DATABASE_URL_NEON ||
+  process.env.POSTGRES_URL_NON_POOLING ||
+  process.env.POSTGRES_URL;
+if (!dbUrl) {
+  console.error(
+    "No DB URL found. Expected one of: DATABASE_URL, DATABASE_URL_NEON, POSTGRES_URL_NON_POOLING, POSTGRES_URL",
+  );
   process.exit(1);
 }
 
-const sql = neon(process.env.DATABASE_URL);
+const sql = neon(dbUrl);
 // Use fileURLToPath instead of .pathname — the latter keeps percent-encoding
 // (e.g. "%20" for spaces), which Node's fs APIs don't decode.
 const dir = fileURLToPath(new URL("./drizzle/", import.meta.url));

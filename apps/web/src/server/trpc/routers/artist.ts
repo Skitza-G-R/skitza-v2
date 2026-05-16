@@ -1003,6 +1003,7 @@ const storeSubrouter = router({
           sessionCount: products.sessionCount,
           kind: products.kind,
           pricingModel: products.pricingModel,
+          volumeTiers: products.volumeTiers,
           paymentPlans: products.paymentPlans,
           position: products.position,
           producerId: products.producerId,
@@ -1016,13 +1017,13 @@ const storeSubrouter = router({
             inArray(products.producerId, scopedProducerIds),
             eq(products.active, true),
             isNull(products.archivedAt),
-            // MVP: Store self-checkout only supports flat pricing.
-            // per_song / hourly / bundle products have 0 or placeholder
-            // priceCents — they go through the signed-in artist Book
-            // tab (the legacy `/p/[slug]/book` public flow was removed
-            // in Story 03 per PRD §6.6). Paired with a guard in
-            // store.checkout so a hand-crafted productId can't bypass.
-            eq(products.pricingModel, "flat"),
+            // Per-song and flat products both list. hourly/bundle stay
+            // hidden until their flows ship — keep the guard narrow so
+            // the artist Store doesn't surface a product its detail
+            // page can't checkout. store.checkout enforces the same
+            // gate server-side so a hand-crafted productId can't
+            // bypass the flat-only Stripe self-checkout path.
+            inArray(products.pricingModel, ["flat", "per_song"]),
           ),
         )
         .orderBy(asc(producers.displayName), asc(products.position));
@@ -1041,6 +1042,7 @@ const storeSubrouter = router({
           | "per_song"
           | "hourly"
           | "bundle",
+        volumeTiers: r.volumeTiers ?? null,
         paymentPlans: r.paymentPlans,
         producerId: r.producerId,
         producerName: r.producerName ?? "Untitled Studio",
@@ -1067,6 +1069,7 @@ const storeSubrouter = router({
           sessionCount: products.sessionCount,
           kind: products.kind,
           pricingModel: products.pricingModel,
+          volumeTiers: products.volumeTiers,
           paymentPlans: products.paymentPlans,
           position: products.position,
           producerId: products.producerId,
@@ -1117,6 +1120,7 @@ const storeSubrouter = router({
           | "per_song"
           | "hourly"
           | "bundle",
+        volumeTiers: row.volumeTiers ?? null,
         paymentPlans: row.paymentPlans,
         producerId: row.producerId,
         producerName: row.producerName ?? "Untitled Studio",
@@ -1143,6 +1147,13 @@ const storeSubrouter = router({
             installments: z.number().int().min(2).max(12),
           }),
         ]),
+        // Per-song pricing — required when the underlying product is
+        // per_song, ignored otherwise. The artist-side SongCountStepper
+        // computes both; we re-validate the unit price against the
+        // ladder on the server so a hand-crafted payload can't lock in
+        // an unauthorised rate.
+        songQty: z.number().int().min(1).max(1000).optional(),
+        unitPriceCents: z.number().int().min(0).max(100_000_000).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1181,23 +1192,59 @@ const storeSubrouter = router({
         .limit(1);
       if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // 2b. Self-checkout guard. The Store list WHERE-filters to
-      //     pricingModel='flat' with priceCents>0, but an attacker (or
-      //     any client hand-crafting a productId URL) could still hit
-      //     this mutation for a non-flat product. Reject loudly here
-      //     — calculateCharges(plan, 0) would otherwise throw
-      //     "totalCents must be a positive integer" downstream.
-      //     Non-flat pricing (per_song / hourly / bundle) remains
-      //     bookable via the signed-in artist Book tab, which has
-      //     its own UI for collecting quantity/duration. (The legacy
-      //     public `/p/[slug]/book` flow was removed in Story 03 per
-      //     PRD §6.6.)
-      if (prod.pricingModel !== "flat" || prod.priceCents <= 0) {
+      // 2b. Self-checkout guard.
+      //   * flat       → must have priceCents > 0 (DB list filters
+      //                  already, this is defense-in-depth).
+      //   * per_song   → must arrive with songQty + unitPriceCents;
+      //                  the server uses them to compute the locked-in
+      //                  total. The unit price is validated against
+      //                  the product's volumeTiers below so a
+      //                  hand-crafted payload can't lock in a price
+      //                  the producer didn't authorise.
+      //   * hourly /
+      //     bundle     → no UI for collecting qty/duration yet, so
+      //                  reject loudly. (Legacy public
+      //                  /p/[slug]/book flow was removed in Story 03
+      //                  per PRD §6.6.)
+      if (prod.pricingModel === "flat" && prod.priceCents <= 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
             "This product isn't available for self-checkout yet — contact the producer to book it directly.",
         });
+      }
+      if (
+        prod.pricingModel === "hourly" ||
+        prod.pricingModel === "bundle"
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This product isn't available for self-checkout yet — contact the producer to book it directly.",
+        });
+      }
+      if (prod.pricingModel === "per_song") {
+        if (input.songQty == null || input.unitPriceCents == null) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Per-song products need a song count — pick one before continuing.",
+          });
+        }
+        // Validate the locked-in unit price against the product's
+        // volumeTiers ladder. The artist's stepper computes
+        // unitPriceFor(qty, tiers) client-side; we re-run the same
+        // math server-side so a tampered payload can't lock in a
+        // cheaper-than-offered rate.
+        const tiers = prod.volumeTiers ?? [];
+        const { unitPriceFor } = await import("~/lib/pricing");
+        const serverUnit = unitPriceFor(input.songQty, tiers);
+        if (serverUnit !== input.unitPriceCents) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Pricing changed — refresh the page and try again.",
+          });
+        }
       }
 
       // 3. Producer's Stripe Connect fields. stripeAccountId must be
@@ -1247,6 +1294,16 @@ const storeSubrouter = router({
       const idempotencyKey = `store-${contact.id}-${prod.id}-${planKey}-checkout`;
 
       const plan: PaymentPlan = input.paymentPlan;
+      // Per-song products: the locked-in total is songQty *
+      // unitPriceCents. Flat products keep using the product's
+      // canonical priceCents. The guard above already enforced that
+      // per_song arrives with both fields present.
+      const effectivePriceCents =
+        prod.pricingModel === "per_song" &&
+        input.songQty != null &&
+        input.unitPriceCents != null
+          ? input.songQty * input.unitPriceCents
+          : prod.priceCents;
       const result = await initiatePaidPlanCheckout({
         db: ctx.db,
         producer: {
@@ -1258,7 +1315,15 @@ const storeSubrouter = router({
         paymentPlan: plan,
         clientName: contact.name,
         clientEmail: contact.email,
-        priceCents: prod.priceCents,
+        priceCents: effectivePriceCents,
+        // Per-song denormalisation — undefined on flat checkouts
+        // (the helper's args are optional with exactOptionalPropertyTypes).
+        ...(prod.pricingModel === "per_song" && input.songQty != null
+          ? { songQty: input.songQty }
+          : {}),
+        ...(prod.pricingModel === "per_song" && input.unitPriceCents != null
+          ? { unitPriceCents: input.unitPriceCents }
+          : {}),
         idempotencyKey,
         metadata: { source: "artist_store" },
         // Keep artists inside the artist app after Stripe. The helper's
@@ -1293,6 +1358,7 @@ export type StoreProductRow = {
   sessionCount: number;
   kind: string;
   pricingModel: "flat" | "per_song" | "hourly" | "bundle";
+  volumeTiers: { minQty: number; pricePerUnitCents: number }[] | null;
   paymentPlans: PaymentPlan[];
   producerId: string;
   producerName: string;

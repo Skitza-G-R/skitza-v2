@@ -1,12 +1,15 @@
 import Link from "next/link";
 
+import { fromPrice, type VolumeTier } from "~/lib/pricing";
+
 // Server Component — one row in the artist's store catalog. Polished
 // to mirror the locked design's "title + meta · price · buy + pill"
 // layout. Tap opens the product detail page which renders the plan
-// picker. For per-song / hourly pricing models we surface "from
-// <volumeTier0>" / "from <hourlyRate>" because the actual total
-// depends on quantity the artist chooses. For flat / bundle products
-// we show the price directly.
+// picker (flat) or the song-count stepper (per-song; Task 15).
+//
+// Per-song products surface the cheapest tier ("From $X/song") plus
+// a "Discounts for bigger projects" tail when ≥2 tiers exist. Flat
+// products keep the existing $X price label unchanged.
 export function ProductCard({
   product,
 }: {
@@ -17,12 +20,16 @@ export function ProductCard({
     priceCents: number;
     currency: string;
     pricingModel: "flat" | "per_song" | "hourly" | "bundle";
+    volumeTiers: VolumeTier[] | null;
     producerName: string;
     sessionCount: number | null;
     durationMin: number | null;
   };
 }) {
   const priceLabel = formatPriceLabel(product);
+  const showDiscountTail =
+    product.pricingModel === "per_song" &&
+    (product.volumeTiers?.length ?? 0) >= 2;
   const meta: string[] = [];
   if (product.sessionCount && product.sessionCount > 0) {
     meta.push(
@@ -32,7 +39,12 @@ export function ProductCard({
   if (product.durationMin) {
     meta.push(`${String(product.durationMin)} min`);
   }
-  meta.push(planLabel(product.pricingModel));
+  // Drop the "per song" meta tail when the price label already says
+  // "/song" — avoids the duplicate signal that the redesign critique
+  // flagged on the producer side.
+  if (product.pricingModel !== "per_song") {
+    meta.push(planLabel(product.pricingModel));
+  }
 
   return (
     <article className="reveal-up rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[var(--shadow-sm)]">
@@ -46,12 +58,19 @@ export function ProductCard({
             {meta.length > 0 ? ` · ${meta.join(" · ")}` : ""}
           </p>
         </div>
-        <span
-          className="shrink-0 font-mono text-[17px] font-extrabold tracking-tight text-[rgb(var(--fg-default))]"
-          style={{ letterSpacing: "-0.02em" }}
-        >
-          {priceLabel}
-        </span>
+        <div className="flex flex-col items-end gap-0.5">
+          <span
+            className="shrink-0 font-mono text-[17px] font-extrabold tracking-tight text-[rgb(var(--fg-default))]"
+            style={{ letterSpacing: "-0.02em" }}
+          >
+            {priceLabel}
+          </span>
+          {showDiscountTail ? (
+            <span className="text-[10.5px] font-medium text-[rgb(var(--fg-muted))]">
+              Discounts for bigger projects
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {product.description ? (
@@ -117,11 +136,19 @@ function formatPriceLabel(product: {
   priceCents: number;
   currency: string;
   pricingModel: "flat" | "per_song" | "hourly" | "bundle";
+  volumeTiers: VolumeTier[] | null;
 }): string {
-  if (
-    product.pricingModel === "per_song" ||
-    product.pricingModel === "hourly"
-  ) {
+  if (product.pricingModel === "per_song") {
+    // Cheapest tier wins "From" copy — that's the headline deal an
+    // artist sees on the card. fromPrice() is the shared math
+    // helper; the producer wizard's "Artists will see" preview
+    // renders the same value so what the producer types is what the
+    // artist reads.
+    const tiers = product.volumeTiers ?? [];
+    const minCents = tiers.length > 0 ? fromPrice(tiers) : product.priceCents;
+    return minCents > 0 ? `From ${formatCents(minCents, product.currency)}/song` : "Variable";
+  }
+  if (product.pricingModel === "hourly") {
     return product.priceCents > 0
       ? `from ${formatCents(product.priceCents, product.currency)}`
       : "Variable";

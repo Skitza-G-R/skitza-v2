@@ -243,9 +243,18 @@ export default async function ProjectDetail({ params }: PageProps) {
   const isOverdue =
     money.nextChargeAt !== null && money.nextChargeAt < new Date() && money.outstandingCents > 0;
 
+  // Per-song surfacing: append "× N songs" to the project's hero
+  // title when songQty was set at checkout. Lets the producer see
+  // exactly what the artist booked without opening the product
+  // page or doing tier math.
+  const projectName =
+    data.project.songQty != null && data.project.songQty > 1
+      ? `${data.project.title} × ${String(data.project.songQty)} songs`
+      : data.project.title;
+
   const project: AlbumSpaceProject = {
     id: data.project.id,
-    name: data.project.title,
+    name: projectName,
     clientName: data.project.clientName ?? data.project.artistName,
     songsCount: data.tracks.length,
     sessionsCount: projectBookings.length,
