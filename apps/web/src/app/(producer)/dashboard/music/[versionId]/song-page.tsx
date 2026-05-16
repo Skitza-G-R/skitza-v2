@@ -495,80 +495,81 @@ export function SongPage({ data }: { data: SongPageData }) {
   return (
     <main className="sk-page-enter">
       {/* ───── Hero band ─────────────────────────────────────────────
-          Compact, single-row layout — Samply-tight. Header itself stays
-          `overflow-visible` so the kebab popover can spill OUT of the
-          gradient region; the atmosphere overlay clips itself via its
-          own inner div. */}
+          Editorial-luxury treatment: gradient backdrop bleeds out via
+          a deep radial mask + two-stop linear fade, so the band feels
+          like the OPENING of a record sleeve rather than a card glued
+          to the top of the page. */}
       <header
-        className="relative isolate text-white"
+        className="relative isolate overflow-hidden text-white"
         style={{ background: heroBg }}
       >
-        {/* Clipped atmosphere — soft highlight + ambient bottom fade.
-            Lives in its own overflow-hidden wrapper so the popover above
-            the action rail can escape the header without getting cut. */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(120% 80% at 12% 8%, rgba(255,255,255,0.20), transparent 55%), radial-gradient(80% 60% at 88% 0%, rgba(255,255,255,0.06), transparent 60%), linear-gradient(180deg, rgba(17,16,9,0) 0%, rgba(17,16,9,0.18) 60%, rgb(var(--bg-background)) 100%)",
-            }}
-          />
-          {/* Subtle film-grain hint — physical texture, very low opacity. */}
-          <div
-            className="absolute inset-0 opacity-[0.035] mix-blend-overlay"
-            style={{
-              backgroundImage:
-                "radial-gradient(rgb(255 255 255) 1px, transparent 1px)",
-              backgroundSize: "3px 3px",
-            }}
-          />
-        </div>
+        {/* Atmosphere — soft highlight at top-left + ambient bottom fade
+            so the gradient melts into the canvas with no hard edge. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(120% 80% at 12% 8%, rgba(255,255,255,0.22), transparent 55%), radial-gradient(80% 60% at 88% 0%, rgba(255,255,255,0.08), transparent 60%), linear-gradient(180deg, rgba(17,16,9,0) 0%, rgba(17,16,9,0.18) 60%, rgb(var(--bg-background)) 100%)",
+          }}
+        />
+        {/* Subtle film-grain hint — adds physical texture without
+            cooking the gradient. Only at very low opacity. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.035] mix-blend-overlay"
+          style={{
+            backgroundImage:
+              "radial-gradient(rgb(255 255 255) 1px, transparent 1px)",
+            backgroundSize: "3px 3px",
+          }}
+        />
 
-        <div className="relative mx-auto max-w-[1120px] px-4 pt-4 pb-5 sm:px-6 sm:pt-5 sm:pb-6">
+        <div className="relative mx-auto max-w-[1120px] px-4 pt-7 pb-9 sm:px-6 sm:pt-9 sm:pb-12">
           {/* Top breadcrumb row — quiet glass pills, no visual heft */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="mb-7 flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/dashboard/music"
-              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-2.5 py-1 text-[10.5px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
+              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
             >
               <ChevronLeftIcon />
               <span>Library</span>
             </Link>
             <Link
               href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
-              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-2.5 py-1 text-[10.5px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
+              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
             >
               <span>Open in project room</span>
               <ChevronRightIcon />
             </Link>
           </div>
 
-          {/* Single-row layout — artwork + title + meta + action rail
-              all on one line. Samply pattern: tight chrome, big audio. */}
-          <div className="flex flex-wrap items-center gap-4 md:flex-nowrap">
-            {/* Album-art tile — compact 72px, glass bezel + reflection. */}
+          <div className="flex flex-col gap-7 md:flex-row md:items-end md:gap-8">
+            {/* Album-art tile — Double-bezel: glass outer ring + inner
+                gradient core with reflection + a centered audio glyph.
+                Reads as physical hardware, not a placeholder box. */}
             <div className="reveal-up shrink-0">
               <div
                 aria-hidden
-                className="relative rounded-[18px] p-[2px]"
+                className="relative rounded-[28px] p-[3px]"
                 style={{
                   background:
                     "linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.08) 40%, rgba(255,255,255,0.18) 100%)",
                   boxShadow:
-                    "0 14px 32px -10px rgba(0,0,0,0.45), 0 2px 0 0 rgba(255,255,255,0.18) inset",
+                    "0 30px 80px -20px rgba(0,0,0,0.55), 0 2px 0 0 rgba(255,255,255,0.18) inset",
                 }}
               >
                 <div
-                  className="relative flex h-[72px] w-[72px] items-center justify-center overflow-hidden rounded-[16px] text-white"
+                  className="relative flex h-[132px] w-[132px] items-center justify-center overflow-hidden rounded-[25px] text-white"
                   style={{
                     background:
                       "linear-gradient(155deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.1) 60%, rgba(255,255,255,0.06) 100%)",
                     boxShadow:
-                      "inset 0 1px 0 0 rgba(255,255,255,0.18), inset 0 -22px 30px -12px rgba(0,0,0,0.4)",
+                      "inset 0 1px 0 0 rgba(255,255,255,0.18), inset 0 -40px 50px -20px rgba(0,0,0,0.4)",
                   }}
                 >
                   <WaveformGlyph />
+                  {/* Reflection slash — a subtle diagonal highlight. */}
                   <div
                     aria-hidden
                     className="pointer-events-none absolute inset-0"
@@ -581,76 +582,87 @@ export function SongPage({ data }: { data: SongPageData }) {
               </div>
             </div>
 
-            {/* Title block — compact, single line metadata. */}
+            {/* Title block + meta */}
             <div className="reveal-up reveal-up-delay-1 min-w-0 flex-1">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-white/70">
+                Song · {data.track.projectTitle}
+              </span>
               <h1
-                className="font-display truncate text-[clamp(22px,3vw,32px)] font-extrabold leading-[1.05] tracking-[-0.025em]"
-                style={{ textShadow: "0 2px 16px rgba(0,0,0,0.22)" }}
+                className="font-display mt-2 text-[clamp(34px,5vw,56px)] font-extrabold leading-[1] tracking-[-0.035em]"
+                style={{ textShadow: "0 2px 22px rgba(0,0,0,0.22)" }}
               >
                 {data.track.title}
               </h1>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-white/80">
+              <div className="mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-white/85">
                 {clientLabel ? (
                   <span className="font-medium">{clientLabel}</span>
                 ) : null}
                 {activeVersion.durationMs ? (
                   <>
-                    <span aria-hidden className="text-white/35">·</span>
+                    <span aria-hidden className="text-white/40">·</span>
                     <span className="font-mono tabular-nums">
                       {fmtMs(activeVersion.durationMs)}
                     </span>
                   </>
                 ) : null}
-                <span aria-hidden className="text-white/35">·</span>
-                <span className="text-white/65">
-                  {fmtRelativeIso(activeVersion.uploadedAtIso)}
+                <span aria-hidden className="text-white/40">·</span>
+                <span className="text-white/70">
+                  uploaded {fmtRelativeIso(activeVersion.uploadedAtIso)}
                 </span>
-                {/* Version pills inlined into meta row when multi-version */}
-                {data.versions.length > 1 ? (
-                  <>
-                    <span aria-hidden className="text-white/35">·</span>
-                    <div className="flex flex-wrap items-center gap-1">
-                      {data.versions.map((v, i) => {
-                        const isActive = v.id === activeVersion.id;
-                        return (
-                          <button
-                            key={v.id}
-                            type="button"
-                            onClick={() => {
-                              setActiveVersionId(v.id);
-                            }}
-                            style={{ animationDelay: `${String(80 + i * 40)}ms` }}
-                            className={[
-                              "sk-press reveal-up rounded-full border px-2 py-px font-mono text-[10px] font-bold leading-[1.6] tracking-wide",
-                              "transition-[background-color,border-color,transform] duration-[180ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                              isActive
-                                ? "border-white bg-white text-[rgb(17_16_9)]"
-                                : "border-white/22 bg-white/[0.08] text-white/85 hover:-translate-y-px hover:bg-white/[0.16]",
-                            ].join(" ")}
-                          >
-                            {v.label}
-                            {v.approvedAtIso ? " ✓" : ""}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : null}
                 {isApproved ? (
                   <>
-                    <span aria-hidden className="text-white/35">·</span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-1.5 py-0 text-[9.5px] font-bold uppercase tracking-[0.14em] text-[rgb(17_16_9)]">
+                    <span aria-hidden className="text-white/40">·</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(17_16_9)]">
                       <CheckIcon /> Approved
                     </span>
                   </>
                 ) : null}
               </div>
+
+              {/* Version pills — magnetic hover, monospace labels */}
+              {data.versions.length > 1 ? (
+                <div className="mt-5 flex flex-wrap items-center gap-1.5">
+                  <span className="mr-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-white/55">
+                    Version
+                  </span>
+                  {data.versions.map((v, i) => {
+                    const isActive = v.id === activeVersion.id;
+                    const isLatest = v.id === data.versions[0]?.id;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveVersionId(v.id);
+                        }}
+                        style={{ animationDelay: `${String(120 + i * 50)}ms` }}
+                        className={[
+                          "sk-press reveal-up rounded-full border px-3 py-1 font-mono text-[10.5px] font-bold tracking-wide",
+                          "transition-[background-color,border-color,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                          isActive
+                            ? "border-white bg-white text-[rgb(17_16_9)] shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)]"
+                            : "border-white/22 bg-white/[0.08] text-white/85 hover:-translate-y-px hover:bg-white/[0.16]",
+                        ].join(" ")}
+                      >
+                        {v.label}
+                        {isActive && isLatest ? " · current" : ""}
+                        {v.approvedAtIso ? " ✓" : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
 
-            {/* Action rail — compact: Play + Approve + More. Brand amber
-                is reserved for the playhead, not the chrome. */}
-            <div className="reveal-up reveal-up-delay-2 flex shrink-0 items-center gap-1.5">
-              {/* Play CTA — primary, slightly smaller for compact hero. */}
+            {/* Action rail — ONE confident Play CTA + a single secondary
+                overflow trigger + a quiet Approve. The brand color now
+                belongs to the playhead, NOT the chrome — Approve uses
+                a glass outline + check icon, flipping to filled white
+                once already approved. */}
+            <div className="reveal-up reveal-up-delay-2 flex shrink-0 flex-wrap items-center gap-2.5">
+              {/* Play CTA — primary, magnetic, glow when playing. The
+                  in-context play button inside the waveform card below
+                  reuses the same handler so the two stay locked. */}
               <button
                 type="button"
                 onClick={handlePlayToggle}
@@ -662,17 +674,17 @@ export function SongPage({ data }: { data: SongPageData }) {
                     : playState.label
                 }
                 className={[
-                  "sk-press group relative inline-flex items-center gap-1.5 rounded-full pl-1.5 pr-3.5 py-1 text-[12px] font-bold",
+                  "sk-press group relative inline-flex items-center gap-2 rounded-full pl-2 pr-5 py-2 text-[13px] font-bold",
                   "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   "bg-white text-[rgb(17_16_9)] disabled:cursor-not-allowed disabled:opacity-50",
                   isPlayingThis
-                    ? "shadow-[0_8px_24px_-8px_rgba(255,255,255,0.45),0_0_0_1px_rgba(255,255,255,0.35)]"
-                    : "shadow-[0_6px_18px_-6px_rgba(0,0,0,0.3)] hover:-translate-y-px hover:shadow-[0_10px_28px_-8px_rgba(0,0,0,0.35)]",
+                    ? "shadow-[0_10px_30px_-8px_rgba(255,255,255,0.5),0_0_0_1px_rgba(255,255,255,0.4)]"
+                    : "shadow-[0_8px_24px_-6px_rgba(0,0,0,0.35)] hover:-translate-y-px hover:shadow-[0_14px_36px_-8px_rgba(0,0,0,0.4)]",
                 ].join(" ")}
               >
                 <span
                   className={[
-                    "flex h-7 w-7 items-center justify-center rounded-full",
+                    "flex h-8 w-8 items-center justify-center rounded-full",
                     "transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover:scale-[1.05]",
                     isPlayingThis
                       ? "bg-[rgb(var(--brand-primary))] text-white"
@@ -684,7 +696,8 @@ export function SongPage({ data }: { data: SongPageData }) {
                 <span className="tracking-[-0.005em]">{playState.label}</span>
               </button>
 
-              {/* Approve — quiet glass outline; filled cream when approved. */}
+              {/* Approve — quiet glass outline by default; filled cream
+                  once approved. Brand amber is reserved for the playhead. */}
               <button
                 type="button"
                 onClick={handleApproveToggle}
@@ -692,10 +705,10 @@ export function SongPage({ data }: { data: SongPageData }) {
                 title={isApproved ? "Approved" : "Approve version"}
                 aria-label={isApproved ? "Approved" : "Approve version"}
                 className={[
-                  "sk-press inline-flex items-center gap-1 rounded-full px-3 py-[7px] text-[11.5px] font-bold",
+                  "sk-press inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-bold",
                   "transition-[background-color,border-color,box-shadow,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   isApproved
-                    ? "border border-white/0 bg-white/95 text-[rgb(17_16_9)] shadow-[0_4px_14px_-4px_rgba(255,255,255,0.4)]"
+                    ? "border border-white/0 bg-white/95 text-[rgb(17_16_9)] shadow-[0_6px_20px_-6px_rgba(255,255,255,0.45)]"
                     : "border border-white/28 bg-white/[0.06] text-white hover:bg-white/[0.14] hover:-translate-y-px",
                   "disabled:opacity-60",
                 ].join(" ")}
@@ -703,9 +716,8 @@ export function SongPage({ data }: { data: SongPageData }) {
                 <CheckIcon /> {isApproved ? "Approved" : "Approve"}
               </button>
 
-              {/* Overflow — single glass circle. Renders into a portal-
-                  free absolute layer with z-50, parent header is
-                  `overflow-visible` so this can spill out. */}
+              {/* Overflow — single glass circle for share / favorite /
+                  download. Origin-aware popover scales from this trigger. */}
               <div ref={overflowRef} className="relative">
                 <button
                   type="button"
@@ -716,7 +728,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                     setOverflowOpen((o) => !o);
                   }}
                   className={[
-                    "sk-press inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22",
+                    "sk-press inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/22",
                     "transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
                     overflowOpen
                       ? "bg-white/[0.22]"
@@ -728,7 +740,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 {overflowOpen ? (
                   <div
                     role="menu"
-                    className="absolute right-0 top-[calc(100%+6px)] z-50 w-56 origin-top-right rounded-[16px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.45)]"
+                    className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 origin-top-right overflow-hidden rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.35)]"
                     style={{
                       animation:
                         "skitza-pop-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both",
@@ -806,91 +818,23 @@ export function SongPage({ data }: { data: SongPageData }) {
           double-bezel pattern — an outer hairline sheath + inner core
           with a soft inset highlight, so it sits on the page like a
           piece of polished hardware instead of a flat content rectangle. */}
-      <section className="mx-auto max-w-[1120px] px-4 py-5 sm:px-6 sm:py-7">
-        {/* Waveform — light double-bezel card. The v1 premium waveform
-            (80-bar amber pills with glow halo + hover scrub) reads on
-            a cream surface, so the card stays light to match. */}
+      <section className="mx-auto max-w-[1120px] px-4 py-7 sm:px-6 sm:py-10">
+        {/* Waveform — Double-Bezel card */}
         <div
-          className="reveal-up rounded-[20px] p-[1.5px]"
+          className="reveal-up rounded-[28px] p-[1.5px]"
           style={{
             background:
-              "linear-gradient(180deg, rgb(var(--fg-default) / 0.08) 0%, rgb(var(--fg-default) / 0.02) 60%, rgb(var(--brand-primary) / 0.16) 100%)",
+              "linear-gradient(180deg, rgb(var(--fg-default) / 0.08) 0%, rgb(var(--fg-default) / 0.02) 60%, rgb(var(--brand-primary) / 0.18) 100%)",
             boxShadow: "var(--shadow-lg)",
           }}
         >
           <div
-            className="relative rounded-[18.5px] bg-[rgb(var(--bg-elevated))] p-5 sm:p-6"
+            className="rounded-[26px] bg-[rgb(var(--bg-elevated))] p-6 sm:p-7"
             style={{
               boxShadow:
                 "inset 0 1px 0 0 rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(var(--fg-default) / 0.04)",
             }}
           >
-            {/* In-context transport bar — Skip-5 · Play · Skip+5 on the
-                left, live time read on the right. Same handler as the
-                hero CTA. */}
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = Math.max(0, currentMs - 5_000);
-                    if (nowPlaying.trackId === activeVersion.id) {
-                      playerSeek(next);
-                    }
-                    setCurrentMs(next);
-                  }}
-                  disabled={playState.disabled}
-                  aria-label="Back 5 seconds"
-                  title="Back 5 seconds"
-                  className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Skip5Icon dir="back" />
-                </button>
-                <button
-                  type="button"
-                  data-test="waveform-play-button"
-                  onClick={handlePlayToggle}
-                  disabled={playState.disabled}
-                  aria-label={playState.label}
-                  title={
-                    playState.disabled ? "Audio is still uploading" : playState.label
-                  }
-                  className={[
-                    "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full",
-                    "transition-[transform,box-shadow,background-color] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                    isPlayingThis
-                      ? "bg-[rgb(var(--brand-primary))] text-white shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.18),0_10px_24px_-8px_rgb(var(--brand-primary)/0.5)]"
-                      : "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))] shadow-[0_8px_18px_-6px_rgb(var(--fg-default)/0.3)] hover:-translate-y-px",
-                    "disabled:cursor-not-allowed disabled:opacity-40",
-                  ].join(" ")}
-                >
-                  {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const dur = activeVersion.durationMs ?? 240_000;
-                    const next = Math.min(dur, currentMs + 5_000);
-                    if (nowPlaying.trackId === activeVersion.id) {
-                      playerSeek(next);
-                    }
-                    setCurrentMs(next);
-                  }}
-                  disabled={playState.disabled}
-                  aria-label="Forward 5 seconds"
-                  title="Forward 5 seconds"
-                  className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Skip5Icon dir="fwd" />
-                </button>
-              </div>
-              <div className="font-mono text-[11px] tabular-nums text-[rgb(var(--fg-muted))]">
-                <span className="text-[rgb(var(--fg-default))]">{fmtMs(currentMs)}</span>
-                <span className="mx-1 opacity-50">/</span>
-                <span>{fmtMs(activeVersion.durationMs ?? 0)}</span>
-              </div>
-            </div>
-
             <Waveform50
               durationMs={activeVersion.durationMs ?? 240_000}
               comments={waveformComments}
@@ -898,6 +842,71 @@ export function SongPage({ data }: { data: SongPageData }) {
               onProgress={setCurrentMs}
               height={120}
             />
+
+            {/* In-context transport bar — Skip ±5s + slim Play in the
+                waveform card so a producer can keep their eye on the
+                wave without reaching back up to the hero. Same toggle
+                path (handlePlayToggle) as the hero CTA, kept in lock-
+                step by source-grep test. */}
+            <div className="mt-6 flex items-center justify-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Math.max(0, currentMs - 5_000);
+                  if (nowPlaying.trackId === activeVersion.id) {
+                    playerSeek(next);
+                  }
+                  setCurrentMs(next);
+                }}
+                disabled={playState.disabled}
+                aria-label="Back 5 seconds"
+                title="Back 5 seconds"
+                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Skip5Icon dir="back" />
+              </button>
+              <button
+                type="button"
+                data-test="waveform-play-button"
+                onClick={handlePlayToggle}
+                disabled={playState.disabled}
+                aria-label={playState.label}
+                title={
+                  playState.disabled ? "Audio is still uploading" : playState.label
+                }
+                className={[
+                  "sk-press inline-flex h-14 w-14 items-center justify-center rounded-full",
+                  "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                  isPlayingThis
+                    ? "bg-[rgb(var(--brand-primary))] text-white shadow-[0_0_0_6px_rgb(var(--brand-primary)/0.12),0_18px_36px_-10px_rgb(var(--brand-primary)/0.55)]"
+                    : "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))] shadow-[0_12px_28px_-8px_rgb(var(--fg-default)/0.35)] hover:-translate-y-px hover:shadow-[0_18px_38px_-10px_rgb(var(--fg-default)/0.45)]",
+                  "disabled:cursor-not-allowed disabled:opacity-40",
+                ].join(" ")}
+              >
+                {isPlayingThis ? <PauseIconLg /> : <PlayIconLg />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const dur = activeVersion.durationMs ?? 240_000;
+                  const next = Math.min(dur, currentMs + 5_000);
+                  if (nowPlaying.trackId === activeVersion.id) {
+                    playerSeek(next);
+                  }
+                  setCurrentMs(next);
+                }}
+                disabled={playState.disabled}
+                aria-label="Forward 5 seconds"
+                title="Forward 5 seconds"
+                className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Skip5Icon dir="fwd" />
+              </button>
+            </div>
+
+            <p className="mt-5 text-center font-mono text-[10px] tracking-[0.16em] uppercase text-[rgb(var(--fg-muted))]">
+              Click to seek · Drag to scrub · Hover to preview
+            </p>
           </div>
         </div>
 
@@ -1217,6 +1226,23 @@ function MoreIcon() {
       <circle cx="3" cy="8" r="1.4" />
       <circle cx="8" cy="8" r="1.4" />
       <circle cx="13" cy="8" r="1.4" />
+    </svg>
+  );
+}
+
+function PlayIconLg() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+      <path d="M3.5 2.5v7L9.5 6z" />
+    </svg>
+  );
+}
+
+function PauseIconLg() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+      <rect x="3" y="2.5" width="2" height="7" rx="0.5" />
+      <rect x="7" y="2.5" width="2" height="7" rx="0.5" />
     </svg>
   );
 }
