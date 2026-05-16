@@ -493,7 +493,19 @@ export function SongPage({ data }: { data: SongPageData }) {
     playState.action === "toggle" && playState.label === "Pause";
 
   return (
-    <main className="sk-page-enter">
+    <main className="sk-page-enter relative">
+      {/* Page-wide film-grain — Editorial Luxury texture cue. Fixed,
+          pointer-events-none, never repaints on scroll. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 z-40 opacity-[0.022] mix-blend-overlay"
+        style={{
+          backgroundImage:
+            "radial-gradient(rgb(17 16 9) 1px, transparent 1px)",
+          backgroundSize: "3px 3px",
+        }}
+      />
+
       {/* ───── Hero band ─────────────────────────────────────────────
           Editorial-luxury treatment: gradient backdrop bleeds out via
           a deep radial mask + two-stop linear fade, so the band feels
@@ -535,12 +547,17 @@ export function SongPage({ data }: { data: SongPageData }) {
               <ChevronLeftIcon />
               <span>Library</span>
             </Link>
+            {/* Button-in-Button — trailing chevron lives inside its own
+                circular wrapper. On hover, it translates diagonally and
+                scales up, creating kinetic tension (Section 5B). */}
             <Link
               href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
-              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
+              className="sk-press group inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/[0.08] py-1 pl-3 pr-1 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-[400ms] ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/[0.16]"
             >
               <span>Open in project room</span>
-              <ChevronRightIcon />
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/[0.14] transition-transform duration-[400ms] ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:scale-[1.06]">
+                <ChevronRightIcon />
+              </span>
             </Link>
           </div>
 
