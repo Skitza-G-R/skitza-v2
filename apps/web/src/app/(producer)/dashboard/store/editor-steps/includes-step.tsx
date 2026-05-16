@@ -113,7 +113,7 @@ export function IncludesStep({
                   remove(s);
                 }}
                 aria-label={`Remove ${s}`}
-                className="group inline-flex h-[30px] items-center gap-2 rounded-full border border-[rgb(var(--border-subtle))] bg-white pl-3 pr-1.5 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgba(17,16,9,0.04)] transition-colors hover:border-[rgb(var(--danger,220_56_56))] hover:bg-red-50"
+                className="group inline-flex h-[30px] items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-white pl-3 pr-1.5 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgba(17,16,9,0.04)] transition-colors hover:border-[rgb(var(--danger,220_56_56))] hover:bg-red-50"
               >
                 <span>{s}</span>
                 <span
@@ -142,7 +142,7 @@ export function IncludesStep({
                 onClick={() => {
                   add(ex.label);
                 }}
-                className="inline-flex h-[30px] items-center gap-2 rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-3.5 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.08)]"
+                className="inline-flex h-[30px] items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-3.5 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.08)]"
               >
                 <span
                   aria-hidden
@@ -181,7 +181,7 @@ export function IncludesStep({
           <button
             type="submit"
             disabled={!trimmedCustom}
-            className="inline-flex h-10 items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-4 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus size={12} strokeWidth={2.5} aria-hidden />
             Add

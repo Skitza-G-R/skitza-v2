@@ -42,7 +42,7 @@ export function GCalSyncBadge({
         </span>
         {isConnected ? (
           <>
-            <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--fg-success)/0.12)] px-1.5 py-px text-[0.62rem] text-[rgb(var(--fg-success))]">
+            <span className="inline-flex items-center gap-1 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-success)/0.12)] px-1.5 py-px text-[0.62rem] text-[rgb(var(--fg-success))]">
               <CheckIcon />
               Connected
             </span>
@@ -61,7 +61,7 @@ export function GCalSyncBadge({
           </>
         ) : (
           <>
-            <span className="inline-flex items-center rounded-full bg-[rgb(var(--fg-warning)/0.14)] px-1.5 py-px text-[0.62rem] text-[rgb(var(--fg-warning))]">
+            <span className="inline-flex items-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-warning)/0.14)] px-1.5 py-px text-[0.62rem] text-[rgb(var(--fg-warning))]">
               Not connected
             </span>
             <span className="hidden text-[0.66rem] text-[rgb(var(--fg-muted))] sm:inline">

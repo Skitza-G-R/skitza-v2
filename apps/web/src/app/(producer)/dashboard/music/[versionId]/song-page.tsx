@@ -530,14 +530,14 @@ export function SongPage({ data }: { data: SongPageData }) {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/dashboard/music"
-              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
+              className="sk-press group inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
             >
               <ChevronLeftIcon />
               <span>Library</span>
             </Link>
             <Link
               href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
-              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
+              className="sk-press group inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
             >
               <span>Open in project room</span>
               <ChevronRightIcon />
@@ -612,7 +612,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 {isApproved ? (
                   <>
                     <span aria-hidden className="text-white/40">·</span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(17_16_9)]">
+                    <span className="inline-flex items-center gap-1 rounded-[var(--radius-lg)] bg-white/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(17_16_9)]">
                       <CheckIcon /> Approved
                     </span>
                   </>
@@ -637,7 +637,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                         }}
                         style={{ animationDelay: `${String(120 + i * 50)}ms` }}
                         className={[
-                          "sk-press reveal-up inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-[10.5px] font-bold tracking-wide",
+                          "sk-press reveal-up inline-flex items-center gap-1 rounded-[var(--radius-lg)] border px-2.5 py-1 font-mono text-[10.5px] font-bold tracking-wide",
                           "transition-[background-color,border-color,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                           isActive
                             ? "border-white bg-white text-[rgb(17_16_9)] shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)]"
@@ -687,7 +687,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                     : playState.label
                 }
                 className={[
-                  "sk-press group relative inline-flex items-center gap-2 rounded-full pl-2 pr-5 py-2 text-[13px] font-bold",
+                  "sk-press group relative inline-flex items-center gap-2 rounded-[var(--radius-lg)] pl-2 pr-5 py-2 text-[13px] font-bold",
                   "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   "bg-white text-[rgb(17_16_9)] disabled:cursor-not-allowed disabled:opacity-50",
                   isPlayingThis
@@ -718,7 +718,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 title={isApproved ? "Approved" : "Approve version"}
                 aria-label={isApproved ? "Approved" : "Approve version"}
                 className={[
-                  "sk-press inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-bold",
+                  "sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[12.5px] font-bold",
                   "transition-[background-color,border-color,box-shadow,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   isApproved
                     ? "border border-white/0 bg-white/95 text-[rgb(17_16_9)] shadow-[0_6px_20px_-6px_rgba(255,255,255,0.45)]"
@@ -891,7 +891,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 onClick={() => {
                   setShowResolved((s) => !s);
                 }}
-                className="sk-press rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-default)/0.04)] hover:text-[rgb(var(--fg-default))]"
+                className="sk-press rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-default)/0.04)] hover:text-[rgb(var(--fg-default))]"
               >
                 {showResolved ? "Hide resolved" : "Show resolved"}
               </button>
@@ -910,13 +910,13 @@ export function SongPage({ data }: { data: SongPageData }) {
           {/* Composer — premium pill, focus-state with amber ring. */}
           <div
             className={[
-              "group/composer mb-2.5 flex items-center gap-2 rounded-full border bg-[rgb(var(--bg-elevated))] py-1 pl-2 pr-1",
+              "group/composer mb-2.5 flex items-center gap-2 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] py-1 pl-2 pr-1",
               "border-[rgb(var(--border-subtle))]",
               "transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
               "focus-within:border-[rgb(var(--brand-primary)/0.5)] focus-within:shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12)]",
             ].join(" ")}
           >
-            <span className="shrink-0 rounded-full bg-[rgb(var(--brand-primary)/0.14)] px-2.5 py-1 font-mono text-[10.5px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))]">
+            <span className="shrink-0 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.14)] px-2.5 py-1 font-mono text-[10.5px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))]">
               @{fmtMs(currentMs)}
             </span>
             <input
@@ -938,7 +938,7 @@ export function SongPage({ data }: { data: SongPageData }) {
               type="button"
               onClick={handleAddComment}
               disabled={isPending}
-              className="sk-press rounded-full bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60"
+              className="sk-press rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60"
             >
               Post
             </button>
@@ -990,7 +990,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                           handleJumpToComment(c.timeMs);
                         }}
                         aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                        className="sk-press relative shrink-0 rounded-full bg-[rgb(var(--fg-default)/0.05)] px-1.5 py-0 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.1)]"
+                        className="sk-press relative shrink-0 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default)/0.05)] px-1.5 py-0 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.1)]"
                       >
                         @{fmtMs(c.timeMs)}
                       </button>
@@ -1074,7 +1074,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                             handleJumpToComment(c.timeMs);
                           }}
                           aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                          className="sk-press relative rounded-full bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))] transition-colors duration-200 before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--brand-primary)/0.24)]"
+                          className="sk-press relative rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))] transition-colors duration-200 before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--brand-primary)/0.24)]"
                         >
                           @{fmtMs(c.timeMs)}
                         </button>

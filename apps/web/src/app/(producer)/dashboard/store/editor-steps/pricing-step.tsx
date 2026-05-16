@@ -193,7 +193,7 @@ export function PricingStep({
               aria-pressed={unlimitedSessions}
               aria-label="Unlimited sessions"
               className={[
-                "sk-press inline-flex h-10 items-center justify-center rounded-full border px-4 text-[13px] font-semibold transition-colors",
+                "sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-lg)] border px-4 text-[13px] font-semibold transition-colors",
                 unlimitedSessions
                   ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
                   : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",

@@ -65,7 +65,7 @@ export function HeroSection({ locale }: { locale: "en" | "he" }) {
         {/* Left — copy + form */}
         <div className="sk-reveal-left">
           <div
-            className="mb-5 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em]"
+            className="mb-5 inline-flex items-center gap-2 rounded-[var(--radius-lg)] border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em]"
             style={{
               background: "rgba(212,150,10,0.12)",
               borderColor: "rgba(212,150,10,0.3)",

@@ -74,6 +74,9 @@ Producer cannot reach /artist/*. Artist cannot reach /dashboard/*.
 - DB schema: packages/db/src/schema.ts (single source of truth)
 - Migrations: packages/db/drizzle/ (run via pnpm -F db db:migrate)
 
+## Design system
+- Button & rectangle shape: `docs/design/buttons.md` — every text rectangle uses `rounded-[var(--radius-lg)]` (16px). `rounded-full` is reserved for square elements (avatars, icon-only buttons, dots, play buttons).
+
 ## Phase context
 Phase 1 (demolition): COMPLETE — D1 through D12.
 Phase 2 (foundation): Raz handles — schema reset, routing consolidation, auth hardening.

@@ -216,7 +216,7 @@ function ToggleRow({
             // matches the "eyebrow" style used elsewhere for technical
             // metadata. Absolute-less so it stays in reading flow next
             // to the label.
-            <span className="inline-flex items-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-0.5 font-mono text-[0.62rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+            <span className="inline-flex items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-0.5 font-mono text-[0.62rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
               Coming soon
             </span>
           ) : null}

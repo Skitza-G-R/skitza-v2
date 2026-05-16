@@ -15,8 +15,12 @@ describe("HeroCTA", () => {
     expect(SRC).toMatch(/export function HeroCTA/);
   });
 
-  it("uses border-radius: 999px (rounded-full) for the pill shape", () => {
-    expect(SRC).toContain("rounded-full");
+  it("uses the canonical rounded-rectangle radius (var(--radius-lg) = 16px)", () => {
+    // Skitza design system: every rectangular CTA uses `--radius-lg` (16px).
+    // See docs/design/buttons.md. Pills (`rounded-full`) are reserved for
+    // square circles (avatars, icon-only buttons).
+    expect(SRC).toContain("rounded-[var(--radius-lg)]");
+    expect(SRC).not.toContain("rounded-full");
   });
 
   it("supports both variants via the variant prop", () => {

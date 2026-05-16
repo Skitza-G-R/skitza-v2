@@ -623,20 +623,20 @@ function UrgencyPill({
 }) {
   if (urgency === "overdue") {
     return (
-      <span className="inline-flex items-center rounded-full border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-danger))]">
+      <span className="inline-flex items-center rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-danger))]">
         Overdue
       </span>
     );
   }
   if (urgency === "deposit_due") {
     return (
-      <span className="inline-flex items-center rounded-full border border-[rgb(var(--fg-warning)/0.3)] bg-[rgb(var(--fg-warning)/0.10)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-warning))]">
+      <span className="inline-flex items-center rounded-[var(--radius-lg)] border border-[rgb(var(--fg-warning)/0.3)] bg-[rgb(var(--fg-warning)/0.10)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-warning))]">
         Deposit due
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-overlay))] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+    <span className="inline-flex items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-overlay))] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
       Stuck
     </span>
   );
@@ -747,7 +747,7 @@ function FinancialPulseCard({
             {pulseStats.deltaPct !== null && pulseStats.deltaPct !== 0 ? (
               <span
                 className={[
-                  "inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums",
+                  "inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums",
                   pulseStats.deltaPct > 0
                     ? "border-[rgb(var(--fg-success)/0.22)] bg-[rgb(var(--fg-success)/0.10)] text-[rgb(var(--fg-success))]"
                     : "border-[rgb(var(--fg-danger)/0.22)] bg-[rgb(var(--fg-danger)/0.08)] text-[rgb(var(--fg-danger))]",

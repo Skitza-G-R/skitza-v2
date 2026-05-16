@@ -225,7 +225,7 @@ export function ClientSpaceHero({
           // Solid-white primary pill — G14: the client hero's only
           // primary CTA should match the design's `btn-light`
           // (background:#fff; color:#111009) for max prominence.
-          className="inline-flex shrink-0 items-center gap-1.5 self-end rounded-full bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
+          className="inline-flex shrink-0 items-center gap-1.5 self-end rounded-[var(--radius-lg)] bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
           style={{ color: "rgb(var(--bg-sidebar))" }}
         >
           <Plus size={14} />

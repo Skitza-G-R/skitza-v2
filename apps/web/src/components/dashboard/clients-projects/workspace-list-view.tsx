@@ -108,7 +108,7 @@ export interface WorkspaceListViewProps {
 // stays readable (and source-grep tests can find the label close to
 // the conditional).
 const HEADER_CTA_CLASS =
-  "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-semibold shadow-[0_2px_8px_-2px_rgb(var(--brand-primary)/0.5)] transition-transform hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2";
+  "inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold shadow-[0_2px_8px_-2px_rgb(var(--brand-primary)/0.5)] transition-transform hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2";
 
 const HEADER_CTA_STYLE = {
   background: "rgb(var(--brand-primary))",
@@ -408,7 +408,7 @@ export function WorkspaceListView({
           is reserved for the page's primary CTA; the tab selection is
           a softer signal that doesn't compete. */}
       <div
-        className="inline-flex items-center gap-1 self-start rounded-full border p-1"
+        className="inline-flex items-center gap-1 self-start rounded-[var(--radius-lg)] border p-1"
         style={{
           background: "rgb(var(--bg-background))",
           borderColor: "rgb(var(--border-subtle))",
@@ -421,7 +421,7 @@ export function WorkspaceListView({
           role="tab"
           aria-selected={tab === "clients"}
           onClick={() => { setTab("clients"); }}
-          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
+          className="rounded-[var(--radius-lg)] px-4 py-1.5 text-[12px] font-semibold transition-colors"
           style={{
             background:
               tab === "clients" ? "rgb(var(--bg-elevated))" : "transparent",
@@ -440,7 +440,7 @@ export function WorkspaceListView({
           role="tab"
           aria-selected={tab === "projects"}
           onClick={() => { setTab("projects"); }}
-          className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
+          className="rounded-[var(--radius-lg)] px-4 py-1.5 text-[12px] font-semibold transition-colors"
           style={{
             background:
               tab === "projects" ? "rgb(var(--bg-elevated))" : "transparent",
@@ -473,7 +473,7 @@ export function WorkspaceListView({
                     key={f.value}
                     type="button"
                     onClick={() => { setProjectFilter(f.value); }}
-                    className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-1 text-[12px] font-medium transition-colors"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -504,7 +504,7 @@ export function WorkspaceListView({
                     key={f.value}
                     type="button"
                     onClick={() => { setClientFilter(f.value); }}
-                    className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
+                    className="rounded-[var(--radius-lg)] border px-3 py-1 text-[12px] font-medium transition-colors"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -529,7 +529,7 @@ export function WorkspaceListView({
               cards = 3-col ClientCard grid, table = ClientsTableHeader
               + ClientCompactRow stack. */}
           <div
-            className="inline-flex items-center gap-0.5 rounded-full border p-0.5"
+            className="inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border p-0.5"
             style={{
               background: "rgb(var(--bg-elevated))",
               borderColor: "rgb(var(--border-subtle))",
@@ -580,7 +580,7 @@ export function WorkspaceListView({
             <select
               value={sort}
               onChange={(e) => { setSort(e.target.value as SortValue); }}
-              className="appearance-none rounded-full border bg-transparent py-1.5 pl-3 pr-7 text-[12px] font-medium focus:outline-none"
+              className="appearance-none rounded-[var(--radius-lg)] border bg-transparent py-1.5 pl-3 pr-7 text-[12px] font-medium focus:outline-none"
               style={{
                 background: "rgb(var(--bg-elevated))",
                 borderColor: "rgb(var(--border-subtle))",

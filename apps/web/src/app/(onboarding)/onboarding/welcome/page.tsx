@@ -63,7 +63,7 @@ export default async function WelcomePage({
       <div className="ob-stagger flex flex-col items-center text-center">
         {/* Live-dot pill: gold-tinted bg + alive heartbeat (combined
             scale + glow). Reads as breathing rather than blinking. */}
-        <span className="mb-4 inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
+        <span className="mb-4 inline-flex items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
           <span
             aria-hidden
             className="ob-alive-dot inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"

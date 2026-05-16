@@ -519,7 +519,7 @@ function CommentComposer({
           type="button"
           onClick={handleSave}
           disabled={pending}
-          className="rounded-full bg-[rgb(var(--brand-primary))] px-3 py-1 text-xs font-medium text-[rgb(var(--bg-base))] disabled:opacity-50"
+          className="rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 py-1 text-xs font-medium text-[rgb(var(--bg-base))] disabled:opacity-50"
         >
           {pending ? "Sending…" : "Post"}
         </button>

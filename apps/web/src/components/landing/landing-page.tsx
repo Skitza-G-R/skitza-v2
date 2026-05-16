@@ -492,7 +492,7 @@ function Hero() {
         {/* Left — copy + CTAs */}
         <div className="sk-reveal-left">
           <div
-            className="mb-5 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em]"
+            className="mb-5 inline-flex items-center gap-2 rounded-[var(--radius-lg)] border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em]"
             style={{
               background: "rgba(212,150,10,0.12)",
               borderColor: "rgba(212,150,10,0.3)",
@@ -728,7 +728,7 @@ function HeroProductPeek() {
                 </div>
               </div>
               <div
-                className="sk-soft-pulse flex items-center gap-1 rounded-full px-2.5 py-1 text-[9.5px] font-bold"
+                className="sk-soft-pulse flex items-center gap-1 rounded-[var(--radius-lg)] px-2.5 py-1 text-[9.5px] font-bold"
                 style={{
                   background: "rgba(34,197,94,0.12)",
                   border: "1px solid rgba(34,197,94,0.22)",

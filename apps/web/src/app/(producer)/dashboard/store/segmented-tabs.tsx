@@ -26,7 +26,7 @@ export function SegmentedTabs<V extends string>({
   items,
 }: SegmentedTabsProps<V>) {
   return (
-    <div role="group" aria-label={ariaLabel} className="inline-flex gap-1 rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1">
+    <div role="group" aria-label={ariaLabel} className="inline-flex gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1">
       {items.map((it) => {
         const active = it.value === value;
         return (
@@ -38,7 +38,7 @@ export function SegmentedTabs<V extends string>({
               onChange(it.value);
             }}
             className={[
-              "sk-press inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors",
+              "sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] font-semibold transition-colors",
               active
                 ? "bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark,140_95_6))]"
                 : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -49,7 +49,7 @@ export function SegmentedTabs<V extends string>({
               <span
                 aria-hidden
                 className={[
-                  "inline-flex min-w-[18px] items-center justify-center rounded-full px-1 text-[10.5px] font-bold tabular-nums",
+                  "inline-flex min-w-[18px] items-center justify-center rounded-[var(--radius-lg)] px-1 text-[10.5px] font-bold tabular-nums",
                   active
                     ? "bg-[rgb(var(--brand-primary)/0.22)] text-[rgb(var(--brand-primary-dark,140_95_6))]"
                     : "bg-[rgb(var(--fg-muted)/0.12)] text-[rgb(var(--fg-muted))]",

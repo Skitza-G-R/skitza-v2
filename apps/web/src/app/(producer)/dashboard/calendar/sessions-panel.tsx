@@ -142,7 +142,7 @@ function Toolbar({
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="inline-flex rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-1">
+      <div className="inline-flex rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-1">
         <FilterChip
           active={filter === "upcoming"}
           onClick={() => {
@@ -189,7 +189,7 @@ function FilterChip({
       onClick={onClick}
       aria-pressed={active}
       className={[
-        "sk-press inline-flex h-7 items-center justify-center gap-1.5 rounded-full px-3 text-[12px] tracking-tight transition-colors",
+        "sk-press inline-flex h-7 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-[12px] tracking-tight transition-colors",
         active
           ? "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9_/_0.08)]"
           : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -221,7 +221,7 @@ function SearchPill({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="inline-flex h-9 min-w-[220px] items-center gap-2 rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12.5px] focus-within:border-[rgb(var(--brand-primary))]">
+    <div className="inline-flex h-9 min-w-[220px] items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12.5px] focus-within:border-[rgb(var(--brand-primary))]">
       <SearchIcon />
       <input
         type="search"

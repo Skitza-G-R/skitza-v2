@@ -551,7 +551,7 @@ export function Waveform50({
             style={{ left: `${hoverPct.toFixed(2)}%` }}
           >
             <div className="absolute inset-y-2 left-0 w-px bg-[rgb(var(--fg-default)/0.35)]" />
-            <span className="absolute -bottom-7 left-0 -translate-x-1/2 whitespace-nowrap rounded-full bg-[rgb(var(--bg-elevated)/0.92)] px-2 py-0.5 font-mono text-[10.5px] font-semibold tabular-nums text-[rgb(var(--fg-muted))] shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))] backdrop-blur-md">
+            <span className="absolute -bottom-7 left-0 -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-lg)] bg-[rgb(var(--bg-elevated)/0.92)] px-2 py-0.5 font-mono text-[10.5px] font-semibold tabular-nums text-[rgb(var(--fg-muted))] shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))] backdrop-blur-md">
               {fmt(hoverMs)}
             </span>
           </div>
@@ -592,7 +592,7 @@ export function Waveform50({
               Bumped from 11px → 12px so it's readable at a glance even
               while scrubbing on smaller laptops. */}
           <span
-            className="absolute -top-10 left-0 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-1 font-mono text-[12px] font-bold tabular-nums backdrop-blur-md"
+            className="absolute -top-10 left-0 -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-lg)] px-3 py-1 font-mono text-[12px] font-bold tabular-nums backdrop-blur-md"
             style={{
               background: "rgb(var(--bg-elevated) / 0.95)",
               color: "rgb(var(--fg-default))",

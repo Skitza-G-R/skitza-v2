@@ -134,7 +134,7 @@ export function NotificationBell({
         {hasUnread ? (
           <span
             aria-live="polite"
-            className="absolute -right-0.5 -top-0.5 flex min-w-[14px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] px-1 font-mono text-[0.55rem] font-semibold leading-[14px] text-[rgb(var(--fg-inverse))] ring-2 ring-[rgb(var(--bg-elevated))]"
+            className="absolute -right-0.5 -top-0.5 flex min-w-[14px] items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-1 font-mono text-[0.55rem] font-semibold leading-[14px] text-[rgb(var(--fg-inverse))] ring-2 ring-[rgb(var(--bg-elevated))]"
           >
             {badgeLabel}
           </span>

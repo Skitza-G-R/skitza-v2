@@ -60,7 +60,7 @@ export function SongSpaceStatStrip({
     <ChangeStageMenu trackId={trackId} current={workflowStage} />
   ) : (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest"
+      className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest"
       style={{
         color: stageHue,
         borderColor: stageHue,

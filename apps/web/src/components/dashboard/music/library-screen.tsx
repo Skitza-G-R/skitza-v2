@@ -278,7 +278,7 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
         {/* Search — focus-within ring brightens the pill so the
             keyboardable surface is visible without a heavy outline. */}
         <div
-          className="sk-trans flex min-w-[220px] max-w-[320px] flex-1 items-center gap-1.5 rounded-full bg-[rgb(var(--bg-elevated))] px-3 py-1.5 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)]"
+          className="sk-trans flex min-w-[220px] max-w-[320px] flex-1 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)]"
           style={{ border: "1px solid rgb(var(--border-subtle))" }}
         >
           <Search size={13} className="text-[rgb(var(--fg-muted))]" />
@@ -299,7 +299,7 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
               onClick={() => {
                 setSearch("");
               }}
-              className="sk-press rounded-full p-0.5 text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+              className="sk-press rounded-[var(--radius-lg)] p-0.5 text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
             >
               <X size={12} />
             </button>
@@ -497,7 +497,7 @@ function ArtistFilterPill({
   return (
     <label
       className={[
-        "sk-press sk-trans relative inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold",
+        "sk-press sk-trans relative inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] font-semibold",
         filtered
           ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-background))]"
           : "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
@@ -713,7 +713,7 @@ function ProjectsTable({ projects }: { projects: ProjectAggregate[] }) {
                 {p.artistLabel}
               </span>
               <span>
-                <span className="inline-flex items-center rounded-full bg-[rgb(var(--bg-sunken))] px-2 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--fg-default))]">
+                <span className="inline-flex items-center rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-2 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--fg-default))]">
                   {p.kind}
                 </span>
               </span>
@@ -1017,7 +1017,7 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                       e.preventDefault();
                       e.stopPropagation();
                     }}
-                    className="sk-press sk-trans rounded-full p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
+                    className="sk-press sk-trans rounded-[var(--radius-lg)] p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
                   >
                     <MoreHorizontal size={14} />
                   </button>
