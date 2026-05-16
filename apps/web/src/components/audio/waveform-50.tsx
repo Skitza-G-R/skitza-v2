@@ -105,10 +105,15 @@ let _audioCtx: AudioContext | null = null;
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (_audioCtx) return _audioCtx;
-  const Ctor =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext?: typeof AudioContext })
-      .webkitAudioContext;
+  // lib.dom.d.ts types `window.AudioContext` as non-nullable, but it
+  // genuinely is undefined in some legacy / Safari preview contexts —
+  // cast through `unknown` so ESLint's `no-unnecessary-condition`
+  // doesn't trip on the runtime fallback.
+  const w = window as unknown as {
+    AudioContext?: typeof AudioContext;
+    webkitAudioContext?: typeof AudioContext;
+  };
+  const Ctor = w.AudioContext ?? w.webkitAudioContext;
   if (!Ctor) return null;
   _audioCtx = new Ctor();
   return _audioCtx;
@@ -170,7 +175,11 @@ function useAudioPeaks(
       setPeaks(cached);
       return;
     }
-    let cancelled = false;
+    // Object-wrapped flag so ESLint's no-unnecessary-condition can't
+    // statically conclude `cancelled` never flips — the cleanup
+    // function below mutates `flag.cancelled` after the closure
+    // captures it.
+    const flag = { cancelled: false };
     void (async () => {
       try {
         const ctx = getAudioContext();
@@ -181,7 +190,7 @@ function useAudioPeaks(
         // decodeAudioData mutates the buffer in some browsers (Safari);
         // give it a fresh copy in case we want to reuse the bytes.
         const audio = await ctx.decodeAudioData(buf.slice(0));
-        if (cancelled) return;
+        if (flag.cancelled) return;
         const computed = rmsPeaks(audio.getChannelData(0), barCount);
         peaksCache.set(url, computed);
         setPeaks(computed);
@@ -192,7 +201,7 @@ function useAudioPeaks(
       }
     })();
     return () => {
-      cancelled = true;
+      flag.cancelled = true;
     };
   }, [url, barCount]);
 
