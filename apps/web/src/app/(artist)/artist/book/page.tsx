@@ -28,20 +28,9 @@ export default async function BookPage({ searchParams }: PageProps) {
   const activeStudioId = sp.studio ?? studios[0]?.producerId;
   if (!activeStudioId) {
     return (
-      <div className="reveal-up space-y-4">
-        <header className="px-1">
-          <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-            Book
-            <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
-          </h1>
-          <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
-            Sessions live here once you're connected to a producer.
-          </p>
-        </header>
-        <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-6 text-center text-sm text-[rgb(var(--fg-secondary))]">
-          No studios yet. Once a producer invites you, booking shows up
-          here.
-        </div>
+      <div className="reveal-up space-y-5">
+        <BookEyebrow />
+        <EmptyStudios />
       </div>
     );
   }
@@ -53,18 +42,8 @@ export default async function BookPage({ searchParams }: PageProps) {
   ]);
 
   return (
-    <div className="reveal-up space-y-4">
-      <header className="px-1">
-        <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-          Book
-          <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
-        </h1>
-        <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
-          {studios.length > 1
-            ? "Pick a producer to see their availability."
-            : "Pick a slot in the next 14 days."}
-        </p>
-      </header>
+    <div className="reveal-up mx-auto w-full max-w-6xl space-y-5">
+      <BookEyebrow />
       <BookingClient
         activeStudioId={activeStudioId}
         availability={availability}
@@ -73,5 +52,60 @@ export default async function BookPage({ searchParams }: PageProps) {
         activePackages={activePackages}
       />
     </div>
+  );
+}
+
+// Tiny page-identity row above the card. The card itself carries the
+// producer + session context, so this stays a quiet visual handle for
+// the route rather than a competing heading.
+function BookEyebrow() {
+  return (
+    <header className="flex items-baseline justify-between px-1 sm:px-0">
+      <h1 className="font-display text-[20px] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--fg-default))]">
+        Book
+        <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+      </h1>
+      <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+        Next 14 days
+      </p>
+    </header>
+  );
+}
+
+function EmptyStudios() {
+  return (
+    <section
+      aria-label="No studios yet"
+      className="overflow-hidden rounded-[var(--radius-2xl)] border bg-[rgb(var(--bg-elevated))]"
+      style={{
+        borderColor: "rgb(var(--border-subtle))",
+        boxShadow: "var(--shadow-lg)",
+      }}
+    >
+      <div
+        aria-hidden
+        className="flex h-28 items-center justify-center"
+        style={{
+          background:
+            "radial-gradient(120% 80% at 50% 0%, rgb(var(--brand-primary) / 0.18), transparent 65%), rgb(var(--bg-overlay))",
+        }}
+      >
+        <span
+          className="font-mono text-[10px] font-bold uppercase tracking-[0.24em]"
+          style={{ color: "rgb(var(--brand-primary))" }}
+        >
+          Waiting for an invite
+        </span>
+      </div>
+      <div className="px-6 py-6 lg:px-8">
+        <p className="font-display text-[20px] font-extrabold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+          Nothing to book yet.
+        </p>
+        <p className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
+          Once a producer invites you, their next 14 days appear here. You
+          pick a window, they confirm.
+        </p>
+      </div>
+    </section>
   );
 }
