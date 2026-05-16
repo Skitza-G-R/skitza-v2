@@ -74,7 +74,9 @@ interface Waveform50Props {
    * Should be the same-origin /api/download/<id> route, NOT the raw
    * R2 URL — R2 doesn't honour CORS for our preview origins.
    */
-  peaksUrl?: string;
+  // `| undefined` is explicit so the prop can be passed as
+  // `peaksUrl={maybeUrl}` under exactOptionalPropertyTypes.
+  peaksUrl?: string | undefined;
   /**
    * Optional starting playhead position in ms. The component owns its
    * playhead state internally so click-to-seek + drag both work without
