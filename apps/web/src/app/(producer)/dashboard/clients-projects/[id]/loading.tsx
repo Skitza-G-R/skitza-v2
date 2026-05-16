@@ -14,6 +14,9 @@ export default function AlbumSpaceLoading() {
   return (
     <main aria-hidden aria-label="Loading project" className="sk-page-enter">
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+        {/* Breadcrumb placeholder — "Clients & Projects › {project}". */}
+        <Skel className="mb-4 h-4 w-56 rounded" />
+
         {/* Dark gradient placeholder for the AlbumHero band */}
         <Skel className="h-[260px] rounded-[var(--radius-lg)]" tone="band" />
 

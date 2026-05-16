@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
+import { Breadcrumb } from "~/components/dashboard/common/breadcrumb";
 import {
   SongSpace,
   type SongSpaceClient,
@@ -279,8 +280,33 @@ export default async function SongDetail({ params }: PageProps) {
   // raw data through and let the shell decide whether to enable the
   // CTA based on versions[0].audioUrl presence.
 
+  // Breadcrumb varies by mode. In album mode the project is its own page
+  // so we link to it; in single mode the album page would just redirect
+  // back to here, so we skip the project crumb entirely.
+  const breadcrumbItems =
+    mode === "album"
+      ? [
+          {
+            label: "Clients & Projects",
+            href: "/dashboard/clients-projects",
+          },
+          {
+            label: data.project.title,
+            href: `/dashboard/clients-projects/${data.project.id}`,
+          },
+          { label: song.title },
+        ]
+      : [
+          {
+            label: "Clients & Projects",
+            href: "/dashboard/clients-projects",
+          },
+          { label: song.title },
+        ];
+
   return (
     <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+      <Breadcrumb className="mb-4" items={breadcrumbItems} />
       <SongSpace
         mode={mode}
         song={song}
