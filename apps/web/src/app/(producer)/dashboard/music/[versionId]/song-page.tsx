@@ -525,7 +525,7 @@ export function SongPage({ data }: { data: SongPageData }) {
           }}
         />
 
-        <div className="relative mx-auto max-w-[1120px] px-4 pt-4 pb-5 sm:px-6 sm:pt-6 sm:pb-7">
+        <div className="relative mx-auto max-w-[1120px] px-4 pt-3 pb-4 sm:px-6 sm:pt-4 sm:pb-5">
           {/* Top breadcrumb row — quiet glass pills, no visual heft */}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <Link
@@ -588,7 +588,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 Song · {data.track.projectTitle}
               </span>
               <h1
-                className="font-display mt-1.5 text-[clamp(24px,3.5vw,40px)] font-extrabold leading-[1.02] tracking-[-0.03em]"
+                className="font-display mt-1 text-[clamp(22px,3vw,34px)] font-extrabold leading-[1.05] tracking-[-0.028em]"
                 style={{ textShadow: "0 2px 14px rgba(0,0,0,0.2)" }}
               >
                 {data.track.title}
@@ -818,7 +818,7 @@ export function SongPage({ data }: { data: SongPageData }) {
           double-bezel pattern — an outer hairline sheath + inner core
           with a soft inset highlight, so it sits on the page like a
           piece of polished hardware instead of a flat content rectangle. */}
-      <section className="mx-auto max-w-[1120px] px-4 py-5 sm:px-6 sm:py-7">
+      <section className="mx-auto max-w-[1120px] px-4 py-4 sm:px-6 sm:py-5">
         {/* Waveform — Double-Bezel card */}
         <div
           className="reveal-up rounded-[20px] p-[1.5px]"
@@ -829,7 +829,7 @@ export function SongPage({ data }: { data: SongPageData }) {
           }}
         >
           <div
-            className="rounded-[18.5px] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5"
+            className="rounded-[18.5px] bg-[rgb(var(--bg-elevated))] p-3 sm:p-4"
             style={{
               boxShadow:
                 "inset 0 1px 0 0 rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(var(--fg-default) / 0.04)",
@@ -848,7 +848,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 wave without reaching back up to the hero. Same toggle
                 path (handlePlayToggle) as the hero CTA, kept in lock-
                 step by source-grep test. */}
-            <div className="mt-4 flex items-center justify-center gap-2">
+            <div className="mt-3 flex items-center justify-center gap-1.5">
               <button
                 type="button"
                 onClick={() => {
@@ -914,10 +914,10 @@ export function SongPage({ data }: { data: SongPageData }) {
             Header → Composer → List. Composer floats at the top so the
             primary action (drop a note at the playhead) is the first
             thing a producer sees after the waveform. */}
-        <div className="reveal-up reveal-up-delay-2 mt-6">
-          <div className="mb-2.5 flex items-baseline justify-between">
+        <div className="reveal-up reveal-up-delay-2 mt-5">
+          <div className="mb-2 flex items-baseline justify-between">
             <div className="flex items-baseline gap-2">
-              <h2 className="font-display text-[17px] font-bold tracking-[-0.018em] text-[rgb(var(--fg-default))]">
+              <h2 className="font-display text-[15px] font-bold tracking-[-0.018em] text-[rgb(var(--fg-default))]">
                 Notes
               </h2>
               <span className="font-mono text-[10.5px] font-bold tabular-nums text-[rgb(var(--fg-muted))]">
@@ -952,7 +952,7 @@ export function SongPage({ data }: { data: SongPageData }) {
           {/* Composer — premium pill, focus-state with amber ring. */}
           <div
             className={[
-              "group/composer mb-3 flex items-center gap-2 rounded-full border bg-[rgb(var(--bg-elevated))] py-1 pl-2 pr-1",
+              "group/composer mb-2.5 flex items-center gap-2 rounded-full border bg-[rgb(var(--bg-elevated))] py-1 pl-2 pr-1",
               "border-[rgb(var(--border-subtle))]",
               "transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
               "focus-within:border-[rgb(var(--brand-primary)/0.5)] focus-within:shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12)]",
@@ -992,7 +992,7 @@ export function SongPage({ data }: { data: SongPageData }) {
               current playhead.
             </p>
           ) : (
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-1.5">
               {visibleComments.map((c, i) => {
                 const override = resolvedOverrides[c.id];
                 const isResolved =
@@ -1005,7 +1005,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                     key={c.id}
                     className={[
                       "group/note reveal-up",
-                      "flex items-start gap-2.5 rounded-[14px] border px-3 py-2.5",
+                      "flex items-start gap-2.5 rounded-[12px] border px-2.5 py-2",
                       "transition-[transform,box-shadow,background-color,border-color] duration-[260ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                       c.fromProducer
                         ? "border-[rgb(var(--brand-primary)/0.22)] bg-[rgb(var(--brand-primary)/0.05)]"
@@ -1054,13 +1054,13 @@ export function SongPage({ data }: { data: SongPageData }) {
                       </div>
                       <p
                         className={[
-                          "mt-1.5 text-[13.5px] leading-relaxed text-[rgb(var(--fg-default))]",
+                          "mt-1 text-[13px] leading-snug text-[rgb(var(--fg-default))]",
                           isResolved ? "" : "",
                         ].join(" ")}
                       >
                         {c.body}
                       </p>
-                      <div className="mt-1.5 flex gap-3 text-[10px] font-bold tracking-wide opacity-0 transition-opacity duration-200 group-hover/note:opacity-100">
+                      <div className="mt-1 flex gap-2.5 text-[10px] font-bold tracking-wide opacity-0 transition-opacity duration-200 group-hover/note:opacity-100">
                         <button
                           type="button"
                           data-test="comment-jump"
