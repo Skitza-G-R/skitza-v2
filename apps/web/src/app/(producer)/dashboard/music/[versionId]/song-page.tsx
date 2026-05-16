@@ -493,19 +493,7 @@ export function SongPage({ data }: { data: SongPageData }) {
     playState.action === "toggle" && playState.label === "Pause";
 
   return (
-    <main className="sk-page-enter relative">
-      {/* Page-wide film-grain — Editorial Luxury texture cue. Fixed,
-          pointer-events-none, never repaints on scroll. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-40 opacity-[0.022] mix-blend-overlay"
-        style={{
-          backgroundImage:
-            "radial-gradient(rgb(17 16 9) 1px, transparent 1px)",
-          backgroundSize: "3px 3px",
-        }}
-      />
-
+    <main className="sk-page-enter">
       {/* ───── Hero band ─────────────────────────────────────────────
           Editorial-luxury treatment: gradient backdrop bleeds out via
           a deep radial mask + two-stop linear fade, so the band feels
@@ -547,17 +535,12 @@ export function SongPage({ data }: { data: SongPageData }) {
               <ChevronLeftIcon />
               <span>Library</span>
             </Link>
-            {/* Button-in-Button — trailing chevron lives inside its own
-                circular wrapper. On hover, it translates diagonally and
-                scales up, creating kinetic tension (Section 5B). */}
             <Link
               href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
-              className="sk-press group inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/[0.08] py-1 pl-3 pr-1 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-[400ms] ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/[0.16]"
+              className="sk-press group inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
             >
               <span>Open in project room</span>
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/[0.14] transition-transform duration-[400ms] ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:scale-[1.06]">
-                <ChevronRightIcon />
-              </span>
+              <ChevronRightIcon />
             </Link>
           </div>
 
@@ -835,13 +818,10 @@ export function SongPage({ data }: { data: SongPageData }) {
           double-bezel pattern — an outer hairline sheath + inner core
           with a soft inset highlight, so it sits on the page like a
           piece of polished hardware instead of a flat content rectangle. */}
-      <section className="relative mx-auto max-w-[1120px] px-4 py-10 sm:px-6 sm:py-14">
-        {/* Waveform — Double-Bezel card. Outer rounded-[2rem] sheath +
-            inner concentric rounded-[calc(2rem-0.375rem)] core so the
-            radii line up perfectly (Section 4A of high-end-visual-
-            design). Macro-whitespace bumped for breathing room. */}
+      <section className="mx-auto max-w-[1120px] px-4 py-7 sm:px-6 sm:py-10">
+        {/* Waveform — Double-Bezel card */}
         <div
-          className="reveal-up rounded-[2rem] p-1.5"
+          className="reveal-up rounded-[28px] p-[1.5px]"
           style={{
             background:
               "linear-gradient(180deg, rgb(var(--fg-default) / 0.08) 0%, rgb(var(--fg-default) / 0.02) 60%, rgb(var(--brand-primary) / 0.18) 100%)",
@@ -849,7 +829,7 @@ export function SongPage({ data }: { data: SongPageData }) {
           }}
         >
           <div
-            className="rounded-[calc(2rem-0.375rem)] bg-[rgb(var(--bg-elevated))] p-6 sm:p-7"
+            className="rounded-[26px] bg-[rgb(var(--bg-elevated))] p-6 sm:p-7"
             style={{
               boxShadow:
                 "inset 0 1px 0 0 rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(var(--fg-default) / 0.04)",
@@ -935,21 +915,17 @@ export function SongPage({ data }: { data: SongPageData }) {
             primary action (drop a note at the playhead) is the first
             thing a producer sees after the waveform. */}
         <div className="reveal-up reveal-up-delay-2 mt-8">
-          <div className="mb-4 flex items-end justify-between">
-            <div>
-              {/* Eyebrow microbadge — Editorial Luxury pattern (Section
-                  4C). Mono uppercase with 0.22em tracking anchors the
-                  display sub-heading the way a magazine kicker anchors
-                  an article title. */}
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 py-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--fg-muted))]">
-                Notes · {String(visibleComments.length)}
+          <div className="mb-3 flex items-baseline justify-between">
+            <div className="flex items-baseline gap-2.5">
+              <h2 className="font-display text-[20px] font-bold tracking-[-0.018em] text-[rgb(var(--fg-default))]">
+                Notes
+              </h2>
+              <span className="font-mono text-[11px] font-bold tabular-nums text-[rgb(var(--fg-muted))]">
+                {String(visibleComments.length)}
                 {visibleComments.length !== allCommentsForVersion.length
-                  ? ` / ${String(allCommentsForVersion.length)}`
+                  ? ` of ${String(allCommentsForVersion.length)}`
                   : ""}
               </span>
-              <h2 className="font-display mt-2 text-[clamp(20px,2.4vw,28px)] font-bold leading-[1.05] tracking-[-0.022em] text-[rgb(var(--fg-default))]">
-                Conversation at the playhead
-              </h2>
             </div>
             {hasResolvedComments ? (
               <button
