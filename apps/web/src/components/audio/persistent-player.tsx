@@ -1,26 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 
 /** Pathname matcher for the producer Song page (/dashboard/music/<uuid>).
- *  On this route the inline hero play button + waveform IS the
- *  playback UI — the dock would just overlap the comment thread, so
- *  we slide it off-screen and skip the body-padding reservation. The
- *  audio element stays mounted so playback continues uninterrupted.
- *  The dock slides back when the producer navigates away. */
-function isProducerSongPage(pathname: string | null): boolean {
-  if (!pathname) return false;
-  if (!pathname.startsWith("/dashboard/music/")) return false;
-  // /dashboard/music itself is the Library — not a song page.
-  // /dashboard/music/project/<id> is the Project page — not a song page.
-  if (pathname === "/dashboard/music") return false;
-  if (pathname.startsWith("/dashboard/music/project/")) return false;
-  return true;
-}
+ *  Legacy: the song page used to suppress the dock because its
+ *  in-card transport bar (Skip / Play / Skip) was the playback UI.
+ *  That transport has been removed, so the dock is now always
+ *  visible across the dashboard. The route-based hide logic was
+ *  retired with it. */
 
 // Public read-only state for "what's currently playing" — populated by
 // PersistentPlayer on every set / toggle / ended / close event so any
@@ -182,20 +172,11 @@ export function PersistentPlayer() {
   const [currentMs, setCurrentMs] = useState(0);
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const pathname = usePathname();
-  // Earlier: dockHidden = isProducerSongPage(pathname) — the song page
-  // had its own in-card transport (Skip/Play/Skip) so the floating
-  // dock was suppressed there. That in-card transport has since been
-  // removed, and the producer asked for the floating player back on
-  // the song page. Always-visible is simpler and matches the rest of
-  // the dashboard's behaviour. The body-data-attribute padding rule
-  // in globals.css (body[data-skitza-dock="1"] main#main-content {
-  // padding-bottom: 110px }) automatically clears the comments thread
-  // from the dock's footprint.
-  //
-  // `pathname` is kept on hand in case we want per-route variants
-  // later (e.g. hide on auth pages), but currently unused.
-  void pathname;
+  // Dock is always visible across the dashboard now (legacy song-page
+  // hide was retired with the in-card transport). The body-data-
+  // attribute padding rule in globals.css (body[data-skitza-dock="1"]
+  // main#main-content { padding-bottom: 110px }) automatically clears
+  // the song-page comments thread from the dock's footprint.
   const dockHidden = false;
 
   // Wire incoming events once per mount. Downstream dispatchers fire
@@ -249,7 +230,7 @@ export function PersistentPlayer() {
   // for a dock that isn't visible.
   useEffect(() => {
     if (typeof document === "undefined") return;
-    if (state.track && !dockHidden) {
+    if (state.track) {
       document.body.dataset.skitzaDock = "1";
     } else {
       delete document.body.dataset.skitzaDock;
