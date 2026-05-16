@@ -672,10 +672,12 @@ export function SongPage({ data }: { data: SongPageData }) {
                 once already approved. */}
             <div className="reveal-up reveal-up-delay-2 flex shrink-0 flex-wrap items-center gap-2.5">
               {/* Play CTA — primary, magnetic, glow when playing. The
-                  in-context play button inside the waveform card below
-                  reuses the same handler so the two stay locked. */}
+                  data-test pin lives here now — the in-card transport
+                  bar was removed so the floating PersistentPlayer dock
+                  at the bottom of the screen handles inline controls. */}
               <button
                 type="button"
+                data-test="waveform-play-button"
                 onClick={handlePlayToggle}
                 disabled={playState.disabled}
                 aria-label={playState.label}
@@ -861,73 +863,8 @@ export function SongPage({ data }: { data: SongPageData }) {
                   : undefined
               }
               onProgress={setCurrentMs}
-              height={120}
+              height={96}
             />
-
-            {/* In-context transport bar — Skip ±5s + slim Play in the
-                waveform card so a producer can keep their eye on the
-                wave without reaching back up to the hero. Same toggle
-                path (handlePlayToggle) as the hero CTA, kept in lock-
-                step by source-grep test. */}
-            <div className="mt-3 flex items-center justify-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  const next = Math.max(0, currentMs - 5_000);
-                  if (nowPlaying.trackId === activeVersion.id) {
-                    playerSeek(next);
-                  }
-                  setCurrentMs(next);
-                }}
-                disabled={playState.disabled}
-                aria-label="Back 5 seconds"
-                title="Back 5 seconds"
-                className="sk-press relative inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] before:absolute before:-inset-2 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Skip5Icon dir="back" />
-              </button>
-              <button
-                type="button"
-                data-test="waveform-play-button"
-                onClick={handlePlayToggle}
-                disabled={playState.disabled}
-                aria-label={playState.label}
-                title={
-                  playState.disabled ? "Audio is still uploading" : playState.label
-                }
-                className={[
-                  "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full",
-                  "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                  isPlayingThis
-                    ? "bg-[rgb(var(--brand-primary))] text-white shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12),0_12px_24px_-8px_rgb(var(--brand-primary)/0.5)]"
-                    : "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))] shadow-[0_8px_18px_-6px_rgb(var(--fg-default)/0.32)] hover:-translate-y-px hover:shadow-[0_12px_28px_-8px_rgb(var(--fg-default)/0.42)]",
-                  "disabled:cursor-not-allowed disabled:opacity-40",
-                ].join(" ")}
-              >
-                {isPlayingThis ? <PauseIconLg /> : <PlayIconLg />}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const dur = activeVersion.durationMs ?? 240_000;
-                  const next = Math.min(dur, currentMs + 5_000);
-                  if (nowPlaying.trackId === activeVersion.id) {
-                    playerSeek(next);
-                  }
-                  setCurrentMs(next);
-                }}
-                disabled={playState.disabled}
-                aria-label="Forward 5 seconds"
-                title="Forward 5 seconds"
-                className="sk-press relative inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] before:absolute before:-inset-2 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Skip5Icon dir="fwd" />
-              </button>
-            </div>
-
-            <p className="mt-3 text-center font-mono text-[9.5px] tracking-[0.14em] uppercase text-[rgb(var(--fg-muted))]">
-              Click to seek · Drag to scrub · Hover to preview
-            </p>
           </div>
         </div>
 
@@ -1023,6 +960,76 @@ export function SongPage({ data }: { data: SongPageData }) {
                 // Stagger entry by index, capped at 5 (after that the cascade
                 // gets noticeably slow without adding polish).
                 const staggerMs = Math.min(i, 5) * 50;
+
+                // ─── Resolved → compact single-line variant ──────────
+                // Greyed out, half-height of an active note. Just the
+                // author + timestamp + body preview. Hover reveals the
+                // "Reopen" action. Saves a lot of vertical space when
+                // a producer has 10+ resolved notes on a track.
+                if (isResolved) {
+                  return (
+                    <li
+                      key={c.id}
+                      className="group/note reveal-up flex items-center gap-2 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--fg-default)/0.02)] px-2.5 py-1 text-[12px] opacity-65 transition-opacity duration-200 hover:opacity-100"
+                      style={{ animationDelay: `${String(staggerMs)}ms` }}
+                    >
+                      <span
+                        aria-hidden
+                        className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+                      >
+                        ✓
+                      </span>
+                      <button
+                        type="button"
+                        data-test="comment-timestamp"
+                        onClick={() => {
+                          handleJumpToComment(c.timeMs);
+                        }}
+                        aria-label={`Jump to ${fmtMs(c.timeMs)}`}
+                        className="sk-press relative shrink-0 rounded-full bg-[rgb(var(--fg-default)/0.05)] px-1.5 py-0 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.1)]"
+                      >
+                        @{fmtMs(c.timeMs)}
+                      </button>
+                      <span className="shrink-0 text-[11.5px] font-semibold text-[rgb(var(--fg-muted))]">
+                        {c.authorName}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                        {c.body}
+                      </span>
+                      <button
+                        type="button"
+                        data-test="comment-jump"
+                        onClick={() => {
+                          handleJumpToComment(c.timeMs);
+                        }}
+                        className="hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] group-hover/note:inline"
+                      >
+                        Jump
+                      </button>
+                      <button
+                        type="button"
+                        data-test="comment-reply"
+                        onClick={() => {
+                          handleReplyToComment(c.authorName);
+                        }}
+                        className="hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] group-hover/note:inline"
+                      >
+                        Reply
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleResolveToggle(c);
+                        }}
+                        className="hidden shrink-0 text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] group-hover/note:inline"
+                      >
+                        Reopen
+                      </button>
+                    </li>
+                  );
+                }
+
+                // ─── Active note — full card ─────────────────────────
                 return (
                   <li
                     key={c.id}
@@ -1033,9 +1040,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                       c.fromProducer
                         ? "border-[rgb(var(--brand-primary)/0.22)] bg-[rgb(var(--brand-primary)/0.05)]"
                         : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]",
-                      isResolved
-                        ? "opacity-55"
-                        : "hover:-translate-y-px hover:shadow-[0_10px_28px_-12px_rgb(var(--fg-default)/0.16)]",
+                      "hover:-translate-y-px hover:shadow-[0_10px_28px_-12px_rgb(var(--fg-default)/0.16)]",
                     ].join(" ")}
                     style={{ animationDelay: `${String(staggerMs)}ms` }}
                   >
@@ -1069,18 +1074,8 @@ export function SongPage({ data }: { data: SongPageData }) {
                         <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
                           {fmtRelativeIso(c.createdAtIso)}
                         </span>
-                        {isResolved ? (
-                          <span className="rounded-full bg-[rgb(var(--fg-default)/0.06)] px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
-                            ✓ Resolved
-                          </span>
-                        ) : null}
                       </div>
-                      <p
-                        className={[
-                          "mt-1 text-[13px] leading-snug text-[rgb(var(--fg-default))]",
-                          isResolved ? "" : "",
-                        ].join(" ")}
-                      >
+                      <p className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-default))]">
                         {c.body}
                       </p>
                       <div className="mt-1 flex gap-2.5 text-[10px] font-bold tracking-wide opacity-60 transition-opacity duration-200 group-hover/note:opacity-100">
@@ -1111,7 +1106,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                           }}
                           className="text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
                         >
-                          {isResolved ? "Reopen" : "Resolve"}
+                          Resolve
                         </button>
                       </div>
                     </div>
@@ -1275,58 +1270,3 @@ function ArrowUpHint() {
   );
 }
 
-function PlayIconLg() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
-      <path d="M3.5 2.5v7L9.5 6z" />
-    </svg>
-  );
-}
-
-function PauseIconLg() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
-      <rect x="3" y="2.5" width="2" height="7" rx="0.5" />
-      <rect x="7" y="2.5" width="2" height="7" rx="0.5" />
-    </svg>
-  );
-}
-
-function Skip5Icon({ dir }: { dir: "back" | "fwd" }) {
-  // Circular skip arrow with a "5" inside the bow — the visual cue most
-  // music apps use (Spotify, Apple Podcasts, Overcast). We mirror by
-  // flipping the X transform for the forward variant.
-  const transform = dir === "back" ? undefined : "scale(-1, 1) translate(-16, 0)";
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <g transform={transform}>
-        <path
-          d="M3 4 V 7 H 6"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-        <path
-          d="M3.4 7 A 5.2 5.2 0 1 1 3 8"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          fill="none"
-        />
-      </g>
-      <text
-        x="8"
-        y="11.5"
-        textAnchor="middle"
-        fontSize="6.2"
-        fontWeight="700"
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-        fill="currentColor"
-      >
-        5
-      </text>
-    </svg>
-  );
-}

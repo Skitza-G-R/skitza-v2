@@ -45,7 +45,9 @@ export function pickWaveformTime(input: {
 // PersistentPlayer's `skitza:player:time` event; `onSeek` is the
 // click-to-seek hook the parent wires to `playerSeek`.
 
-const BAR_COUNT = 80;
+// DAW-style density: 200 thin bars with a 1px gap reads as a real
+// audio envelope, like Samply / SoundCloud — not a stylized chip.
+const BAR_COUNT = 200;
 const GLOW_RANGE = 6;
 
 export interface WaveformComment {
@@ -483,8 +485,10 @@ export function Waveform50({
         className="group relative w-full cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-4 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:rounded-[8px]"
         style={{ height }}
       >
-        {/* Bars layer */}
-        <div className="absolute inset-0 flex items-center justify-between gap-[2.5px]">
+        {/* Bars layer — Samply/SoundCloud-density: 200 thin sharp bars
+            at 1px gap so the envelope reads as a continuous audio
+            silhouette, not a row of pills. */}
+        <div className="absolute inset-0 flex items-center justify-between gap-px">
           {heights.map((h, i) => {
             const isPlayed = i < playedBars;
             const distFromPlayhead = playedBars - i;
@@ -504,7 +508,7 @@ export function Waveform50({
                 key={`b-${String(i)}`}
                 aria-hidden
                 className={[
-                  "block flex-1 rounded-full",
+                  "block flex-1 rounded-[1px]",
                   "transition-[background-color,box-shadow,opacity,height] duration-[280ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                   isPlayed
                     ? "bg-[rgb(var(--brand-primary))]"
@@ -513,11 +517,16 @@ export function Waveform50({
                       : "bg-[rgb(var(--fg-muted)/0.22)]",
                 ].join(" ")}
                 style={{
-                  height: `${String(Math.max(8, h * 100))}%`,
-                  minHeight: "4px",
+                  // Lower floor (4% → 2%) gives REAL silent sections
+                  // proper headroom — at 200 bars even tiny slivers
+                  // read as the envelope dipping rather than a chip.
+                  height: `${String(Math.max(2, h * 100))}%`,
+                  minHeight: "2px",
+                  // Glow halo around the playhead — softer now so it
+                  // doesn't drown the dense bar layer.
                   boxShadow:
                     glowStrength > 0
-                      ? `0 0 ${String(glowStrength * 14)}px rgb(var(--brand-primary) / ${String(glowStrength * 0.55)})`
+                      ? `0 0 ${String(glowStrength * 10)}px rgb(var(--brand-primary) / ${String(glowStrength * 0.4)})`
                       : "none",
                 }}
               />
