@@ -56,3 +56,40 @@ describe("C1 — track-version-uploaded email lives in completeMultipart", () =>
     expect(PROJECT_SRC).not.toMatch(/sendTrackVersionUploadedEmail\(/);
   });
 });
+
+// Waveform peaks pre-compute (this task). audio.completeMultipart must
+// fetch the just-uploaded bytes back from R2, decode them server-side
+// via computePeaksFromBytes, and persist the array on the trackVersions
+// row in the same UPDATE that sets audioUrl. The L3 song page reads
+// the column on first render — without this server compute step the
+// browser would still do the full decodeAudioData round-trip on every
+// viewer's machine.
+describe("waveform peaks pre-compute lives in audio.completeMultipart", () => {
+  it("audio router imports the server peaks helper", () => {
+    expect(AUDIO_SRC).toMatch(
+      /from\s+["']~\/server\/audio\/peaks["']/,
+    );
+    expect(AUDIO_SRC).toContain("computePeaksFromBytes");
+  });
+
+  it("audio router fetches the just-uploaded object back via GetObject (S3, not CDN)", () => {
+    // GetObject bypasses the public CDN's potential 404 cache during
+    // the eventual-consistency window right after CompleteMultipart.
+    expect(AUDIO_SRC).toContain("GetObjectCommand");
+  });
+
+  it("completeMultipart writes `peaks` on the trackVersions row", () => {
+    // The single UPDATE call sets audioUrl + audioR2Key + sizeBytes +
+    // peaks together so the song page sees a consistent snapshot.
+    expect(AUDIO_SRC).toMatch(/peaks\s*[,:]/);
+    expect(AUDIO_SRC).toMatch(/\.update\(\s*trackVersions\s*\)[\s\S]*?peaks/);
+  });
+
+  it("computeUploadPeaks bounds the decode with a timeout (no hung uploads)", () => {
+    // A malformed container can hang audio-decode indefinitely. The
+    // race with a setTimeout keeps the producer's upload response
+    // bounded — failure mode is peaks=null + client-side fallback.
+    expect(AUDIO_SRC).toContain("PEAKS_COMPUTE_TIMEOUT_MS");
+    expect(AUDIO_SRC).toMatch(/Promise\.race\(/);
+  });
+});

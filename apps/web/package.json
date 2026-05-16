@@ -26,6 +26,7 @@
     "@skitza/db": "workspace:*",
     "@tailwindcss/postcss": "^4.2.2",
     "@trpc/server": "^11.13.0",
+    "audio-decode": "^3.10.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

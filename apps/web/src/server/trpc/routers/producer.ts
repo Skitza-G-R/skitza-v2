@@ -1507,7 +1507,9 @@ export const producerRouter = router({
         // 2. Full version stack for the track, desc by uploadedAt so
         //    the latest is first (matches the design's "v3 · current"
         //    label position). Includes approvedAt so the L3 UI can
-        //    show the green checkmark on the approved version.
+        //    show the green checkmark on the approved version, and
+        //    `peaks` so the song-page renders the real envelope on
+        //    first frame without a client-side decode round-trip.
         const versions = await ctx.db
           .select({
             id: trackVersions.id,
@@ -1516,6 +1518,7 @@ export const producerRouter = router({
             durationMs: trackVersions.durationMs,
             uploadedAt: trackVersions.uploadedAt,
             approvedAt: trackVersions.approvedAt,
+            peaks: trackVersions.peaks,
           })
           .from(trackVersions)
           .where(eq(trackVersions.trackId, head.trackId))

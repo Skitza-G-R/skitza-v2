@@ -28,6 +28,13 @@ export type SongPageVersion = {
   durationMs: number | null;
   uploadedAtIso: string;
   approvedAtIso: string | null;
+  /**
+   * Pre-computed waveform peaks (200 normalized RMS floats 0..1).
+   * Computed server-side at upload completion. Null for legacy rows
+   * before the migration applied OR for formats audio-decode couldn't
+   * parse — the Waveform50 client decode picks up either case.
+   */
+  peaks: number[] | null;
 };
 
 export type SongPageComment = {
@@ -852,11 +859,13 @@ export function SongPage({ data }: { data: SongPageData }) {
               durationMs={activeVersion.durationMs ?? 240_000}
               comments={waveformComments}
               seed={activeVersion.id}
-              // Real audio peaks: fetch same-origin /api/download/<id>
-              // (server proxies R2 to dodge CORS). Decoded once per
-              // session via Web Audio's decodeAudioData, cached in a
-              // module-level Map. Until decode resolves, the seeded
-              // envelope shows so there's no empty loading state.
+              // Pre-computed peaks from track_versions.peaks ride down
+              // with the page payload — Waveform50 renders the real
+              // envelope on first frame, no client-side decode.
+              initialPeaks={activeVersion.peaks}
+              // Fallback decode path for legacy versions (peaks=null)
+              // OR formats audio-decode missed server-side. Fetches
+              // same-origin /api/download/<id> so R2 CORS doesn't bite.
               peaksUrl={
                 activeVersion.audioUrl
                   ? `/api/download/${activeVersion.id}`

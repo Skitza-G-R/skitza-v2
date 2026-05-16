@@ -61,3 +61,36 @@ describe("waveform-50.tsx source — wired to PersistentPlayer", () => {
     expect(waveformSrc).toContain("pickWaveformTime(");
   });
 });
+
+// Pre-computed peaks ride down with the page payload via the new
+// initialPeaks prop. When present, Waveform50 must render the real
+// envelope on first frame and skip the client-side decode entirely.
+// When absent (legacy versions before the migration), it falls back
+// to the existing peaksUrl decode path.
+describe("waveform-50.tsx source — accepts pre-computed initialPeaks", () => {
+  it("declares initialPeaks as an optional prop on Waveform50Props", () => {
+    expect(waveformSrc).toMatch(/initialPeaks\?:\s*number\[\]/);
+  });
+
+  it("imports the shared rmsPeaks math from ~/lib/audio/rms-peaks", () => {
+    // The math must be shared so server-pre-computed peaks render
+    // bit-identical to client-decoded peaks (no envelope jump when
+    // the backfill lands).
+    expect(waveformSrc).toMatch(/from\s+["']~\/lib\/audio\/rms-peaks["']/);
+  });
+
+  it("prefers initialPeaks over the client decode (avoids redundant fetch + decode)", () => {
+    // When initialPeaks is present, the decodeUrl passed to
+    // useAudioPeaks must short to null — otherwise we'd burn a fetch
+    // + Web Audio decode on every view even though the array is
+    // already in hand.
+    expect(waveformSrc).toContain("hasInitialPeaks");
+    expect(waveformSrc).toMatch(/decodeUrl\s*=\s*hasInitialPeaks\s*\?\s*null/);
+  });
+
+  it("falls back to peaksUrl decode when initialPeaks is null/missing", () => {
+    // The fallback path is what keeps legacy versions (peaks=null in
+    // DB) usable until the backfill script populates them.
+    expect(waveformSrc).toContain("useAudioPeaks");
+  });
+});

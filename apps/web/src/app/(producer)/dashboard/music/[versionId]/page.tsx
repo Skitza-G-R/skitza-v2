@@ -49,6 +49,12 @@ export default async function ProducerSongPage({ params }: PageProps) {
       durationMs: v.durationMs,
       uploadedAtIso: v.uploadedAt.toISOString(),
       approvedAtIso: v.approvedAt ? v.approvedAt.toISOString() : null,
+      // Server-pre-computed peaks ride down with the page payload so
+      // Waveform50 renders the real envelope on first frame instead
+      // of a client-side decodeAudioData round-trip. Null for legacy
+      // rows pre-backfill — Waveform50 falls back to the existing
+      // /api/download client decode path.
+      peaks: v.peaks,
     })),
     comments: data.comments.map((c) => ({
       id: c.id,
