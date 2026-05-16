@@ -584,11 +584,11 @@ export function SongPage({ data }: { data: SongPageData }) {
 
             {/* Title block + meta */}
             <div className="reveal-up reveal-up-delay-1 min-w-0 flex-1">
-              <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-white/65">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/65">
                 Song · {data.track.projectTitle}
               </span>
               <h1
-                className="font-display mt-1 text-[clamp(22px,3vw,34px)] font-extrabold leading-[1.05] tracking-[-0.028em]"
+                className="font-display mt-1 line-clamp-2 text-[clamp(24px,3.4vw,38px)] font-extrabold leading-[1.05] tracking-[-0.03em] [overflow-wrap:anywhere]"
                 style={{ textShadow: "0 2px 14px rgba(0,0,0,0.2)" }}
               >
                 {data.track.title}
@@ -637,16 +637,27 @@ export function SongPage({ data }: { data: SongPageData }) {
                         }}
                         style={{ animationDelay: `${String(120 + i * 50)}ms` }}
                         className={[
-                          "sk-press reveal-up rounded-full border px-3 py-1 font-mono text-[10.5px] font-bold tracking-wide",
+                          "sk-press reveal-up inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-[10.5px] font-bold tracking-wide",
                           "transition-[background-color,border-color,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                           isActive
                             ? "border-white bg-white text-[rgb(17_16_9)] shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)]"
                             : "border-white/22 bg-white/[0.08] text-white/85 hover:-translate-y-px hover:bg-white/[0.16]",
                         ].join(" ")}
                       >
-                        {v.label}
-                        {isActive && isLatest ? " · current" : ""}
-                        {v.approvedAtIso ? " ✓" : ""}
+                        {/* Active version: tiny amber dot — the visual
+                            "you are here" cue. Beats text " · current"
+                            because the producer scans for color, not copy. */}
+                        {isActive ? (
+                          <span
+                            aria-hidden
+                            className="inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))] shadow-[0_0_6px_rgb(var(--brand-primary)/0.6)]"
+                          />
+                        ) : null}
+                        <span>{v.label}</span>
+                        {isActive && isLatest ? (
+                          <span className="text-[rgb(17_16_9)/0.55]">· current</span>
+                        ) : null}
+                        {v.approvedAtIso ? <span>✓</span> : null}
                       </button>
                     );
                   })}
@@ -829,7 +840,7 @@ export function SongPage({ data }: { data: SongPageData }) {
           }}
         >
           <div
-            className="rounded-[18.5px] bg-[rgb(var(--bg-elevated))] p-3 sm:p-4"
+            className="rounded-[18px] bg-[rgb(var(--bg-elevated))] p-3 sm:p-4"
             style={{
               boxShadow:
                 "inset 0 1px 0 0 rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(var(--fg-default) / 0.04)",
@@ -861,7 +872,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 disabled={playState.disabled}
                 aria-label="Back 5 seconds"
                 title="Back 5 seconds"
-                className="sk-press inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
+                className="sk-press relative inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] before:absolute before:-inset-2 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Skip5Icon dir="back" />
               </button>
@@ -898,7 +909,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                 disabled={playState.disabled}
                 aria-label="Forward 5 seconds"
                 title="Forward 5 seconds"
-                className="sk-press inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
+                className="sk-press relative inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] before:absolute before:-inset-2 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.04)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Skip5Icon dir="fwd" />
               </button>
@@ -987,10 +998,12 @@ export function SongPage({ data }: { data: SongPageData }) {
           </div>
 
           {visibleComments.length === 0 ? (
-            <p className="rounded-[18px] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-10 text-center text-[13px] text-[rgb(var(--fg-muted))]">
-              No notes yet on this version. Type one above to drop it at the
-              current playhead.
-            </p>
+            <div className="rounded-[14px] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-7 text-center text-[12.5px] text-[rgb(var(--fg-muted))]">
+              <ArrowUpHint />
+              <p className="mt-2">
+                No notes yet. Type one above to drop it at the current playhead.
+              </p>
+            </div>
           ) : (
             <ul className="flex flex-col gap-1.5">
               {visibleComments.map((c, i) => {
@@ -1039,7 +1052,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                             handleJumpToComment(c.timeMs);
                           }}
                           aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                          className="sk-press rounded-full bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))] transition-colors duration-200 hover:bg-[rgb(var(--brand-primary)/0.24)]"
+                          className="sk-press relative rounded-full bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))] transition-colors duration-200 before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--brand-primary)/0.24)]"
                         >
                           @{fmtMs(c.timeMs)}
                         </button>
@@ -1060,7 +1073,7 @@ export function SongPage({ data }: { data: SongPageData }) {
                       >
                         {c.body}
                       </p>
-                      <div className="mt-1 flex gap-2.5 text-[10px] font-bold tracking-wide opacity-0 transition-opacity duration-200 group-hover/note:opacity-100">
+                      <div className="mt-1 flex gap-2.5 text-[10px] font-bold tracking-wide opacity-60 transition-opacity duration-200 group-hover/note:opacity-100">
                         <button
                           type="button"
                           data-test="comment-jump"
@@ -1226,6 +1239,28 @@ function MoreIcon() {
       <circle cx="3" cy="8" r="1.4" />
       <circle cx="8" cy="8" r="1.4" />
       <circle cx="13" cy="8" r="1.4" />
+    </svg>
+  );
+}
+
+// Empty-state hint pointing UP to the composer pill so producers
+// immediately see where to start their first note.
+function ArrowUpHint() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="mx-auto opacity-60"
+      aria-hidden
+    >
+      <path d="M12 19V5" />
+      <polyline points="6 11 12 5 18 11" />
     </svg>
   );
 }

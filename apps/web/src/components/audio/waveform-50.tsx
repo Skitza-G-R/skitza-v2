@@ -400,14 +400,16 @@ export function Waveform50({
               }}
             />
           </div>
-          {/* Time pill — glass with backdrop-blur and subtle amber ring */}
+          {/* Time pill — glass with backdrop-blur + stronger amber ring.
+              Bumped from 11px → 12px so it's readable at a glance even
+              while scrubbing on smaller laptops. */}
           <span
-            className="absolute -top-9 left-0 -translate-x-1/2 whitespace-nowrap rounded-full px-2.5 py-1 font-mono text-[11px] font-bold tabular-nums shadow-[0_8px_24px_-8px_rgb(var(--brand-primary)/0.35)] backdrop-blur-md"
+            className="absolute -top-10 left-0 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-1 font-mono text-[12px] font-bold tabular-nums backdrop-blur-md"
             style={{
-              background: "rgb(var(--bg-elevated) / 0.88)",
+              background: "rgb(var(--bg-elevated) / 0.95)",
               color: "rgb(var(--fg-default))",
               boxShadow:
-                "0 0 0 1px rgb(var(--brand-primary) / 0.32), 0 8px 28px -8px rgb(var(--brand-primary) / 0.4)",
+                "0 0 0 1.5px rgb(var(--brand-primary) / 0.45), 0 10px 32px -10px rgb(var(--brand-primary) / 0.55), 0 2px 8px -2px rgba(0,0,0,0.12)",
             }}
           >
             {fmt(currentMs)}
