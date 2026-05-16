@@ -78,6 +78,11 @@ export async function initiatePaidPlanCheckout(args: {
   metadata?: Record<string, string>;
   successUrl?: string;
   cancelUrl?: string;
+  // Per-song pricing — denormalised onto the project row so the
+  // producer dashboard can render "× N songs" without re-running
+  // tier math. Both null when omitted (flat-price flow).
+  songQty?: number;
+  unitPriceCents?: number;
 }): Promise<{
   checkoutUrl: string | null;
   sessionId: string;
@@ -170,6 +175,9 @@ export async function initiatePaidPlanCheckout(args: {
       totalAmountCents: args.priceCents,
       currency: args.product.currency,
       stripeCustomerId: customerId,
+      // Per-song denormalisation — null on flat checkouts.
+      songQty: args.songQty ?? null,
+      unitPriceCents: args.unitPriceCents ?? null,
     })
     .returning();
   if (!projectRow) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });

@@ -1316,6 +1316,14 @@ const storeSubrouter = router({
         clientName: contact.name,
         clientEmail: contact.email,
         priceCents: effectivePriceCents,
+        // Per-song denormalisation — undefined on flat checkouts
+        // (the helper's args are optional with exactOptionalPropertyTypes).
+        ...(prod.pricingModel === "per_song" && input.songQty != null
+          ? { songQty: input.songQty }
+          : {}),
+        ...(prod.pricingModel === "per_song" && input.unitPriceCents != null
+          ? { unitPriceCents: input.unitPriceCents }
+          : {}),
         idempotencyKey,
         metadata: { source: "artist_store" },
         // Keep artists inside the artist app after Stripe. The helper's

@@ -490,6 +490,16 @@ export const projects = pgTable("projects", {
   // mid-engagement product price change can't recalculate what the
   // artist owes. Nullable for legacy rows pre-G7.
   depositCents: integer("deposit_cents"),
+  // Per-song pricing — populated only when the project was created
+  // via a per-song product checkout. songQty is how many songs the
+  // artist picked in the SongCountStepper; unitPriceCents is the
+  // per-song rate they locked in (after tier discount). Both null
+  // for flat-price projects. Denormalised so the producer dashboard
+  // can render "Mixing × 5 songs — $750" without re-running tier
+  // math against product.volumeTiers (which may have been edited
+  // since the booking).
+  songQty: integer("song_qty"),
+  unitPriceCents: integer("unit_price_cents"),
 });
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
