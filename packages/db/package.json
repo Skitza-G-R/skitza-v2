@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0",
+    "audio-decode": "^3.10.1",
     "drizzle-orm": "^0.36.0"
   },
   "devDependencies": {

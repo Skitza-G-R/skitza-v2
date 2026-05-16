@@ -2,6 +2,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  GetObjectCommand,
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -19,11 +20,19 @@ import { z } from "zod";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
+import { computePeaksFromBytes } from "~/server/audio/peaks";
 import {
   SITE_URL,
   sendTrackVersionUploadedEmail,
 } from "~/server/email/send";
 import { BUCKETS, buildAudioKey, getR2, publicUrl } from "~/server/storage/r2";
+
+// Cap server-side peaks compute so a malformed container can't hang the
+// producer's upload response. 30s is comfortably above the worst-case
+// decode of a 10-minute WAV at 44.1kHz; anything slower is almost
+// certainly stuck, and we'd rather ship a null peaks column (client
+// falls back to its own decode) than block the response forever.
+const PEAKS_COMPUTE_TIMEOUT_MS = 30_000;
 
 // 500MB is the cap for a single audio upload — comfortably above a
 // 24-bit/48kHz stereo WAV at album length, well under R2's 5TB object
@@ -66,6 +75,36 @@ export function validateUploadInput(input: {
         "That's not an audio file we recognise. Try WAV, MP3, FLAC, M4A, or AIFF.",
     });
   }
+}
+
+// Fetch the just-uploaded object back from R2 (via S3 protocol — no
+// CDN cache lag the public URL route would hit) and reduce its samples
+// to 200 normalized RMS peaks. Bounded by PEAKS_COMPUTE_TIMEOUT_MS so a
+// hung decoder can't block the producer's upload response. Returns
+// null on any failure — the Waveform50 client decode is the fallback.
+async function computeUploadPeaks(key: string): Promise<number[] | null> {
+  const compute = (async (): Promise<number[] | null> => {
+    try {
+      const obj = await getR2().send(
+        new GetObjectCommand({ Bucket: BUCKETS.audio, Key: key }),
+      );
+      if (!obj.Body) return null;
+      const bytes = await obj.Body.transformToByteArray();
+      return await computePeaksFromBytes(bytes);
+    } catch (err) {
+      console.warn(
+        "[peaks] GetObject failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+      return null;
+    }
+  })();
+  const timeout = new Promise<null>((resolve) => {
+    setTimeout(() => {
+      resolve(null);
+    }, PEAKS_COMPUTE_TIMEOUT_MS);
+  });
+  return Promise.race([compute, timeout]);
 }
 
 // Ownership walk starting from a trackVersion id. Returns the projectId
@@ -199,12 +238,23 @@ export const audioRouter = router({
       );
 
       const url = publicUrl("audio", input.key);
+
+      // Pre-compute waveform peaks server-side so the L3 song page
+      // renders the real envelope on first frame. Fetch the bytes back
+      // from R2 via GetObject (S3 protocol, no CDN cache lag), decode
+      // with audio-decode, RMS-reduce to 200 bars. Bounded with a
+      // timeout because a malformed container could otherwise hang
+      // the response. Failure here is non-fatal — we save peaks=null
+      // and the client-side decode in Waveform50 picks up the slack.
+      const peaks = await computeUploadPeaks(input.key);
+
       await ctx.db
         .update(trackVersions)
         .set({
           audioUrl: url,
           audioR2Key: input.key,
           sizeBytes: input.sizeBytes,
+          peaks,
           ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
         })
         .where(eq(trackVersions.id, input.trackVersionId));

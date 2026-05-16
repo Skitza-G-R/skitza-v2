@@ -2,9 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { rmsPeaks } from "~/lib/audio/rms-peaks";
+
 import { PLAYER_EVENTS, playerSeek, useNowPlaying } from "./persistent-player";
 
-// ─── Pure helper (exported for unit tests) ───────────────────────────
+// Re-export so prior callers that imported rmsPeaks from this module keep
+// working. New code should import from ~/lib/audio/rms-peaks directly.
+export { rmsPeaks };
+
+// ─── Pure helpers ────────────────────────────────────────────────────
 
 /**
  * Pick the playhead source. When this waveform's seed is the version
@@ -67,11 +73,10 @@ interface Waveform50Props {
   seed?: string;
   /**
    * Optional same-origin URL to fetch + decode for REAL audio peaks.
-   * When provided, we fetch the bytes via `fetch()`, decode them via
-   * Web Audio's `decodeAudioData`, reduce to N RMS-block peaks, and
-   * replace the seeded heights with real envelope data. Until the
-   * decode resolves we render the seeded fallback so there's never a
-   * loading-empty state. Cached per-URL across remounts.
+   * When provided AND `initialPeaks` is null, we fetch the bytes via
+   * `fetch()`, decode them via Web Audio's `decodeAudioData`, reduce
+   * to N RMS-block peaks, and replace the flat loading baseline. The
+   * decoded array is cached per-URL across remounts.
    *
    * Should be the same-origin /api/download/<id> route, NOT the raw
    * R2 URL — R2 doesn't honour CORS for our preview origins.
@@ -79,6 +84,16 @@ interface Waveform50Props {
   // `| undefined` is explicit so the prop can be passed as
   // `peaksUrl={maybeUrl}` under exactOptionalPropertyTypes.
   peaksUrl?: string | undefined;
+  /**
+   * Pre-computed peaks shipped down with the page payload (200 floats
+   * 0..1). When provided we render the envelope on first frame and
+   * skip the client-side decode entirely — no flat baseline flash, no
+   * Web Audio cost, no double fetch of the audio bytes. Generated
+   * server-side by audio.completeMultipart at upload time and persisted
+   * on the track_versions.peaks column. Null/undefined falls back to
+   * the peaksUrl decode path above.
+   */
+  initialPeaks?: number[] | null | undefined;
   /**
    * Optional starting playhead position in ms. The component owns its
    * playhead state internally so click-to-seek + drag both work without
@@ -95,7 +110,16 @@ interface Waveform50Props {
   className?: string;
 }
 
-// ─── Real-peak decoding ──────────────────────────────────────────────
+// ─── Real-peak decoding (client-side fallback) ───────────────────────
+//
+// When pre-computed peaks ride down with the page payload (initialPeaks
+// prop), this whole code path is skipped — Waveform50 just renders the
+// envelope on first frame. When peaks are null (legacy versions before
+// the backfill, or formats audio-decode couldn't parse server-side),
+// the hook below fetches the audio via /api/download/<id>, decodes via
+// the browser's Web Audio API, and replaces the flat loading baseline.
+// Same rmsPeaks math runs both server-side and here, so the visual is
+// bit-identical regardless of which path produced the array.
 
 // Module-level cache. Same URL → same peaks, so we only decode each
 // audio file once per session. Cleared on full page reload.
@@ -119,30 +143,6 @@ function getAudioContext(): AudioContext | null {
   if (!Ctor) return null;
   _audioCtx = new Ctor();
   return _audioCtx;
-}
-
-/**
- * Reduce a Float32 PCM array to N normalized RMS peaks (0..1).
- * Exported for unit testing the math without booting Web Audio.
- */
-export function rmsPeaks(data: Float32Array, barCount: number): number[] {
-  if (data.length === 0 || barCount <= 0) return [];
-  const blockSize = Math.max(1, Math.floor(data.length / barCount));
-  const out: number[] = [];
-  for (let i = 0; i < barCount; i += 1) {
-    const start = i * blockSize;
-    const end = Math.min(start + blockSize, data.length);
-    let sumSq = 0;
-    for (let j = start; j < end; j += 1) {
-      const v = data[j] ?? 0;
-      sumSq += v * v;
-    }
-    out.push(Math.sqrt(sumSq / Math.max(1, end - start)));
-  }
-  const max = Math.max(...out, 1e-9);
-  // Normalize 0..1 and floor at 0.06 so silent sections still render
-  // as a sliver — matches the seeded envelope's visual rhythm.
-  return out.map((p) => Math.max(0.06, Math.min(1, p / max)));
 }
 
 /**
@@ -278,6 +278,7 @@ export function Waveform50({
   comments,
   seed = "default",
   peaksUrl,
+  initialPeaks,
   initialMs = 0,
   onProgress,
   onSeek,
@@ -331,20 +332,31 @@ export function Waveform50({
 
   const currentMs = pickWaveformTime({ isLive, liveMs, internalMs });
 
-  // Loading baseline: until real peaks decode, render a FLAT low row
-  // of bars — not the seeded fake envelope. The user explicitly
-  // doesn't want the fake-then-real flip. A flat baseline reads as
-  // "loading" (because no envelope shape = no song info yet), and
-  // when peaks land they bloom upward via the height transition.
-  // If no peaksUrl is provided (audio still uploading), keep seeded
-  // heights so the bar layer isn't a dead line.
+  // Three-tier height source, in priority order:
+  //   1. initialPeaks — pre-computed at upload time, shipped with the
+  //      page payload. Renders the real envelope on first frame.
+  //   2. peaksUrl + client decode — legacy versions before the
+  //      pre-compute migration, or formats audio-decode couldn't
+  //      parse server-side. Flat baseline → real envelope flip.
+  //   3. seeded fallback — no peaks AND no decodable URL (audio still
+  //      uploading). Stable pseudo-envelope so the bars never read as
+  //      dead.
   const seededFallback = useMemo(() => seededHeights(seed, BAR_COUNT), [seed]);
   const flatBaseline = useMemo(
     () => Array.from({ length: BAR_COUNT }, () => 0.12),
     [],
   );
-  const initialHeights = peaksUrl ? flatBaseline : seededFallback;
-  const heights = useAudioPeaks(peaksUrl, BAR_COUNT, initialHeights);
+  const hasInitialPeaks = Array.isArray(initialPeaks) && initialPeaks.length > 0;
+  // When pre-computed peaks are present we skip the decode hook
+  // entirely — passing `null` shorts the effect inside useAudioPeaks
+  // and keeps the dependency list stable.
+  const decodeUrl = hasInitialPeaks ? null : (peaksUrl ?? null);
+  const initialHeights = hasInitialPeaks
+    ? initialPeaks
+    : peaksUrl
+      ? flatBaseline
+      : seededFallback;
+  const heights = useAudioPeaks(decodeUrl, BAR_COUNT, initialHeights);
   const progressPct = durationMs > 0 ? Math.min(100, Math.max(0, (currentMs / durationMs) * 100)) : 0;
   const playedBars = Math.floor((progressPct / 100) * BAR_COUNT);
 

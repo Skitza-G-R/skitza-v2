@@ -516,6 +516,12 @@ export const trackVersions = pgTable("track_versions", {
   audioR2Key: text("audio_r2_key"),
   sizeBytes: bigint("size_bytes", { mode: "number" }),
   peaksR2Key: text("peaks_r2_key"),
+  // Pre-computed waveform peaks — 200 normalized RMS bars [0..1].
+  // Populated by audio.completeMultipart once the multipart upload
+  // finalises; nullable so legacy rows + decoder-misses keep working
+  // (the L3 song page degrades to the existing client-side decode
+  // path when this is null). Migration 0017.
+  peaks: jsonb("peaks").$type<number[]>(),
   // Phase 4 Upload Track modal — optional notes the producer types when
   // uploading a new version (DESIGN.md §6.4). Nullable; surfaces on the
   // artist-facing version page.

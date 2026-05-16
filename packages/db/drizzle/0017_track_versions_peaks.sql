@@ -1,0 +1,22 @@
+-- 0017_track_versions_peaks.sql
+-- (Migration number 0017 chosen at branch creation time because the
+-- parallel per-song-pricing branch had already claimed 0015 + 0016 on
+-- v3-clean. Independent change, no interaction with those columns.)
+-- Pre-computed waveform peaks for the L3 song page.
+--
+-- Before: Browser fetched audio via /api/download/<id>, decoded via
+-- Web Audio decodeAudioData, computed 200 RMS-block peaks client-side
+-- on every page view. ~1-2s of "flat baseline" then a flip to real
+-- envelope. Same work redone on every viewer's machine for the same
+-- file forever.
+--
+-- After: Server computes 200 normalized RMS peaks once at upload
+-- completion (audio.completeMultipart) and stores them as a JSONB
+-- array of floats [0..1]. tRPC ships them with the page payload, so
+-- the waveform renders the real envelope on first frame. Client decode
+-- becomes a fallback for legacy versions whose peaks column is still
+-- null (until the backfill script runs) or for formats the server-side
+-- decoder couldn't parse.
+--
+-- Nullable so existing rows survive untouched. Idempotent.
+ALTER TABLE "track_versions" ADD COLUMN IF NOT EXISTS "peaks" jsonb;

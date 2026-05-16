@@ -60,6 +60,7 @@ const {
     uploadedAt: { __column: "track_versions.uploaded_at" },
     durationMs: { __column: "track_versions.duration_ms" },
     approvedAt: { __column: "track_versions.approved_at" },
+    peaks: { __column: "track_versions.peaks" },
   };
   const projectTracksMarker = {
     __table: "project_tracks",
@@ -512,7 +513,10 @@ describe("producer.music.detail", () => {
       ]),
     );
 
-    // Version stack — desc by uploadedAt.
+    // Version stack — desc by uploadedAt. Latest row carries a peaks
+    // array (server-pre-computed at upload), previous row's column is
+    // still null (mirrors the realistic shape during the backfill
+    // window: new uploads have peaks, older rows wait for the script).
     const versionStackSpy = vi.fn<(arg: unknown) => void>();
     trackVersionsWhereSpies.push(versionStackSpy);
     trackVersionsQueue.push(() =>
@@ -524,6 +528,7 @@ describe("producer.music.detail", () => {
           durationMs: 240_000,
           uploadedAt: new Date("2026-04-15T12:00:00Z"),
           approvedAt: null,
+          peaks: [0.3, 0.5, 0.7],
         },
         {
           id: "v-prev",
@@ -532,6 +537,7 @@ describe("producer.music.detail", () => {
           durationMs: 240_000,
           uploadedAt: new Date("2026-04-14T12:00:00Z"),
           approvedAt: null,
+          peaks: null,
         },
       ]),
     );
@@ -578,6 +584,11 @@ describe("producer.music.detail", () => {
     expect(result.versions).toHaveLength(2);
     expect(result.versions[0]?.id).toBe(versionId);
     expect(result.versions[0]?.label).toBe("Master");
+    // Pre-computed peaks ride down with the page payload so Waveform50
+    // renders the real envelope on first frame. The older `v-prev` row
+    // has peaks=null and falls back to the existing client decode.
+    expect(result.versions[0]?.peaks).toEqual([0.3, 0.5, 0.7]);
+    expect(result.versions[1]?.peaks).toBeNull();
     expect(result.comments).toHaveLength(2);
     expect(result.selectedVersionId).toBe(versionId);
 

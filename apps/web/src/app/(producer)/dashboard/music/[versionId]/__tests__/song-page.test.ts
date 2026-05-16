@@ -45,6 +45,9 @@ function makeVersion(over: Partial<SongPageVersion> = {}): SongPageVersion {
     durationMs: 240_000,
     uploadedAtIso: "2026-05-06T12:00:00Z",
     approvedAtIso: null,
+    // Default to null peaks so legacy-style fixtures keep working;
+    // tests that care override via `over`.
+    peaks: null,
     ...over,
   };
 }
@@ -312,6 +315,31 @@ describe("song-page.tsx source — secondary action rail icons (Star / Share / D
     // The button's onClick must reference activeVersion.audioUrl so
     // switching to v2 / v1 also swaps which file gets downloaded.
     expect(songPageSrc).toContain("activeVersion.audioUrl");
+  });
+});
+
+describe("song-page.tsx source — passes pre-computed peaks to the waveform", () => {
+  it("passes initialPeaks={activeVersion.peaks} to Waveform50", () => {
+    // The L3 song page reads peaks off the version row (server-pre-
+    // computed at upload completion) and threads them into the
+    // Waveform50's initialPeaks prop. Without this the page would
+    // still decode client-side every time, defeating the migration.
+    expect(songPageSrc).toMatch(/initialPeaks=\{activeVersion\.peaks\}/);
+  });
+
+  it("keeps peaksUrl as the client-decode fallback (legacy versions)", () => {
+    // Both props ride together — peaks=null falls back to peaksUrl,
+    // and a missing audioUrl skips both (audio still uploading).
+    expect(songPageSrc).toMatch(/peaksUrl=\{/);
+  });
+});
+
+describe("song-page.tsx — SongPageVersion wire type carries peaks", () => {
+  it("declares peaks: number[] | null on the wire-type record", () => {
+    // Server returns peaks as JSONB → number[] | null over tRPC. The
+    // wire type must include it so the page.tsx mapper can ship it
+    // across the RSC → client boundary.
+    expect(songPageSrc).toMatch(/peaks:\s*number\[\]\s*\|\s*null/);
   });
 });
 
