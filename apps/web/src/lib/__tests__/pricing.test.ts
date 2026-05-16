@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { unitPriceFor } from "../pricing";
+import { fromPrice, totalFor, unitPriceFor } from "../pricing";
 
 const TIERS = [
   { minQty: 1, pricePerUnitCents: 20000 },
@@ -33,5 +33,26 @@ describe("unitPriceFor", () => {
   });
   it("returns 0 when tiers array is empty (defensive)", () => {
     expect(unitPriceFor(5, [])).toBe(0);
+  });
+});
+
+describe("totalFor", () => {
+  it("multiplies qty by active tier", () => {
+    expect(totalFor(5, TIERS)).toBe(75000);
+  });
+  it("returns 0 for qty 0", () => {
+    expect(totalFor(0, TIERS)).toBe(0);
+  });
+});
+
+describe("fromPrice", () => {
+  it("returns the cheapest pricePerUnitCents", () => {
+    expect(fromPrice(TIERS)).toBe(12000);
+  });
+  it("returns 0 when tiers empty", () => {
+    expect(fromPrice([])).toBe(0);
+  });
+  it("works with a single base tier", () => {
+    expect(fromPrice([{ minQty: 1, pricePerUnitCents: 20000 }])).toBe(20000);
   });
 });

@@ -12,3 +12,12 @@ export function unitPriceFor(qty: number, tiers: VolumeTier[]): number {
   }
   return active.pricePerUnitCents;
 }
+
+export function totalFor(qty: number, tiers: VolumeTier[]): number {
+  return qty * unitPriceFor(qty, tiers);
+}
+
+export function fromPrice(tiers: VolumeTier[]): number {
+  if (tiers.length === 0) return 0;
+  return Math.min(...tiers.map((t) => t.pricePerUnitCents));
+}
