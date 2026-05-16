@@ -97,7 +97,7 @@ export function ServicesStepClient({
               }}
               disabled={pending}
               className={cn(
-                "inline-flex min-h-11 items-center rounded-full border px-4 text-sm transition-colors duration-150 ease-out",
+                "inline-flex min-h-11 items-center rounded-[var(--radius-lg)] border px-4 text-sm transition-colors duration-150 ease-out",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
                 "disabled:pointer-events-none disabled:opacity-40",
                 isOn

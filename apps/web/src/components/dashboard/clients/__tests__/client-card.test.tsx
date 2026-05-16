@@ -85,4 +85,39 @@ describe("ClientCard source — avatar / link pill / stats / whole-card link", (
   it("forbids --brand-primary-on", () => {
     expect(SRC).not.toContain("--brand-primary-on");
   });
+
+  // ── Mockup-match motion polish (lift on hover, scale on press) ──
+  it("lifts on hover via -translate-y (premium card feel)", () => {
+    expect(SRC).toMatch(/hover:-translate-y-0\.5/);
+  });
+
+  it("uses a custom cubic-bezier transition curve (not plain ease)", () => {
+    expect(SRC).toMatch(/cubic-bezier\(0\.23,\s*1,\s*0\.32,\s*1\)/);
+  });
+
+  it("ships a soft layered shadow on hover (not a harsh shadow-md)", () => {
+    // Two-stop diffuse shadow gives cinematic depth a single
+    // shadow-md can't. Pinning the exact shape so future cleanup
+    // doesn't quietly flatten the lift.
+    expect(SRC).toMatch(/hover:shadow-\[0_10px_24px/);
+  });
+
+  it("provides press feedback (active:scale) for tactile interaction", () => {
+    expect(SRC).toMatch(/active:scale-\[/);
+  });
+
+  it("respects prefers-reduced-motion via motion-reduce escape hatches", () => {
+    expect(SRC).toMatch(/motion-reduce:hover:translate-y-0/);
+  });
+
+  it("renders the avatar tile as a circle (mockup-match, not rounded-md)", () => {
+    // HTML mockup's .clicard uses circular avatars on the workspace
+    // grid — the locked design's family of "round small profile, big
+    // square hero" stays intact. Pinning so a future cleanup doesn't
+    // quietly flip this back to rounded-[var(--radius-md)].
+    expect(SRC).toMatch(
+      /h-12\s+w-12[\s\S]{0,80}rounded-full|rounded-full[\s\S]{0,80}h-12\s+w-12/,
+    );
+    expect(SRC).not.toMatch(/h-12\s+w-12[\s\S]{0,40}rounded-\[var\(--radius-md\)\]/);
+  });
 });

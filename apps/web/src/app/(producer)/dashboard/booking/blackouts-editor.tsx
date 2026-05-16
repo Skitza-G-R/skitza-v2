@@ -237,7 +237,7 @@ export function BlackoutsEditor({ initialBlackouts }: { initialBlackouts: Blacko
                     </span>
                     <span
                       className={[
-                        "inline-flex items-center rounded-full px-1.5 py-px text-[0.6rem] font-medium uppercase tracking-wider",
+                        "inline-flex items-center rounded-[var(--radius-sm)] px-1.5 py-px text-[0.6rem] font-medium uppercase tracking-wider",
                         status.tone === "active"
                           ? "bg-[rgb(var(--brand-primary)/0.15)] text-[rgb(var(--brand-primary))]"
                           : status.tone === "upcoming"

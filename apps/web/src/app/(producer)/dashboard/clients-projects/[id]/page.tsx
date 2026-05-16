@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
+import { Breadcrumb } from "~/components/dashboard/common/breadcrumb";
 import {
   AlbumSpace,
   type AlbumSpaceProject,
@@ -310,6 +311,16 @@ export default async function ProjectDetail({ params }: PageProps) {
 
   return (
     <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+      <Breadcrumb
+        className="mb-4"
+        items={[
+          {
+            label: "Clients & Projects",
+            href: "/dashboard/clients-projects",
+          },
+          { label: data.project.title },
+        ]}
+      />
       <AlbumSpace
         project={project}
         tracks={tracks}

@@ -286,3 +286,112 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toMatch(/products:\s*/);
   });
 });
+
+describe("WorkspaceListView — mockup-match polish (KPI subtitles, H1 sub-line, CTA shadow)", () => {
+  it("KPI 'Earnings · this month' label matches the HTML mockup eyebrow", () => {
+    // HTML uses 'EARNINGS · THIS MONTH' — the live label folds that
+    // time-window into the label itself instead of needing a second
+    // line for it.
+    expect(SRC).toContain("Earnings · this month");
+  });
+
+  it("KPI 'Needs your attention' label matches the HTML mockup wording", () => {
+    expect(SRC).toContain("Needs your attention");
+  });
+
+  it("Outstanding KPI carries a sub line that pluralises projects-need-a-nudge", () => {
+    // The ternary splits the noun-verb pair from the trailing 'a
+    // nudge' across two source literals, so we assert on the
+    // fragments separately instead of trying to match the rendered
+    // combined string.
+    expect(SRC).toMatch(/"project[s]?\s+need[s]?"/);
+    expect(SRC).toContain("a nudge");
+  });
+
+  it("Needs your attention KPI carries the 'Overdue or awaiting reply' sub", () => {
+    expect(SRC).toContain("Overdue or awaiting reply");
+  });
+
+  it("Next deadline KPI surfaces the project title via nextDeadlineLabel", () => {
+    expect(SRC).toMatch(/nextDeadlineLabel/);
+  });
+
+  it("renders the H1 sub-line with project / active / client counts", () => {
+    // Mirrors the HTML mockup's '6 projects · 4 active · 5 clients · …' bar.
+    expect(SRC).toMatch(/orderedProjects\.length/);
+    expect(SRC).toMatch(/orderedClients\.length/);
+    expect(SRC).toContain("active");
+  });
+
+  it("H1 sub-line surfaces a danger-tinted outstanding total when > 0", () => {
+    expect(SRC).toMatch(/kpis\.outstanding\s*>\s*0/);
+    expect(SRC).toMatch(/outstanding/);
+  });
+
+  it("header CTA uses layered shadow + ease-out cubic-bezier (premium pill)", () => {
+    // Pin the curve + scale press-feedback so a future "let's simplify"
+    // edit doesn't quietly regress the motion.
+    expect(SRC).toMatch(/cubic-bezier\(0\.23,\s*1,\s*0\.32,\s*1\)/);
+    expect(SRC).toMatch(/active:scale-\[0\.97\]/);
+  });
+
+  it("filter chips have press feedback (active:scale) + custom easing", () => {
+    // The same Emil-style motion utilities are applied to every
+    // interactive chip / toggle in the toolbar.
+    const activeScaleCount = (SRC.match(/active:scale-\[/g) ?? []).length;
+    // Header CTA + filter chips (×2) + tab seg (×2) + layout switcher (×2)
+    // = at least 7 distinct active:scale call sites in the file.
+    expect(activeScaleCount).toBeGreaterThanOrEqual(7);
+  });
+
+  it("filter chips ship aria-pressed for screen readers", () => {
+    expect(SRC).toMatch(/aria-pressed=\{active\}/);
+  });
+});
+
+describe("WorkspaceListView — round-3 toolbar match (icons + 4 client filters + list header)", () => {
+  it("tab seg buttons have lucide icons (Users + FolderKanban) before the label", () => {
+    // The HTML mockup carries an icon inside each pill. Adding the
+    // icons immediately tightens the at-a-glance read of the tab.
+    expect(SRC).toMatch(/import\s+\{[\s\S]{0,200}Users[\s\S]{0,200}\}\s+from\s+["']lucide-react["']/);
+    expect(SRC).toMatch(/import\s+\{[\s\S]{0,200}FolderKanban[\s\S]{0,200}\}\s+from\s+["']lucide-react["']/);
+    expect(SRC).toMatch(/<Users\s+size=\{12\}/);
+    expect(SRC).toMatch(/<FolderKanban\s+size=\{12\}/);
+  });
+
+  it("Clients filter chips match the Projects tab vocabulary (All / Needs attention / Active / Done)", () => {
+    // Mockup-match: same 4 filters across both tabs. 'balance' is
+    // gone — superseded by 'needs-attention' (which surfaces
+    // outstanding balances on the project rows beneath the client).
+    expect(SRC).toMatch(/value:\s*["']needs-attention["'],\s*label:\s*["']Needs attention["']/);
+    expect(SRC).toMatch(/value:\s*["']done["'],\s*label:\s*["']Done["']/);
+    expect(SRC).not.toMatch(/value:\s*["']balance["'],\s*label:\s*["']Balance["']/);
+  });
+
+  it("Clients 'Needs attention' chip carries the pulsing red dot like the Projects tab", () => {
+    // Source-grep that the pulse-glow keyframe is wired in BOTH
+    // filter-chip render branches. Easiest way: count occurrences.
+    const pulses = (SRC.match(/skitza-pulse-glow_2s_ease-in-out_infinite/g) ?? []).length;
+    expect(pulses).toBeGreaterThanOrEqual(2);
+  });
+
+  it("list-header eyebrow ('Clients · N' / 'Projects · N') renders above the rows", () => {
+    expect(SRC).toMatch(/data-testid="workspace-list-header"/);
+    expect(SRC).toMatch(/Projects\s+·\s+\$\{String\(filteredProjects\.length\)\}/);
+    expect(SRC).toMatch(/Clients\s+·\s+\$\{String\(filteredClients\.length\)\}/);
+  });
+
+  it("toolbar is a single flex row with the tab seg + chips + (right cluster)", () => {
+    // After the round-3 polish the tab seg + filter chips + layout
+    // switcher + sort dropdown all live in the SAME flex row (the
+    // HTML mockup composes them inline). Source-grep for the
+    // single-row container's classNames.
+    expect(SRC).toMatch(/flex flex-wrap items-center gap-2\.5/);
+    expect(SRC).toMatch(/ml-auto flex items-center gap-2/);
+  });
+
+  it("Clients filter predicates branch on 'needs-attention' AND 'done'", () => {
+    expect(SRC).toMatch(/clientFilter === ["']needs-attention["']/);
+    expect(SRC).toMatch(/c\.projects === 0/);
+  });
+});

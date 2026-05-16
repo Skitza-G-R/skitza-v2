@@ -47,7 +47,7 @@ export function BalanceCard({ balance }: { balance: Balance | null }) {
         type="button"
         disabled
         title="Stripe coming soon"
-        className="sk-press shrink-0 cursor-not-allowed rounded-full px-3.5 py-2 text-[12.5px] font-bold opacity-70"
+        className="sk-press shrink-0 cursor-not-allowed rounded-[var(--radius-md)] px-3.5 py-2 text-[12.5px] font-bold opacity-70"
         style={{
           background: "rgb(var(--brand-primary))",
           color: "rgb(var(--bg-sidebar))",

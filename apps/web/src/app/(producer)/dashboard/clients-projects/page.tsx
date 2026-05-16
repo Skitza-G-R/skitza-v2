@@ -93,6 +93,10 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
             c.lastActivity instanceof Date
               ? c.lastActivity.toISOString()
               : new Date(c.lastActivity).toISOString(),
+          joinedAtIso:
+            c.firstSeenAt instanceof Date
+              ? c.firstSeenAt.toISOString()
+              : new Date(c.firstSeenAt).toISOString(),
         }))
       : [];
 
@@ -100,11 +104,14 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   // Earnings: lifetime sum (paid projects' price). Outstanding: sum
   // across active projects. Needs attention: unresolved comments OR
   // non-zero balance on an active project. Next deadline: earliest
-  // upcoming nextSessionAt across active projects.
+  // upcoming nextSessionAt across active projects. The project's
+  // title is captured alongside the deadline so the KPI tile can
+  // surface "Oct 15 / Debut Album" mockup-style.
   let earnings = 0;
   let outstanding = 0;
   let needsAttention = 0;
   let nextDeadlineAt: Date | null = null;
+  let nextDeadlineProjectTitle: string | null = null;
   if (projectsResult.view === "all-projects") {
     for (const p of projectsResult.projects) {
       earnings += p.lifetimeCents;
@@ -123,6 +130,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
         if (!Number.isNaN(at.getTime())) {
           if (!nextDeadlineAt || at < nextDeadlineAt) {
             nextDeadlineAt = at;
+            nextDeadlineProjectTitle = p.title;
           }
         }
       }
@@ -137,6 +145,12 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     needsAttention,
     nextDeadline: formatDeadlineShort(nextDeadlineAt),
     currency: displayCurrency,
+    // Surface the project title on the Next deadline tile's sub line.
+    // Spread-conditional keeps exactOptionalPropertyTypes happy when
+    // there's no upcoming deadline at all.
+    ...(nextDeadlineProjectTitle
+      ? { nextDeadlineLabel: nextDeadlineProjectTitle }
+      : {}),
   };
 
   return (

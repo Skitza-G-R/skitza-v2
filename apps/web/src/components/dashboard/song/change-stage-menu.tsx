@@ -120,7 +120,7 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={pending}
-        className="sk-press inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest disabled:opacity-60"
+        className="sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest disabled:opacity-60"
         style={{
           color: hue,
           borderColor: hue,

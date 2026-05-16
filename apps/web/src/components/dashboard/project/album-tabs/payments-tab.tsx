@@ -178,7 +178,7 @@ export function PaymentsTab({
           <button
             type="button"
             onClick={onSendReminder}
-            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors"
             style={{
               background: "transparent",
               borderColor: "rgb(var(--border-subtle))",
@@ -186,19 +186,19 @@ export function PaymentsTab({
             }}
           >
             <Mail size={12} />
-            Send reminder
+            Send friendly reminder
           </button>
           <button
             type="button"
             onClick={onSendInvoice}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-semibold transition-colors"
             style={{
               background: "rgb(var(--brand-primary))",
               color: "rgb(var(--bg-sidebar))",
             }}
           >
             <FileText size={12} />
-            Send invoice
+            Invoice
           </button>
         </div>
       </div>
@@ -236,7 +236,7 @@ export function PaymentsTab({
                   }}
                 >
                   <span
-                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+                    className="inline-flex items-center rounded-[var(--radius-sm)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
                     style={{ color: s.color, background: s.bg }}
                   >
                     {s.label}

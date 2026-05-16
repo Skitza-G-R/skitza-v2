@@ -132,12 +132,18 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
 });
 
 describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () => {
-  it("G4: hero is full-bleed (negative horizontal margins, no border-radius)", () => {
+  it("G4: hero is full-bleed (negative horizontal margins, no border-radius on the band)", () => {
     // Design HTML 252: hero band is full-width, no rounded corners.
     // Negative margins cancel the page padding so the band reaches the
-    // content-area edges.
+    // content-area edges. The assertion targets the <section> wrapper
+    // specifically so inner CTAs are free to use the standard rectangle
+    // radius (`--radius-lg`) per docs/design/buttons.md.
     expect(SRC).toMatch(/-mx-4[\s\S]*?sm:-mx-6|sm:-mx-6[\s\S]*?-mx-4/);
-    expect(SRC).not.toMatch(/rounded-\[var\(--radius-lg\)\]/);
+    const sectionMatch = SRC.match(/<section[\s\S]*?className="([^"]+)"/);
+    expect(sectionMatch).not.toBeNull();
+    const sectionCls = sectionMatch?.[1] ?? "";
+    expect(sectionCls).toMatch(/-mx-4/);
+    expect(sectionCls).not.toMatch(/\brounded-/);
   });
 
   it("G4: h1 is 54px Syne with the design's negative tracking", () => {
@@ -155,10 +161,100 @@ describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () =>
 
   it("G14: '+ New project' CTA is solid white (not frosted glass)", () => {
     // Design uses btn-light (white solid pill, dark text) for the
-    // hero's primary action; the frosted bg-white/10 backdrop-blur
-    // treatment was reserved for secondary actions on the album/song
-    // hero, where this CTA isn't the page's primary.
-    expect(SRC).not.toMatch(/bg-white\/10[\s\S]*?backdrop-blur/);
-    expect(SRC).toMatch(/bg-white[\s\S]*?New project|New project[\s\S]*?bg-white/);
+    // hero's primary action. PR #130 introduced a sibling kebab menu
+    // that DOES use the frosted bg-white/10 backdrop-blur treatment,
+    // so we anchor on the New Project button's unique title attribute
+    // to slice out JUST that button and assert against it.
+    const titleAnchor = SRC.indexOf("Add an email to this client");
+    expect(titleAnchor).toBeGreaterThan(0);
+    const buttonStart = SRC.lastIndexOf("<button", titleAnchor);
+    expect(buttonStart).toBeGreaterThan(-1);
+    const labelIdx = SRC.indexOf("New project", titleAnchor);
+    expect(labelIdx).toBeGreaterThan(buttonStart);
+    const buttonSlice = SRC.slice(buttonStart, labelIdx);
+    expect(buttonSlice).toMatch(/bg-white\s+px/);
+    expect(buttonSlice).not.toMatch(/bg-white\/10/);
+  });
+});
+
+describe("ClientSpaceHero — kebab menu wiring (Edit / Remove) — PR #130", () => {
+  it("imports EditClientModal + RemoveClientConfirmModal", () => {
+    expect(SRC).toContain("EditClientModal");
+    expect(SRC).toContain("./edit-client-modal");
+    expect(SRC).toContain("RemoveClientConfirmModal");
+    expect(SRC).toContain("./remove-client-confirm-modal");
+  });
+
+  it("imports MoreVertical / Pencil / Trash2 lucide icons", () => {
+    expect(SRC).toMatch(/MoreVertical/);
+    expect(SRC).toMatch(/Pencil/);
+    expect(SRC).toMatch(/Trash2/);
+  });
+
+  it("renders a kebab trigger with aria-label='Client actions'", () => {
+    expect(SRC).toMatch(/aria-label="Client actions"/);
+    expect(SRC).toMatch(/aria-haspopup="menu"/);
+  });
+
+  it("renders 'Edit details' + 'Remove client' menu items", () => {
+    expect(SRC).toContain("Edit details");
+    expect(SRC).toContain("Remove client");
+  });
+
+  it("closes the kebab menu on outside-click + Escape", () => {
+    // Hand-rolled accessibility — the menu uses a single useEffect that
+    // attaches a mousedown listener (for outside-click) and a keydown
+    // listener (for Escape). Both fire only while the menu is open.
+    expect(SRC).toMatch(/addEventListener\(\s*["']mousedown["']/);
+    expect(SRC).toMatch(/Escape/);
+  });
+
+  it("uses notes on ClientSpaceHeroData (so the Edit modal can prefill)", () => {
+    // The interface gained a `notes: string | null` field — without it
+    // the modal would have no way to prefill the textarea on open.
+    expect(SRC).toMatch(/notes:\s*string\s*\|\s*null/);
+  });
+
+  it("mounts <EditClientModal> with the current client's phone + notes", () => {
+    expect(SRC).toMatch(/<EditClientModal[\s\S]*?phone[\s\S]*?notes/);
+  });
+
+  it("mounts <RemoveClientConfirmModal> with id + name", () => {
+    expect(SRC).toMatch(/<RemoveClientConfirmModal/);
+  });
+});
+
+describe("ClientSpaceHero — inline link-state meta (Resend / Active in artist app)", () => {
+  // HTML mockup hero meta row includes the link state as inline text
+  // ("Invitation sent · Resend invite link" / "Active in artist app").
+  // The LinkPill next to the h1 is the at-a-glance signal; this line
+  // adds the verb so the producer can one-click resend a pending invite
+  // without re-opening the modal.
+
+  it("imports sendClientInviteAction for the resend handler", () => {
+    expect(SRC).toContain("sendClientInviteAction");
+  });
+
+  it("imports useTransition for the resend pending state", () => {
+    expect(SRC).toMatch(/useTransition/);
+  });
+
+  it("renders the 'Resend invite link' affordance for pending state", () => {
+    expect(SRC).toMatch(/linkState\s*===\s*["']pending["']/);
+    expect(SRC).toContain("Resend invite link");
+    expect(SRC).toContain("Invitation sent");
+  });
+
+  it("renders the 'Active in artist app' affirmation for active state", () => {
+    expect(SRC).toMatch(/linkState\s*===\s*["']active["']/);
+    expect(SRC).toContain("Active in artist app");
+  });
+
+  it("wires the resend handler through sendClientInviteAction({ via: 'email' })", () => {
+    expect(SRC).toMatch(/sendClientInviteAction\([\s\S]*?via:\s*["']email["']/);
+  });
+
+  it("uses useToast for resend success / error feedback", () => {
+    expect(SRC).toContain("useToast");
   });
 });

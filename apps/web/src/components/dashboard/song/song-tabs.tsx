@@ -59,7 +59,7 @@ export function SongTabs({
 
   return (
     <div
-      className="inline-flex items-center gap-1 self-start rounded-full border p-1 shadow-[var(--shadow-sm)]"
+      className="inline-flex items-center gap-1 self-start rounded-[var(--radius-sm)] border p-1 shadow-[var(--shadow-sm)]"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
@@ -81,7 +81,7 @@ export function SongTabs({
             onClick={() => {
               onChange(t.key);
             }}
-            className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-4 py-1.5 text-[12px] font-semibold transition-colors"
             style={{
               background: isActive
                 ? "rgb(var(--bg-sidebar))"

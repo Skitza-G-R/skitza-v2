@@ -15,8 +15,14 @@ describe("HeroCTA", () => {
     expect(SRC).toMatch(/export function HeroCTA/);
   });
 
-  it("uses border-radius: 999px (rounded-full) for the pill shape", () => {
-    expect(SRC).toContain("rounded-full");
+  it("uses the height-scaled rounded-rectangle radius (medium tier — var(--radius-md) at 36px height)", () => {
+    // Skitza design system: rectangle radius scales with button height.
+    // HeroCTA is `px-4 py-2 text-[13px]` ≈ 34-36px tall, which lands in
+    // the medium tier (12px). See docs/design/buttons.md.
+    // Pills (`rounded-full`) are reserved for square circles (avatars,
+    // icon-only buttons).
+    expect(SRC).toContain("rounded-[var(--radius-md)]");
+    expect(SRC).not.toContain("rounded-full");
   });
 
   it("supports both variants via the variant prop", () => {

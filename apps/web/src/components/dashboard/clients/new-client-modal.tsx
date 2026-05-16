@@ -302,8 +302,8 @@ export function NewClientModal({
                 <span className="font-semibold text-[rgb(var(--fg-default))]">
                   Invitation will be emailed.
                 </span>{" "}
-                They&rsquo;ll get the artist app to comment, sign contracts, and
-                pay.
+                They&rsquo;ll get the artist app to comment on songs, sign
+                contracts, and pay &mdash; linked to their real Skitza account.
               </p>
             </div>
 

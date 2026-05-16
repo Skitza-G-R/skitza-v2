@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { UserButton } from "@clerk/nextjs";
+import { BarChart3 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
@@ -17,6 +18,7 @@ import { LogoMark } from "~/components/brand/logo-mark";
 import { NotificationBell } from "~/components/shell/notification-bell";
 import { SidebarShareChip } from "~/components/shell/sidebar-share-chip";
 import { ThemeToggle } from "~/components/shell/theme-toggle";
+import { useToast } from "~/components/ui/toast";
 
 import { Icon, type IconName } from "./icons";
 import { Wordmark } from "./wordmark";
@@ -66,6 +68,19 @@ type NavItem = {
 
 const STORAGE_KEY = "skitza-sidebar-collapsed";
 
+// Plan-tier label for the sidebar footer chip. Plain Title-case
+// rendering so the column value `pro` reads as "Pro plan" without
+// needing a per-tier translation key. Unknown tiers fall back to
+// "Free plan" — defensive default for any future plans that get
+// shipped to the DB before this map is updated.
+function formatPlanLabel(plan: string): string {
+  const normalised = plan.trim().toLowerCase();
+  if (normalised === "pro") return "Pro plan";
+  if (normalised === "studio") return "Studio plan";
+  if (normalised === "team") return "Team plan";
+  return "Free plan";
+}
+
 // 6-item producer nav, in the order the locked design specifies:
 // Overview → Clients & Projects → Music → Calendar → Store → Settings.
 // Labels mapped to actual routes per Gili's Phase 2 brief Q3 — no
@@ -86,7 +101,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { id: "clients-projects", label: "Clients & Projects", labelKey: "clients-projects", href: "/dashboard/clients-projects", icon: "users", shortcut: "G P" },
   { id: "music", label: "Music", labelKey: "music", href: "/dashboard/music", icon: "music", shortcut: "G M" },
   { id: "calendar", label: "Calendar", labelKey: "calendar", href: "/dashboard/calendar", icon: "calendar", shortcut: "G C" },
-  { id: "profile", label: "Store", labelKey: "profile", href: "/dashboard/store", icon: "store", shortcut: "G S" },
+  { id: "profile", label: "Storefront", labelKey: "profile", href: "/dashboard/store", icon: "store", shortcut: "G S" },
   { id: "setup", label: "Settings", labelKey: "setup", href: "/dashboard/settings", icon: "settings", shortcut: "G T" },
 ] as const;
 
@@ -105,11 +120,20 @@ export function ProducerSidebar({
   publicBaseUrl,
   unreadCount = 0,
   unreadItems = [],
+  displayName = null,
+  plan = "free",
 }: {
   producerSlug: string | null;
   publicBaseUrl: string;
   unreadCount?: number;
   unreadItems?: readonly ShellNotificationItem[];
+  /** Producer's display name (from producer.displayName). Surfaced
+   *  on the sidebar footer chip; falls back to the Clerk avatar
+   *  alone when null. */
+  displayName?: string | null;
+  /** Plan tier — surfaced as a small "Pro plan" / "Free plan"
+   *  caption under the producer's name on the footer chip. */
+  plan?: string;
 }): ReactNode {
   const pathname = usePathname();
   const active: ActiveKey = getActiveKey(pathname);
@@ -179,6 +203,8 @@ export function ProducerSidebar({
         publicBaseUrl={publicBaseUrl}
         unreadCount={unreadCount}
         unreadItems={unreadItems}
+        displayName={displayName}
+        plan={plan}
         onToggle={toggle}
       />
     </aside>
@@ -192,6 +218,8 @@ function SidebarBody({
   publicBaseUrl,
   unreadCount,
   unreadItems,
+  displayName,
+  plan,
   onToggle,
 }: {
   active: ActiveKey;
@@ -200,6 +228,8 @@ function SidebarBody({
   publicBaseUrl: string;
   unreadCount: number;
   unreadItems: readonly ShellNotificationItem[];
+  displayName: string | null;
+  plan: string;
   onToggle: () => void;
 }) {
   const t = useTranslations("sidebar");
@@ -273,6 +303,15 @@ function SidebarBody({
             {SECTION_BOUNDARY_AFTER.has(item.id) && (
               <SectionDivider collapsed={collapsed} />
             )}
+            {/* Mockup-match: Insights sits between Storefront and
+                Settings in the locked design. No route exists yet —
+                it's rendered as a click-to-toast placeholder so the
+                rail visually matches the mockup without 404-ing
+                anyone. The toast lands inside ClickToast which lazily
+                imports the existing useToast hook. */}
+            {item.id === "profile" ? (
+              <InsightsPlaceholder collapsed={collapsed} label={t("insights")} />
+            ) : null}
           </Fragment>
         ))}
       </nav>
@@ -307,14 +346,50 @@ function SidebarBody({
             <ThemeToggle />
             <NotificationBell unreadCount={unreadCount} unreadItems={unreadItems} />
           </div>
-          <UserButton
-            appearance={{
-              elements: {
-                avatarBox:
-                  "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
-              },
-            }}
-          />
+          {/* Mockup-match: the producer footer chip shows the Clerk
+              avatar + display name + plan label (e.g. "Gili Studio /
+              Pro plan"). Collapsed rail keeps just the avatar so the
+              64px column doesn't overflow. The Clerk UserButton owns
+              the dropdown trigger; the label sits next to it as
+              presentation-only context — no extra menu wired up. */}
+          {!collapsed && displayName ? (
+            <div
+              className="flex min-w-0 items-center gap-2"
+              data-testid="sidebar-footer-chip"
+            >
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox:
+                      "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
+                  },
+                }}
+              />
+              <div className="min-w-0 leading-tight">
+                <p
+                  className="truncate text-[11.5px] font-semibold"
+                  style={{ color: "rgb(var(--fg-onsidebar))" }}
+                >
+                  {displayName}
+                </p>
+                <p
+                  className="truncate text-[9.5px] font-medium uppercase tracking-[0.08em]"
+                  style={{ color: "rgb(var(--fg-onsidebar) / 0.55)" }}
+                >
+                  {formatPlanLabel(plan)}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <UserButton
+              appearance={{
+                elements: {
+                  avatarBox:
+                    "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
+                },
+              }}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -456,5 +531,58 @@ function SectionDivider({ collapsed }: { collapsed: boolean }) {
         background: "rgb(var(--border-sidebar) / 0.6)",
       }}
     />
+  );
+}
+
+// ─── InsightsPlaceholder ────────────────────────────────────────────
+//
+// Mockup-match placeholder for the Insights nav row. The locked
+// design (HTML mockup) carries an Insights entry between Storefront
+// and Settings — but there's no /dashboard/insights route yet, so a
+// real `<Link>` would 404 on click. Rendered as a button instead:
+// looks identical to a NavItem but emits a toast saying "Insights
+// coming soon" so producers know it's intentional, not broken.
+//
+// Visually mirrors NavItem (same gap/padding/font-size/min-height) so
+// the rail's vertical rhythm stays consistent across the real rows
+// and the placeholder. Icon = BarChart3 from lucide-react (the icon
+// set in icons.tsx doesn't have a chart variant; importing one
+// directly is the lightest touch). When a real route lands, this
+// component can be deleted and Insights promoted into NAV_ITEMS.
+function InsightsPlaceholder({
+  collapsed,
+  label,
+}: {
+  collapsed: boolean;
+  label: string;
+}) {
+  const { toast } = useToast();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        toast(`${label} coming soon`, "info");
+      }}
+      aria-label={collapsed ? label : undefined}
+      {...(collapsed ? { title: label } : {})}
+      className="sk-press relative flex items-center rounded-[10px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+      data-testid="sidebar-insights-placeholder"
+      style={{
+        gap: collapsed ? 0 : 12,
+        padding: collapsed ? "11px 10px" : "10px 12px",
+        color: "rgb(var(--fg-onsidebar) / 0.65)",
+        background: "transparent",
+        fontSize: 13.5,
+        fontWeight: 500,
+        letterSpacing: "-0.005em",
+        justifyContent: collapsed ? "center" : "flex-start",
+        minHeight: 36,
+      }}
+    >
+      <span className="relative shrink-0 flex items-center">
+        <BarChart3 size={16} strokeWidth={2.3} aria-hidden />
+      </span>
+      {!collapsed ? <span className="truncate">{label}</span> : null}
+    </button>
   );
 }

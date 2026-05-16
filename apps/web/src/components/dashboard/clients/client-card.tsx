@@ -24,6 +24,10 @@ export interface ClientCardData {
   currency?: string;
   /** Last activity timestamp (ISO) — drives "recent" sort. */
   lastActivityIso?: string;
+  /** Producer-roster join date (ISO) — drives the JOINED column on
+   *  the table-mode view + the "joined" sort. From
+   *  clientContacts.firstSeenAt server-side. */
+  joinedAtIso?: string;
 }
 
 interface ClientCardProps {
@@ -73,7 +77,7 @@ export function ClientCard({
       onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
       onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
       onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
-      className="group relative flex flex-col gap-3.5 rounded-[var(--radius-md)] border p-4 transition-colors hover:border-[rgb(var(--border-strong))]"
+      className="group relative flex flex-col gap-3.5 rounded-[var(--radius-md)] border p-4 transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-0.5 hover:border-[rgb(var(--border-strong))] hover:shadow-[0_10px_24px_-12px_rgb(17_16_9/0.18),0_3px_8px_-3px_rgb(17_16_9/0.10)] active:translate-y-0 active:scale-[0.995] motion-reduce:hover:translate-y-0 motion-reduce:hover:shadow-none"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
@@ -87,7 +91,11 @@ export function ClientCard({
 
       <div className="relative z-10 flex items-start gap-3">
         <span
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[14px] font-bold text-white"
+          // Mockup-match: client-card avatars are circular tiles on the
+          // workspace grid (matches the HTML's .clicard avatar). The
+          // larger 112px hero avatar elsewhere stays square — the small
+          // tile reads better as a circle in a 3-up grid.
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[14px] font-bold text-white"
           style={{ background: avatarBg }}
           aria-hidden
         >

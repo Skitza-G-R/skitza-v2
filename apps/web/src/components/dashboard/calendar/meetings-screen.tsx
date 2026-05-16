@@ -287,7 +287,7 @@ function ReviewSheet({
                   onClick={() => {
                     act("reject");
                   }}
-                  className="sk-press flex-1 rounded-full border border-[rgb(var(--border-subtle))] bg-transparent px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))]"
+                  className="sk-press flex-1 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-transparent px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))]"
                 >
                   Decline
                 </button>
@@ -297,7 +297,7 @@ function ReviewSheet({
                 onClick={() => {
                   act("confirm");
                 }}
-                className="sk-press flex flex-[2] items-center justify-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-4 py-3 text-sm font-bold text-[rgb(var(--bg-sidebar))]"
+                className="sk-press flex flex-[2] items-center justify-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-3 text-sm font-bold text-[rgb(var(--bg-sidebar))]"
               >
                 <CheckIcon size={13} /> Accept booking
               </button>
