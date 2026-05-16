@@ -1,7 +1,7 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Mail, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   type SyntheticEvent,
@@ -17,48 +17,52 @@ import {
   validateEmail,
   type ValidationState,
 } from "~/components/ui/validation";
-import { createClientAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
+import { updateClientAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
 
-// New Client modal (Clients & Projects v3 redesign, Phase 1 G6).
-// Replaces the routing-based "+ New client" CTA that previously sent
-// the producer to the new-project form. DESIGN.md §6.1 / BUILD-NOTES
-// §7.1 spec this as a floating modal with four fields:
-//   Name (required), Email (required), Phone (optional), Notes (optional)
-// On submit we hit createClientAction which atomically does:
-//   1. trpc.clientContacts.create  — insert (or short-circuit on dup)
-//   2. trpc.clientContacts.sendInvite { via: "email" }  — fire invite
-// If the email is already in the producer's CRM, the action returns
-// `existed: true` without re-sending the invite. The modal then surfaces
-// a friendly toast + routes to the existing client's space.
+// Edit Client modal (PR #130). Mirrors NewClientModal's layout exactly
+// so the producer's mental model stays the same — same 4 fields
+// (Name, Email, Phone, Notes), same validation, same Radix Dialog
+// scrim/backdrop. The only differences:
+//   - Fields pre-fill from the passed `client` snapshot.
+//   - Submit hits updateClientAction (the existing tRPC
+//     clientContacts.update procedure, extended to accept phone +
+//     notes in PR #130).
+//   - Empty Phone/Notes inputs clear the column (send "" — the server
+//     action normalises to null before write).
+//   - Primary CTA reads "Save changes" instead of "Add client".
 //
-// Layout precedent: ../clients/invite-modal.tsx — same Radix Dialog
-// fixed-center transform fix, same scrim + backdrop-blur, same close
-// button placement. The CSS tokens used here are canonical Skitza:
-//   --bg-background, --bg-elevated, --fg-default, --fg-muted, --fg-danger,
-//   --brand-primary, --border-subtle.
+// We don't ship the amber "Invitation will be emailed" hint here —
+// editing an existing client never triggers a new invite, so the copy
+// would be misleading.
 
-export interface NewClientModalProps {
+export interface EditClientModalProps {
   open: boolean;
   onClose: () => void;
-  /** Fired after a successful create + invite — parent can refresh. */
-  onCreated?: () => void;
+  client: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    notes: string | null;
+  };
+  /** Fired after a successful update — parent can refresh. */
+  onSaved?: () => void;
 }
 
-export function NewClientModal({
+export function EditClientModal({
   open,
   onClose,
-  onCreated,
-}: NewClientModalProps) {
+  client,
+  onSaved,
+}: EditClientModalProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [notes, setNotes] = useState("");
-  // "Touched" suppresses red Required hints until the user moves off
-  // a field — same pattern as new-project-form.tsx.
+  const [name, setName] = useState(client.name);
+  const [email, setEmail] = useState(client.email);
+  const [phone, setPhone] = useState(client.phone ?? "");
+  const [notes, setNotes] = useState(client.notes ?? "");
   const [nameTouched, setNameTouched] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
 
@@ -69,81 +73,73 @@ export function NewClientModal({
     ? validateEmail(email)
     : { kind: "idle" };
 
-  // Reset form state every time the modal opens. Carrying values across
-  // open/close is confusing — the producer expects a blank slate.
+  // Re-seed every time the modal opens so an edit-cancel-reopen flow
+  // always starts from the canonical server state (not stale form
+  // state from the previous open). client identity changes count too
+  // — though the Client Space hero only ever mounts one EditModal,
+  // a parent that swaps clients would expect the fields to follow.
   useEffect(() => {
     if (!open) return;
-    setName("");
-    setEmail("");
-    setPhone("");
-    setNotes("");
+    setName(client.name);
+    setEmail(client.email);
+    setPhone(client.phone ?? "");
+    setNotes(client.notes ?? "");
     setNameTouched(false);
     setEmailTouched(false);
-  }, [open]);
+  }, [open, client.id, client.name, client.email, client.phone, client.notes]);
 
   const submitDisabled =
-    pending ||
-    name.trim().length === 0 ||
-    email.trim().length === 0;
+    pending || name.trim().length === 0 || email.trim().length === 0;
 
   const handleSubmit = (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Flip the touched flags so any final validation errors render.
     setNameTouched(true);
     setEmailTouched(true);
-    const finalNameState = validateDisplayName(name);
-    const finalEmailState = validateEmail(email);
-    if (
-      finalNameState.kind !== "valid" ||
-      finalEmailState.kind !== "valid"
-    ) {
-      // Inline hints already explain what's wrong; no duplicate toast.
+    const finalName = validateDisplayName(name);
+    const finalEmail = validateEmail(email);
+    if (finalName.kind !== "valid" || finalEmail.kind !== "valid") {
       return;
     }
     startTransition(async () => {
-      // exactOptionalPropertyTypes: pass keys only when they have a
-      // value, never as `undefined`.
+      // Only send fields that actually changed. Avoids hitting the
+      // server with no-op patches AND avoids touching emailHash when
+      // the producer only edited their phone.
+      const trimmedName = name.trim();
+      const trimmedEmail = email.trim();
       const trimmedPhone = phone.trim();
       const trimmedNotes = notes.trim();
       const payload: {
-        name: string;
-        email: string;
-        phone?: string;
-        notes?: string;
-      } = {
-        name: name.trim(),
-        email: email.trim(),
-      };
-      if (trimmedPhone) payload.phone = trimmedPhone;
-      if (trimmedNotes) payload.notes = trimmedNotes;
-      const res = await createClientAction(payload);
+        id: string;
+        name?: string;
+        email?: string;
+        phone?: string | null;
+        notes?: string | null;
+      } = { id: client.id };
+      if (trimmedName !== client.name) payload.name = trimmedName;
+      if (trimmedEmail.toLowerCase() !== client.email.toLowerCase()) {
+        payload.email = trimmedEmail;
+      }
+      // Phone/notes: empty string clears, non-empty sets, unchanged skips.
+      const currentPhone = client.phone ?? "";
+      const currentNotes = client.notes ?? "";
+      if (trimmedPhone !== currentPhone) {
+        payload.phone = trimmedPhone.length > 0 ? trimmedPhone : null;
+      }
+      if (trimmedNotes !== currentNotes) {
+        payload.notes = trimmedNotes.length > 0 ? trimmedNotes : null;
+      }
+      // Nothing to do — close without a server round-trip.
+      if (Object.keys(payload).length === 1) {
+        onClose();
+        return;
+      }
+      const res = await updateClientAction(payload);
       if (!res.ok) {
         toast(res.error, "error");
         return;
       }
-      if (res.data.existed) {
-        toast("That client already exists — opening their space.", "info");
-        router.push(`/dashboard/clients-projects/clients/${res.data.id}`);
-        onClose();
-        return;
-      }
-      if (res.data.inviteEmailFailed) {
-        // Client row was inserted but the invite email didn't send
-        // (Resend rejection, sandbox limit, etc). Tell the producer
-        // it's saved and they can retry the invite from the client's
-        // space. The LinkPill there shows "Invite to app" because the
-        // procedure never stamped invited_at.
-        toast(
-          "Client added — invite email couldn't be sent. Try again from their page.",
-          "info",
-        );
-      } else {
-        toast("Client added — invite sent", "success");
-      }
-      onCreated?.();
-      // Server Action already called revalidatePath, but a manual
-      // router.refresh keeps the list in sync if the parent isn't a
-      // server-component boundary.
+      toast("Client updated", "success");
+      onSaved?.();
       router.refresh();
       onClose();
     });
@@ -159,19 +155,19 @@ export function NewClientModal({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
-          aria-describedby="new-client-modal-body"
+          aria-describedby="edit-client-modal-body"
           className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[440px] rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="font-display text-[17px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-                New client
+                Edit client
               </DialogPrimitive.Title>
               <DialogPrimitive.Description
-                id="new-client-modal-body"
+                id="edit-client-modal-body"
                 className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]"
               >
-                Just the basics — you can edit later.
+                Update name, email, phone, or notes.
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild>
@@ -186,12 +182,12 @@ export function NewClientModal({
           </div>
 
           <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
-            <FieldLabel htmlFor="new-client-name" required>
+            <FieldLabel htmlFor="edit-client-name" required>
               Name
             </FieldLabel>
             <div>
               <input
-                id="new-client-name"
+                id="edit-client-name"
                 type="text"
                 required
                 autoFocus
@@ -213,24 +209,14 @@ export function NewClientModal({
               <ValidationHint state={nameState} />
             </div>
 
-            {/* Email + Phone in a 2-column row on the desktop modal.
-                Collapses to single-column on very narrow viewports
-                (the modal is desktop-first but defensive against
-                480px-wide phones in case the producer opens it on
-                their phone). */}
-            {/* Email + Phone share a row. The form's parent gap-3 +
-                FieldLabel's -mb-2.5 offsets keep label/input spacing
-                visually identical to the stacked Name field above.
-                Collapses to single-column under sm: in case the
-                producer opens the modal on a phone. */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-3">
-                <FieldLabel htmlFor="new-client-email" required>
+                <FieldLabel htmlFor="edit-client-email" required>
                   Email
                 </FieldLabel>
                 <div>
                   <input
-                    id="new-client-email"
+                    id="edit-client-email"
                     type="email"
                     required
                     value={email}
@@ -253,9 +239,9 @@ export function NewClientModal({
               </div>
 
               <div className="flex flex-col gap-3">
-                <FieldLabel htmlFor="new-client-phone">Phone</FieldLabel>
+                <FieldLabel htmlFor="edit-client-phone">Phone</FieldLabel>
                 <input
-                  id="new-client-phone"
+                  id="edit-client-phone"
                   type="tel"
                   value={phone}
                   maxLength={40}
@@ -269,13 +255,13 @@ export function NewClientModal({
               </div>
             </div>
 
-            <FieldLabel htmlFor="new-client-notes">
+            <FieldLabel htmlFor="edit-client-notes">
               Notes <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
             </FieldLabel>
             <textarea
-              id="new-client-notes"
+              id="edit-client-notes"
               value={notes}
-              rows={2}
+              rows={3}
               maxLength={2000}
               onChange={(e) => {
                 setNotes(e.target.value);
@@ -284,28 +270,6 @@ export function NewClientModal({
               className="w-full resize-none rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
               style={{ borderColor: "rgb(var(--border-subtle))" }}
             />
-
-            <div
-              className="flex items-start gap-2 rounded-[10px] border px-3 py-2 text-[12px]"
-              style={{
-                borderColor: "rgb(var(--brand-primary)/0.40)",
-                background: "rgb(var(--brand-primary)/0.10)",
-              }}
-            >
-              <Mail
-                size={13}
-                strokeWidth={2.2}
-                className="mt-0.5 shrink-0 text-[rgb(var(--brand-primary))]"
-                aria-hidden
-              />
-              <p className="leading-snug text-[rgb(var(--fg-muted))]">
-                <span className="font-semibold text-[rgb(var(--fg-default))]">
-                  Invitation will be emailed.
-                </span>{" "}
-                They&rsquo;ll get the artist app to comment on songs, sign
-                contracts, and pay &mdash; linked to their real Skitza account.
-              </p>
-            </div>
 
             <div className="flex items-center justify-end gap-2">
               <button
@@ -322,7 +286,7 @@ export function NewClientModal({
                 className="sk-press inline-flex items-center justify-center gap-1.5 rounded-[10px] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none"
                 style={{ background: "rgb(var(--brand-primary))" }}
               >
-                {pending ? "Adding…" : "Add client"}
+                {pending ? "Saving…" : "Save changes"}
               </button>
             </div>
           </form>

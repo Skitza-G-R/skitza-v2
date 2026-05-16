@@ -222,6 +222,83 @@ export async function createProjectAction(input: {
   }
 }
 
+// Edit + Remove client wrappers (PR #130). Restored variants of the
+// pre-Phase-1 actions, now wired to the Client Space hero menu.
+//
+// updateClientAction: thin wrapper over clientContacts.update. Accepts
+// any subset of name/email/phone/notes — only changed fields are sent.
+// Null for phone/notes explicitly clears the column (the modal sends
+// the empty-string form normalised to null).
+//
+// removeClientAction: thin wrapper over clientContacts.remove. The
+// server keeps any projects/contracts/comments linked via the email
+// snapshot — this is purely a CRM-card removal, not a cascade. The
+// UI surfaces that copy on the confirmation modal.
+
+export async function updateClientAction(input: {
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string | null;
+  notes?: string | null;
+}): Promise<
+  ActionDataResult<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    notes: string | null;
+  }>
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    // exactOptionalPropertyTypes: never pass `undefined` keys.
+    const payload: {
+      id: string;
+      name?: string;
+      email?: string;
+      phone?: string | null;
+      notes?: string | null;
+    } = { id: input.id };
+    if (input.name !== undefined) payload.name = input.name;
+    if (input.email !== undefined) payload.email = input.email;
+    if (input.phone !== undefined) payload.phone = input.phone;
+    if (input.notes !== undefined) payload.notes = input.notes;
+    const res = await c.caller.clientContacts.update(payload);
+    revalidatePath(CLIENTS_PATH);
+    revalidatePath(`${CLIENTS_PATH}/clients/${input.id}`);
+    return {
+      ok: true,
+      data: {
+        id: res.id,
+        name: res.name,
+        email: res.email,
+        phone: res.phone ?? null,
+        notes: res.notes ?? null,
+      },
+    };
+  } catch (err) {
+    console.error("[clients-actions:updateClient]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function removeClientAction(input: {
+  id: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.clientContacts.remove({ id: input.id });
+    revalidatePath(CLIENTS_PATH);
+    return { ok: true };
+  } catch (err) {
+    console.error("[clients-actions:removeClient]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // Reorder wrappers for the drag-to-reorder UX on the Clients & Projects
 // list view. The tRPC mutations (clientContacts.reorder, projects.reorder)
 // verify ownership + atomically rewrite the `position` column.

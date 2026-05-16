@@ -360,7 +360,29 @@ export function NewProjectModal({
                 first, then come back to create the project.
               </p>
             </div>
-          ) : null}
+          ) : (
+            <div
+              className="mt-4 flex items-start gap-2 rounded-[10px] border px-3 py-2 text-[12px]"
+              style={{
+                borderColor: "rgb(var(--brand-primary)/0.40)",
+                background: "rgb(var(--brand-primary)/0.10)",
+              }}
+            >
+              <Info
+                size={13}
+                strokeWidth={2.2}
+                className="mt-0.5 shrink-0 text-[rgb(var(--brand-primary))]"
+                aria-hidden
+              />
+              <p className="leading-snug text-[rgb(var(--fg-muted))]">
+                <span className="font-semibold text-[rgb(var(--fg-default))]">
+                  Stage starts at Brief.
+                </span>{" "}
+                It advances as you upload mixes &mdash; you can also change it
+                manually from any song&rsquo;s page.
+              </p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
             {/* Project title */}

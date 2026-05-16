@@ -657,6 +657,12 @@ export const clientContactsRouter = router({
         id: z.string().uuid(),
         name: z.string().trim().min(1).max(200).optional(),
         email: z.string().email().optional(),
+        // PR #130 — phone + notes editable from the Client Space hero.
+        // `null` explicitly clears the column; an empty string is also
+        // treated as clear so producers wiping a field don't need a
+        // distinct UI affordance for null vs ""
+        phone: z.string().trim().max(40).nullable().optional(),
+        notes: z.string().trim().max(2000).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -669,7 +675,13 @@ export const clientContactsRouter = router({
         throw new TRPCError({ code: "NOT_FOUND" });
       }
 
-      const patch: { name?: string; email?: string; emailHash?: string } = {};
+      const patch: {
+        name?: string;
+        email?: string;
+        emailHash?: string;
+        phone?: string | null;
+        notes?: string | null;
+      } = {};
       if (input.name !== undefined) patch.name = input.name.trim();
       if (input.email !== undefined) {
         const { lower, hash } = hashEmail(input.email);
@@ -694,11 +706,21 @@ export const clientContactsRouter = router({
           patch.emailHash = hash;
         }
       }
+      if (input.phone !== undefined) {
+        const trimmed = input.phone === null ? "" : input.phone.trim();
+        patch.phone = trimmed.length > 0 ? trimmed : null;
+      }
+      if (input.notes !== undefined) {
+        const trimmed = input.notes === null ? "" : input.notes.trim();
+        patch.notes = trimmed.length > 0 ? trimmed : null;
+      }
       if (Object.keys(patch).length === 0) {
         return {
           id: existing.id,
           email: existing.email,
           name: existing.name,
+          phone: existing.phone,
+          notes: existing.notes,
         };
       }
       const [row] = await ctx.db
@@ -707,7 +729,13 @@ export const clientContactsRouter = router({
         .where(eq(clientContacts.id, input.id))
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return { id: row.id, email: row.email, name: row.name };
+      return {
+        id: row.id,
+        email: row.email,
+        name: row.name,
+        phone: row.phone,
+        notes: row.notes,
+      };
     }),
 
   // Delete a contact. Projects/contracts/comments linked via email
@@ -955,6 +983,10 @@ export const clientContactsRouter = router({
           id: contact.id,
           email: contact.email,
           name: contact.name,
+          // PR #130 — phone surfaces the optional phone column so the
+          // Client Space hero's Edit modal can prefill it. Null when
+          // the producer hasn't filled it in.
+          phone: contact.phone,
           firstSeenAt: contact.firstSeenAt,
           lastSeenAt: contact.lastSeenAt,
           tags: contact.tags,

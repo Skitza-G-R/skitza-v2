@@ -16,6 +16,12 @@ export default function SongSpaceLoading() {
   return (
     <main aria-hidden aria-label="Loading song">
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        {/* Breadcrumb placeholder. In album mode it's three crumbs
+            ("Clients & Projects › {project} › {song}"); in single mode
+            it collapses to two. Skeleton width covers the album case so
+            single mode just looks slightly under-filled briefly. */}
+        <Skel className="mb-4 h-4 w-64 rounded" />
+
         {/* Dark gradient placeholder for the SongSpaceHero (~h-[220px]) */}
         <Skel className="h-[220px] rounded-[var(--radius-lg)]" tone="band" />
 
