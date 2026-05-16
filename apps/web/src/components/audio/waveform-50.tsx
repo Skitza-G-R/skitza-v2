@@ -202,8 +202,11 @@ function useAudioPeaks(
         // form wrapped in a Promise so both code paths work.
         const audio = await new Promise<AudioBuffer>((resolve, reject) => {
           // Some browsers (Safari) detach the buffer on decode; give a
-          // fresh copy in case anything else wants the bytes.
-          ctx.decodeAudioData(
+          // fresh copy in case anything else wants the bytes. The
+          // returned Promise IS the one we wrap — `void` silences the
+          // floating-promise lint since the callbacks settle our outer
+          // Promise instead.
+          void ctx.decodeAudioData(
             buf.slice(0),
             (decoded) => {
               resolve(decoded);
