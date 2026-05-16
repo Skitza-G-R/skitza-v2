@@ -29,6 +29,7 @@ import {
   updatePackage,
 } from "~/app/(producer)/dashboard/booking/actions";
 import { useToast } from "~/components/ui/toast";
+import type { VolumeTier } from "~/lib/pricing";
 
 import { decodeDescription, encodeDescription } from "./description-encoding";
 import { ContractStep, type ContractMode } from "./editor-steps/contract-step";
@@ -87,6 +88,12 @@ interface Draft {
   contractMode: ContractMode;
   contractUrl: string;
   contractText: string;
+  // Per-song pricing — pricingModel='per_song' flips the Pricing step
+  // into the calculator panel. volumeTiers is the ascending discount
+  // ladder; the first tier (minQty=1) is the base per-song price.
+  // Empty array when pricingModel='flat'.
+  pricingModel: "flat" | "per_song";
+  volumeTiers: VolumeTier[];
 }
 
 interface ProductEditorProps {
@@ -125,6 +132,8 @@ function emptyDraft(currency: Currency): Draft {
     contractMode: "link",
     contractUrl: "",
     contractText: "",
+    pricingModel: "flat",
+    volumeTiers: [],
   };
 }
 
@@ -177,6 +186,11 @@ function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft
     const maybe = (p as unknown as { deliverables?: string[] }).deliverables;
     return Array.isArray(maybe) ? maybe : [];
   })();
+  // pricingModel comes back from the DB as plain text — narrow to the
+  // two values the wizard understands. Unknown values (legacy 'hourly',
+  // 'bundle') fall back to 'flat' so the editor doesn't crash on edit.
+  const pricingModel: "flat" | "per_song" =
+    p.pricingModel === "per_song" ? "per_song" : "flat";
   return {
     _picked: null, // edit mode skips the type picker
     name: p.name,
@@ -195,6 +209,8 @@ function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft
     contractMode,
     contractUrl: p.contractUrl ?? "",
     contractText: decoded.contractText,
+    pricingModel,
+    volumeTiers: p.volumeTiers ?? [],
   };
 }
 

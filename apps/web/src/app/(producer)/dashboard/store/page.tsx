@@ -40,6 +40,8 @@ export default async function StorePage() {
     minLeadHours: p.minLeadHours,
     contractUrl: p.contractUrl,
     deliverables: p.deliverables ?? [],
+    pricingModel: p.pricingModel,
+    volumeTiers: p.volumeTiers,
   }));
 
   const VALID = ["USD", "EUR", "GBP", "ILS"] as const;
