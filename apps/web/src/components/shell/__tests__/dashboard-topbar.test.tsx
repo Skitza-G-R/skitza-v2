@@ -51,6 +51,15 @@ describe("DashboardTopBar", () => {
     expect(SRC).toMatch(/hidden[\s\S]{0,200}md:block/);
   });
 
+  it("renders the section label inside a <Breadcrumb /> so deep pages can append crumbs", () => {
+    // Single source of truth for in-page navigation — the in-page
+    // Breadcrumb under each deep hero was removed in favour of a
+    // context that pushes extras up to this single topbar surface.
+    expect(SRC).toContain("Breadcrumb");
+    expect(SRC).toContain("useTopBarBreadcrumb");
+    expect(SRC).toMatch(/<Breadcrumb\s+items=\{items\}/);
+  });
+
   it("renders a search trigger that dispatches skitza:open-palette", () => {
     // Reusing the existing CommandPaletteTrigger event keeps a single
     // source of truth — ⌘K and the visual trigger open the same UI.
@@ -86,6 +95,17 @@ describe("DashboardTopBar", () => {
   it("uses sticky positioning with a backdrop blur (premium frosted bar)", () => {
     expect(SRC).toMatch(/sticky[\s\S]{0,40}top-0/);
     expect(SRC).toMatch(/backdrop-blur/);
+  });
+
+  it("fades in a soft separation shadow only once the page has scrolled (Emil-pass)", () => {
+    // At scroll-top the topbar relies on backdrop-blur alone — no hard
+    // border, so the chrome blends elegantly into the page header
+    // area. Once scrolled, a soft shadow + faint border fade in to
+    // mark the boundary.
+    expect(SRC).toContain("scrolled");
+    expect(SRC).toMatch(/window\.scrollY/);
+    expect(SRC).toMatch(/addEventListener\(["']scroll["']/);
+    expect(SRC).toMatch(/data-scrolled/);
   });
 
   it("uses Skitza CSS tokens (no forbidden surface/text aliases)", () => {

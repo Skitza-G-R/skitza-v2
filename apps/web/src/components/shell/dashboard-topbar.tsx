@@ -2,12 +2,23 @@
 
 import { Bell, Search } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import {
+  Breadcrumb,
+  type BreadcrumbCrumb,
+} from "~/components/dashboard/common/breadcrumb";
+
+import { useTopBarBreadcrumb } from "./topbar-breadcrumb-context";
 
 // DashboardTopBar — the sticky chrome strip the HTML mockup carries at
 // the top of every dashboard page. Three slots, left → right:
 //
-//   1. Section label  — derived from the URL pathname so every page
-//                       gets it for free; no per-page wiring.
+//   1. Breadcrumb     — derived from the URL pathname (section root)
+//                       plus any extras pushed via TopBarBreadcrumb
+//                       context by deep pages. One source of truth for
+//                       in-page navigation — the in-page Breadcrumb
+//                       component is no longer rendered separately.
 //   2. Search trigger — visually a pill input, functionally a button
 //                       that opens the existing command palette via
 //                       the `skitza:open-palette` custom event (the
@@ -38,20 +49,26 @@ const SECTION_LABELS: Readonly<Record<string, string>> = {
   "/dashboard/settings": "Settings",
 };
 
+interface Section {
+  path: string;
+  label: string;
+}
+
 // Walk up the path tree until we hit a known section. /dashboard/clients-
-// projects/clients/abc-123 → "Clients & Projects". Unknown paths fall
-// back to a generic label so the bar never renders blank.
-function deriveSectionLabel(pathname: string): string {
+// projects/clients/abc-123 → { path: "/dashboard/clients-projects",
+// label: "Clients & Projects" }. Unknown paths fall back to a generic
+// "Dashboard" so the bar never renders blank.
+function deriveSectionLabel(pathname: string): Section {
   const cleaned = pathname.replace(/\/+$/, "") || "/dashboard";
   let cursor: string = cleaned;
   while (cursor.length > 0) {
     const hit = SECTION_LABELS[cursor];
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) return { path: cursor, label: hit };
     const lastSlash = cursor.lastIndexOf("/");
     if (lastSlash <= 0) break;
     cursor = cursor.slice(0, lastSlash);
   }
-  return "Dashboard";
+  return { path: "/dashboard", label: "Dashboard" };
 }
 
 interface DashboardTopBarProps {
@@ -65,7 +82,37 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
   // `?? "/dashboard"` fallback would be dead code and trips
   // @typescript-eslint/no-unnecessary-condition.)
   const pathname = usePathname();
-  const label = deriveSectionLabel(pathname);
+  const section = deriveSectionLabel(pathname);
+  const extras = useTopBarBreadcrumb();
+
+  // Scroll-aware separation (Emil-pass polish). At scroll-top the
+  // topbar relies on backdrop-blur alone — no hard border, so the
+  // chrome blends elegantly into the page header area. Once the page
+  // has scrolled, we fade in a soft shadow + faint border to mark the
+  // boundary. The threshold (4px) is small enough that even a slight
+  // scroll lights it up; the transition is gentle (200ms ease-out) so
+  // it doesn't feel like a state toggle.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => {
+      setScrolled(window.scrollY > 4);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
+  // Build the topbar breadcrumb. On a section root (no extras), we
+  // show just the label — the in-page hero owns the rest of the
+  // header. On deep pages, the section root becomes a clickable Link
+  // so the user can return to the list with one click; the extras
+  // (client name, project title, song title) are appended.
+  const items: BreadcrumbCrumb[] =
+    extras.length === 0
+      ? [{ label: section.label }]
+      : [{ label: section.label, href: section.path }, ...extras];
 
   // The existing CommandPaletteTrigger listens for this event. Reusing
   // it keeps the keyboard shortcut, the search trigger, and any future
@@ -78,23 +125,35 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
     <header
       aria-label="Page navigation"
       data-testid="dashboard-topbar"
-      className="sticky top-0 z-30 border-b backdrop-blur-md"
+      data-scrolled={scrolled ? "true" : "false"}
+      className="sticky top-0 z-30 backdrop-blur-md transition-[box-shadow,border-color] duration-200 ease-out"
       style={{
         background: "rgb(var(--bg-background) / 0.82)",
-        borderBottomColor: "rgb(var(--border-subtle))",
+        // Border + shadow fade in once the page has scrolled past 4px.
+        // At scroll-top the topbar floats with no hard line; the blur
+        // does the separation work.
+        borderBottom: scrolled
+          ? "1px solid rgb(var(--border-subtle) / 0.6)"
+          : "1px solid transparent",
+        boxShadow: scrolled
+          ? "0 1px 12px -4px rgb(17 16 9 / 0.06)"
+          : "none",
       }}
     >
       <div className="mx-auto flex w-full max-w-[1400px] items-center gap-3 px-4 py-2.5 sm:gap-4 sm:px-6 lg:px-8">
-        {/* Section label (top-left). Hidden on the smallest screens
+        {/* Breadcrumb (top-left). Hidden on the smallest screens
             where the search trigger needs the full row to read; the
-            search pill still hints the page via context. */}
-        <h2
-          className="hidden flex-shrink-0 text-[13px] font-semibold tracking-tight md:block"
-          style={{ color: "rgb(var(--fg-default))" }}
+            search pill still hints the page via context. `min-w-0` +
+            `overflow-hidden` lets long crumb labels truncate via the
+            Breadcrumb's per-item max-widths instead of pushing the
+            search trigger off-screen or wrapping (which would break
+            the topbar's fixed py-2.5 height). */}
+        <div
           data-testid="topbar-section-label"
+          className="hidden min-w-0 flex-shrink overflow-hidden md:block"
         >
-          {label}
-        </h2>
+          <Breadcrumb items={items} />
+        </div>
 
         {/* Search trigger (center). Renders as a pill input but is a
             button — clicking dispatches the same custom event that ⌘K

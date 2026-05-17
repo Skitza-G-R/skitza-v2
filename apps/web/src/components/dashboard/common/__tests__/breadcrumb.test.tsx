@@ -35,9 +35,20 @@ describe("Breadcrumb", () => {
     expect(SRC).toMatch(/isLast/);
   });
 
-  it("uses a ChevronRight separator between crumbs", () => {
-    expect(SRC).toMatch(/ChevronRight/);
-    expect(SRC).toMatch(/from\s+["']lucide-react["']/);
+  it("uses a quiet custom SVG separator between crumbs (not lucide ChevronRight)", () => {
+    // Emil-pass polish — the separator is a hand-rolled 1.25-stroke
+    // SVG at --fg-faint, quieter than the crumb text so the eye
+    // glides past it. lucide's ChevronRight at stroke 2 was too
+    // visually loud against 13px crumb text.
+    expect(SRC).toMatch(/function CrumbSeparator/);
+    expect(SRC).toMatch(/strokeWidth="1\.25"/);
+    expect(SRC).toMatch(/--fg-faint/);
+    // And we no longer import anything from lucide-react here — the
+    // separator is the only thing that ever needed it. (We don't ban
+    // the literal "ChevronRight" string because we may reference it
+    // in code comments explaining the rationale.)
+    expect(SRC).not.toMatch(/from\s+["']lucide-react["']/);
+    expect(SRC).not.toMatch(/import\s+\{[^}]*ChevronRight[^}]*\}\s+from/);
   });
 
   it("uses canonical Skitza tokens (no forbidden ones)", () => {

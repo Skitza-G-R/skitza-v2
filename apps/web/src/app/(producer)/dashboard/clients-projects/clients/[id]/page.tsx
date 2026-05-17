@@ -1,7 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { notFound, redirect } from "next/navigation";
 
-import { Breadcrumb } from "~/components/dashboard/common/breadcrumb";
 import {
   ClientSpaceHero,
   type ClientSpaceHeroData,
@@ -10,6 +9,7 @@ import {
   ProjectRow,
   type ProjectRowData,
 } from "~/components/dashboard/projects/project-row";
+import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // /dashboard/clients-projects/clients/[id] — Client Space.
@@ -142,16 +142,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   return (
     <main className="sk-page-enter">
       <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
-        <Breadcrumb
-          className="mb-4"
-          items={[
-            {
-              label: "Clients & Projects",
-              href: "/dashboard/clients-projects",
-            },
-            { label: detail.contact.name },
-          ]}
-        />
+        <SetTopBarBreadcrumb crumbs={[{ label: detail.contact.name }]} />
         <ClientSpaceHero
           client={heroData}
           producerSlug={producerSlug}
