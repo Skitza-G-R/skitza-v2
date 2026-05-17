@@ -9,6 +9,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import type { Currency } from "~/app/(producer)/dashboard/booking/package-form";
+import { isTaxMode } from "~/lib/tax-mode";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { StoreScreen, type StoreProduct } from "./store-screen";
@@ -51,5 +52,13 @@ export default async function StorePage() {
     ? (profile.defaultCurrency as Currency)
     : "USD";
 
-  return <StoreScreen products={products} defaultCurrency={defaultCurrency} />;
+  const taxMode = isTaxMode(profile.taxMode) ? profile.taxMode : "none";
+
+  return (
+    <StoreScreen
+      products={products}
+      defaultCurrency={defaultCurrency}
+      taxMode={taxMode}
+    />
+  );
 }

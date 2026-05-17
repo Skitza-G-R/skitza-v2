@@ -1009,6 +1009,9 @@ const storeSubrouter = router({
           producerId: products.producerId,
           producerName: producers.displayName,
           producerSlug: producers.slug,
+          // Migration 0018 — business-level VAT disclosure mode.
+          // Surfaced on every product card next to the price.
+          producerTaxMode: producers.taxMode,
         })
         .from(products)
         .innerJoin(producers, eq(producers.id, products.producerId))
@@ -1047,6 +1050,7 @@ const storeSubrouter = router({
         producerId: r.producerId,
         producerName: r.producerName ?? "Untitled Studio",
         producerSlug: r.producerSlug,
+        producerTaxMode: r.producerTaxMode,
       }));
 
       return { products: mapped };
@@ -1075,6 +1079,9 @@ const storeSubrouter = router({
           producerId: products.producerId,
           producerName: producers.displayName,
           producerSlug: producers.slug,
+          // Migration 0018 — surface for the detail page's VAT
+          // footnote next to priceCents.
+          producerTaxMode: producers.taxMode,
         })
         .from(products)
         .innerJoin(producers, eq(producers.id, products.producerId))
@@ -1125,6 +1132,7 @@ const storeSubrouter = router({
         producerId: row.producerId,
         producerName: row.producerName ?? "Untitled Studio",
         producerSlug: row.producerSlug,
+        producerTaxMode: row.producerTaxMode,
       };
     }),
 
@@ -1363,6 +1371,11 @@ export type StoreProductRow = {
   producerId: string;
   producerName: string;
   producerSlug: string;
+  // Producer's business-level VAT disclosure mode. See ~/lib/tax-mode.
+  // String on the wire (free-text column) — the UI narrows via
+  // isTaxMode() or hands it straight to taxModeFootnote() which
+  // defaults unknown values to no footnote.
+  producerTaxMode: string;
 };
 
 // Artist-scoped router. All procedures here resolve "my studios" via

@@ -64,6 +64,10 @@ export async function updateProducer(input: {
   // Settings redesign — per-event notification preferences. Partial
   // map: keys not in the patch keep their existing values server-side.
   notificationPrefs?: Record<string, { email: boolean; app: boolean }>;
+  // Migration 0018 — business-level VAT / tax disclosure mode. Drives
+  // the artist-facing footnote on every product card and detail page.
+  // See ~/lib/tax-mode for the label + footnote helpers.
+  taxMode?: "none" | "vat_included" | "vat_exempt";
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -85,6 +89,14 @@ export async function updateProducer(input: {
     }
     // Post-Story-03: slug changes invalidate the /join/<slug> teaser.
     if (input.slug) revalidatePath(`/join/${input.slug}`);
+    // Migration 0018 — taxMode changes the VAT footnote on every
+    // product surface. Bust the storefront (producer's view) and
+    // every artist surface that renders prices.
+    if (input.taxMode) {
+      revalidatePath("/dashboard/profile");
+      revalidatePath("/artist/store", "layout");
+      revalidatePath("/join", "layout");
+    }
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

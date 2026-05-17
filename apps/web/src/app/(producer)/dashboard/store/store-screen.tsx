@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 
 import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
 import { useToast } from "~/components/ui/toast";
+import type { TaxMode } from "~/lib/tax-mode";
 
 import { DeleteConfirmModal } from "./delete-confirm-modal";
 import { EmptyState } from "./empty-state";
@@ -24,6 +25,7 @@ import { ProductEditor } from "./product-editor";
 import { StoreHeader } from "./store-header";
 import { StoreTable } from "./store-table";
 import { StoreToolbar } from "./store-toolbar";
+import { TaxModePicker } from "./tax-mode-picker";
 import { computeNewOrder, useDragReorder } from "./use-drag-reorder";
 import { useUndoableDelete } from "./use-undoable-delete";
 import type { ViewMode } from "./view-toggle";
@@ -53,9 +55,13 @@ export interface StoreProduct extends ProductCardData {
 interface StoreScreenProps {
   products: StoreProduct[];
   defaultCurrency: Currency;
+  // Migration 0018 — initial value for the inline TaxModePicker chip.
+  // Saved via the same updateProducer server action Settings uses, so
+  // the storefront and Settings stay in lockstep.
+  taxMode: TaxMode;
 }
 
-export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
+export function StoreScreen({ products, defaultCurrency, taxMode }: StoreScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
@@ -193,6 +199,13 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
   return (
     <div className="mx-auto w-full max-w-[1100px] px-4 pt-6 pb-24 sm:px-6 sm:pt-10">
       <StoreHeader liveCount={counts.live} hiddenCount={counts.hidden} />
+
+      {/* Migration 0018 — inline tax disclosure picker. Same write
+          path as Settings → Currency & region; convenient for
+          producers iterating on their store from this page. */}
+      <div className="mb-3 flex items-center justify-end">
+        <TaxModePicker initial={taxMode} />
+      </div>
 
       <div className="mb-4 flex justify-end">
         <NewProductButton

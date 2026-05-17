@@ -116,6 +116,21 @@ export const producers = pgTable("producers", {
     .$type<Record<string, { email: boolean; app: boolean }>>()
     .notNull()
     .default({}),
+  // Business-level VAT / tax disclosure mode. Three modes for v1
+  // (kept as free-text to avoid an enum migration later when we add
+  // 'vat_added' for B2B / +VAT-at-checkout flows):
+  //   * 'none'         — no tax line shown anywhere (default — non-IL
+  //                      producers, or pre-migration rows).
+  //   * 'vat_included' — listed prices already include 18% VAT. Render
+  //                      "Includes 18% VAT" footnote on every product
+  //                      surface. No math change.
+  //   * 'vat_exempt'   — Osek Patur (small-business exempt). Render
+  //                      "Exempt from VAT (Osek Patur)" footnote. No
+  //                      math change.
+  // The displayed price = the price the artist pays in all three
+  // modes; the only difference is the disclosure line. See
+  // ~/lib/tax-mode for the label + footnote helpers.
+  taxMode: text("tax_mode").notNull().default("none"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

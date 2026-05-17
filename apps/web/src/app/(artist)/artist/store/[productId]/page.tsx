@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { TRPCError } from "@trpc/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import { isTaxMode, taxModeFootnote } from "~/lib/tax-mode";
 import { StoreProductClient } from "./store-product-client";
 
 type PageProps = { params: Promise<{ productId: string }> };
@@ -54,6 +55,21 @@ export default async function StoreProductPage({ params }: PageProps) {
             {product.description}
           </p>
         ) : null}
+        {(() => {
+          // Migration 0018 — VAT disclosure footnote on the detail
+          // hero. Sits below the description so the artist sees it
+          // in the same eye-line as the product name + price.
+          const taxMode = isTaxMode(product.producerTaxMode)
+            ? product.producerTaxMode
+            : "none";
+          const footnote = taxModeFootnote(taxMode);
+          if (!footnote) return null;
+          return (
+            <p className="mt-3 text-[11.5px] text-[rgb(var(--fg-muted))]">
+              {footnote}
+            </p>
+          );
+        })()}
       </div>
 
       <StoreProductClient

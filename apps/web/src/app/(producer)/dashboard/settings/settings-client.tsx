@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 
 import { useToast } from "~/components/ui/toast";
 import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
+import {
+  TAX_MODES,
+  type TaxMode,
+  taxModeOptionLabel,
+  taxModeOptionSubLabel,
+} from "~/lib/tax-mode";
 import { updateProducer } from "./actions";
 import { PaymentCard } from "./payment-card";
 import { StripeCard } from "./stripe-card";
@@ -32,6 +38,9 @@ interface InitialState {
   weekStart: "sunday" | "monday";
   plan: "free" | "pro";
   notifications: NotificationState;
+  // Migration 0018 — business-level tax disclosure mode. Default 'none'
+  // for legacy rows pre-migration.
+  taxMode: TaxMode;
 }
 
 interface IdentityState {
@@ -58,6 +67,7 @@ interface FormState {
   displayName: string;
   defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
   weekStart: "sunday" | "monday";
+  taxMode: TaxMode;
 }
 
 export function SettingsClient({
@@ -85,6 +95,7 @@ export function SettingsClient({
     displayName: initial.displayName,
     defaultCurrency: initial.defaultCurrency,
     weekStart: initial.weekStart,
+    taxMode: initial.taxMode,
   };
 
   // `form` holds in-progress edits; `savedForm` is the last persisted
@@ -119,7 +130,8 @@ export function SettingsClient({
     if (form.displayName !== savedForm.displayName) out.add("profile");
     if (
       form.defaultCurrency !== savedForm.defaultCurrency ||
-      form.weekStart !== savedForm.weekStart
+      form.weekStart !== savedForm.weekStart ||
+      form.taxMode !== savedForm.taxMode
     ) {
       out.add("region");
     }
@@ -146,6 +158,7 @@ export function SettingsClient({
     if (form.defaultCurrency !== savedForm.defaultCurrency)
       patch.defaultCurrency = form.defaultCurrency;
     if (form.weekStart !== savedForm.weekStart) patch.weekStart = form.weekStart;
+    if (form.taxMode !== savedForm.taxMode) patch.taxMode = form.taxMode;
     if (JSON.stringify(notifs) !== JSON.stringify(savedNotifs)) {
       // Send only the event keys whose value diverges from saved.
       // The server's NotificationPrefsInput is a partial map; missing
@@ -1027,6 +1040,44 @@ function RegionSection({
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </div>
+        {/* Migration 0018 — business-level tax disclosure mode.
+            Lives next to Currency because the disclosure label only
+            makes sense paired with the price's currency. */}
+        <div className="s-row">
+          <div>
+            <div className="s-row-label">Tax disclosure</div>
+            <div className="s-row-hint">
+              Footnote shown to artists next to your prices. Pick one
+              that matches your business registration in your country.
+            </div>
+          </div>
+          <div className="s-row-field" style={{ maxWidth: 320 }}>
+            <select
+              className="s-select"
+              value={form.taxMode}
+              onChange={(e) => {
+                setForm({
+                  ...form,
+                  taxMode: e.target.value as TaxMode,
+                });
+              }}
+              aria-label="Tax disclosure mode"
+            >
+              {TAX_MODES.map((m) => (
+                <option key={m} value={m}>
+                  {taxModeOptionLabel(m)}
+                </option>
+              ))}
+            </select>
+            <div
+              className="s-row-hint"
+              style={{ marginTop: 6 }}
+              aria-live="polite"
+            >
+              {taxModeOptionSubLabel(form.taxMode)}
             </div>
           </div>
         </div>

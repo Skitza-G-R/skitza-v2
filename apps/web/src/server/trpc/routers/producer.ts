@@ -105,6 +105,9 @@ const UpdateInput = z.object({
   // Settings redesign — per-event notification preferences. Partial
   // merge: only the event keys present in the payload get rewritten.
   notificationPrefs: NotificationPrefsInput.optional(),
+  // Migration 0018 — business-level tax disclosure mode. See
+  // ~/lib/tax-mode for the label + footnote helpers.
+  taxMode: z.enum(["none", "vat_included", "vat_exempt"]).optional(),
 });
 
 // Marketing-grade meta the producer surfaces on their public /join page.
@@ -431,6 +434,8 @@ export const producerRouter = router({
       plan: row.plan,
       // Calendar week orientation. UI flips this between 'sun' / 'mon'.
       weekStart: row.weekStart,
+      // Migration 0018 — business-level tax disclosure mode.
+      taxMode: row.taxMode,
       // Per-event notification preferences. Empty object when the
       // producer hasn't touched the matrix yet — the client fills in
       // design defaults for missing keys (see resolveNotificationPrefs
