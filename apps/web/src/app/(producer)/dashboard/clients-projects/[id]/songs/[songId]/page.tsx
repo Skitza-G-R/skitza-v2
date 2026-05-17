@@ -281,20 +281,30 @@ export default async function SongDetail({ params }: PageProps) {
   // CTA based on versions[0].audioUrl presence.
 
   // Breadcrumb extras pushed to the sticky topbar (which always prepends
-  // the "Clients & Projects" section root). In album mode the project
-  // is its own page so we link to it; in single mode the album route
-  // would just redirect back to this song, so we skip the project crumb
-  // entirely.
+  // the "Clients & Projects" section root). Path reads:
+  //   Clients & Projects › <client> › <project> › <song>   (album mode)
+  //   Clients & Projects › <client> › <song>               (single mode)
+  // The client crumb only links to the client page when we resolved a
+  // matching client_contacts row — for legacy projects whose email
+  // never matched a contact, we still show the label as plain text so
+  // the producer sees the artist name in context.
+  const clientCrumb = clientContactId
+    ? {
+        label: clientName,
+        href: `/dashboard/clients-projects/clients/${clientContactId}`,
+      }
+    : { label: clientName };
   const breadcrumbExtras =
     mode === "album"
       ? [
+          clientCrumb,
           {
             label: data.project.title,
             href: `/dashboard/clients-projects/${data.project.id}`,
           },
           { label: song.title },
         ]
-      : [{ label: song.title }];
+      : [clientCrumb, { label: song.title }];
 
   return (
     <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
