@@ -91,4 +91,14 @@ describe("pricing-step.tsx source", () => {
   it("imports the shared pricing math from ~/lib/pricing", () => {
     expect(source).toMatch(/from\s+['"]~\/lib\/pricing['"]/);
   });
+
+  it("renders the 'Sessions per song' eyebrow on the per-song panel", () => {
+    expect(source).toMatch(/sessions per song/i);
+  });
+
+  it("renders an 'Unlimited' toggle inside the per-song panel (not just flat)", () => {
+    // Both panels share the same control labels, so we expect ≥2 hits.
+    const matches = source.match(/Unlimited/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
 });

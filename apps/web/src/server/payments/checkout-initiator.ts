@@ -13,6 +13,7 @@ import { buildCheckoutSessionParams } from "~/server/payments/checkout";
 import { calculateCharges } from "~/server/payments/plan";
 import { getOrCreateStripeCustomer } from "~/server/stripe/customer";
 import { getSiteUrl, getStripe } from "~/server/stripe/client";
+import { computeProjectSessionCount } from "~/lib/pricing";
 
 // ─── initiatePaidPlanCheckout ────────────────────────────────────────
 // Shared helper extracted from booking.publicRequest. Handles the
@@ -68,6 +69,7 @@ export async function initiatePaidPlanCheckout(args: {
     | "pricingModel"
     | "volumeTiers"
     | "hourlyRateCents"
+    | "sessionCount"
   >;
   paymentPlan: PaymentPlan;
   clientName: string;
@@ -178,6 +180,10 @@ export async function initiatePaidPlanCheckout(args: {
       // Per-song denormalisation — null on flat checkouts.
       songQty: args.songQty ?? null,
       unitPriceCents: args.unitPriceCents ?? null,
+      // Session credit pool: flat → product.sessionCount as-is;
+      // per_song → product.sessionCount * songQty. 0 stays 0
+      // (unlimited). Helper handles both branches.
+      sessionCount: computeProjectSessionCount(args.product, args.songQty),
     })
     .returning();
   if (!projectRow) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
