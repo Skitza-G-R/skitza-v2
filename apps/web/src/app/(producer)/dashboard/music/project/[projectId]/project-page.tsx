@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ChevronLeft,
   Clock3,
   MoreHorizontal,
   Play,
@@ -217,19 +216,11 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
             }
           />
 
-          {/* Top row: back button + ellipsis. Back arrow stays as an
-              explicit affordance — the topbar's "Music" link goes to
-              the same place, but the back arrow gives the hero its own
-              quick exit without forcing the eye up to the chrome. */}
-          <div className="reveal-up mb-6 flex items-center justify-between gap-3 text-white">
-            <Link
-              href="/dashboard/music"
-              aria-label="Back to Library"
-              title="Back to Library"
-              className="sk-press sk-trans inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 backdrop-blur-sm hover:bg-white/22"
-            >
-              <ChevronLeft size={14} strokeWidth={2.4} />
-            </Link>
+          {/* Top row: just the ellipsis (More actions) now. The back-
+              arrow that used to sit on the left was redundant with the
+              topbar's "Music" link — same destination, two affordances
+              — so design-critique flagged it for removal. */}
+          <div className="reveal-up mb-6 flex items-center justify-end gap-3 text-white">
             <button
               type="button"
               aria-label="More actions"

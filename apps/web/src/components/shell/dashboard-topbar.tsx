@@ -114,12 +114,14 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
       <div className="mx-auto flex w-full max-w-[1400px] items-center gap-3 px-4 py-2.5 sm:gap-4 sm:px-6 lg:px-8">
         {/* Breadcrumb (top-left). Hidden on the smallest screens
             where the search trigger needs the full row to read; the
-            search pill still hints the page via context. `min-w-0`
-            lets long crumb labels truncate instead of pushing the
-            search trigger off-screen. */}
+            search pill still hints the page via context. `min-w-0` +
+            `overflow-hidden` lets long crumb labels truncate via the
+            Breadcrumb's per-item max-widths instead of pushing the
+            search trigger off-screen or wrapping (which would break
+            the topbar's fixed py-2.5 height). */}
         <div
           data-testid="topbar-section-label"
-          className="hidden min-w-0 flex-shrink md:block"
+          className="hidden min-w-0 flex-shrink overflow-hidden md:block"
         >
           <Breadcrumb items={items} />
         </div>
