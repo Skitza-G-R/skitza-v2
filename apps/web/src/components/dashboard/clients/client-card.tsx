@@ -85,11 +85,12 @@ export function ClientCard({
     >
       <Link
         href={`/dashboard/clients-projects/clients/${id}`}
-        className="absolute inset-0 z-0 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+        className="absolute inset-0 z-10 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+        draggable={false}
         aria-label={`Open ${name}`}
       />
 
-      <div className="relative z-10 flex items-start gap-3">
+      <div className="flex items-start gap-3">
         <span
           // Mockup-match: client-card avatars are circular tiles on the
           // workspace grid (matches the HTML's .clicard avatar). The
@@ -132,7 +133,7 @@ export function ClientCard({
       </div>
 
       <div
-        className="relative z-10 grid grid-cols-3 gap-2 rounded-[var(--radius-sm)] border px-3 py-2.5"
+        className="grid grid-cols-3 gap-2 rounded-[var(--radius-sm)] border px-3 py-2.5"
         style={{
           background: "rgb(var(--bg-background))",
           borderColor: "rgb(var(--border-subtle))",
