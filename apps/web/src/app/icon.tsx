@@ -1,7 +1,14 @@
 import { ImageResponse } from "next/og";
 
-// Favicon — dynamic ImageResponse with amber ring on warm cream.
-// Matches the new :root palette; retires the obsidian+green v1.
+// Favicon — the product brand mark: amber rounded square with a dark
+// "S". Mirrors `<LogoMark>` (apps/web/src/components/brand/logo-mark.tsx)
+// at 32px. Same shape, same colors as the sidebar mark and the landing
+// lockup, so the browser tab, the WhatsApp / iMessage preview thumbnail,
+// and the in-app sidebar all read as one brand.
+//
+// The amber glow on LogoMark is dropped here — at 16-32px it would clip
+// to nothing. The solid amber + dark "S" stays legible at every favicon
+// size (browser tab 16, retina 32, link preview 24-32).
 export const size = { width: 32, height: 32 };
 export const contentType = "image/png";
 
@@ -15,23 +22,16 @@ export default function Icon() {
           height: "100%",
           alignItems: "center",
           justifyContent: "center",
-          background: "#F2EDE6",
+          background: "#D4960A",
           borderRadius: 7,
+          color: "#111009",
+          fontWeight: 800,
+          fontSize: 22,
+          lineHeight: 1,
+          letterSpacing: "-0.04em",
         }}
       >
-        <div
-          style={{
-            width: 18,
-            height: 18,
-            borderRadius: 9,
-            border: "2px solid #D4960A",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div style={{ width: 6, height: 6, borderRadius: 3, background: "#D4960A" }} />
-        </div>
+        S
       </div>
     ),
     size,
