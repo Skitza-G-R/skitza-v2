@@ -82,10 +82,14 @@ export default async function ProjectDetail({ params }: PageProps) {
     );
   }
 
-  // Parallel: money + sessions list (filtered to this project).
-  const [moneyResult, bookingsResult] = await Promise.allSettled([
+  // Parallel: money + sessions list (filtered to this project) + the
+  // contacts list (used ONLY to resolve a client_contacts.id for the
+  // topbar breadcrumb client crumb — matches the song-page pattern in
+  // ac4a112 so the client crumb is clickable when we can resolve it).
+  const [moneyResult, bookingsResult, clientsResult] = await Promise.allSettled([
     caller.project.money({ projectId: id }),
     caller.booking.list(),
+    caller.clientContacts.listWithProjects({ view: "by-client" }),
   ]);
 
   const money =
@@ -309,9 +313,40 @@ export default async function ProjectDetail({ params }: PageProps) {
       })()
     : null;
 
+  // Client crumb derivation (matches ac4a112 song-page pattern).
+  // Path reads: Clients & Projects › <client> › <project>. The crumb
+  // links to the client page when we resolved a matching contact;
+  // legacy projects whose email never matched a contact still render
+  // the label as plain text so the producer sees the artist in context.
+  const breadcrumbClientName = data.project.clientName ?? data.project.artistName;
+  const breadcrumbClientEmail: string =
+    data.project.clientEmail ?? data.project.artistEmail;
+  let breadcrumbClientContactId = "";
+  if (
+    clientsResult.status === "fulfilled" &&
+    clientsResult.value.view === "by-client" &&
+    breadcrumbClientEmail
+  ) {
+    const lower = breadcrumbClientEmail.toLowerCase();
+    const contact = clientsResult.value.clients.find(
+      (c) => c.email.toLowerCase() === lower,
+    );
+    if (contact) {
+      breadcrumbClientContactId = contact.id;
+    }
+  }
+  const breadcrumbClientCrumb = breadcrumbClientContactId
+    ? {
+        label: breadcrumbClientName,
+        href: `/dashboard/clients-projects/clients/${breadcrumbClientContactId}`,
+      }
+    : { label: breadcrumbClientName };
+
   return (
     <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
-      <SetTopBarBreadcrumb crumbs={[{ label: data.project.title }]} />
+      <SetTopBarBreadcrumb
+        crumbs={[breadcrumbClientCrumb, { label: data.project.title }]}
+      />
       <AlbumSpace
         project={project}
         tracks={tracks}
