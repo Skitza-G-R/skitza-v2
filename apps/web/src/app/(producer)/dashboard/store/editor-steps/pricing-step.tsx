@@ -87,14 +87,29 @@ function Stepper({
 }) {
   const canDec = !disabled && value > min;
   const canInc = !disabled && value < max;
+  // Shared button class — picked out to keep -/+ in lockstep.
+  // transition-[background-color,transform] (not transition-colors) so
+  // the active scale animates too. focus-visible ring matches the
+  // pattern from .s-select. active:scale-[0.94] gives the instant
+  // "interface heard you" feedback Emil prescribes for press states.
+  const btnClass = [
+    "inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))]",
+    "transition-[background-color,transform] duration-150",
+    "hover:bg-[rgb(17_16_9/0.06)]",
+    "active:scale-[0.94]",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
+    "disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100",
+  ].join(" ");
   return (
     <div
       className={[
         "inline-flex h-10 items-center gap-1 rounded-[10px] border bg-[rgb(var(--bg-elevated))] p-1",
+        "transition-[opacity,border-color] duration-200",
         disabled
           ? "border-[rgb(var(--border-subtle))] opacity-50"
           : "border-[rgb(var(--border-subtle))]",
       ].join(" ")}
+      style={{ transitionTimingFunction: "var(--ease-out-strong)" }}
       aria-label={ariaLabel}
     >
       <button
@@ -104,7 +119,8 @@ function Stepper({
         }}
         disabled={!canDec}
         aria-label="Decrease"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30"
+        className={btnClass}
+        style={{ transitionTimingFunction: "var(--ease-press)" }}
       >
         <Minus size={14} strokeWidth={2.4} aria-hidden />
       </button>
@@ -120,7 +136,8 @@ function Stepper({
         }}
         disabled={!canInc}
         aria-label="Increase"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30"
+        className={btnClass}
+        style={{ transitionTimingFunction: "var(--ease-press)" }}
       >
         <Plus size={14} strokeWidth={2.4} aria-hidden />
       </button>
@@ -429,9 +446,17 @@ export function PricingStep({
           {/* Sessions per song — same control as the flat panel, but
               the value means "sessions reserved per song the artist
               picks." Booking-time math multiplies by songQty (see
-              computeProjectSessionCount in ~/lib/pricing). */}
-          <div>
-            <Eyebrow>Sessions per song</Eyebrow>
+              computeProjectSessionCount in ~/lib/pricing). Eyebrow +
+              tiny descriptor on the left, control on the right —
+              reads as a supporting note to the rate ladder below,
+              not a rival heading. Wraps cleanly on narrow widths. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex items-baseline gap-2">
+              <Eyebrow>Sessions per song</Eyebrow>
+              <span className="text-[11px] text-[rgb(var(--fg-muted))]">
+                what each song includes
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <Stepper
                 value={sessions}
@@ -451,11 +476,13 @@ export function PricingStep({
                 aria-pressed={unlimitedSessions}
                 aria-label="Unlimited sessions"
                 className={[
-                  "sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold transition-colors",
+                  "sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold",
+                  "transition-[background-color,border-color,color] duration-200",
                   unlimitedSessions
                     ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
                     : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
                 ].join(" ")}
+                style={{ transitionTimingFunction: "var(--ease-out-strong)" }}
               >
                 Unlimited
               </button>
