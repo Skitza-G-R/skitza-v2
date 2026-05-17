@@ -2,6 +2,7 @@
 
 import { Bell, Search } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import {
   Breadcrumb,
@@ -84,6 +85,25 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
   const section = deriveSectionLabel(pathname);
   const extras = useTopBarBreadcrumb();
 
+  // Scroll-aware separation (Emil-pass polish). At scroll-top the
+  // topbar relies on backdrop-blur alone — no hard border, so the
+  // chrome blends elegantly into the page header area. Once the page
+  // has scrolled, we fade in a soft shadow + faint border to mark the
+  // boundary. The threshold (4px) is small enough that even a slight
+  // scroll lights it up; the transition is gentle (200ms ease-out) so
+  // it doesn't feel like a state toggle.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => {
+      setScrolled(window.scrollY > 4);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
   // Build the topbar breadcrumb. On a section root (no extras), we
   // show just the label — the in-page hero owns the rest of the
   // header. On deep pages, the section root becomes a clickable Link
@@ -105,10 +125,19 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
     <header
       aria-label="Page navigation"
       data-testid="dashboard-topbar"
-      className="sticky top-0 z-30 border-b backdrop-blur-md"
+      data-scrolled={scrolled ? "true" : "false"}
+      className="sticky top-0 z-30 backdrop-blur-md transition-[box-shadow,border-color] duration-200 ease-out"
       style={{
         background: "rgb(var(--bg-background) / 0.82)",
-        borderBottomColor: "rgb(var(--border-subtle))",
+        // Border + shadow fade in once the page has scrolled past 4px.
+        // At scroll-top the topbar floats with no hard line; the blur
+        // does the separation work.
+        borderBottom: scrolled
+          ? "1px solid rgb(var(--border-subtle) / 0.6)"
+          : "1px solid transparent",
+        boxShadow: scrolled
+          ? "0 1px 12px -4px rgb(17 16 9 / 0.06)"
+          : "none",
       }}
     >
       <div className="mx-auto flex w-full max-w-[1400px] items-center gap-3 px-4 py-2.5 sm:gap-4 sm:px-6 lg:px-8">
