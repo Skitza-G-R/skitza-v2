@@ -1,18 +1,46 @@
 import { ImageResponse } from "next/og";
 
-// Favicon — the product brand mark: amber rounded square with a dark
-// "S". Mirrors `<LogoMark>` (apps/web/src/components/brand/logo-mark.tsx)
-// at 32px. Same shape, same colors as the sidebar mark and the landing
-// lockup, so the browser tab, the WhatsApp / iMessage preview thumbnail,
-// and the in-app sidebar all read as one brand.
+// Favicon — Skitza's product mark: amber rounded square with a Syne
+// extrabold "S". Mirrors `<LogoMark>` (apps/web/src/components/brand/
+// logo-mark.tsx) and the landing nav lockup.
 //
-// The amber glow on LogoMark is dropped here — at 16-32px it would clip
-// to nothing. The solid amber + dark "S" stays legible at every favicon
-// size (browser tab 16, retina 32, link preview 24-32).
+// The "S" character is distinctive — Syne 800 has a heavy, geometric
+// stroke that reads as Skitza. System-ui bold "S" falls back to SF Pro
+// / Segoe / Cantarell which all look generic, so we fetch the actual
+// Syne font from Google Fonts at runtime. The font fetch only fires
+// when this image is generated; after that the PNG is edge-cached.
 export const size = { width: 32, height: 32 };
 export const contentType = "image/png";
 
-export default function Icon() {
+async function loadGoogleFont(
+  family: string,
+  text: string,
+): Promise<ArrayBuffer> {
+  // `text=` narrows the font subset to just the glyphs we need so the
+  // fetched file is < 5 KB instead of the full ~100 KB Syne payload.
+  const url = `https://fonts.googleapis.com/css2?family=${family}&text=${encodeURIComponent(text)}`;
+  const css = await (
+    await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      },
+    })
+  ).text();
+  const match = css.match(
+    /src: url\((.+?)\) format\('(opentype|truetype|woff2?)'\)/,
+  );
+  const fontUrl = match?.[1];
+  if (!fontUrl) throw new Error(`failed to find font src for ${family}`);
+  const fontRes = await fetch(fontUrl);
+  if (!fontRes.ok) {
+    throw new Error(`failed to fetch font file (${String(fontRes.status)})`);
+  }
+  return await fontRes.arrayBuffer();
+}
+
+export default async function Icon() {
+  const syne = await loadGoogleFont("Syne:wght@800", "S");
   return new ImageResponse(
     (
       <div
@@ -25,6 +53,7 @@ export default function Icon() {
           background: "#D4960A",
           borderRadius: 7,
           color: "#111009",
+          fontFamily: "Syne",
           fontWeight: 800,
           fontSize: 22,
           lineHeight: 1,
@@ -34,6 +63,9 @@ export default function Icon() {
         S
       </div>
     ),
-    size,
+    {
+      ...size,
+      fonts: [{ name: "Syne", data: syne, weight: 800, style: "normal" }],
+    },
   );
 }

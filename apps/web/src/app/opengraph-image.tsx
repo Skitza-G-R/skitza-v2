@@ -1,27 +1,67 @@
 import { ImageResponse } from "next/og";
 
 // Root OG image (1200x630). Surfaces when skitza.app is pasted into
-// WhatsApp / iMessage / Slack / Twitter / LinkedIn etc.
+// WhatsApp / iMessage / Slack / Twitter / LinkedIn / Telegram etc.
 //
-// Brand parity with the landing page (apps/web/src/components/landing/
-// landing-page.tsx):
-// - The lockup is `<LogoMark>` (amber rounded square with "S") + the
-//   lowercase "skitza." wordmark with an amber period — same identity
-//   the user sees the moment they click through.
-// - The thin amber rule before the small-caps tagline is the editorial
-//   "brand line" accent — same rhythm the landing hero uses.
-// - Cream canvas + amber bloom corner is the locked palette
-//   (--surface-base #F2EDE6, --brand-primary #D4960A).
+// Mirrors the landing-page hero (Hero() in apps/web/src/components/
+// landing/landing-page.tsx, 2026-05-17):
+// - Same obsidian background (#111009) with the warm cream type
+// - Same "NOW BOOKING · EARLY ACCESS" amber pill with glowing dot
+// - Same H1 — "One app. Your whole studio." — with amber periods
+// - Same lockup: amber "S" square + lowercase "skitza." wordmark
+// - Same subhead copy
+// Anyone who sees the link preview and then clicks through lands on a
+// page that visually continues the same composition — no whiplash.
 //
-// No custom font loading: Satori falls back to system-ui weight-800
-// which renders close enough to Syne extrabold at this size. If we
-// later want pixel-perfect Syne, we'd add a `fetch` of the Google Font
-// here and pass it to `ImageResponse({ fonts })`.
-export const alt = "Skitza — business automation for music producers";
+// Loads Syne extrabold from Google Fonts so the "S" mark and the
+// headline read with the brand's actual geometric weight, not a
+// generic system-ui bold. Outfit is loaded for the pill / subhead /
+// footer so they match the body type stack. Both are subset to only
+// the glyphs we render here (≈ 5 KB each instead of full payloads).
+export const alt =
+  "Skitza — one app. Your whole studio. Business automation for music producers.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-export default function OgImage() {
+async function loadGoogleFont(
+  family: string,
+  text: string,
+): Promise<ArrayBuffer> {
+  const url = `https://fonts.googleapis.com/css2?family=${family}&text=${encodeURIComponent(text)}`;
+  const css = await (
+    await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      },
+    })
+  ).text();
+  const match = css.match(
+    /src: url\((.+?)\) format\('(opentype|truetype|woff2?)'\)/,
+  );
+  const fontUrl = match?.[1];
+  if (!fontUrl) throw new Error(`failed to find font src for ${family}`);
+  const fontRes = await fetch(fontUrl);
+  if (!fontRes.ok) {
+    throw new Error(`failed to fetch font file (${String(fontRes.status)})`);
+  }
+  return await fontRes.arrayBuffer();
+}
+
+// All Syne glyphs we render — keep in sync with the JSX below so the
+// subset request stays minimal.
+const SYNE_TEXT =
+  "Sskitza.Oneapp.Yourwholestudio.NOWBOKIG·EARLYACCS";
+// All Outfit glyphs we render across the pill, subhead, and footer.
+const OUTFIT_TEXT =
+  "NOW BOOKING · EARLY ACCESS The producer dashboard that replaces Calendly, DocuSign, Stripe, Notion & WhatsApp. One link, one inbox, one bill — sessions book themselves and the mix delivers itself the moment the invoice clears.skitza.appBeta · Join the waiting listv1.0 — early access";
+
+export default async function OgImage() {
+  const [syne, outfit] = await Promise.all([
+    loadGoogleFont("Syne:wght@800", SYNE_TEXT),
+    loadGoogleFont("Outfit:wght@500", OUTFIT_TEXT),
+  ]);
+
   return new ImageResponse(
     (
       <div
@@ -32,17 +72,24 @@ export default function OgImage() {
           flexDirection: "column",
           justifyContent: "space-between",
           padding: 72,
-          backgroundColor: "#F2EDE6",
-          // Satori accepts only one background-image layer — pair a
-          // solid base with a single radial gradient for the amber bloom.
+          backgroundColor: "#111009",
+          // Amber bloom on the right — mirrors the hero's amber halo.
+          // Satori accepts a single background-image layer.
           backgroundImage:
-            "radial-gradient(ellipse at 85% 15%, rgba(212,150,10,0.32) 0%, transparent 60%)",
-          color: "#1A1714",
+            "radial-gradient(ellipse at 92% 30%, rgba(212,150,10,0.20) 0%, transparent 55%)",
+          color: "#F2EDE6",
+          fontFamily: "Outfit",
         }}
       >
-        {/* Brand lockup: amber "S" square + lowercase "skitza." wordmark
-            with the signature amber period. Matches the landing nav. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+        {/* Top row: brand lockup. Same as the landing nav. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 18,
+          }}
+        >
+          {/* Amber "S" square — the product mark. */}
           <div
             style={{
               width: 64,
@@ -53,98 +100,156 @@ export default function OgImage() {
               alignItems: "center",
               justifyContent: "center",
               color: "#111009",
+              fontFamily: "Syne",
               fontWeight: 800,
-              fontSize: 40,
+              fontSize: 42,
               lineHeight: 1,
               letterSpacing: "-0.04em",
-              boxShadow: "0 10px 28px rgba(212, 150, 10, 0.35)",
+              boxShadow: "0 10px 28px rgba(212, 150, 10, 0.4)",
             }}
           >
             S
           </div>
+          {/* Lowercase "skitza." wordmark with amber period. */}
           <div
             style={{
               display: "flex",
               alignItems: "baseline",
+              fontFamily: "Syne",
               fontSize: 48,
               fontWeight: 800,
-              letterSpacing: "-1.4px",
+              letterSpacing: "-1.6px",
               lineHeight: 1,
+              color: "#F2EDE6",
             }}
           >
             <div style={{ display: "flex" }}>skitza</div>
             <div style={{ display: "flex", color: "#D4960A" }}>.</div>
           </div>
-        </div>
-
-        {/* Headline block. */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-          {/* "Brand line" — thin amber rule + small-caps tagline.
-              The rule is the editorial accent that ties the card to the
-              landing-page rhythm. */}
-          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-            <div
-              style={{
-                width: 56,
-                height: 3,
-                background: "#D4960A",
-                borderRadius: 2,
-              }}
-            />
-            <div
-              style={{
-                fontSize: 22,
-                fontWeight: 600,
-                letterSpacing: 4,
-                textTransform: "uppercase",
-                color: "#B06830",
-              }}
-            >
-              Business automation for music producers
-            </div>
-          </div>
-
-          {/* Big headline — same copy as the landing hero. */}
+          {/* Version tag — sits in the gap to the right, mono feel. */}
           <div
             style={{
-              fontSize: 116,
-              fontWeight: 800,
-              lineHeight: 0.98,
-              letterSpacing: -4,
               display: "flex",
-              flexDirection: "column",
+              marginLeft: 18,
+              fontSize: 18,
+              fontWeight: 500,
+              color: "rgba(242, 237, 230, 0.5)",
+              letterSpacing: "0.02em",
             }}
           >
-            <div>Stop chasing payments.</div>
-            <div style={{ color: "#D4960A", fontStyle: "italic" }}>
-              Just make music.
-            </div>
-          </div>
-
-          {/* Subhead. */}
-          <div style={{ fontSize: 26, color: "#6B6560", maxWidth: 940 }}>
-            The only link you need. Clients book, sign, and pay automatically.
+            v1.0 — early access
           </div>
         </div>
 
-        {/* Footer wordmark row. */}
+        {/* Middle stack: pill + headline + subhead. */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+          {/* "NOW BOOKING · EARLY ACCESS" amber pill with glowing dot. */}
+          <div
+            style={{
+              display: "flex",
+              alignSelf: "flex-start",
+              alignItems: "center",
+              gap: 10,
+              padding: "8px 16px",
+              borderRadius: 8,
+              background: "rgba(212, 150, 10, 0.14)",
+              border: "1px solid rgba(212, 150, 10, 0.35)",
+              color: "#D4960A",
+              fontFamily: "Outfit",
+              fontSize: 16,
+              fontWeight: 500,
+              letterSpacing: 1.4,
+              textTransform: "uppercase",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                background: "#D4960A",
+                boxShadow: "0 0 12px #D4960A",
+              }}
+            />
+            Now booking · early access
+          </div>
+
+          {/* Huge headline — matches the H1 on the landing hero
+              (clamp 44/5.4vw/76px). On the 1200px OG card we have
+              ~1056px content width; at 80px Syne 800 with
+              letterSpacing -0.038em, the longer "Your whole studio."
+              line measures ~870px and fits comfortably on one line.
+              `alignItems: baseline` so the amber period sits on the
+              text baseline, not the stretched flex-item top. */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              fontFamily: "Syne",
+              fontWeight: 800,
+              fontSize: 80,
+              lineHeight: 0.95,
+              letterSpacing: "-0.038em",
+              color: "#F2EDE6",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline" }}>
+              <div style={{ display: "flex", whiteSpace: "nowrap" }}>
+                One app
+              </div>
+              <div style={{ display: "flex", color: "#D4960A" }}>.</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline" }}>
+              <div style={{ display: "flex", whiteSpace: "nowrap" }}>
+                Your whole studio
+              </div>
+              <div style={{ display: "flex", color: "#D4960A" }}>.</div>
+            </div>
+          </div>
+
+          {/* Subhead — same copy as the hero, muted cream. */}
+          <div
+            style={{
+              display: "flex",
+              fontSize: 24,
+              fontWeight: 500,
+              lineHeight: 1.45,
+              letterSpacing: "-0.005em",
+              color: "rgba(242, 237, 230, 0.62)",
+              maxWidth: 920,
+            }}
+          >
+            The producer dashboard that replaces Calendly, DocuSign, Stripe,
+            Notion & WhatsApp.
+          </div>
+        </div>
+
+        {/* Footer row: domain + waiting-list tag. */}
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            fontSize: 20,
-            color: "#8C8880",
+            fontFamily: "Outfit",
+            fontSize: 18,
+            color: "rgba(242, 237, 230, 0.45)",
             letterSpacing: 2,
             textTransform: "uppercase",
-            fontWeight: 600,
+            fontWeight: 500,
           }}
         >
-          <div>skitza.app</div>
-          <div>Beta · Join the waiting list</div>
+          <div style={{ display: "flex" }}>skitza.app</div>
+          <div style={{ display: "flex" }}>Beta · Join the waiting list</div>
         </div>
       </div>
     ),
-    size,
+    {
+      ...size,
+      fonts: [
+        { name: "Syne", data: syne, weight: 800, style: "normal" },
+        { name: "Outfit", data: outfit, weight: 500, style: "normal" },
+      ],
+    },
   );
 }
