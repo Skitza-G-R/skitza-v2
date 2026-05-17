@@ -51,6 +51,15 @@ describe("DashboardTopBar", () => {
     expect(SRC).toMatch(/hidden[\s\S]{0,200}md:block/);
   });
 
+  it("renders the section label inside a <Breadcrumb /> so deep pages can append crumbs", () => {
+    // Single source of truth for in-page navigation — the in-page
+    // Breadcrumb under each deep hero was removed in favour of a
+    // context that pushes extras up to this single topbar surface.
+    expect(SRC).toContain("Breadcrumb");
+    expect(SRC).toContain("useTopBarBreadcrumb");
+    expect(SRC).toMatch(/<Breadcrumb\s+items=\{items\}/);
+  });
+
   it("renders a search trigger that dispatches skitza:open-palette", () => {
     // Reusing the existing CommandPaletteTrigger event keeps a single
     // source of truth — ⌘K and the visual trigger open the same UI.

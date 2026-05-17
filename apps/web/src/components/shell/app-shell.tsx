@@ -10,6 +10,7 @@ import { CoachmarkTour } from "./coachmark-tour";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
 import { DashboardTopBar } from "./dashboard-topbar";
 import { ShortcutsBridge } from "./shortcuts-bridge";
+import { TopBarBreadcrumbProvider } from "./topbar-breadcrumb-context";
 
 // AppShell — Phase 2 (locked design system).
 //
@@ -78,13 +79,19 @@ export async function AppShell({ children }: { children: ReactNode }) {
         tabIndex={-1}
         className="min-w-0 flex-1 pb-20 lg:pb-0"
       >
-        {/* Sticky topbar from the HTML mockup: section label · search
+        {/* Sticky topbar from the HTML mockup: breadcrumb · search
             trigger · notifications bell. Sits at the top of <main> so
             it spans the content area (not the sidebar), and uses
             position:sticky so it stays pinned during scroll without
-            stealing focus order from the page below. */}
-        <DashboardTopBar unreadCount={unreadCount} />
-        {children}
+            stealing focus order from the page below. Wrapped in the
+            TopBarBreadcrumb provider so deep pages can publish their
+            own crumbs (client name, project title, song title) to the
+            single topbar surface instead of rendering a duplicate
+            breadcrumb of their own. */}
+        <TopBarBreadcrumbProvider>
+          <DashboardTopBar unreadCount={unreadCount} />
+          {children}
+        </TopBarBreadcrumbProvider>
       </main>
 
       <ProducerBottomNav />
