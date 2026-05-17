@@ -29,6 +29,7 @@ import {
   padIndex,
   sumDurations,
 } from "~/components/dashboard/music/lib";
+import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 
 // ─── Wire types ──────────────────────────────────────────────────────
 
@@ -197,27 +198,26 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
             padding: "clamp(36px, 4.4vw, 56px) clamp(28px, 3vw, 36px) clamp(30px, 3vw, 40px)",
           }}
         >
-          {/* Top row: back button + eyebrow + ellipsis */}
+          {/* Publishes the project title to the sticky topbar so the
+              full path reads "Music › <project>". Replaces the in-hero
+              "Library › {kind}" breadcrumb that duplicated the topbar's
+              section label. The kind ("SINGLE" / "ALBUM" / "EP") is
+              still visible as the eyebrow above the project title. */}
+          <SetTopBarBreadcrumb crumbs={[{ label: data.project.title }]} />
+
+          {/* Top row: back button + ellipsis. Back arrow stays as an
+              explicit affordance — the topbar's "Music" link goes to
+              the same place, but the back arrow gives the hero its own
+              quick exit without forcing the eye up to the chrome. */}
           <div className="reveal-up mb-6 flex items-center justify-between gap-3 text-white">
-            <div className="flex items-center gap-3">
-              <Link
-                href="/dashboard/music"
-                aria-label="Back to Library"
-                title="Back to Library"
-                className="sk-press sk-trans inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 backdrop-blur-sm hover:bg-white/22"
-              >
-                <ChevronLeft size={14} strokeWidth={2.4} />
-              </Link>
-              <span
-                className="font-mono text-[10.5px] font-bold uppercase"
-                style={{
-                  letterSpacing: "0.06em",
-                  color: "rgba(255,255,255,0.65)",
-                }}
-              >
-                Library <span aria-hidden>›</span> {kind}
-              </span>
-            </div>
+            <Link
+              href="/dashboard/music"
+              aria-label="Back to Library"
+              title="Back to Library"
+              className="sk-press sk-trans inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 backdrop-blur-sm hover:bg-white/22"
+            >
+              <ChevronLeft size={14} strokeWidth={2.4} />
+            </Link>
             <button
               type="button"
               aria-label="More actions"
