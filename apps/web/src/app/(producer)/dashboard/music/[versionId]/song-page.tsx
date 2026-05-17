@@ -475,18 +475,27 @@ export function SongPage({ data }: { data: SongPageData }) {
     setOverflowOpen(false);
   }
 
+  // Topbar crumbs: Music › <client>? › <project> › <song>. Client is
+  // plain text here — the Music section doesn't fetch the contact id,
+  // so we can't link to /dashboard/clients-projects/clients/<id> yet.
+  // The clients-projects song page DOES link; if/when we add contact
+  // resolution to the Music wire, this can match that pattern.
+  const clientCrumb = data.track.clientName
+    ? [{ label: data.track.clientName }]
+    : [];
+  const topbarCrumbs = [
+    ...clientCrumb,
+    {
+      label: data.track.projectTitle,
+      href: `/dashboard/music/project/${data.track.projectId}`,
+    },
+    { label: data.track.title },
+  ];
+
   if (!activeVersion) {
     return (
       <main className="mx-auto max-w-[1120px] px-4 py-12 sm:px-6">
-        <SetTopBarBreadcrumb
-          crumbs={[
-            {
-              label: data.track.projectTitle,
-              href: `/dashboard/music/project/${data.track.projectId}`,
-            },
-            { label: data.track.title },
-          ]}
-        />
+        <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
         <p className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 text-center text-[13px] text-[rgb(var(--fg-muted))]">
           This track has no versions yet.
         </p>
@@ -537,22 +546,15 @@ export function SongPage({ data }: { data: SongPageData }) {
         />
 
         <div className="relative mx-auto max-w-[1120px] px-4 pt-3 pb-4 sm:px-6 sm:pt-4 sm:pb-5">
-          {/* Publishes Music › <project> › <song> to the sticky topbar.
-              Replaces the "← Library" back-pill that used to live on
-              this row — clicking "Music" in the topbar does the same
-              thing now. The project crumb links to the Music project
-              page (same section), not the clients-projects album page;
-              the latter is still reachable via the cross-link pill on
-              the right of this row. */}
-          <SetTopBarBreadcrumb
-            crumbs={[
-              {
-                label: data.track.projectTitle,
-                href: `/dashboard/music/project/${data.track.projectId}`,
-              },
-              { label: data.track.title },
-            ]}
-          />
+          {/* Publishes Music › <client>? › <project> › <song> to the
+              sticky topbar (see topbarCrumbs above). Replaces the
+              "← Library" back-pill that used to live on this row —
+              clicking "Music" in the topbar does the same thing now.
+              The project crumb links to the Music project page (same
+              section), not the clients-projects album page; the latter
+              is still reachable via the cross-link pill on the right
+              of this row. */}
+          <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
 
           {/* Cross-section link row — only the project-room pill
               remains. It jumps to clients-projects (a DIFFERENT

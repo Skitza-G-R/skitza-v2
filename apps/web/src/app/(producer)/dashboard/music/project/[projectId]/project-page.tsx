@@ -198,12 +198,24 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
             padding: "clamp(36px, 4.4vw, 56px) clamp(28px, 3vw, 36px) clamp(30px, 3vw, 40px)",
           }}
         >
-          {/* Publishes the project title to the sticky topbar so the
-              full path reads "Music › <project>". Replaces the in-hero
-              "Library › {kind}" breadcrumb that duplicated the topbar's
-              section label. The kind ("SINGLE" / "ALBUM" / "EP") is
-              still visible as the eyebrow above the project title. */}
-          <SetTopBarBreadcrumb crumbs={[{ label: data.project.title }]} />
+          {/* Publishes Music › <client>? › <project> to the sticky
+              topbar. Replaces the in-hero "Library › {kind}" breadcrumb
+              that duplicated the topbar's section label. The kind
+              ("SINGLE" / "ALBUM" / "EP") is still visible as the
+              eyebrow above the project title. Client is plain text
+              here (no link) because the Music section doesn't fetch
+              the contact id — the clients-projects album page DOES
+              link to the client when it has the contact resolved. */}
+          <SetTopBarBreadcrumb
+            crumbs={
+              data.project.clientName
+                ? [
+                    { label: data.project.clientName },
+                    { label: data.project.title },
+                  ]
+                : [{ label: data.project.title }]
+            }
+          />
 
           {/* Top row: back button + ellipsis. Back arrow stays as an
               explicit affordance — the topbar's "Music" link goes to
