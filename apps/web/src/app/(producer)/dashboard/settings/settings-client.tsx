@@ -1072,8 +1072,14 @@ function RegionSection({
                 </option>
               ))}
             </select>
+            {/* key={form.taxMode} re-mounts on every change so the
+                .s-reveal entrance fires — gives the sub-label a 220ms
+                fade-up at the matching ease-out-strong curve the rest
+                of Settings already uses. aria-live keeps screen readers
+                in sync with the visual cue. */}
             <div
-              className="s-row-hint"
+              key={form.taxMode}
+              className="s-row-hint s-reveal"
               style={{ marginTop: 6 }}
               aria-live="polite"
             >

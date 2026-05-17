@@ -31,6 +31,12 @@ export default async function StoreProductPage({ params }: PageProps) {
     throw e;
   }
 
+  // Resolve VAT footnote once at the top so the hero render stays
+  // declarative — no inline IIFE.
+  const taxFootnote = taxModeFootnote(
+    isTaxMode(product.producerTaxMode) ? product.producerTaxMode : "none",
+  );
+
   return (
     <div className="space-y-5">
       <Link
@@ -55,21 +61,24 @@ export default async function StoreProductPage({ params }: PageProps) {
             {product.description}
           </p>
         ) : null}
-        {(() => {
-          // Migration 0018 — VAT disclosure footnote on the detail
-          // hero. Sits below the description so the artist sees it
-          // in the same eye-line as the product name + price.
-          const taxMode = isTaxMode(product.producerTaxMode)
-            ? product.producerTaxMode
-            : "none";
-          const footnote = taxModeFootnote(taxMode);
-          if (!footnote) return null;
-          return (
-            <p className="mt-3 text-[11.5px] text-[rgb(var(--fg-muted))]">
-              {footnote}
-            </p>
-          );
-        })()}
+        {/* Migration 0018 — VAT disclosure. Separated by a hairline
+            divider + tiny uppercase eyebrow so the line reads as a
+            legal/financial tag, not a continuation of the description.
+            Matches the producer-name eyebrow at the top of the hero
+            for visual symmetry. */}
+        {taxFootnote ? (
+          <div className="mt-4 flex items-center gap-2 border-t border-[rgb(var(--border-subtle))] pt-3">
+            <span
+              className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]"
+              aria-hidden
+            >
+              Tax
+            </span>
+            <span className="text-[11.5px] tabular-nums text-[rgb(var(--fg-muted))]">
+              {taxFootnote}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <StoreProductClient

@@ -77,8 +77,20 @@ export function ProductCard({
               Discounts for bigger projects
             </span>
           ) : null}
+          {/* VAT disclosure — visually distinct from the discount line.
+              Tiny leading dot anchor + tabular-nums on the % so it
+              reads as a legal/financial tag, not a marketing claim.
+              key={taxFootnote} re-mounts when the producer toggles
+              mode so the .reveal-up entrance fires once on change. */}
           {taxFootnote ? (
-            <span className="text-[10.5px] font-medium text-[rgb(var(--fg-muted))]">
+            <span
+              key={taxFootnote}
+              className="reveal-up flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.06em] tabular-nums text-[rgb(var(--fg-muted))]"
+            >
+              <span
+                aria-hidden
+                className="inline-block h-1 w-1 rounded-full bg-[rgb(var(--fg-faint))]"
+              />
               {taxFootnote}
             </span>
           ) : null}
