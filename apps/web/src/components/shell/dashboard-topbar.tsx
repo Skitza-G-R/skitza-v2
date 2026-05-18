@@ -126,15 +126,20 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
       aria-label="Page navigation"
       data-testid="dashboard-topbar"
       data-scrolled={scrolled ? "true" : "false"}
-      // backdrop-blur-2xl (40px) + ultra-low bg opacity (0.15) reads as
-      // true frosted glass — the page color underneath comes through
-      // clearly, just blurred and slightly lightened. Like the iOS
-      // Music or Apple Notes topbar where you can see the content
-      // scrolling beneath. Previous values (0.4, 0.55) were too
-      // cream-heavy and masked the bleed-through.
-      className="sticky top-0 z-30 backdrop-blur-2xl transition-[box-shadow,border-color] duration-200 ease-out"
+      // Explicit 60px blur via arbitrary class + ultra-low bg opacity
+      // (0.1) is what gives the true iOS-Music frosted-glass effect.
+      // Combined with the -mt-[40px] children wrapper in AppShell (so
+      // page heroes actually fill BEHIND the topbar instead of below
+      // it), the colored gradient now blurs through immediately at
+      // scroll-top — no scrolling required to see the effect.
+      //
+      // WebkitBackdropFilter set inline because Tailwind v4 doesn't
+      // emit the WebKit prefix automatically for arbitrary blur
+      // values, and Safari requires it for backdrop-filter to render.
+      className="sticky top-0 z-30 backdrop-blur-[60px] transition-[box-shadow,border-color] duration-200 ease-out"
       style={{
-        background: "rgb(var(--bg-background) / 0.15)",
+        background: "rgb(var(--bg-background) / 0.1)",
+        WebkitBackdropFilter: "blur(60px)",
         // Border + shadow fade in once the page has scrolled past 4px.
         // At scroll-top the topbar floats with no hard line; the blur
         // does the separation work.
