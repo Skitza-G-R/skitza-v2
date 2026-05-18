@@ -712,15 +712,20 @@ function SocialLinksSection({
           <button
             type="submit"
             disabled={adding || !url.trim()}
-            className="group/add-link inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-4 py-2 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <span>{adding ? "Adding…" : "Add"}</span>
-            <span
+            <svg
+              viewBox="0 0 16 16"
+              className="h-3.5 w-3.5 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
               aria-hidden="true"
-              className="grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.22)] text-[10px] transition-transform duration-300 ease-out group-hover/add-link:translate-x-[2px] group-hover/add-link:-translate-y-[1px]"
             >
-              ↗
-            </span>
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+            <span>{adding ? "Adding…" : "Add"}</span>
           </button>
         </div>
         {error ? (
@@ -910,15 +915,21 @@ function AddFromLibraryButton({
         onClick={() => {
           setOpen(true);
         }}
-        className="group/add-lib inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-medium text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <span>Add from music library</span>
-        <span
+        <svg
+          viewBox="0 0 16 16"
+          className="h-4 w-4 shrink-0"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
           aria-hidden="true"
-          className="grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.22)] text-[10px] transition-transform duration-300 ease-out group-hover/add-lib:translate-x-[1px] group-hover/add-lib:-translate-y-[1px]"
         >
-          +
-        </span>
+          {/* plus glyph */}
+          <path d="M8 3v10M3 8h10" />
+        </svg>
+        <span>Add from music library</span>
       </button>
 
       <LibraryPickerModal
