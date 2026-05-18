@@ -68,11 +68,12 @@ interface PricingStepProps {
   taxMode?: TaxMode;
   taxRatePct?: number;
   onTaxChange?: (patch: { taxMode?: TaxMode; taxRatePct?: number }) => void;
-  // Surfaces in-flight + error state for the optimistic onTaxChange
-  // save. `taxPending` paints the .sk-pending-pulse outline on the
-  // toggle; `taxError` is a short string shown below the toggle. Both
-  // optional — onboarding doesn't pass these.
-  taxPending?: boolean;
+  // Optional error surface for the fire-and-forget tax save. Renders
+  // a small danger-color line below the toggle when set. Pending
+  // state is deliberately NOT surfaced — the toggle's slide
+  // animation is the only feedback the producer gets, so a
+  // server roundtrip + router.refresh() doesn't make the
+  // optimistic move feel slow.
   taxError?: string | null;
   // When false, the "How do you want to charge?" pill is hidden and
   // the step renders flat-price-only. Used by onboarding's first-
@@ -201,7 +202,6 @@ export function PricingStep({
   taxMode = "tax_free",
   taxRatePct = 18,
   onTaxChange,
-  taxPending = false,
   taxError = null,
   allowPerSong = true,
   onChange,
@@ -428,8 +428,6 @@ export function PricingStep({
                   }}
                   size="lg"
                   inline
-                  disabled={taxPending}
-                  className={taxPending ? "sk-pending-pulse" : ""}
                   ariaLabel="Tax disclosure mode"
                 />
                 {taxMode !== "tax_free" ? (
@@ -452,7 +450,6 @@ export function PricingStep({
                         });
                       }}
                       aria-label="Tax rate percentage"
-                      disabled={taxPending}
                       className="w-10 border-none bg-transparent text-right font-display text-[14px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))] outline-none"
                     />
                     <span

@@ -241,7 +241,6 @@ export function ProductEditor({
   // updateProducer server action Settings used to use.
   const [taxModeLocal, setTaxModeLocal] = useState(taxMode);
   const [taxRateLocal, setTaxRateLocal] = useState(taxRatePct);
-  const [taxPending, setTaxPending] = useState(false);
   const [taxError, setTaxError] = useState<string | null>(null);
   // Re-sync when the modal reopens with a fresh producer state
   // (e.g. another session updated the tax mode while this one was
@@ -250,7 +249,15 @@ export function ProductEditor({
     setTaxModeLocal(taxMode);
     setTaxRateLocal(taxRatePct);
   }, [taxMode, taxRatePct]);
-  async function onTaxChange(patch: {
+  // Tax saves are fully optimistic + silent. The toggle's slide
+  // animation is the only visible feedback the producer gets — no
+  // pulse, no spinner, no "Saving…" copy — because the server save
+  // takes ~300-500ms and router.refresh() adds another ~1s of
+  // server re-render. Showing a loading state for the full ~1.5s
+  // makes the toggle FEEL slow even though the visual already
+  // moved instantly. Trade-off: if a save fails, we silently roll
+  // back local state + surface a toast.
+  function onTaxChange(patch: {
     taxMode?: import("~/lib/tax-mode").TaxMode;
     taxRatePct?: number;
   }) {
@@ -259,31 +266,34 @@ export function ProductEditor({
     if (patch.taxMode !== undefined) setTaxModeLocal(patch.taxMode);
     if (patch.taxRatePct !== undefined) setTaxRateLocal(patch.taxRatePct);
     setTaxError(null);
-    setTaxPending(true);
-    try {
-      const { updateProducer } = await import(
-        "~/app/(producer)/dashboard/settings/actions"
-      );
-      const res = await updateProducer(patch);
-      if (res.ok) {
-        // Refresh server-rendered surfaces (storefront, artist store)
-        // so the new tax line propagates to everywhere prices render.
-        router.refresh();
-      } else {
+    // Fire-and-forget. `void` keeps the function signature
+    // synchronous so the caller doesn't await; the rollback +
+    // toast handlers below take over only if the save fails.
+    void (async () => {
+      try {
+        const { updateProducer } = await import(
+          "~/app/(producer)/dashboard/settings/actions"
+        );
+        const res = await updateProducer(patch);
+        if (res.ok) {
+          // Refresh server-rendered surfaces (storefront cards,
+          // artist store) so the new tax line propagates. Happens
+          // in the background — no visible "pending" state.
+          router.refresh();
+        } else {
+          setTaxModeLocal(prevMode);
+          setTaxRateLocal(prevRate);
+          setTaxError(res.error);
+          toast(res.error, "error");
+        }
+      } catch (e) {
         setTaxModeLocal(prevMode);
         setTaxRateLocal(prevRate);
-        setTaxError(res.error);
-        toast(res.error, "error");
+        const msg = e instanceof Error ? e.message : "Couldn't save.";
+        setTaxError(msg);
+        toast(msg, "error");
       }
-    } catch (e) {
-      setTaxModeLocal(prevMode);
-      setTaxRateLocal(prevRate);
-      const msg = e instanceof Error ? e.message : "Couldn't save.";
-      setTaxError(msg);
-      toast(msg, "error");
-    } finally {
-      setTaxPending(false);
-    }
+    })();
   }
 
   const mode: "new" | "edit" = product != null ? "edit" : "new";
@@ -443,13 +453,7 @@ export function ProductEditor({
             volumeTiers={draft.volumeTiers}
             taxMode={taxModeLocal}
             taxRatePct={taxRateLocal}
-            onTaxChange={(patch) => {
-              // Fire-and-forget — onTaxChange is async but the prop
-              // signature is void. The function handles its own
-              // toast/rollback on error.
-              void onTaxChange(patch);
-            }}
-            taxPending={taxPending}
+            onTaxChange={onTaxChange}
             taxError={taxError}
             onChange={(patch) => {
               setDraft((d) => ({ ...d, ...patch }));
