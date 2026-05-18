@@ -57,13 +57,13 @@ export default async function PortfolioPage() {
 
   return (
     <div className="sk-page-enter mx-auto max-w-[1180px] px-6 pb-24 pt-8">
-      <header className="mb-10 flex items-end justify-between gap-6">
-        <div>
-          <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+      <header className="mb-12 flex items-end justify-between gap-6">
+        <div className="sk-stagger-item" style={{ "--i": 0 } as React.CSSProperties}>
+          <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
             PORTFOLIO
           </p>
           <h1
-            className="mt-2 font-display font-extrabold leading-[0.96] tracking-[-0.035em] text-[rgb(var(--fg-default))]"
+            className="mt-3 font-display font-extrabold leading-[0.92] tracking-[-0.038em] text-[rgb(var(--fg-default))]"
             style={{ fontSize: "clamp(48px, 7.5vw, 88px)" }}
           >
             Portfolio
@@ -74,13 +74,22 @@ export default async function PortfolioPage() {
           href={publicProfileUrl}
           target="_blank"
           rel="noreferrer noopener"
-          className="group/view-public inline-flex shrink-0 items-center gap-2 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-5 py-2.5 text-sm text-[rgb(var(--fg-primary))] transition-colors hover:bg-[rgb(var(--bg-overlay))]"
-          style={{ fontWeight: 500 }}
+          className="group/view-public sk-press sk-stagger-item inline-flex shrink-0 items-center gap-2.5 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-5 py-2.5 text-sm text-[rgb(var(--fg-primary))]"
+          style={{
+            fontWeight: 500,
+            transition:
+              "background-color 240ms var(--ease-out-strong), border-color 240ms var(--ease-out-strong), transform 200ms var(--ease-press)",
+            ...({ "--i": 1 } as React.CSSProperties),
+          }}
         >
           <span>View public page</span>
           <span
             aria-hidden="true"
-            className="grid h-5 w-5 place-items-center rounded-full border border-[rgb(var(--border-strong))] text-[11px] transition-transform group-hover/view-public:translate-x-[2px] group-hover/view-public:-translate-y-[1px]"
+            className="grid h-5 w-5 place-items-center rounded-full border border-[rgb(var(--border-strong))] text-[11px] text-[rgb(var(--fg-secondary))] group-hover/view-public:border-[rgb(var(--fg-primary))] group-hover/view-public:text-[rgb(var(--fg-primary))] group-hover/view-public:translate-x-[2px] group-hover/view-public:-translate-y-[1px]"
+            style={{
+              transition:
+                "transform 280ms var(--ease-out-strong), border-color 240ms var(--ease-out-strong), color 240ms var(--ease-out-strong)",
+            }}
           >
             ↗
           </span>

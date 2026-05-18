@@ -141,11 +141,19 @@ export function PortfolioPanel({
   addedAudioUrls: string[];
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,38fr)_minmax(0,62fr)] gap-10">
-      <div data-portfolio-col="left">
+    <div className="grid grid-cols-[minmax(0,38fr)_minmax(0,62fr)] gap-12">
+      <div
+        data-portfolio-col="left"
+        className="sk-stagger-item"
+        style={{ "--i": 2 } as React.CSSProperties}
+      >
         <SocialLinksSection initialLinks={links} />
       </div>
-      <div data-portfolio-col="right">
+      <div
+        data-portfolio-col="right"
+        className="sk-stagger-item"
+        style={{ "--i": 3 } as React.CSSProperties}
+      >
         <FeaturedTracksSection
           initialTracks={tracks}
           library={library}
@@ -212,16 +220,16 @@ function FeaturedTracksSection({
       aria-labelledby="portfolio-tracks-heading"
       className="sk-portfolio-section"
     >
-      <header className="mb-4 flex items-end justify-between gap-3">
+      <header className="mb-5 flex items-end justify-between gap-3">
         <div>
           <h2
             id="portfolio-tracks-heading"
-            className="font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+            className="font-display text-2xl leading-none tracking-[-0.015em] text-[rgb(var(--fg-primary))]"
             style={{ fontWeight: 700 }}
           >
             Featured tracks
           </h2>
-          <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+          <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
             PICK YOUR BEST. ARROWS REORDER.
           </p>
         </div>
@@ -235,7 +243,7 @@ function FeaturedTracksSection({
       {atCap ? (
         <p
           aria-live="polite"
-          className="mb-3 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]"
+          className="mb-3 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
         >
           LIMIT REACHED ({TRACK_CAP}/{TRACK_CAP})
         </p>
@@ -247,7 +255,7 @@ function FeaturedTracksSection({
           addedAudioUrls={addedAudioUrls}
         />
       ) : (
-        <ul className="space-y-3">
+        <ul className="space-y-2.5">
           {rows.map((row, idx) => (
             <TrackRow
               key={row.id}
@@ -278,9 +286,9 @@ function FeaturedTracksEmpty({
   return (
     <div
       role="status"
-      className="flex flex-col items-center justify-center gap-3 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-6 py-12 text-center"
+      className="flex flex-col items-center justify-center gap-4 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken)/0.6)] px-6 py-14 text-center"
     >
-      <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
         NO FEATURED TRACKS YET. ADD ONE FROM YOUR MUSIC LIBRARY.
       </p>
       <AddFromLibraryButton
@@ -344,8 +352,14 @@ function TrackRow({
   const downDisabled = !canReorder("down", index, total);
 
   return (
-    <li>
-      <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.4)] ring-1 ring-[rgb(var(--border-subtle))]">
+    <li className="group/track">
+      <div
+        className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.35)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:ring-[rgb(var(--border-strong))] group-hover/track:bg-[rgb(var(--bg-overlay)/0.55)]"
+        style={{
+          transition:
+            "background-color 280ms var(--ease-out-strong), box-shadow 280ms var(--ease-out-strong)",
+        }}
+      >
         <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-base))] px-4 py-3">
           {/* ▲▼ reorder */}
           <div className="flex flex-col gap-0.5">
@@ -356,7 +370,11 @@ function TrackRow({
               onClick={() => {
                 onReorder("up");
               }}
-              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30 disabled:hover:bg-transparent active:scale-[0.92]"
+              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:scale-[0.92] disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--fg-secondary))]"
+              style={{
+                transition:
+                  "background-color 200ms var(--ease-out-strong), color 200ms var(--ease-out-strong), transform 160ms var(--ease-press), opacity 200ms var(--ease-out-strong)",
+              }}
             >
               <svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
                 <path d="M6 3l4 5H2z" />
@@ -369,7 +387,11 @@ function TrackRow({
               onClick={() => {
                 onReorder("down");
               }}
-              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30 disabled:hover:bg-transparent active:scale-[0.92]"
+              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:scale-[0.92] disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--fg-secondary))]"
+              style={{
+                transition:
+                  "background-color 200ms var(--ease-out-strong), color 200ms var(--ease-out-strong), transform 160ms var(--ease-press), opacity 200ms var(--ease-out-strong)",
+              }}
             >
               <svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
                 <path d="M6 9l4-5H2z" />
@@ -384,11 +406,15 @@ function TrackRow({
             disabled={!row.audioUrl}
             onClick={togglePlay}
             className={[
-              "grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
+              "grid h-9 w-9 shrink-0 place-items-center rounded-full active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
               playing
-                ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))]"
-                : "border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--brand-primary))]",
+                ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_8px_24px_-12px_rgb(var(--brand-primary)/0.6)]"
+                : "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--fg-primary))] group-hover/track:border-[rgb(var(--border-strong))]",
             ].join(" ")}
+            style={{
+              transition:
+                "background-color 240ms var(--ease-out-strong), border-color 240ms var(--ease-out-strong), color 240ms var(--ease-out-strong), box-shadow 320ms var(--ease-out-strong), transform 160ms var(--ease-press)",
+            }}
           >
             {playing ? (
               <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="currentColor">
@@ -396,13 +422,13 @@ function TrackRow({
                 <rect x="7" y="2" width="2" height="8" />
               </svg>
             ) : (
-              <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="currentColor">
+              <svg viewBox="0 0 12 12" className="ml-[1px] h-3.5 w-3.5" fill="currentColor">
                 <path d="M3 2v8l7-4z" />
               </svg>
             )}
           </button>
 
-          {/* waveform (decorative) */}
+          {/* waveform (decorative; per-bar color crossfade for played state) */}
           <div
             aria-hidden="true"
             className="flex h-9 flex-1 items-center gap-[2px]"
@@ -413,12 +439,14 @@ function TrackRow({
               return (
                 <span
                   key={i}
-                  className="block w-[3px] rounded-full transition-colors"
+                  className="block w-[3px] rounded-full"
                   style={{
                     height: `${(h * 100).toFixed(1)}%`,
                     backgroundColor: played
                       ? "rgb(var(--brand-primary))"
-                      : "rgb(var(--fg-muted) / 0.35)",
+                      : "rgb(var(--fg-muted) / 0.32)",
+                    transition:
+                      "background-color 280ms var(--ease-out-strong)",
                   }}
                 />
               );
@@ -426,15 +454,15 @@ function TrackRow({
           </div>
 
           {/* title + artist */}
-          <div className="min-w-0 max-w-[40%] shrink-0">
+          <div className="min-w-0 max-w-[36%] shrink-0">
             <p
-              className="truncate text-sm text-[rgb(var(--fg-primary))]"
-              style={{ fontWeight: 600 }}
+              className="truncate text-[13.5px] leading-tight text-[rgb(var(--fg-primary))]"
+              style={{ fontWeight: 600, letterSpacing: "-0.005em" }}
             >
               {row.title}
             </p>
             {row.artist ? (
-              <p className="truncate text-[11px] text-[rgb(var(--fg-secondary))]">
+              <p className="mt-0.5 truncate text-[11px] leading-tight text-[rgb(var(--fg-secondary))]">
                 {row.artist}
               </p>
             ) : null}
@@ -447,20 +475,31 @@ function TrackRow({
 
           {/* public badge */}
           {row.isPublicSample ? (
-            <span className="shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.14em] text-[rgb(var(--brand-primary))]">
+            <span
+              className="shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.12)] px-2 py-[3px] font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--brand-primary))]"
+              style={{
+                boxShadow:
+                  "inset 0 0 0 1px rgb(var(--brand-primary) / 0.18)",
+              }}
+            >
               Public
             </span>
           ) : null}
 
-          {/* remove (hover) */}
+          {/* remove (hover-revealed) */}
           <button
             type="button"
             aria-label={`Remove ${row.title}`}
             onClick={onRemove}
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] opacity-0 transition-opacity hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] group-hover/portfolio-row:opacity-100 focus-visible:opacity-100 active:scale-[0.94]"
-            style={{ opacity: 0.55 }}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/track:opacity-100 active:scale-[0.92]"
+            style={{
+              transition:
+                "opacity 220ms var(--ease-out-strong), background-color 200ms var(--ease-out-strong), color 200ms var(--ease-out-strong), transform 160ms var(--ease-press)",
+            }}
           >
-            ×
+            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M3 3l6 6M9 3l-6 6" />
+            </svg>
           </button>
         </div>
       </div>
@@ -539,21 +578,27 @@ function SocialLinksSection({
       aria-labelledby="portfolio-links-heading"
       className="sk-portfolio-section"
     >
-      <header className="mb-4">
+      <header className="mb-5">
         <h2
           id="portfolio-links-heading"
-          className="font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+          className="font-display text-2xl leading-none tracking-[-0.015em] text-[rgb(var(--fg-primary))]"
           style={{ fontWeight: 700 }}
         >
           Social links
         </h2>
-        <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+        <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
           PASTE THE URL. WE FIGURE OUT THE PLATFORM.
         </p>
       </header>
 
-      <form onSubmit={submit} className="mb-4">
-        <div className="flex items-center gap-2 rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-1.5 transition-colors focus-within:border-[rgb(var(--brand-primary)/0.55)]">
+      <form onSubmit={submit} className="mb-5">
+        <div
+          className="flex items-center gap-2 rounded-full bg-[rgb(var(--bg-base))] px-2 py-1.5 ring-1 ring-[rgb(var(--border-subtle))] focus-within:ring-[rgb(var(--brand-primary)/0.6)] focus-within:bg-[rgb(var(--bg-elevated))]"
+          style={{
+            transition:
+              "box-shadow 280ms var(--ease-out-strong), background-color 240ms var(--ease-out-strong)",
+          }}
+        >
           <input
             type="url"
             value={url}
@@ -563,16 +608,25 @@ function SocialLinksSection({
             }}
             placeholder="Paste a Spotify, YouTube, SoundCloud link…"
             className="min-w-0 flex-1 bg-transparent px-3 text-sm text-[rgb(var(--fg-primary))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none"
+            style={{ letterSpacing: "-0.005em" }}
           />
           <button
             type="submit"
             disabled={adding || !url.trim()}
-            className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            className="group/add-link inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+            style={{
+              transition:
+                "background-color 220ms var(--ease-out-strong), transform 160ms var(--ease-press), opacity 200ms var(--ease-out-strong)",
+            }}
           >
             <span>{adding ? "Adding…" : "Add"}</span>
             <span
               aria-hidden="true"
-              className="grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.18)] text-[10px] transition-transform group-hover/add-btn:translate-x-[2px] group-hover/add-btn:-translate-y-[1px]"
+              className="grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.2)] text-[10px] group-hover/add-link:translate-x-[2px] group-hover/add-link:-translate-y-[1px] group-hover/add-link:bg-[rgb(var(--fg-inverse)/0.3)]"
+              style={{
+                transition:
+                  "transform 260ms var(--ease-out-strong), background-color 220ms var(--ease-out-strong)",
+              }}
             >
               ↗
             </span>
@@ -581,7 +635,11 @@ function SocialLinksSection({
         {error ? (
           <p
             role="alert"
-            className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))]"
+            className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[rgb(var(--brand-primary))]"
+            style={{
+              animation:
+                "skitza-reveal-up 240ms var(--ease-out-strong) both",
+            }}
           >
             {error}
           </p>
@@ -591,9 +649,9 @@ function SocialLinksSection({
       {rows.length === 0 ? (
         <div
           role="status"
-          className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-6 py-10 text-center"
+          className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken)/0.6)] px-6 py-12 text-center"
         >
-          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
             NO LINKS YET. PASTE A SPOTIFY OR YOUTUBE LINK ABOVE.
           </p>
         </div>
@@ -636,8 +694,14 @@ function LinkRow({
   const downDisabled = !canReorder("down", index, total);
 
   return (
-    <li>
-      <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.4)] ring-1 ring-[rgb(var(--border-subtle))]">
+    <li className="group/link">
+      <div
+        className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.35)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/link:ring-[rgb(var(--border-strong))] group-hover/link:bg-[rgb(var(--bg-overlay)/0.55)]"
+        style={{
+          transition:
+            "background-color 280ms var(--ease-out-strong), box-shadow 280ms var(--ease-out-strong)",
+        }}
+      >
         <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-base))] px-4 py-2.5">
           <div className="flex flex-col gap-0.5">
             <button
@@ -647,7 +711,11 @@ function LinkRow({
               onClick={() => {
                 onReorder("up");
               }}
-              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30 disabled:hover:bg-transparent active:scale-[0.92]"
+              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:scale-[0.92] disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--fg-secondary))]"
+              style={{
+                transition:
+                  "background-color 200ms var(--ease-out-strong), color 200ms var(--ease-out-strong), transform 160ms var(--ease-press), opacity 200ms var(--ease-out-strong)",
+              }}
             >
               <svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
                 <path d="M6 3l4 5H2z" />
@@ -660,7 +728,11 @@ function LinkRow({
               onClick={() => {
                 onReorder("down");
               }}
-              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30 disabled:hover:bg-transparent active:scale-[0.92]"
+              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:scale-[0.92] disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--fg-secondary))]"
+              style={{
+                transition:
+                  "background-color 200ms var(--ease-out-strong), color 200ms var(--ease-out-strong), transform 160ms var(--ease-press), opacity 200ms var(--ease-out-strong)",
+              }}
             >
               <svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
                 <path d="M6 9l4-5H2z" />
@@ -669,8 +741,8 @@ function LinkRow({
           </div>
           <div className="min-w-0 flex-1">
             <p
-              className="text-sm text-[rgb(var(--fg-primary))]"
-              style={{ fontWeight: 600 }}
+              className="text-[13.5px] leading-tight text-[rgb(var(--fg-primary))]"
+              style={{ fontWeight: 600, letterSpacing: "-0.005em" }}
             >
               {PLATFORM_LABEL[row.platform]}
             </p>
@@ -678,7 +750,10 @@ function LinkRow({
               href={row.url}
               target="_blank"
               rel="noreferrer noopener"
-              className="block truncate font-mono text-[11px] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-secondary))]"
+              className="mt-0.5 block truncate font-mono text-[11px] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-secondary))]"
+              style={{
+                transition: "color 200ms var(--ease-out-strong)",
+              }}
             >
               {row.url}
             </a>
@@ -687,10 +762,15 @@ function LinkRow({
             type="button"
             aria-label={`Remove ${PLATFORM_LABEL[row.platform]} link`}
             onClick={onRemove}
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-opacity hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:scale-[0.94]"
-            style={{ opacity: 0.55 }}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/link:opacity-100 active:scale-[0.92]"
+            style={{
+              transition:
+                "opacity 220ms var(--ease-out-strong), background-color 200ms var(--ease-out-strong), color 200ms var(--ease-out-strong), transform 160ms var(--ease-press)",
+            }}
           >
-            ×
+            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M3 3l6 6M9 3l-6 6" />
+            </svg>
           </button>
         </div>
       </div>
@@ -750,8 +830,12 @@ function AddFromLibraryButton({
   }
 
   const triggerClasses = ghost
-    ? "inline-flex items-center gap-1.5 rounded-full border border-[rgb(var(--border-strong))] bg-transparent px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-primary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
-    : "inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
+    ? "group/add-lib inline-flex items-center gap-1.5 rounded-full border border-[rgb(var(--border-strong))] bg-transparent px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-overlay))] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+    : "group/add-lib inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50";
+
+  const innerIconClasses = ghost
+    ? "grid h-4 w-4 place-items-center rounded-full border border-[rgb(var(--border-strong))] text-[10px] group-hover/add-lib:translate-x-[1px] group-hover/add-lib:-translate-y-[1px] group-hover/add-lib:scale-105 group-hover/add-lib:border-[rgb(var(--fg-primary))]"
+    : "grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.2)] text-[10px] group-hover/add-lib:translate-x-[1px] group-hover/add-lib:-translate-y-[1px] group-hover/add-lib:scale-105 group-hover/add-lib:bg-[rgb(var(--fg-inverse)/0.3)]";
 
   return (
     <>
@@ -762,15 +846,19 @@ function AddFromLibraryButton({
           setOpen(true);
         }}
         className={triggerClasses}
+        style={{
+          transition:
+            "background-color 220ms var(--ease-out-strong), border-color 220ms var(--ease-out-strong), transform 160ms var(--ease-press), opacity 200ms var(--ease-out-strong)",
+        }}
       >
         <span>Add from music library</span>
         <span
           aria-hidden="true"
-          className={
-            ghost
-              ? "grid h-4 w-4 place-items-center rounded-full border border-[rgb(var(--border-strong))] text-[10px]"
-              : "grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.18)] text-[10px]"
-          }
+          className={innerIconClasses}
+          style={{
+            transition:
+              "transform 260ms var(--ease-out-strong), background-color 220ms var(--ease-out-strong), border-color 220ms var(--ease-out-strong)",
+          }}
         >
           +
         </span>
