@@ -4,14 +4,15 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { Studio } from "~/server/artist/identity";
 
-// Server-resolved studio list (artist.studios). When the artist has
-// 2+ studios, the trigger opens a centered modal — "Pick a studio" —
-// with backdrop blur. Picking a studio swaps ?studio=<id> on the
+// Server-resolved studio list (artist.studios). The trigger always
+// opens a centered "Pick a studio" modal with backdrop blur, even
+// for single-studio artists — that branch shows a helper hint
+// pointing them at the "visit a producer's /join link" path to add
+// another studio. Picking a studio swaps ?studio=<id> on the
 // current path so every artist tab re-reads the selection on
-// navigation. The URL (not a cookie) remains the source of truth, so
-// deep-links from email / share copy / browser back work unchanged.
-//
-// Single-studio artists see a static chip — no modal, no chevron.
+// navigation. The URL (not a cookie) remains the source of truth,
+// so deep-links from email / share copy / browser back work
+// unchanged.
 export function StudioSwitcher({ studios }: { studios: Studio[] }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -46,18 +47,6 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
     if (producerId === active.producerId) return;
     router.push(urlFor(producerId));
   };
-
-  // Single studio: static chip, no overlay.
-  if (studios.length <= 1) {
-    return (
-      <div className="flex items-center gap-2">
-        <StudioAvatar studio={active} />
-        <span className="font-display text-sm tracking-tight">
-          {active.name}
-        </span>
-      </div>
-    );
-  }
 
   return (
     <>
@@ -134,6 +123,18 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
                 );
               })}
             </ul>
+            {/* Helper hint for single-studio artists. There's no
+                in-app "add studio" affordance today — joining another
+                studio requires visiting that producer's /join link
+                while signed in (handled by the connect step at
+                /sign-up/join/<slug> + /artist-welcome/<slug>). The
+                hint sets expectations so a single-studio artist
+                doesn't open the modal and wonder what to do. */}
+            {studios.length === 1 ? (
+              <p className="mt-3 px-2 text-xs text-[rgb(var(--fg-muted))]">
+                To add another studio, visit that producer&apos;s link.
+              </p>
+            ) : null}
           </div>
         </div>
       ) : null}

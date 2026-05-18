@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ChevronLeft,
   Clock3,
   MoreHorizontal,
   Play,
@@ -29,6 +28,7 @@ import {
   padIndex,
   sumDurations,
 } from "~/components/dashboard/music/lib";
+import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 
 // ─── Wire types ──────────────────────────────────────────────────────
 
@@ -197,27 +197,30 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
             padding: "clamp(36px, 4.4vw, 56px) clamp(28px, 3vw, 36px) clamp(30px, 3vw, 40px)",
           }}
         >
-          {/* Top row: back button + eyebrow + ellipsis */}
-          <div className="reveal-up mb-6 flex items-center justify-between gap-3 text-white">
-            <div className="flex items-center gap-3">
-              <Link
-                href="/dashboard/music"
-                aria-label="Back to Library"
-                title="Back to Library"
-                className="sk-press sk-trans inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 backdrop-blur-sm hover:bg-white/22"
-              >
-                <ChevronLeft size={14} strokeWidth={2.4} />
-              </Link>
-              <span
-                className="font-mono text-[10.5px] font-bold uppercase"
-                style={{
-                  letterSpacing: "0.06em",
-                  color: "rgba(255,255,255,0.65)",
-                }}
-              >
-                Library <span aria-hidden>›</span> {kind}
-              </span>
-            </div>
+          {/* Publishes Music › <client>? › <project> to the sticky
+              topbar. Replaces the in-hero "Library › {kind}" breadcrumb
+              that duplicated the topbar's section label. The kind
+              ("SINGLE" / "ALBUM" / "EP") is still visible as the
+              eyebrow above the project title. Client is plain text
+              here (no link) because the Music section doesn't fetch
+              the contact id — the clients-projects album page DOES
+              link to the client when it has the contact resolved. */}
+          <SetTopBarBreadcrumb
+            crumbs={
+              data.project.clientName
+                ? [
+                    { label: data.project.clientName },
+                    { label: data.project.title },
+                  ]
+                : [{ label: data.project.title }]
+            }
+          />
+
+          {/* Top row: just the ellipsis (More actions) now. The back-
+              arrow that used to sit on the left was redundant with the
+              topbar's "Music" link — same destination, two affordances
+              — so design-critique flagged it for removal. */}
+          <div className="reveal-up mb-6 flex items-center justify-end gap-3 text-white">
             <button
               type="button"
               aria-label="More actions"

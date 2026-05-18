@@ -15,6 +15,7 @@
 import { Pencil, Trash2 } from "lucide-react";
 
 import { formatMoney } from "~/lib/format/money";
+import { applyTaxToCents, type TaxMode } from "~/lib/tax-mode";
 
 import { kindToTile } from "./kind-to-tile";
 import type { ProductCardData } from "./product-card";
@@ -25,10 +26,28 @@ import { TypeTile } from "./type-tile";
 interface ProductRowProps {
   product: ProductCardData;
   pending?: boolean;
+  // Producer's business-level tax mode + rate (migration 0019). Row
+  // displays the price WITH tax applied for `tax_added`; a small
+  // caption underneath spells out the mode in 1-2 words.
+  taxMode: TaxMode;
+  taxRatePct: number;
   onOpen: () => void;
   onToggleVisible: () => void;
   onEdit: () => void;
   onDelete: () => void;
+}
+
+// Same caption helper the card uses — kept inline here so the two
+// surfaces stay in lockstep without crossing import boundaries for a
+// 3-line switch.
+function taxRowCaption(mode: TaxMode): string | null {
+  switch (mode) {
+    case "tax_free":
+      return "Tax-free";
+    case "tax_included":
+    case "tax_added":
+      return "Tax inc";
+  }
 }
 
 function deriveTagline(description: string | null): string {
@@ -39,6 +58,8 @@ function deriveTagline(description: string | null): string {
 export function ProductRow({
   product,
   pending = false,
+  taxMode,
+  taxRatePct,
   onOpen,
   onToggleVisible,
   onEdit,
@@ -47,6 +68,8 @@ export function ProductRow({
   const tile = kindToTile(product.kind);
   const accent = TILE_THEME[tile].accent;
   const tagline = deriveTagline(product.description);
+  const displayCents = applyTaxToCents(product.priceCents, taxMode, taxRatePct);
+  const taxCaption = taxRowCaption(taxMode);
 
   return (
     <div
@@ -84,9 +107,16 @@ export function ProductRow({
       </span>
 
       {/* PRICE */}
-      <span className="font-display text-[16px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
-        {formatMoney(product.priceCents, product.currency)}
-      </span>
+      <div className="flex flex-col gap-0.5">
+        <span className="font-display text-[16px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
+          {formatMoney(displayCents, product.currency)}
+        </span>
+        {taxCaption ? (
+          <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-[rgb(var(--fg-faint))]">
+            {taxCaption}
+          </span>
+        ) : null}
+      </div>
 
       {/* STATUS */}
       {product.active ? (

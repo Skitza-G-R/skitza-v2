@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { fromPrice, type VolumeTier } from "~/lib/pricing";
+import { type TaxMode, taxModeFootnote } from "~/lib/tax-mode";
 
 // Server Component — one row in the artist's store catalog. Polished
 // to mirror the locked design's "title + meta · price · buy + pill"
@@ -12,6 +13,8 @@ import { fromPrice, type VolumeTier } from "~/lib/pricing";
 // products keep the existing $X price label unchanged.
 export function ProductCard({
   product,
+  taxMode = "tax_free",
+  taxRatePct = 18,
 }: {
   product: {
     id: string;
@@ -25,11 +28,17 @@ export function ProductCard({
     sessionCount: number | null;
     durationMin: number | null;
   };
+  // Producer's business-level tax disclosure mode + rate (migration
+  // 0019). Default tax_free + 18% is the schema default; safe for any
+  // caller that hasn't been updated yet.
+  taxMode?: TaxMode;
+  taxRatePct?: number;
 }) {
   const priceLabel = formatPriceLabel(product);
   const showDiscountTail =
     product.pricingModel === "per_song" &&
     (product.volumeTiers?.length ?? 0) >= 2;
+  const taxFootnote = taxModeFootnote(taxMode, taxRatePct);
   const meta: string[] = [];
   if (product.sessionCount && product.sessionCount > 0) {
     meta.push(
@@ -68,6 +77,23 @@ export function ProductCard({
           {showDiscountTail ? (
             <span className="text-[10.5px] font-medium text-[rgb(var(--fg-muted))]">
               Discounts for bigger projects
+            </span>
+          ) : null}
+          {/* VAT disclosure — visually distinct from the discount line.
+              Tiny leading dot anchor + tabular-nums on the % so it
+              reads as a legal/financial tag, not a marketing claim.
+              key={taxFootnote} re-mounts when the producer toggles
+              mode so the .reveal-up entrance fires once on change. */}
+          {taxFootnote ? (
+            <span
+              key={taxFootnote}
+              className="reveal-up flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.06em] tabular-nums text-[rgb(var(--fg-muted))]"
+            >
+              <span
+                aria-hidden
+                className="inline-block h-1 w-1 rounded-full bg-[rgb(var(--fg-faint))]"
+              />
+              {taxFootnote}
             </span>
           ) : null}
         </div>

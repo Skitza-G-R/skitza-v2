@@ -10,6 +10,7 @@ import { CoachmarkTour } from "./coachmark-tour";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
 import { DashboardTopBar } from "./dashboard-topbar";
 import { ShortcutsBridge } from "./shortcuts-bridge";
+import { TopBarBreadcrumbProvider } from "./topbar-breadcrumb-context";
 
 // AppShell — Phase 2 (locked design system).
 //
@@ -78,13 +79,33 @@ export async function AppShell({ children }: { children: ReactNode }) {
         tabIndex={-1}
         className="min-w-0 flex-1 pb-20 lg:pb-0"
       >
-        {/* Sticky topbar from the HTML mockup: section label · search
+        {/* Sticky topbar from the HTML mockup: breadcrumb · search
             trigger · notifications bell. Sits at the top of <main> so
             it spans the content area (not the sidebar), and uses
             position:sticky so it stays pinned during scroll without
-            stealing focus order from the page below. */}
-        <DashboardTopBar unreadCount={unreadCount} />
-        {children}
+            stealing focus order from the page below. Wrapped in the
+            TopBarBreadcrumb provider so deep pages can publish their
+            own crumbs (client name, project title, song title) to the
+            single topbar surface instead of rendering a duplicate
+            breadcrumb of their own.
+
+            The wrapping <div> with -mt-[40px] is what makes the iOS-
+            Music frosted-glass effect ACTUALLY visible. Without it,
+            the sticky topbar reserves space in flow and the page hero
+            starts BELOW it — at scroll-top there's nothing behind the
+            topbar to blur, so the bg layer just shows the parent
+            cream. Pulling children up by exactly the topbar height
+            (40px) makes the hero fill from y=0 of <main>, with the
+            topbar overlaying its first 40px. The topbar's
+            backdrop-filter then has real content behind it (the
+            colored hero gradient) and the bleed-through reads
+            immediately, not just after scroll. Heroes already have
+            empty gradient space at the top, so nothing important is
+            hidden under the topbar overlap. */}
+        <TopBarBreadcrumbProvider>
+          <DashboardTopBar unreadCount={unreadCount} />
+          <div className="-mt-[40px]">{children}</div>
+        </TopBarBreadcrumbProvider>
       </main>
 
       <ProducerBottomNav />

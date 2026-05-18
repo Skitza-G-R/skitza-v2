@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { TRPCError } from "@trpc/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import { coerceTaxMode, taxModeFootnote } from "~/lib/tax-mode";
 import { StoreProductClient } from "./store-product-client";
 
 type PageProps = { params: Promise<{ productId: string }> };
@@ -30,6 +31,13 @@ export default async function StoreProductPage({ params }: PageProps) {
     throw e;
   }
 
+  // Resolve VAT footnote once at the top so the hero render stays
+  // declarative — no inline IIFE. coerceTaxMode folds legacy values
+  // (pre-migration-0019) into the new shape so this never crashes.
+  const taxMode = coerceTaxMode(product.producerTaxMode);
+  const taxRatePct = product.producerTaxRatePct;
+  const taxFootnote = taxModeFootnote(taxMode, taxRatePct);
+
   return (
     <div className="space-y-5">
       <Link
@@ -53,6 +61,24 @@ export default async function StoreProductPage({ params }: PageProps) {
           <p className="mt-3 text-sm text-[rgb(var(--fg-secondary))]">
             {product.description}
           </p>
+        ) : null}
+        {/* Migration 0018 — VAT disclosure. Separated by a hairline
+            divider + tiny uppercase eyebrow so the line reads as a
+            legal/financial tag, not a continuation of the description.
+            Matches the producer-name eyebrow at the top of the hero
+            for visual symmetry. */}
+        {taxFootnote ? (
+          <div className="mt-4 flex items-center gap-2 border-t border-[rgb(var(--border-subtle))] pt-3">
+            <span
+              className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]"
+              aria-hidden
+            >
+              Tax
+            </span>
+            <span className="text-[11.5px] tabular-nums text-[rgb(var(--fg-muted))]">
+              {taxFootnote}
+            </span>
+          </div>
         ) : null}
       </div>
 

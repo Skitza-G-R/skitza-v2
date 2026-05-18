@@ -31,6 +31,7 @@ import {
   sendNewCommentFromArtistEmail,
 } from "~/server/email/send";
 import { getSiteUrl } from "~/server/stripe/client";
+import { coerceTaxMode } from "~/lib/tax-mode";
 
 // ─── Ownership guard ─────────────────────────────────────────────────
 // Resolves the signed-in artist's ownership of a given project. Both
@@ -1009,6 +1010,11 @@ const storeSubrouter = router({
           producerId: products.producerId,
           producerName: producers.displayName,
           producerSlug: producers.slug,
+          // Migration 0019 — business-level tax disclosure mode + rate.
+          // Surfaced on every product card next to the price; the rate
+          // also powers checkout math for 'tax_added' products.
+          producerTaxMode: producers.taxMode,
+          producerTaxRatePct: producers.taxRatePct,
         })
         .from(products)
         .innerJoin(producers, eq(producers.id, products.producerId))
@@ -1047,6 +1053,8 @@ const storeSubrouter = router({
         producerId: r.producerId,
         producerName: r.producerName ?? "Untitled Studio",
         producerSlug: r.producerSlug,
+        producerTaxMode: r.producerTaxMode,
+        producerTaxRatePct: r.producerTaxRatePct,
       }));
 
       return { products: mapped };
@@ -1075,6 +1083,11 @@ const storeSubrouter = router({
           producerId: products.producerId,
           producerName: producers.displayName,
           producerSlug: producers.slug,
+          // Migration 0019 — tax mode + rate for the detail page's
+          // footnote AND checkout math (tax_added multiplies the
+          // Stripe charge).
+          producerTaxMode: producers.taxMode,
+          producerTaxRatePct: producers.taxRatePct,
         })
         .from(products)
         .innerJoin(producers, eq(producers.id, products.producerId))
@@ -1125,6 +1138,8 @@ const storeSubrouter = router({
         producerId: row.producerId,
         producerName: row.producerName ?? "Untitled Studio",
         producerSlug: row.producerSlug,
+        producerTaxMode: row.producerTaxMode,
+        producerTaxRatePct: row.producerTaxRatePct,
       };
     }),
 
@@ -1256,6 +1271,11 @@ const storeSubrouter = router({
           stripeAccountId: producers.stripeAccountId,
           stripeChargesEnabled: producers.stripeChargesEnabled,
           slug: producers.slug,
+          // Migration 0019 — needed for checkout math when the
+          // producer is on 'tax_added' mode (Stripe charge gets
+          // multiplied by 1 + ratePct/100).
+          taxMode: producers.taxMode,
+          taxRatePct: producers.taxRatePct,
         })
         .from(producers)
         .where(eq(producers.id, prod.producerId))
@@ -1316,6 +1336,11 @@ const storeSubrouter = router({
         clientName: contact.name,
         clientEmail: contact.email,
         priceCents: effectivePriceCents,
+        // Migration 0019 — producer's tax mode + rate. When mode is
+        // 'tax_added' the helper multiplies effectivePriceCents by
+        // 1 + ratePct/100 before charging Stripe.
+        taxMode: coerceTaxMode(producerRow.taxMode),
+        taxRatePct: producerRow.taxRatePct,
         // Per-song denormalisation — undefined on flat checkouts
         // (the helper's args are optional with exactOptionalPropertyTypes).
         ...(prod.pricingModel === "per_song" && input.songQty != null
@@ -1363,6 +1388,11 @@ export type StoreProductRow = {
   producerId: string;
   producerName: string;
   producerSlug: string;
+  // Producer's business-level tax disclosure mode + rate (migration
+  // 0019). String + integer on the wire — the UI narrows via
+  // coerceTaxMode() and clamps the rate defensively.
+  producerTaxMode: string;
+  producerTaxRatePct: number;
 };
 
 // Artist-scoped router. All procedures here resolve "my studios" via

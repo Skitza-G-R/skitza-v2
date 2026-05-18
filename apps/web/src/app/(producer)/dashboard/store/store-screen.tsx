@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 
 import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
 import { useToast } from "~/components/ui/toast";
+import type { TaxMode } from "~/lib/tax-mode";
 
 import { DeleteConfirmModal } from "./delete-confirm-modal";
 import { EmptyState } from "./empty-state";
@@ -53,9 +54,20 @@ export interface StoreProduct extends ProductCardData {
 interface StoreScreenProps {
   products: StoreProduct[];
   defaultCurrency: Currency;
+  // Migration 0019 — producer's tax mode + rate. taxMode drives the
+  // inline TaxModePicker chip (same write path as Settings); taxRatePct
+  // is threaded into the ProductEditor so the Pricing step can show a
+  // live "Artists pay $X" preview.
+  taxMode: TaxMode;
+  taxRatePct: number;
 }
 
-export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
+export function StoreScreen({
+  products,
+  defaultCurrency,
+  taxMode,
+  taxRatePct,
+}: StoreScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
@@ -239,6 +251,8 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
           hidden={hidden}
           pending={pending}
           showHiddenGroup={filter === "all" || filter === "hidden"}
+          taxMode={taxMode}
+          taxRatePct={taxRatePct}
           onOpen={onEdit}
           onToggleVisible={onToggleVisible}
           onEdit={onEdit}
@@ -253,6 +267,8 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
               drag={getHandlersFor(p.id)}
               pending={pending}
               recentlyAdded={p.id === recentlyAdded}
+              taxMode={taxMode}
+              taxRatePct={taxRatePct}
               onOpen={() => {
                 onEdit(p);
               }}
@@ -281,6 +297,8 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
                 drag={getHandlersFor(p.id)}
                 pending={pending}
                 recentlyAdded={p.id === recentlyAdded}
+                taxMode={taxMode}
+                taxRatePct={taxRatePct}
                 onOpen={() => {
                   onEdit(p);
                 }}
@@ -306,6 +324,8 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
         }}
         product={null}
         defaultCurrency={defaultCurrency}
+        taxMode={taxMode}
+        taxRatePct={taxRatePct}
         onCreated={handleCreated}
       />
 
@@ -317,6 +337,8 @@ export function StoreScreen({ products, defaultCurrency }: StoreScreenProps) {
         }}
         product={editing}
         defaultCurrency={defaultCurrency}
+        taxMode={taxMode}
+        taxRatePct={taxRatePct}
       />
 
       {/* Delete confirmation */}

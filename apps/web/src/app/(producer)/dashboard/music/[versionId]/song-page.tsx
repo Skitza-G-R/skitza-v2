@@ -12,6 +12,7 @@ import {
   useNowPlaying,
   type PlayerTrack,
 } from "~/components/audio/persistent-player";
+import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 
 import {
@@ -474,16 +475,28 @@ export function SongPage({ data }: { data: SongPageData }) {
     setOverflowOpen(false);
   }
 
+  // Topbar crumbs: Music › <client>? › <project> › <song>. Client is
+  // plain text here — the Music section doesn't fetch the contact id,
+  // so we can't link to /dashboard/clients-projects/clients/<id> yet.
+  // The clients-projects song page DOES link; if/when we add contact
+  // resolution to the Music wire, this can match that pattern.
+  const clientCrumb = data.track.clientName
+    ? [{ label: data.track.clientName }]
+    : [];
+  const topbarCrumbs = [
+    ...clientCrumb,
+    {
+      label: data.track.projectTitle,
+      href: `/dashboard/music/project/${data.track.projectId}`,
+    },
+    { label: data.track.title },
+  ];
+
   if (!activeVersion) {
     return (
       <main className="mx-auto max-w-[1120px] px-4 py-12 sm:px-6">
-        <Link
-          href="/dashboard/music"
-          className="text-[12.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
-        >
-          ← Back to Library
-        </Link>
-        <p className="mt-6 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 text-center text-[13px] text-[rgb(var(--fg-muted))]">
+        <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
+        <p className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 text-center text-[13px] text-[rgb(var(--fg-muted))]">
           This track has no versions yet.
         </p>
       </main>
@@ -533,15 +546,22 @@ export function SongPage({ data }: { data: SongPageData }) {
         />
 
         <div className="relative mx-auto max-w-[1120px] px-4 pt-3 pb-4 sm:px-6 sm:pt-4 sm:pb-5">
-          {/* Top breadcrumb row — quiet glass pills, no visual heft */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <Link
-              href="/dashboard/music"
-              className="sk-press group inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
-            >
-              <ChevronLeftIcon />
-              <span>Library</span>
-            </Link>
+          {/* Publishes Music › <client>? › <project> › <song> to the
+              sticky topbar (see topbarCrumbs above). Replaces the
+              "← Library" back-pill that used to live on this row —
+              clicking "Music" in the topbar does the same thing now.
+              The project crumb links to the Music project page (same
+              section), not the clients-projects album page; the latter
+              is still reachable via the cross-link pill on the right
+              of this row. */}
+          <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
+
+          {/* Cross-section link row — only the project-room pill
+              remains. It jumps to clients-projects (a DIFFERENT
+              workflow surface), so it isn't redundant with anything in
+              the topbar. `justify-end` keeps it right-aligned where it
+              already lived. */}
+          <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
             <Link
               href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
               className="sk-press group inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
@@ -1164,14 +1184,6 @@ function fmtRelativeIso(iso: string): string {
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
   return parts.map((p) => p.charAt(0).toUpperCase()).join("") || "·";
-}
-
-function ChevronLeftIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <polyline points="10 4 6 8 10 12" />
-    </svg>
-  );
 }
 
 function ChevronRightIcon() {

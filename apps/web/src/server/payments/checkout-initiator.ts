@@ -14,6 +14,7 @@ import { calculateCharges } from "~/server/payments/plan";
 import { getOrCreateStripeCustomer } from "~/server/stripe/customer";
 import { getSiteUrl, getStripe } from "~/server/stripe/client";
 import { computeProjectSessionCount } from "~/lib/pricing";
+import { applyTaxToCents, type TaxMode } from "~/lib/tax-mode";
 
 // ─── initiatePaidPlanCheckout ────────────────────────────────────────
 // Shared helper extracted from booking.publicRequest. Handles the
@@ -80,6 +81,13 @@ export async function initiatePaidPlanCheckout(args: {
   metadata?: Record<string, string>;
   successUrl?: string;
   cancelUrl?: string;
+  // Producer's tax mode + rate (migration 0019). When mode is
+  // 'tax_added', the Stripe charge total = args.priceCents × (1 +
+  // ratePct/100). For 'tax_free' and 'tax_included' both fields are
+  // ignored at checkout (display-only). Optional + defaulted for
+  // backward-compat with any caller that hasn't been updated yet.
+  taxMode?: TaxMode;
+  taxRatePct?: number;
   // Per-song pricing — denormalised onto the project row so the
   // producer dashboard can render "× N songs" without re-running
   // tier math. Both null when omitted (flat-price flow).
@@ -112,7 +120,19 @@ export async function initiatePaidPlanCheckout(args: {
   }
 
   const plan: PaymentPlan = chosen;
-  const charges = calculateCharges(plan, args.priceCents);
+  // Migration 0019 — apply the producer's tax mode to the charge. For
+  // 'tax_added' this multiplies args.priceCents by 1 + ratePct/100;
+  // the other two modes pass through unchanged. The post-tax amount
+  // flows into every downstream cents number — Stripe session totals,
+  // calculateCharges splits, the invoices row, the project's snapshot
+  // — so the artist's card statement, the deposit/final breakdown, AND
+  // future invoice receipts all stay in lockstep.
+  const chargeCents = applyTaxToCents(
+    args.priceCents,
+    args.taxMode ?? ("tax_free" as TaxMode),
+    args.taxRatePct ?? 18,
+  );
+  const charges = calculateCharges(plan, chargeCents);
   const firstCharge = charges[0];
   if (firstCharge === undefined) {
     // calculateCharges always returns a non-empty array for the inputs
@@ -174,7 +194,11 @@ export async function initiatePaidPlanCheckout(args: {
       paymentPlanKind: plan.kind,
       installments: plan.kind === "monthly" ? plan.installments : null,
       chargesTotal: charges.length,
-      totalAmountCents: args.priceCents,
+      // totalAmountCents is the snapshot the post-checkout surfaces
+      // (chargeFinal modal, dashboard) read for "total engagement
+      // value." Snapshot the POST-tax number so those surfaces match
+      // what Stripe actually billed.
+      totalAmountCents: chargeCents,
       currency: args.product.currency,
       stripeCustomerId: customerId,
       // Per-song denormalisation — null on flat checkouts.
@@ -215,7 +239,8 @@ export async function initiatePaidPlanCheckout(args: {
     plan,
     productName: args.product.name,
     currency: args.product.currency.toLowerCase(),
-    totalCents: args.priceCents,
+    // POST-tax — Stripe charges this exact number.
+    totalCents: chargeCents,
     customerId,
     destinationAccountId: args.producer.stripeAccountId,
     successUrl,
