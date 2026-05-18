@@ -155,16 +155,19 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
           <Breadcrumb items={items} />
         </div>
 
-        {/* Search trigger (center). Renders as a pill input but is a
-            button — clicking dispatches the same custom event that ⌘K
-            does. Press feedback via active:scale, custom ease-out
-            curve on hover state changes. */}
-        <div className="flex flex-1 justify-center">
+        {/* Search trigger (right, next to the bell). `ml-auto` pushes
+            the search + bell to the far right of the topbar, leaving
+            air between the breadcrumb on the left and the search on
+            the right. Renders as a pill input but is a button —
+            clicking dispatches the same custom event that ⌘K does.
+            Press feedback via active:scale, custom ease-out curve on
+            hover state changes. */}
+        <div className="ml-auto flex justify-end">
           <button
             type="button"
             onClick={openPalette}
             data-testid="topbar-search-trigger"
-            className="inline-flex w-full max-w-[420px] items-center gap-2 rounded-full border py-1.5 pl-3 pr-2 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+            className="inline-flex w-[260px] max-w-[420px] items-center gap-2 rounded-full border py-1.5 pl-3 pr-2 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:w-[320px] lg:w-[400px]"
             style={{
               background: "rgb(var(--bg-elevated))",
               borderColor: "rgb(var(--border-subtle))",
