@@ -397,35 +397,40 @@ export function PricingStep({
               feels the impact of the toggle in the same eye-line as
               the price it modifies. The toggle saves to producer-level
               (one fact across all products) — we surface that with
-              the "Applies to all products" hint underneath, so a
-              producer editing one product isn't surprised when their
-              other products inherit the change. */}
+              the "Applies to all products" hint under the preview, so
+              a producer editing one product isn't surprised when their
+              other products inherit the change.
+
+              Visual treatment is deliberately QUIETER than the
+              "How do you want to charge?" pill above:
+                • Wrapped in a soft cream-tint card so the section is
+                  visually contained, not a floating widget.
+                • Toggle is auto-width (inline=true), matching the
+                  How-you-charge pill's footprint and stopping the
+                  two pills from competing as co-primary decisions.
+                • Eyebrow stands alone at the top; the "Applies to all
+                  products" hint moves under the live preview as a
+                  dot-separated suffix. */}
           {taxChange ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <Eyebrow>Tax</Eyebrow>
-                <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
-                  Applies to all products
-                </span>
-              </div>
+            <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.025)] px-4 py-3">
+              <Eyebrow>Tax</Eyebrow>
               <div
                 className={[
-                  "flex flex-col gap-3",
+                  "mt-2 flex flex-col gap-2.5",
                   taxPending ? "sk-pending-pulse rounded-full" : "",
                 ].join(" ")}
               >
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <TaxModeSegmented
-                      value={taxMode}
-                      onChange={(next) => {
-                        taxChange({ taxMode: next });
-                      }}
-                      size="lg"
-                      disabled={taxPending}
-                      ariaLabel="Tax disclosure mode"
-                    />
-                  </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <TaxModeSegmented
+                    value={taxMode}
+                    onChange={(next) => {
+                      taxChange({ taxMode: next });
+                    }}
+                    size="lg"
+                    inline
+                    disabled={taxPending}
+                    ariaLabel="Tax disclosure mode"
+                  />
                   {taxMode !== "tax_free" ? (
                     <div className="flex items-center gap-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-1 py-1 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)]">
                       <input
@@ -460,10 +465,19 @@ export function PricingStep({
                 </div>
                 <div
                   key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
-                  className="reveal-up text-[12px] text-[rgb(var(--fg-muted))]"
+                  className="reveal-up flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px] text-[rgb(var(--fg-muted))]"
                   aria-live="polite"
                 >
-                  {taxPricingNote}
+                  <span>{taxPricingNote}</span>
+                  <span
+                    aria-hidden
+                    className="text-[rgb(var(--fg-faint))]"
+                  >
+                    ·
+                  </span>
+                  <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
+                    Applies to all products
+                  </span>
                 </div>
                 {taxError ? (
                   <div

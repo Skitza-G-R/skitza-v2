@@ -44,6 +44,13 @@ interface Props {
   // true; the Storefront chip passes false (the surface is already
   // attention-grabbing).
   highlight?: boolean;
+  // When true (default) the pill stretches to fill its container —
+  // the original Settings-row + Storefront-chip layout. When false
+  // the pill auto-sizes to its content, matching the "How do you
+  // want to charge?" segmented control further up the same modal so
+  // the two pills don't compete for visual weight. Producer's Pricing
+  // step passes false; everything else keeps the default.
+  inline?: boolean;
   ariaLabel?: string;
 }
 
@@ -53,6 +60,7 @@ export function TaxModeSegmented({
   size = "lg",
   disabled = false,
   highlight = false,
+  inline = false,
   ariaLabel = "Tax disclosure mode",
 }: Props) {
   const groupId = useId();
@@ -128,7 +136,11 @@ export function TaxModeSegmented({
       role="radiogroup"
       aria-label={ariaLabel}
       className={[
-        "relative inline-flex w-full items-stretch rounded-full border bg-[rgb(var(--bg-elevated))]",
+        "relative inline-flex items-stretch rounded-full border bg-[rgb(var(--bg-elevated))]",
+        // Stretch to fill the container by default (Settings rows,
+        // legacy chip); auto-size to content when inline=true so the
+        // Pricing-step usage doesn't span the full modal width.
+        inline ? "w-auto" : "w-full",
         dims.height,
         dims.padding,
         "border-[rgb(var(--border-subtle))]",
