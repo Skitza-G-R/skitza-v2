@@ -442,19 +442,20 @@ function TrackRow({
     seekToFraction(fraction);
   }
 
-  // Real peaks if available (downsampled to 80 bars), else the
-  // deterministic decorative fallback.
+  // Real peaks if available (downsampled to 56 bars to fit the
+  // waveform column without overflowing into the public label), else
+  // the deterministic decorative fallback at the same density.
   const bars = useMemo(() => {
     if (row.peaks && row.peaks.length > 0) {
-      return downsamplePeaks(row.peaks, 80);
+      return downsamplePeaks(row.peaks, 56);
     }
-    return seededBars(row.id, 80);
+    return seededBars(row.id, 56);
   }, [row.peaks, row.id]);
 
   return (
     <li ref={setNodeRef} style={sortableStyle} className="group/track">
       <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.55)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:ring-[rgb(var(--border-strong))] transition-[box-shadow,background-color] duration-300 ease-out">
-        <div className="flex items-center gap-4 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+        <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-3.5 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
           {/* drag handle */}
           <button
             type="button"
@@ -473,7 +474,7 @@ function TrackRow({
             </svg>
           </button>
 
-          {/* play/pause — the row's visual anchor */}
+          {/* col 1: play/pause */}
           <button
             type="button"
             aria-label={playing ? "Pause" : "Play"}
@@ -498,29 +499,9 @@ function TrackRow({
             )}
           </button>
 
-          {/* title + artist · duration — LEFT-anchored like Spotify / Apple Music */}
-          <div className="min-w-0 shrink-0" style={{ width: 180 }}>
-            <p
-              className="truncate text-[14px] leading-tight text-[rgb(var(--fg-primary))]"
-              style={{ fontWeight: 600, letterSpacing: "-0.01em" }}
-            >
-              {row.title}
-            </p>
-            <p className="mt-1 truncate text-[11.5px] leading-tight text-[rgb(var(--fg-secondary))]">
-              {row.artist ?? "Unknown artist"}
-              {formatDuration(row.durationMs) ? (
-                <>
-                  {" "}
-                  <span className="text-[rgb(var(--fg-muted))]">·</span>{" "}
-                  <span className="font-mono tabular-nums text-[rgb(var(--fg-muted))]">
-                    {formatDuration(row.durationMs)}
-                  </span>
-                </>
-              ) : null}
-            </p>
-          </div>
+          <Separator />
 
-          {/* waveform — flex-1, clickable to seek */}
+          {/* col 2: waveform — clickable to seek */}
           <button
             type="button"
             aria-label="Seek"
@@ -547,21 +528,49 @@ function TrackRow({
             })}
           </button>
 
-          {/* public/private status — small mono label, always present so the column width is stable */}
-          <span
-            aria-hidden="true"
-            className={[
-              "shrink-0 font-mono text-[9.5px] uppercase tracking-[0.18em] tabular-nums",
-              row.isPublicSample
-                ? "text-[rgb(var(--brand-primary))]"
-                : "text-[rgb(var(--fg-muted)/0.55)]",
-            ].join(" ")}
-            title={row.isPublicSample ? "Plays on /join" : "Hidden from /join"}
-          >
-            {row.isPublicSample ? "Public" : "Private"}
-          </span>
+          <Separator />
 
-          {/* remove (hover-revealed) */}
+          {/* col 3: name + artist · duration */}
+          <div className="min-w-0 shrink-0" style={{ width: 168 }}>
+            <p
+              className="truncate text-[14px] leading-tight text-[rgb(var(--fg-primary))]"
+              style={{ fontWeight: 600, letterSpacing: "-0.01em" }}
+            >
+              {row.title}
+            </p>
+            <p className="mt-1 truncate text-[11.5px] leading-tight text-[rgb(var(--fg-secondary))]">
+              {row.artist ?? "Unknown artist"}
+              {formatDuration(row.durationMs) ? (
+                <>
+                  {" "}
+                  <span className="text-[rgb(var(--fg-muted))]">·</span>{" "}
+                  <span className="font-mono tabular-nums text-[rgb(var(--fg-muted))]">
+                    {formatDuration(row.durationMs)}
+                  </span>
+                </>
+              ) : null}
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* col 4: public / private mono label — fixed width so the divider sits at a stable x */}
+          <div className="flex shrink-0 items-center" style={{ width: 64 }}>
+            <span
+              aria-hidden="true"
+              className={[
+                "font-mono text-[9.5px] uppercase tracking-[0.18em] tabular-nums",
+                row.isPublicSample
+                  ? "text-[rgb(var(--brand-primary))]"
+                  : "text-[rgb(var(--fg-muted)/0.55)]",
+              ].join(" ")}
+              title={row.isPublicSample ? "Plays on /join" : "Hidden from /join"}
+            >
+              {row.isPublicSample ? "Public" : "Private"}
+            </span>
+          </div>
+
+          {/* remove (hover-revealed, sits outside the column-divider zone) */}
           <button
             type="button"
             aria-label={`Remove ${row.title}`}
@@ -575,6 +584,19 @@ function TrackRow({
         </div>
       </div>
     </li>
+  );
+}
+
+// Visible vertical hairline between row columns. Stronger than
+// --border-subtle so it actually shows against the cream inner card;
+// inset top + bottom relative to the row height so it reads as a
+// divider, not a touching edge.
+function Separator() {
+  return (
+    <span
+      aria-hidden="true"
+      className="block h-7 w-px shrink-0 bg-[rgb(var(--fg-muted)/0.28)]"
+    />
   );
 }
 

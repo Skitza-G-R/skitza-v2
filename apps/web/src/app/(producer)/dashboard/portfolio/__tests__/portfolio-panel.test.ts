@@ -368,15 +368,25 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     expect(panelSource).toMatch(/getBoundingClientRect/);
   });
 
-  it("anchors the title block on the LEFT side of the row (Spotify/Apple Music pattern)", () => {
-    // The title block is a fixed-width column immediately after the
-    // play button; the waveform takes flex-1 to its right. Source-grep
-    // for the specific width style + the order: play button JSX must
-    // appear BEFORE the title-block JSX in the file.
+  it("renders Separator hairlines between play / waveform / name / public columns", () => {
+    expect(panelSource).toContain("function Separator()");
+    // Three separators rendered as siblings inside the row — between
+    // play|waveform, waveform|name, name|public.
+    const matches = panelSource.match(/<Separator\s*\/>/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("row columns appear in the order: play → waveform → name → public/private", () => {
     const playMatch = panelSource.search(/aria-label=\{playing \? "Pause" : "Play"\}/);
-    const titleBlockMatch = panelSource.search(/width:\s*180\s*\}/);
+    const waveMatch = panelSource.search(/aria-label="Seek"/);
+    const nameMatch = panelSource.search(/width:\s*168\s*\}/);
+    const publicMatch = panelSource.search(
+      /isPublicSample\s*\?\s*"Public"\s*:\s*"Private"/,
+    );
     expect(playMatch).toBeGreaterThan(-1);
-    expect(titleBlockMatch).toBeGreaterThan(playMatch);
+    expect(waveMatch).toBeGreaterThan(playMatch);
+    expect(nameMatch).toBeGreaterThan(waveMatch);
+    expect(publicMatch).toBeGreaterThan(nameMatch);
   });
 
   it("uses real peaks when present, falls back to seededBars", () => {
