@@ -124,7 +124,7 @@ function Stepper({
   return (
     <div
       className={[
-        "inline-flex h-10 items-center gap-1 rounded-[10px] border bg-[rgb(var(--bg-elevated))] p-1",
+        "inline-flex h-11 items-center gap-1 rounded-[10px] border bg-[rgb(var(--bg-elevated))] p-1",
         "transition-[opacity,border-color] duration-200",
         disabled
           ? "border-[rgb(var(--border-subtle))] opacity-50"
@@ -325,7 +325,7 @@ export function PricingStep({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
               <Eyebrow>Price</Eyebrow>
-              <div className="flex items-center gap-2 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 shadow-[0_1px_2px_rgba(17,16,9,0.03)] focus-within:border-[rgb(var(--brand-primary))] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.25)]">
+              <div className="flex h-11 items-center gap-2 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 shadow-[0_1px_2px_rgba(17,16,9,0.03)] focus-within:border-[rgb(var(--brand-primary))] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.25)]">
                 <span
                   aria-hidden
                   className="font-display text-[20px] font-bold text-[rgb(var(--fg-muted))]"
@@ -380,7 +380,7 @@ export function PricingStep({
                   aria-pressed={unlimitedSessions}
                   aria-label="Unlimited sessions"
                   className={[
-                    "sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold transition-colors",
+                    "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold transition-colors",
                     unlimitedSessions
                       ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
                       : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
@@ -412,82 +412,82 @@ export function PricingStep({
                   products" hint moves under the live preview as a
                   dot-separated suffix. */}
           {taxChange ? (
-            <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.025)] px-4 py-3">
-              <Eyebrow>Tax</Eyebrow>
-              <div
-                className={[
-                  "mt-2 flex flex-col gap-2.5",
-                  taxPending ? "sk-pending-pulse rounded-full" : "",
-                ].join(" ")}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <TaxModeSegmented
-                    value={taxMode}
-                    onChange={(next) => {
-                      taxChange({ taxMode: next });
-                    }}
-                    size="lg"
-                    inline
-                    disabled={taxPending}
-                    ariaLabel="Tax disclosure mode"
-                  />
-                  {taxMode !== "tax_free" ? (
-                    <div className="flex items-center gap-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-1 py-1 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)]">
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={1}
-                        inputMode="numeric"
-                        value={taxRatePct}
-                        onChange={(e) => {
-                          const n = Number(e.target.value);
-                          if (!Number.isFinite(n)) return;
-                          taxChange({
-                            taxRatePct: Math.max(
-                              0,
-                              Math.min(100, Math.round(n)),
-                            ),
-                          });
-                        }}
-                        aria-label="Tax rate percentage"
-                        disabled={taxPending}
-                        className="w-10 border-none bg-transparent text-right font-display text-[14px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))] outline-none"
-                      />
-                      <span
-                        aria-hidden
-                        className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
-                      >
-                        %
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
-                <div
-                  key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
-                  className="reveal-up flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px] text-[rgb(var(--fg-muted))]"
-                  aria-live="polite"
-                >
-                  <span>{taxPricingNote}</span>
-                  <span
-                    aria-hidden
-                    className="text-[rgb(var(--fg-faint))]"
-                  >
-                    ·
-                  </span>
-                  <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
-                    Applies to all products
-                  </span>
-                </div>
-                {taxError ? (
-                  <div
-                    className="text-[11.5px] text-[rgb(var(--fg-danger))]"
-                    role="alert"
-                  >
-                    Couldn&apos;t save: {taxError}
+            <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.025)] px-3 py-2.5">
+              {/* Row 1 — TAX eyebrow inline LEFT of the toggle. Tighter
+                  than the previous stacked "label above, toggle below"
+                  layout. Pulse animation is composed onto the
+                  TaxModeSegmented's own container (className prop) so
+                  the brand-color outline traces the pill exactly — not
+                  the text below it. */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Eyebrow>Tax</Eyebrow>
+                <TaxModeSegmented
+                  value={taxMode}
+                  onChange={(next) => {
+                    taxChange({ taxMode: next });
+                  }}
+                  size="lg"
+                  inline
+                  disabled={taxPending}
+                  className={taxPending ? "sk-pending-pulse" : ""}
+                  ariaLabel="Tax disclosure mode"
+                />
+                {taxMode !== "tax_free" ? (
+                  <div className="flex items-center gap-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-1 py-1 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)]">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      inputMode="numeric"
+                      value={taxRatePct}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        if (!Number.isFinite(n)) return;
+                        taxChange({
+                          taxRatePct: Math.max(
+                            0,
+                            Math.min(100, Math.round(n)),
+                          ),
+                        });
+                      }}
+                      aria-label="Tax rate percentage"
+                      disabled={taxPending}
+                      className="w-10 border-none bg-transparent text-right font-display text-[14px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))] outline-none"
+                    />
+                    <span
+                      aria-hidden
+                      className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
+                    >
+                      %
+                    </span>
                   </div>
                 ) : null}
               </div>
+              {/* Row 2 — live preview + "Applies to all products" hint
+                  as a dot-separated subtitle. Smaller mt-1.5 keeps the
+                  whole block compact. */}
+              <div
+                key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
+                className="reveal-up mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px] text-[rgb(var(--fg-muted))]"
+                aria-live="polite"
+              >
+                <span>{taxPricingNote}</span>
+                <span aria-hidden className="text-[rgb(var(--fg-faint))]">
+                  ·
+                </span>
+                <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
+                  Applies to all products
+                </span>
+              </div>
+              {taxError ? (
+                <div
+                  className="mt-1.5 text-[11.5px] text-[rgb(var(--fg-danger))]"
+                  role="alert"
+                >
+                  Couldn&apos;t save: {taxError}
+                </div>
+              ) : null}
             </div>
           ) : null}
 

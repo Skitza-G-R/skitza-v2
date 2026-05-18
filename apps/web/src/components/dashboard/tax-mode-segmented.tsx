@@ -51,6 +51,11 @@ interface Props {
   // the two pills don't compete for visual weight. Producer's Pricing
   // step passes false; everything else keeps the default.
   inline?: boolean;
+  // Extra classes composed onto the container div. The container is
+  // already `rounded-full` so adding `sk-pending-pulse` here traces the
+  // pulse outline perfectly to the toggle's pill shape (and only the
+  // toggle, not surrounding text).
+  className?: string;
   ariaLabel?: string;
 }
 
@@ -61,6 +66,7 @@ export function TaxModeSegmented({
   disabled = false,
   highlight = false,
   inline = false,
+  className,
   ariaLabel = "Tax disclosure mode",
 }: Props) {
   const groupId = useId();
@@ -149,6 +155,7 @@ export function TaxModeSegmented({
         // 1.4s, same keyframe used by Stripe-success states elsewhere.
         highlight ? "tax-segment-highlight" : "",
         disabled ? "pointer-events-none opacity-60" : "",
+        className ?? "",
       ].join(" ")}
     >
       {/* Sliding indicator — single pill that moves between segments.
