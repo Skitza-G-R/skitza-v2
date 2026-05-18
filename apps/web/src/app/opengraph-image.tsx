@@ -4,20 +4,21 @@ import { ImageResponse } from "next/og";
 // WhatsApp / iMessage / Slack / Twitter / LinkedIn / Telegram etc.
 //
 // Mirrors the landing-page hero (Hero() in apps/web/src/components/
-// landing/landing-page.tsx, 2026-05-17):
-// - Same obsidian background (#111009) with the warm cream type
-// - Same "NOW BOOKING · EARLY ACCESS" amber pill with glowing dot
-// - Same H1 — "One app. Your whole studio." — with amber periods
-// - Same lockup: amber "S" square + lowercase "skitza." wordmark
-// - Same subhead copy
-// Anyone who sees the link preview and then clicks through lands on a
-// page that visually continues the same composition — no whiplash.
+// landing/landing-page.tsx) — Editorial Luxury vibe on a dark
+// obsidian canvas: warm cream type, Syne extrabold grotesk, restrained
+// amber accents, macro-whitespace.
 //
-// Loads Syne extrabold from Google Fonts so the "S" mark and the
-// headline read with the brand's actual geometric weight, not a
-// generic system-ui bold. Outfit is loaded for the pill / subhead /
-// footer so they match the body type stack. Both are subset to only
-// the glyphs we render here (≈ 5 KB each instead of full payloads).
+// Design principles applied:
+// - Inline period spans (not sibling flex items) so the amber period
+//   sits right next to the word, not floating below the baseline.
+// - Inner top-edge highlight on the "S" mark (inset white box-shadow)
+//   simulates light hitting a physical machined surface — haptic depth.
+// - Eyebrow pill (NOW BOOKING) before the H1 — premium editorial rhythm.
+// - Amber "kicker" accent bar below the headline — the designed
+//   punctuation that closes the typography block.
+// - Hairline rule above the footer — editorial structural detail.
+// - Loads Syne 800 + Outfit 500 from Google Fonts, glyph-subsetted to
+//   only the characters we render (~5 KB each).
 export const alt =
   "Skitza — one app. Your whole studio. Business automation for music producers.";
 export const size = { width: 1200, height: 630 };
@@ -48,13 +49,10 @@ async function loadGoogleFont(
   return await fontRes.arrayBuffer();
 }
 
-// All Syne glyphs we render — keep in sync with the JSX below so the
-// subset request stays minimal.
-const SYNE_TEXT =
-  "Sskitza.Oneapp.Yourwholestudio.NOWBOKIG·EARLYACCS";
-// All Outfit glyphs we render across the pill, subhead, and footer.
+// Glyphs we render — keep in sync with the JSX so the subset stays minimal.
+const SYNE_TEXT = "Sskitza.Oneapp.Yourwholestudio";
 const OUTFIT_TEXT =
-  "NOW BOOKING · EARLY ACCESS The producer dashboard that replaces Calendly, DocuSign, Stripe, Notion & WhatsApp. One link, one inbox, one bill — sessions book themselves and the mix delivers itself the moment the invoice clears.skitza.appBeta · Join the waiting listv1.0 — early access";
+  "NOW BOOKING · EARLY ACCESS The producer dashboard that replaces Calendly, DocuSign, Stripe, Notion & WhatsApp.skitza.appBeta · Join the waiting listv1.0 — early access";
 
 export default async function OgImage() {
   const [syne, outfit] = await Promise.all([
@@ -71,30 +69,27 @@ export default async function OgImage() {
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
-          padding: 72,
-          backgroundColor: "#111009",
-          // Amber bloom on the right — mirrors the hero's amber halo.
-          // Satori accepts a single background-image layer.
+          padding: "76px 80px",
+          backgroundColor: "#0E0D08",
+          // Single amber bloom on the upper-right — Satori only accepts
+          // one background-image layer. Restrained opacity keeps the
+          // canvas reading as warm dark obsidian, not a colored field.
           backgroundImage:
-            "radial-gradient(ellipse at 92% 30%, rgba(212,150,10,0.20) 0%, transparent 55%)",
+            "radial-gradient(ellipse 60% 55% at 88% 22%, rgba(212,150,10,0.22) 0%, transparent 60%)",
           color: "#F2EDE6",
           fontFamily: "Outfit",
         }}
       >
-        {/* Top row: brand lockup. Same as the landing nav. */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 18,
-          }}
-        >
-          {/* Amber "S" square — the product mark. */}
+        {/* ─── Top row: brand lockup ─────────────────────────────── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          {/* Amber "S" mark. Inner top highlight + outer warm glow give
+              it the feeling of a machined amber tile catching light,
+              rather than a flat colored block. */}
           <div
             style={{
-              width: 64,
-              height: 64,
-              borderRadius: 16,
+              width: 60,
+              height: 60,
+              borderRadius: 14,
               background: "#D4960A",
               display: "flex",
               alignItems: "center",
@@ -102,38 +97,39 @@ export default async function OgImage() {
               color: "#111009",
               fontFamily: "Syne",
               fontWeight: 800,
-              fontSize: 42,
+              fontSize: 38,
               lineHeight: 1,
               letterSpacing: "-0.04em",
-              boxShadow: "0 10px 28px rgba(212, 150, 10, 0.4)",
+              boxShadow:
+                "inset 0 1.5px 0 rgba(255, 255, 255, 0.42), inset 0 -2px 0 rgba(0, 0, 0, 0.18), 0 14px 36px rgba(212, 150, 10, 0.45)",
             }}
           >
             S
           </div>
-          {/* Lowercase "skitza." wordmark with amber period. */}
+          {/* "skitza." wordmark — inline span for the amber period so
+              it sits flush with the "a", no flex-item drift. */}
           <div
             style={{
               display: "flex",
-              alignItems: "baseline",
               fontFamily: "Syne",
-              fontSize: 48,
+              fontSize: 44,
               fontWeight: 800,
-              letterSpacing: "-1.6px",
+              letterSpacing: "-1.4px",
               lineHeight: 1,
               color: "#F2EDE6",
             }}
           >
-            <div style={{ display: "flex" }}>skitza</div>
-            <div style={{ display: "flex", color: "#D4960A" }}>.</div>
+            <span>skitza</span>
+            <span style={{ color: "#D4960A" }}>.</span>
           </div>
-          {/* Version tag — sits in the gap to the right, mono feel. */}
+          {/* Version tag — subdued, sits to the right of the wordmark. */}
           <div
             style={{
               display: "flex",
               marginLeft: 18,
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: 500,
-              color: "rgba(242, 237, 230, 0.5)",
+              color: "rgba(242, 237, 230, 0.42)",
               letterSpacing: "0.02em",
             }}
           >
@@ -141,47 +137,47 @@ export default async function OgImage() {
           </div>
         </div>
 
-        {/* Middle stack: pill + headline + subhead. */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-          {/* "NOW BOOKING · EARLY ACCESS" amber pill with glowing dot. */}
+        {/* ─── Mid stack: eyebrow + headline + kicker + subhead ─── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 30 }}>
+          {/* Eyebrow pill — fully rounded per the editorial rhythm,
+              subtle inner top highlight for haptic depth. */}
           <div
             style={{
               display: "flex",
               alignSelf: "flex-start",
               alignItems: "center",
               gap: 10,
-              padding: "8px 16px",
-              borderRadius: 8,
-              background: "rgba(212, 150, 10, 0.14)",
-              border: "1px solid rgba(212, 150, 10, 0.35)",
+              padding: "7px 16px",
+              borderRadius: 999,
+              background: "rgba(212, 150, 10, 0.10)",
+              border: "1px solid rgba(212, 150, 10, 0.32)",
               color: "#D4960A",
               fontFamily: "Outfit",
-              fontSize: 16,
+              fontSize: 13,
               fontWeight: 500,
-              letterSpacing: 1.4,
+              letterSpacing: 2,
               textTransform: "uppercase",
+              boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.05)",
             }}
           >
             <div
               style={{
                 display: "flex",
-                width: 8,
-                height: 8,
+                width: 7,
+                height: 7,
                 borderRadius: 4,
                 background: "#D4960A",
-                boxShadow: "0 0 12px #D4960A",
+                boxShadow: "0 0 10px #D4960A",
               }}
             />
             Now booking · early access
           </div>
 
-          {/* Huge headline — matches the H1 on the landing hero
-              (clamp 44/5.4vw/76px). On the 1200px OG card we have
-              ~1056px content width; at 80px Syne 800 with
-              letterSpacing -0.038em, the longer "Your whole studio."
-              line measures ~870px and fits comfortably on one line.
-              `alignItems: baseline` so the amber period sits on the
-              text baseline, not the stretched flex-item top. */}
+          {/* Huge headline — Syne 800. The amber "kicker" bar below
+              acts as the singular brand-colored punctuation for the
+              whole headline block (Editorial Luxury rhythm: one
+              deliberate accent, not scattered punctuation glyphs).
+              `whiteSpace: nowrap` keeps each line as one piece. */}
           <div
             style={{
               display: "flex",
@@ -189,35 +185,46 @@ export default async function OgImage() {
               fontFamily: "Syne",
               fontWeight: 800,
               fontSize: 80,
-              lineHeight: 0.95,
+              lineHeight: 0.96,
               letterSpacing: "-0.038em",
               color: "#F2EDE6",
             }}
           >
-            <div style={{ display: "flex", alignItems: "baseline" }}>
-              <div style={{ display: "flex", whiteSpace: "nowrap" }}>
-                One app
-              </div>
-              <div style={{ display: "flex", color: "#D4960A" }}>.</div>
+            <div style={{ display: "flex", whiteSpace: "nowrap" }}>
+              One app
             </div>
-            <div style={{ display: "flex", alignItems: "baseline" }}>
-              <div style={{ display: "flex", whiteSpace: "nowrap" }}>
-                Your whole studio
-              </div>
-              <div style={{ display: "flex", color: "#D4960A" }}>.</div>
+            <div style={{ display: "flex", whiteSpace: "nowrap" }}>
+              Your whole studio
             </div>
           </div>
 
-          {/* Subhead — same copy as the hero, muted cream. */}
+          {/* Amber kicker bar — the designed punctuation that closes
+              the headline block. Glow shadow gives it the feeling of
+              an emissive amber line, not flat color. */}
           <div
             style={{
               display: "flex",
-              fontSize: 24,
+              width: 96,
+              height: 5,
+              background: "#D4960A",
+              borderRadius: 3,
+              boxShadow: "0 0 28px rgba(212, 150, 10, 0.6)",
+              marginTop: -4,
+            }}
+          />
+
+          {/* Subhead — muted cream, tight measure so it sits clearly
+              under the headline rather than spreading the full width. */}
+          <div
+            style={{
+              display: "flex",
+              fontFamily: "Outfit",
+              fontSize: 22,
               fontWeight: 500,
               lineHeight: 1.45,
               letterSpacing: "-0.005em",
-              color: "rgba(242, 237, 230, 0.62)",
-              maxWidth: 920,
+              color: "rgba(242, 237, 230, 0.6)",
+              maxWidth: 840,
             }}
           >
             The producer dashboard that replaces Calendly, DocuSign, Stripe,
@@ -225,22 +232,38 @@ export default async function OgImage() {
           </div>
         </div>
 
-        {/* Footer row: domain + waiting-list tag. */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            fontFamily: "Outfit",
-            fontSize: 18,
-            color: "rgba(242, 237, 230, 0.45)",
-            letterSpacing: 2,
-            textTransform: "uppercase",
-            fontWeight: 500,
-          }}
-        >
-          <div style={{ display: "flex" }}>skitza.app</div>
-          <div style={{ display: "flex" }}>Beta · Join the waiting list</div>
+        {/* ─── Footer: hairline + tagline row ─────────────────────── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {/* Hairline rule — editorial structural detail. */}
+          <div
+            style={{
+              display: "flex",
+              width: "100%",
+              height: 1,
+              background: "rgba(242, 237, 230, 0.08)",
+            }}
+          />
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              fontFamily: "Outfit",
+              fontSize: 15,
+              color: "rgba(242, 237, 230, 0.42)",
+              letterSpacing: 2.4,
+              textTransform: "uppercase",
+              fontWeight: 500,
+            }}
+          >
+            {/* Inline-span domain so ".app" picks up the amber accent
+                — same wordmark logic, miniaturised. */}
+            <div style={{ display: "flex" }}>
+              <span style={{ color: "rgba(242, 237, 230, 0.62)" }}>skitza</span>
+              <span style={{ color: "#D4960A" }}>.app</span>
+            </div>
+            <div style={{ display: "flex" }}>Beta · Join the waiting list</div>
+          </div>
         </div>
       </div>
     ),
