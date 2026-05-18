@@ -58,6 +58,12 @@ export default async function Icon() {
           fontSize: 22,
           lineHeight: 1,
           letterSpacing: "-0.04em",
+          // Haptic depth: light catches the top edge, shadow hugs the
+          // bottom. At 32px this is subtle but it keeps the favicon
+          // consistent with the OG card's "S" mark and the in-app
+          // sidebar lockup — same machined-amber-tile feel everywhere.
+          boxShadow:
+            "inset 0 1px 0 rgba(255, 255, 255, 0.42), inset 0 -1px 0 rgba(0, 0, 0, 0.22)",
         }}
       >
         S
