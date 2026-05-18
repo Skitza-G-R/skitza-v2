@@ -987,23 +987,23 @@ function LibraryPickerModal({
       className="fixed inset-0 z-[100] flex items-center justify-center px-4"
       style={{ opacity: visible ? 1 : 0, transition: "opacity 220ms ease-out" }}
     >
-      {/* full-viewport soft glass backdrop, fades in */}
+      {/* full-viewport soft glass backdrop — light 12% dim + strong blur */}
       <button
         type="button"
         aria-label="Close"
         onClick={onClose}
         className="absolute inset-0 cursor-default"
         style={{
-          backgroundColor: "rgb(var(--bg-base) / 0.5)",
-          backdropFilter: visible ? "blur(14px)" : "blur(0px)",
-          WebkitBackdropFilter: visible ? "blur(14px)" : "blur(0px)",
+          backgroundColor: "rgb(var(--bg-base) / 0.12)",
+          backdropFilter: visible ? "blur(20px)" : "blur(0px)",
+          WebkitBackdropFilter: visible ? "blur(20px)" : "blur(0px)",
           transition:
             "backdrop-filter 280ms ease-out, -webkit-backdrop-filter 280ms ease-out",
         }}
       />
-      {/* modal card — centered, with subtle scale-in for entry */}
+      {/* modal card — centered, scaled-in for entry, wider for the table */}
       <div
-        className="relative z-10 flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+        className="relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
         style={{
           boxShadow:
             "0 24px 64px -16px rgb(17 16 9 / 0.18), 0 6px 12px -4px rgb(17 16 9 / 0.08)",
@@ -1037,7 +1037,7 @@ function LibraryPickerModal({
             </svg>
           </button>
         </header>
-        <PickerList
+        <PickerTable
           library={library}
           addedSet={addedSet}
           pendingId={pendingId}
@@ -1049,7 +1049,27 @@ function LibraryPickerModal({
   );
 }
 
-function PickerList({
+/**
+ * Pure helper exported for unit tests. Case-insensitive substring match
+ * against title + project + artist. Empty query returns the input
+ * untouched.
+ */
+export function filterLibrary(
+  library: readonly LibraryPickRow[],
+  query: string,
+): LibraryPickRow[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return library.slice();
+  return library.filter((row) => {
+    return (
+      row.trackTitle.toLowerCase().includes(needle) ||
+      row.projectTitle.toLowerCase().includes(needle) ||
+      row.artistName.toLowerCase().includes(needle)
+    );
+  });
+}
+
+function PickerTable({
   library,
   addedSet,
   pendingId,
@@ -1060,6 +1080,13 @@ function PickerList({
   pendingId: string | null;
   onPick: (row: LibraryPickRow) => void;
 }): ReactNode {
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(
+    () => filterLibrary(library, query),
+    [library, query],
+  );
+
   if (library.length === 0) {
     return (
       <p className="px-6 py-10 text-center text-sm text-[rgb(var(--fg-secondary))]">
@@ -1067,57 +1094,179 @@ function PickerList({
       </p>
     );
   }
+
   return (
-    <ul className="space-y-1.5 overflow-y-auto p-3">
-      {library.map((row) => {
-        const alreadyAdded = row.audioUrl ? addedSet.has(row.audioUrl) : false;
-        const noAudio = !row.audioUrl;
-        const rowDisabled = noAudio || alreadyAdded;
-        const pending = pendingId === row.versionId;
-        const date = new Date(row.uploadedAt).toLocaleDateString(undefined, {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        });
-        return (
-          <li key={row.versionId}>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* search */}
+      <div className="border-b border-[rgb(var(--border-subtle))] px-5 py-4">
+        <div className="flex items-center gap-2 rounded-full bg-[rgb(var(--bg-base))] px-3.5 py-2 ring-1 ring-[rgb(var(--border-subtle))] transition-[box-shadow] duration-200 ease-out focus-within:ring-[rgb(var(--brand-primary)/0.5)]">
+          <svg
+            viewBox="0 0 16 16"
+            className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--fg-muted))]"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <circle cx="7" cy="7" r="5" />
+            <path d="m14 14-3-3" />
+          </svg>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+            }}
+            placeholder="Search by title, project, or artist…"
+            aria-label="Search library"
+            className="min-w-0 flex-1 bg-transparent text-sm text-[rgb(var(--fg-primary))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none"
+            style={{ letterSpacing: "-0.005em" }}
+          />
+          {query ? (
             <button
               type="button"
-              disabled={rowDisabled || pending}
               onClick={() => {
-                onPick(row);
+                setQuery("");
               }}
-              className={[
-                "flex w-full flex-col items-start gap-1 rounded-[var(--radius-md)] px-3.5 py-3 text-left transition-all duration-200 ease-out",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]",
-                rowDisabled
-                  ? "cursor-not-allowed opacity-50"
-                  : "hover:bg-[rgb(var(--bg-overlay))] active:scale-[0.995]",
-                pending ? "opacity-60" : "",
-              ].join(" ")}
+              aria-label="Clear search"
+              className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] transition-colors duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
             >
-              <span
-                className="text-sm text-[rgb(var(--fg-primary))]"
-                style={{ fontWeight: 600 }}
-              >
-                {row.trackTitle}
-              </span>
-              <span className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-                {row.projectTitle} · {row.artistName} · {date}
-              </span>
-              {alreadyAdded ? (
-                <span className="mt-1 inline-flex items-center rounded-full bg-[rgb(var(--brand-primary)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
-                  Already added
-                </span>
-              ) : noAudio ? (
-                <span className="mt-1 inline-flex items-center rounded-full bg-[rgb(var(--fg-muted)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
-                  No audio yet
-                </span>
-              ) : null}
+              <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M3 3l6 6M9 3l-6 6" />
+              </svg>
             </button>
-          </li>
-        );
-      })}
-    </ul>
+          ) : null}
+        </div>
+      </div>
+
+      {/* table */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <table className="w-full border-collapse">
+          <thead className="sticky top-0 bg-[rgb(var(--bg-elevated))]">
+            <tr className="border-b border-[rgb(var(--border-subtle))]">
+              <th className="px-5 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+                Title
+              </th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+                Project
+              </th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+                Artist
+              </th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+                Uploaded
+              </th>
+              <th className="px-5 py-2.5 text-right font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+                <span className="sr-only">Action</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="px-5 py-12 text-center font-mono text-[11px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]"
+                >
+                  NO SONGS MATCH “{query}”
+                </td>
+              </tr>
+            ) : (
+              filtered.map((row) => (
+                <PickerRow
+                  key={row.versionId}
+                  row={row}
+                  addedSet={addedSet}
+                  pendingId={pendingId}
+                  onPick={onPick}
+                />
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function PickerRow({
+  row,
+  addedSet,
+  pendingId,
+  onPick,
+}: {
+  row: LibraryPickRow;
+  addedSet: Set<string>;
+  pendingId: string | null;
+  onPick: (row: LibraryPickRow) => void;
+}): ReactNode {
+  const alreadyAdded = row.audioUrl ? addedSet.has(row.audioUrl) : false;
+  const noAudio = !row.audioUrl;
+  const rowDisabled = noAudio || alreadyAdded;
+  const pending = pendingId === row.versionId;
+  const date = new Date(row.uploadedAt).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+
+  const trigger = () => {
+    if (rowDisabled || pending) return;
+    onPick(row);
+  };
+
+  return (
+    <tr
+      onClick={trigger}
+      className={[
+        "border-b border-[rgb(var(--border-subtle)/0.6)] transition-colors duration-150 ease-out",
+        rowDisabled || pending
+          ? "cursor-not-allowed opacity-55"
+          : "cursor-pointer hover:bg-[rgb(var(--bg-overlay))]",
+      ].join(" ")}
+    >
+      <td
+        className="px-5 py-3 text-[13px] text-[rgb(var(--fg-primary))]"
+        style={{ fontWeight: 600, letterSpacing: "-0.005em" }}
+      >
+        <span className="block max-w-[200px] truncate">{row.trackTitle}</span>
+      </td>
+      <td className="px-3 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))]">
+        <span className="block max-w-[140px] truncate">{row.projectTitle}</span>
+      </td>
+      <td className="px-3 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))]">
+        <span className="block max-w-[120px] truncate">{row.artistName}</span>
+      </td>
+      <td className="px-3 py-3 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] tabular-nums">
+        {date}
+      </td>
+      <td className="px-5 py-3 text-right">
+        {alreadyAdded ? (
+          <span className="inline-flex items-center rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--brand-primary))]">
+            Added
+          </span>
+        ) : noAudio ? (
+          <span className="inline-flex items-center rounded-full bg-[rgb(var(--fg-muted)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-secondary))]">
+            No audio
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              trigger();
+            }}
+            disabled={pending}
+            className="inline-flex items-center gap-1 rounded-full bg-[rgb(var(--brand-primary))] px-3 py-1 text-[11px] font-medium text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span>{pending ? "Adding…" : "Add"}</span>
+            <span aria-hidden="true" className="text-[12px]">
+              +
+            </span>
+          </button>
+        )}
+      </td>
+    </tr>
   );
 }

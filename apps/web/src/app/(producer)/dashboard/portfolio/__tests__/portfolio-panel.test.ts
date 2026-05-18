@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   canReorder,
   downsamplePeaks,
+  filterLibrary,
   formatDuration,
   LINK_CAP,
   PLATFORM_LABEL,
@@ -129,6 +130,54 @@ describe("downsamplePeaks", () => {
     // length 10, target 80 → returns the original 10
     const peaks = Array.from({ length: 10 }, () => 0.5);
     expect(downsamplePeaks(peaks, 80)).toEqual(peaks);
+  });
+});
+
+describe("filterLibrary", () => {
+  const lib = [
+    {
+      versionId: "v1",
+      trackTitle: "Midnight Drive",
+      projectTitle: "Neon Dreams",
+      artistName: "Lior",
+      audioUrl: "https://x/1.mp3",
+      uploadedAt: "2026-05-01T00:00:00Z",
+    },
+    {
+      versionId: "v2",
+      trackTitle: "Sun Reborn",
+      projectTitle: "Sunshine EP",
+      artistName: "Ani Sameach",
+      audioUrl: "https://x/2.mp3",
+      uploadedAt: "2026-04-22T00:00:00Z",
+    },
+  ];
+
+  it("returns everything for an empty / whitespace query", () => {
+    expect(filterLibrary(lib, "")).toHaveLength(2);
+    expect(filterLibrary(lib, "   ")).toHaveLength(2);
+  });
+
+  it("matches by trackTitle (case-insensitive substring)", () => {
+    expect(filterLibrary(lib, "MIDNIGHT")).toEqual([lib[0]]);
+  });
+
+  it("matches by projectTitle", () => {
+    expect(filterLibrary(lib, "sunshine")).toEqual([lib[1]]);
+  });
+
+  it("matches by artistName", () => {
+    expect(filterLibrary(lib, "lior")).toEqual([lib[0]]);
+  });
+
+  it("returns empty when nothing matches", () => {
+    expect(filterLibrary(lib, "zzz")).toEqual([]);
+  });
+
+  it("does not mutate the input library", () => {
+    const copy = [...lib];
+    filterLibrary(lib, "");
+    expect(lib).toEqual(copy);
   });
 });
 
@@ -277,6 +326,36 @@ describe("portfolio-panel.tsx — structural invariants", () => {
   it("renders the picker modal via React's createPortal (escapes sidebar stacking)", () => {
     expect(panelSource).toContain("createPortal");
     expect(panelSource).toContain("window.document.body");
+  });
+
+  it("modal backdrop uses light dim (bg-base / 0.12) + strong blur (20px)", () => {
+    expect(panelSource).toContain("rgb(var(--bg-base) / 0.12)");
+    expect(panelSource).toMatch(/blur\(20px\)/);
+  });
+
+  it("modal is wide enough to host the library table (max-w-3xl)", () => {
+    expect(panelSource).toMatch(/max-w-3xl/);
+  });
+
+  it("picker is rendered as a <table> (not a stacked button list)", () => {
+    expect(panelSource).toMatch(/<table\b/);
+    expect(panelSource).toMatch(/<thead\b/);
+    expect(panelSource).toMatch(/<tbody>/);
+    // The four data columns + an action column.
+    expect(panelSource).toMatch(/>\s*Title\s*</);
+    expect(panelSource).toMatch(/>\s*Project\s*</);
+    expect(panelSource).toMatch(/>\s*Artist\s*</);
+    expect(panelSource).toMatch(/>\s*Uploaded\s*</);
+  });
+
+  it("picker has a search input above the table", () => {
+    expect(panelSource).toMatch(/type="search"/);
+    expect(panelSource).toMatch(/Search by title, project, or artist/);
+    expect(panelSource).toMatch(/aria-label="Search library"/);
+  });
+
+  it("filtered=0 shows a 'NO SONGS MATCH' empty state inside the table", () => {
+    expect(panelSource).toContain("NO SONGS MATCH");
   });
 
   it("waveform is rendered as a <button> so it can be clicked to seek", () => {
