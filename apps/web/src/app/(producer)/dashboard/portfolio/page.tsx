@@ -75,15 +75,14 @@ export default async function PortfolioPage() {
           href={publicProfileUrl}
           target="_blank"
           rel="noreferrer noopener"
-          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-5 py-2.5 text-sm text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:border-[rgb(var(--fg-primary))] active:scale-[0.97]"
-          style={{ fontWeight: 500 }}
+          className="inline-flex shrink-0 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-semibold text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97]"
         >
           <svg
             viewBox="0 0 16 16"
             className="h-4 w-4 shrink-0"
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.6"
+            strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
             aria-hidden="true"
