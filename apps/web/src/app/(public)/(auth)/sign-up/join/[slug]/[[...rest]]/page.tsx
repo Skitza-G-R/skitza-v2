@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { SignUp } from "@clerk/nextjs";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+import { createDb, eq, producers } from "@skitza/db";
 
 import { AuthHero } from "~/components/auth/auth-hero";
 import { fetchUserRole } from "~/server/auth/role";
+import { connectArtistToProducer } from "~/server/contacts/connect-artist";
 import { SignOutAndReturnButton } from "./sign-out-and-return-button";
 
 // Dedicated sign-up entry for the /join/<slug> → artist flow.
@@ -76,6 +79,59 @@ export default async function JoinSignUpPage({ params }: Props) {
   if (!dbUrl) throw new Error("missing DATABASE_URL");
   const { userId } = await auth();
   const role = await fetchUserRole({ dbUrl, userId });
+
+  // Signed-in artist arriving at a (potentially different) producer's
+  // join link. Without intervention here, Clerk's <SignUp> would
+  // auto-redirect them to fallbackRedirectUrl (/artist-welcome/<slug>)
+  // — that destination now also runs the connect upsert, so this
+  // branch is technically defense-in-depth. We still do the upsert
+  // here to (a) handle the case where Clerk's redirect chain skips
+  // the welcome page for any reason, and (b) make the route's
+  // connect contract explicit at every entry point. The redirect to
+  // /artist-welcome/<slug> preserves the splash so the artist sees
+  // the connection acknowledged before landing in their workspace.
+  if (role.kind === "artist") {
+    const db = createDb(dbUrl);
+    const [producer] = await db
+      .select({ id: producers.id })
+      .from(producers)
+      .where(eq(producers.slug, slug))
+      .limit(1);
+
+    if (producer && userId) {
+      const user = await currentUser();
+      const email = user?.primaryEmailAddress?.emailAddress ?? null;
+      if (email) {
+        const name =
+          [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+          user?.username ||
+          email.split("@")[0] ||
+          "Artist";
+        try {
+          await connectArtistToProducer(db, {
+            producerId: producer.id,
+            email,
+            name,
+            clerkUserId: userId,
+          });
+        } catch (err) {
+          // Swallow + log: the welcome page will retry the same
+          // upsert, so a transient failure here doesn't strand the
+          // artist. Sentry surfaces it server-side.
+          console.error(
+            "[sign-up/join] connectArtistToProducer failed",
+            { producerSlug: slug },
+            err,
+          );
+        }
+      }
+    }
+
+    // Slug doesn't resolve → fall through to /artist-welcome/<slug>
+    // anyway; that page's notFound() will render a 404 surface that
+    // matches the rest of the join funnel.
+    redirect(`/artist-welcome/${encodeURIComponent(slug)}`);
+  }
 
   if (role.kind === "producer-complete") {
     const producerName = role.producer.displayName ?? "a producer";
