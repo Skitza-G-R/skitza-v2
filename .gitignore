@@ -25,6 +25,7 @@ pnpm-debug.log*
 .claude/transcripts/
 .claude/cache/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 .playwright-mcp/
 
 # Generated documentation artifacts — regenerate with scripts/build-onboarding-pdf.py
