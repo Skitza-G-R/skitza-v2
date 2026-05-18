@@ -126,9 +126,14 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
       aria-label="Page navigation"
       data-testid="dashboard-topbar"
       data-scrolled={scrolled ? "true" : "false"}
-      className="sticky top-0 z-30 backdrop-blur-md transition-[box-shadow,border-color] duration-200 ease-out"
+      // backdrop-blur-xl (24px) + low bg opacity (0.55) gives the
+      // frosted-glass strip effect — the page content (especially the
+      // colored project / song heroes) bleeds THROUGH the topbar
+      // blurred, like a macOS window chrome or the iOS Music topbar.
+      // No longer reads as a solid cream stripe glued to the top.
+      className="sticky top-0 z-30 backdrop-blur-xl transition-[box-shadow,border-color] duration-200 ease-out"
       style={{
-        background: "rgb(var(--bg-background) / 0.82)",
+        background: "rgb(var(--bg-background) / 0.55)",
         // Border + shadow fade in once the page has scrolled past 4px.
         // At scroll-top the topbar floats with no hard line; the blur
         // does the separation work.
@@ -140,7 +145,12 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
           : "none",
       }}
     >
-      <div className="mx-auto flex w-full max-w-[1400px] items-center gap-3 px-4 py-2.5 sm:gap-4 sm:px-6 lg:px-8">
+      {/* py-1.5 (6px top + 6px bottom) makes the bar feel like a
+          compact strip rather than a chunky chrome row. Combined with
+          the bell shrinking to h-8, the total topbar height drops
+          from ~48px to ~40px — more like a Linear / Vercel topbar
+          than a SaaS app-shell. */}
+      <div className="mx-auto flex w-full max-w-[1400px] items-center gap-3 px-4 py-1.5 sm:gap-4 sm:px-6 lg:px-8">
         {/* Breadcrumb (top-left). Hidden on the smallest screens
             where the search trigger needs the full row to read; the
             search pill still hints the page via context. `min-w-0` +
@@ -200,7 +210,7 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
         <button
           type="button"
           data-testid="topbar-bell"
-          className="relative inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(17_16_9/0.05)] hover:text-[rgb(var(--fg-default))] active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+          className="relative inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(17_16_9/0.05)] hover:text-[rgb(var(--fg-default))] active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
           style={{ color: "rgb(var(--fg-muted))" }}
           aria-label={
             unreadCount > 0
