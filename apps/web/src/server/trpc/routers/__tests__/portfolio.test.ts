@@ -15,6 +15,7 @@ const producerSelectFromMock = vi.fn<() => Promise<Array<{ id: string }>>>();
 const trackSelectByIdMock = vi.fn<() => Promise<Array<{ producerId: string }>>>();
 const trackListMock = vi.fn<() => Promise<Row[]>>();
 const trackInsertReturningMock = vi.fn<() => Promise<Row[]>>();
+const trackInsertValuesSpy = vi.fn<(rec: unknown) => void>();
 const trackUpdateReturningMock = vi.fn<() => Promise<Row[]>>();
 const trackDeleteWhereMock = vi.fn<() => Promise<void>>();
 
@@ -24,9 +25,14 @@ const dbMock = {
       if (table === producersMarker) {
         return { where: () => ({ limit: () => producerSelectFromMock() }) };
       }
-      // portfolioTracks: list uses .where().orderBy(), by-id lookup
-      // uses .where().limit(1) — the chain exposes both terminals.
+      // portfolioTracks chain shapes:
+      //   - list:        .from().leftJoin().where().orderBy()  (peaks JOIN)
+      //   - by-id lookup .from().where().limit(1)
+      //   - update:      .from().where().returning() (handled separately)
       return {
+        leftJoin: () => ({
+          where: () => ({ orderBy: () => trackListMock() }),
+        }),
         where: () => ({
           limit: () => trackSelectByIdMock(),
           orderBy: () => trackListMock(),
@@ -35,7 +41,10 @@ const dbMock = {
     },
   }),
   insert: () => ({
-    values: () => ({ returning: () => trackInsertReturningMock() }),
+    values: (rec: unknown) => {
+      trackInsertValuesSpy(rec);
+      return { returning: () => trackInsertReturningMock() };
+    },
   }),
   update: () => ({
     set: () => ({
@@ -52,8 +61,10 @@ vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
   portfolioTracks: portfolioTracksMarker,
+  trackVersions: { __table: "track_versions" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNotNull: (col: unknown) => ({ isNotNull: col }),
 }));
 
 beforeEach(() => {
@@ -63,6 +74,7 @@ beforeEach(() => {
   trackInsertReturningMock
     .mockReset()
     .mockResolvedValue([{ id: TRACK_ID, title: "x" }]);
+  trackInsertValuesSpy.mockReset();
   trackUpdateReturningMock.mockReset().mockResolvedValue([{ id: TRACK_ID }]);
   trackDeleteWhereMock.mockReset().mockResolvedValue(undefined);
   process.env.DATABASE_URL = "postgresql://test/test";
@@ -151,6 +163,36 @@ describe("portfolio.create", () => {
       audioUrl: null,
     });
     expect(trackInsertReturningMock).toHaveBeenCalledOnce();
+  });
+
+  // Portfolio redesign 2026-05-17 §0.2 (Q1=B): new featured tracks added
+  // through the producer's curated portfolio default to is_public_sample
+  // = true. The "Public" badge on the redesigned panel renders this; the
+  // /join page reads it to decide what plays for unsigned-in visitors.
+  // Existing private rows stay private — no backfill.
+  it("defaults isPublicSample to true on insert (Q1=B)", async () => {
+    const caller = await buildCaller();
+    await caller.portfolio.create({
+      title: "Fresh add",
+      audioUrl: "https://example.com/a.mp3",
+    });
+    expect(trackInsertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isPublicSample: true,
+        producerId: PRODUCER_ID,
+      }),
+    );
+  });
+
+  it("defaults isPublicSample to true even when audioUrl is null", async () => {
+    const caller = await buildCaller();
+    await caller.portfolio.create({
+      title: "Pending upload",
+      audioUrl: null,
+    });
+    expect(trackInsertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ isPublicSample: true }),
+    );
   });
 });
 

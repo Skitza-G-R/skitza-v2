@@ -111,62 +111,82 @@ describe("producerExternalLinks.list", () => {
   });
 });
 
-describe("producerExternalLinks.add", () => {
-  it("inserts with all 7 supported platforms", async () => {
+describe("producerExternalLinks.add (smart-paste, URL only)", () => {
+  it("detects the platform from each of the 7 supported hosts", async () => {
     const caller = await buildCaller();
-    for (const platform of [
-      "spotify",
-      "apple_music",
-      "youtube",
-      "soundcloud",
-      "bandcamp",
-      "tidal",
-      "instagram_reels",
-    ] as const) {
-      await caller.producerExternalLinks.add({
-        platform,
-        url: "https://example.com/valid-url",
-        title: null,
-      });
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      ["https://open.spotify.com/artist/abc", "spotify"],
+      ["https://music.apple.com/us/album/y", "apple_music"],
+      ["https://www.youtube.com/watch?v=z", "youtube"],
+      ["https://soundcloud.com/foo/bar", "soundcloud"],
+      ["https://bandcamp.com/x", "bandcamp"],
+      ["https://tidal.com/track/1", "tidal"],
+      ["https://www.instagram.com/reel/abc/", "instagram_reels"],
+    ];
+    for (const [url] of cases) {
+      await caller.producerExternalLinks.add({ url });
     }
-    expect(linksInsertReturningMock).toHaveBeenCalledTimes(7);
+    expect(linksInsertReturningMock).toHaveBeenCalledTimes(cases.length);
   });
 
-  it("rejects unknown platforms via zod", async () => {
+  it("rejects an unknown host with BAD_REQUEST and a friendly message", async () => {
     const caller = await buildCaller();
-    const bad = {
-      platform: "myspace",
-      url: "https://example.com/a",
-    } as unknown as Parameters<typeof caller.producerExternalLinks.add>[0];
-    await expect(caller.producerExternalLinks.add(bad)).rejects.toMatchObject({
+    await expect(
+      caller.producerExternalLinks.add({ url: "https://vimeo.com/123" }),
+    ).rejects.toMatchObject({
       code: "BAD_REQUEST",
+      message: "We don't recognise that platform yet.",
     });
     expect(linksInsertReturningMock).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed URLs via zod", async () => {
+  it("rejects malformed URLs via zod (not a URL string)", async () => {
     const caller = await buildCaller();
-    const bad = {
-      platform: "spotify",
-      url: "not-a-url",
-    } as unknown as Parameters<typeof caller.producerExternalLinks.add>[0];
-    await expect(caller.producerExternalLinks.add(bad)).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
+    await expect(
+      caller.producerExternalLinks.add({ url: "not-a-url" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(linksInsertReturningMock).not.toHaveBeenCalled();
   });
 
-  it("rejects titles longer than 120 chars", async () => {
+  it("rejects non-http(s) URLs with BAD_REQUEST", async () => {
     const caller = await buildCaller();
-    const bad = {
-      platform: "spotify" as const,
-      url: "https://open.spotify.com/artist/abc",
-      title: "x".repeat(121),
-    };
-    await expect(caller.producerExternalLinks.add(bad)).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
+    await expect(
+      caller.producerExternalLinks.add({ url: "javascript:alert(1)" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(linksInsertReturningMock).not.toHaveBeenCalled();
+  });
+
+  it("maps the per-producer unique-platform pg violation to a friendly BAD_REQUEST", async () => {
+    // Schema has UNIQUE(producer_id, platform). Pasting a second Spotify
+    // link raises pg error code 23505. Router catches that specific code
+    // and rewraps as a producer-readable message so the smart-paste
+    // input can show inline error copy without leaking pg internals.
+    linksInsertReturningMock.mockRejectedValueOnce(
+      Object.assign(new Error("duplicate key value violates unique constraint"), {
+        code: "23505",
+      }),
+    );
+    const caller = await buildCaller();
+    await expect(
+      caller.producerExternalLinks.add({
+        url: "https://open.spotify.com/artist/abc",
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "You already have a Spotify link. Remove the old one first.",
+    });
+  });
+
+  it("re-throws non-unique errors unchanged (no silent swallow)", async () => {
+    linksInsertReturningMock.mockRejectedValueOnce(
+      Object.assign(new Error("connection lost"), { code: "08006" }),
+    );
+    const caller = await buildCaller();
+    await expect(
+      caller.producerExternalLinks.add({
+        url: "https://open.spotify.com/artist/abc",
+      }),
+    ).rejects.toThrow(/connection lost/);
   });
 });
 
@@ -237,8 +257,7 @@ describe("producerExternalLinks — auth scoping across all mutations", () => {
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(
       caller.producerExternalLinks.add({
-        platform: "spotify",
-        url: "https://example.com/x",
+        url: "https://open.spotify.com/x",
       }),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(

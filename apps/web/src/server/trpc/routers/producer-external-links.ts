@@ -1,36 +1,46 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, producerExternalLinks, type ExternalPlatform } from "@skitza/db";
+import { and, asc, eq, producerExternalLinks } from "@skitza/db";
 import { z } from "zod";
+
+import { detectPlatform } from "~/lib/external-links/detect-platform";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 
-// Wave 2 of /join flow (PRD §6.2 Section B). Seven supported platforms
-// — fixed enum in the schema. Adding a new platform requires migration
-// + embed component + Setup UI update + this list. Intentional friction
-// so the producer-facing set stays curated.
-const PLATFORMS = [
-  "spotify",
-  "apple_music",
-  "youtube",
-  "soundcloud",
-  "bandcamp",
-  "tidal",
-  "instagram_reels",
-] as const satisfies readonly ExternalPlatform[];
+// Wave 2 of /join flow (PRD §6.2 Section B). Smart-paste add: producer
+// pastes any Spotify / Apple Music / YouTube / SoundCloud / Bandcamp /
+// Tidal / Instagram URL and the server detects the platform via
+// `detectPlatform`. Title field dropped (it was never rendered on the
+// public page).
+//
+// Schema enforces UNIQUE(producer_id, platform) — one row per platform
+// per producer — and the add path rewraps that pg violation into a
+// producer-readable BAD_REQUEST so the smart-paste input can show inline
+// copy without leaking pg internals.
 
-const platformSchema = z.enum(PLATFORMS);
+// Human-readable labels for the friendly duplicate-platform error.
+// Kept in sync with the seven supported platforms in the
+// `externalPlatform` enum.
+const PLATFORM_LABEL = {
+  spotify: "Spotify",
+  apple_music: "Apple Music",
+  youtube: "YouTube",
+  soundcloud: "SoundCloud",
+  bandcamp: "Bandcamp",
+  tidal: "Tidal",
+  instagram_reels: "Instagram Reels",
+} as const;
 
-// URL validation: z.string().url() catches malformed. We don't pattern-
-// match the URL against the platform at this layer — that's the Setup
-// UI's job (the producer picks a platform, then the UI sanity-checks
-// the pasted URL). Enforcing it server-side would reject valid edge
-// cases like Spotify share links with `?si=` params.
-const LinkInput = z.object({
-  platform: platformSchema,
+const AddInput = z.object({
   url: z.string().url().min(10).max(500),
-  title: z.string().max(120).nullable().optional(),
 });
+
+// PostgreSQL unique-violation code. Matches the pattern used in
+// apps/web/src/app/api/stripe/webhook/handlers.ts for the same kind of
+// "catch a known constraint violation and rewrap it" flow.
+function isPgUniqueViolation(err: unknown): boolean {
+  return (err as { code?: string }).code === "23505";
+}
 
 export const producerExternalLinksRouter = router({
   /**
@@ -46,27 +56,42 @@ export const producerExternalLinksRouter = router({
   }),
 
   /**
-   * Create a new link. New rows land at position 0 (top of the list);
-   * producers can reorder later via `reorder`. Skipping a uniqueness
-   * check on (producer, url) — a producer may legitimately want to
-   * link the same artist page twice (e.g. one as a featured single,
-   * one in a different context with a different title). UI can warn.
+   * Smart-paste add. Producer pastes a URL; server detects the
+   * platform from the host. New rows land at position 0 (top of the
+   * list); producers can reorder later via `reorder`.
    */
   add: producerProcedure
-    .input(LinkInput)
+    .input(AddInput)
     .mutation(async ({ ctx, input }) => {
-      const [row] = await ctx.db
-        .insert(producerExternalLinks)
-        .values({
-          producerId: ctx.producerId,
-          platform: input.platform,
-          url: input.url,
-          title: input.title ?? null,
-          position: 0,
-        })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return row;
+      const platform = detectPlatform(input.url);
+      if (!platform) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "We don't recognise that platform yet.",
+        });
+      }
+      try {
+        const [row] = await ctx.db
+          .insert(producerExternalLinks)
+          .values({
+            producerId: ctx.producerId,
+            platform,
+            url: input.url,
+            title: null,
+            position: 0,
+          })
+          .returning();
+        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        return row;
+      } catch (err) {
+        if (isPgUniqueViolation(err)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `You already have a ${PLATFORM_LABEL[platform]} link. Remove the old one first.`,
+          });
+        }
+        throw err;
+      }
     }),
 
   /**

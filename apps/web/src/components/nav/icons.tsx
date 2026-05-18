@@ -29,7 +29,8 @@ export type IconName =
   | "arrow-left"
   | "plus"
   | "tag"
-  | "book";
+  | "book"
+  | "star";
 
 export function Icon({
   name,
@@ -171,6 +172,12 @@ export function Icon({
         <svg {...common}>
           <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5A2.5 2.5 0 0 1 4 17.5z" />
           <path d="M4 17.5A2.5 2.5 0 0 1 6.5 15H20" />
+        </svg>
+      );
+    case "star":
+      return (
+        <svg {...common}>
+          <path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8 6.2 20.9l1.1-6.5L2.6 9.8l6.5-.9L12 3Z" />
         </svg>
       );
   }

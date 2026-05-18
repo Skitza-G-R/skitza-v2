@@ -117,19 +117,51 @@ export type ExternalPlatformValue =
   | "tidal"
   | "instagram_reels";
 
+// Smart-paste add: the server detects the platform from the URL itself
+// (see ~/lib/external-links/detect-platform).
 export async function addExternalLink(input: {
-  platform: ExternalPlatformValue;
   url: string;
-  title: string | null;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.producerExternalLinks.add({
-      platform: input.platform,
-      url: input.url,
-      title: input.title,
+    await c.caller.producerExternalLinks.add({ url: input.url });
+    revalidatePath(PORTFOLIO_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Bulk-reorder the producer's external links. UI sends the new full
+// order (typically the result of an adjacent-swap from ▲/▼ click); the
+// existing producerExternalLinks.reorder mutation maps each id → its
+// index inside one Promise.all, scoped by producer.
+export async function reorderExternalLinks(input: {
+  orderedIds: string[];
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.producerExternalLinks.reorder({
+      orderedIds: input.orderedIds,
     });
+    revalidatePath(PORTFOLIO_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Bulk-reorder the producer's featured portfolio tracks. Same shape
+// and contract as reorderExternalLinks above.
+export async function reorderPortfolioTracks(input: {
+  orderedIds: string[];
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.portfolio.reorder({ orderedIds: input.orderedIds });
     revalidatePath(PORTFOLIO_PATH);
     return { ok: true };
   } catch (err) {

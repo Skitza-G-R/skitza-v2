@@ -1,0 +1,540 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  canReorder,
+  computePlayingId,
+  downsamplePeaks,
+  filterLibrary,
+  formatDuration,
+  LINK_CAP,
+  PLATFORM_LABEL,
+  seededBars,
+  swapAdjacent,
+  TRACK_CAP,
+} from "../portfolio-panel";
+
+// Portfolio redesign 2026-05-17 — panel unit + source-grep tests.
+//
+// Skitza vitest convention (per docs/plans/.../sidebar-share-chip):
+// no jsdom, no @testing-library/react. We extract pure helpers from the
+// panel and unit-test those; the JSX shell is validated via source-grep
+// for structural invariants (Public badge, smart-paste pill, 2-col grid,
+// reorder arrows, ban on a platform <select>, etc).
+
+const here = dirname(fileURLToPath(import.meta.url));
+const PANEL_PATH = join(here, "..", "portfolio-panel.tsx");
+const PAGE_PATH = join(here, "..", "page.tsx");
+const ACTIONS_PATH = join(here, "..", "actions.ts");
+const panelSource = readFileSync(PANEL_PATH, "utf8");
+const pageSource = readFileSync(PAGE_PATH, "utf8");
+const actionsSource = readFileSync(ACTIONS_PATH, "utf8");
+
+// ─── Caps ────────────────────────────────────────────────────────────
+
+describe("caps", () => {
+  it("TRACK_CAP is 5 (one-screen invariant)", () => {
+    expect(TRACK_CAP).toBe(5);
+  });
+
+  it("LINK_CAP is 7 (one per supported platform)", () => {
+    expect(LINK_CAP).toBe(7);
+  });
+});
+
+// ─── PLATFORM_LABEL ─────────────────────────────────────────────────
+
+describe("PLATFORM_LABEL", () => {
+  it("has a label for each of the seven supported platforms", () => {
+    expect(PLATFORM_LABEL.spotify).toBe("Spotify");
+    expect(PLATFORM_LABEL.apple_music).toBe("Apple Music");
+    expect(PLATFORM_LABEL.youtube).toBe("YouTube");
+    expect(PLATFORM_LABEL.soundcloud).toBe("SoundCloud");
+    expect(PLATFORM_LABEL.bandcamp).toBe("Bandcamp");
+    expect(PLATFORM_LABEL.tidal).toBe("Tidal");
+    expect(PLATFORM_LABEL.instagram_reels).toBe("Instagram");
+  });
+});
+
+// ─── swapAdjacent ───────────────────────────────────────────────────
+
+describe("swapAdjacent", () => {
+  it("swaps index 1 up with index 0", () => {
+    const arr = [{ id: "a" }, { id: "b" }, { id: "c" }] as const;
+    expect(swapAdjacent(arr, 1, "up")).toEqual([
+      { id: "b" },
+      { id: "a" },
+      { id: "c" },
+    ]);
+  });
+
+  it("swaps index 1 down with index 2", () => {
+    const arr = [{ id: "a" }, { id: "b" }, { id: "c" }] as const;
+    expect(swapAdjacent(arr, 1, "down")).toEqual([
+      { id: "a" },
+      { id: "c" },
+      { id: "b" },
+    ]);
+  });
+
+  it("returns null when ▲ pressed on first row (no-op)", () => {
+    const arr = [{ id: "a" }, { id: "b" }] as const;
+    expect(swapAdjacent(arr, 0, "up")).toBeNull();
+  });
+
+  it("returns null when ▼ pressed on last row (no-op)", () => {
+    const arr = [{ id: "a" }, { id: "b" }] as const;
+    expect(swapAdjacent(arr, 1, "down")).toBeNull();
+  });
+
+  it("returns null on out-of-range index", () => {
+    const arr = [{ id: "a" }] as const;
+    expect(swapAdjacent(arr, -1, "up")).toBeNull();
+    expect(swapAdjacent(arr, 1, "down")).toBeNull();
+  });
+
+  it("does not mutate the input array", () => {
+    const arr = [{ id: "a" }, { id: "b" }];
+    const next = swapAdjacent(arr, 1, "up");
+    expect(arr.map((x) => x.id)).toEqual(["a", "b"]);
+    expect(next?.map((x) => x.id)).toEqual(["b", "a"]);
+  });
+});
+
+// ─── seededBars ─────────────────────────────────────────────────────
+
+describe("downsamplePeaks", () => {
+  it("returns the input untouched when already at or below targetCount", () => {
+    const peaks = [0.1, 0.5, 0.9];
+    expect(downsamplePeaks(peaks, 80)).toEqual(peaks);
+  });
+
+  it("returns the requested target count for large inputs", () => {
+    const peaks = Array.from({ length: 200 }, (_, i) => i / 200);
+    expect(downsamplePeaks(peaks, 80)).toHaveLength(80);
+  });
+
+  it("takes the MAX of each chunk (preserves transient punch)", () => {
+    // 8 inputs → 4 bars: each pair maxed
+    const peaks = [0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6];
+    expect(downsamplePeaks(peaks, 4)).toEqual([0.9, 0.8, 0.7, 0.6]);
+  });
+
+  it("returns an empty array for empty input", () => {
+    expect(downsamplePeaks([], 80)).toEqual([]);
+  });
+
+  it("never out-of-bounds-reads (Math.max(start+1, end) guards a 0-len chunk)", () => {
+    // length 10, target 80 → returns the original 10
+    const peaks = Array.from({ length: 10 }, () => 0.5);
+    expect(downsamplePeaks(peaks, 80)).toEqual(peaks);
+  });
+});
+
+// Only one song plays at a time. Clicking play on a second track while
+// the first is playing must pause the first. The pure helper below
+// drives the parent section's `playingId` state machine.
+describe("computePlayingId", () => {
+  it("starts playing a track when nothing is playing", () => {
+    expect(computePlayingId(null, "t1", true)).toBe("t1");
+  });
+
+  it("pauses the currently-playing track when its play button is clicked again", () => {
+    expect(computePlayingId("t1", "t1", false)).toBeNull();
+  });
+
+  it("switches to a different track when its play is clicked while another is playing", () => {
+    // This is the fix Gili asked for: t1 was playing, user clicks t2's
+    // play → t2 becomes the current track, t1 implicitly pauses on the
+    // next render because its `isPlaying` prop flips to false.
+    expect(computePlayingId("t1", "t2", true)).toBe("t2");
+  });
+
+  it("ignores a 'pause' from a row that isn't the current one", () => {
+    // Audio `ended` event fires on a row that's no longer the current
+    // track (rare race after a rapid switch). The current track must
+    // not be cleared.
+    expect(computePlayingId("t1", "t2", false)).toBe("t1");
+  });
+
+  it("clears state when the currently playing track ends naturally", () => {
+    expect(computePlayingId("t1", "t1", false)).toBeNull();
+  });
+});
+
+describe("filterLibrary", () => {
+  const lib = [
+    {
+      versionId: "v1",
+      trackTitle: "Midnight Drive",
+      projectTitle: "Neon Dreams",
+      artistName: "Lior",
+      audioUrl: "https://x/1.mp3",
+      uploadedAt: "2026-05-01T00:00:00Z",
+    },
+    {
+      versionId: "v2",
+      trackTitle: "Sun Reborn",
+      projectTitle: "Sunshine EP",
+      artistName: "Ani Sameach",
+      audioUrl: "https://x/2.mp3",
+      uploadedAt: "2026-04-22T00:00:00Z",
+    },
+  ];
+
+  it("returns everything for an empty / whitespace query", () => {
+    expect(filterLibrary(lib, "")).toHaveLength(2);
+    expect(filterLibrary(lib, "   ")).toHaveLength(2);
+  });
+
+  it("matches by trackTitle (case-insensitive substring)", () => {
+    expect(filterLibrary(lib, "MIDNIGHT")).toEqual([lib[0]]);
+  });
+
+  it("matches by projectTitle", () => {
+    expect(filterLibrary(lib, "sunshine")).toEqual([lib[1]]);
+  });
+
+  it("matches by artistName", () => {
+    expect(filterLibrary(lib, "lior")).toEqual([lib[0]]);
+  });
+
+  it("returns empty when nothing matches", () => {
+    expect(filterLibrary(lib, "zzz")).toEqual([]);
+  });
+
+  it("does not mutate the input library", () => {
+    const copy = [...lib];
+    filterLibrary(lib, "");
+    expect(lib).toEqual(copy);
+  });
+});
+
+describe("seededBars", () => {
+  it("returns the requested count of bars", () => {
+    expect(seededBars("track-1", 40)).toHaveLength(40);
+    expect(seededBars("track-1", 24)).toHaveLength(24);
+  });
+
+  it("each bar height falls in [0.35, 1.0]", () => {
+    const bars = seededBars("track-xyz", 40);
+    for (const h of bars) {
+      expect(h).toBeGreaterThanOrEqual(0.35);
+      expect(h).toBeLessThanOrEqual(1.0);
+    }
+  });
+
+  it("is deterministic for the same id", () => {
+    expect(seededBars("track-1", 40)).toEqual(seededBars("track-1", 40));
+  });
+
+  it("differs for different ids (pseudo-random spread)", () => {
+    expect(seededBars("track-1", 40)).not.toEqual(seededBars("track-2", 40));
+  });
+});
+
+// ─── formatDuration ─────────────────────────────────────────────────
+
+describe("formatDuration", () => {
+  it("formats whole-minute durations as m:00", () => {
+    expect(formatDuration(120_000)).toBe("2:00");
+  });
+
+  it("zero-pads seconds under 10", () => {
+    expect(formatDuration(65_000)).toBe("1:05");
+  });
+
+  it("handles long durations (over an hour reads as straight minutes)", () => {
+    expect(formatDuration(3_900_000)).toBe("65:00");
+  });
+
+  it("returns empty string for null / zero / negative", () => {
+    expect(formatDuration(null)).toBe("");
+    expect(formatDuration(0)).toBe("");
+    expect(formatDuration(-500)).toBe("");
+  });
+
+  it("rounds sub-second remainder", () => {
+    expect(formatDuration(65_400)).toBe("1:05");
+    expect(formatDuration(65_600)).toBe("1:06");
+  });
+});
+
+// ─── canReorder ─────────────────────────────────────────────────────
+
+describe("canReorder", () => {
+  it("disables ▲ at the top (index 0)", () => {
+    expect(canReorder("up", 0, 5)).toBe(false);
+    expect(canReorder("up", 1, 5)).toBe(true);
+  });
+
+  it("disables ▼ at the bottom (index total-1)", () => {
+    expect(canReorder("down", 4, 5)).toBe(false);
+    expect(canReorder("down", 3, 5)).toBe(true);
+  });
+
+  it("handles a single-row list (both directions disabled)", () => {
+    expect(canReorder("up", 0, 1)).toBe(false);
+    expect(canReorder("down", 0, 1)).toBe(false);
+  });
+});
+
+// ─── Panel source-grep: structural invariants ───────────────────────
+
+describe("portfolio-panel.tsx — structural invariants", () => {
+  it("uses the 2-col grid (38/62 split via fr units)", () => {
+    expect(panelSource).toContain(
+      "grid-cols-[minmax(0,38fr)_minmax(0,62fr)]",
+    );
+  });
+
+  it("renders 'Featured tracks' and 'Social links' as section headings", () => {
+    // JSX inlines the text on its own indented line, so allow whitespace
+    // between the opening > and the heading text.
+    expect(panelSource).toMatch(/>\s*Featured tracks\s*</);
+    expect(panelSource).toMatch(/>\s*Social links\s*</);
+  });
+
+  it("smart-paste input has no platform <select>", () => {
+    // The new social-links section drops the platform dropdown — server
+    // detects the platform from the pasted URL.
+    expect(panelSource).not.toMatch(/<select[\s>]/);
+  });
+
+  it("renders Public / Private mono label per track (Q1=B passive)", () => {
+    // Status is now an inline mono label inside a <span>, not a chunky
+    // chip. Source carries both string literals via the ternary.
+    expect(panelSource).toMatch(/isPublicSample\s*\?\s*"Public"\s*:\s*"Private"/);
+  });
+
+  it("does not render a public-sample toggle / switch", () => {
+    expect(panelSource).not.toMatch(/togglePublicSample|isPublicSampleToggle/);
+  });
+
+  it("uses drag-and-drop for reorder (no arrow buttons)", () => {
+    // 2026-05-18: switched from ▲▼ arrow buttons to @dnd-kit/sortable
+    // drag handles per Gili's request. The drag handle is announced
+    // to screen readers via `aria-label="Drag to reorder"` and the
+    // dnd-kit sortable hook attaches the keyboard sensor for arrow-key
+    // reordering, so producers who navigate by keyboard still have a
+    // reorder affordance.
+    expect(panelSource).toContain('aria-label="Drag to reorder"');
+    expect(panelSource).not.toContain('aria-label="Move up"');
+    expect(panelSource).not.toContain('aria-label="Move down"');
+  });
+
+  it("imports @dnd-kit/sortable for the drag-and-drop reorder", () => {
+    expect(panelSource).toContain('from "@dnd-kit/sortable"');
+    expect(panelSource).toContain("useSortable");
+    expect(panelSource).toContain("SortableContext");
+    expect(panelSource).toContain("arrayMove");
+  });
+
+  it("calls reorderPortfolioTracks and reorderExternalLinks (bulk reorder API)", () => {
+    expect(panelSource).toContain("reorderPortfolioTracks");
+    expect(panelSource).toContain("reorderExternalLinks");
+  });
+
+  it("calls addExternalLink with a URL-only payload (no platform/title)", () => {
+    expect(panelSource).toMatch(/addExternalLink\(\{\s*url:/);
+    // Platform/title should not be passed in the panel call anymore.
+    expect(panelSource).not.toMatch(/addExternalLink\(\{[^}]*platform:/s);
+    expect(panelSource).not.toMatch(/addExternalLink\(\{[^}]*title:/s);
+  });
+
+  it("renders the helper mono micro-labels for both sections", () => {
+    expect(panelSource).toContain("PICK YOUR BEST. DRAG TO REORDER.");
+    expect(panelSource).toContain("PASTE THE URL. WE FIGURE OUT THE PLATFORM.");
+  });
+
+  it("renders LinkRow with a PlatformIcon brand tile", () => {
+    expect(panelSource).toContain("PlatformIcon");
+    expect(panelSource).toContain('platform={row.platform}');
+  });
+
+  it("renders the picker modal via React's createPortal (escapes sidebar stacking)", () => {
+    expect(panelSource).toContain("createPortal");
+    expect(panelSource).toContain("window.document.body");
+  });
+
+  it("modal backdrop uses light dim (bg-base / 0.12) + strong blur (20px)", () => {
+    expect(panelSource).toContain("rgb(var(--bg-base) / 0.12)");
+    expect(panelSource).toMatch(/blur\(20px\)/);
+  });
+
+  it("modal is wide enough to host the library table (max-w-3xl)", () => {
+    expect(panelSource).toMatch(/max-w-3xl/);
+  });
+
+  it("picker is rendered as a <table> (not a stacked button list)", () => {
+    expect(panelSource).toMatch(/<table\b/);
+    expect(panelSource).toMatch(/<thead\b/);
+    expect(panelSource).toMatch(/<tbody>/);
+    // The four data columns + an action column.
+    expect(panelSource).toMatch(/>\s*Title\s*</);
+    expect(panelSource).toMatch(/>\s*Project\s*</);
+    expect(panelSource).toMatch(/>\s*Artist\s*</);
+    expect(panelSource).toMatch(/>\s*Uploaded\s*</);
+  });
+
+  it("picker has a search input above the table", () => {
+    expect(panelSource).toMatch(/type="search"/);
+    expect(panelSource).toMatch(/Search by title, project, or artist/);
+    expect(panelSource).toMatch(/aria-label="Search library"/);
+  });
+
+  it("filtered=0 shows a 'NO SONGS MATCH' empty state inside the table", () => {
+    expect(panelSource).toContain("NO SONGS MATCH");
+  });
+
+  it("waveform is rendered as a <button> so it can be clicked to seek", () => {
+    expect(panelSource).toMatch(/aria-label="Seek"/);
+    expect(panelSource).toMatch(/onClick=\{onWaveClick\}/);
+  });
+
+  it("seeks via fraction-of-width then plays (Spotify-style seek-and-play)", () => {
+    expect(panelSource).toContain("seekToFraction");
+    expect(panelSource).toMatch(/getBoundingClientRect/);
+  });
+
+  it("renders Separator hairlines between play / waveform / name / public columns", () => {
+    expect(panelSource).toContain("function Separator()");
+    // Three separators rendered as siblings inside the row — between
+    // play|waveform, waveform|name, name|public.
+    const matches = panelSource.match(/<Separator\s*\/>/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("row columns appear in the order: play → waveform → name → public/private", () => {
+    // 2026-05-18: play state lifted to the parent section (single-
+    // playback invariant) — aria-label now reads from the isPlaying
+    // prop instead of a local `playing` state.
+    const playMatch = panelSource.search(
+      /aria-label=\{isPlaying \? "Pause" : "Play"\}/,
+    );
+    const waveMatch = panelSource.search(/aria-label="Seek"/);
+    const nameMatch = panelSource.search(/width:\s*168\s*\}/);
+    const publicMatch = panelSource.search(
+      /isPublicSample\s*\?\s*"Public"\s*:\s*"Private"/,
+    );
+    expect(playMatch).toBeGreaterThan(-1);
+    expect(waveMatch).toBeGreaterThan(playMatch);
+    expect(nameMatch).toBeGreaterThan(waveMatch);
+    expect(publicMatch).toBeGreaterThan(nameMatch);
+  });
+
+  it("only one song can play at a time (parent owns playingId state)", () => {
+    // Pin the single-playback invariant: the section reads its
+    // currently-playing id from useState and passes a boolean down to
+    // each row, so any second row's play click flips the first row's
+    // isPlaying prop to false → the row's useEffect pauses it.
+    expect(panelSource).toMatch(/setPlayingId/);
+    expect(panelSource).toMatch(/isPlaying={playingId === row\.id}/);
+    expect(panelSource).toMatch(/computePlayingId/);
+  });
+
+  it("uses real peaks when present, falls back to seededBars", () => {
+    // Behavioural test for downsample math itself is in describe(downsamplePeaks).
+    // This source-grep just proves the fallback branch is wired.
+    expect(panelSource).toMatch(/row\.peaks && row\.peaks\.length > 0/);
+    expect(panelSource).toMatch(/downsamplePeaks\(row\.peaks/);
+    expect(panelSource).toMatch(/seededBars\(row\.id/);
+  });
+
+  it("renders the smart-paste placeholder copy", () => {
+    expect(panelSource).toMatch(
+      /Paste a Spotify, YouTube, SoundCloud link/,
+    );
+  });
+
+  it("renders the LIMIT REACHED mono helper at cap (5/5)", () => {
+    expect(panelSource).toContain("LIMIT REACHED");
+  });
+
+  it("uses CSS tokens from Skitza's real palette (no nonexistent tokens)", () => {
+    // Guard against the documented memory: tokens like --surface-card,
+    // --text-muted, --text-strong, --surface-hover, --brand-primary-on
+    // don't exist and result in transparent/invisible UI.
+    const codeOnly = panelSource
+      .replace(/\/\/.*$/gm, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(codeOnly).not.toMatch(/--surface-card\b/);
+    expect(codeOnly).not.toMatch(/--text-muted\b/);
+    expect(codeOnly).not.toMatch(/--text-strong\b/);
+    expect(codeOnly).not.toMatch(/--surface-hover\b/);
+    expect(codeOnly).not.toMatch(/--brand-primary-on\b/);
+  });
+
+  it("text rectangles use rounded-[var(--radius-lg)] or rounded-[1.25rem]; rounded-full reserved for actual squares (avatars, dots, play, icon-only)", () => {
+    // No literal `rounded-md` on text containers — design system uses
+    // the radius-lg token for those. (rounded-sm / rounded-full are
+    // both allowed for their intended purposes.)
+    expect(panelSource).not.toMatch(/className=["`][^"`]*\brounded-md\b/);
+  });
+
+  it("does not import framer-motion (CSS primitives only)", () => {
+    expect(panelSource).not.toMatch(/from\s+["']framer-motion["']/);
+  });
+
+  it("opens the public profile link in a new tab from the page header", () => {
+    // The View public page pill lives in page.tsx, not the panel.
+    expect(pageSource).toMatch(/target=["']_blank["']/);
+    expect(pageSource).toMatch(/rel=["']noreferrer noopener["']/);
+    expect(pageSource).toContain("View public page");
+  });
+});
+
+// ─── Page source-grep: header + slug fetch ──────────────────────────
+
+describe("portfolio/page.tsx — slug + header pill", () => {
+  it("calls producer.me() to fetch the slug for the public-page link", () => {
+    expect(pageSource).toMatch(/caller\.producer\.me\(\)/);
+  });
+
+  it("composes publicProfileUrl as `/join/${me.slug}`", () => {
+    expect(pageSource).toMatch(/\/join\/\$\{me\.slug\}/);
+  });
+
+  it("passes audioUrl and durationMs into PortfolioTrackRow rows", () => {
+    expect(pageSource).toMatch(/audioUrl:\s*t\.audioUrl/);
+    expect(pageSource).toMatch(/durationMs:\s*t\.durationMs/);
+  });
+
+  it("drops the per-link title from ExternalLinkRow mapping (no longer captured)", () => {
+    expect(pageSource).not.toMatch(/title:\s*l\.title/);
+  });
+});
+
+// ─── actions.ts: shape + reorder wrappers ───────────────────────────
+
+describe("actions.ts — final URL-only + reorder wrappers", () => {
+  it("addExternalLink input is URL-only", () => {
+    expect(actionsSource).toMatch(
+      /export async function addExternalLink\(input:\s*\{\s*url:\s*string;\s*\}\)/,
+    );
+  });
+
+  it("exports reorderPortfolioTracks", () => {
+    expect(actionsSource).toMatch(
+      /export async function reorderPortfolioTracks/,
+    );
+  });
+
+  it("exports reorderExternalLinks", () => {
+    expect(actionsSource).toMatch(
+      /export async function reorderExternalLinks/,
+    );
+  });
+
+  it("reorder wrappers call the bulk { orderedIds } router mutations", () => {
+    expect(actionsSource).toMatch(
+      /portfolio\.reorder\(\{\s*orderedIds:\s*input\.orderedIds/,
+    );
+    expect(actionsSource).toMatch(
+      /producerExternalLinks\.reorder\(\{\s*orderedIds:\s*input\.orderedIds/,
+    );
+  });
+});
