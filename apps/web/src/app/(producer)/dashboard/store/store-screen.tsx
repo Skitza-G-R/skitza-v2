@@ -251,6 +251,8 @@ export function StoreScreen({
           hidden={hidden}
           pending={pending}
           showHiddenGroup={filter === "all" || filter === "hidden"}
+          taxMode={taxMode}
+          taxRatePct={taxRatePct}
           onOpen={onEdit}
           onToggleVisible={onToggleVisible}
           onEdit={onEdit}
@@ -265,6 +267,8 @@ export function StoreScreen({
               drag={getHandlersFor(p.id)}
               pending={pending}
               recentlyAdded={p.id === recentlyAdded}
+              taxMode={taxMode}
+              taxRatePct={taxRatePct}
               onOpen={() => {
                 onEdit(p);
               }}
@@ -293,6 +297,8 @@ export function StoreScreen({
                 drag={getHandlersFor(p.id)}
                 pending={pending}
                 recentlyAdded={p.id === recentlyAdded}
+                taxMode={taxMode}
+                taxRatePct={taxRatePct}
                 onOpen={() => {
                   onEdit(p);
                 }}

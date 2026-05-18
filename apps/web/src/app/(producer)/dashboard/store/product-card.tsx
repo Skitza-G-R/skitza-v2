@@ -11,6 +11,7 @@
 import { GripVertical, Pencil, Trash2 } from "lucide-react";
 
 import { formatMoney } from "~/lib/format/money";
+import { applyTaxToCents, type TaxMode } from "~/lib/tax-mode";
 import { kindToTile } from "./kind-to-tile";
 import { TILE_THEME } from "./tile-theme";
 import { Toggle } from "./toggle";
@@ -32,10 +33,31 @@ interface ProductCardProps {
   pending?: boolean;
   drag?: DragRowHandlers;
   recentlyAdded?: boolean;
+  // Producer's business-level tax mode + rate (migration 0019). The
+  // card displays the price WITH tax applied for `tax_added` so the
+  // producer sees the same number the artist will see at checkout,
+  // not the pre-tax base. A small caption underneath the price spells
+  // out which mode is active: "Tax-free", "Tax inc", or "Tax inc" with
+  // the +rate amount baked into the headline number for tax_added.
+  taxMode: TaxMode;
+  taxRatePct: number;
   onOpen: () => void;
   onToggleVisible: () => void;
   onEdit: () => void;
   onDelete: () => void;
+}
+
+// Short caption shown under the price on the catalog row. Mirrors the
+// artist-facing footnote on /artist/store but trimmed for density —
+// the producer already knows their rate, so we skip the percent here.
+function taxCardCaption(mode: TaxMode): string | null {
+  switch (mode) {
+    case "tax_free":
+      return "Tax-free";
+    case "tax_included":
+    case "tax_added":
+      return "Tax inc";
+  }
 }
 
 function deriveTagline(description: string | null): string {
@@ -49,6 +71,8 @@ export function ProductCard({
   pending = false,
   drag,
   recentlyAdded = false,
+  taxMode,
+  taxRatePct,
   onOpen,
   onToggleVisible,
   onEdit,
@@ -57,6 +81,11 @@ export function ProductCard({
   const tile = kindToTile(product.kind);
   const accent = TILE_THEME[tile].accent;
   const tagline = deriveTagline(product.description);
+  // Headline price = post-tax for tax_added, base price otherwise.
+  // applyTaxToCents is a no-op for tax_free / tax_included so the
+  // helper handles all three modes uniformly.
+  const displayCents = applyTaxToCents(product.priceCents, taxMode, taxRatePct);
+  const taxCaption = taxCardCaption(taxMode);
 
   return (
     <article
@@ -126,9 +155,19 @@ export function ProductCard({
         </p>
       </div>
 
-      <p className="shrink-0 text-right font-display text-[26px] font-extrabold leading-none tracking-[-0.02em] text-[rgb(var(--fg-default))] tabular-nums">
-        {formatMoney(product.priceCents, product.currency)}
-      </p>
+      <div className="shrink-0 flex flex-col items-end gap-0.5">
+        <p className="text-right font-display text-[26px] font-extrabold leading-none tracking-[-0.02em] text-[rgb(var(--fg-default))] tabular-nums">
+          {formatMoney(displayCents, product.currency)}
+        </p>
+        {taxCaption ? (
+          <span
+            className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-[rgb(var(--fg-faint))]"
+            aria-label={taxCaption}
+          >
+            {taxCaption}
+          </span>
+        ) : null}
+      </div>
 
       <div
         className="no-card-click-block flex items-center gap-2.5"
