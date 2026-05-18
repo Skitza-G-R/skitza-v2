@@ -183,6 +183,30 @@ export function canReorder(
   return direction === "up" ? index > 0 : index < total - 1;
 }
 
+/**
+ * State machine for the "only one song plays at a time" invariant.
+ *
+ * `current` is the parent section's `playingId` (or null when nothing
+ * is playing). `clickedId` is the track whose state is being toggled.
+ * `next` is the requested boolean: true to start playing that id,
+ * false to stop it.
+ *
+ *   - request to PLAY → that id becomes the current track (any
+ *     previous track's `isPlaying` prop flips to false and its
+ *     useEffect pauses its audio element).
+ *   - request to STOP → only clears `current` if `clickedId === current`;
+ *     a stale `ended` event from a row that's no longer the current
+ *     track must not blow away the user's active selection.
+ */
+export function computePlayingId(
+  current: string | null,
+  clickedId: string,
+  next: boolean,
+): string | null {
+  if (next) return clickedId;
+  return current === clickedId ? null : current;
+}
+
 // ─── Panel ──────────────────────────────────────────────────────────
 
 export function PortfolioPanel({
@@ -224,6 +248,10 @@ function FeaturedTracksSection({
   addedAudioUrls: string[];
 }) {
   const [rows, setRows] = useState<PortfolioTrackRow[]>(initialTracks);
+  // The single source of truth for "which track is currently playing".
+  // Lifted from per-row state so clicking play on row B implicitly
+  // pauses row A — see computePlayingId for the state machine.
+  const [playingId, setPlayingId] = useState<string | null>(null);
   const router = useRouter();
   const { toast } = useToast();
   const [, startTransition] = useTransition();
@@ -238,6 +266,10 @@ function FeaturedTracksSection({
   );
 
   const atCap = rows.length >= TRACK_CAP;
+
+  function handlePlayChange(id: string, next: boolean) {
+    setPlayingId((curr) => computePlayingId(curr, id, next));
+  }
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -260,6 +292,8 @@ function FeaturedTracksSection({
   }
 
   function remove(id: string) {
+    // If the row being removed was playing, stop tracking it.
+    setPlayingId((curr) => (curr === id ? null : curr));
     setRows((all) => all.filter((r) => r.id !== id));
     startTransition(async () => {
       const res = await deletePortfolioTrack({ id });
@@ -323,6 +357,10 @@ function FeaturedTracksSection({
                 <TrackRow
                   key={row.id}
                   row={row}
+                  isPlaying={playingId === row.id}
+                  onPlayChange={(next) => {
+                    handlePlayChange(row.id, next);
+                  }}
                   onRemove={() => {
                     remove(row.id);
                   }}
@@ -351,13 +389,16 @@ function FeaturedTracksEmpty() {
 
 function TrackRow({
   row,
+  isPlaying,
+  onPlayChange,
   onRemove,
 }: {
   row: PortfolioTrackRow;
+  isPlaying: boolean;
+  onPlayChange: (next: boolean) => void;
   onRemove: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
 
   const {
@@ -376,12 +417,6 @@ function TrackRow({
     zIndex: isDragging ? 10 : "auto",
   };
 
-  useEffect(() => {
-    return () => {
-      audioRef.current?.pause();
-    };
-  }, []);
-
   function ensureAudio(): HTMLAudioElement | null {
     if (!row.audioUrl) return null;
     if (!audioRef.current) {
@@ -392,23 +427,53 @@ function TrackRow({
         setProgress(a.currentTime / a.duration);
       });
       audioRef.current.addEventListener("ended", () => {
-        setPlaying(false);
         setProgress(0);
+        // Tell the parent that this row finished. The parent will only
+        // clear `playingId` if it still matches this row's id (handled
+        // by computePlayingId).
+        onPlayChange(false);
       });
     }
     return audioRef.current;
   }
 
-  function togglePlay() {
-    const a = ensureAudio();
-    if (!a) return;
-    if (playing) {
-      a.pause();
-      setPlaying(false);
+  // Sync the audio element with the parent-controlled isPlaying prop.
+  // This is the mechanism that pauses the previously-playing row when
+  // a different row's play button is clicked: row A's isPlaying flips
+  // from true → false, this effect fires, and audioRef.pause() runs.
+  useEffect(() => {
+    if (isPlaying) {
+      const a = ensureAudio();
+      if (a) {
+        void a.play().catch(() => {
+          // play() can reject on autoplay restrictions or a stale
+          // audioRef. Bubble back to the parent so the UI stays in
+          // sync with reality.
+          onPlayChange(false);
+        });
+      }
     } else {
-      void a.play();
-      setPlaying(true);
+      audioRef.current?.pause();
     }
+    // Dep array is intentionally narrow: ensureAudio + onPlayChange
+    // are not re-created on every render in a way that affects this
+    // sync — adding them would cause needless re-triggers when the
+    // parent re-renders for an unrelated reason.
+  }, [isPlaying]);
+
+  // Pause + free audio on unmount so a row removed from the list (or
+  // a page that navigates away) doesn't keep playing.
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause();
+    };
+  }, []);
+
+  function togglePlay() {
+    if (!row.audioUrl) return;
+    // Just signal intent to the parent — the useEffect above handles
+    // the actual audio.play() / pause() once isPlaying flips.
+    onPlayChange(!isPlaying);
   }
 
   function seekToFraction(fraction: number) {
@@ -419,7 +484,6 @@ function TrackRow({
       a.currentTime = clamped * a.duration;
       setProgress(clamped);
     } else {
-      // duration not loaded yet — set once metadata arrives
       a.addEventListener(
         "loadedmetadata",
         () => {
@@ -429,9 +493,8 @@ function TrackRow({
         { once: true },
       );
     }
-    if (!playing) {
-      void a.play();
-      setPlaying(true);
+    if (!isPlaying) {
+      onPlayChange(true);
     }
   }
 
@@ -477,17 +540,17 @@ function TrackRow({
           {/* col 1: play/pause */}
           <button
             type="button"
-            aria-label={playing ? "Pause" : "Play"}
+            aria-label={isPlaying ? "Pause" : "Play"}
             disabled={!row.audioUrl}
             onClick={togglePlay}
             className={[
               "grid h-11 w-11 shrink-0 place-items-center rounded-full transition-all duration-200 ease-out active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
-              playing
+              isPlaying
                 ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_8px_22px_-8px_rgb(var(--brand-primary)/0.7)]"
                 : "bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:bg-[rgb(var(--brand-primary))] group-hover/track:text-[rgb(var(--fg-inverse))] group-hover/track:ring-transparent group-hover/track:shadow-[0_6px_18px_-8px_rgb(var(--brand-primary)/0.55)]",
             ].join(" ")}
           >
-            {playing ? (
+            {isPlaying ? (
               <svg viewBox="0 0 14 14" className="h-4 w-4" fill="currentColor">
                 <rect x="3.5" y="2.5" width="2.2" height="9" rx="0.6" />
                 <rect x="8.3" y="2.5" width="2.2" height="9" rx="0.6" />

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canReorder,
+  computePlayingId,
   downsamplePeaks,
   filterLibrary,
   formatDuration,
@@ -130,6 +131,37 @@ describe("downsamplePeaks", () => {
     // length 10, target 80 → returns the original 10
     const peaks = Array.from({ length: 10 }, () => 0.5);
     expect(downsamplePeaks(peaks, 80)).toEqual(peaks);
+  });
+});
+
+// Only one song plays at a time. Clicking play on a second track while
+// the first is playing must pause the first. The pure helper below
+// drives the parent section's `playingId` state machine.
+describe("computePlayingId", () => {
+  it("starts playing a track when nothing is playing", () => {
+    expect(computePlayingId(null, "t1", true)).toBe("t1");
+  });
+
+  it("pauses the currently-playing track when its play button is clicked again", () => {
+    expect(computePlayingId("t1", "t1", false)).toBeNull();
+  });
+
+  it("switches to a different track when its play is clicked while another is playing", () => {
+    // This is the fix Gili asked for: t1 was playing, user clicks t2's
+    // play → t2 becomes the current track, t1 implicitly pauses on the
+    // next render because its `isPlaying` prop flips to false.
+    expect(computePlayingId("t1", "t2", true)).toBe("t2");
+  });
+
+  it("ignores a 'pause' from a row that isn't the current one", () => {
+    // Audio `ended` event fires on a row that's no longer the current
+    // track (rare race after a rapid switch). The current track must
+    // not be cleared.
+    expect(computePlayingId("t1", "t2", false)).toBe("t1");
+  });
+
+  it("clears state when the currently playing track ends naturally", () => {
+    expect(computePlayingId("t1", "t1", false)).toBeNull();
   });
 });
 
@@ -377,7 +409,12 @@ describe("portfolio-panel.tsx — structural invariants", () => {
   });
 
   it("row columns appear in the order: play → waveform → name → public/private", () => {
-    const playMatch = panelSource.search(/aria-label=\{playing \? "Pause" : "Play"\}/);
+    // 2026-05-18: play state lifted to the parent section (single-
+    // playback invariant) — aria-label now reads from the isPlaying
+    // prop instead of a local `playing` state.
+    const playMatch = panelSource.search(
+      /aria-label=\{isPlaying \? "Pause" : "Play"\}/,
+    );
     const waveMatch = panelSource.search(/aria-label="Seek"/);
     const nameMatch = panelSource.search(/width:\s*168\s*\}/);
     const publicMatch = panelSource.search(
@@ -387,6 +424,16 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     expect(waveMatch).toBeGreaterThan(playMatch);
     expect(nameMatch).toBeGreaterThan(waveMatch);
     expect(publicMatch).toBeGreaterThan(nameMatch);
+  });
+
+  it("only one song can play at a time (parent owns playingId state)", () => {
+    // Pin the single-playback invariant: the section reads its
+    // currently-playing id from useState and passes a boolean down to
+    // each row, so any second row's play click flips the first row's
+    // isPlaying prop to false → the row's useEffect pauses it.
+    expect(panelSource).toMatch(/setPlayingId/);
+    expect(panelSource).toMatch(/isPlaying={playingId === row\.id}/);
+    expect(panelSource).toMatch(/computePlayingId/);
   });
 
   it("uses real peaks when present, falls back to seededBars", () => {
