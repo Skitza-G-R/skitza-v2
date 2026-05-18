@@ -89,30 +89,32 @@ function formatPlanLabel(plan: string): string {
 //
 // G-leader shortcuts mirror the locked-design `ShortcutsHelp` panel
 // (notes/nav.jsx): G H = Overview, G P = Projects, G M = Music,
-// G C = Calendar, G S = Storefront, G T = Settings.
+// G C = Calendar, G S = Storefront, G F = Portfolio, G T = Settings.
 //
-// Portfolio row removed 2026-05-15 — CLAUDE.md §"Producer platform — 6
-// pages" is the canonical surface count. The /dashboard/portfolio
-// route still exists and is reachable from inside the Store experience
-// (see storefront redesign Phase 3). Coordinate with @raz before
-// re-introducing Portfolio as a top-level rail entry.
+// Portfolio row history:
+//   - removed 2026-05-15 (CLAUDE.md called for 6 top-level pages)
+//   - re-introduced 2026-05-18 (PR #142 — Gili's call) as a 7th entry
+//     directly under Storefront. Producer-facing decision; CLAUDE.md
+//     surface count is now stale and should be refreshed when the
+//     portfolio redesign promotes to prod.
 export const NAV_ITEMS: readonly NavItem[] = [
   { id: "today", label: "Overview", labelKey: "today", href: "/dashboard", icon: "home", shortcut: "G H" },
   { id: "clients-projects", label: "Clients & Projects", labelKey: "clients-projects", href: "/dashboard/clients-projects", icon: "users", shortcut: "G P" },
   { id: "music", label: "Music", labelKey: "music", href: "/dashboard/music", icon: "music", shortcut: "G M" },
   { id: "calendar", label: "Calendar", labelKey: "calendar", href: "/dashboard/calendar", icon: "calendar", shortcut: "G C" },
   { id: "profile", label: "Storefront", labelKey: "profile", href: "/dashboard/store", icon: "store", shortcut: "G S" },
+  { id: "portfolio", label: "Portfolio", labelKey: "portfolio", href: "/dashboard/portfolio", icon: "star", shortcut: "G F" },
   { id: "setup", label: "Settings", labelKey: "setup", href: "/dashboard/settings", icon: "settings", shortcut: "G T" },
 ] as const;
 
 // Visual grouping — section dividers render after these item ids.
 // Groups: [Overview] / [Clients & Projects, Music, Calendar] /
-// [Store] / [Settings]. Pure layout concern; doesn't change route
-// behaviour or active-state derivation.
+// [Storefront, Portfolio] / [Settings]. Pure layout concern;
+// doesn't change route behaviour or active-state derivation.
 const SECTION_BOUNDARY_AFTER: ReadonlySet<ActiveKey> = new Set([
   "today",
   "calendar",
-  "profile",
+  "portfolio",
 ]);
 
 export function ProducerSidebar({
@@ -303,13 +305,15 @@ function SidebarBody({
             {SECTION_BOUNDARY_AFTER.has(item.id) && (
               <SectionDivider collapsed={collapsed} />
             )}
-            {/* Mockup-match: Insights sits between Storefront and
-                Settings in the locked design. No route exists yet —
+            {/* Mockup-match: Insights sits between the Storefront /
+                Portfolio group and Settings. No route exists yet —
                 it's rendered as a click-to-toast placeholder so the
                 rail visually matches the mockup without 404-ing
                 anyone. The toast lands inside ClickToast which lazily
-                imports the existing useToast hook. */}
-            {item.id === "profile" ? (
+                imports the existing useToast hook. Anchored to
+                `portfolio` after the 2026-05-18 re-introduction so
+                Storefront → Portfolio reads as a contiguous group. */}
+            {item.id === "portfolio" ? (
               <InsightsPlaceholder collapsed={collapsed} label={t("insights")} />
             ) : null}
           </Fragment>

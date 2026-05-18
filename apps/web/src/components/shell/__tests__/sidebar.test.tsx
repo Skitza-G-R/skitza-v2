@@ -6,32 +6,36 @@ import { NAV_ITEMS } from "../sidebar";
 // derivation stays stable. Route mapping (Gili's brief Q3) drops the
 // non-existent /dashboard/insights.
 //
-// Sidebar polish (2026-05-15): the Portfolio row was removed from the
-// rail. CLAUDE.md §"Producer platform — 6 pages" is the canonical
-// surface count, and the file's own header comment already promised
-// 6. The /dashboard/portfolio route still exists and is reachable
-// from inside the Store experience — coordinate with @raz before
-// re-introducing Portfolio as a top-level rail entry.
+// Sidebar history:
+//   - 2026-05-15: Portfolio row removed from the rail (CLAUDE.md
+//     called for 6 producer pages, file header promised 6).
+//   - 2026-05-18 (PR #142): Portfolio re-introduced as the 7th rail
+//     entry directly under Storefront. Gili's call as the product
+//     owner; CLAUDE.md's surface count is now stale and will refresh
+//     when the portfolio redesign promotes to prod.
 //
 // G-leader shortcuts mirror the locked design's `ShortcutsHelp`
-// (notes/nav.jsx): G H (home/overview), G P (projects), G M (music),
-// G C (calendar), G S (storefront), G T (settings).
+// (notes/nav.jsx): G H (overview), G P (projects), G M (music),
+// G C (calendar), G S (storefront), G F (portfolio), G T (settings).
 
 describe("Sidebar NAV_ITEMS", () => {
-  it("contains exactly 6 top-level items", () => {
-    expect(NAV_ITEMS).toHaveLength(6);
+  it("contains exactly 7 top-level items (Portfolio re-added 2026-05-18)", () => {
+    expect(NAV_ITEMS).toHaveLength(7);
   });
 
-  it("has the 6 canonical labels in order", () => {
+  it("has the 7 canonical labels in order", () => {
     // 2026-05-16: "Store" was renamed to "Storefront" to match the
     // HTML mockup's locked sidebar nomenclature. The /dashboard/store
     // route is unchanged; only the visible label moved.
+    // 2026-05-18: Portfolio re-introduced as the 7th entry directly
+    // under Storefront.
     expect(NAV_ITEMS.map((i) => i.label)).toEqual([
       "Overview",
       "Clients & Projects",
       "Music",
       "Calendar",
       "Storefront",
+      "Portfolio",
       "Settings",
     ]);
   });
@@ -42,6 +46,7 @@ describe("Sidebar NAV_ITEMS", () => {
     expect(NAV_ITEMS.find((i) => i.id === "music")?.href).toBe("/dashboard/music");
     expect(NAV_ITEMS.find((i) => i.id === "calendar")?.href).toBe("/dashboard/calendar");
     expect(NAV_ITEMS.find((i) => i.id === "profile")?.href).toBe("/dashboard/store");
+    expect(NAV_ITEMS.find((i) => i.id === "portfolio")?.href).toBe("/dashboard/portfolio");
     expect(NAV_ITEMS.find((i) => i.id === "setup")?.href).toBe("/dashboard/settings");
   });
 
@@ -51,12 +56,15 @@ describe("Sidebar NAV_ITEMS", () => {
     expect(NAV_ITEMS.find((i) => i.id === "music")?.shortcut).toBe("G M");
     expect(NAV_ITEMS.find((i) => i.id === "calendar")?.shortcut).toBe("G C");
     expect(NAV_ITEMS.find((i) => i.id === "profile")?.shortcut).toBe("G S");
+    expect(NAV_ITEMS.find((i) => i.id === "portfolio")?.shortcut).toBe("G F");
     expect(NAV_ITEMS.find((i) => i.id === "setup")?.shortcut).toBe("G T");
   });
 
-  it("does not contain a Portfolio nav row", () => {
-    expect(NAV_ITEMS.find((i) => i.id === "portfolio")).toBeUndefined();
-    expect(NAV_ITEMS.map((i) => i.label)).not.toContain("Portfolio");
+  it("contains a Portfolio nav row directly under Storefront", () => {
+    const idx = NAV_ITEMS.findIndex((i) => i.id === "portfolio");
+    const prev = idx > 0 ? NAV_ITEMS[idx - 1] : undefined;
+    expect(idx).toBeGreaterThan(-1);
+    expect(prev?.id).toBe("profile");
   });
 });
 
@@ -71,13 +79,15 @@ const SIDEBAR_SRC = readSrc(
 );
 
 describe("ProducerSidebar — Insights placeholder + footer chip", () => {
-  it("renders an InsightsPlaceholder between Storefront and Settings", () => {
+  it("renders an InsightsPlaceholder between Portfolio and Settings", () => {
     // The placeholder is rendered conditionally inside the NAV_ITEMS
-    // loop after the "profile" item — no /dashboard/insights route
+    // loop after the "portfolio" item — no /dashboard/insights route
     // exists yet, so it has to be a button (not a Link). Toast on
     // click signals "Coming soon" to the producer.
+    // Moved from after "profile" → after "portfolio" on 2026-05-18 so
+    // Storefront → Portfolio reads as a contiguous group.
     expect(SIDEBAR_SRC).toContain("InsightsPlaceholder");
-    expect(SIDEBAR_SRC).toMatch(/item\.id\s*===\s*["']profile["'][\s\S]{0,200}InsightsPlaceholder/);
+    expect(SIDEBAR_SRC).toMatch(/item\.id\s*===\s*["']portfolio["'][\s\S]{0,200}InsightsPlaceholder/);
   });
 
   it("Insights placeholder is a button (not a Link) so it can't 404", () => {

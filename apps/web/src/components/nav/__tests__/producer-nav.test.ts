@@ -8,28 +8,35 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SIDEBAR = readFileSync(join(here, "..", "producer-sidebar.tsx"), "utf8");
 const BOTTOM = readFileSync(join(here, "..", "producer-bottom-nav.tsx"), "utf8");
 
-// Sidebar polish (2026-05-15): Portfolio rows are gone from both the
-// desktop rail and the mobile bottom-tab bar. The /dashboard/portfolio
-// route still exists and is reachable from inside the Store
-// experience; these tests guard against a regression that
-// re-introduces Portfolio as a top-level nav entry without an
-// explicit product decision.
+// Nav history:
+//   - 2026-05-15: Portfolio rows removed from both the desktop rail
+//     and the mobile bottom-tab bar (CLAUDE.md called for 6 top-level
+//     producer pages).
+//   - 2026-05-18 (PR #142): Portfolio re-introduced to the DESKTOP
+//     sidebar only, directly under Storefront (Gili's call). Mobile
+//     bottom-nav stays at 5 tabs — Portfolio is desktop-only chrome,
+//     consistent with the desktop-only producer dashboard preference
+//     in CLAUDE.md.
+//
+// These tests guard the current invariant: Portfolio IS in the
+// sidebar, NOT in the bottom-nav; both Store entries point to
+// /dashboard/store; no leftover /dashboard/profile hrefs.
 
-describe("producer nav: Store row only (Portfolio removed)", () => {
+describe("producer nav: Portfolio in sidebar only", () => {
   it("sidebar Store entry hrefs to /dashboard/store", () => {
     expect(SIDEBAR).toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
-  it("sidebar does NOT contain a Portfolio entry", () => {
-    expect(SIDEBAR).not.toMatch(/label:\s*["']Portfolio["']/);
-    expect(SIDEBAR).not.toMatch(/href:\s*["']\/dashboard\/portfolio["']/);
+  it("sidebar contains a Portfolio entry under Storefront", () => {
+    expect(SIDEBAR).toMatch(/label:\s*["']Portfolio["']/);
+    expect(SIDEBAR).toMatch(/href:\s*["']\/dashboard\/portfolio["']/);
   });
 
   it("bottom-nav Store entry hrefs to /dashboard/store", () => {
     expect(BOTTOM).toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
-  it("bottom-nav does NOT contain a Portfolio entry", () => {
+  it("bottom-nav does NOT contain a Portfolio entry (mobile stays 5 tabs)", () => {
     expect(BOTTOM).not.toMatch(/label:\s*["']Portfolio["']/);
     expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/portfolio["']/);
   });
