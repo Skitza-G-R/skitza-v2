@@ -482,6 +482,17 @@
     animation: skitza-pulse-green 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     border-color: rgb(var(--brand-primary) / 0.5);
   }
+  /* One-shot first-paint glow for the Tax segmented toggle in Settings
+   * — draws the eye to the new control without being permanent or
+   * noisy. Outward-expanding amber halo, 1.6s, runs once. */
+  .tax-segment-highlight {
+    animation: skitza-tax-highlight 1.6s cubic-bezier(0.16, 1, 0.3, 1) 1;
+  }
+  @keyframes skitza-tax-highlight {
+    0%   { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0); }
+    35%  { box-shadow: 0 0 0 4px rgb(var(--brand-primary) / 0.25); }
+    100% { box-shadow: 0 0 0 0 rgb(var(--brand-primary) / 0); }
+  }
   .pulse-glow  { animation: skitza-pulse-glow 3s ease-in-out infinite; }
 
   /* ----------------------------------------------------------------

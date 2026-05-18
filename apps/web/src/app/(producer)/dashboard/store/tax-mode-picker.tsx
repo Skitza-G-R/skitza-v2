@@ -1,15 +1,13 @@
 // tax-mode-picker.tsx
 //
-// Inline picker that lives in the storefront header strip. Lets the
-// producer flip their business-level VAT disclosure without leaving
-// for Settings. Same write path as Settings → Currency & region:
-// `updateProducer({ taxMode })`. The artist-facing footnote (rendered
-// on every product card and detail page) updates on next render.
+// Storefront-header inline tax picker. Same component the Settings
+// page uses (TaxModeSegmented), rendered in compact 'sm' size so it
+// sits on one line with the live/hidden counts to its left.
 //
-// Visually a single chip: bordered pill, eyebrow label baked-in, custom
-// chevron, hover-strong border, focus ring matching .s-select. While
-// the save is in flight the chip's border pulses (no opacity drop —
-// keeps the value readable mid-save).
+// Write path is identical to Settings — updateProducer({ taxMode })
+// — so the two surfaces stay in lockstep with no risk of drift.
+// Pending state grays the whole control (interactive lock) without
+// changing the sliding indicator's position.
 
 "use client";
 
@@ -17,11 +15,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { useToast } from "~/components/ui/toast";
-import {
-  TAX_MODES,
-  type TaxMode,
-  taxModeOptionLabel,
-} from "~/lib/tax-mode";
+import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
+import { type TaxMode } from "~/lib/tax-mode";
 import { updateProducer } from "~/app/(producer)/dashboard/settings/actions";
 
 interface Props {
@@ -41,7 +36,7 @@ export function TaxModePicker({ initial }: Props) {
     startTransition(async () => {
       const res = await updateProducer({ taxMode: next });
       if (res.ok) {
-        toast("Tax disclosure updated.", "success");
+        toast("Tax mode updated.", "success");
         router.refresh();
       } else {
         setValue(prev);
@@ -51,58 +46,20 @@ export function TaxModePicker({ initial }: Props) {
   }
 
   return (
-    <label
-      className={[
-        // One bordered chip — eyebrow label sits inside the same border
-        // as the select. Matches the s-select hover/focus contract from
-        // settings.css so this storefront surface and the Settings
-        // surface feel like the same control.
-        "group relative inline-flex h-8 items-center gap-2 rounded-[10px] border bg-[rgb(var(--bg-elevated))] pl-3 pr-9 text-[11.5px]",
-        "border-[rgb(var(--border-subtle))]",
-        // Pending: subtle border pulse instead of opacity drop so the
-        // value stays readable. .sk-pending-pulse animates the border
-        // via box-shadow at the brand hue.
-        pending
-          ? "sk-pending-pulse"
-          : "hover:border-[rgb(var(--border-strong))] focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)]",
-        "transition-[border-color,box-shadow] duration-200",
-      ].join(" ")}
-      style={{
-        // Custom chevron — same SVG path as .s-select so the producer
-        // surface and Settings surface render an identical glyph.
-        backgroundImage:
-          "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 5l3 3 3-3' stroke='%236b6359' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>\")",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "right 10px center",
-        transitionTimingFunction: "var(--ease-out-strong)",
-      }}
-    >
+    <div className="flex items-center gap-2">
       <span
-        className="font-mono uppercase tracking-[0.14em] text-[10.5px] font-semibold text-[rgb(var(--fg-muted))]"
         aria-hidden
+        className="font-mono uppercase tracking-[0.14em] text-[10px] font-semibold text-[rgb(var(--fg-muted))]"
       >
         Tax
       </span>
-      <select
+      <TaxModeSegmented
         value={value}
-        onChange={(e) => {
-          onChange(e.target.value as TaxMode);
-        }}
+        onChange={onChange}
+        size="sm"
         disabled={pending}
-        aria-label="Tax disclosure mode"
-        className={[
-          // Native <select> stripped to its essence — sits on top of
-          // the chip's chevron. cursor-pointer reinforces affordance.
-          "appearance-none bg-transparent text-[11.5px] font-semibold leading-none text-[rgb(var(--fg-default))] outline-none cursor-pointer",
-          "disabled:cursor-progress",
-        ].join(" ")}
-      >
-        {TAX_MODES.map((m) => (
-          <option key={m} value={m}>
-            {taxModeOptionLabel(m)}
-          </option>
-        ))}
-      </select>
-    </label>
+        ariaLabel="Tax disclosure mode"
+      />
+    </div>
   );
 }

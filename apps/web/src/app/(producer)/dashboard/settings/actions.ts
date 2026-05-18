@@ -64,10 +64,11 @@ export async function updateProducer(input: {
   // Settings redesign — per-event notification preferences. Partial
   // map: keys not in the patch keep their existing values server-side.
   notificationPrefs?: Record<string, { email: boolean; app: boolean }>;
-  // Migration 0018 — business-level VAT / tax disclosure mode. Drives
-  // the artist-facing footnote on every product card and detail page.
-  // See ~/lib/tax-mode for the label + footnote helpers.
-  taxMode?: "none" | "vat_included" | "vat_exempt";
+  // Migration 0019 — business-level tax disclosure mode + rate.
+  // 'tax_added' multiplies the Stripe charge by 1 + ratePct/100; the
+  // other two modes are display-only. See ~/lib/tax-mode for helpers.
+  taxMode?: "tax_free" | "tax_included" | "tax_added";
+  taxRatePct?: number;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -89,11 +90,12 @@ export async function updateProducer(input: {
     }
     // Post-Story-03: slug changes invalidate the /join/<slug> teaser.
     if (input.slug) revalidatePath(`/join/${input.slug}`);
-    // Migration 0018 — taxMode changes the VAT footnote on every
-    // product surface. Bust the storefront (producer's view) and
-    // every artist surface that renders prices.
-    if (input.taxMode) {
+    // Migration 0019 — tax mode + rate changes invalidate every
+    // artist surface that renders prices AND the producer's own
+    // storefront view (which shows the inline picker chip).
+    if (input.taxMode !== undefined || input.taxRatePct !== undefined) {
       revalidatePath("/dashboard/profile");
+      revalidatePath("/dashboard/store");
       revalidatePath("/artist/store", "layout");
       revalidatePath("/join", "layout");
     }

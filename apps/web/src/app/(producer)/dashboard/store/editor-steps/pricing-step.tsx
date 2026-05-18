@@ -16,6 +16,11 @@
 import { Minus, Plus, X } from "lucide-react";
 
 import { fromPrice, type VolumeTier } from "~/lib/pricing";
+import {
+  applyTaxToCents,
+  type TaxMode,
+  taxModePricingNote,
+} from "~/lib/tax-mode";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
 type PaymentPlan = "full" | "split" | "installments";
@@ -53,6 +58,12 @@ interface PricingStepProps {
   installmentsCount: number;
   pricingModel: PricingModel;
   volumeTiers: VolumeTier[];
+  // Producer's business-level tax mode + rate (migration 0019). Drives
+  // the live "Artists pay $X" note that renders under the price input.
+  // Optional + defaulted so onboarding (which doesn't have the producer
+  // profile in scope yet) still works.
+  taxMode?: TaxMode;
+  taxRatePct?: number;
   // When false, the "How do you want to charge?" pill is hidden and
   // the step renders flat-price-only. Used by onboarding's first-
   // service wizard, which intentionally stays simple. Default true
@@ -177,12 +188,28 @@ export function PricingStep({
   installmentsCount,
   pricingModel,
   volumeTiers,
+  taxMode = "tax_free",
+  taxRatePct = 18,
   allowPerSong = true,
   onChange,
 }: PricingStepProps) {
   const curSym = CURRENCY_SYMBOL[currency];
   const installmentAmt =
     installmentsCount > 0 ? Math.round(price / installmentsCount) : 0;
+  // Live tax preview — formats the same currency the price input uses
+  // so the post-tax amount reads as a direct comparison to whatever
+  // the producer just typed. Skipped when tax_free (no math, no point).
+  const postTaxCents = applyTaxToCents(
+    Math.round(price * 100),
+    taxMode,
+    taxRatePct,
+  );
+  const taxPricingNote = taxModePricingNote(
+    taxMode,
+    taxRatePct,
+    formatCurrency(curSym, price),
+    formatCurrency(curSym, postTaxCents / 100),
+  );
 
   function handleModelChange(next: PricingModel) {
     if (next === pricingModel) return;
@@ -345,6 +372,28 @@ export function PricingStep({
               </div>
             </div>
           </div>
+
+          {/* Migration 0019 — live tax preview. Re-mounts on mode/rate/
+              price change so the .reveal-up entrance fires, drawing
+              the eye to the post-tax amount the artist actually pays.
+              Hidden in onboarding via the same allowPerSong guard the
+              How-You-Charge toggle uses (onboarding doesn't expose
+              tax). */}
+          {allowPerSong ? (
+            <div
+              key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
+              className="reveal-up rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.02)] px-3 py-2 text-[12px] text-[rgb(var(--fg-muted))]"
+              aria-live="polite"
+            >
+              <span
+                aria-hidden
+                className="mr-2 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgb(var(--fg-faint))]"
+              >
+                Tax
+              </span>
+              {taxPricingNote}
+            </div>
+          ) : null}
 
           <div>
             <Eyebrow>How artists pay</Eyebrow>

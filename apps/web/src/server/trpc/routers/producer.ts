@@ -105,9 +105,14 @@ const UpdateInput = z.object({
   // Settings redesign — per-event notification preferences. Partial
   // merge: only the event keys present in the payload get rewritten.
   notificationPrefs: NotificationPrefsInput.optional(),
-  // Migration 0018 — business-level tax disclosure mode. See
-  // ~/lib/tax-mode for the label + footnote helpers.
-  taxMode: z.enum(["none", "vat_included", "vat_exempt"]).optional(),
+  // Migration 0019 — business-level tax disclosure mode + rate.
+  // 'tax_added' is the only mode that changes checkout totals;
+  // 'tax_free' and 'tax_included' are display-only. See
+  // ~/lib/tax-mode for the helpers (footnote, hint, pricing note,
+  // checkout multiplier).
+  taxMode: z.enum(["tax_free", "tax_included", "tax_added"]).optional(),
+  // Whole-number percent (UI input is integer-only). Clamped [0, 100].
+  taxRatePct: z.number().int().min(0).max(100).optional(),
 });
 
 // Marketing-grade meta the producer surfaces on their public /join page.
@@ -434,8 +439,9 @@ export const producerRouter = router({
       plan: row.plan,
       // Calendar week orientation. UI flips this between 'sun' / 'mon'.
       weekStart: row.weekStart,
-      // Migration 0018 — business-level tax disclosure mode.
+      // Migration 0019 — business-level tax disclosure mode + rate.
       taxMode: row.taxMode,
+      taxRatePct: row.taxRatePct,
       // Per-event notification preferences. Empty object when the
       // producer hasn't touched the matrix yet — the client fills in
       // design defaults for missing keys (see resolveNotificationPrefs

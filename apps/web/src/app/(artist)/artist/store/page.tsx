@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 
 import { ProductCard } from "~/components/artist/store/product-card";
-import { isTaxMode } from "~/lib/tax-mode";
+import { coerceTaxMode } from "~/lib/tax-mode";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { StoreProducerPicker } from "./store-producer-picker";
@@ -102,9 +102,8 @@ export default async function StorePage({ searchParams }: PageProps) {
                 sessionCount: p.sessionCount,
                 durationMin: p.durationMin,
               }}
-              taxMode={
-                isTaxMode(p.producerTaxMode) ? p.producerTaxMode : "none"
-              }
+              taxMode={coerceTaxMode(p.producerTaxMode)}
+              taxRatePct={p.producerTaxRatePct}
             />
           ))}
         </div>

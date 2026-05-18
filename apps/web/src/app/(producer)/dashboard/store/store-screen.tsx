@@ -55,13 +55,20 @@ export interface StoreProduct extends ProductCardData {
 interface StoreScreenProps {
   products: StoreProduct[];
   defaultCurrency: Currency;
-  // Migration 0018 — initial value for the inline TaxModePicker chip.
-  // Saved via the same updateProducer server action Settings uses, so
-  // the storefront and Settings stay in lockstep.
+  // Migration 0019 — producer's tax mode + rate. taxMode drives the
+  // inline TaxModePicker chip (same write path as Settings); taxRatePct
+  // is threaded into the ProductEditor so the Pricing step can show a
+  // live "Artists pay $X" preview.
   taxMode: TaxMode;
+  taxRatePct: number;
 }
 
-export function StoreScreen({ products, defaultCurrency, taxMode }: StoreScreenProps) {
+export function StoreScreen({
+  products,
+  defaultCurrency,
+  taxMode,
+  taxRatePct,
+}: StoreScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
@@ -319,6 +326,8 @@ export function StoreScreen({ products, defaultCurrency, taxMode }: StoreScreenP
         }}
         product={null}
         defaultCurrency={defaultCurrency}
+        taxMode={taxMode}
+        taxRatePct={taxRatePct}
         onCreated={handleCreated}
       />
 
@@ -330,6 +339,8 @@ export function StoreScreen({ products, defaultCurrency, taxMode }: StoreScreenP
         }}
         product={editing}
         defaultCurrency={defaultCurrency}
+        taxMode={taxMode}
+        taxRatePct={taxRatePct}
       />
 
       {/* Delete confirmation */}

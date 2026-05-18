@@ -116,21 +116,33 @@ export const producers = pgTable("producers", {
     .$type<Record<string, { email: boolean; app: boolean }>>()
     .notNull()
     .default({}),
-  // Business-level VAT / tax disclosure mode. Three modes for v1
-  // (kept as free-text to avoid an enum migration later when we add
-  // 'vat_added' for B2B / +VAT-at-checkout flows):
-  //   * 'none'         — no tax line shown anywhere (default — non-IL
-  //                      producers, or pre-migration rows).
-  //   * 'vat_included' — listed prices already include 18% VAT. Render
-  //                      "Includes 18% VAT" footnote on every product
-  //                      surface. No math change.
-  //   * 'vat_exempt'   — Osek Patur (small-business exempt). Render
-  //                      "Exempt from VAT (Osek Patur)" footnote. No
-  //                      math change.
-  // The displayed price = the price the artist pays in all three
-  // modes; the only difference is the disclosure line. See
-  // ~/lib/tax-mode for the label + footnote helpers.
-  taxMode: text("tax_mode").notNull().default("none"),
+  // Business-level tax disclosure. Drives buyer-facing copy on every
+  // product surface AND the Stripe charge amount for 'tax_added'.
+  // Three modes (v2 — migration 0019 renamed the prior 'none' /
+  // 'vat_included' / 'vat_exempt' tuple):
+  //   * 'tax_free'     — no tax. Footnote: "Tax-free." Covers both
+  //                      "no tax involved" (non-IL) and the Osek Patur
+  //                      legal exemption (small-business IL). No math
+  //                      change at checkout.
+  //   * 'tax_included' — listed prices already include taxRatePct%.
+  //                      Footnote: "Includes {rate}% tax." No math
+  //                      change — artist pays the displayed number.
+  //   * 'tax_added'    — listed prices are PRE-TAX. Stripe charges
+  //                      price × (1 + rate/100). Footnote:
+  //                      "+ {rate}% tax at checkout." The product
+  //                      editor's Pricing step shows a live preview
+  //                      so the producer sees the after-tax amount
+  //                      the artist actually pays.
+  // Free-text on disk (not pgEnum) so adding regional / per-currency
+  // tax variants later is a single-row UPDATE rather than a CREATE
+  // TYPE dance.
+  taxMode: text("tax_mode").notNull().default("tax_free"),
+  // Tax rate the producer declares as a percentage (whole-number int
+  // — fractional rates are rare and the UI input is integer-only).
+  // Default 18 matches Israeli VAT. Irrelevant when taxMode='tax_free',
+  // but the column stays populated so the value sticks if the producer
+  // toggles modes back and forth.
+  taxRatePct: integer("tax_rate_pct").notNull().default(18),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

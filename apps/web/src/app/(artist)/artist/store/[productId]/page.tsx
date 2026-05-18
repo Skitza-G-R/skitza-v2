@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { TRPCError } from "@trpc/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
-import { isTaxMode, taxModeFootnote } from "~/lib/tax-mode";
+import { coerceTaxMode, taxModeFootnote } from "~/lib/tax-mode";
 import { StoreProductClient } from "./store-product-client";
 
 type PageProps = { params: Promise<{ productId: string }> };
@@ -32,10 +32,11 @@ export default async function StoreProductPage({ params }: PageProps) {
   }
 
   // Resolve VAT footnote once at the top so the hero render stays
-  // declarative — no inline IIFE.
-  const taxFootnote = taxModeFootnote(
-    isTaxMode(product.producerTaxMode) ? product.producerTaxMode : "none",
-  );
+  // declarative — no inline IIFE. coerceTaxMode folds legacy values
+  // (pre-migration-0019) into the new shape so this never crashes.
+  const taxMode = coerceTaxMode(product.producerTaxMode);
+  const taxRatePct = product.producerTaxRatePct;
+  const taxFootnote = taxModeFootnote(taxMode, taxRatePct);
 
   return (
     <div className="space-y-5">

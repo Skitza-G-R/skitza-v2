@@ -104,6 +104,13 @@ interface ProductEditorProps {
   /** Producer's default currency, used to seed new products. */
   defaultCurrency: Currency;
   /**
+   * Producer's business-level tax mode + rate (migration 0019). Threaded
+   * into <PricingStep> so the price input shows a live "Artists pay $X"
+   * preview that reflects the producer's current tax setup.
+   */
+  taxMode: import("~/lib/tax-mode").TaxMode;
+  taxRatePct: number;
+  /**
    * Fires only on the CREATE path, with the newly-created product's id,
    * BEFORE the modal closes / toast / router.refresh. Used by the parent
    * to trigger a shimmer-glow on the new card for ~4s.
@@ -219,6 +226,8 @@ export function ProductEditor({
   onOpenChange,
   product,
   defaultCurrency,
+  taxMode,
+  taxRatePct,
   onCreated,
 }: ProductEditorProps) {
   const router = useRouter();
@@ -380,6 +389,8 @@ export function ProductEditor({
             installmentsCount={draft.installmentsCount}
             pricingModel={draft.pricingModel}
             volumeTiers={draft.volumeTiers}
+            taxMode={taxMode}
+            taxRatePct={taxRatePct}
             onChange={(patch) => {
               setDraft((d) => ({ ...d, ...patch }));
             }}
