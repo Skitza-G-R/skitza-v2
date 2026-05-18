@@ -781,28 +781,30 @@ export const projectRouter = router({
 
     if (input.value) {
       const [producerRow] = await ctx.db
-        .select({ displayName: producers.displayName })
+        .select({ email: producers.email, displayName: producers.displayName })
         .from(producers)
         .where(eq(producers.id, ctx.producerId))
         .limit(1);
       const total = project.totalAmountCents ?? 0;
       const amountCents =
         input.kind === "deposit" ? Math.floor(total / 2) : total - Math.floor(total / 2);
-      after(async () => {
-        try {
-          await sendPaymentReceivedEmail(project.artistEmail, {
-            producerName: producerRow?.displayName ?? "Your producer",
-            artistName: project.artistName,
-            projectName: project.title,
-            amountCents,
-            platformFeeCents: 0,
-            currency: project.currency ?? "USD",
-            viewUrl: `${SITE_URL}/artist`,
-          });
-        } catch (err) {
-          console.error("[email] payment-received failed", err);
-        }
-      });
+      if (producerRow) {
+        after(async () => {
+          try {
+            await sendPaymentReceivedEmail(producerRow.email, {
+              producerName: producerRow.displayName ?? producerRow.email,
+              artistName: project.artistName,
+              projectName: project.title,
+              amountCents,
+              platformFeeCents: 0,
+              currency: project.currency ?? "USD",
+              viewUrl: `${SITE_URL}/dashboard/clients-projects/${input.projectId}`,
+            });
+          } catch (err) {
+            console.error("[email] payment-received failed", err);
+          }
+        });
+      }
     }
 
     return { ok: true as const };
