@@ -204,9 +204,23 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     expect(panelSource).not.toMatch(/togglePublicSample|isPublicSampleToggle/);
   });
 
-  it("uses Move up / Move down aria-labels on reorder arrows", () => {
-    expect(panelSource).toContain('aria-label="Move up"');
-    expect(panelSource).toContain('aria-label="Move down"');
+  it("uses drag-and-drop for reorder (no arrow buttons)", () => {
+    // 2026-05-18: switched from ▲▼ arrow buttons to @dnd-kit/sortable
+    // drag handles per Gili's request. The drag handle is announced
+    // to screen readers via `aria-label="Drag to reorder"` and the
+    // dnd-kit sortable hook attaches the keyboard sensor for arrow-key
+    // reordering, so producers who navigate by keyboard still have a
+    // reorder affordance.
+    expect(panelSource).toContain('aria-label="Drag to reorder"');
+    expect(panelSource).not.toContain('aria-label="Move up"');
+    expect(panelSource).not.toContain('aria-label="Move down"');
+  });
+
+  it("imports @dnd-kit/sortable for the drag-and-drop reorder", () => {
+    expect(panelSource).toContain('from "@dnd-kit/sortable"');
+    expect(panelSource).toContain("useSortable");
+    expect(panelSource).toContain("SortableContext");
+    expect(panelSource).toContain("arrayMove");
   });
 
   it("calls reorderPortfolioTracks and reorderExternalLinks (bulk reorder API)", () => {
@@ -222,8 +236,18 @@ describe("portfolio-panel.tsx — structural invariants", () => {
   });
 
   it("renders the helper mono micro-labels for both sections", () => {
-    expect(panelSource).toContain("PICK YOUR BEST. ARROWS REORCDER".replace("REORCDER", "REORDER"));
+    expect(panelSource).toContain("PICK YOUR BEST. DRAG TO REORDER.");
     expect(panelSource).toContain("PASTE THE URL. WE FIGURE OUT THE PLATFORM.");
+  });
+
+  it("renders LinkRow with a PlatformIcon brand tile", () => {
+    expect(panelSource).toContain("PlatformIcon");
+    expect(panelSource).toContain('platform={row.platform}');
+  });
+
+  it("renders the picker modal via React's createPortal (escapes sidebar stacking)", () => {
+    expect(panelSource).toContain("createPortal");
+    expect(panelSource).toContain("window.document.body");
   });
 
   it("renders the smart-paste placeholder copy", () => {

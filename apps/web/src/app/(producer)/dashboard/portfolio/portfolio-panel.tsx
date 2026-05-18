@@ -6,11 +6,32 @@ import {
   useRef,
   useState,
   useTransition,
+  type ReactNode,
   type SyntheticEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
 import { useToast } from "~/components/ui/toast";
+import { PlatformIcon } from "~/components/portfolio/platform-icons";
 
 import {
   addExternalLink,
@@ -69,8 +90,9 @@ export const PLATFORM_LABEL: Record<ExternalPlatformValue, string> = {
 
 /**
  * Swap an item in `arr` with its adjacent neighbour. Returns `null`
- * when the swap would step out of bounds (i.e. ▲ on first row, ▼ on
- * last row). Pure: does not mutate `arr`.
+ * when the swap would step out of bounds. Pure: does not mutate `arr`.
+ * Kept as an exported utility for unit tests; the runtime UI uses
+ * @dnd-kit/sortable's `arrayMove` for drag-and-drop reorder.
  */
 export function swapAdjacent<T>(
   arr: readonly T[],
@@ -92,9 +114,7 @@ export function swapAdjacent<T>(
 /**
  * Deterministic decorative waveform bars (0.35 — 1.0 height) seeded
  * from a track id. Used purely as visual ornament until the
- * portfolioTracks → trackVersions.peaks join is plumbed (PR #135 only
- * stores peaks on track_versions; portfolio rows are a denormalised
- * copy and don't carry peaks today).
+ * portfolioTracks → trackVersions.peaks join is plumbed.
  */
 export function seededBars(id: string, count = 40): number[] {
   let seed = 5381;
@@ -118,7 +138,7 @@ export function formatDuration(ms: number | null): string {
   return `${m.toString()}:${s.toString().padStart(2, "0")}`;
 }
 
-/** True when the row can move in the given direction. */
+/** Kept for legacy callers + tests; not used by the drag-driven UI. */
 export function canReorder(
   direction: "up" | "down",
   index: number,
@@ -176,11 +196,20 @@ function FeaturedTracksSection({
     setRows(initialTracks);
   }, [initialTracks]);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
   const atCap = rows.length >= TRACK_CAP;
 
-  function reorder(index: number, direction: "up" | "down") {
-    const next = swapAdjacent(rows, index, direction);
-    if (!next) return;
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = rows.findIndex((r) => r.id === active.id);
+    const newIndex = rows.findIndex((r) => r.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(rows, oldIndex, newIndex);
     const orderedIds = next.map((r) => r.id);
     setRows(next);
     startTransition(async () => {
@@ -212,17 +241,17 @@ function FeaturedTracksSection({
       aria-labelledby="portfolio-tracks-heading"
       className="sk-portfolio-section"
     >
-      <header className="mb-4 flex items-end justify-between gap-3">
+      <header className="mb-5 flex items-end justify-between gap-3">
         <div>
           <h2
             id="portfolio-tracks-heading"
-            className="font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+            className="font-display text-2xl leading-none tracking-[-0.015em] text-[rgb(var(--fg-primary))]"
             style={{ fontWeight: 700 }}
           >
             Featured tracks
           </h2>
-          <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
-            PICK YOUR BEST. ARROWS REORDER.
+          <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+            PICK YOUR BEST. DRAG TO REORDER.
           </p>
         </div>
         <AddFromLibraryButton
@@ -235,80 +264,81 @@ function FeaturedTracksSection({
       {atCap ? (
         <p
           aria-live="polite"
-          className="mb-3 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]"
+          className="mb-3 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
         >
           LIMIT REACHED ({TRACK_CAP}/{TRACK_CAP})
         </p>
       ) : null}
 
       {rows.length === 0 ? (
-        <FeaturedTracksEmpty
-          library={library}
-          addedAudioUrls={addedAudioUrls}
-        />
+        <FeaturedTracksEmpty />
       ) : (
-        <ul className="space-y-3">
-          {rows.map((row, idx) => (
-            <TrackRow
-              key={row.id}
-              row={row}
-              index={idx}
-              total={rows.length}
-              onReorder={(dir) => {
-                reorder(idx, dir);
-              }}
-              onRemove={() => {
-                remove(row.id);
-              }}
-            />
-          ))}
-        </ul>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={rows.map((r) => r.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <ul className="space-y-2.5">
+              {rows.map((row) => (
+                <TrackRow
+                  key={row.id}
+                  row={row}
+                  onRemove={() => {
+                    remove(row.id);
+                  }}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
       )}
     </section>
   );
 }
 
-function FeaturedTracksEmpty({
-  library,
-  addedAudioUrls,
-}: {
-  library: LibraryPickRow[];
-  addedAudioUrls: string[];
-}) {
+function FeaturedTracksEmpty() {
   return (
     <div
       role="status"
-      className="flex flex-col items-center justify-center gap-3 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-6 py-12 text-center"
+      className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken)/0.6)] px-6 py-14 text-center"
     >
-      <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
         NO FEATURED TRACKS YET. ADD ONE FROM YOUR MUSIC LIBRARY.
       </p>
-      <AddFromLibraryButton
-        library={library}
-        addedAudioUrls={addedAudioUrls}
-        disabled={false}
-        ghost
-      />
     </div>
   );
 }
 
 function TrackRow({
   row,
-  index,
-  total,
-  onReorder,
   onRemove,
 }: {
   row: PortfolioTrackRow;
-  index: number;
-  total: number;
-  onReorder: (dir: "up" | "down") => void;
   onRemove: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0); // 0 — 1
+  const [progress, setProgress] = useState(0);
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: row.id });
+
+  const sortableStyle: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : "auto",
+  };
 
   useEffect(() => {
     return () => {
@@ -340,42 +370,28 @@ function TrackRow({
   }
 
   const bars = useMemo(() => seededBars(row.id), [row.id]);
-  const upDisabled = !canReorder("up", index, total);
-  const downDisabled = !canReorder("down", index, total);
 
   return (
-    <li>
-      <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.4)] ring-1 ring-[rgb(var(--border-subtle))]">
-        <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-base))] px-4 py-3">
-          {/* ▲▼ reorder */}
-          <div className="flex flex-col gap-0.5">
-            <button
-              type="button"
-              aria-label="Move up"
-              disabled={upDisabled}
-              onClick={() => {
-                onReorder("up");
-              }}
-              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30 disabled:hover:bg-transparent active:scale-[0.92]"
-            >
-              <svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
-                <path d="M6 3l4 5H2z" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              aria-label="Move down"
-              disabled={downDisabled}
-              onClick={() => {
-                onReorder("down");
-              }}
-              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30 disabled:hover:bg-transparent active:scale-[0.92]"
-            >
-              <svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
-                <path d="M6 9l4-5H2z" />
-              </svg>
-            </button>
-          </div>
+    <li ref={setNodeRef} style={sortableStyle} className="group/track">
+      <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.55)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:ring-[rgb(var(--border-strong))] transition-[box-shadow,background-color] duration-300 ease-out">
+        <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+          {/* drag handle */}
+          <button
+            type="button"
+            className="grid h-7 w-5 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+            aria-label="Drag to reorder"
+          >
+            <svg viewBox="0 0 8 14" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
+              <circle cx="2" cy="2.5" r="1.1" />
+              <circle cx="6" cy="2.5" r="1.1" />
+              <circle cx="2" cy="7" r="1.1" />
+              <circle cx="6" cy="7" r="1.1" />
+              <circle cx="2" cy="11.5" r="1.1" />
+              <circle cx="6" cy="11.5" r="1.1" />
+            </svg>
+          </button>
 
           {/* play/pause */}
           <button
@@ -384,19 +400,19 @@ function TrackRow({
             disabled={!row.audioUrl}
             onClick={togglePlay}
             className={[
-              "grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
+              "grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all duration-200 ease-out active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
               playing
-                ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))]"
-                : "border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--brand-primary))]",
+                ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_6px_16px_-6px_rgb(var(--brand-primary)/0.55)]"
+                : "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--fg-primary))]",
             ].join(" ")}
           >
             {playing ? (
               <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="currentColor">
-                <rect x="3" y="2" width="2" height="8" />
-                <rect x="7" y="2" width="2" height="8" />
+                <rect x="3" y="2" width="2" height="8" rx="0.5" />
+                <rect x="7" y="2" width="2" height="8" rx="0.5" />
               </svg>
             ) : (
-              <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="currentColor">
+              <svg viewBox="0 0 12 12" className="ml-[1px] h-3.5 w-3.5" fill="currentColor">
                 <path d="M3 2v8l7-4z" />
               </svg>
             )}
@@ -413,12 +429,12 @@ function TrackRow({
               return (
                 <span
                   key={i}
-                  className="block w-[3px] rounded-full transition-colors"
+                  className="block w-[3px] rounded-full transition-colors duration-300 ease-out"
                   style={{
                     height: `${(h * 100).toFixed(1)}%`,
                     backgroundColor: played
                       ? "rgb(var(--brand-primary))"
-                      : "rgb(var(--fg-muted) / 0.35)",
+                      : "rgb(var(--fg-muted) / 0.32)",
                   }}
                 />
               );
@@ -426,15 +442,15 @@ function TrackRow({
           </div>
 
           {/* title + artist */}
-          <div className="min-w-0 max-w-[40%] shrink-0">
+          <div className="min-w-0 max-w-[36%] shrink-0">
             <p
-              className="truncate text-sm text-[rgb(var(--fg-primary))]"
-              style={{ fontWeight: 600 }}
+              className="truncate text-[13.5px] leading-tight text-[rgb(var(--fg-primary))]"
+              style={{ fontWeight: 600, letterSpacing: "-0.005em" }}
             >
               {row.title}
             </p>
             {row.artist ? (
-              <p className="truncate text-[11px] text-[rgb(var(--fg-secondary))]">
+              <p className="mt-0.5 truncate text-[11px] leading-tight text-[rgb(var(--fg-secondary))]">
                 {row.artist}
               </p>
             ) : null}
@@ -447,20 +463,26 @@ function TrackRow({
 
           {/* public badge */}
           {row.isPublicSample ? (
-            <span className="shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.14em] text-[rgb(var(--brand-primary))]">
+            <span
+              className="shrink-0 rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--brand-primary))]"
+              style={{
+                boxShadow: "inset 0 0 0 1px rgb(var(--brand-primary) / 0.2)",
+              }}
+            >
               Public
             </span>
           ) : null}
 
-          {/* remove (hover) */}
+          {/* remove (hover-revealed) */}
           <button
             type="button"
             aria-label={`Remove ${row.title}`}
             onClick={onRemove}
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] opacity-0 transition-opacity hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] group-hover/portfolio-row:opacity-100 focus-visible:opacity-100 active:scale-[0.94]"
-            style={{ opacity: 0.55 }}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/track:opacity-100 active:scale-[0.92]"
           >
-            ×
+            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M3 3l6 6M9 3l-6 6" />
+            </svg>
           </button>
         </div>
       </div>
@@ -487,6 +509,31 @@ function SocialLinksSection({
     setRows(initialLinks);
   }, [initialLinks]);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = rows.findIndex((r) => r.id === active.id);
+    const newIndex = rows.findIndex((r) => r.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(rows, oldIndex, newIndex);
+    const orderedIds = next.map((r) => r.id);
+    setRows(next);
+    startTransition(async () => {
+      const res = await reorderExternalLinks({ orderedIds });
+      if (!res.ok) {
+        toast(res.error, "error");
+        setRows(initialLinks);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   function submit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmed = url.trim();
@@ -501,22 +548,6 @@ function SocialLinksSection({
         return;
       }
       setUrl("");
-      router.refresh();
-    });
-  }
-
-  function reorder(index: number, direction: "up" | "down") {
-    const next = swapAdjacent(rows, index, direction);
-    if (!next) return;
-    const orderedIds = next.map((r) => r.id);
-    setRows(next);
-    startTransition(async () => {
-      const res = await reorderExternalLinks({ orderedIds });
-      if (!res.ok) {
-        toast(res.error, "error");
-        setRows(initialLinks);
-        return;
-      }
       router.refresh();
     });
   }
@@ -539,21 +570,21 @@ function SocialLinksSection({
       aria-labelledby="portfolio-links-heading"
       className="sk-portfolio-section"
     >
-      <header className="mb-4">
+      <header className="mb-5">
         <h2
           id="portfolio-links-heading"
-          className="font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+          className="font-display text-2xl leading-none tracking-[-0.015em] text-[rgb(var(--fg-primary))]"
           style={{ fontWeight: 700 }}
         >
           Social links
         </h2>
-        <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+        <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
           PASTE THE URL. WE FIGURE OUT THE PLATFORM.
         </p>
       </header>
 
-      <form onSubmit={submit} className="mb-4">
-        <div className="flex items-center gap-2 rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-1.5 transition-colors focus-within:border-[rgb(var(--brand-primary)/0.55)]">
+      <form onSubmit={submit} className="mb-5">
+        <div className="flex items-center gap-2 rounded-full bg-[rgb(var(--bg-elevated))] px-2 py-1.5 ring-1 ring-[rgb(var(--border-subtle))] transition-[box-shadow,background-color] duration-300 ease-out focus-within:ring-[rgb(var(--brand-primary)/0.6)] focus-within:bg-[rgb(var(--bg-base))]">
           <input
             type="url"
             value={url}
@@ -563,16 +594,17 @@ function SocialLinksSection({
             }}
             placeholder="Paste a Spotify, YouTube, SoundCloud link…"
             className="min-w-0 flex-1 bg-transparent px-3 text-sm text-[rgb(var(--fg-primary))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none"
+            style={{ letterSpacing: "-0.005em" }}
           />
           <button
             type="submit"
             disabled={adding || !url.trim()}
-            className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            className="group/add-link inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span>{adding ? "Adding…" : "Add"}</span>
             <span
               aria-hidden="true"
-              className="grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.18)] text-[10px] transition-transform group-hover/add-btn:translate-x-[2px] group-hover/add-btn:-translate-y-[1px]"
+              className="grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.22)] text-[10px] transition-transform duration-300 ease-out group-hover/add-link:translate-x-[2px] group-hover/add-link:-translate-y-[1px]"
             >
               ↗
             </span>
@@ -581,7 +613,7 @@ function SocialLinksSection({
         {error ? (
           <p
             role="alert"
-            className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))]"
+            className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[rgb(var(--brand-primary))]"
           >
             {error}
           </p>
@@ -591,29 +623,35 @@ function SocialLinksSection({
       {rows.length === 0 ? (
         <div
           role="status"
-          className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-6 py-10 text-center"
+          className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken)/0.6)] px-6 py-12 text-center"
         >
-          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
             NO LINKS YET. PASTE A SPOTIFY OR YOUTUBE LINK ABOVE.
           </p>
         </div>
       ) : (
-        <ul className="space-y-2">
-          {rows.map((row, idx) => (
-            <LinkRow
-              key={row.id}
-              row={row}
-              index={idx}
-              total={rows.length}
-              onReorder={(dir) => {
-                reorder(idx, dir);
-              }}
-              onRemove={() => {
-                remove(row.id);
-              }}
-            />
-          ))}
-        </ul>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={rows.map((r) => r.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <ul className="space-y-2">
+              {rows.map((row) => (
+                <LinkRow
+                  key={row.id}
+                  row={row}
+                  onRemove={() => {
+                    remove(row.id);
+                  }}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
       )}
     </section>
   );
@@ -621,56 +659,57 @@ function SocialLinksSection({
 
 function LinkRow({
   row,
-  index,
-  total,
-  onReorder,
   onRemove,
 }: {
   row: ExternalLinkRow;
-  index: number;
-  total: number;
-  onReorder: (dir: "up" | "down") => void;
   onRemove: () => void;
 }) {
-  const upDisabled = !canReorder("up", index, total);
-  const downDisabled = !canReorder("down", index, total);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: row.id });
+
+  const sortableStyle: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : "auto",
+  };
 
   return (
-    <li>
-      <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.4)] ring-1 ring-[rgb(var(--border-subtle))]">
-        <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-base))] px-4 py-2.5">
-          <div className="flex flex-col gap-0.5">
-            <button
-              type="button"
-              aria-label="Move up"
-              disabled={upDisabled}
-              onClick={() => {
-                onReorder("up");
-              }}
-              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30 disabled:hover:bg-transparent active:scale-[0.92]"
-            >
-              <svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
-                <path d="M6 3l4 5H2z" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              aria-label="Move down"
-              disabled={downDisabled}
-              onClick={() => {
-                onReorder("down");
-              }}
-              className="grid h-5 w-5 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] disabled:opacity-30 disabled:hover:bg-transparent active:scale-[0.92]"
-            >
-              <svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
-                <path d="M6 9l4-5H2z" />
-              </svg>
-            </button>
-          </div>
+    <li ref={setNodeRef} style={sortableStyle} className="group/link">
+      <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.55)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/link:ring-[rgb(var(--border-strong))] transition-[box-shadow,background-color] duration-300 ease-out">
+        <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+          {/* drag handle */}
+          <button
+            type="button"
+            className="grid h-7 w-5 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+            aria-label="Drag to reorder"
+          >
+            <svg viewBox="0 0 8 14" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
+              <circle cx="2" cy="2.5" r="1.1" />
+              <circle cx="6" cy="2.5" r="1.1" />
+              <circle cx="2" cy="7" r="1.1" />
+              <circle cx="6" cy="7" r="1.1" />
+              <circle cx="2" cy="11.5" r="1.1" />
+              <circle cx="6" cy="11.5" r="1.1" />
+            </svg>
+          </button>
+
+          {/* platform brand icon */}
+          <PlatformIcon platform={row.platform} size={32} />
+
+          {/* platform name + truncated URL */}
           <div className="min-w-0 flex-1">
             <p
-              className="text-sm text-[rgb(var(--fg-primary))]"
-              style={{ fontWeight: 600 }}
+              className="text-[13.5px] leading-tight text-[rgb(var(--fg-primary))]"
+              style={{ fontWeight: 600, letterSpacing: "-0.005em" }}
             >
               {PLATFORM_LABEL[row.platform]}
             </p>
@@ -678,19 +717,22 @@ function LinkRow({
               href={row.url}
               target="_blank"
               rel="noreferrer noopener"
-              className="block truncate font-mono text-[11px] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-secondary))]"
+              className="mt-0.5 block truncate font-mono text-[11px] text-[rgb(var(--fg-muted))] transition-colors duration-200 ease-out hover:text-[rgb(var(--fg-secondary))]"
             >
               {row.url}
             </a>
           </div>
+
+          {/* remove (hover-revealed) */}
           <button
             type="button"
             aria-label={`Remove ${PLATFORM_LABEL[row.platform]} link`}
             onClick={onRemove}
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-sm text-[rgb(var(--fg-secondary))] transition-opacity hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:scale-[0.94]"
-            style={{ opacity: 0.55 }}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/link:opacity-100 active:scale-[0.92]"
           >
-            ×
+            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M3 3l6 6M9 3l-6 6" />
+            </svg>
           </button>
         </div>
       </div>
@@ -698,18 +740,16 @@ function LinkRow({
   );
 }
 
-// ─── Add from library button + picker modal ─────────────────────────
+// ─── Add from library button + picker modal (portal-rendered) ──────
 
 function AddFromLibraryButton({
   library,
   addedAudioUrls,
   disabled,
-  ghost = false,
 }: {
   library: LibraryPickRow[];
   addedAudioUrls: string[];
   disabled: boolean;
-  ghost?: boolean;
 }) {
   const addedSet = useMemo(() => new Set(addedAudioUrls), [addedAudioUrls]);
   const [open, setOpen] = useState(false);
@@ -749,10 +789,6 @@ function AddFromLibraryButton({
     });
   }
 
-  const triggerClasses = ghost
-    ? "inline-flex items-center gap-1.5 rounded-full border border-[rgb(var(--border-strong))] bg-transparent px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-primary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
-    : "inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
-
   return (
     <>
       <button
@@ -761,125 +797,214 @@ function AddFromLibraryButton({
         onClick={() => {
           setOpen(true);
         }}
-        className={triggerClasses}
+        className="group/add-lib inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span>Add from music library</span>
         <span
           aria-hidden="true"
-          className={
-            ghost
-              ? "grid h-4 w-4 place-items-center rounded-full border border-[rgb(var(--border-strong))] text-[10px]"
-              : "grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.18)] text-[10px]"
-          }
+          className="grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--fg-inverse)/0.22)] text-[10px] transition-transform duration-300 ease-out group-hover/add-lib:translate-x-[1px] group-hover/add-lib:-translate-y-[1px]"
         >
           +
         </span>
       </button>
 
-      {open ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="library-picker-title"
-          className="fixed inset-0 z-50 flex items-center justify-center px-4"
-        >
+      <LibraryPickerModal
+        open={open}
+        library={library}
+        addedSet={addedSet}
+        pendingId={pendingId}
+        onClose={() => {
+          setOpen(false);
+        }}
+        onPick={pick}
+      />
+    </>
+  );
+}
+
+function LibraryPickerModal({
+  open,
+  library,
+  addedSet,
+  pendingId,
+  onClose,
+  onPick,
+}: {
+  open: boolean;
+  library: LibraryPickRow[];
+  addedSet: Set<string>;
+  pendingId: string | null;
+  onClose: () => void;
+  onPick: (row: LibraryPickRow) => void;
+}) {
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
+
+  // Two phases: mount the DOM, then add the `data-open` attribute on
+  // the next frame so the transition has something to interpolate from.
+  // Without the rAF hop the backdrop blur would snap in instead of
+  // fading.
+  useEffect(() => {
+    if (!open) {
+      setVisible(false);
+      const t = window.setTimeout(() => {
+        setMounted(false);
+      }, 220);
+      return () => {
+        window.clearTimeout(t);
+      };
+    }
+    setMounted(true);
+    const raf = window.requestAnimationFrame(() => {
+      setVisible(true);
+    });
+    return () => {
+      window.cancelAnimationFrame(raf);
+    };
+  }, [open]);
+
+  if (!mounted || typeof window === "undefined") return null;
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="library-picker-title"
+      data-open={visible ? "true" : "false"}
+      className="fixed inset-0 z-[100] flex items-center justify-center px-4"
+      style={{ opacity: visible ? 1 : 0, transition: "opacity 220ms ease-out" }}
+    >
+      {/* full-viewport soft glass backdrop, fades in */}
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 cursor-default"
+        style={{
+          backgroundColor: "rgb(var(--bg-base) / 0.5)",
+          backdropFilter: visible ? "blur(14px)" : "blur(0px)",
+          WebkitBackdropFilter: visible ? "blur(14px)" : "blur(0px)",
+          transition:
+            "backdrop-filter 280ms ease-out, -webkit-backdrop-filter 280ms ease-out",
+        }}
+      />
+      {/* modal card — centered, with subtle scale-in for entry */}
+      <div
+        className="relative z-10 flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+        style={{
+          boxShadow:
+            "0 24px 64px -16px rgb(17 16 9 / 0.18), 0 6px 12px -4px rgb(17 16 9 / 0.08)",
+          transform: visible ? "scale(1) translateY(0)" : "scale(0.97) translateY(8px)",
+          transition:
+            "transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease-out",
+          opacity: visible ? 1 : 0,
+        }}
+      >
+        <header className="flex items-start justify-between gap-3 border-b border-[rgb(var(--border-subtle))] px-6 py-5">
+          <div>
+            <h3
+              id="library-picker-title"
+              className="font-display text-lg leading-none tracking-[-0.015em] text-[rgb(var(--fg-primary))]"
+              style={{ fontWeight: 700 }}
+            >
+              Add from music library
+            </h3>
+            <p className="mt-1.5 text-xs text-[rgb(var(--fg-secondary))]">
+              Tracks without audio yet can&rsquo;t be added.
+            </p>
+          </div>
           <button
             type="button"
-            aria-label="Close"
-            onClick={() => {
-              setOpen(false);
-            }}
-            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
-          />
-          <div className="relative z-10 flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] shadow-xl">
-            <header className="flex items-start justify-between gap-3 border-b border-[rgb(var(--border-subtle))] px-5 py-4">
-              <div>
-                <h3
-                  id="library-picker-title"
-                  className="font-display text-lg tracking-tight"
-                  style={{ fontWeight: 700 }}
-                >
-                  Add from music library
-                </h3>
-                <p className="mt-1 text-xs text-[rgb(var(--fg-secondary))]">
-                  Tracks without audio yet can&rsquo;t be added.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                }}
-                aria-label="Close picker"
-                className="-mr-2 -mt-1 inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[rgb(var(--fg-secondary))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+            onClick={onClose}
+            aria-label="Close picker"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-secondary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+          >
+            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M3 3l6 6M9 3l-6 6" />
+            </svg>
+          </button>
+        </header>
+        <PickerList
+          library={library}
+          addedSet={addedSet}
+          pendingId={pendingId}
+          onPick={onPick}
+        />
+      </div>
+    </div>,
+    window.document.body,
+  );
+}
+
+function PickerList({
+  library,
+  addedSet,
+  pendingId,
+  onPick,
+}: {
+  library: LibraryPickRow[];
+  addedSet: Set<string>;
+  pendingId: string | null;
+  onPick: (row: LibraryPickRow) => void;
+}): ReactNode {
+  if (library.length === 0) {
+    return (
+      <p className="px-6 py-10 text-center text-sm text-[rgb(var(--fg-secondary))]">
+        Your music library is empty. Upload a track from a project first.
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-1.5 overflow-y-auto p-3">
+      {library.map((row) => {
+        const alreadyAdded = row.audioUrl ? addedSet.has(row.audioUrl) : false;
+        const noAudio = !row.audioUrl;
+        const rowDisabled = noAudio || alreadyAdded;
+        const pending = pendingId === row.versionId;
+        const date = new Date(row.uploadedAt).toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+        return (
+          <li key={row.versionId}>
+            <button
+              type="button"
+              disabled={rowDisabled || pending}
+              onClick={() => {
+                onPick(row);
+              }}
+              className={[
+                "flex w-full flex-col items-start gap-1 rounded-[var(--radius-md)] px-3.5 py-3 text-left transition-all duration-200 ease-out",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]",
+                rowDisabled
+                  ? "cursor-not-allowed opacity-50"
+                  : "hover:bg-[rgb(var(--bg-overlay))] active:scale-[0.995]",
+                pending ? "opacity-60" : "",
+              ].join(" ")}
+            >
+              <span
+                className="text-sm text-[rgb(var(--fg-primary))]"
+                style={{ fontWeight: 600 }}
               >
-                ×
-              </button>
-            </header>
-            <div className="overflow-y-auto px-2 py-2">
-              {library.length === 0 ? (
-                <p className="px-3 py-8 text-center text-sm text-[rgb(var(--fg-secondary))]">
-                  Your music library is empty. Upload a track from a project
-                  first.
-                </p>
-              ) : (
-                <ul className="divide-y divide-[rgb(var(--border-subtle))]">
-                  {library.map((row) => {
-                    const alreadyAdded = row.audioUrl
-                      ? addedSet.has(row.audioUrl)
-                      : false;
-                    const noAudio = !row.audioUrl;
-                    const rowDisabled = noAudio || alreadyAdded;
-                    const pending = pendingId === row.versionId;
-                    const date = new Date(row.uploadedAt).toLocaleDateString(
-                      undefined,
-                      { year: "numeric", month: "short", day: "numeric" },
-                    );
-                    return (
-                      <li key={row.versionId}>
-                        <button
-                          type="button"
-                          disabled={rowDisabled || pending}
-                          onClick={() => {
-                            pick(row);
-                          }}
-                          className={[
-                            "flex w-full flex-col items-start gap-1 px-3 py-3 text-left transition-colors",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]",
-                            rowDisabled
-                              ? "cursor-not-allowed opacity-50"
-                              : "hover:bg-[rgb(var(--bg-overlay))]",
-                            pending ? "opacity-60" : "",
-                          ].join(" ")}
-                        >
-                          <span
-                            className="text-sm text-[rgb(var(--fg-primary))]"
-                            style={{ fontWeight: 600 }}
-                          >
-                            {row.trackTitle}
-                          </span>
-                          <span className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-                            {row.projectTitle} · {row.artistName} · {date}
-                          </span>
-                          {alreadyAdded ? (
-                            <span className="mt-1 inline-flex items-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
-                              Already added
-                            </span>
-                          ) : noAudio ? (
-                            <span className="mt-1 inline-flex items-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-muted)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
-                              No audio yet
-                            </span>
-                          ) : null}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </>
+                {row.trackTitle}
+              </span>
+              <span className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+                {row.projectTitle} · {row.artistName} · {date}
+              </span>
+              {alreadyAdded ? (
+                <span className="mt-1 inline-flex items-center rounded-full bg-[rgb(var(--brand-primary)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--brand-primary))]">
+                  Already added
+                </span>
+              ) : noAudio ? (
+                <span className="mt-1 inline-flex items-center rounded-full bg-[rgb(var(--fg-muted)/0.15)] px-2 py-0.5 text-[0.66rem] font-medium uppercase tracking-wider text-[rgb(var(--fg-secondary))]">
+                  No audio yet
+                </span>
+              ) : null}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
