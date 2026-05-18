@@ -126,9 +126,20 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
       aria-label="Page navigation"
       data-testid="dashboard-topbar"
       data-scrolled={scrolled ? "true" : "false"}
-      className="sticky top-0 z-30 backdrop-blur-md transition-[box-shadow,border-color] duration-200 ease-out"
+      // Explicit 60px blur via arbitrary class + ultra-low bg opacity
+      // (0.1) is what gives the true iOS-Music frosted-glass effect.
+      // Combined with the -mt-[40px] children wrapper in AppShell (so
+      // page heroes actually fill BEHIND the topbar instead of below
+      // it), the colored gradient now blurs through immediately at
+      // scroll-top — no scrolling required to see the effect.
+      //
+      // WebkitBackdropFilter set inline because Tailwind v4 doesn't
+      // emit the WebKit prefix automatically for arbitrary blur
+      // values, and Safari requires it for backdrop-filter to render.
+      className="sticky top-0 z-30 backdrop-blur-[60px] transition-[box-shadow,border-color] duration-200 ease-out"
       style={{
-        background: "rgb(var(--bg-background) / 0.82)",
+        background: "rgb(var(--bg-background) / 0.1)",
+        WebkitBackdropFilter: "blur(60px)",
         // Border + shadow fade in once the page has scrolled past 4px.
         // At scroll-top the topbar floats with no hard line; the blur
         // does the separation work.
@@ -140,7 +151,13 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
           : "none",
       }}
     >
-      <div className="mx-auto flex w-full max-w-[1400px] items-center gap-3 px-4 py-2.5 sm:gap-4 sm:px-6 lg:px-8">
+      {/* No max-w cap + tight horizontal padding (px-3 sm:px-4) so the
+          breadcrumb hugs the topbar's LEFT edge and the search +
+          bell hug the RIGHT edge — flush to the sides rather than
+          inset into a centered 1400px container. py-1 (4px top + 4px
+          bottom) + bell h-8 puts the topbar at ~40px (was ~48px),
+          reading as a thin compact strip. */}
+      <div className="flex w-full items-center gap-3 px-3 py-1 sm:gap-4 sm:px-4">
         {/* Breadcrumb (top-left). Hidden on the smallest screens
             where the search trigger needs the full row to read; the
             search pill still hints the page via context. `min-w-0` +
@@ -155,16 +172,19 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
           <Breadcrumb items={items} />
         </div>
 
-        {/* Search trigger (center). Renders as a pill input but is a
-            button — clicking dispatches the same custom event that ⌘K
-            does. Press feedback via active:scale, custom ease-out
-            curve on hover state changes. */}
-        <div className="flex flex-1 justify-center">
+        {/* Search trigger (right, next to the bell). `ml-auto` pushes
+            the search + bell to the far right of the topbar, leaving
+            air between the breadcrumb on the left and the search on
+            the right. Renders as a pill input but is a button —
+            clicking dispatches the same custom event that ⌘K does.
+            Press feedback via active:scale, custom ease-out curve on
+            hover state changes. */}
+        <div className="ml-auto flex justify-end">
           <button
             type="button"
             onClick={openPalette}
             data-testid="topbar-search-trigger"
-            className="inline-flex w-full max-w-[420px] items-center gap-2 rounded-full border py-1.5 pl-3 pr-2 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+            className="inline-flex w-[260px] max-w-[420px] items-center gap-2 rounded-full border py-1.5 pl-3 pr-2 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:w-[320px] lg:w-[400px]"
             style={{
               background: "rgb(var(--bg-elevated))",
               borderColor: "rgb(var(--border-subtle))",
@@ -197,7 +217,7 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
         <button
           type="button"
           data-testid="topbar-bell"
-          className="relative inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(17_16_9/0.05)] hover:text-[rgb(var(--fg-default))] active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+          className="relative inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(17_16_9/0.05)] hover:text-[rgb(var(--fg-default))] active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
           style={{ color: "rgb(var(--fg-muted))" }}
           aria-label={
             unreadCount > 0
