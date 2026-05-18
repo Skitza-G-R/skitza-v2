@@ -25,9 +25,14 @@ const dbMock = {
       if (table === producersMarker) {
         return { where: () => ({ limit: () => producerSelectFromMock() }) };
       }
-      // portfolioTracks: list uses .where().orderBy(), by-id lookup
-      // uses .where().limit(1) — the chain exposes both terminals.
+      // portfolioTracks chain shapes:
+      //   - list:        .from().leftJoin().where().orderBy()  (peaks JOIN)
+      //   - by-id lookup .from().where().limit(1)
+      //   - update:      .from().where().returning() (handled separately)
       return {
+        leftJoin: () => ({
+          where: () => ({ orderBy: () => trackListMock() }),
+        }),
         where: () => ({
           limit: () => trackSelectByIdMock(),
           orderBy: () => trackListMock(),
@@ -56,8 +61,10 @@ vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
   portfolioTracks: portfolioTracksMarker,
+  trackVersions: { __table: "track_versions" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  isNotNull: (col: unknown) => ({ isNotNull: col }),
 }));
 
 beforeEach(() => {

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canReorder,
+  downsamplePeaks,
   formatDuration,
   LINK_CAP,
   PLATFORM_LABEL,
@@ -102,6 +103,34 @@ describe("swapAdjacent", () => {
 });
 
 // ─── seededBars ─────────────────────────────────────────────────────
+
+describe("downsamplePeaks", () => {
+  it("returns the input untouched when already at or below targetCount", () => {
+    const peaks = [0.1, 0.5, 0.9];
+    expect(downsamplePeaks(peaks, 80)).toEqual(peaks);
+  });
+
+  it("returns the requested target count for large inputs", () => {
+    const peaks = Array.from({ length: 200 }, (_, i) => i / 200);
+    expect(downsamplePeaks(peaks, 80)).toHaveLength(80);
+  });
+
+  it("takes the MAX of each chunk (preserves transient punch)", () => {
+    // 8 inputs → 4 bars: each pair maxed
+    const peaks = [0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6];
+    expect(downsamplePeaks(peaks, 4)).toEqual([0.9, 0.8, 0.7, 0.6]);
+  });
+
+  it("returns an empty array for empty input", () => {
+    expect(downsamplePeaks([], 80)).toEqual([]);
+  });
+
+  it("never out-of-bounds-reads (Math.max(start+1, end) guards a 0-len chunk)", () => {
+    // length 10, target 80 → returns the original 10
+    const peaks = Array.from({ length: 10 }, () => 0.5);
+    expect(downsamplePeaks(peaks, 80)).toEqual(peaks);
+  });
+});
 
 describe("seededBars", () => {
   it("returns the requested count of bars", () => {
@@ -248,6 +277,29 @@ describe("portfolio-panel.tsx — structural invariants", () => {
   it("renders the picker modal via React's createPortal (escapes sidebar stacking)", () => {
     expect(panelSource).toContain("createPortal");
     expect(panelSource).toContain("window.document.body");
+  });
+
+  it("waveform is rendered as a <button> so it can be clicked to seek", () => {
+    expect(panelSource).toMatch(/aria-label="Seek"/);
+    expect(panelSource).toMatch(/onClick=\{onWaveClick\}/);
+  });
+
+  it("seeks via fraction-of-width then plays (Spotify-style seek-and-play)", () => {
+    expect(panelSource).toContain("seekToFraction");
+    expect(panelSource).toMatch(/getBoundingClientRect/);
+  });
+
+  it("renders the Separator hairline component between row columns", () => {
+    expect(panelSource).toContain("function Separator()");
+    expect(panelSource).toMatch(/<Separator\s*\/?>/);
+  });
+
+  it("uses real peaks when present, falls back to seededBars", () => {
+    // Behavioural test for downsample math itself is in describe(downsamplePeaks).
+    // This source-grep just proves the fallback branch is wired.
+    expect(panelSource).toMatch(/row\.peaks && row\.peaks\.length > 0/);
+    expect(panelSource).toMatch(/downsamplePeaks\(row\.peaks/);
+    expect(panelSource).toMatch(/seededBars\(row\.id/);
   });
 
   it("renders the smart-paste placeholder copy", () => {

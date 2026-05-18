@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   useTransition,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type SyntheticEvent,
 } from "react";
@@ -52,6 +53,12 @@ export type PortfolioTrackRow = {
   isPublicSample: boolean;
   audioUrl: string | null;
   durationMs: number | null;
+  // Pre-computed RMS peaks (~200 normalized values, 0..1) from
+  // trackVersions.peaks via the LEFT JOIN in portfolio.list. null when
+  // the source track has no peaks yet (legacy upload, decoder miss, or
+  // the row's audioR2Key didn't match a trackVersion) — the UI then
+  // falls back to a deterministic decorative bar set.
+  peaks: number[] | null;
 };
 
 export type ExternalLinkRow = {
@@ -113,10 +120,11 @@ export function swapAdjacent<T>(
 
 /**
  * Deterministic decorative waveform bars (0.35 — 1.0 height) seeded
- * from a track id. Used purely as visual ornament until the
- * portfolioTracks → trackVersions.peaks join is plumbed.
+ * from a track id. Used as a fallback when the source trackVersion has
+ * no pre-computed peaks (legacy uploads, decoder misses, or rows whose
+ * audioR2Key didn't match a trackVersion in portfolio.list).
  */
-export function seededBars(id: string, count = 40): number[] {
+export function seededBars(id: string, count = 80): number[] {
   let seed = 5381;
   for (let i = 0; i < id.length; i++) {
     seed = ((seed << 5) + seed + id.charCodeAt(i)) >>> 0;
@@ -127,6 +135,34 @@ export function seededBars(id: string, count = 40): number[] {
     bars.push(0.35 + (seed / 0xffffffff) * 0.65);
   }
   return bars;
+}
+
+/**
+ * Downsample a peaks array (typically 200 values from
+ * trackVersions.peaks) into `targetCount` bars by taking the MAX of
+ * each chunk. Max preserves the dynamic punch of the waveform — using
+ * a mean would flatten transients to a wall of mid-grey bars. If the
+ * input already has ≤ targetCount values it is returned untouched.
+ */
+export function downsamplePeaks(
+  peaks: readonly number[],
+  targetCount = 80,
+): number[] {
+  if (peaks.length === 0) return [];
+  if (peaks.length <= targetCount) return peaks.slice();
+  const chunkSize = peaks.length / targetCount;
+  const out: number[] = [];
+  for (let i = 0; i < targetCount; i++) {
+    const start = Math.floor(i * chunkSize);
+    const end = Math.max(start + 1, Math.floor((i + 1) * chunkSize));
+    let max = 0;
+    for (let j = start; j < end && j < peaks.length; j++) {
+      const p = peaks[j] ?? 0;
+      if (p > max) max = p;
+    }
+    out.push(max);
+  }
+  return out;
 }
 
 /** ms → "m:ss" or empty string. */
@@ -346,8 +382,8 @@ function TrackRow({
     };
   }, []);
 
-  function togglePlay() {
-    if (!row.audioUrl) return;
+  function ensureAudio(): HTMLAudioElement | null {
+    if (!row.audioUrl) return null;
     if (!audioRef.current) {
       audioRef.current = new Audio(row.audioUrl);
       audioRef.current.addEventListener("timeupdate", () => {
@@ -360,22 +396,66 @@ function TrackRow({
         setProgress(0);
       });
     }
+    return audioRef.current;
+  }
+
+  function togglePlay() {
+    const a = ensureAudio();
+    if (!a) return;
     if (playing) {
-      audioRef.current.pause();
+      a.pause();
       setPlaying(false);
     } else {
-      void audioRef.current.play();
+      void a.play();
       setPlaying(true);
     }
   }
 
-  const bars = useMemo(() => seededBars(row.id), [row.id]);
+  function seekToFraction(fraction: number) {
+    const clamped = Math.max(0, Math.min(1, fraction));
+    const a = ensureAudio();
+    if (!a) return;
+    if (a.duration && Number.isFinite(a.duration)) {
+      a.currentTime = clamped * a.duration;
+      setProgress(clamped);
+    } else {
+      // duration not loaded yet — set once metadata arrives
+      a.addEventListener(
+        "loadedmetadata",
+        () => {
+          a.currentTime = clamped * a.duration;
+          setProgress(clamped);
+        },
+        { once: true },
+      );
+    }
+    if (!playing) {
+      void a.play();
+      setPlaying(true);
+    }
+  }
+
+  function onWaveClick(e: ReactMouseEvent<HTMLButtonElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const fraction = (e.clientX - rect.left) / rect.width;
+    seekToFraction(fraction);
+  }
+
+  // Real peaks if available (downsampled to 80 bars), else the
+  // deterministic decorative fallback.
+  const bars = useMemo(() => {
+    if (row.peaks && row.peaks.length > 0) {
+      return downsamplePeaks(row.peaks, 80);
+    }
+    return seededBars(row.id, 80);
+  }, [row.peaks, row.id]);
 
   return (
     <li ref={setNodeRef} style={sortableStyle} className="group/track">
       <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.55)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:ring-[rgb(var(--border-strong))] transition-[box-shadow,background-color] duration-300 ease-out">
-        <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
-          {/* drag handle */}
+        <div className="flex items-center gap-2 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-3 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+          {/* drag handle (lives outside the column-separated zone) */}
           <button
             type="button"
             className="grid h-7 w-5 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:cursor-grabbing"
@@ -393,87 +473,108 @@ function TrackRow({
             </svg>
           </button>
 
-          {/* play/pause */}
-          <button
-            type="button"
-            aria-label={playing ? "Pause" : "Play"}
-            disabled={!row.audioUrl}
-            onClick={togglePlay}
-            className={[
-              "grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all duration-200 ease-out active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
-              playing
-                ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_6px_16px_-6px_rgb(var(--brand-primary)/0.55)]"
-                : "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--fg-primary))]",
-            ].join(" ")}
-          >
-            {playing ? (
-              <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="currentColor">
-                <rect x="3" y="2" width="2" height="8" rx="0.5" />
-                <rect x="7" y="2" width="2" height="8" rx="0.5" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 12 12" className="ml-[1px] h-3.5 w-3.5" fill="currentColor">
-                <path d="M3 2v8l7-4z" />
-              </svg>
-            )}
-          </button>
+          {/* columns: play | waveform | name | public — separated by hairlines */}
+          <div className="flex flex-1 items-center min-w-0">
+            {/* col: play */}
+            <div className="flex shrink-0 items-center px-2">
+              <button
+                type="button"
+                aria-label={playing ? "Pause" : "Play"}
+                disabled={!row.audioUrl}
+                onClick={togglePlay}
+                className={[
+                  "grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all duration-200 ease-out active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
+                  playing
+                    ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_6px_16px_-6px_rgb(var(--brand-primary)/0.55)]"
+                    : "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--fg-primary))]",
+                ].join(" ")}
+              >
+                {playing ? (
+                  <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="currentColor">
+                    <rect x="3" y="2" width="2" height="8" rx="0.5" />
+                    <rect x="7" y="2" width="2" height="8" rx="0.5" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 12 12" className="ml-[1px] h-3.5 w-3.5" fill="currentColor">
+                    <path d="M3 2v8l7-4z" />
+                  </svg>
+                )}
+              </button>
+            </div>
 
-          {/* waveform (decorative) */}
-          <div
-            aria-hidden="true"
-            className="flex h-9 flex-1 items-center gap-[2px]"
-          >
-            {bars.map((h, i) => {
-              const playedFraction = (i + 1) / bars.length;
-              const played = playedFraction <= progress;
-              return (
-                <span
-                  key={i}
-                  className="block w-[3px] rounded-full transition-colors duration-300 ease-out"
-                  style={{
-                    height: `${(h * 100).toFixed(1)}%`,
-                    backgroundColor: played
-                      ? "rgb(var(--brand-primary))"
-                      : "rgb(var(--fg-muted) / 0.32)",
-                  }}
-                />
-              );
-            })}
-          </div>
+            <Separator />
 
-          {/* title + artist */}
-          <div className="min-w-0 max-w-[36%] shrink-0">
-            <p
-              className="truncate text-[13.5px] leading-tight text-[rgb(var(--fg-primary))]"
-              style={{ fontWeight: 600, letterSpacing: "-0.005em" }}
+            {/* col: waveform (clickable to seek; bars stretch to fill) */}
+            <button
+              type="button"
+              aria-label="Seek"
+              onClick={onWaveClick}
+              disabled={!row.audioUrl}
+              className="flex h-10 flex-1 min-w-0 items-center gap-[2px] px-3 transition-opacity duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {row.title}
-            </p>
-            {row.artist ? (
-              <p className="mt-0.5 truncate text-[11px] leading-tight text-[rgb(var(--fg-secondary))]">
-                {row.artist}
+              {bars.map((h, i) => {
+                const playedFraction = (i + 1) / bars.length;
+                const played = playedFraction <= progress;
+                return (
+                  <span
+                    key={i}
+                    aria-hidden="true"
+                    className="block min-w-[2px] flex-1 rounded-full transition-colors duration-300 ease-out"
+                    style={{
+                      height: `${(Math.max(0.08, h) * 100).toFixed(1)}%`,
+                      backgroundColor: played
+                        ? "rgb(var(--brand-primary))"
+                        : "rgb(var(--fg-muted) / 0.34)",
+                    }}
+                  />
+                );
+              })}
+            </button>
+
+            <Separator />
+
+            {/* col: name + artist + duration */}
+            <div className="min-w-0 shrink-0 px-3" style={{ width: 156 }}>
+              <p
+                className="truncate text-[13.5px] leading-tight text-[rgb(var(--fg-primary))]"
+                style={{ fontWeight: 600, letterSpacing: "-0.005em" }}
+              >
+                {row.title}
               </p>
-            ) : null}
+              <p className="mt-0.5 truncate text-[11px] leading-tight text-[rgb(var(--fg-secondary))]">
+                {row.artist ? `${row.artist} · ` : ""}
+                <span className="font-mono tabular-nums text-[rgb(var(--fg-muted))]">
+                  {formatDuration(row.durationMs)}
+                </span>
+              </p>
+            </div>
+
+            <Separator />
+
+            {/* col: public badge (or empty placeholder so column width is stable) */}
+            <div className="flex shrink-0 items-center px-2">
+              {row.isPublicSample ? (
+                <span
+                  className="rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--brand-primary))]"
+                  style={{
+                    boxShadow:
+                      "inset 0 0 0 1px rgb(var(--brand-primary) / 0.2)",
+                  }}
+                >
+                  Public
+                </span>
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted)/0.45)]"
+                >
+                  Private
+                </span>
+              )}
+            </div>
           </div>
 
-          {/* duration */}
-          <span className="shrink-0 font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums">
-            {formatDuration(row.durationMs)}
-          </span>
-
-          {/* public badge */}
-          {row.isPublicSample ? (
-            <span
-              className="shrink-0 rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--brand-primary))]"
-              style={{
-                boxShadow: "inset 0 0 0 1px rgb(var(--brand-primary) / 0.2)",
-              }}
-            >
-              Public
-            </span>
-          ) : null}
-
-          {/* remove (hover-revealed) */}
+          {/* remove (hover-revealed, sits outside the separator zone) */}
           <button
             type="button"
             aria-label={`Remove ${row.title}`}
@@ -487,6 +588,18 @@ function TrackRow({
         </div>
       </div>
     </li>
+  );
+}
+
+// Subtle vertical separator between row columns. Inset top + bottom by
+// half the row padding so it reads as a hairline divider rather than
+// touching the inner card edges.
+function Separator() {
+  return (
+    <span
+      aria-hidden="true"
+      className="block h-6 w-px shrink-0 bg-[rgb(var(--border-subtle))]"
+    />
   );
 }
 

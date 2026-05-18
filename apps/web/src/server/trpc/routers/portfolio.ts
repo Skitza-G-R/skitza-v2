@@ -1,5 +1,11 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, portfolioTracks } from "@skitza/db";
+import {
+  and,
+  eq,
+  isNotNull,
+  portfolioTracks,
+  trackVersions,
+} from "@skitza/db";
 import { z } from "zod";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
@@ -17,11 +23,41 @@ const TrackInput = z.object({
 
 export const portfolioRouter = router({
   list: producerProcedure.query(async ({ ctx }) => {
-    return ctx.db
-      .select()
+    // LEFT JOIN trackVersions on a matching R2 key to surface the
+    // pre-computed waveform peaks (PR #135 / migration 0017). Portfolio
+    // rows added from the music library carry the same audioR2Key as
+    // their source trackVersion, so the join finds the peaks; rows with
+    // a null audioR2Key (or an external upload that never landed in
+    // trackVersions) get peaks=null and the UI falls back to the
+    // decorative seeded waveform.
+    const rows = await ctx.db
+      .select({
+        id: portfolioTracks.id,
+        producerId: portfolioTracks.producerId,
+        title: portfolioTracks.title,
+        artist: portfolioTracks.artist,
+        audioUrl: portfolioTracks.audioUrl,
+        artworkUrl: portfolioTracks.artworkUrl,
+        position: portfolioTracks.position,
+        audioR2Key: portfolioTracks.audioR2Key,
+        sizeBytes: portfolioTracks.sizeBytes,
+        durationMs: portfolioTracks.durationMs,
+        peaksR2Key: portfolioTracks.peaksR2Key,
+        isPublicSample: portfolioTracks.isPublicSample,
+        createdAt: portfolioTracks.createdAt,
+        peaks: trackVersions.peaks,
+      })
       .from(portfolioTracks)
+      .leftJoin(
+        trackVersions,
+        and(
+          isNotNull(portfolioTracks.audioR2Key),
+          eq(portfolioTracks.audioR2Key, trackVersions.audioR2Key),
+        ),
+      )
       .where(eq(portfolioTracks.producerId, ctx.producerId))
       .orderBy(portfolioTracks.position);
+    return rows;
   }),
 
   create: producerProcedure

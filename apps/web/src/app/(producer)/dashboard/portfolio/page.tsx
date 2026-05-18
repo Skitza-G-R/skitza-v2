@@ -35,6 +35,7 @@ export default async function PortfolioPage() {
     isPublicSample: t.isPublicSample,
     audioUrl: t.audioUrl,
     durationMs: t.durationMs,
+    peaks: t.peaks,
   }));
   const addedAudioUrls = tracks
     .map((t) => t.audioUrl)
