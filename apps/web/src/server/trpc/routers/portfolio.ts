@@ -55,7 +55,17 @@ export const portfolioRouter = router({
       }
       const [row] = await ctx.db
         .insert(portfolioTracks)
-        .values({ ...stripUndefined(input), producerId: ctx.producerId })
+        .values({
+          ...stripUndefined(input),
+          producerId: ctx.producerId,
+          // Portfolio redesign 2026-05-17 §0.2 Q1=B: the curated
+          // portfolio IS the public face on /join, so new featured
+          // tracks default to public. Existing rows keep their stored
+          // value — only the create path is opinionated. The
+          // `togglePublicSample` mutation below still works if a
+          // future surface wants to opt a track back out.
+          isPublicSample: true,
+        })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       return row;
