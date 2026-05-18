@@ -117,19 +117,22 @@ export type ExternalPlatformValue =
   | "tidal"
   | "instagram_reels";
 
+// Smart-paste add: the server detects the platform from the URL itself
+// (see ~/lib/external-links/detect-platform). The legacy `platform` and
+// `title` params on this action's input remain only for backwards
+// compatibility with the current panel until the rebuild commit lands —
+// they are intentionally not forwarded to the tRPC mutation.
 export async function addExternalLink(input: {
-  platform: ExternalPlatformValue;
+  platform?: ExternalPlatformValue;
   url: string;
-  title: string | null;
+  title?: string | null;
 }): Promise<ActionResult> {
+  void input.platform;
+  void input.title;
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.producerExternalLinks.add({
-      platform: input.platform,
-      url: input.url,
-      title: input.title,
-    });
+    await c.caller.producerExternalLinks.add({ url: input.url });
     revalidatePath(PORTFOLIO_PATH);
     return { ok: true };
   } catch (err) {
