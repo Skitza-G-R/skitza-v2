@@ -30,6 +30,7 @@ import {
   sendBookingCancelledOrRescheduledEmail,
   sendBookingConfirmedEmail,
 } from "~/server/email/send";
+import { computeProjectSessionCount } from "~/lib/pricing";
 
 // ─── Product schemas ─────────────────────────────────────────────────
 // Phase H.3 rebuild — producers don't sell time, they sell deliverables.
@@ -1291,6 +1292,9 @@ export const bookingRouter = router({
           productId: bookings.productId,
           packageNameSnapshot: bookings.packageNameSnapshot,
           projectId: bookings.projectId,
+          // Needed to multiply project.sessionCount when the product
+          // was per-song; null for flat bookings.
+          songQty: bookings.songQty,
         })
         .from(bookings)
         .where(eq(bookings.id, input.bookingId))
@@ -1347,6 +1351,7 @@ export const bookingRouter = router({
               priceCents: products.priceCents,
               currency: products.currency,
               sessionCount: products.sessionCount,
+              pricingModel: products.pricingModel,
             })
             .from(products)
             .where(eq(products.id, existing.productId))
@@ -1425,7 +1430,13 @@ export const bookingRouter = router({
               chargesCompleted: 1,
               totalAmountCents: productRow?.priceCents ?? null,
               currency: productRow?.currency ?? "ILS",
-              sessionCount: productRow?.sessionCount ?? 1,
+              // Per-song products multiply by booking.songQty (see
+              // computeProjectSessionCount in ~/lib/pricing). Flat
+              // products keep the snapshotted total. Null product
+              // (legacy no-product booking) falls back to 1.
+              sessionCount: productRow
+                ? computeProjectSessionCount(productRow, existing.songQty)
+                : 1,
             })
             .returning();
           if (projectRow) {

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { fromPrice, totalFor, unitPriceFor, validateTiers } from "../pricing";
+import {
+  computeProjectSessionCount,
+  fromPrice,
+  totalFor,
+  unitPriceFor,
+  validateTiers,
+} from "../pricing";
 
 const TIERS = [
   { minQty: 1, pricePerUnitCents: 20000 },
@@ -54,6 +60,60 @@ describe("fromPrice", () => {
   });
   it("works with a single base tier", () => {
     expect(fromPrice([{ minQty: 1, pricePerUnitCents: 20000 }])).toBe(20000);
+  });
+});
+
+describe("computeProjectSessionCount", () => {
+  it("returns product.sessionCount as-is for flat products", () => {
+    expect(
+      computeProjectSessionCount({ pricingModel: "flat", sessionCount: 3 }, 5),
+    ).toBe(3);
+  });
+  it("multiplies sessionCount by songQty for per_song products", () => {
+    expect(
+      computeProjectSessionCount(
+        { pricingModel: "per_song", sessionCount: 2 },
+        5,
+      ),
+    ).toBe(10);
+  });
+  it("returns 0 when product.sessionCount is 0 (unlimited stays unlimited)", () => {
+    expect(
+      computeProjectSessionCount(
+        { pricingModel: "per_song", sessionCount: 0 },
+        5,
+      ),
+    ).toBe(0);
+  });
+  it("treats null songQty as 1 for per_song (defensive against legacy bookings)", () => {
+    expect(
+      computeProjectSessionCount(
+        { pricingModel: "per_song", sessionCount: 2 },
+        null,
+      ),
+    ).toBe(2);
+  });
+  it("treats undefined songQty as 1 for per_song", () => {
+    expect(
+      computeProjectSessionCount(
+        { pricingModel: "per_song", sessionCount: 2 },
+        undefined,
+      ),
+    ).toBe(2);
+  });
+  it("ignores songQty entirely for bundle / hourly products", () => {
+    expect(
+      computeProjectSessionCount(
+        { pricingModel: "bundle", sessionCount: 4 },
+        7,
+      ),
+    ).toBe(4);
+    expect(
+      computeProjectSessionCount(
+        { pricingModel: "hourly", sessionCount: 1 },
+        7,
+      ),
+    ).toBe(1);
   });
 });
 

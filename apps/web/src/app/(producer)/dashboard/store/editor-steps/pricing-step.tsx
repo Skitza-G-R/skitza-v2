@@ -639,6 +639,52 @@ export function PricingStep({
         // "Artists will see" footer renders the exact store-card copy
         // so the producer validates buyer-facing language inline.
         <>
+          {/* Sessions per song — same control as the flat panel, but
+              the value means "sessions reserved per song the artist
+              picks." Booking-time math multiplies by songQty (see
+              computeProjectSessionCount in ~/lib/pricing). Eyebrow +
+              tiny descriptor on the left, control on the right —
+              reads as a supporting note to the rate ladder below,
+              not a rival heading. Wraps cleanly on narrow widths. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex items-baseline gap-2">
+              <Eyebrow>Sessions per song</Eyebrow>
+              <span className="text-[11px] text-[rgb(var(--fg-muted))]">
+                what each song includes
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Stepper
+                value={sessions}
+                min={1}
+                max={99}
+                disabled={unlimitedSessions}
+                onChange={(next) => {
+                  onChange({ sessions: next });
+                }}
+                ariaLabel="Sessions per song"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  onChange({ unlimitedSessions: !unlimitedSessions });
+                }}
+                aria-pressed={unlimitedSessions}
+                aria-label="Unlimited sessions"
+                className={[
+                  "sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold",
+                  "transition-[background-color,border-color,color] duration-200",
+                  unlimitedSessions
+                    ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
+                    : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
+                ].join(" ")}
+                style={{ transitionTimingFunction: "var(--ease-out-strong)" }}
+              >
+                Unlimited
+              </button>
+            </div>
+          </div>
+
           <div>
             <Eyebrow>Pricing ladder</Eyebrow>
             <div className="overflow-hidden rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">

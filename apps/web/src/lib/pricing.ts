@@ -29,6 +29,28 @@ export interface TierValidation {
   warnings: string[];
 }
 
+// Project session credit math. For flat / bundle / hourly products
+// `product.sessionCount` IS the total credit pool. For per_song
+// products it means "sessions reserved per song the artist booked,"
+// so the project's pool is `sessionCount * songQty`.
+//
+// 0 is the canonical "unlimited" marker — see booking.ts:101 (the
+// store read side: `unlimitedSessions: p.sessionCount === 0`). When
+// either side is 0 the result is 0 (still unlimited).
+//
+// Pure, no DB. Called from every project-insertion site (booking.ts
+// confirm + confirmAfterPayment, checkout-initiator.ts).
+export function computeProjectSessionCount(
+  product: { pricingModel: string; sessionCount: number },
+  songQty: number | null | undefined,
+): number {
+  if (product.sessionCount === 0) return 0;
+  if (product.pricingModel !== "per_song") return product.sessionCount;
+  const qty = songQty ?? 1;
+  if (qty <= 0) return product.sessionCount;
+  return product.sessionCount * qty;
+}
+
 export function validateTiers(tiers: VolumeTier[]): TierValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
