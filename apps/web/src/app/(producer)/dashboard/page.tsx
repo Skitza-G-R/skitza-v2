@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
+import { PaymentReceivedBanner } from "~/components/dashboard/payment-received-banner";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
@@ -39,16 +40,20 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const caller = appRouter.createCaller({ userId });
 
   // Fan-out: today payload, profile, follow-up sessions (post-session
-  // banner), pending approvals, and project-level urgent rows (the
+  // banner), pending approvals, project-level urgent rows (the
   // Overview's Urgent card — replaces the old today.items-derived
-  // urgency strip). All independent reads run in parallel.
-  const [today, me, followUpRaw, pendingBookings, urgent] = await Promise.all([
-    caller.producer.today(),
-    caller.producer.me(),
-    caller.booking.needsFollowUp(),
-    caller.booking.list({ status: "pending_approval" }),
-    caller.producer.overview.urgent(),
-  ]);
+  // urgency strip), and SK-20's recent-paid-unacknowledged bookings
+  // (drives the payment-received banner above OverviewScreen). All
+  // independent reads run in parallel.
+  const [today, me, followUpRaw, pendingBookings, urgent, recentPaid] =
+    await Promise.all([
+      caller.producer.today(),
+      caller.producer.me(),
+      caller.booking.needsFollowUp(),
+      caller.booking.list({ status: "pending_approval" }),
+      caller.producer.overview.urgent(),
+      caller.booking.recentPaidUnacknowledged(),
+    ]);
 
   // Drop sessions that aren't yet linked to a project — without a
   // projectId we have nowhere to send the producer when they click
@@ -151,6 +156,23 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               ))}
             </div>
           ) : null}
+
+          {/* SK-20 — payment-received banner. Stacks below the
+              followUpSessions block and above OverviewScreen so all
+              "above-layout system banners" share one vertical lane.
+              Per-row dismiss runs through the payment-banner server
+              action which revalidates this page. */}
+          <PaymentReceivedBanner
+            bookings={recentPaid.map((p) => ({
+              id: p.id,
+              artistName: p.artistName,
+              packageNameSnapshot: p.packageNameSnapshot,
+              unitPriceCents: p.unitPriceCents,
+              songQty: p.songQty,
+              projectId: p.projectId,
+              projectName: p.projectName,
+            }))}
+          />
 
           {/* Overview — always renders. Each section handles its own
               empty state. The PublicLinkStrip inside OverviewScreen

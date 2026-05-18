@@ -94,7 +94,7 @@ export interface OverviewScreenProps {
   }>;
   activity: Array<{
     id: string;
-    kind: "session" | "comment" | "invoice";
+    kind: "session" | "payment" | "comment" | "invoice";
     title: string;
     subtitle: string;
     occurredAt: Date;
@@ -855,7 +855,7 @@ function ActivityIcon({
   kind,
   title,
 }: {
-  kind: "session" | "comment" | "invoice";
+  kind: "session" | "payment" | "comment" | "invoice";
   title: string;
 }) {
   return (
@@ -866,6 +866,8 @@ function ActivityIcon({
     >
       {kind === "session" ? (
         <CalendarIcon />
+      ) : kind === "payment" ? (
+        <DollarIcon />
       ) : kind === "comment" ? (
         <CommentIcon />
       ) : (

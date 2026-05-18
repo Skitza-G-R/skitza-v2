@@ -347,6 +347,11 @@ export const bookings = pgTable("bookings", {
   // to confirmed so the success page can show "Confirmation #..." back
   // to the artist. Nullable — Stripe-paid bookings won't have one.
   tranzilaConfirmationCode: text("tranzila_confirmation_code"),
+  // SK-20 — producer dismisses the "you got paid" banner on /dashboard
+  // by stamping this column. NULL = banner still shows + activity row
+  // is unread; non-NULL = acknowledged. Mirrors the reminder_sent_*
+  // nullable-timestamp pattern above.
+  producerAcknowledgedAt: timestamp("producer_acknowledged_at", { withTimezone: true }),
   // Phase 0 of Clients & Projects v3 — links a booking to a specific
   // song so the Song Space's Sessions tab can scope to that song.
   // Nullable to preserve existing booking rows (they pre-date this
