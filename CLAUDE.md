@@ -91,3 +91,47 @@ After D12: Gili waits. Raz starts Phase 2.
 - No refactoring 'while you're there'.
 - No commits to main. All work on v3-clean.
 - No BMAD. No stories. No epics. Claude Code is a builder, not a project manager.
+
+## Linear integration
+
+Every code change traces to a Linear issue. Board: https://linear.app/raz-stamper/project/skitza-v3-0430cd4ae2fa
+
+### The rule
+
+Every PR has a Linear issue. **If one doesn't exist for the change you're about to make, create it first** — then branch, work, PR. No exceptions for code changes. Trivial docs/typo commits direct to v3-clean are still allowed without an issue, but anything that touches `apps/`, `packages/`, or schema needs one.
+
+Create issues in the `Skitza v3` project under team `Skitza` (key: `SK`). Title clearly, drop a 2-line description, set status to `In Progress` when you start.
+
+### Branch names
+
+Use the branch name Linear auto-generates on each issue page (the "Copy git branch name" button). The pattern is:
+
+    razstamper9/sk-{N}-{short-slug}
+
+Examples:
+- razstamper9/sk-17-every-booked-session-creates-a-new-project
+- razstamper9/sk-5-no-payment-confirmation-message-shown-after-successful
+
+Don't invent your own branch name. Don't shorten the slug. Copy it from Linear so the GitHub integration links the branch cleanly.
+
+### PR titles
+
+PR titles start with the Linear issue ID, colon, then a short imperative description:
+
+    SK-17: attach new session to existing project instead of creating new one
+    SK-5: surface success banner on /artist after payment redirect
+
+This is what triggers Linear's GitHub integration — the PR auto-links to the issue, status moves to `In Review` on PR open and `Done` on merge.
+
+### Commit messages
+
+Not required to include the Linear ID. Keep the existing conventional-commit style (`fix:`, `feat:`, `chore:`, `docs:`). The PR title carries the issue link.
+
+### Workflow
+
+1. Pick or create a Linear issue in `Skitza v3`
+2. Move it to `In Progress`
+3. Copy the branch name from the issue page
+4. Branch off v3-clean, push, open PR with `SK-N: ...` title
+5. Merge to v3-clean (no commits to main — existing rule still applies)
+6. Linear moves the issue to `Done` automatically on merge
