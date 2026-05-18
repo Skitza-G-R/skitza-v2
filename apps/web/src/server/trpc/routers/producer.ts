@@ -184,7 +184,7 @@ function formatInvoiceSubtitle(
 // Shape returned by `producer.today`. One row per actionable thing the
 // producer should look at in the current day. KPI counts ride
 // alongside so the UI renders the strip + the inbox in a single call.
-export type TodayKind = "session" | "comment" | "invoice";
+export type TodayKind = "session" | "payment" | "comment" | "invoice";
 export interface TodayItem {
   id: string;
   kind: TodayKind;
@@ -263,16 +263,16 @@ const MUSIC_LIST_MAX = 100;
 // thousands of rows.
 const TODAY_PER_SOURCE_CAP = 50;
 
-// Strict type ordering: sessions first (time-sensitive), then
-// unread comments (artist is waiting), then unpaid invoices (money).
+// Strict type ordering: sessions first (time-sensitive), then recent
+// payments (the producer needs to see incoming money fast), then unread
+// comments (artist is waiting), then unpaid invoices.
 // Within each kind we sort by occurredAt (asc for upcoming sessions
 // — soonest first; desc for everything else — most recent first).
-// This matches the plan's documented "session > unread comment >
-// invoice" rule without inventing a composite score.
 const KIND_PRIORITY: Record<TodayKind, number> = {
   session: 0,
-  comment: 1,
-  invoice: 2,
+  payment: 1,
+  comment: 2,
+  invoice: 3,
 };
 
 // ─── Overview · Urgent helpers ────────────────────────────────────────
@@ -546,6 +546,11 @@ export const producerRouter = router({
       sparklineStart.getUTCDate() - (PULSE_SPARKLINE_DAYS - 1),
     );
 
+    // SK-20 — payment activity-feed window. 30 days of confirmed
+    // bookings is wide enough to keep a producer's history visible past
+    // banner-dismiss without spamming the feed with stale rows.
+    const paymentsHorizonStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
     // Active stages for the KPI counter — excludes terminal states so
     // "archived" projects don't inflate the count.
     const ACTIVE_STAGES = [
@@ -578,6 +583,7 @@ export const producerRouter = router({
       recentUploadRows,
       lastMonthRows,
       sparklineRows,
+      recentPaymentRows,
     ] = await Promise.all([
       // (1) Active projects KPI — count by filtering stage in the
       // active set. We fetch ids only; the count is rows.length.
@@ -791,6 +797,35 @@ export const producerRouter = router({
           ),
         )
         .groupBy(sql`date_trunc('day', ${invoices.paidAt})`),
+
+      // (12) Recent payments — SK-20. Confirmed bookings in the last
+      // 30 days project into the activity feed as `kind: "payment"`.
+      // `unread` flips on producerAcknowledgedAt so the dot stays lit
+      // until the producer dismisses the banner. Joined to projects for
+      // a human-readable display name in the feed row.
+      ctx.db
+        .select({
+          id: bookings.id,
+          artistName: bookings.artistName,
+          packageNameSnapshot: bookings.packageNameSnapshot,
+          unitPriceCents: bookings.unitPriceCents,
+          songQty: bookings.songQty,
+          statusChangedAt: bookings.statusChangedAt,
+          producerAcknowledgedAt: bookings.producerAcknowledgedAt,
+          projectId: bookings.projectId,
+          projectTitle: projects.title,
+        })
+        .from(bookings)
+        .leftJoin(projects, eq(projects.id, bookings.projectId))
+        .where(
+          and(
+            eq(bookings.producerId, ctx.producerId),
+            eq(bookings.status, "confirmed"),
+            gte(bookings.statusChangedAt, paymentsHorizonStart),
+          ),
+        )
+        .orderBy(desc(bookings.statusChangedAt))
+        .limit(TODAY_PER_SOURCE_CAP),
     ]);
 
     // Resolve default currency for KPI display. Fallback to USD keeps
@@ -863,9 +898,33 @@ export const producerRouter = router({
       unread: false,
     }));
 
-    const items = [...sessionItems, ...commentItems, ...invoiceItems]
+    // SK-20 — confirmed bookings in the last 30 days. Amount =
+    // unitPriceCents × songQty for per-song products; flat products
+    // skip the multiplier (songQty is null). Currency anchors to the
+    // producer's defaultCurrency since bookings don't carry their own
+    // currency column. `unread` keeps the dot lit until the producer
+    // dismisses the banner — same predicate the banner query uses.
+    const paymentItems: TodayItem[] = recentPaymentRows.map((p) => {
+      const qty = p.songQty ?? 1;
+      const amountCents = (p.unitPriceCents ?? 0) * qty;
+      const displayName =
+        p.projectTitle ?? p.packageNameSnapshot ?? "Session";
+      return {
+        id: `payment:${p.id}`,
+        kind: "payment" as const,
+        title: `${p.artistName} paid for ${displayName}`,
+        subtitle: formatInvoiceSubtitle(amountCents, revenueCurrency, null),
+        occurredAt: p.statusChangedAt ?? new Date(0),
+        href: p.projectId
+          ? `/dashboard/clients-projects/${p.projectId}`
+          : "/dashboard/clients-projects",
+        unread: p.producerAcknowledgedAt === null,
+      };
+    });
+
+    const items = [...sessionItems, ...paymentItems, ...commentItems, ...invoiceItems]
       .sort((a, b) => {
-        // Primary: kind priority (session → comment → invoice).
+        // Primary: kind priority (session → payment → comment → invoice).
         const kp = KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind];
         if (kp !== 0) return kp;
         // Within kind: sessions sort asc (soonest first), others desc.

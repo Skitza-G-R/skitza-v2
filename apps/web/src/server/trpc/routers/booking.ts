@@ -29,6 +29,8 @@ import { stripUndefined } from "../strip-undefined";
 import {
   sendBookingCancelledOrRescheduledEmail,
   sendBookingConfirmedEmail,
+  sendPaymentReceivedEmail,
+  SITE_URL,
 } from "~/server/email/send";
 import { computeProjectSessionCount } from "~/lib/pricing";
 
@@ -993,6 +995,66 @@ export const bookingRouter = router({
     }));
   }),
 
+  // SK-20 — payments the producer hasn't dismissed yet. Drives the
+  // /dashboard banner. Capped to last 7 days so an inbox-zero
+  // producer who hasn't opened the app in a month doesn't get
+  // ambushed by a wall of confirmations.
+  recentPaidUnacknowledged: producerProcedure.query(async ({ ctx }) => {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const rows = await ctx.db
+      .select({
+        id: bookings.id,
+        artistName: bookings.artistName,
+        packageNameSnapshot: bookings.packageNameSnapshot,
+        unitPriceCents: bookings.unitPriceCents,
+        songQty: bookings.songQty,
+        statusChangedAt: bookings.statusChangedAt,
+        projectId: bookings.projectId,
+        projectTitle: projects.title,
+      })
+      .from(bookings)
+      .leftJoin(projects, eq(projects.id, bookings.projectId))
+      .where(
+        and(
+          eq(bookings.producerId, ctx.producerId),
+          eq(bookings.status, "confirmed"),
+          isNull(bookings.producerAcknowledgedAt),
+          gte(bookings.statusChangedAt, sevenDaysAgo),
+        ),
+      )
+      .orderBy(desc(bookings.statusChangedAt));
+    return rows.map((r) => ({
+      id: r.id,
+      artistName: r.artistName,
+      packageNameSnapshot: r.packageNameSnapshot,
+      unitPriceCents: r.unitPriceCents,
+      songQty: r.songQty,
+      statusChangedAt: r.statusChangedAt,
+      projectId: r.projectId,
+      projectName: r.projectTitle ?? r.packageNameSnapshot ?? r.artistName,
+    }));
+  }),
+
+  // SK-20 — producer dismisses the payment-received banner for one
+  // booking. Scoped to the caller's own bookings via the producerId
+  // predicate so a producer can't no-op someone else's banner.
+  acknowledgePayment: producerProcedure
+    .input(z.object({ bookingId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .update(bookings)
+        .set({ producerAcknowledgedAt: new Date() })
+        .where(
+          and(
+            eq(bookings.id, input.bookingId),
+            eq(bookings.producerId, ctx.producerId),
+          ),
+        )
+        .returning();
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      return row;
+    }),
+
   list: producerProcedure
     .input(
       z
@@ -1295,6 +1357,10 @@ export const bookingRouter = router({
           // Needed to multiply project.sessionCount when the product
           // was per-song; null for flat bookings.
           songQty: bookings.songQty,
+          // SK-20 — per-song rate lock-in; multiplied by songQty for the
+          // producer payment-received email amount when the product was
+          // per-song. Null for flat-price bookings.
+          unitPriceCents: bookings.unitPriceCents,
         })
         .from(bookings)
         .where(eq(bookings.id, input.bookingId))
@@ -1485,6 +1551,7 @@ export const bookingRouter = router({
       try {
         const [producer] = await db
           .select({
+            email: producers.email,
             displayName: producers.displayName,
             timezone: producers.timezone,
             defaultCurrency: producers.defaultCurrency,
@@ -1526,6 +1593,52 @@ export const bookingRouter = router({
       } catch (err) {
         console.warn(
           "[email] sendBookingConfirmedEmail failed in confirmAfterPayment",
+          err,
+        );
+      }
+
+      // SK-20 — unconditional producer-side "you got paid" email.
+      // Always fires on successful payment confirmation (no autopilot
+      // gate — the producer always wants to know money landed). Best-
+      // effort: log and swallow errors so a Resend hiccup doesn't undo
+      // the booking confirmation. Producer email lookup is independent
+      // of the artist-email try block above so a producer-row read
+      // failure can't poison the artist path (or vice versa).
+      try {
+        const [producerForEmail] = await db
+          .select({
+            email: producers.email,
+            displayName: producers.displayName,
+            defaultCurrency: producers.defaultCurrency,
+          })
+          .from(producers)
+          .where(eq(producers.id, existing.producerId))
+          .limit(1);
+        if (producerForEmail) {
+          // Per-song bookings use the locked-in unit rate × song count;
+          // flat bookings fall back to the snapshotted product price.
+          const amountCents =
+            existing.unitPriceCents !== null && existing.songQty !== null
+              ? existing.unitPriceCents * existing.songQty
+              : (productRow?.priceCents ?? 0);
+          await sendPaymentReceivedEmail(producerForEmail.email, {
+            producerName:
+              producerForEmail.displayName ?? producerForEmail.email,
+            artistName: existing.artistName,
+            projectName: existing.packageNameSnapshot ?? "Session",
+            amountCents,
+            // TODO(SK-6): real platform fee calc once payment routing
+            // is wired up. v1 always reports gross = net.
+            platformFeeCents: 0,
+            currency: productRow?.currency ?? producerForEmail.defaultCurrency,
+            viewUrl: projectId
+              ? `${SITE_URL}/dashboard/clients-projects/${projectId}`
+              : `${SITE_URL}/dashboard`,
+          });
+        }
+      } catch (err) {
+        console.error(
+          "[email] sendPaymentReceivedEmail (producer) failed in confirmAfterPayment",
           err,
         );
       }
