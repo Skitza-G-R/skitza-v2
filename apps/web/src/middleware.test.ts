@@ -15,9 +15,15 @@ describe("resolveLegacyRedirect", () => {
     ["/dashboard/invoices",   "/dashboard"],
     ["/dashboard/inbox",      "/dashboard"],
     ["/dashboard/library",    "/dashboard/music"],
-    ["/dashboard/portfolio",  "/dashboard/settings?section=portfolio"],
   ])("redirects %s → %s", (from, to) => {
     expect(resolveLegacyRedirect(from)).toBe(to);
+  });
+
+  it("does NOT redirect /dashboard/portfolio (live route as of PR #142)", () => {
+    // Pre-PR #142 this redirected into settings?section=portfolio.
+    // Portfolio is now a real page in the sidebar, so the middleware
+    // must let the request pass through.
+    expect(resolveLegacyRedirect("/dashboard/portfolio")).toBe(null);
   });
 
   it("returns null for unknown paths", () => {

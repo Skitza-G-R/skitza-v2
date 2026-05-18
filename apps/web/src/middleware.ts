@@ -34,7 +34,11 @@ const STATIC_REDIRECTS: Record<string, string> = {
   "/dashboard/invoices":  "/dashboard",
   "/dashboard/inbox":     "/dashboard",
   "/dashboard/library":   "/dashboard/music",
-  "/dashboard/portfolio": "/dashboard/settings?section=portfolio",
+  // /dashboard/portfolio was redirected into settings while portfolio
+  // lived as a settings tab. As of PR #142 (2026-05-18) the route is
+  // the canonical Portfolio page (two-column showcase canvas, exposed
+  // as a sidebar entry), so the redirect is intentionally absent —
+  // re-adding it would land Portfolio clicks on Settings → Profile.
   // 2026-05-06 — Services + Availability moved out of Settings:
   //   - Services CRUD is now part of the Storefront page (PRD v3
   //     §4.5). Producers create + edit products on the same surface

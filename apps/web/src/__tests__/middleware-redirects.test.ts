@@ -3,13 +3,13 @@ import { describe, it, expect } from "vitest";
 import { resolveLegacyRedirect } from "../middleware";
 
 describe("resolveLegacyRedirect — Setup tab flatten", () => {
-  // The /dashboard/portfolio redirect already shipped (predates this
-  // refactor). Re-asserting it here so a future "clean up the table"
-  // pass doesn't accidentally drop it.
-  it("keeps the existing /dashboard/portfolio redirect", () => {
-    expect(resolveLegacyRedirect("/dashboard/portfolio")).toBe(
-      "/dashboard/settings?section=portfolio",
-    );
+  // PR #142 (2026-05-18) promoted /dashboard/portfolio from a legacy
+  // settings-tab redirect to a real top-level page (showcase canvas
+  // rebuild + sidebar entry). The middleware must NOT intercept it
+  // anymore — otherwise clicking the new Portfolio sidebar entry
+  // would land on Settings → Profile.
+  it("does NOT redirect /dashboard/portfolio (now a live page)", () => {
+    expect(resolveLegacyRedirect("/dashboard/portfolio")).toBeNull();
   });
 
   // 2026-05-06 — Services CRUD moved out of Settings/Integrations
