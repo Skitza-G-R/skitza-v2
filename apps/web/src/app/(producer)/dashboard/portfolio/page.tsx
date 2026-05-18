@@ -75,7 +75,11 @@ export default async function PortfolioPage() {
           href={publicProfileUrl}
           target="_blank"
           rel="noreferrer noopener"
-          className="inline-flex shrink-0 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-semibold text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97]"
+          className="inline-flex shrink-0 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-semibold text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.94)] hover:-translate-y-px hover:shadow-[0_10px_28px_-8px_rgb(var(--brand-primary)/0.6),0_4px_10px_-2px_rgb(17_16_9_/_0.14)] active:scale-[0.97] active:translate-y-0"
+          style={{
+            boxShadow:
+              "0 6px 18px -6px rgb(var(--brand-primary) / 0.45), 0 2px 6px -1px rgb(17 16 9 / 0.10)",
+          }}
         >
           <svg
             viewBox="0 0 16 16"
