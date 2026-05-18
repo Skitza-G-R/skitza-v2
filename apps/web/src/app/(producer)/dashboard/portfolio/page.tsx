@@ -75,7 +75,7 @@ export default async function PortfolioPage() {
           href={publicProfileUrl}
           target="_blank"
           rel="noreferrer noopener"
-          className="group/view-public inline-flex shrink-0 items-center gap-2 rounded-full bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97]"
+          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-5 py-2.5 text-sm text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:border-[rgb(var(--fg-primary))] active:scale-[0.97]"
           style={{ fontWeight: 500 }}
         >
           <svg
@@ -88,7 +88,6 @@ export default async function PortfolioPage() {
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            {/* eye glyph — semantically "view" */}
             <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" />
             <circle cx="8" cy="8" r="2" />
           </svg>

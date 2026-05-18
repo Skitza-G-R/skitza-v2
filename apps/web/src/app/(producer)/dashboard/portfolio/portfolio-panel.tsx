@@ -454,11 +454,11 @@ function TrackRow({
   return (
     <li ref={setNodeRef} style={sortableStyle} className="group/track">
       <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.55)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:ring-[rgb(var(--border-strong))] transition-[box-shadow,background-color] duration-300 ease-out">
-        <div className="flex items-center gap-2 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-3 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
-          {/* drag handle (lives outside the column-separated zone) */}
+        <div className="flex items-center gap-4 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+          {/* drag handle */}
           <button
             type="button"
-            className="grid h-7 w-5 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:cursor-grabbing"
+            className="grid h-9 w-4 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted)/0.6)] transition-colors duration-200 ease-out hover:text-[rgb(var(--fg-primary))] group-hover/track:text-[rgb(var(--fg-muted))] active:cursor-grabbing"
             {...attributes}
             {...listeners}
             aria-label="Drag to reorder"
@@ -473,108 +473,95 @@ function TrackRow({
             </svg>
           </button>
 
-          {/* columns: play | waveform | name | public — separated by hairlines */}
-          <div className="flex flex-1 items-center min-w-0">
-            {/* col: play */}
-            <div className="flex shrink-0 items-center px-2">
-              <button
-                type="button"
-                aria-label={playing ? "Pause" : "Play"}
-                disabled={!row.audioUrl}
-                onClick={togglePlay}
-                className={[
-                  "grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all duration-200 ease-out active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
-                  playing
-                    ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_6px_16px_-6px_rgb(var(--brand-primary)/0.55)]"
-                    : "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--fg-primary))]",
-                ].join(" ")}
-              >
-                {playing ? (
-                  <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="currentColor">
-                    <rect x="3" y="2" width="2" height="8" rx="0.5" />
-                    <rect x="7" y="2" width="2" height="8" rx="0.5" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 12 12" className="ml-[1px] h-3.5 w-3.5" fill="currentColor">
-                    <path d="M3 2v8l7-4z" />
-                  </svg>
-                )}
-              </button>
-            </div>
+          {/* play/pause — the row's visual anchor */}
+          <button
+            type="button"
+            aria-label={playing ? "Pause" : "Play"}
+            disabled={!row.audioUrl}
+            onClick={togglePlay}
+            className={[
+              "grid h-11 w-11 shrink-0 place-items-center rounded-full transition-all duration-200 ease-out active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
+              playing
+                ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_8px_22px_-8px_rgb(var(--brand-primary)/0.7)]"
+                : "bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:bg-[rgb(var(--brand-primary))] group-hover/track:text-[rgb(var(--fg-inverse))] group-hover/track:ring-transparent group-hover/track:shadow-[0_6px_18px_-8px_rgb(var(--brand-primary)/0.55)]",
+            ].join(" ")}
+          >
+            {playing ? (
+              <svg viewBox="0 0 14 14" className="h-4 w-4" fill="currentColor">
+                <rect x="3.5" y="2.5" width="2.2" height="9" rx="0.6" />
+                <rect x="8.3" y="2.5" width="2.2" height="9" rx="0.6" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 14 14" className="ml-[1.5px] h-4 w-4" fill="currentColor">
+                <path d="M3.5 2v10l8.5-5z" />
+              </svg>
+            )}
+          </button>
 
-            <Separator />
-
-            {/* col: waveform (clickable to seek; bars stretch to fill) */}
-            <button
-              type="button"
-              aria-label="Seek"
-              onClick={onWaveClick}
-              disabled={!row.audioUrl}
-              className="flex h-10 flex-1 min-w-0 items-center gap-[2px] px-3 transition-opacity duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40"
+          {/* title + artist · duration — LEFT-anchored like Spotify / Apple Music */}
+          <div className="min-w-0 shrink-0" style={{ width: 180 }}>
+            <p
+              className="truncate text-[14px] leading-tight text-[rgb(var(--fg-primary))]"
+              style={{ fontWeight: 600, letterSpacing: "-0.01em" }}
             >
-              {bars.map((h, i) => {
-                const playedFraction = (i + 1) / bars.length;
-                const played = playedFraction <= progress;
-                return (
-                  <span
-                    key={i}
-                    aria-hidden="true"
-                    className="block min-w-[2px] flex-1 rounded-full transition-colors duration-300 ease-out"
-                    style={{
-                      height: `${(Math.max(0.08, h) * 100).toFixed(1)}%`,
-                      backgroundColor: played
-                        ? "rgb(var(--brand-primary))"
-                        : "rgb(var(--fg-muted) / 0.34)",
-                    }}
-                  />
-                );
-              })}
-            </button>
-
-            <Separator />
-
-            {/* col: name + artist + duration */}
-            <div className="min-w-0 shrink-0 px-3" style={{ width: 156 }}>
-              <p
-                className="truncate text-[13.5px] leading-tight text-[rgb(var(--fg-primary))]"
-                style={{ fontWeight: 600, letterSpacing: "-0.005em" }}
-              >
-                {row.title}
-              </p>
-              <p className="mt-0.5 truncate text-[11px] leading-tight text-[rgb(var(--fg-secondary))]">
-                {row.artist ? `${row.artist} · ` : ""}
-                <span className="font-mono tabular-nums text-[rgb(var(--fg-muted))]">
-                  {formatDuration(row.durationMs)}
-                </span>
-              </p>
-            </div>
-
-            <Separator />
-
-            {/* col: public badge (or empty placeholder so column width is stable) */}
-            <div className="flex shrink-0 items-center px-2">
-              {row.isPublicSample ? (
-                <span
-                  className="rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--brand-primary))]"
-                  style={{
-                    boxShadow:
-                      "inset 0 0 0 1px rgb(var(--brand-primary) / 0.2)",
-                  }}
-                >
-                  Public
-                </span>
-              ) : (
-                <span
-                  aria-hidden="true"
-                  className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted)/0.45)]"
-                >
-                  Private
-                </span>
-              )}
-            </div>
+              {row.title}
+            </p>
+            <p className="mt-1 truncate text-[11.5px] leading-tight text-[rgb(var(--fg-secondary))]">
+              {row.artist ?? "Unknown artist"}
+              {formatDuration(row.durationMs) ? (
+                <>
+                  {" "}
+                  <span className="text-[rgb(var(--fg-muted))]">·</span>{" "}
+                  <span className="font-mono tabular-nums text-[rgb(var(--fg-muted))]">
+                    {formatDuration(row.durationMs)}
+                  </span>
+                </>
+              ) : null}
+            </p>
           </div>
 
-          {/* remove (hover-revealed, sits outside the separator zone) */}
+          {/* waveform — flex-1, clickable to seek */}
+          <button
+            type="button"
+            aria-label="Seek"
+            onClick={onWaveClick}
+            disabled={!row.audioUrl}
+            className="flex h-10 flex-1 min-w-0 items-center gap-[2px] transition-opacity duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {bars.map((h, i) => {
+              const playedFraction = (i + 1) / bars.length;
+              const played = playedFraction <= progress;
+              return (
+                <span
+                  key={i}
+                  aria-hidden="true"
+                  className="block min-w-[2px] flex-1 rounded-full transition-colors duration-300 ease-out"
+                  style={{
+                    height: `${(Math.max(0.08, h) * 100).toFixed(1)}%`,
+                    backgroundColor: played
+                      ? "rgb(var(--brand-primary))"
+                      : "rgb(var(--fg-muted) / 0.32)",
+                  }}
+                />
+              );
+            })}
+          </button>
+
+          {/* public/private status — small mono label, always present so the column width is stable */}
+          <span
+            aria-hidden="true"
+            className={[
+              "shrink-0 font-mono text-[9.5px] uppercase tracking-[0.18em] tabular-nums",
+              row.isPublicSample
+                ? "text-[rgb(var(--brand-primary))]"
+                : "text-[rgb(var(--fg-muted)/0.55)]",
+            ].join(" ")}
+            title={row.isPublicSample ? "Plays on /join" : "Hidden from /join"}
+          >
+            {row.isPublicSample ? "Public" : "Private"}
+          </span>
+
+          {/* remove (hover-revealed) */}
           <button
             type="button"
             aria-label={`Remove ${row.title}`}
@@ -588,18 +575,6 @@ function TrackRow({
         </div>
       </div>
     </li>
-  );
-}
-
-// Subtle vertical separator between row columns. Inset top + bottom by
-// half the row padding so it reads as a hairline divider rather than
-// touching the inner card edges.
-function Separator() {
-  return (
-    <span
-      aria-hidden="true"
-      className="block h-6 w-px shrink-0 bg-[rgb(var(--border-subtle))]"
-    />
   );
 }
 
@@ -712,7 +687,7 @@ function SocialLinksSection({
           <button
             type="submit"
             disabled={adding || !url.trim()}
-            className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--brand-primary))] px-4 py-2 text-xs font-medium text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-xs font-medium text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:border-[rgb(var(--fg-primary))] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[rgb(var(--bg-elevated))]"
           >
             <svg
               viewBox="0 0 16 16"
@@ -915,7 +890,7 @@ function AddFromLibraryButton({
         onClick={() => {
           setOpen(true);
         }}
-        className="inline-flex items-center gap-2 rounded-full bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-medium text-[rgb(var(--fg-inverse))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.92)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex items-center gap-2 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-5 py-2.5 text-sm font-medium text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:border-[rgb(var(--fg-primary))] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[rgb(var(--bg-elevated))]"
       >
         <svg
           viewBox="0 0 16 16"
@@ -926,7 +901,6 @@ function AddFromLibraryButton({
           strokeLinecap="round"
           aria-hidden="true"
         >
-          {/* plus glyph */}
           <path d="M8 3v10M3 8h10" />
         </svg>
         <span>Add from music library</span>

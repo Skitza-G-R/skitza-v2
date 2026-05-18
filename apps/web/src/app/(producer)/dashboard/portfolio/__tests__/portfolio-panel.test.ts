@@ -272,10 +272,10 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     expect(panelSource).not.toMatch(/<select[\s>]/);
   });
 
-  it("renders 'Public' badge text (Q1=B passive label)", () => {
-    // The badge JSX renders bare "Public" inside a <span>. Whitespace-
-    // flexible match so JSX indentation doesn't break this.
-    expect(panelSource).toMatch(/>\s*Public\s*</);
+  it("renders Public / Private mono label per track (Q1=B passive)", () => {
+    // Status is now an inline mono label inside a <span>, not a chunky
+    // chip. Source carries both string literals via the ternary.
+    expect(panelSource).toMatch(/isPublicSample\s*\?\s*"Public"\s*:\s*"Private"/);
   });
 
   it("does not render a public-sample toggle / switch", () => {
@@ -368,9 +368,15 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     expect(panelSource).toMatch(/getBoundingClientRect/);
   });
 
-  it("renders the Separator hairline component between row columns", () => {
-    expect(panelSource).toContain("function Separator()");
-    expect(panelSource).toMatch(/<Separator\s*\/?>/);
+  it("anchors the title block on the LEFT side of the row (Spotify/Apple Music pattern)", () => {
+    // The title block is a fixed-width column immediately after the
+    // play button; the waveform takes flex-1 to its right. Source-grep
+    // for the specific width style + the order: play button JSX must
+    // appear BEFORE the title-block JSX in the file.
+    const playMatch = panelSource.search(/aria-label=\{playing \? "Pause" : "Play"\}/);
+    const titleBlockMatch = panelSource.search(/width:\s*180\s*\}/);
+    expect(playMatch).toBeGreaterThan(-1);
+    expect(titleBlockMatch).toBeGreaterThan(playMatch);
   });
 
   it("uses real peaks when present, falls back to seededBars", () => {
