@@ -290,7 +290,7 @@ export function PricingStep({
           <div
             role="radiogroup"
             aria-label="Pricing mode"
-            className="inline-flex w-full rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 sm:w-auto"
+            className="inline-flex w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 sm:w-auto"
           >
             {PRICING_MODELS.map((m) => {
               const picked = pricingModel === m.id;
@@ -305,9 +305,9 @@ export function PricingStep({
                     handleModelChange(m.id);
                   }}
                   className={[
-                    "sk-press flex-1 rounded-full px-4 py-1.5 text-[13px] font-semibold transition-colors sm:flex-initial",
+                    "sk-press flex-1 rounded-[6px] px-4 py-1.5 text-[13px] font-semibold transition-colors sm:flex-initial",
                     picked
-                      ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_1px_2px_rgba(17,16,9,0.08)]"
+                      ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
                       : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
                   ].join(" ")}
                 >
@@ -361,16 +361,65 @@ export function PricingStep({
 
             <div>
               <Eyebrow>Sessions</Eyebrow>
-              <div className="flex items-center gap-2">
-                <Stepper
-                  value={sessions}
-                  min={1}
-                  max={99}
-                  disabled={unlimitedSessions}
-                  onChange={(next) => {
-                    onChange({ sessions: next });
+              {/* Sessions now lives in a single bracket that mirrors
+                  the Price input's shape exactly — same h-11, same
+                  rounded-[12px], same border + shadow + focus-within
+                  treatment. Stepper buttons + value + divider + the
+                  Unlimited toggle all share one container border, so
+                  the row reads as one cohesive widget like Price,
+                  not as two stacked bordered widgets with a gap. */}
+              <div
+                className={[
+                  "flex h-11 items-center gap-1 rounded-[12px] border bg-[rgb(var(--bg-elevated))] px-1 shadow-[0_1px_2px_rgba(17,16,9,0.03)]",
+                  unlimitedSessions
+                    ? "border-[rgb(var(--border-subtle))] opacity-100"
+                    : "border-[rgb(var(--border-subtle))]",
+                ].join(" ")}
+                role="group"
+                aria-label="Sessions"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sessions > 1 && !unlimitedSessions) {
+                      onChange({ sessions: sessions - 1 });
+                    }
                   }}
-                  ariaLabel="Sessions count"
+                  disabled={unlimitedSessions || sessions <= 1}
+                  aria-label="Decrease sessions"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
+                  style={{ transitionTimingFunction: "var(--ease-press)" }}
+                >
+                  <Minus size={14} strokeWidth={2.4} aria-hidden />
+                </button>
+                <span
+                  className={[
+                    "min-w-[2.5ch] text-center font-display text-[16px] font-bold tabular-nums leading-none transition-colors duration-150",
+                    unlimitedSessions
+                      ? "text-[rgb(var(--fg-faint))]"
+                      : "text-[rgb(var(--fg-default))]",
+                  ].join(" ")}
+                  aria-live="polite"
+                >
+                  {sessions}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sessions < 99 && !unlimitedSessions) {
+                      onChange({ sessions: sessions + 1 });
+                    }
+                  }}
+                  disabled={unlimitedSessions || sessions >= 99}
+                  aria-label="Increase sessions"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
+                  style={{ transitionTimingFunction: "var(--ease-press)" }}
+                >
+                  <Plus size={14} strokeWidth={2.4} aria-hidden />
+                </button>
+                <span
+                  aria-hidden
+                  className="mx-1 h-6 w-px bg-[rgb(var(--border-subtle))]"
                 />
                 <button
                   type="button"
@@ -380,10 +429,10 @@ export function PricingStep({
                   aria-pressed={unlimitedSessions}
                   aria-label="Unlimited sessions"
                   className={[
-                    "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold transition-colors",
+                    "sk-press inline-flex h-8 items-center justify-center rounded-[6px] px-3 text-[12.5px] font-semibold transition-colors duration-150",
                     unlimitedSessions
-                      ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
-                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
+                      ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
+                      : "text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]",
                   ].join(" ")}
                 >
                   Unlimited

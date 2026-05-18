@@ -142,7 +142,12 @@ export function TaxModeSegmented({
       role="radiogroup"
       aria-label={ariaLabel}
       className={[
-        "relative inline-flex items-stretch rounded-full border bg-[rgb(var(--bg-elevated))]",
+        // rounded-[10px] (not rounded-full) so the toggle matches the
+        // Upload-track CTA + the Price input bracket family — soft
+        // rectangle, not full pill. Matches Skitza's "every rectangle
+        // is rounded-[var(--radius-md)] / rounded-[10px]; full-round
+        // is reserved for circular elements" memo.
+        "relative inline-flex items-stretch rounded-[10px] border bg-[rgb(var(--bg-elevated))]",
         // Stretch to fill the container by default (Settings rows,
         // legacy chip); auto-size to content when inline=true so the
         // Pricing-step usage doesn't span the full modal width.
@@ -166,7 +171,11 @@ export function TaxModeSegmented({
           motion, not a drag. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute rounded-full bg-[rgb(var(--brand-primary))] shadow-[0_1px_2px_rgba(17,16,9,0.12)] transition-[transform,width] duration-300"
+        // rounded-[6px] tracks the container's rounded-[10px] minus the
+        // 4px indicator offset. Amber glow shadow matches the
+        // Upload-track CTA so all brand-primary fills in the editor
+        // family read as the same hardware-feel material.
+        className="pointer-events-none absolute rounded-[6px] bg-[rgb(var(--brand-primary))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)] transition-[transform,width] duration-300"
         style={{
           top: dims.indicatorOffset,
           bottom: dims.indicatorOffset,
@@ -198,7 +207,7 @@ export function TaxModeSegmented({
             className={[
               // Each segment fills 1/3. relative + z-10 so the text
               // sits ON the sliding indicator, not under it.
-              "relative z-10 flex-1 rounded-full font-semibold leading-none",
+              "relative z-10 flex-1 rounded-[6px] font-semibold leading-none",
               "transition-[color,transform] duration-200",
               "active:scale-[0.97] disabled:active:scale-100",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.45)] focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
