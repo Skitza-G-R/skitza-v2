@@ -304,7 +304,7 @@ export function PricingStep({
         // ── Flat-price panel (unchanged) ──────────────────────────────
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
+            <div className="flex flex-col gap-2">
               <Eyebrow>Price</Eyebrow>
               <div className="flex items-center gap-2 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 shadow-[0_1px_2px_rgba(17,16,9,0.03)] focus-within:border-[rgb(var(--brand-primary))] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.25)]">
                 <span
@@ -338,6 +338,27 @@ export function PricingStep({
                   <option value="ILS">ILS</option>
                 </select>
               </div>
+              {/* Migration 0019 — live tax preview, paired with the
+                  price input. Sits directly under the price (left
+                  column only on desktop) so the eye reads "this
+                  price → that's what artists pay" as one unit.
+                  Re-mounts on every mode/rate/price change so the
+                  .reveal-up entrance fires. */}
+              {allowPerSong ? (
+                <div
+                  key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
+                  className="reveal-up flex items-baseline gap-2 text-[11.5px] text-[rgb(var(--fg-muted))]"
+                  aria-live="polite"
+                >
+                  <span
+                    aria-hidden
+                    className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgb(var(--fg-faint))]"
+                  >
+                    Tax
+                  </span>
+                  <span>{taxPricingNote}</span>
+                </div>
+              ) : null}
             </div>
 
             <div>
@@ -372,28 +393,6 @@ export function PricingStep({
               </div>
             </div>
           </div>
-
-          {/* Migration 0019 — live tax preview. Re-mounts on mode/rate/
-              price change so the .reveal-up entrance fires, drawing
-              the eye to the post-tax amount the artist actually pays.
-              Hidden in onboarding via the same allowPerSong guard the
-              How-You-Charge toggle uses (onboarding doesn't expose
-              tax). */}
-          {allowPerSong ? (
-            <div
-              key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
-              className="reveal-up rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.02)] px-3 py-2 text-[12px] text-[rgb(var(--fg-muted))]"
-              aria-live="polite"
-            >
-              <span
-                aria-hidden
-                className="mr-2 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgb(var(--fg-faint))]"
-              >
-                Tax
-              </span>
-              {taxPricingNote}
-            </div>
-          ) : null}
 
           <div>
             <Eyebrow>How artists pay</Eyebrow>
