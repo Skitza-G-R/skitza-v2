@@ -394,7 +394,12 @@ export function PricingStep({
                 </button>
                 <span
                   className={[
-                    "min-w-[2.5ch] text-center font-display text-[16px] font-bold tabular-nums leading-none transition-colors duration-150",
+                    // 20px matches the Price input's font-display
+                    // size so the "8" and the "2500" share the same
+                    // baseline when the two brackets sit side by
+                    // side. min-w-[2.5ch] keeps the column stable as
+                    // the digit count changes (8 → 12 → 99).
+                    "min-w-[2.5ch] text-center font-display text-[20px] font-bold tabular-nums leading-none transition-colors duration-150",
                     unlimitedSessions
                       ? "text-[rgb(var(--fg-faint))]"
                       : "text-[rgb(var(--fg-default))]",
