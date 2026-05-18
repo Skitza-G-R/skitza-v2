@@ -38,6 +38,13 @@
       "breakpoints": true
     },
     {
+      "idx": 5,
+      "version": "7",
+      "when": 1778050000000,
+      "tag": "0005_project_paid_at",
+      "breakpoints": true
+    },
+    {
       "idx": 6,
       "version": "7",
       "when": 1778100000000,
