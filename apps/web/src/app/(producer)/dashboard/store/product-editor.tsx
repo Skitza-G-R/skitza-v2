@@ -104,6 +104,13 @@ interface ProductEditorProps {
   /** Producer's default currency, used to seed new products. */
   defaultCurrency: Currency;
   /**
+   * Producer's business-level tax mode + rate (migration 0019). Threaded
+   * into <PricingStep> so the price input shows a live "Artists pay $X"
+   * preview that reflects the producer's current tax setup.
+   */
+  taxMode: import("~/lib/tax-mode").TaxMode;
+  taxRatePct: number;
+  /**
    * Fires only on the CREATE path, with the newly-created product's id,
    * BEFORE the modal closes / toast / router.refresh. Used by the parent
    * to trigger a shimmer-glow on the new card for ~4s.
@@ -219,11 +226,75 @@ export function ProductEditor({
   onOpenChange,
   product,
   defaultCurrency,
+  taxMode,
+  taxRatePct,
   onCreated,
 }: ProductEditorProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
+
+  // Migration 0019 — inline tax state. The toggle is rendered inside
+  // the Pricing step; we own the optimistic local state + the
+  // server save here so the step can stay a pure presentation
+  // component. Saves are fire-and-forget through the same
+  // updateProducer server action Settings used to use.
+  const [taxModeLocal, setTaxModeLocal] = useState(taxMode);
+  const [taxRateLocal, setTaxRateLocal] = useState(taxRatePct);
+  const [taxError, setTaxError] = useState<string | null>(null);
+  // Re-sync when the modal reopens with a fresh producer state
+  // (e.g. another session updated the tax mode while this one was
+  // closed). Keyed off the prop values so an external change wins.
+  useEffect(() => {
+    setTaxModeLocal(taxMode);
+    setTaxRateLocal(taxRatePct);
+  }, [taxMode, taxRatePct]);
+  // Tax saves are fully optimistic + silent. The toggle's slide
+  // animation is the only visible feedback the producer gets — no
+  // pulse, no spinner, no "Saving…" copy — because the server save
+  // takes ~300-500ms and router.refresh() adds another ~1s of
+  // server re-render. Showing a loading state for the full ~1.5s
+  // makes the toggle FEEL slow even though the visual already
+  // moved instantly. Trade-off: if a save fails, we silently roll
+  // back local state + surface a toast.
+  function onTaxChange(patch: {
+    taxMode?: import("~/lib/tax-mode").TaxMode;
+    taxRatePct?: number;
+  }) {
+    const prevMode = taxModeLocal;
+    const prevRate = taxRateLocal;
+    if (patch.taxMode !== undefined) setTaxModeLocal(patch.taxMode);
+    if (patch.taxRatePct !== undefined) setTaxRateLocal(patch.taxRatePct);
+    setTaxError(null);
+    // Fire-and-forget. `void` keeps the function signature
+    // synchronous so the caller doesn't await; the rollback +
+    // toast handlers below take over only if the save fails.
+    void (async () => {
+      try {
+        const { updateProducer } = await import(
+          "~/app/(producer)/dashboard/settings/actions"
+        );
+        const res = await updateProducer(patch);
+        if (res.ok) {
+          // Refresh server-rendered surfaces (storefront cards,
+          // artist store) so the new tax line propagates. Happens
+          // in the background — no visible "pending" state.
+          router.refresh();
+        } else {
+          setTaxModeLocal(prevMode);
+          setTaxRateLocal(prevRate);
+          setTaxError(res.error);
+          toast(res.error, "error");
+        }
+      } catch (e) {
+        setTaxModeLocal(prevMode);
+        setTaxRateLocal(prevRate);
+        const msg = e instanceof Error ? e.message : "Couldn't save.";
+        setTaxError(msg);
+        toast(msg, "error");
+      }
+    })();
+  }
 
   const mode: "new" | "edit" = product != null ? "edit" : "new";
   const steps = mode === "edit" ? EDIT_STEPS : NEW_STEPS;
@@ -380,6 +451,10 @@ export function ProductEditor({
             installmentsCount={draft.installmentsCount}
             pricingModel={draft.pricingModel}
             volumeTiers={draft.volumeTiers}
+            taxMode={taxModeLocal}
+            taxRatePct={taxRateLocal}
+            onTaxChange={onTaxChange}
+            taxError={taxError}
             onChange={(patch) => {
               setDraft((d) => ({ ...d, ...patch }));
             }}

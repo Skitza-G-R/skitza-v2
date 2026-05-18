@@ -8,6 +8,8 @@
 
 "use client";
 
+import type { TaxMode } from "~/lib/tax-mode";
+
 import { ProductRow } from "./product-row";
 import type { StoreProduct } from "./store-screen";
 
@@ -16,6 +18,11 @@ interface StoreTableProps {
   hidden: StoreProduct[];
   pending?: boolean;
   showHiddenGroup: boolean;
+  // Producer's tax mode + rate, passed through to every ProductRow so
+  // the price column shows the post-tax amount for `tax_added` and a
+  // short caption ("Tax-free" / "Tax inc") underneath.
+  taxMode: TaxMode;
+  taxRatePct: number;
   onOpen: (p: StoreProduct) => void;
   onToggleVisible: (p: StoreProduct) => void;
   onEdit: (p: StoreProduct) => void;
@@ -29,6 +36,8 @@ export function StoreTable({
   hidden,
   pending = false,
   showHiddenGroup,
+  taxMode,
+  taxRatePct,
   onOpen,
   onToggleVisible,
   onEdit,
@@ -65,6 +74,8 @@ export function StoreTable({
               key={p.id}
               product={p}
               pending={pending}
+              taxMode={taxMode}
+              taxRatePct={taxRatePct}
               onOpen={() => {
                 onOpen(p);
               }}
@@ -93,6 +104,8 @@ export function StoreTable({
               key={p.id}
               product={p}
               pending={pending}
+              taxMode={taxMode}
+              taxRatePct={taxRatePct}
               onOpen={() => {
                 onOpen(p);
               }}

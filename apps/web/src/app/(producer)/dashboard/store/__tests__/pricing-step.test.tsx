@@ -35,9 +35,16 @@ describe("PricingStep shell", () => {
   });
 
   it("does not mention the dropped fields", () => {
+    // Tightened from a bare /duration/ regex which caught Tailwind's
+    // `duration-150` motion utilities. The dropped wizard fields are
+    // Draft props / object keys, so check for those specific shapes:
+    // `duration:` (object literal key, JSX attr) or `.duration` (prop
+    // access). Same tightening for `revisions` for the same reason.
     expect(SRC).not.toMatch(/depositPct/);
-    expect(SRC).not.toMatch(/duration/);
-    expect(SRC).not.toMatch(/revisions/);
+    expect(SRC).not.toMatch(/\bduration\s*[:=]/);
+    expect(SRC).not.toMatch(/\.duration\b/);
+    expect(SRC).not.toMatch(/\brevisions\s*[:=]/);
+    expect(SRC).not.toMatch(/\.revisions\b/);
     expect(SRC).not.toMatch(/turnaround/);
   });
 

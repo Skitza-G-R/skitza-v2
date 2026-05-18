@@ -16,6 +16,12 @@
 import { Minus, Plus, X } from "lucide-react";
 
 import { fromPrice, type VolumeTier } from "~/lib/pricing";
+import {
+  applyTaxToCents,
+  type TaxMode,
+  taxModePricingNote,
+} from "~/lib/tax-mode";
+import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
 type PaymentPlan = "full" | "split" | "installments";
@@ -53,6 +59,22 @@ interface PricingStepProps {
   installmentsCount: number;
   pricingModel: PricingModel;
   volumeTiers: VolumeTier[];
+  // Producer's business-level tax mode + rate (migration 0019). Drives
+  // BOTH the inline toggle the producer interacts with AND the live
+  // "Artists pay $X" preview below it. The toggle is the only place
+  // tax mode is editable in v2 — Settings + Storefront no longer
+  // expose it. When `onTaxChange` is undefined (e.g. onboarding) the
+  // tax section is hidden entirely.
+  taxMode?: TaxMode;
+  taxRatePct?: number;
+  onTaxChange?: (patch: { taxMode?: TaxMode; taxRatePct?: number }) => void;
+  // Optional error surface for the fire-and-forget tax save. Renders
+  // a small danger-color line below the toggle when set. Pending
+  // state is deliberately NOT surfaced — the toggle's slide
+  // animation is the only feedback the producer gets, so a
+  // server roundtrip + router.refresh() doesn't make the
+  // optimistic move feel slow.
+  taxError?: string | null;
   // When false, the "How do you want to charge?" pill is hidden and
   // the step renders flat-price-only. Used by onboarding's first-
   // service wizard, which intentionally stays simple. Default true
@@ -87,14 +109,29 @@ function Stepper({
 }) {
   const canDec = !disabled && value > min;
   const canInc = !disabled && value < max;
+  // Shared button class — picked out to keep both -/+ in lockstep.
+  // transition-[background-color,transform] (not transition-colors) so
+  // the active scale animates too. focus-visible ring matches the
+  // pattern from .s-select. active:scale-[0.94] gives the instant
+  // "interface heard you" feedback Emil prescribes for press states.
+  const btnClass = [
+    "inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))]",
+    "transition-[background-color,transform] duration-150",
+    "hover:bg-[rgb(17_16_9/0.06)]",
+    "active:scale-[0.94]",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
+    "disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100",
+  ].join(" ");
   return (
     <div
       className={[
-        "inline-flex h-10 items-center gap-1 rounded-[10px] border bg-[rgb(var(--bg-elevated))] p-1",
+        "inline-flex h-11 items-center gap-1 rounded-[10px] border bg-[rgb(var(--bg-elevated))] p-1",
+        "transition-[opacity,border-color] duration-200",
         disabled
           ? "border-[rgb(var(--border-subtle))] opacity-50"
           : "border-[rgb(var(--border-subtle))]",
       ].join(" ")}
+      style={{ transitionTimingFunction: "var(--ease-out-strong)" }}
       aria-label={ariaLabel}
     >
       <button
@@ -104,7 +141,8 @@ function Stepper({
         }}
         disabled={!canDec}
         aria-label="Decrease"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30"
+        className={btnClass}
+        style={{ transitionTimingFunction: "var(--ease-press)" }}
       >
         <Minus size={14} strokeWidth={2.4} aria-hidden />
       </button>
@@ -120,7 +158,8 @@ function Stepper({
         }}
         disabled={!canInc}
         aria-label="Increase"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30"
+        className={btnClass}
+        style={{ transitionTimingFunction: "var(--ease-press)" }}
       >
         <Plus size={14} strokeWidth={2.4} aria-hidden />
       </button>
@@ -160,12 +199,36 @@ export function PricingStep({
   installmentsCount,
   pricingModel,
   volumeTiers,
+  taxMode = "tax_free",
+  taxRatePct = 18,
+  onTaxChange,
+  taxError = null,
   allowPerSong = true,
   onChange,
 }: PricingStepProps) {
+  // Show the tax UI only when a callback is wired — onboarding mounts
+  // this step without producer state and the section should be hidden
+  // there. Narrow once into a local non-undefined ref so the JSX below
+  // can call it directly (eslint's no-unnecessary-condition rule
+  // doesn't see a `typeof` guard through the JSX boundary).
+  const taxChange = onTaxChange;
   const curSym = CURRENCY_SYMBOL[currency];
   const installmentAmt =
     installmentsCount > 0 ? Math.round(price / installmentsCount) : 0;
+  // Live tax preview — formats the same currency the price input uses
+  // so the post-tax amount reads as a direct comparison to whatever
+  // the producer just typed. Skipped when tax_free (no math, no point).
+  const postTaxCents = applyTaxToCents(
+    Math.round(price * 100),
+    taxMode,
+    taxRatePct,
+  );
+  const taxPricingNote = taxModePricingNote(
+    taxMode,
+    taxRatePct,
+    formatCurrency(curSym, price),
+    formatCurrency(curSym, postTaxCents / 100),
+  );
 
   function handleModelChange(next: PricingModel) {
     if (next === pricingModel) return;
@@ -227,7 +290,7 @@ export function PricingStep({
           <div
             role="radiogroup"
             aria-label="Pricing mode"
-            className="inline-flex w-full rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 sm:w-auto"
+            className="inline-flex w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 sm:w-auto"
           >
             {PRICING_MODELS.map((m) => {
               const picked = pricingModel === m.id;
@@ -242,9 +305,9 @@ export function PricingStep({
                     handleModelChange(m.id);
                   }}
                   className={[
-                    "sk-press flex-1 rounded-full px-4 py-1.5 text-[13px] font-semibold transition-colors sm:flex-initial",
+                    "sk-press flex-1 rounded-[6px] px-4 py-1.5 text-[13px] font-semibold transition-colors sm:flex-initial",
                     picked
-                      ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_1px_2px_rgba(17,16,9,0.08)]"
+                      ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
                       : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
                   ].join(" ")}
                 >
@@ -260,9 +323,9 @@ export function PricingStep({
         // ── Flat-price panel (unchanged) ──────────────────────────────
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
+            <div className="flex flex-col gap-2">
               <Eyebrow>Price</Eyebrow>
-              <div className="flex items-center gap-2 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 shadow-[0_1px_2px_rgba(17,16,9,0.03)] focus-within:border-[rgb(var(--brand-primary))] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.25)]">
+              <div className="flex h-11 items-center gap-2 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 shadow-[0_1px_2px_rgba(17,16,9,0.03)] focus-within:border-[rgb(var(--brand-primary))] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.25)]">
                 <span
                   aria-hidden
                   className="font-display text-[20px] font-bold text-[rgb(var(--fg-muted))]"
@@ -298,16 +361,70 @@ export function PricingStep({
 
             <div>
               <Eyebrow>Sessions</Eyebrow>
-              <div className="flex items-center gap-2">
-                <Stepper
-                  value={sessions}
-                  min={1}
-                  max={99}
-                  disabled={unlimitedSessions}
-                  onChange={(next) => {
-                    onChange({ sessions: next });
+              {/* Sessions now lives in a single bracket that mirrors
+                  the Price input's shape exactly — same h-11, same
+                  rounded-[12px], same border + shadow + focus-within
+                  treatment. Stepper buttons + value + divider + the
+                  Unlimited toggle all share one container border, so
+                  the row reads as one cohesive widget like Price,
+                  not as two stacked bordered widgets with a gap. */}
+              <div
+                className={[
+                  "flex h-11 items-center gap-1 rounded-[12px] border bg-[rgb(var(--bg-elevated))] px-1 shadow-[0_1px_2px_rgba(17,16,9,0.03)]",
+                  unlimitedSessions
+                    ? "border-[rgb(var(--border-subtle))] opacity-100"
+                    : "border-[rgb(var(--border-subtle))]",
+                ].join(" ")}
+                role="group"
+                aria-label="Sessions"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sessions > 1 && !unlimitedSessions) {
+                      onChange({ sessions: sessions - 1 });
+                    }
                   }}
-                  ariaLabel="Sessions count"
+                  disabled={unlimitedSessions || sessions <= 1}
+                  aria-label="Decrease sessions"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
+                  style={{ transitionTimingFunction: "var(--ease-press)" }}
+                >
+                  <Minus size={14} strokeWidth={2.4} aria-hidden />
+                </button>
+                <span
+                  className={[
+                    // 20px matches the Price input's font-display
+                    // size so the "8" and the "2500" share the same
+                    // baseline when the two brackets sit side by
+                    // side. min-w-[2.5ch] keeps the column stable as
+                    // the digit count changes (8 → 12 → 99).
+                    "min-w-[2.5ch] text-center font-display text-[20px] font-bold tabular-nums leading-none transition-colors duration-150",
+                    unlimitedSessions
+                      ? "text-[rgb(var(--fg-faint))]"
+                      : "text-[rgb(var(--fg-default))]",
+                  ].join(" ")}
+                  aria-live="polite"
+                >
+                  {sessions}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sessions < 99 && !unlimitedSessions) {
+                      onChange({ sessions: sessions + 1 });
+                    }
+                  }}
+                  disabled={unlimitedSessions || sessions >= 99}
+                  aria-label="Increase sessions"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
+                  style={{ transitionTimingFunction: "var(--ease-press)" }}
+                >
+                  <Plus size={14} strokeWidth={2.4} aria-hidden />
+                </button>
+                <span
+                  aria-hidden
+                  className="mx-1 h-6 w-px bg-[rgb(var(--border-subtle))]"
                 />
                 <button
                   type="button"
@@ -317,10 +434,10 @@ export function PricingStep({
                   aria-pressed={unlimitedSessions}
                   aria-label="Unlimited sessions"
                   className={[
-                    "sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold transition-colors",
+                    "sk-press inline-flex h-8 items-center justify-center rounded-[6px] px-3 text-[12.5px] font-semibold transition-colors duration-150",
                     unlimitedSessions
-                      ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
-                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
+                      ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
+                      : "text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]",
                   ].join(" ")}
                 >
                   Unlimited
@@ -328,6 +445,102 @@ export function PricingStep({
               </div>
             </div>
           </div>
+
+          {/* Migration 0019 — tax disclosure toggle. Lives only here
+              (not Settings, not Storefront header) so the producer
+              feels the impact of the toggle in the same eye-line as
+              the price it modifies. The toggle saves to producer-level
+              (one fact across all products) — we surface that with
+              the "Applies to all products" hint under the preview, so
+              a producer editing one product isn't surprised when their
+              other products inherit the change.
+
+              Visual treatment is deliberately QUIETER than the
+              "How do you want to charge?" pill above:
+                • Wrapped in a soft cream-tint card so the section is
+                  visually contained, not a floating widget.
+                • Toggle is auto-width (inline=true), matching the
+                  How-you-charge pill's footprint and stopping the
+                  two pills from competing as co-primary decisions.
+                • Eyebrow stands alone at the top; the "Applies to all
+                  products" hint moves under the live preview as a
+                  dot-separated suffix. */}
+          {taxChange ? (
+            <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.025)] px-3 py-2.5">
+              {/* Row 1 — TAX eyebrow inline LEFT of the toggle. Tighter
+                  than the previous stacked "label above, toggle below"
+                  layout. Pulse animation is composed onto the
+                  TaxModeSegmented's own container (className prop) so
+                  the brand-color outline traces the pill exactly — not
+                  the text below it. */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Eyebrow>Tax</Eyebrow>
+                <TaxModeSegmented
+                  value={taxMode}
+                  onChange={(next) => {
+                    taxChange({ taxMode: next });
+                  }}
+                  size="lg"
+                  inline
+                  ariaLabel="Tax disclosure mode"
+                />
+                {taxMode !== "tax_free" ? (
+                  <div className="flex items-center gap-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-1 py-1 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)]">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      inputMode="numeric"
+                      value={taxRatePct}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        if (!Number.isFinite(n)) return;
+                        taxChange({
+                          taxRatePct: Math.max(
+                            0,
+                            Math.min(100, Math.round(n)),
+                          ),
+                        });
+                      }}
+                      aria-label="Tax rate percentage"
+                      className="w-10 border-none bg-transparent text-right font-display text-[14px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))] outline-none"
+                    />
+                    <span
+                      aria-hidden
+                      className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
+                    >
+                      %
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+              {/* Row 2 — live preview + "Applies to all products" hint
+                  as a dot-separated subtitle. Smaller mt-1.5 keeps the
+                  whole block compact. */}
+              <div
+                key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
+                className="reveal-up mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px] text-[rgb(var(--fg-muted))]"
+                aria-live="polite"
+              >
+                <span>{taxPricingNote}</span>
+                <span aria-hidden className="text-[rgb(var(--fg-faint))]">
+                  ·
+                </span>
+                <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
+                  Applies to all products
+                </span>
+              </div>
+              {taxError ? (
+                <div
+                  className="mt-1.5 text-[11.5px] text-[rgb(var(--fg-danger))]"
+                  role="alert"
+                >
+                  Couldn&apos;t save: {taxError}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div>
             <Eyebrow>How artists pay</Eyebrow>
