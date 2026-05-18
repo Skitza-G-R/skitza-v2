@@ -126,14 +126,15 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
       aria-label="Page navigation"
       data-testid="dashboard-topbar"
       data-scrolled={scrolled ? "true" : "false"}
-      // backdrop-blur-2xl (40px) + low bg opacity (0.4) gives the true
-      // frosted-glass strip effect — the page content (especially the
-      // colored project / song heroes) reads clearly THROUGH the
-      // topbar, blurred. The previous 0.55 + blur-xl was too
-      // cream-heavy to see anything bleed through.
+      // backdrop-blur-2xl (40px) + ultra-low bg opacity (0.15) reads as
+      // true frosted glass — the page color underneath comes through
+      // clearly, just blurred and slightly lightened. Like the iOS
+      // Music or Apple Notes topbar where you can see the content
+      // scrolling beneath. Previous values (0.4, 0.55) were too
+      // cream-heavy and masked the bleed-through.
       className="sticky top-0 z-30 backdrop-blur-2xl transition-[box-shadow,border-color] duration-200 ease-out"
       style={{
-        background: "rgb(var(--bg-background) / 0.4)",
+        background: "rgb(var(--bg-background) / 0.15)",
         // Border + shadow fade in once the page has scrolled past 4px.
         // At scroll-top the topbar floats with no hard line; the blur
         // does the separation work.
