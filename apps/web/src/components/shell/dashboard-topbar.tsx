@@ -126,14 +126,14 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
       aria-label="Page navigation"
       data-testid="dashboard-topbar"
       data-scrolled={scrolled ? "true" : "false"}
-      // backdrop-blur-xl (24px) + low bg opacity (0.55) gives the
+      // backdrop-blur-2xl (40px) + low bg opacity (0.4) gives the true
       // frosted-glass strip effect — the page content (especially the
-      // colored project / song heroes) bleeds THROUGH the topbar
-      // blurred, like a macOS window chrome or the iOS Music topbar.
-      // No longer reads as a solid cream stripe glued to the top.
-      className="sticky top-0 z-30 backdrop-blur-xl transition-[box-shadow,border-color] duration-200 ease-out"
+      // colored project / song heroes) reads clearly THROUGH the
+      // topbar, blurred. The previous 0.55 + blur-xl was too
+      // cream-heavy to see anything bleed through.
+      className="sticky top-0 z-30 backdrop-blur-2xl transition-[box-shadow,border-color] duration-200 ease-out"
       style={{
-        background: "rgb(var(--bg-background) / 0.55)",
+        background: "rgb(var(--bg-background) / 0.4)",
         // Border + shadow fade in once the page has scrolled past 4px.
         // At scroll-top the topbar floats with no hard line; the blur
         // does the separation work.
@@ -145,12 +145,13 @@ export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
           : "none",
       }}
     >
-      {/* py-1.5 (6px top + 6px bottom) makes the bar feel like a
-          compact strip rather than a chunky chrome row. Combined with
-          the bell shrinking to h-8, the total topbar height drops
-          from ~48px to ~40px — more like a Linear / Vercel topbar
-          than a SaaS app-shell. */}
-      <div className="mx-auto flex w-full max-w-[1400px] items-center gap-3 px-4 py-1.5 sm:gap-4 sm:px-6 lg:px-8">
+      {/* No max-w cap + tight horizontal padding (px-3 sm:px-4) so the
+          breadcrumb hugs the topbar's LEFT edge and the search +
+          bell hug the RIGHT edge — flush to the sides rather than
+          inset into a centered 1400px container. py-1 (4px top + 4px
+          bottom) + bell h-8 puts the topbar at ~40px (was ~48px),
+          reading as a thin compact strip. */}
+      <div className="flex w-full items-center gap-3 px-3 py-1 sm:gap-4 sm:px-4">
         {/* Breadcrumb (top-left). Hidden on the smallest screens
             where the search trigger needs the full row to read; the
             search pill still hints the page via context. `min-w-0` +
