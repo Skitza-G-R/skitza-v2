@@ -21,6 +21,7 @@ import {
   type TaxMode,
   taxModePricingNote,
 } from "~/lib/tax-mode";
+import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
 type PaymentPlan = "full" | "split" | "installments";
@@ -59,11 +60,20 @@ interface PricingStepProps {
   pricingModel: PricingModel;
   volumeTiers: VolumeTier[];
   // Producer's business-level tax mode + rate (migration 0019). Drives
-  // the live "Artists pay $X" note that renders under the price input.
-  // Optional + defaulted so onboarding (which doesn't have the producer
-  // profile in scope yet) still works.
+  // BOTH the inline toggle the producer interacts with AND the live
+  // "Artists pay $X" preview below it. The toggle is the only place
+  // tax mode is editable in v2 — Settings + Storefront no longer
+  // expose it. When `onTaxChange` is undefined (e.g. onboarding) the
+  // tax section is hidden entirely.
   taxMode?: TaxMode;
   taxRatePct?: number;
+  onTaxChange?: (patch: { taxMode?: TaxMode; taxRatePct?: number }) => void;
+  // Surfaces in-flight + error state for the optimistic onTaxChange
+  // save. `taxPending` paints the .sk-pending-pulse outline on the
+  // toggle; `taxError` is a short string shown below the toggle. Both
+  // optional — onboarding doesn't pass these.
+  taxPending?: boolean;
+  taxError?: string | null;
   // When false, the "How do you want to charge?" pill is hidden and
   // the step renders flat-price-only. Used by onboarding's first-
   // service wizard, which intentionally stays simple. Default true
@@ -190,9 +200,18 @@ export function PricingStep({
   volumeTiers,
   taxMode = "tax_free",
   taxRatePct = 18,
+  onTaxChange,
+  taxPending = false,
+  taxError = null,
   allowPerSong = true,
   onChange,
 }: PricingStepProps) {
+  // Show the tax UI only when a callback is wired — onboarding mounts
+  // this step without producer state and the section should be hidden
+  // there. Narrow once into a local non-undefined ref so the JSX below
+  // can call it directly (eslint's no-unnecessary-condition rule
+  // doesn't see a `typeof` guard through the JSX boundary).
+  const taxChange = onTaxChange;
   const curSym = CURRENCY_SYMBOL[currency];
   const installmentAmt =
     installmentsCount > 0 ? Math.round(price / installmentsCount) : 0;
@@ -338,27 +357,6 @@ export function PricingStep({
                   <option value="ILS">ILS</option>
                 </select>
               </div>
-              {/* Migration 0019 — live tax preview, paired with the
-                  price input. Sits directly under the price (left
-                  column only on desktop) so the eye reads "this
-                  price → that's what artists pay" as one unit.
-                  Re-mounts on every mode/rate/price change so the
-                  .reveal-up entrance fires. */}
-              {allowPerSong ? (
-                <div
-                  key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
-                  className="reveal-up flex items-baseline gap-2 text-[11.5px] text-[rgb(var(--fg-muted))]"
-                  aria-live="polite"
-                >
-                  <span
-                    aria-hidden
-                    className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgb(var(--fg-faint))]"
-                  >
-                    Tax
-                  </span>
-                  <span>{taxPricingNote}</span>
-                </div>
-              ) : null}
             </div>
 
             <div>
@@ -393,6 +391,91 @@ export function PricingStep({
               </div>
             </div>
           </div>
+
+          {/* Migration 0019 — tax disclosure toggle. Lives only here
+              (not Settings, not Storefront header) so the producer
+              feels the impact of the toggle in the same eye-line as
+              the price it modifies. The toggle saves to producer-level
+              (one fact across all products) — we surface that with
+              the "Applies to all products" hint underneath, so a
+              producer editing one product isn't surprised when their
+              other products inherit the change. */}
+          {taxChange ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <Eyebrow>Tax</Eyebrow>
+                <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
+                  Applies to all products
+                </span>
+              </div>
+              <div
+                className={[
+                  "flex flex-col gap-3",
+                  taxPending ? "sk-pending-pulse rounded-full" : "",
+                ].join(" ")}
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <TaxModeSegmented
+                      value={taxMode}
+                      onChange={(next) => {
+                        taxChange({ taxMode: next });
+                      }}
+                      size="lg"
+                      disabled={taxPending}
+                      ariaLabel="Tax disclosure mode"
+                    />
+                  </div>
+                  {taxMode !== "tax_free" ? (
+                    <div className="flex items-center gap-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-1 py-1 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)]">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        inputMode="numeric"
+                        value={taxRatePct}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          if (!Number.isFinite(n)) return;
+                          taxChange({
+                            taxRatePct: Math.max(
+                              0,
+                              Math.min(100, Math.round(n)),
+                            ),
+                          });
+                        }}
+                        aria-label="Tax rate percentage"
+                        disabled={taxPending}
+                        className="w-10 border-none bg-transparent text-right font-display text-[14px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))] outline-none"
+                      />
+                      <span
+                        aria-hidden
+                        className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
+                      >
+                        %
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+                <div
+                  key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
+                  className="reveal-up text-[12px] text-[rgb(var(--fg-muted))]"
+                  aria-live="polite"
+                >
+                  {taxPricingNote}
+                </div>
+                {taxError ? (
+                  <div
+                    className="text-[11.5px] text-[rgb(var(--fg-danger))]"
+                    role="alert"
+                  >
+                    Couldn&apos;t save: {taxError}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           <div>
             <Eyebrow>How artists pay</Eyebrow>

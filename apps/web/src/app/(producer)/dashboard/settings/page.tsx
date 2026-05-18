@@ -2,7 +2,6 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
-import { coerceTaxMode } from "~/lib/tax-mode";
 import { SettingsClient } from "./settings-client";
 import {
   isLegacyOutSectionKey,
@@ -126,11 +125,6 @@ export default async function SettingsPage({
         weekStart: profile.weekStart === "monday" ? "monday" : "sunday",
         plan: profile.plan === "pro" ? "pro" : "free",
         notifications: resolveNotifications(profile.notificationPrefs),
-        taxMode: coerceTaxMode(profile.taxMode),
-        taxRatePct:
-          typeof profile.taxRatePct === "number" && Number.isFinite(profile.taxRatePct)
-            ? Math.max(0, Math.min(100, Math.round(profile.taxRatePct)))
-            : 18,
       }}
       identity={{
         avatarUrl: user?.imageUrl ?? null,

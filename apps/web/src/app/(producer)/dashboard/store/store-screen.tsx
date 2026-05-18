@@ -25,7 +25,6 @@ import { ProductEditor } from "./product-editor";
 import { StoreHeader } from "./store-header";
 import { StoreTable } from "./store-table";
 import { StoreToolbar } from "./store-toolbar";
-import { TaxModePicker } from "./tax-mode-picker";
 import { computeNewOrder, useDragReorder } from "./use-drag-reorder";
 import { useUndoableDelete } from "./use-undoable-delete";
 import type { ViewMode } from "./view-toggle";
@@ -206,13 +205,6 @@ export function StoreScreen({
   return (
     <div className="mx-auto w-full max-w-[1100px] px-4 pt-6 pb-24 sm:px-6 sm:pt-10">
       <StoreHeader liveCount={counts.live} hiddenCount={counts.hidden} />
-
-      {/* Migration 0018 — inline tax disclosure picker. Same write
-          path as Settings → Currency & region; convenient for
-          producers iterating on their store from this page. */}
-      <div className="mb-3 flex items-center justify-end">
-        <TaxModePicker initial={taxMode} />
-      </div>
 
       <div className="mb-4 flex justify-end">
         <NewProductButton

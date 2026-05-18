@@ -234,6 +234,58 @@ export function ProductEditor({
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
 
+  // Migration 0019 — inline tax state. The toggle is rendered inside
+  // the Pricing step; we own the optimistic local state + the
+  // server save here so the step can stay a pure presentation
+  // component. Saves are fire-and-forget through the same
+  // updateProducer server action Settings used to use.
+  const [taxModeLocal, setTaxModeLocal] = useState(taxMode);
+  const [taxRateLocal, setTaxRateLocal] = useState(taxRatePct);
+  const [taxPending, setTaxPending] = useState(false);
+  const [taxError, setTaxError] = useState<string | null>(null);
+  // Re-sync when the modal reopens with a fresh producer state
+  // (e.g. another session updated the tax mode while this one was
+  // closed). Keyed off the prop values so an external change wins.
+  useEffect(() => {
+    setTaxModeLocal(taxMode);
+    setTaxRateLocal(taxRatePct);
+  }, [taxMode, taxRatePct]);
+  async function onTaxChange(patch: {
+    taxMode?: import("~/lib/tax-mode").TaxMode;
+    taxRatePct?: number;
+  }) {
+    const prevMode = taxModeLocal;
+    const prevRate = taxRateLocal;
+    if (patch.taxMode !== undefined) setTaxModeLocal(patch.taxMode);
+    if (patch.taxRatePct !== undefined) setTaxRateLocal(patch.taxRatePct);
+    setTaxError(null);
+    setTaxPending(true);
+    try {
+      const { updateProducer } = await import(
+        "~/app/(producer)/dashboard/settings/actions"
+      );
+      const res = await updateProducer(patch);
+      if (res.ok) {
+        // Refresh server-rendered surfaces (storefront, artist store)
+        // so the new tax line propagates to everywhere prices render.
+        router.refresh();
+      } else {
+        setTaxModeLocal(prevMode);
+        setTaxRateLocal(prevRate);
+        setTaxError(res.error);
+        toast(res.error, "error");
+      }
+    } catch (e) {
+      setTaxModeLocal(prevMode);
+      setTaxRateLocal(prevRate);
+      const msg = e instanceof Error ? e.message : "Couldn't save.";
+      setTaxError(msg);
+      toast(msg, "error");
+    } finally {
+      setTaxPending(false);
+    }
+  }
+
   const mode: "new" | "edit" = product != null ? "edit" : "new";
   const steps = mode === "edit" ? EDIT_STEPS : NEW_STEPS;
 
@@ -389,8 +441,16 @@ export function ProductEditor({
             installmentsCount={draft.installmentsCount}
             pricingModel={draft.pricingModel}
             volumeTiers={draft.volumeTiers}
-            taxMode={taxMode}
-            taxRatePct={taxRatePct}
+            taxMode={taxModeLocal}
+            taxRatePct={taxRateLocal}
+            onTaxChange={(patch) => {
+              // Fire-and-forget — onTaxChange is async but the prop
+              // signature is void. The function handles its own
+              // toast/rollback on error.
+              void onTaxChange(patch);
+            }}
+            taxPending={taxPending}
+            taxError={taxError}
             onChange={(patch) => {
               setDraft((d) => ({ ...d, ...patch }));
             }}

@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 
 import { useToast } from "~/components/ui/toast";
 import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
-import { type TaxMode, taxModeHint } from "~/lib/tax-mode";
-import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
 import { updateProducer } from "./actions";
 import { PaymentCard } from "./payment-card";
 import { StripeCard } from "./stripe-card";
@@ -34,11 +32,6 @@ interface InitialState {
   weekStart: "sunday" | "monday";
   plan: "free" | "pro";
   notifications: NotificationState;
-  // Migration 0019 — business-level tax disclosure mode + rate.
-  // 'tax_added' actually multiplies the Stripe charge at checkout;
-  // the other two modes are display-only. Rate defaults to 18 (IL VAT).
-  taxMode: TaxMode;
-  taxRatePct: number;
 }
 
 interface IdentityState {
@@ -65,8 +58,6 @@ interface FormState {
   displayName: string;
   defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
   weekStart: "sunday" | "monday";
-  taxMode: TaxMode;
-  taxRatePct: number;
 }
 
 export function SettingsClient({
@@ -94,8 +85,6 @@ export function SettingsClient({
     displayName: initial.displayName,
     defaultCurrency: initial.defaultCurrency,
     weekStart: initial.weekStart,
-    taxMode: initial.taxMode,
-    taxRatePct: initial.taxRatePct,
   };
 
   // `form` holds in-progress edits; `savedForm` is the last persisted
@@ -130,9 +119,7 @@ export function SettingsClient({
     if (form.displayName !== savedForm.displayName) out.add("profile");
     if (
       form.defaultCurrency !== savedForm.defaultCurrency ||
-      form.weekStart !== savedForm.weekStart ||
-      form.taxMode !== savedForm.taxMode ||
-      form.taxRatePct !== savedForm.taxRatePct
+      form.weekStart !== savedForm.weekStart
     ) {
       out.add("region");
     }
@@ -159,8 +146,6 @@ export function SettingsClient({
     if (form.defaultCurrency !== savedForm.defaultCurrency)
       patch.defaultCurrency = form.defaultCurrency;
     if (form.weekStart !== savedForm.weekStart) patch.weekStart = form.weekStart;
-    if (form.taxMode !== savedForm.taxMode) patch.taxMode = form.taxMode;
-    if (form.taxRatePct !== savedForm.taxRatePct) patch.taxRatePct = form.taxRatePct;
     if (JSON.stringify(notifs) !== JSON.stringify(savedNotifs)) {
       // Send only the event keys whose value diverges from saved.
       // The server's NotificationPrefsInput is a partial map; missing
@@ -1042,90 +1027,6 @@ function RegionSection({
                   </button>
                 );
               })}
-            </div>
-          </div>
-        </div>
-        {/* Migration 0019 — business-level tax disclosure mode + rate.
-            Lives next to Currency because the disclosure label only
-            makes sense paired with the price's currency. The
-            <TaxModeSegmented> 3-segment toggle replaces the old
-            <select>; the rate input only renders for the two modes
-            that actually use it. The 'highlight' prop fires a one-shot
-            brand-color halo on first paint so a producer landing on
-            the page can't miss the new control. */}
-        <div className="s-row" style={{ alignItems: "flex-start" }}>
-          <div>
-            <div className="s-row-label">Tax disclosure</div>
-            <div className="s-row-hint">
-              How tax appears on every product. Shown to artists next
-              to your prices.
-            </div>
-          </div>
-          <div className="s-row-field" style={{ maxWidth: 420 }}>
-            <TaxModeSegmented
-              value={form.taxMode}
-              onChange={(next) => {
-                setForm({ ...form, taxMode: next });
-              }}
-              size="lg"
-              highlight
-              ariaLabel="Tax disclosure mode"
-            />
-            {/* Rate input — only meaningful when tax actually applies.
-                Hidden in 'tax_free' but the column stays populated so
-                toggling back doesn't lose the rate. Number input is
-                whole-percent only (UI matches the schema's integer
-                column). */}
-            {form.taxMode !== "tax_free" ? (
-              <div
-                className="flex items-center gap-2 s-reveal"
-                style={{ marginTop: 10 }}
-              >
-                <label
-                  className="text-[12px] text-[rgb(var(--fg-muted))]"
-                  htmlFor="tax-rate-pct"
-                >
-                  Tax rate
-                </label>
-                <div className="flex items-center gap-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-1 py-1 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)]">
-                  <input
-                    id="tax-rate-pct"
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={1}
-                    inputMode="numeric"
-                    value={form.taxRatePct}
-                    onChange={(e) => {
-                      const n = Number(e.target.value);
-                      if (!Number.isFinite(n)) return;
-                      setForm({
-                        ...form,
-                        taxRatePct: Math.max(0, Math.min(100, Math.round(n))),
-                      });
-                    }}
-                    aria-label="Tax rate percentage"
-                    className="w-12 border-none bg-transparent text-right font-display text-[14px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))] outline-none"
-                  />
-                  <span
-                    aria-hidden
-                    className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
-                  >
-                    %
-                  </span>
-                </div>
-              </div>
-            ) : null}
-            {/* Live hint sentence — re-mounts on every mode/rate change
-                so the .s-reveal entrance fires (220ms ease-out-strong
-                fade-up). aria-live keeps SRs in sync. */}
-            <div
-              key={`${form.taxMode}-${String(form.taxRatePct)}`}
-              className="s-row-hint s-reveal"
-              style={{ marginTop: 10 }}
-              aria-live="polite"
-            >
-              {taxModeHint(form.taxMode, form.taxRatePct)}
             </div>
           </div>
         </div>
