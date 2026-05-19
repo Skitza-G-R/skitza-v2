@@ -84,11 +84,15 @@ describe("checkout-initiator persists song_qty + unit_price_cents on per-song pr
   });
 });
 
-describe("artist.store.checkout mutation forwards songQty + unitPriceCents", () => {
+describe("artist.store.checkout mutation persists songQty + unitPriceCents on the project", () => {
   const src = readFileSync(ARTIST_ROUTER_PATH, "utf8");
-  it("passes input.songQty + input.unitPriceCents into initiatePaidPlanCheckout", () => {
-    expect(src).toMatch(/songQty:\s*input\.songQty/);
-    expect(src).toMatch(/unitPriceCents:\s*input\.unitPriceCents/);
+  // SK-18 — store-buy now inserts the project up-front and redirects
+  // to Tranzila instead of forwarding to initiatePaidPlanCheckout. The
+  // per-song fields land on the projects row at insert time so the
+  // producer dashboard's "× N songs" rendering still works.
+  it("denormalises input.songQty + input.unitPriceCents onto the projects insert", () => {
+    expect(src).toMatch(/songQty:\s*input\.songQty\s*\?\?\s*null/);
+    expect(src).toMatch(/unitPriceCents:\s*input\.unitPriceCents\s*\?\?\s*null/);
   });
 });
 

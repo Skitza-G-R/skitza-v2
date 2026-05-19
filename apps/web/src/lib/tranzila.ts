@@ -4,11 +4,14 @@
 //
 // Builds the URL for Tranzila's `iframenew.php` hosted page. The
 // payment page redirects the browser directly to this URL — the artist
-// pays on Tranzila's own page, then Tranzila redirects them back to:
-//   - on success → /artist/payment/success (server page confirms the booking)
-//   - on failure → /artist/payment/{bookingId}?error=payment_failed
-// notify_url_address is the server-to-server confirmation, posted to
-// /api/tranzila/callback by Tranzila independently.
+// pays on Tranzila's own page, then Tranzila redirects them back to
+// the configured success / fail paths. notify_url is the server-to-
+// server confirmation, posted independently by Tranzila.
+//
+// `pdesc` carries the id Tranzila echoes back on both the redirect and
+// the notify_url POST. Booking flow passes a bookingId; store flow
+// passes a projectId. Each caller owns the success/notify/fail paths
+// (with whatever query params they need on the way back).
 //
 // `terminalName` is the per-producer Tranzila terminal (producers.tranzila_terminal_name).
 // When provided, payments route to that terminal so funds flow directly
@@ -18,7 +21,10 @@
 export function buildTranzilaRedirectUrl(params: {
   amountCents: number;
   currency: string;
-  bookingId: string;
+  pdesc: string;
+  successPath: string;
+  notifyPath: string;
+  failPath: string;
   artistEmail?: string;
   artistName?: string;
   productName?: string;
@@ -66,15 +72,15 @@ export function buildTranzilaRedirectUrl(params: {
     nologo: "1",
     contact: params.artistName ?? "Artist",
     email: params.artistEmail ?? "",
-    // Pass the bookingId via pdesc — Tranzila echoes pdesc back on the
-    // success redirect, so the success page can recover the bookingId
-    // even if the success_url query string gets mangled.
-    pdesc: params.bookingId,
+    // Tranzila echoes pdesc back on both the success redirect query and
+    // the notify_url POST body, so the callback can recover the id even
+    // if the success_url query string gets mangled.
+    pdesc: params.pdesc,
     // Use the legacy `*_url` parameter names — the newer `*_url_address`
     // variants mangle `https://` into `https:/` in Tranzila's redirect.
-    success_url: `${safeSiteUrl}/artist/payment/success?bookingId=${params.bookingId}`,
-    fail_url: `${safeSiteUrl}/artist/payment/${params.bookingId}?error=payment_failed`,
-    notify_url: `${safeSiteUrl}/api/tranzila/callback?bookingId=${params.bookingId}`,
+    success_url: `${safeSiteUrl}${params.successPath}`,
+    fail_url: `${safeSiteUrl}${params.failPath}`,
+    notify_url: `${safeSiteUrl}${params.notifyPath}`,
   });
 
   return `https://direct.tranzila.com/${terminalName}/iframenew.php?${urlParams.toString()}`;

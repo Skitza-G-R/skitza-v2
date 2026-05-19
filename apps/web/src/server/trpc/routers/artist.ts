@@ -19,19 +19,19 @@ import {
   trackComments,
   trackVersions,
 } from "@skitza/db";
+import { createDb } from "@skitza/db";
 import type { Db, PaymentPlan } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { after } from "next/server";
 import { z } from "zod";
-import { router } from "../init";
+import { publicProcedure, router } from "../init";
 import { artistProcedure } from "../artist-procedure";
 import { groupStudiosForArtist } from "~/server/artist/identity";
 import {
   SITE_URL,
   sendNewCommentFromArtistEmail,
+  sendPaymentReceivedEmail,
 } from "~/server/email/send";
-import { getSiteUrl } from "~/server/stripe/client";
-import { coerceTaxMode } from "~/lib/tax-mode";
 
 // ─── Ownership guard ─────────────────────────────────────────────────
 // Resolves the signed-in artist's ownership of a given project. Both
@@ -682,9 +682,12 @@ const bookSubrouter = router({
       const myEmails = [...new Set(contacts.map((c) => c.email.toLowerCase()))];
 
       // One project per row, with the package label sourced from the
-      // most recent confirmed booking on that project. innerJoin scopes
-      // us to projects that have at least one confirmed booking — the
-      // signal that the artist actually committed to the package.
+      // most recent confirmed booking on that project when one exists.
+      // leftJoin instead of innerJoin so store-purchased projects
+      // (SK-18) — which have no booking until the artist redeems a
+      // credit — still surface as available packages. depositPaid=true
+      // is the canonical "artist has paid for this package" predicate
+      // for both flows, so it stays the access boundary here.
       const projectRows = await ctx.db
         .select({
           id: projects.id,
@@ -694,7 +697,7 @@ const bookSubrouter = router({
           productId: bookings.productId,
         })
         .from(projects)
-        .innerJoin(
+        .leftJoin(
           bookings,
           and(
             eq(bookings.projectId, projects.id),
@@ -923,14 +926,14 @@ const bookSubrouter = router({
 // ─── artist.store sub-router ─────────────────────────────────────────
 // Browse + buy products from any of the artist's studios without
 // leaving the artist app. `products` is the catalog read (all or one
-// studio), `product` is the detail read, `checkout` mints a Stripe
-// Checkout Session via the shared `initiatePaidPlanCheckout` helper.
+// studio), `product` is the detail read, `checkout` inserts a project
+// row in `lead` stage and returns the Tranzila redirect URL.
+// `confirmAfterPayment` is the server-to-server confirmation handler
+// invoked by /api/tranzila/store-callback after the artist pays.
 //
-// The helper is also used by `booking.publicRequest`, so the public
-// booking flow and the signed-in artist Store hit the same plan-aware
-// Stripe Connect + invoice-ledger code. Both paths get the same
-// plan-validation guard (BAD_REQUEST on unlisted plans) and the same
-// project row shape in `lead` stage.
+// Money flow: funds route to the producer's tranzilaTerminalName when
+// set, otherwise to the master Skitza terminal in env. SK-2 unlocks
+// per-producer onboarding; until then every studio can sell.
 const storeSubrouter = router({
   // List products the artist can buy. `producerId` optional: when
   // undefined, returns the union of products across all the artist's
@@ -1262,112 +1265,222 @@ const storeSubrouter = router({
         }
       }
 
-      // 3. Producer's Stripe Connect fields. stripeAccountId must be
-      //    set AND charges must be enabled, otherwise we can't route
-      //    funds. Pre-flight check returns a clean BAD_REQUEST instead
-      //    of a confusing Stripe error.
+      // 3. Producer row — pull terminal + slug for the Tranzila
+      //    redirect. No payment-provider gate: funds route to the
+      //    master Skitza terminal when the producer hasn't onboarded
+      //    their own (SK-2 unlocks per-producer terminals; until then
+      //    every studio can sell). tranzilaTerminalName is nullable —
+      //    null falls back to env in buildTranzilaRedirectUrl.
       const [producerRow] = await ctx.db
         .select({
-          stripeAccountId: producers.stripeAccountId,
-          stripeChargesEnabled: producers.stripeChargesEnabled,
           slug: producers.slug,
-          // Migration 0019 — needed for checkout math when the
-          // producer is on 'tax_added' mode (Stripe charge gets
-          // multiplied by 1 + ratePct/100).
-          taxMode: producers.taxMode,
-          taxRatePct: producers.taxRatePct,
+          tranzilaTerminalName: producers.tranzilaTerminalName,
         })
         .from(producers)
         .where(eq(producers.id, prod.producerId))
         .limit(1);
+      if (!producerRow) throw new TRPCError({ code: "NOT_FOUND" });
 
-      if (
-        !producerRow?.stripeAccountId ||
-        !producerRow.stripeChargesEnabled
-      ) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This studio isn't set up to accept payments yet — reach out directly.",
-        });
-      }
-
-      // 4. Delegate to the shared helper. Plan validation happens inside
-      //    (throws BAD_REQUEST on unlisted plans). Helper handles:
-      //    - client_contacts upsert (no-op here since we already have one)
-      //    - Stripe Customer lookup/create
-      //    - projects row insert (lead stage, plan snapshot)
-      //    - Stripe Checkout Session create (idempotency-keyed)
-      //    - invoices row for full/split; skipped for monthly.
-      const { initiatePaidPlanCheckout } = await import(
-        "~/server/payments/checkout-initiator"
-      );
-
-      // Idempotency scope: per (client_contact, product, plan.kind) so
-      // a signed-in artist spamming "Continue to checkout" on the same
-      // plan doesn't fan out into duplicate Stripe sessions. Switching
-      // plan variants (full → monthly) gives a distinct key.
-      const planKey =
-        input.paymentPlan.kind === "monthly"
-          ? `monthly-${String(input.paymentPlan.installments)}`
-          : input.paymentPlan.kind;
-      const idempotencyKey = `store-${contact.id}-${prod.id}-${planKey}-checkout`;
-
-      const plan: PaymentPlan = input.paymentPlan;
-      // Per-song products: the locked-in total is songQty *
-      // unitPriceCents. Flat products keep using the product's
-      // canonical priceCents. The guard above already enforced that
-      // per_song arrives with both fields present.
+      // 4. Per-song products: the locked-in total is songQty *
+      //    unitPriceCents. Flat products keep using the product's
+      //    canonical priceCents. The guard above already enforced
+      //    that per_song arrives with both fields present.
       const effectivePriceCents =
         prod.pricingModel === "per_song" &&
         input.songQty != null &&
         input.unitPriceCents != null
           ? input.songQty * input.unitPriceCents
           : prod.priceCents;
-      const result = await initiatePaidPlanCheckout({
-        db: ctx.db,
-        producer: {
-          id: prod.producerId,
-          slug: producerRow.slug,
-          stripeAccountId: producerRow.stripeAccountId,
-        },
-        product: prod,
-        paymentPlan: plan,
-        clientName: contact.name,
-        clientEmail: contact.email,
-        priceCents: effectivePriceCents,
-        // Migration 0019 — producer's tax mode + rate. When mode is
-        // 'tax_added' the helper multiplies effectivePriceCents by
-        // 1 + ratePct/100 before charging Stripe.
-        taxMode: coerceTaxMode(producerRow.taxMode),
-        taxRatePct: producerRow.taxRatePct,
-        // Per-song denormalisation — undefined on flat checkouts
-        // (the helper's args are optional with exactOptionalPropertyTypes).
-        ...(prod.pricingModel === "per_song" && input.songQty != null
-          ? { songQty: input.songQty }
+
+      // 5. Snapshot the payment plan kind on the project so SK-2 can
+      //    wire real installment support later. v1 always charges the
+      //    full amount up front at Tranzila — Tranzila's hosted page
+      //    doesn't model 50/50 or monthly the way Stripe did. The
+      //    artist sees the total they agreed to either way.
+      const planKey =
+        input.paymentPlan.kind === "monthly"
+          ? `monthly-${String(input.paymentPlan.installments)}`
+          : input.paymentPlan.kind;
+
+      // 6. Insert the project row up-front in `lead` stage,
+      //    depositPaid=false. The store-callback flips depositPaid
+      //    → true on Tranzila confirmation (artist.store.confirmAfterPayment).
+      //    Abandoned carts leave a `lead`-stage orphan in the producer's
+      //    list — acceptable for v1; a sweeper can prune them later.
+      const { computeProjectSessionCount } = await import("~/lib/pricing");
+      const sessionCount = computeProjectSessionCount(prod, input.songQty);
+
+      const lowerEmail = contact.email.trim().toLowerCase();
+      const [newProject] = await ctx.db
+        .insert(projects)
+        .values({
+          producerId: prod.producerId,
+          bookingId: null,
+          title: prod.name,
+          stage: "lead",
+          clientName: contact.name,
+          clientEmail: lowerEmail,
+          artistName: contact.name,
+          artistEmail: lowerEmail,
+          depositPaid: false,
+          chargesCompleted: 0,
+          sessionCount,
+          paymentPlanKind: planKey,
+          totalAmountCents: effectivePriceCents,
+          currency: prod.currency,
+          // Per-song denormalisation — null on flat products. Producers
+          // surface "× N songs" on the project page when songQty > 1.
+          songQty: input.songQty ?? null,
+          unitPriceCents: input.unitPriceCents ?? null,
+        })
+        .returning({ id: projects.id });
+      if (!newProject) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      }
+
+      // 7. Build the Tranzila redirect. pdesc carries the projectId so
+      //    the notify_url POST can identify which project to flip.
+      const { buildTranzilaRedirectUrl } = await import("~/lib/tranzila");
+      const checkoutUrl = buildTranzilaRedirectUrl({
+        amountCents: effectivePriceCents,
+        currency: prod.currency,
+        pdesc: newProject.id,
+        successPath: `/artist/payment/success?projectId=${newProject.id}`,
+        notifyPath: `/api/tranzila/store-callback?projectId=${newProject.id}`,
+        failPath: `/artist/store/${prod.id}?error=payment_failed`,
+        artistEmail: contact.email,
+        artistName: contact.name,
+        productName: prod.name,
+        ...(producerRow.tranzilaTerminalName
+          ? { terminalName: producerRow.tranzilaTerminalName }
           : {}),
-        ...(prod.pricingModel === "per_song" && input.unitPriceCents != null
-          ? { unitPriceCents: input.unitPriceCents }
-          : {}),
-        idempotencyKey,
-        metadata: { source: "artist_store" },
-        // Keep artists inside the artist app after Stripe. The helper's
-        // default success/cancel URLs now point to /join/<slug> (the
-        // new artist funnel per PRD §6.6) — correct for anonymous
-        // booking initiated from /join, wrong for this signed-in
-        // store flow. On success we deep-link to /artist with a query
-        // flag so the Home tab can render a "thanks, you're set!"
-        // toast (UI hook-up is a follow-up; for now the redirect alone
-        // is enough). On cancel we return to the product detail so the
-        // artist can pick a different plan without losing context.
-        successUrl: `${getSiteUrl()}/artist?checkoutSuccess=1`,
-        cancelUrl: `${getSiteUrl()}/artist/store/${prod.id}`,
       });
 
       return {
-        checkoutUrl: result.checkoutUrl,
-        projectId: result.projectId,
+        checkoutUrl,
+        projectId: newProject.id,
       };
+    }),
+
+  // Server-to-server confirmation called by /api/tranzila/store-callback
+  // after the artist completes payment on Tranzila's hosted page.
+  // publicProcedure — no Clerk session (Tranzila is the caller). The
+  // projectId is read from the notify_url POST body (`pdesc`), so this
+  // is identity-bound by the upstream Tranzila signature on the
+  // checkout URL we generated. Idempotent — Tranzila retries non-2xx
+  // and we ignore Response codes ≠ "000" in the callback.
+  //
+  // SK-20 banner is currently keyed on bookings.producerAcknowledgedAt,
+  // so store purchases won't surface in the banner without bookings.
+  // Producer still gets the email + sees the project under their CRM.
+  // TODO(SK-18): extend the banner to also watch unacknowledged store
+  // purchase projects.
+  confirmAfterPayment: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        tranzilaConfirmationCode: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      // publicProcedure — Tranzila is the caller, no Clerk session, so
+      // build our own db handle the same way booking.confirmAfterPayment
+      // does. Cheap; createDb returns a pooled drizzle client.
+      const dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "missing DATABASE_URL",
+        });
+      }
+      const db = createDb(dbUrl);
+
+      const [existing] = await db
+        .select({
+          id: projects.id,
+          producerId: projects.producerId,
+          title: projects.title,
+          artistName: projects.artistName,
+          artistEmail: projects.artistEmail,
+          depositPaid: projects.depositPaid,
+          totalAmountCents: projects.totalAmountCents,
+          currency: projects.currency,
+          sessionCount: projects.sessionCount,
+        })
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1);
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
+
+      // Idempotent: a redelivered notify_url POST hits a project that
+      // already flipped — return ok without re-running the email send.
+      if (existing.depositPaid) {
+        return { ok: true as const, projectId: existing.id };
+      }
+
+      const now = new Date();
+      await db
+        .update(projects)
+        .set({
+          depositPaid: true,
+          chargesCompleted: 1,
+          stage: "booked",
+          paidAt: now,
+          updatedAt: now,
+        })
+        .where(eq(projects.id, input.projectId));
+
+      if (input.tranzilaConfirmationCode) {
+        // No tranzilaConfirmationCode column on projects (booking has
+        // one; adding to projects would require a schema migration —
+        // out of scope for SK-18). Log for audit + Tranzila reconcile.
+        console.log("[store.confirmAfterPayment] tranzila confirmation", {
+          projectId: input.projectId,
+          confirmationCode: input.tranzilaConfirmationCode,
+        });
+      }
+
+      // Best-effort producer "you got paid" email. Mirrors the SK-20
+      // pattern on booking.confirmAfterPayment — log and swallow so a
+      // Resend hiccup can't undo the payment confirmation.
+      try {
+        const [producerForEmail] = await db
+          .select({
+            email: producers.email,
+            displayName: producers.displayName,
+            defaultCurrency: producers.defaultCurrency,
+          })
+          .from(producers)
+          .where(eq(producers.id, existing.producerId))
+          .limit(1);
+        if (producerForEmail) {
+          await sendPaymentReceivedEmail(producerForEmail.email, {
+            producerName:
+              producerForEmail.displayName ?? producerForEmail.email,
+            artistName: existing.artistName,
+            projectName: existing.title,
+            amountCents: existing.totalAmountCents ?? 0,
+            // TODO(SK-6): real platform fee calc once payment routing
+            // is wired up. v1 always reports gross = net.
+            platformFeeCents: 0,
+            currency:
+              existing.currency ?? producerForEmail.defaultCurrency,
+            viewUrl: `${SITE_URL}/dashboard/clients-projects/${existing.id}`,
+          });
+        }
+      } catch (err) {
+        console.error(
+          "[email] sendPaymentReceivedEmail (producer) failed in store.confirmAfterPayment",
+          err,
+        );
+      }
+
+      return { ok: true as const, projectId: existing.id };
     }),
 });
 
@@ -1814,6 +1927,58 @@ export const artistRouter = router({
         ),
       )
       .orderBy(desc(bookings.statusChangedAt))
+      .limit(1);
+    return rows[0] ?? null;
+  }),
+
+  // Mirror of recentConfirmedBooking for the store-purchase flow. Used
+  // by the /artist/payment/success page to render a store-flavored
+  // confirmation card (SK-18). Scopes to projects with bookingId IS
+  // NULL (store flow never creates a booking up-front) that the artist
+  // owns via their clientContacts, and were flipped to paid within the
+  // last 10 minutes. Returns null when there's no recent store purchase
+  // — the success page falls back to the booking lookup, then to the
+  // generic "Payment confirmed" panel.
+  recentStorePurchase: artistProcedure.query(async ({ ctx }) => {
+    const myContacts = await ctx.db
+      .select({ email: clientContacts.email })
+      .from(clientContacts)
+      .where(
+        and(
+          eq(clientContacts.clerkUserId, ctx.clerkUserId),
+          isNull(clientContacts.archivedAt),
+        ),
+      );
+    if (myContacts.length === 0) return null;
+    const myEmails = [
+      ...new Set(myContacts.map((c) => c.email.toLowerCase())),
+    ];
+
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const rows = await ctx.db
+      .select({
+        id: projects.id,
+        title: projects.title,
+        sessionCount: projects.sessionCount,
+        totalAmountCents: projects.totalAmountCents,
+        currency: projects.currency,
+        paidAt: projects.paidAt,
+        producerName: producers.displayName,
+        producerSlug: producers.slug,
+        producerId: projects.producerId,
+      })
+      .from(projects)
+      .innerJoin(producers, eq(producers.id, projects.producerId))
+      .where(
+        and(
+          isNull(projects.bookingId),
+          eq(projects.depositPaid, true),
+          eq(projects.chargesCompleted, 1),
+          inArray(projects.artistEmail, myEmails),
+          gte(projects.paidAt, tenMinutesAgo),
+        ),
+      )
+      .orderBy(desc(projects.paidAt))
       .limit(1);
     return rows[0] ?? null;
   }),

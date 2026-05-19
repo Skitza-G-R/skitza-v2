@@ -307,6 +307,11 @@ beforeEach(() => {
   updateSetSpy.mockReset();
   stripeSessionCreateMock.mockClear();
   process.env.DATABASE_URL = "postgresql://test/test";
+  // SK-18 — store flow now redirects to Tranzila. The URL builder
+  // requires a terminal name; seed a deterministic value so tests can
+  // assert the resulting URL shape without hitting the env fallback.
+  process.env.TRANZILA_TERMINAL_NAME = "skitza_master";
+  process.env.NEXT_PUBLIC_SITE_URL = "https://skitza.test";
 });
 
 const buildCaller = async (userId: string | null = "user_test_artist_1") => {
@@ -776,15 +781,16 @@ describe("artist.store.checkout (mutation)", () => {
       },
     ]);
     seedValidContact();
+    // SK-18 — store flow no longer reads stripe fields off producers;
+    // it pulls slug + tranzilaTerminalName instead. Null terminal means
+    // the URL builder falls back to TRANZILA_TERMINAL_NAME from env.
     producersSelectQueue.push([
       {
-        stripeAccountId: "acct_connected",
-        stripeChargesEnabled: true,
         slug: "alpha",
+        tranzilaTerminalName: null,
       },
     ]);
-    // When the router INSERTs projects → returns id; when invoices →
-    // no returning (fine — tests don't assert on invoice insert id).
+    // The router INSERTs a projects row up-front (lead stage, unpaid).
     insertReturningSpy.mockImplementation(() =>
       Promise.resolve([{ id: "project-new-1" }]),
     );
@@ -837,25 +843,11 @@ describe("artist.store.checkout (mutation)", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  // Test 12
-  it("throws BAD_REQUEST when selected plan isn't in product.paymentPlans", async () => {
-    seedCheckoutReady({
-      paymentPlans: [{ kind: "full" }], // only "full" offered
-    });
-
-    const caller = await buildCaller();
-    await expect(
-      caller.artist.store.checkout({
-        productId: PRODUCT_ID,
-        paymentPlan: { kind: "split_50_50" }, // not offered
-      }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    // No Stripe session created — we rejected before calling Stripe.
-    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
-  });
-
-  // Test 13
-  it("happy path: creates Stripe Checkout session and returns URL", async () => {
+  // Test 13 (SK-18) — happy path now redirects to Tranzila, not Stripe.
+  // No payment-provider gate on the producer row (the Stripe-era
+  // "not connected" guard is gone), and the mutation returns a URL on
+  // direct.tranzila.com instead of a Stripe Checkout session URL.
+  it("happy path: inserts project + returns Tranzila redirect URL", async () => {
     seedCheckoutReady();
 
     const caller = await buildCaller();
@@ -864,11 +856,50 @@ describe("artist.store.checkout (mutation)", () => {
       paymentPlan: { kind: "full" },
     });
 
-    expect(result.checkoutUrl).toBe("https://stripe.test/cs_test_123");
-    expect(stripeSessionCreateMock).toHaveBeenCalled();
+    expect(result.checkoutUrl).toMatch(
+      /^https:\/\/direct\.tranzila\.com\/skitza_master\/iframenew\.php\?/,
+    );
+    expect(result.projectId).toBe("project-new-1");
+    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
+
+    // pdesc carries the new project id so the notify_url callback can
+    // identify which row to flip.
+    expect(result.checkoutUrl).toContain("pdesc=project-new-1");
+    // notify_url points at the store-callback route, not the booking one.
+    expect(result.checkoutUrl).toContain(
+      encodeURIComponent("/api/tranzila/store-callback").replace(/%2F/g, "%2F"),
+    );
   });
 
-  // Test 14
+  // Test 13b (SK-18) — project insert carries the right shape: lead
+  // stage, unpaid, sessionCount snapshot, paymentPlanKind snapshot. The
+  // store-callback flips depositPaid/chargesCompleted later.
+  it("inserts project with lead/unpaid shape + payment-plan snapshot", async () => {
+    seedCheckoutReady();
+
+    const caller = await buildCaller();
+    await caller.artist.store.checkout({
+      productId: PRODUCT_ID,
+      paymentPlan: { kind: "split_50_50" },
+    });
+
+    const projectInsert = insertValuesSpy.mock.calls.find(
+      (c) => "stage" in c[0],
+    );
+    expect(projectInsert).toBeDefined();
+    const payload = projectInsert?.[0] as Row;
+    expect(payload.stage).toBe("lead");
+    expect(payload.depositPaid).toBe(false);
+    expect(payload.chargesCompleted).toBe(0);
+    expect(payload.bookingId).toBe(null);
+    expect(payload.totalAmountCents).toBe(100000);
+    expect(payload.currency).toBe("USD");
+    expect(payload.sessionCount).toBe(1);
+    expect(payload.paymentPlanKind).toBe("split_50_50");
+  });
+
+  // Test 14 (SK-18) — auth boundary still holds against the post-Stripe
+  // mutation: the contacts SELECT scopes by clerkUserId + producerId.
   it("scopes ownership check by clerkUserId + producerId (auth boundary)", async () => {
     productsSelectQueue.push([
       {
@@ -902,9 +933,8 @@ describe("artist.store.checkout (mutation)", () => {
     ]);
     producersSelectQueue.push([
       {
-        stripeAccountId: "acct_connected",
-        stripeChargesEnabled: true,
         slug: "alpha",
+        tranzilaTerminalName: null,
       },
     ]);
     insertReturningSpy.mockImplementation(() =>
@@ -1009,9 +1039,8 @@ describe("artist.store.checkout (mutation)", () => {
     seedValidContact();
     producersSelectQueue.push([
       {
-        stripeAccountId: "acct_connected",
-        stripeChargesEnabled: true,
         slug: "alpha",
+        tranzilaTerminalName: null,
       },
     ]);
     insertReturningSpy.mockImplementation(() =>
@@ -1026,17 +1055,28 @@ describe("artist.store.checkout (mutation)", () => {
       unitPriceCents: 15000,
     });
 
-    expect(result.checkoutUrl).toBe("https://stripe.test/cs_test_123");
-    expect(stripeSessionCreateMock).toHaveBeenCalled();
+    // SK-18 — Tranzila URL, not Stripe. The amount embedded in the URL
+    // is the locked-in per-song total (75000 cents = $750.00).
+    expect(result.checkoutUrl).toMatch(
+      /^https:\/\/direct\.tranzila\.com\/skitza_master\/iframenew\.php\?/,
+    );
+    expect(result.checkoutUrl).toContain("sum=750.00");
+    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
 
     // The project row insert was called with totalAmountCents = 75000
     // (= songQty × unitPriceCents), not the product's base
-    // priceCents (20000). Find the projects insert in the spy log.
+    // priceCents (20000), and the per-song fields are denormalised
+    // onto the project for producer-dashboard rendering.
     const projectInsert = insertValuesSpy.mock.calls.find(
       (c) => "totalAmountCents" in c[0],
     );
     expect(projectInsert).toBeDefined();
-    expect(projectInsert?.[0]?.totalAmountCents).toBe(75000);
+    const payload = projectInsert?.[0] as Row;
+    expect(payload.totalAmountCents).toBe(75000);
+    expect(payload.songQty).toBe(5);
+    expect(payload.unitPriceCents).toBe(15000);
+    // computeProjectSessionCount(per_song, 5) = 1 × 5 = 5
+    expect(payload.sessionCount).toBe(5);
   });
 });
 

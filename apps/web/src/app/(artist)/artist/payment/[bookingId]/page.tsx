@@ -60,7 +60,10 @@ export default async function PaymentPage({ params, searchParams }: PageProps) {
   const tranzilaUrl = buildTranzilaRedirectUrl({
     amountCents: details.amountCents,
     currency: details.currency,
-    bookingId,
+    pdesc: bookingId,
+    successPath: `/artist/payment/success?bookingId=${bookingId}`,
+    notifyPath: `/api/tranzila/callback?bookingId=${bookingId}`,
+    failPath: `/artist/payment/${bookingId}?error=payment_failed`,
     artistEmail: details.booking.artistEmail,
     artistName: details.booking.artistName,
     productName: details.product.name,
