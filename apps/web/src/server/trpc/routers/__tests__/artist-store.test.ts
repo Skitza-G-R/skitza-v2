@@ -35,10 +35,12 @@ const {
   invoicesMarker,
   bookingsMarker,
   stripeCustomersMarker,
+  storePurchaseIntentsMarker,
   contactsSelectQueue,
   productsSelectQueue,
   producersSelectQueue,
   projectsSelectQueue,
+  intentsSelectQueue,
   contactsWhereSpy,
   productsWhereSpy,
   insertValuesSpy,
@@ -51,6 +53,7 @@ const {
   const productsSelectQueue: Queue = [];
   const producersSelectQueue: Queue = [];
   const projectsSelectQueue: Queue = [];
+  const intentsSelectQueue: Queue = [];
 
   const contactsWhereSpy = vi.fn<(arg: unknown) => void>();
   const productsWhereSpy = vi.fn<(arg: unknown) => void>();
@@ -94,10 +97,22 @@ const {
     stripeAccountId: { __column: "producers.stripe_account_id" },
     stripeChargesEnabled: { __column: "producers.stripe_charges_enabled" },
   };
-  const projectsMarker = { __table: "projects" };
+  const projectsMarker = {
+    __table: "projects",
+    id: { __column: "projects.id" },
+    producerId: { __column: "projects.producer_id" },
+    artistEmail: { __column: "projects.artist_email" },
+    totalAmountCents: { __column: "projects.total_amount_cents" },
+    createdAt: { __column: "projects.created_at" },
+  };
   const invoicesMarker = { __table: "invoices" };
   const bookingsMarker = { __table: "bookings" };
   const stripeCustomersMarker = { __table: "stripe_customers" };
+  const storePurchaseIntentsMarker = {
+    __table: "store_purchase_intents",
+    id: { __column: "store_purchase_intents.id" },
+    consumedAt: { __column: "store_purchase_intents.consumed_at" },
+  };
 
   const shift = <T,>(q: T[][]): T[] => q.shift() ?? [];
 
@@ -159,6 +174,9 @@ const {
         if (table === projectsMarker) {
           return chain(() => Promise.resolve(shift(projectsSelectQueue)));
         }
+        if (table === storePurchaseIntentsMarker) {
+          return chain(() => Promise.resolve(shift(intentsSelectQueue)));
+        }
         throw new Error(`unexpected from(${String(table)})`);
       },
     }),
@@ -182,6 +200,11 @@ const {
         return { where: () => Promise.resolve(undefined) };
       },
     }),
+    // store.confirmAfterPayment wraps project-insert + intent-update in
+    // a transaction. The tx callback gets a handle with the same shape
+    // as the outer db; for tests we just hand the same dbMock back.
+    transaction: async <T,>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
+      fn(dbMock),
   };
 
   return {
@@ -192,10 +215,12 @@ const {
     invoicesMarker,
     bookingsMarker,
     stripeCustomersMarker,
+    storePurchaseIntentsMarker,
     contactsSelectQueue,
     productsSelectQueue,
     producersSelectQueue,
     projectsSelectQueue,
+    intentsSelectQueue,
     contactsWhereSpy,
     productsWhereSpy,
     insertValuesSpy,
@@ -225,6 +250,7 @@ vi.mock("@skitza/db", () => ({
   invoices: invoicesMarker,
   bookings: bookingsMarker,
   stripeCustomers: stripeCustomersMarker,
+  storePurchaseIntents: storePurchaseIntentsMarker,
   // Other tables the broader router modules import — opaque markers.
   projectTracks: { __table: "project_tracks" },
   trackVersions: { __table: "track_versions" },
@@ -300,6 +326,7 @@ beforeEach(() => {
   productsSelectQueue.length = 0;
   producersSelectQueue.length = 0;
   projectsSelectQueue.length = 0;
+  intentsSelectQueue.length = 0;
   contactsWhereSpy.mockReset();
   productsWhereSpy.mockReset();
   insertValuesSpy.mockReset();
@@ -790,9 +817,10 @@ describe("artist.store.checkout (mutation)", () => {
         tranzilaTerminalName: null,
       },
     ]);
-    // The router INSERTs a projects row up-front (lead stage, unpaid).
+    // The router INSERTs a store_purchase_intents row at checkout
+    // (project is materialized later by store.confirmAfterPayment).
     insertReturningSpy.mockImplementation(() =>
-      Promise.resolve([{ id: "project-new-1" }]),
+      Promise.resolve([{ id: "intent-new-1" }]),
     );
   }
 
@@ -847,7 +875,7 @@ describe("artist.store.checkout (mutation)", () => {
   // No payment-provider gate on the producer row (the Stripe-era
   // "not connected" guard is gone), and the mutation returns a URL on
   // direct.tranzila.com instead of a Stripe Checkout session URL.
-  it("happy path: inserts project + returns Tranzila redirect URL", async () => {
+  it("happy path: inserts intent + returns Tranzila redirect URL", async () => {
     seedCheckoutReady();
 
     const caller = await buildCaller();
@@ -859,22 +887,31 @@ describe("artist.store.checkout (mutation)", () => {
     expect(result.checkoutUrl).toMatch(
       /^https:\/\/direct\.tranzila\.com\/skitza_master\/iframenew\.php\?/,
     );
-    expect(result.projectId).toBe("project-new-1");
+    expect(result.intentId).toBe("intent-new-1");
     expect(stripeSessionCreateMock).not.toHaveBeenCalled();
 
-    // pdesc carries the new project id so the notify_url callback can
-    // identify which row to flip.
-    expect(result.checkoutUrl).toContain("pdesc=project-new-1");
+    // pdesc carries the intent id so the notify_url callback can look
+    // it up + materialize the project.
+    expect(result.checkoutUrl).toContain("pdesc=intent-new-1");
     // notify_url points at the store-callback route, not the booking one.
     expect(result.checkoutUrl).toContain(
       encodeURIComponent("/api/tranzila/store-callback").replace(/%2F/g, "%2F"),
     );
+
+    // No project row inserted at checkout time — only the intent.
+    // The intent insert lacks `stage` (a project-only column), so a
+    // search for `stage` in any insert payload must come up empty.
+    const projectInsert = insertValuesSpy.mock.calls.find(
+      (c) => "stage" in c[0],
+    );
+    expect(projectInsert).toBeUndefined();
   });
 
-  // Test 13b (SK-18) — project insert carries the right shape: lead
-  // stage, unpaid, sessionCount snapshot, paymentPlanKind snapshot. The
-  // store-callback flips depositPaid/chargesCompleted later.
-  it("inserts project with lead/unpaid shape + payment-plan snapshot", async () => {
+  // Test 13b (SK-18) — intent insert carries the materialization
+  // payload: amountCents, sessionCount, payment plan snapshot, per-song
+  // fields, package name. The callback later copies these onto the
+  // minted project row.
+  it("inserts intent with full materialization payload", async () => {
     seedCheckoutReady();
 
     const caller = await buildCaller();
@@ -883,19 +920,18 @@ describe("artist.store.checkout (mutation)", () => {
       paymentPlan: { kind: "split_50_50" },
     });
 
-    const projectInsert = insertValuesSpy.mock.calls.find(
-      (c) => "stage" in c[0],
+    const intentInsert = insertValuesSpy.mock.calls.find(
+      (c) => "packageNameSnapshot" in c[0],
     );
-    expect(projectInsert).toBeDefined();
-    const payload = projectInsert?.[0] as Row;
-    expect(payload.stage).toBe("lead");
-    expect(payload.depositPaid).toBe(false);
-    expect(payload.chargesCompleted).toBe(0);
-    expect(payload.bookingId).toBe(null);
-    expect(payload.totalAmountCents).toBe(100000);
+    expect(intentInsert).toBeDefined();
+    const payload = intentInsert?.[0] as Row;
+    expect(payload.amountCents).toBe(100000);
     expect(payload.currency).toBe("USD");
     expect(payload.sessionCount).toBe(1);
     expect(payload.paymentPlanKind).toBe("split_50_50");
+    expect(payload.packageNameSnapshot).toBe("Mix");
+    expect(payload.songQty).toBe(null);
+    expect(payload.unitPriceCents).toBe(null);
   });
 
   // Test 14 (SK-18) — auth boundary still holds against the post-Stripe
@@ -938,7 +974,7 @@ describe("artist.store.checkout (mutation)", () => {
       },
     ]);
     insertReturningSpy.mockImplementation(() =>
-      Promise.resolve([{ id: "project-new-1" }]),
+      Promise.resolve([{ id: "intent-new-1" }]),
     );
 
     const caller = await buildCaller("user_bob");
@@ -1044,7 +1080,7 @@ describe("artist.store.checkout (mutation)", () => {
       },
     ]);
     insertReturningSpy.mockImplementation(() =>
-      Promise.resolve([{ id: "project-new-1" }]),
+      Promise.resolve([{ id: "intent-new-1" }]),
     );
 
     const caller = await buildCaller();
@@ -1063,20 +1099,122 @@ describe("artist.store.checkout (mutation)", () => {
     expect(result.checkoutUrl).toContain("sum=750.00");
     expect(stripeSessionCreateMock).not.toHaveBeenCalled();
 
-    // The project row insert was called with totalAmountCents = 75000
-    // (= songQty × unitPriceCents), not the product's base
-    // priceCents (20000), and the per-song fields are denormalised
-    // onto the project for producer-dashboard rendering.
-    const projectInsert = insertValuesSpy.mock.calls.find(
-      (c) => "totalAmountCents" in c[0],
+    // The intent row carries amountCents = 75000 (= songQty ×
+    // unitPriceCents), not the product's base priceCents (20000), plus
+    // the per-song fields so the callback can copy them onto the
+    // minted project row.
+    const intentInsert = insertValuesSpy.mock.calls.find(
+      (c) => "amountCents" in c[0],
     );
-    expect(projectInsert).toBeDefined();
-    const payload = projectInsert?.[0] as Row;
-    expect(payload.totalAmountCents).toBe(75000);
+    expect(intentInsert).toBeDefined();
+    const payload = intentInsert?.[0] as Row;
+    expect(payload.amountCents).toBe(75000);
     expect(payload.songQty).toBe(5);
     expect(payload.unitPriceCents).toBe(15000);
     // computeProjectSessionCount(per_song, 5) = 1 × 5 = 5
     expect(payload.sessionCount).toBe(5);
+  });
+
+  // Test 16 (SK-18) — abandoned checkout: store.checkout inserts the
+  // intent row, no project row is created. The producer's CRM never
+  // sees an orphan lead because the project only exists after the
+  // callback materializes it.
+  it("abandoned checkout inserts intent only, never a project", async () => {
+    seedCheckoutReady();
+
+    const caller = await buildCaller();
+    await caller.artist.store.checkout({
+      productId: PRODUCT_ID,
+      paymentPlan: { kind: "full" },
+    });
+
+    // Exactly one insert — the intent — and it carries the materialization
+    // payload shape, not a project shape (no `stage`, `depositPaid`).
+    expect(insertValuesSpy.mock.calls.length).toBe(1);
+    const payload = insertValuesSpy.mock.calls[0]?.[0] as Row;
+    expect(payload).toHaveProperty("packageNameSnapshot");
+    expect(payload).not.toHaveProperty("stage");
+    expect(payload).not.toHaveProperty("depositPaid");
+  });
+
+  // Test 17 (SK-18) — idempotency: a redelivered Tranzila notify_url
+  // POST should NOT materialize a second project. The intent's
+  // consumed_at gate is what makes this safe; on re-fire we look up
+  // the existing project and return its id without writing again.
+  it("confirmAfterPayment is idempotent when intent.consumedAt is set", async () => {
+    // First call: intent is unconsumed → materialize project.
+    intentsSelectQueue.push([
+      {
+        id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+        producerId: PRODUCER_ID,
+        productId: PRODUCT_ID,
+        artistUserId: "user_test_artist_1",
+        artistEmail: "dan@x.com",
+        artistName: "Dan The Artist",
+        songQty: null,
+        unitPriceCents: null,
+        amountCents: 100000,
+        currency: "USD",
+        paymentPlanKind: "full",
+        packageNameSnapshot: "Mix",
+        sessionCount: 1,
+        createdAt: new Date(),
+        consumedAt: null,
+      },
+    ]);
+    // Producer email lookup after the transaction.
+    producersSelectQueue.push([
+      {
+        email: "alpha@studios.com",
+        displayName: "Alpha Studios",
+        defaultCurrency: "USD",
+      },
+    ]);
+    insertReturningSpy.mockResolvedValueOnce([{ id: "project-mat-1" }]);
+
+    const caller = await buildCaller();
+    const first = await caller.artist.store.confirmAfterPayment({
+      intentId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    });
+    expect(first.projectId).toBe("project-mat-1");
+
+    const insertsAfterFirst = insertValuesSpy.mock.calls.length;
+    // The first call should have inserted exactly one project row.
+    expect(insertsAfterFirst).toBe(1);
+
+    // Second call: intent is now consumed → return the existing
+    // project id without re-inserting.
+    intentsSelectQueue.push([
+      {
+        id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+        producerId: PRODUCER_ID,
+        productId: PRODUCT_ID,
+        artistUserId: "user_test_artist_1",
+        artistEmail: "dan@x.com",
+        artistName: "Dan The Artist",
+        songQty: null,
+        unitPriceCents: null,
+        amountCents: 100000,
+        currency: "USD",
+        paymentPlanKind: "full",
+        packageNameSnapshot: "Mix",
+        sessionCount: 1,
+        createdAt: new Date(),
+        consumedAt: new Date(),
+      },
+    ]);
+    // The consumed-branch lookup: return the previously-materialized
+    // project so the procedure can echo its id back.
+    projectsSelectQueue.push([{ id: "project-mat-1" }]);
+
+    const second = await caller.artist.store.confirmAfterPayment({
+      intentId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    });
+    expect(second.projectId).toBe("project-mat-1");
+
+    // CRITICAL: no second project insert. The total insert count is
+    // still the count from the first call.
+    expect(insertValuesSpy.mock.calls.length).toBe(insertsAfterFirst);
   });
 });
 

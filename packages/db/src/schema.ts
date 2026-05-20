@@ -376,6 +376,49 @@ export const bookings = pgTable("bookings", {
 export type Booking = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
 
+// ─── Store purchase intents ──────────────────────────────────────────
+// SK-18 — holds the materialization payload for a Tranzila store
+// checkout in flight. We insert this at artist.store.checkout time
+// (instead of inserting the project up-front with depositPaid=false),
+// and store.confirmAfterPayment uses it to mint the project row in a
+// single transaction once payment confirms. Abandoned checkouts leave
+// an intent with consumed_at=null and never produce a project row, so
+// the producer's CRM never sees an orphan lead.
+//
+// Migration 0021. The `currency` + `payment_plan_kind` fields mirror
+// the equivalent columns on `projects` so the callback can copy them
+// straight through without re-deriving from the product.
+export const storePurchaseIntents = pgTable("store_purchase_intents", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  productId: uuid("product_id").notNull().references(() => products.id),
+  // Clerk userId of the artist who initiated checkout. Nullable so an
+  // anonymous /join flow could reuse this table later (out of scope for
+  // SK-18 — store.checkout is artistProcedure, so always non-null).
+  artistUserId: text("artist_user_id"),
+  artistEmail: text("artist_email").notNull(),
+  artistName: text("artist_name").notNull(),
+  // Per-song math snapshots — null for flat products. Stored on the
+  // intent so the callback can copy them onto the project without
+  // re-running tier math against (possibly mutated) product.volumeTiers.
+  songQty: integer("song_qty"),
+  unitPriceCents: integer("unit_price_cents"),
+  // Locked-in total, currency, and plan kind. The callback writes these
+  // onto the project row verbatim.
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  paymentPlanKind: text("payment_plan_kind"),
+  packageNameSnapshot: text("package_name_snapshot").notNull(),
+  sessionCount: integer("session_count").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Stamped by store.confirmAfterPayment when the intent is materialized
+  // into a project. Null = unconsumed; non-null + an existing project
+  // row tied to the same payment = idempotent re-fires return ok.
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+});
+export type StorePurchaseIntent = typeof storePurchaseIntents.$inferSelect;
+export type NewStorePurchaseIntent = typeof storePurchaseIntents.$inferInsert;
+
 // ─── Projects (unified Booking + Contract + Project Room) ─────────
 // A Project ties every artifact for one engagement under a single row:
 // the booking that kicked it off, the contract that formalised it,

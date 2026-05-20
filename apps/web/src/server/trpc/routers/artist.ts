@@ -16,6 +16,7 @@ import {
   projects,
   projectTracks,
   sql,
+  storePurchaseIntents,
   trackComments,
   trackVersions,
 } from "@skitza/db";
@@ -1302,51 +1303,47 @@ const storeSubrouter = router({
           ? `monthly-${String(input.paymentPlan.installments)}`
           : input.paymentPlan.kind;
 
-      // 6. Insert the project row up-front in `lead` stage,
-      //    depositPaid=false. The store-callback flips depositPaid
-      //    → true on Tranzila confirmation (artist.store.confirmAfterPayment).
-      //    Abandoned carts leave a `lead`-stage orphan in the producer's
-      //    list — acceptable for v1; a sweeper can prune them later.
+      // 6. Insert a store_purchase_intents row. The project row is NOT
+      //    created here — store.confirmAfterPayment mints it from this
+      //    intent in a transaction once Tranzila confirms payment.
+      //    Abandoned carts leave an intent with consumed_at=null and
+      //    never produce a project, so the producer's CRM never sees
+      //    an orphan lead.
       const { computeProjectSessionCount } = await import("~/lib/pricing");
       const sessionCount = computeProjectSessionCount(prod, input.songQty);
 
       const lowerEmail = contact.email.trim().toLowerCase();
-      const [newProject] = await ctx.db
-        .insert(projects)
+      const [intent] = await ctx.db
+        .insert(storePurchaseIntents)
         .values({
           producerId: prod.producerId,
-          bookingId: null,
-          title: prod.name,
-          stage: "lead",
-          clientName: contact.name,
-          clientEmail: lowerEmail,
-          artistName: contact.name,
+          productId: prod.id,
+          artistUserId: ctx.clerkUserId,
           artistEmail: lowerEmail,
-          depositPaid: false,
-          chargesCompleted: 0,
-          sessionCount,
-          paymentPlanKind: planKey,
-          totalAmountCents: effectivePriceCents,
-          currency: prod.currency,
-          // Per-song denormalisation — null on flat products. Producers
-          // surface "× N songs" on the project page when songQty > 1.
+          artistName: contact.name,
           songQty: input.songQty ?? null,
           unitPriceCents: input.unitPriceCents ?? null,
+          amountCents: effectivePriceCents,
+          currency: prod.currency,
+          paymentPlanKind: planKey,
+          packageNameSnapshot: prod.name,
+          sessionCount,
         })
-        .returning({ id: projects.id });
-      if (!newProject) {
+        .returning({ id: storePurchaseIntents.id });
+      if (!intent) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       }
 
-      // 7. Build the Tranzila redirect. pdesc carries the projectId so
-      //    the notify_url POST can identify which project to flip.
+      // 7. Build the Tranzila redirect. pdesc carries the intentId so
+      //    the notify_url POST can look up the intent and materialize
+      //    the project.
       const { buildTranzilaRedirectUrl } = await import("~/lib/tranzila");
       const checkoutUrl = buildTranzilaRedirectUrl({
         amountCents: effectivePriceCents,
         currency: prod.currency,
-        pdesc: newProject.id,
-        successPath: `/artist/payment/success?projectId=${newProject.id}`,
-        notifyPath: `/api/tranzila/store-callback?projectId=${newProject.id}`,
+        pdesc: intent.id,
+        successPath: `/artist/payment/success?intentId=${intent.id}`,
+        notifyPath: `/api/tranzila/store-callback?intentId=${intent.id}`,
         failPath: `/artist/store/${prod.id}?error=payment_failed`,
         artistEmail: contact.email,
         artistName: contact.name,
@@ -1358,7 +1355,7 @@ const storeSubrouter = router({
 
       return {
         checkoutUrl,
-        projectId: newProject.id,
+        intentId: intent.id,
       };
     }),
 
@@ -1378,7 +1375,7 @@ const storeSubrouter = router({
   confirmAfterPayment: publicProcedure
     .input(
       z.object({
-        projectId: z.string().uuid(),
+        intentId: z.string().uuid(),
         tranzilaConfirmationCode: z.string().optional(),
       }),
     )
@@ -1395,59 +1392,102 @@ const storeSubrouter = router({
       }
       const db = createDb(dbUrl);
 
-      const [existing] = await db
-        .select({
-          id: projects.id,
-          producerId: projects.producerId,
-          title: projects.title,
-          artistName: projects.artistName,
-          artistEmail: projects.artistEmail,
-          depositPaid: projects.depositPaid,
-          totalAmountCents: projects.totalAmountCents,
-          currency: projects.currency,
-          sessionCount: projects.sessionCount,
-        })
-        .from(projects)
-        .where(eq(projects.id, input.projectId))
+      const [intent] = await db
+        .select()
+        .from(storePurchaseIntents)
+        .where(eq(storePurchaseIntents.id, input.intentId))
         .limit(1);
-      if (!existing) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found",
+
+      // Unknown intent id — treat as idempotency / accept-and-noop so
+      // Tranzila doesn't keep retrying. We log loudly because this is
+      // either a stale retry against a wiped dev DB or, more concerning,
+      // a forged `pdesc`.
+      if (!intent) {
+        console.warn("[store.confirmAfterPayment] unknown intent id", {
+          intentId: input.intentId,
         });
+        return { ok: true as const, projectId: null };
       }
 
-      // Idempotent: a redelivered notify_url POST hits a project that
-      // already flipped — return ok without re-running the email send.
-      if (existing.depositPaid) {
-        return { ok: true as const, projectId: existing.id };
+      // Idempotent: redelivered notify_url POST hits an intent that's
+      // already been materialized — find the project we minted last
+      // time and return its id.
+      if (intent.consumedAt) {
+        const [existing] = await db
+          .select({ id: projects.id })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.producerId, intent.producerId),
+              eq(projects.artistEmail, intent.artistEmail.toLowerCase()),
+              eq(
+                projects.totalAmountCents,
+                intent.amountCents,
+              ),
+            ),
+          )
+          .orderBy(desc(projects.createdAt))
+          .limit(1);
+        return {
+          ok: true as const,
+          projectId: existing?.id ?? null,
+        };
       }
 
+      // Mint the project + stamp consumed_at in a single transaction so
+      // a network blip mid-write can't produce a half-state (project
+      // with no intent flag, or intent flag with no project).
+      const lowerEmail = intent.artistEmail.toLowerCase();
       const now = new Date();
-      await db
-        .update(projects)
-        .set({
-          depositPaid: true,
-          chargesCompleted: 1,
-          stage: "booked",
-          paidAt: now,
-          updatedAt: now,
-        })
-        .where(eq(projects.id, input.projectId));
+      const newProjectId = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(projects)
+          .values({
+            producerId: intent.producerId,
+            bookingId: null,
+            title: intent.packageNameSnapshot,
+            stage: "booked",
+            clientName: intent.artistName,
+            clientEmail: lowerEmail,
+            artistName: intent.artistName,
+            artistEmail: lowerEmail,
+            depositPaid: true,
+            finalPaid: false,
+            chargesCompleted: 1,
+            sessionCount: intent.sessionCount,
+            paymentPlanKind: intent.paymentPlanKind,
+            totalAmountCents: intent.amountCents,
+            currency: intent.currency,
+            songQty: intent.songQty,
+            unitPriceCents: intent.unitPriceCents,
+            paidAt: now,
+          })
+          .returning({ id: projects.id });
+        if (!row) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        }
+        await tx
+          .update(storePurchaseIntents)
+          .set({ consumedAt: now })
+          .where(eq(storePurchaseIntents.id, intent.id));
+        return row.id;
+      });
 
       if (input.tranzilaConfirmationCode) {
         // No tranzilaConfirmationCode column on projects (booking has
-        // one; adding to projects would require a schema migration —
-        // out of scope for SK-18). Log for audit + Tranzila reconcile.
+        // one; adding to projects would need a schema migration — out
+        // of scope). Log for audit + Tranzila reconcile.
         console.log("[store.confirmAfterPayment] tranzila confirmation", {
-          projectId: input.projectId,
+          intentId: intent.id,
+          projectId: newProjectId,
           confirmationCode: input.tranzilaConfirmationCode,
         });
       }
 
       // Best-effort producer "you got paid" email. Mirrors the SK-20
       // pattern on booking.confirmAfterPayment — log and swallow so a
-      // Resend hiccup can't undo the payment confirmation.
+      // Resend hiccup can't undo the payment confirmation. Outside the
+      // transaction so a slow Resend doesn't hold the row lock.
       try {
         const [producerForEmail] = await db
           .select({
@@ -1456,21 +1496,20 @@ const storeSubrouter = router({
             defaultCurrency: producers.defaultCurrency,
           })
           .from(producers)
-          .where(eq(producers.id, existing.producerId))
+          .where(eq(producers.id, intent.producerId))
           .limit(1);
         if (producerForEmail) {
           await sendPaymentReceivedEmail(producerForEmail.email, {
             producerName:
               producerForEmail.displayName ?? producerForEmail.email,
-            artistName: existing.artistName,
-            projectName: existing.title,
-            amountCents: existing.totalAmountCents ?? 0,
+            artistName: intent.artistName,
+            projectName: intent.packageNameSnapshot,
+            amountCents: intent.amountCents,
             // TODO(SK-6): real platform fee calc once payment routing
             // is wired up. v1 always reports gross = net.
             platformFeeCents: 0,
-            currency:
-              existing.currency ?? producerForEmail.defaultCurrency,
-            viewUrl: `${SITE_URL}/dashboard/clients-projects/${existing.id}`,
+            currency: intent.currency,
+            viewUrl: `${SITE_URL}/dashboard/clients-projects/${newProjectId}`,
           });
         }
       } catch (err) {
@@ -1480,7 +1519,7 @@ const storeSubrouter = router({
         );
       }
 
-      return { ok: true as const, projectId: existing.id };
+      return { ok: true as const, projectId: newProjectId };
     }),
 });
 
