@@ -1,14 +1,32 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
-import Link from "next/link";
 
-import { ActivityFeed } from "~/components/artist/home/activity-feed";
-import { BalanceCard } from "~/components/artist/home/balance-card";
-import { HomeHero } from "~/components/artist/home/home-hero";
-import { LatestMixCard } from "~/components/artist/home/latest-mix-card";
-import { NextSessionCard } from "~/components/artist/home/next-session-card";
-import { UpcomingSessionsCard } from "~/components/artist/home/upcoming-sessions-card";
+import {
+  AlsoWaitingList,
+  type WaitingRow,
+} from "~/components/artist/home/also-waiting-list";
+import {
+  FocalCard,
+  type FocalItem,
+} from "~/components/artist/home/focal-card";
+import { InboxHero } from "~/components/artist/home/inbox-hero";
 import { appRouter } from "~/server/trpc/routers/_app";
+
 import { WelcomeModal } from "./welcome-modal";
+
+// ─── /artist — inbox-style home (SK-26) ─────────────────────────────
+//
+// One focal card at the top, a quiet "Also waiting" list below.
+// Picked from the same `artist.home` + `artist.book.myPendingPayments`
+// data the prior dashboard rendered; no schema changes.
+//
+// Focal priority:
+//   1. New unread mix
+//   2. Pending payment
+//   3. Upcoming session within 7 days
+//   4. Quiet (empty state)
+//
+// "Also waiting" picks up to 2 of the items NOT promoted to focal so
+// the artist still sees them, but without the visual weight of cards.
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   ILS: "₪",
@@ -17,20 +35,19 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   GBP: "£",
 };
 
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
 function formatAmount(amountCents: number, currency: string): string {
   const symbol = CURRENCY_SYMBOLS[currency.toUpperCase()] ?? `${currency} `;
-  return `${symbol}${(amountCents / 100).toFixed(2)}`;
+  const amount = amountCents / 100;
+  const hasCents = amount % 1 !== 0;
+  const formatted = new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: 2,
+  }).format(amount);
+  return `${symbol}${formatted}`;
 }
 
-// Server Component. Reads everything in one tRPC call (artist.home),
-// then hands typed slices to the four child cards. The artist layout
-// already gates non-signed-in traffic + redirects empty users to
-// /artist-welcome, so by the time we get here we're guaranteed a
-// userId AND ≥ 1 studio (or the user is also a producer).
-//
-// The `auth()` check is defense-in-depth: middleware → layout → page.
-// All three would have to silently pass through an unauthenticated
-// request for this to fall back to `null`.
 export default async function ArtistHomePage() {
   const { userId } = await auth();
   if (!userId) return null;
@@ -42,67 +59,164 @@ export default async function ArtistHomePage() {
     caller.artist.book.myPendingPayments(),
   ]);
 
-  // Hero copy. firstName falls back to "there" so a user without a
-  // first-name set in Clerk still gets a friendly heading.
   const firstName = user?.firstName?.trim() || "there";
   const todayLabel = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
+    weekday: "short",
     month: "short",
     day: "numeric",
   });
 
-  // One-line status: each upstream signal contributes a short bit.
-  // Empty-state copy stays gentle — silence isn't bad news.
-  const bits: string[] = [];
-  if (data.latestMix) bits.push("new mix to review");
-  if (data.nextSession) bits.push("session this week");
-  if (
-    data.outstandingBalance &&
-    data.outstandingBalance.totalCents > 0
-  ) {
-    bits.push("balance pending");
-  }
-  const statusLine = bits.length > 0 ? bits.join(" · ") : "All quiet.";
+  // Pick the single focal item by priority.
+  const focal = pickFocal({
+    latestMix: data.latestMix,
+    firstPayment: pendingPayments.bookings[0] ?? null,
+    nextSession: data.nextSession,
+  });
+
+  // Compose the "also waiting" rows from whatever isn't focal.
+  const alsoWaiting = pickAlsoWaiting({
+    pendingPayments: pendingPayments.bookings,
+    nextSession: data.nextSession,
+    focalKind: focal.kind,
+  });
+
+  const subline = buildSubline(focal.kind);
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-[600px] space-y-10 lg:space-y-12 lg:pt-4">
       <WelcomeModal />
-      <HomeHero
+      <InboxHero
         firstName={firstName}
         todayLabel={todayLabel}
-        statusLine={statusLine}
+        subline={subline}
       />
-      <Link
-        href="/artist/book"
-        className="sk-press flex w-full items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-6 py-3.5 font-syne font-bold text-black transition-opacity hover:opacity-90"
-      >
-        + Book a session
-      </Link>
-      {pendingPayments.bookings.length > 0 ? (
-        <div className="space-y-2">
-          {pendingPayments.bookings.map((booking) => (
-            <Link key={booking.id} href={`/artist/payment/${booking.id}`}>
-              <div className="rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.06)] p-4">
-                <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
-                  Session approved — payment required
-                </p>
-                <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
-                  {booking.producerName} · {booking.packageName} ·{" "}
-                  {formatAmount(booking.amountCents, booking.currency)}
-                </p>
-                <p className="mt-2 text-xs font-medium text-[rgb(var(--brand-primary))]">
-                  Complete payment →
-                </p>
-              </div>
-            </Link>
-          ))}
-        </div>
-      ) : null}
-      <NextSessionCard session={data.nextSession} />
-      <UpcomingSessionsCard sessions={data.upcomingSessions} />
-      <LatestMixCard mix={data.latestMix} />
-      <BalanceCard balance={data.outstandingBalance} />
-      <ActivityFeed events={data.activity} />
+      <FocalCard item={focal} />
+      <AlsoWaitingList rows={alsoWaiting} />
     </div>
   );
+}
+
+// ─── helpers ────────────────────────────────────────────────────────
+
+type LatestMix = NonNullable<
+  Awaited<
+    ReturnType<ReturnType<typeof appRouter.createCaller>["artist"]["home"]>
+  >["latestMix"]
+>;
+type NextSession = NonNullable<
+  Awaited<
+    ReturnType<ReturnType<typeof appRouter.createCaller>["artist"]["home"]>
+  >["nextSession"]
+>;
+type PendingPayment = Awaited<
+  ReturnType<
+    ReturnType<typeof appRouter.createCaller>["artist"]["book"]["myPendingPayments"]
+  >
+>["bookings"][number];
+
+function pickFocal(input: {
+  latestMix: LatestMix | null;
+  firstPayment: PendingPayment | null;
+  nextSession: NextSession | null;
+}): FocalItem {
+  if (input.latestMix) {
+    return {
+      kind: "mix",
+      mix: {
+        id: input.latestMix.id,
+        trackTitle: input.latestMix.trackTitle,
+        label: input.latestMix.label,
+        producerName: input.latestMix.producerName,
+        projectId: input.latestMix.projectId,
+        audioUrl: input.latestMix.audioUrl,
+      },
+    };
+  }
+  if (input.firstPayment) {
+    return {
+      kind: "payment",
+      payment: {
+        bookingId: input.firstPayment.id,
+        producerName: input.firstPayment.producerName,
+        packageName: input.firstPayment.packageName,
+        amountFormatted: formatAmount(
+          input.firstPayment.amountCents,
+          input.firstPayment.currency,
+        ),
+      },
+    };
+  }
+  if (input.nextSession && isWithinNextSevenDays(input.nextSession.startsAt)) {
+    return {
+      kind: "session",
+      session: {
+        id: input.nextSession.id,
+        startsAt: input.nextSession.startsAt,
+        durationMin: input.nextSession.durationMin,
+        producerName: input.nextSession.producerName,
+        productName: input.nextSession.productName,
+      },
+    };
+  }
+  return { kind: "quiet" };
+}
+
+function pickAlsoWaiting(input: {
+  pendingPayments: PendingPayment[];
+  nextSession: NextSession | null;
+  focalKind: FocalItem["kind"];
+}): WaitingRow[] {
+  const rows: WaitingRow[] = [];
+
+  // Payment row: if there's at least one and it's not the focal item.
+  const paymentToShow =
+    input.focalKind === "payment"
+      ? input.pendingPayments[1] ?? null
+      : input.pendingPayments[0] ?? null;
+
+  if (paymentToShow) {
+    rows.push({
+      kind: "payment",
+      bookingId: paymentToShow.id,
+      amountFormatted: formatAmount(
+        paymentToShow.amountCents,
+        paymentToShow.currency,
+      ),
+      packageName: paymentToShow.packageName,
+      producerName: paymentToShow.producerName,
+    });
+  }
+
+  // Session row: skip if it's the focal one. We still show sessions
+  // beyond the 7-day window here — they're informational, not urgent.
+  if (input.focalKind !== "session" && input.nextSession) {
+    rows.push({
+      kind: "session",
+      sessionId: input.nextSession.id,
+      startsAt: input.nextSession.startsAt,
+      durationMin: input.nextSession.durationMin,
+      productName: input.nextSession.productName,
+      producerName: input.nextSession.producerName,
+    });
+  }
+
+  return rows.slice(0, 2);
+}
+
+function buildSubline(kind: FocalItem["kind"]): string {
+  switch (kind) {
+    case "mix":
+      return "Your new mix is ready.";
+    case "payment":
+      return "One payment to complete.";
+    case "session":
+      return "Session this week.";
+    case "quiet":
+      return "All quiet.";
+  }
+}
+
+function isWithinNextSevenDays(d: Date): boolean {
+  const ms = d.getTime() - Date.now();
+  return ms >= 0 && ms <= SEVEN_DAYS_MS;
 }

@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Skitza · Artist Home — Mock v2 (Inbox)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg-background: 242 237 230;
+      --bg-elevated: 255 255 255;
+      --bg-sidebar: 17 16 9;
+      --bg-overlay: 247 243 235;
+      --bg-sunken: 232 225 212;
+      --fg-default: 17 16 9;
+      --fg-secondary: 61 55 48;
+      --fg-muted: 107 99 89;
+      --fg-faint: 156 148 138;
+      --fg-inverse: 242 237 230;
+      --brand-primary: 212 150 10;
+      --brand-copper: 176 104 48;
+      --border-subtle: 232 225 212;
+      --border-strong: 200 192 178;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --radius-2xl: 28px;
+      --ease-out-strong: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-quart: cubic-bezier(0.23, 1, 0.32, 1);
+    }
+    html, body { background: rgb(var(--bg-overlay)); color: rgb(var(--fg-default)); }
+    body { font-family: 'Outfit', system-ui, sans-serif; }
+    .font-display { font-family: 'Syne', system-ui, sans-serif; letter-spacing: -0.035em; }
+    .font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+    /* The one mono label we allow — date in the hero */
+    .eyebrow { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.16em; color: rgb(var(--fg-muted)); }
+    /* Sentence-case section labels (Things 3 style) */
+    .section-label { font-size: 12.5px; font-weight: 500; color: rgb(var(--fg-muted)); letter-spacing: -0.005em; }
+
+    /* Press feedback */
+    .press { transition: transform 160ms var(--ease-quart), background-color 200ms var(--ease-out-strong); }
+    .press:active { transform: scale(0.98); }
+
+    /* Row hover (desktop) */
+    .row { transition: background-color 200ms var(--ease-out-strong); }
+    .row:hover { background: rgb(var(--bg-elevated)); }
+
+    /* Waveform peaks */
+    .peak { background: rgb(var(--brand-primary) / 0.35); border-radius: 999px; width: 3px; }
+    .peak.played { background: rgb(var(--brand-primary)); }
+
+    /* Soft attention dot */
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .pulse-dot { animation: pulse-dot 2.2s var(--ease-out-strong) infinite; }
+
+    /* Hero card lift */
+    .hero-card {
+      background: rgb(var(--bg-elevated));
+      border-radius: var(--radius-2xl);
+      box-shadow: 0 1px 0 rgb(17 16 9 / 0.03), 0 24px 60px -28px rgb(17 16 9 / 0.18);
+    }
+
+    /* Reveal on load (illustrative for static mock) */
+    @keyframes reveal-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .reveal-up { animation: reveal-up 600ms var(--ease-out-strong) both; }
+    .reveal-up:nth-child(1) { animation-delay: 0ms; }
+    .reveal-up:nth-child(2) { animation-delay: 60ms; }
+    .reveal-up:nth-child(3) { animation-delay: 120ms; }
+    .reveal-up:nth-child(4) { animation-delay: 180ms; }
+
+    /* Phone frame */
+    .phone {
+      width: 375px; height: 800px; border-radius: 44px; padding: 12px; background: #111009;
+      box-shadow: 0 30px 60px -20px rgb(17 16 9 / 0.35), 0 0 0 1px rgb(255 255 255 / 0.04) inset;
+    }
+    .phone-screen { width: 100%; height: 100%; border-radius: 32px; overflow: hidden; background: rgb(var(--bg-overlay)); position: relative; display: flex; flex-direction: column; }
+    .bottom-nav { background: rgb(var(--bg-sidebar)); color: rgb(255 255 255 / 0.55); }
+    .bottom-nav .active { color: white; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <div class="mx-auto max-w-[1280px] px-8 py-12">
+
+    <!-- Header -->
+    <header class="mb-10 max-w-[680px]">
+      <p class="eyebrow">SKITZA · ARTIST HOME · MOCK V2 · INBOX</p>
+      <h1 class="font-display text-[40px] font-extrabold leading-[0.95] mt-2">
+        One thing waiting<span style="color: rgb(var(--brand-primary))">.</span>
+      </h1>
+      <p class="mt-3 text-[15px]" style="color: rgb(var(--fg-secondary))">
+        Same home page, much simpler. One focal item at the top, then a quiet list. No bento, no badges on every row, no studio chips above the fold.
+      </p>
+    </header>
+
+    <!-- Desktop + Mobile side by side -->
+    <section class="grid grid-cols-[1fr_auto] gap-12 items-start">
+
+      <!-- DESKTOP -->
+      <div>
+        <p class="eyebrow mb-3">DESKTOP · LG+ · NO BENTO, JUST A COLUMN</p>
+        <div class="rounded-[28px] overflow-hidden" style="background: rgb(var(--bg-overlay)); box-shadow: 0 16px 40px -8px rgb(17 16 9 / 0.18)">
+
+          <div class="flex min-h-[820px]">
+
+            <!-- Sidebar -->
+            <aside class="w-[240px] shrink-0 flex flex-col justify-between p-6" style="background: rgb(var(--bg-sidebar)); color: rgb(var(--fg-inverse))">
+              <div>
+                <div class="flex items-center gap-2 mb-10">
+                  <div class="w-8 h-8 rounded-lg flex items-center justify-center font-display font-extrabold text-[18px]" style="background: rgb(var(--brand-primary)); color: rgb(var(--bg-sidebar))">S</div>
+                  <span class="font-display font-extrabold text-[20px]">skitza<span style="color: rgb(var(--brand-primary))">.</span></span>
+                </div>
+                <nav class="space-y-1 text-[14px]">
+                  <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl press" style="background: rgb(255 255 255 / 0.08)"><span>⌂</span><span class="font-medium">Home</span></a>
+                  <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl press" style="color: rgb(255 255 255 / 0.7)"><span>♪</span><span>Music</span></a>
+                  <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl press" style="color: rgb(255 255 255 / 0.7)"><span>+</span><span>Book</span></a>
+                  <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl press" style="color: rgb(255 255 255 / 0.7)"><span>◇</span><span>Store</span></a>
+                  <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl press" style="color: rgb(255 255 255 / 0.7)"><span>⚙</span><span>Settings</span></a>
+                </nav>
+              </div>
+              <div class="flex items-center gap-3 px-2">
+                <div class="w-7 h-7 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold text-white" style="background: rgb(var(--brand-copper))">L</div>
+                <div class="min-w-0">
+                  <p class="text-[13px] font-medium truncate">Lior Klein</p>
+                  <p class="text-[11px]" style="color: rgb(255 255 255 / 0.5)">artist</p>
+                </div>
+              </div>
+            </aside>
+
+            <!-- Main — single readable column, centered -->
+            <main class="flex-1 min-w-0 overflow-y-auto" style="background: rgb(var(--bg-overlay))">
+
+              <!-- The column itself is capped at ~600px even on wide screens -->
+              <div class="mx-auto max-w-[600px] px-8 py-16">
+
+                <!-- 1. HERO — name + one status sentence -->
+                <header class="reveal-up mb-12">
+                  <p class="eyebrow">SAT, MAY 23</p>
+                  <h2 class="font-display font-extrabold leading-[0.9] mt-2 text-[64px]">
+                    lior<span style="color: rgb(var(--brand-primary))">.</span>
+                  </h2>
+                  <p class="mt-4 text-[16px]" style="color: rgb(var(--fg-secondary))">
+                    Your new mix is ready.
+                  </p>
+                </header>
+
+                <!-- 2. THE ONE THING — focal card. Auto-picked from the most-urgent signal -->
+                <a href="#" class="reveal-up press block hero-card p-7 mb-10 group">
+                  <p class="font-display text-[36px] font-bold leading-[1]">moonrise</p>
+                  <p class="text-[13.5px] mt-2.5" style="color: rgb(var(--fg-muted))">Mix · v2 · from Mor Studio · 3:18</p>
+
+                  <!-- waveform — softer, fewer peaks -->
+                  <div class="flex items-end gap-[3px] h-10 mt-6">
+                    <div class="peak" style="height: 38%"></div>
+                    <div class="peak" style="height: 54%"></div>
+                    <div class="peak" style="height: 70%"></div>
+                    <div class="peak" style="height: 62%"></div>
+                    <div class="peak" style="height: 82%"></div>
+                    <div class="peak" style="height: 90%"></div>
+                    <div class="peak" style="height: 74%"></div>
+                    <div class="peak" style="height: 58%"></div>
+                    <div class="peak" style="height: 80%"></div>
+                    <div class="peak" style="height: 68%"></div>
+                    <div class="peak" style="height: 52%"></div>
+                    <div class="peak" style="height: 76%"></div>
+                    <div class="peak" style="height: 84%"></div>
+                    <div class="peak" style="height: 64%"></div>
+                    <div class="peak" style="height: 72%"></div>
+                    <div class="peak" style="height: 80%"></div>
+                    <div class="peak" style="height: 50%"></div>
+                    <div class="peak" style="height: 66%"></div>
+                    <div class="peak" style="height: 78%"></div>
+                    <div class="peak" style="height: 56%"></div>
+                    <div class="peak" style="height: 70%"></div>
+                    <div class="peak" style="height: 84%"></div>
+                    <div class="peak" style="height: 60%"></div>
+                    <div class="peak" style="height: 72%"></div>
+                    <div class="peak" style="height: 48%"></div>
+                    <div class="peak" style="height: 62%"></div>
+                    <div class="peak" style="height: 36%"></div>
+                    <div class="peak" style="height: 28%"></div>
+                  </div>
+
+                  <div class="mt-7">
+                    <button class="press inline-flex items-center gap-2.5 pl-3.5 pr-5 py-2.5 rounded-full text-[14px] font-semibold" style="background: rgb(var(--fg-default)); color: rgb(var(--fg-inverse))">
+                      <span class="w-6 h-6 rounded-full flex items-center justify-center" style="background: rgb(var(--brand-primary)); color: rgb(var(--bg-sidebar))">▶</span>
+                      Listen
+                    </button>
+                  </div>
+                </a>
+
+                <!-- 3. ALSO WAITING — quiet list. Hairline dividers, no cards. -->
+                <section class="reveal-up">
+                  <p class="section-label mb-1 px-1">Also waiting</p>
+
+                  <div class="-mx-3">
+                    <!-- Payment row -->
+                    <a href="#" class="row press flex items-center gap-4 px-3 py-4 rounded-[12px]">
+                      <span class="w-1.5 h-1.5 rounded-full" style="background: rgb(var(--brand-primary))"></span>
+                      <div class="flex-1 min-w-0">
+                        <p class="text-[15px] font-medium">₪10,000 due</p>
+                        <p class="text-[12.5px] mt-0.5" style="color: rgb(var(--fg-muted))">Vocal tracking with Gili · Friday</p>
+                      </div>
+                      <span class="text-[13px] font-medium" style="color: rgb(var(--fg-muted))">Pay →</span>
+                    </a>
+
+                    <div class="h-px mx-3" style="background: rgb(var(--border-subtle))"></div>
+
+                    <!-- Next session row -->
+                    <a href="#" class="row press flex items-center gap-4 px-3 py-4 rounded-[12px]">
+                      <span class="w-1.5 h-1.5 rounded-full" style="background: rgb(var(--fg-faint))"></span>
+                      <div class="flex-1 min-w-0">
+                        <p class="text-[15px] font-medium">Friday · 14:00</p>
+                        <p class="text-[12.5px] mt-0.5" style="color: rgb(var(--fg-muted))">Vocal tracking with Gili · 3 hours</p>
+                      </div>
+                      <span class="text-[13px] font-medium" style="color: rgb(var(--fg-muted))">View →</span>
+                    </a>
+                  </div>
+                </section>
+
+              </div>
+            </main>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- MOBILE -->
+      <div>
+        <p class="eyebrow mb-3">MOBILE · 375PX · SAME COLUMN, NO REWORK</p>
+        <div class="phone">
+          <div class="phone-screen">
+
+            <!-- Top bar -->
+            <div class="flex items-center justify-between px-5 pt-4 pb-2" style="background: rgb(var(--bg-overlay))">
+              <span class="font-display font-extrabold text-[18px]">skitza<span style="color: rgb(var(--brand-primary))">.</span></span>
+              <div class="w-7 h-7 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold text-white" style="background: rgb(var(--brand-copper))">L</div>
+            </div>
+
+            <!-- Scrollable -->
+            <div class="flex-1 overflow-y-auto px-6 pt-6 pb-24">
+
+              <p class="eyebrow">SAT, MAY 23</p>
+              <h2 class="font-display font-extrabold leading-[0.9] mt-1.5 text-[42px]">
+                lior<span style="color: rgb(var(--brand-primary))">.</span>
+              </h2>
+              <p class="mt-3 text-[14px]" style="color: rgb(var(--fg-secondary))">Your new mix is ready.</p>
+
+              <!-- Focal card -->
+              <a href="#" class="press block hero-card p-5 mt-7">
+                <p class="font-display text-[28px] font-bold leading-[1]">moonrise</p>
+                <p class="text-[12px] mt-1.5" style="color: rgb(var(--fg-muted))">Mix · v2 · from Mor · 3:18</p>
+                <div class="flex items-end gap-[2.5px] h-8 mt-4">
+                  <div class="peak" style="height: 50%"></div>
+                  <div class="peak" style="height: 72%"></div>
+                  <div class="peak" style="height: 88%"></div>
+                  <div class="peak" style="height: 64%"></div>
+                  <div class="peak" style="height: 80%"></div>
+                  <div class="peak" style="height: 92%"></div>
+                  <div class="peak" style="height: 70%"></div>
+                  <div class="peak" style="height: 56%"></div>
+                  <div class="peak" style="height: 82%"></div>
+                  <div class="peak" style="height: 68%"></div>
+                  <div class="peak" style="height: 74%"></div>
+                  <div class="peak" style="height: 84%"></div>
+                  <div class="peak" style="height: 60%"></div>
+                  <div class="peak" style="height: 76%"></div>
+                  <div class="peak" style="height: 48%"></div>
+                  <div class="peak" style="height: 66%"></div>
+                  <div class="peak" style="height: 80%"></div>
+                  <div class="peak" style="height: 54%"></div>
+                  <div class="peak" style="height: 70%"></div>
+                  <div class="peak" style="height: 38%"></div>
+                </div>
+                <button class="press w-full mt-5 inline-flex items-center justify-center gap-2 py-3 rounded-full text-[13.5px] font-semibold" style="background: rgb(var(--fg-default)); color: rgb(var(--fg-inverse))">
+                  <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style="background: rgb(var(--brand-primary)); color: rgb(var(--bg-sidebar))">▶</span>
+                  Listen
+                </button>
+              </a>
+
+              <!-- Also waiting -->
+              <p class="section-label mt-8 mb-1">Also waiting</p>
+              <div class="-mx-2">
+                <a href="#" class="row press flex items-center gap-3 px-2 py-3.5 rounded-[10px]">
+                  <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: rgb(var(--brand-primary))"></span>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-[14px] font-medium">₪10,000 due</p>
+                    <p class="text-[11.5px] mt-0.5" style="color: rgb(var(--fg-muted))">Vocal tracking · Friday</p>
+                  </div>
+                  <span class="text-[12px]" style="color: rgb(var(--fg-muted))">→</span>
+                </a>
+                <div class="h-px mx-2" style="background: rgb(var(--border-subtle))"></div>
+                <a href="#" class="row press flex items-center gap-3 px-2 py-3.5 rounded-[10px]">
+                  <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: rgb(var(--fg-faint))"></span>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-[14px] font-medium">Friday · 14:00</p>
+                    <p class="text-[11.5px] mt-0.5" style="color: rgb(var(--fg-muted))">Vocal tracking · 3 hours</p>
+                  </div>
+                  <span class="text-[12px]" style="color: rgb(var(--fg-muted))">→</span>
+                </a>
+              </div>
+
+            </div>
+
+            <!-- Bottom nav -->
+            <div class="bottom-nav h-16 flex items-stretch shrink-0">
+              <button class="active flex-1 flex flex-col items-center justify-center gap-1 press"><span>⌂</span><span class="text-[10px]">Home</span></button>
+              <button class="flex-1 flex flex-col items-center justify-center gap-1 press"><span>♪</span><span class="text-[10px]">Music</span></button>
+              <button class="flex-1 flex flex-col items-center justify-center gap-1 press"><span>+</span><span class="text-[10px]">Book</span></button>
+              <button class="flex-1 flex flex-col items-center justify-center gap-1 press"><span>◇</span><span class="text-[10px]">Store</span></button>
+              <button class="flex-1 flex flex-col items-center justify-center gap-1 press"><span>⚙</span><span class="text-[10px]">More</span></button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Side-by-side: All quiet state -->
+    <section class="mt-16">
+      <p class="eyebrow mb-3">WHEN NOTHING IS URGENT — "ALL QUIET" STATE</p>
+      <p class="text-[14px] max-w-[560px]" style="color: rgb(var(--fg-secondary))">
+        Same page when there's no new mix, no payment due, no upcoming session. We don't fake busyness — we just go calm. One CTA at the bottom.
+      </p>
+
+      <div class="mt-6 rounded-[28px] overflow-hidden" style="background: rgb(var(--bg-overlay)); box-shadow: 0 16px 40px -8px rgb(17 16 9 / 0.12)">
+        <div class="flex min-h-[560px]">
+          <aside class="w-[240px] shrink-0 p-6" style="background: rgb(var(--bg-sidebar)); color: rgb(var(--fg-inverse))">
+            <div class="flex items-center gap-2 mb-10">
+              <div class="w-8 h-8 rounded-lg flex items-center justify-center font-display font-extrabold text-[18px]" style="background: rgb(var(--brand-primary)); color: rgb(var(--bg-sidebar))">S</div>
+              <span class="font-display font-extrabold text-[20px]">skitza<span style="color: rgb(var(--brand-primary))">.</span></span>
+            </div>
+            <nav class="space-y-1 text-[14px]">
+              <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl" style="background: rgb(255 255 255 / 0.08)"><span>⌂</span><span>Home</span></a>
+              <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl" style="color: rgb(255 255 255 / 0.7)"><span>♪</span><span>Music</span></a>
+              <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl" style="color: rgb(255 255 255 / 0.7)"><span>+</span><span>Book</span></a>
+              <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl" style="color: rgb(255 255 255 / 0.7)"><span>◇</span><span>Store</span></a>
+              <a class="flex items-center gap-3 px-3 py-2.5 rounded-xl" style="color: rgb(255 255 255 / 0.7)"><span>⚙</span><span>Settings</span></a>
+            </nav>
+          </aside>
+          <main class="flex-1 min-w-0" style="background: rgb(var(--bg-overlay))">
+            <div class="mx-auto max-w-[600px] px-8 py-20">
+              <p class="eyebrow">SAT, MAY 23</p>
+              <h2 class="font-display font-extrabold leading-[0.9] mt-2 text-[64px]">
+                lior<span style="color: rgb(var(--brand-primary))">.</span>
+              </h2>
+              <p class="mt-4 text-[16px]" style="color: rgb(var(--fg-secondary))">All quiet. Nothing waiting.</p>
+
+              <div class="mt-16 flex items-center gap-3">
+                <a href="#" class="press inline-flex items-center gap-2 px-5 py-3 rounded-full text-[14px] font-semibold" style="background: rgb(var(--brand-primary)); color: rgb(var(--bg-sidebar))">
+                  + Book a session
+                </a>
+                <a href="#" class="press inline-flex items-center gap-2 px-4 py-3 rounded-full text-[13.5px] font-medium" style="color: rgb(var(--fg-secondary))">
+                  Browse music
+                </a>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </section>
+
+    <!-- Annotations / why this is simpler -->
+    <section class="mt-16 max-w-[760px]">
+      <p class="eyebrow mb-4">WHAT CHANGED FROM V1</p>
+      <ul class="space-y-3 text-[14.5px]" style="color: rgb(var(--fg-secondary)); line-height: 1.55">
+        <li><b>One focal item.</b> The home picks the single most-important thing (new mix, or unpaid invoice, or upcoming session) and shows it big at the top. Everything else is a one-line row below.</li>
+        <li><b>No bento.</b> Just a centered column, even on desktop. Same column on mobile. Same code path.</li>
+        <li><b>Studio chips → moved.</b> Out of the home. Shown as "3 studios · Gili · Mor · Yuval" at the bottom. Tap takes you to the full list.</li>
+        <li><b>Balance → folded in.</b> If you owe money, it appears as a row in "Also waiting" ("Pay ₪10,000"). No separate card.</li>
+        <li><b>Activity → moved.</b> The activity feed gets its own page (link from the More tab). Home doesn't need it.</li>
+        <li><b>No "URGENT (2)" header.</b> A small amber dot is enough. No shouting at the user.</li>
+        <li><b>Sentence-case labels.</b> "Also waiting" — not "ALSO WAITING" or eyebrow-spammed everywhere.</li>
+        <li><b>The empty state is calm.</b> If there's nothing to do, the page says "All quiet" and shows one button. We don't manufacture activity.</li>
+      </ul>
+
+      <div class="mt-8 p-5 rounded-[var(--radius-xl)]" style="background: rgb(var(--bg-elevated)); border: 1px solid rgb(var(--border-subtle))">
+        <p class="section-label mb-2">Inspired by</p>
+        <p class="text-[13.5px]" style="color: rgb(var(--fg-secondary)); line-height: 1.6">
+          Linear's inbox (list rows, no cards) · Spotify's Listen Now (one big focal item) · Cal.com (your next thing front and center) · Things 3 (quiet typographic labels) · iMessage and Notion home (conversational, no badges everywhere).
+        </p>
+      </div>
+    </section>
+
+  </div>
+
+</body>
+</html>
