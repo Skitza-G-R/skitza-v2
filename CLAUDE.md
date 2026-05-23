@@ -114,6 +114,8 @@ Examples:
 
 Don't invent your own branch name. Don't shorten the slug. Copy it from Linear so the GitHub integration links the branch cleanly.
 
+Note: the prefix is whatever Linear generates for your own account. Raz's branches start with `razstamper9/`, Gili's branches start with `giasraf/`. Either is fine — just use what Linear gives you on the issue page.
+
 ### PR titles
 
 PR titles start with the Linear issue ID, colon, then a short imperative description:
@@ -135,3 +137,11 @@ Not required to include the Linear ID. Keep the existing conventional-commit sty
 4. Branch off v3-clean, push, open PR with `SK-N: ...` title
 5. Merge to v3-clean (no commits to main — existing rule still applies)
 6. Linear moves the issue to `Done` automatically on merge
+
+### Claude's behavior
+
+When Gili gives a task that references a Linear issue (e.g. "do SK-17", "work on the store bug"):
+1. Read the full Linear issue first (via the Linear MCP `get_issue` tool) — title, description, acceptance criteria, attached PRs.
+2. Move the issue to `In Progress` before starting code.
+3. Use the branch name from the issue page (don't invent one).
+4. If the work needed isn't covered by any existing issue, create one in `Skitza v3` first, then proceed.
