@@ -87,14 +87,39 @@ describe("pickDurationMs — fallback to live <audio> duration", () => {
 });
 
 // ─── expandHrefForTrack ──────────────────────────────────────────────
-// The dock's expand button (maximize-2 icon) opens the L3 song page
-// for the currently-playing track. The track's `id` is the version-id
-// (PersistentPlayer keys playback by version-id), and the L3 route is
-// /dashboard/music/<versionId>.
+// The dock's expand button (maximize-2 icon) + title + cover all link
+// to the L3 song page for the currently-playing track. Which L3 route
+// depends on where the user currently is: producer routes inside
+// /dashboard, artist routes inside /artist/music/song. The helper is
+// pathname-driven so the dock works on every surface without each
+// caller threading a role down.
+
+const baseTrack = {
+  id: "v-42",
+  audioUrl: null,
+  title: "",
+  subtitle: "",
+  durationMs: null,
+};
 
 describe("expandHrefForTrack — link to L3 song page", () => {
-  it("returns /dashboard/music/<trackId>", () => {
-    expect(expandHrefForTrack({ id: "v-42", audioUrl: null, title: "", subtitle: "", durationMs: null }))
+  it("on a producer dashboard route → /dashboard/music/<trackId>", () => {
+    expect(expandHrefForTrack(baseTrack, "/dashboard/music"))
+      .toBe("/dashboard/music/v-42");
+  });
+
+  it("on an artist route → /artist/music/song/<trackId>", () => {
+    expect(expandHrefForTrack(baseTrack, "/artist/music"))
+      .toBe("/artist/music/song/v-42");
+  });
+
+  it("on a non-music artist surface (e.g. /artist/book) → still routes to artist L3", () => {
+    expect(expandHrefForTrack(baseTrack, "/artist/book"))
+      .toBe("/artist/music/song/v-42");
+  });
+
+  it("null pathname → producer URL (historical default for SSR or pre-mount)", () => {
+    expect(expandHrefForTrack(baseTrack, null))
       .toBe("/dashboard/music/v-42");
   });
 });
