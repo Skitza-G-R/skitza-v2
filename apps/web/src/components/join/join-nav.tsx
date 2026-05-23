@@ -1,98 +1,52 @@
 // Sticky top nav for `/join/<slug>`.
 //
-// SK-25: slimmer than the old nav (py-1.5 instead of py-3) so the bento
-// below has the full ~836px of usable viewport on a 900px screen. The
-// "Book a session" pill carries the nested-arrow micro-pattern from
-// the bento's primary CTA so they read as the same control system.
+// SK-28: stripped to just the Skitza wordmark on the left. The slug
+// pill, anchor links, and "Book a session" CTA were removed because
+// they were noise on a single-screen public page — the visitor isn't
+// in the app yet, has no surfaces to navigate to from here, and the
+// bento's own primary CTA is always visible.
 //
-// Anchors stay anchor-style (no JS scroll-spy) — the bento is a single
-// viewport so #samples is the only target worth jumping to. Work and
-// Services are reserved for the producer's deeper sub-pages (not yet
-// shipped); they degrade to harmless no-op links until then.
+// SK-29: the wordmark is now the canonical app brand lockup — amber
+// LogoMark "S" + lowercase `skitza.` Wordmark — matching what the
+// producer/artist app sidebars use. The back-arrow that prefixed the
+// old text is dropped: visitors land here from an Instagram bio link,
+// not from a previous Skitza surface, so pointing them "back" to
+// nothing was friction. Clicking the lockup still routes home.
 //
-// 2026-05-06 booking-gate Layer 1: the pill links straight to
-// /sign-up/join/<slug>. Visitors must sign up before any booking
-// surface (slot picker / product list / contact form) is shown.
+// Motion (SK-29, gated by prefers-reduced-motion in globals.css):
+//   - Nav fades in with strong ease-out (.reveal-up).
+//   - LogoMark wears an ambient amber halo (.sk-mark-aura) that
+//     breathes opacity on a slow 4.2 s cycle and snaps to full
+//     brightness on hover.
+//   - Lockup hover lifts the mark 1 px and triggers the wordmark's
+//     amber-period dot bounce (.sk-brand-lockup is the parent hook).
+//   - Tactile press feedback via .sk-press (scale 0.97 on :active).
 
 import Link from "next/link";
 
-interface JoinNavProps {
-  slug: string;
-}
+import { LogoMark } from "~/components/brand/logo-mark";
+import { Wordmark } from "~/components/nav/wordmark";
 
-const EASE_LINEAR = "cubic-bezier(0.32,0.72,0,1)";
-
-export function JoinNav({ slug }: JoinNavProps) {
+export function JoinNav() {
   return (
     <nav
       aria-label="Page navigation"
       className={[
-        "sticky top-0 z-40 border-b border-[rgb(var(--fg-primary)/0.06)]",
+        "reveal-up sticky top-0 z-40 border-b border-[rgb(var(--fg-primary)/0.06)]",
         "bg-[rgb(var(--bg-base)/0.82)] backdrop-blur-md",
       ].join(" ")}
     >
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-2 sm:px-8 sm:py-2.5 lg:px-10">
-        {/* Wordmark + slug pill */}
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <Link
-            href="/"
-            className="font-mono text-[0.66rem] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))] transition-colors duration-300 hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:underline"
-          >
-            <span aria-hidden>← </span>Skitza.
-          </Link>
-          <span aria-hidden className="text-[rgb(var(--fg-muted))]/40">
-            /
+      <div className="mx-auto flex max-w-6xl items-center px-4 py-2 sm:px-8 sm:py-2.5 lg:px-10">
+        <Link
+          href="/"
+          aria-label="Skitza home"
+          className="sk-brand-lockup sk-press inline-flex items-center gap-2 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
+        >
+          <span className="sk-mark-aura inline-flex">
+            <LogoMark size={22} />
           </span>
-          <span
-            className="truncate font-mono text-[0.7rem] font-bold tracking-tight text-[rgb(var(--fg-primary))]"
-            title={`/p/${slug}`}
-          >
-            p/{slug}
-          </span>
-        </div>
-
-        {/* Anchors (≥sm) + nested-arrow CTA pill */}
-        <div className="flex items-center gap-3 sm:gap-5">
-          <a
-            href="#samples"
-            className="hidden text-[0.72rem] font-semibold text-[rgb(var(--fg-muted))] transition-colors duration-300 hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:underline sm:inline"
-          >
-            Work
-          </a>
-          <a
-            href="#samples"
-            className="hidden text-[0.72rem] font-semibold text-[rgb(var(--fg-muted))] transition-colors duration-300 hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:underline sm:inline"
-          >
-            Services
-          </a>
-
-          <Link
-            href={`/sign-up/join/${encodeURIComponent(slug)}`}
-            className="group inline-flex items-center gap-2 rounded-[var(--radius-sm)] bg-[rgb(var(--fg-primary))] py-1 pl-3.5 pr-1 text-[0.72rem] font-bold text-[rgb(var(--bg-base))] transition-transform duration-500 hover:-translate-y-[1px] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--bg-base))]"
-            style={{ transitionTimingFunction: EASE_LINEAR }}
-          >
-            Book a session
-            <span
-              aria-hidden
-              className="flex h-6 w-6 items-center justify-center rounded-full bg-[rgb(var(--bg-base)/0.14)] transition-transform duration-500 group-hover:translate-x-0.5"
-              style={{ transitionTimingFunction: EASE_LINEAR }}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-3 w-3"
-                aria-hidden
-              >
-                <line x1="7" y1="17" x2="17" y2="7" />
-                <polyline points="7 7 17 7 17 17" />
-              </svg>
-            </span>
-          </Link>
-        </div>
+          <Wordmark size={14} lowercase />
+        </Link>
       </div>
     </nav>
   );

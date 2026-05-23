@@ -809,6 +809,58 @@
     transform: translateY(-2px) rotate(12deg) scale(1.3);
   }
 
+  /* ----------------------------------------------------------------
+   * Brand lockup motion (used by JoinNav, can be reused by any
+   * surface that pairs <LogoMark /> + <Wordmark />).
+   *
+   * .sk-brand-lockup — the parent <Link>. Hover on the whole lockup
+   *   propagates the amber-period dot bounce (so the dot reacts when
+   *   you hover the mark too, not only the text) and lifts the mark
+   *   by 1px. Only `transform` animates per Emil's rule.
+   *
+   * .sk-mark-aura — a wrapper around LogoMark whose ::after layer is
+   *   an absolutely-positioned amber halo. It breathes opacity (only
+   *   opacity — GPU-friendly) on a slow 4.2s cycle when idle, then
+   *   snaps to full brightness on lockup hover. The LogoMark's own
+   *   inline drop-shadow stays put as the base; the halo is what
+   *   makes it feel alive.
+   * ---------------------------------------------------------------- */
+  .sk-brand-lockup {
+    transition: transform 200ms var(--ease-out-strong);
+  }
+  .sk-mark-aura {
+    position: relative;
+    isolation: isolate;
+  }
+  .sk-mark-aura::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    border-radius: 14px;
+    pointer-events: none;
+    z-index: -1;
+    box-shadow: 0 0 28px 4px rgb(var(--brand-primary) / 0.55);
+    opacity: 0;
+    animation: sk-mark-breath 4.2s ease-in-out infinite;
+    transition: opacity 240ms var(--ease-out-strong);
+  }
+  @keyframes sk-mark-breath {
+    0%, 100% { opacity: 0; }
+    50%      { opacity: 0.75; }
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .sk-brand-lockup:hover .sk-mark-aura {
+      transform: translateY(-1px);
+    }
+    .sk-brand-lockup:hover .sk-mark-aura::after {
+      animation: none;
+      opacity: 1;
+    }
+    .sk-brand-lockup:hover .skitza-wordmark .dot {
+      transform: translateY(-2px) rotate(12deg) scale(1.3);
+    }
+  }
+
   .label-tiny {
     font-size: 10px;
     font-weight: 700;
@@ -1149,6 +1201,16 @@
     .reveal-up-delay-2,
     .reveal-up-delay-3,
     .reveal-up-delay-4 { animation: none !important; opacity: 1 !important; }
+    /* Brand-lockup motion: keep the static aura silhouette but kill the
+       breath + the hover lift, so motion-sensitive visitors still see a
+       polished mark, just not a moving one. */
+    .sk-brand-lockup { transition: none !important; }
+    .sk-brand-lockup:hover .sk-mark-aura { transform: none !important; }
+    .sk-mark-aura::after {
+      animation: none !important;
+      opacity: 0.35 !important;
+      transition: none !important;
+    }
   }
 }
 

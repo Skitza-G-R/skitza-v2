@@ -605,6 +605,111 @@ function Tracklist({
                   {fmtDuration(t.durationMs)}
                 </span>
               </Link>
+              ) : (
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Play ${t.title}`}
+                onClick={() => {
+                  onPlay(t);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === " " || e.key === "Enter") {
+                    e.preventDefault();
+                    onPlay(t);
+                  }
+                }}
+                className={[rowClassName, "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"].join(" ")}
+                style={rowStyle}
+              >
+                {/* Index → play swap */}
+                <span className="relative flex justify-end">
+                  <button
+                    type="button"
+                    aria-label={playingHere ? "Pause" : "Play"}
+                    title={playingHere ? "Pause (Space)" : "Play (Space)"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onPlay(t);
+                    }}
+                    disabled={!t.audioUrl}
+                    className={[
+                      "sk-press sk-trans inline-flex h-[26px] w-[26px] items-center justify-center rounded-full disabled:opacity-40",
+                      isCurrent
+                        ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
+                        : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100",
+                    ].join(" ")}
+                  >
+                    {playingHere ? (
+                      <EqBars playing size={11} />
+                    ) : (
+                      <Play size={11} strokeWidth={2.6} fill="currentColor" />
+                    )}
+                  </button>
+                  <span
+                    aria-hidden
+                    className={[
+                      "pointer-events-none absolute font-mono text-[11px] tabular-nums text-[rgb(var(--fg-faint))]",
+                      isCurrent ? "opacity-0" : "group-hover:opacity-0",
+                    ].join(" ")}
+                    style={{
+                      width: 28,
+                      textAlign: "right",
+                      lineHeight: "26px",
+                    }}
+                  >
+                    {padIndex(idx)}
+                  </span>
+                </span>
+
+                <span className="min-w-0 block">
+                  <p className="truncate text-[14px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+                    {t.title}
+                  </p>
+                  {t.artist ? (
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+                      {t.artist}
+                    </p>
+                  ) : null}
+                </span>
+
+                <span>
+                  <span
+                    className="inline-flex items-center rounded-[6px] px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase text-[rgb(var(--fg-default))]"
+                    style={{
+                      background: "rgb(var(--bg-elevated))",
+                      border: "1px solid rgb(var(--border-subtle))",
+                    }}
+                  >
+                    {t.versionLabel}
+                  </span>
+                </span>
+
+                <span
+                  className="text-right font-mono text-[11px] tabular-nums text-[rgb(var(--fg-muted))]"
+                  style={{ minWidth: 24 }}
+                >
+                  {fmtCount(t.plays)}
+                </span>
+
+                <span
+                  className={[
+                    "text-right font-mono text-[11px] tabular-nums",
+                    t.unreadComments > 0
+                      ? "font-bold text-[rgb(var(--brand-primary-dark))]"
+                      : "text-[rgb(var(--fg-faint))]",
+                  ].join(" ")}
+                  style={{ minWidth: 24 }}
+                >
+                  {fmtCount(t.unreadComments)}
+                </span>
+
+                <span className="text-right font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
+                  {fmtDuration(t.durationMs)}
+                </span>
+              </div>
+              )}
             </li>
           );
         })}

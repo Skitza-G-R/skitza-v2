@@ -89,8 +89,8 @@ const SORT_LABEL: Record<SongSort, string> = {
 export type MusicLibraryRole = "producer" | "artist";
 
 // Internal href builders centralised here (instead of inlined per-cell)
-// so the URL switch lives in ONE place. Song cards on the artist side
-// each side now has its own L2 + L3 route (SK-30 added the artist L3).
+// so the URL switch lives in ONE place. Each side now has its own
+// L2 + L3 route (SK-30 added the artist L3).
 function projectHref(role: MusicLibraryRole, projectId: string): string {
   return role === "producer"
     ? `/dashboard/music/project/${projectId}`
