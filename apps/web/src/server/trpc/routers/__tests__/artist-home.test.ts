@@ -383,7 +383,9 @@ describe("artist.home", () => {
       { id: "c1", producerId: "p1", email: "dan@x.com" },
     ]);
     // track_versions query already orders desc + limit(1) — we only
-    // seed the winner.
+    // seed the winner. `durationMs` is plumbed through so the artist
+    // home's focal mix tile can render the track duration on its one
+    // compact row (▶ play | name | waveform | duration).
     trackVersionsSelectMock.mockResolvedValueOnce([
       {
         id: "tv1",
@@ -394,6 +396,7 @@ describe("artist.home", () => {
         projectId: "proj1",
         uploadedAt: new Date("2026-04-17T12:00:00Z"),
         audioUrl: "https://r2/summer-v2.mp3",
+        durationMs: 198_000,
       },
     ]);
 
@@ -409,7 +412,32 @@ describe("artist.home", () => {
       projectId: "proj1",
       uploadedAt: new Date("2026-04-17T12:00:00Z"),
       audioUrl: "https://r2/summer-v2.mp3",
+      durationMs: 198_000,
     });
+  });
+
+  it("passes through null durationMs (audio still uploading / legacy row)", async () => {
+    contactsSelectMock.mockResolvedValueOnce([
+      { id: "c1", producerId: "p1", email: "dan@x.com" },
+    ]);
+    trackVersionsSelectMock.mockResolvedValueOnce([
+      {
+        id: "tv2",
+        trackTitle: "Half Moon",
+        label: "Rough Mix",
+        producerName: "Mor Studio",
+        producerSlug: "mor",
+        projectId: "proj2",
+        uploadedAt: new Date("2026-04-18T09:00:00Z"),
+        audioUrl: null,
+        durationMs: null,
+      },
+    ]);
+
+    const caller = await buildCaller();
+    const result = await caller.artist.home();
+
+    expect(result.latestMix?.durationMs).toBeNull();
   });
 
   it("returns outstanding balance as sum of unpaid invoices", async () => {

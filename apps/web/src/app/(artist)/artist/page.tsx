@@ -133,6 +133,7 @@ function pickFocal(input: {
         producerName: input.latestMix.producerName,
         projectId: input.latestMix.projectId,
         audioUrl: input.latestMix.audioUrl,
+        durationMs: input.latestMix.durationMs,
       },
     };
   }

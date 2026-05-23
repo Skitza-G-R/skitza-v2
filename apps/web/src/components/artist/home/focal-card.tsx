@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 
+import { formatDuration } from "~/lib/format/duration";
+
 import { useArtistAudio } from "../artist-audio-context";
 
 // Client component — the single most-important thing waiting for the
@@ -20,6 +22,10 @@ type Mix = {
   producerName: string;
   projectId: string;
   audioUrl: string | null;
+  // Milliseconds. Nullable: populated by audio.completeMultipart once
+  // the upload finalises; legacy rows / mid-upload state leave it null
+  // and the row renders "—".
+  durationMs: number | null;
 };
 
 type Payment = {
@@ -74,10 +80,11 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 // ─── Variant: mix ───────────────────────────────────────────────────
 
-// Subtle decorative bar heights — looks like a single track stripe,
-// not a full waveform. Variation is tight (50–85%) so the row reads
-// as a quiet line, with character. Real peaks live on the project
-// page.
+// Decorative track stripe — a single line of soft amber peaks across
+// the row. Not a real waveform (real peaks live on the project
+// page); just enough visual character to read as audio. 40 bars fit
+// comfortably between the title and duration on a 600px column and
+// shrink down gracefully on narrow viewports.
 const TRACK_STRIPE = [
   62, 70, 58, 78, 66, 72, 60, 80, 68, 64, 76, 72, 58, 70, 82, 64, 72, 60, 76,
   68, 72, 66, 80, 62, 70, 58, 66, 74, 62, 70, 60, 68, 56, 64, 70, 58, 72, 66,
@@ -105,33 +112,23 @@ function MixFocal({ mix }: { mix: Mix }) {
     });
   };
 
-  // Compact row, modeled after the public page's "Recent work" tile:
-  // title + meta on top, play button + thin track stripe below. Card
-  // is intentionally short — this is one item, not a hero section.
+  // ONE-ROW layout, inside the unified elevated Shell.
+  // Order: ▶ play | name | waveform | duration. The Shell (radius-2xl
+  // + soft shadow) gives the focal slot its visual weight — the row
+  // itself stays tight (p-4, ~64px tall) because this is one item,
+  // not a hero section. Mirrors what payment/session variants do
+  // density-wise: same shell, different content density.
   return (
     <Link
       href={`/artist/music/${mix.projectId}`}
-      className="sk-press reveal-up-delay-1 block rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4"
+      className="sk-press reveal-up-delay-1 block rounded-[var(--radius-2xl)] bg-[rgb(var(--bg-elevated))] p-4"
+      style={{
+        boxShadow:
+          "0 1px 0 rgb(17 16 9 / 0.03), 0 24px 60px -28px rgb(17 16 9 / 0.18)",
+      }}
       aria-label={`Open ${mix.trackTitle} project`}
     >
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-display text-[20px] font-bold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-            {mix.trackTitle}
-          </p>
-          <p className="mt-0.5 truncate text-[12.5px] text-[rgb(var(--fg-muted))]">
-            Mix · {mix.label} · from {mix.producerName}
-          </p>
-        </div>
-        <span
-          aria-hidden
-          className="shrink-0 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]"
-        >
-          01
-        </span>
-      </div>
-
-      <div className="mt-3 flex items-center gap-3">
+      <div className="flex items-center gap-4">
         <button
           type="button"
           onClick={(e) => {
@@ -147,7 +144,7 @@ function MixFocal({ mix }: { mix: Mix }) {
                 : `Listen to ${mix.trackTitle}`
               : "Audio still uploading"
           }
-          className="sk-press flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
+          className="sk-press flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
           style={{
             background: "rgb(var(--fg-default))",
             color: "rgb(var(--brand-primary))",
@@ -156,7 +153,14 @@ function MixFocal({ mix }: { mix: Mix }) {
           <span aria-hidden>{isPlaying ? "❚❚" : "▶"}</span>
         </button>
 
-        <div aria-hidden className="flex h-2 flex-1 items-center gap-[1.5px]">
+        <p className="min-w-0 truncate font-display text-[22px] font-bold leading-none tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+          {mix.trackTitle}
+        </p>
+
+        <div
+          aria-hidden
+          className="flex h-4 min-w-0 flex-1 items-end gap-[2px]"
+        >
           {TRACK_STRIPE.map((h, i) => (
             <span
               key={i}
@@ -169,6 +173,10 @@ function MixFocal({ mix }: { mix: Mix }) {
             />
           ))}
         </div>
+
+        <span className="shrink-0 font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
+          {formatDuration(mix.durationMs)}
+        </span>
       </div>
     </Link>
   );
@@ -220,7 +228,7 @@ function SessionFocal({ session }: { session: Session }) {
   const monthShort = formatMonthShort(session.startsAt);
   const day = session.startsAt.getDate();
   const time = formatTime(session.startsAt);
-  const duration = formatDuration(session.durationMin);
+  const duration = formatSessionDuration(session.durationMin);
 
   return (
     <Link href="/artist/book" className="sk-press block">
@@ -304,7 +312,11 @@ function formatTime(d: Date): string {
   });
 }
 
-function formatDuration(minutes: number): string {
+// Sessions are measured in MINUTES (e.g. a 4-hour mix session =
+// 240). The audio track helper from `~/lib/format/duration` takes
+// MILLISECONDS — different unit, different output ("3:45" vs
+// "2h 30m"). Keep them separate, name them clearly.
+function formatSessionDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   if (h === 0) return `${String(m)} min`;

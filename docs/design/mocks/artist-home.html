@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Skitza · Artist Home — Mock v2 (Inbox)</title>
+  <title>Skitza · Artist Home — Mock v3 (Refinements)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
@@ -88,12 +88,12 @@
 
     <!-- Header -->
     <header class="mb-10 max-w-[680px]">
-      <p class="eyebrow">SKITZA · ARTIST HOME · MOCK V2 · INBOX</p>
+      <p class="eyebrow">SKITZA · ARTIST HOME · MOCK V3 · REFINEMENTS</p>
       <h1 class="font-display text-[40px] font-extrabold leading-[0.95] mt-2">
-        One thing waiting<span style="color: rgb(var(--brand-primary))">.</span>
+        One focal item, equal weight<span style="color: rgb(var(--brand-primary))">.</span>
       </h1>
       <p class="mt-3 text-[15px]" style="color: rgb(var(--fg-secondary))">
-        Same home page, much simpler. One focal item at the top, then a quiet list. No bento, no badges on every row, no studio chips above the fold.
+        Three refinements over v2: (1) the focal card has the SAME visual weight whether it's a mix, a payment, or a session — same elevated white shell; (2) "Book a session" avatars get a tiny <code class="font-mono text-[12px]">Book →</code> hint so they read as actions, not as a passive list; (3) drag-to-reorder is dropped — no affordance, no keyboard path, and most artists have 1–3 studios.
       </p>
     </header>
 
@@ -148,48 +148,44 @@
                   </p>
                 </header>
 
-                <!-- 2. THE ONE THING — focal card. Auto-picked from the most-urgent signal -->
-                <a href="#" class="reveal-up press block hero-card p-7 mb-10 group">
-                  <p class="font-display text-[36px] font-bold leading-[1]">moonrise</p>
-                  <p class="text-[13.5px] mt-2.5" style="color: rgb(var(--fg-muted))">Mix · v2 · from Mor Studio · 3:18</p>
-
-                  <!-- waveform — softer, fewer peaks -->
-                  <div class="flex items-end gap-[3px] h-10 mt-6">
-                    <div class="peak" style="height: 38%"></div>
-                    <div class="peak" style="height: 54%"></div>
-                    <div class="peak" style="height: 70%"></div>
-                    <div class="peak" style="height: 62%"></div>
-                    <div class="peak" style="height: 82%"></div>
-                    <div class="peak" style="height: 90%"></div>
-                    <div class="peak" style="height: 74%"></div>
-                    <div class="peak" style="height: 58%"></div>
-                    <div class="peak" style="height: 80%"></div>
-                    <div class="peak" style="height: 68%"></div>
-                    <div class="peak" style="height: 52%"></div>
-                    <div class="peak" style="height: 76%"></div>
-                    <div class="peak" style="height: 84%"></div>
-                    <div class="peak" style="height: 64%"></div>
-                    <div class="peak" style="height: 72%"></div>
-                    <div class="peak" style="height: 80%"></div>
-                    <div class="peak" style="height: 50%"></div>
-                    <div class="peak" style="height: 66%"></div>
-                    <div class="peak" style="height: 78%"></div>
-                    <div class="peak" style="height: 56%"></div>
-                    <div class="peak" style="height: 70%"></div>
-                    <div class="peak" style="height: 84%"></div>
-                    <div class="peak" style="height: 60%"></div>
-                    <div class="peak" style="height: 72%"></div>
-                    <div class="peak" style="height: 48%"></div>
-                    <div class="peak" style="height: 62%"></div>
-                    <div class="peak" style="height: 36%"></div>
-                    <div class="peak" style="height: 28%"></div>
-                  </div>
-
-                  <div class="mt-7">
-                    <button class="press inline-flex items-center gap-2.5 pl-3.5 pr-5 py-2.5 rounded-full text-[14px] font-semibold" style="background: rgb(var(--fg-default)); color: rgb(var(--fg-inverse))">
-                      <span class="w-6 h-6 rounded-full flex items-center justify-center" style="background: rgb(var(--brand-primary)); color: rgb(var(--bg-sidebar))">▶</span>
-                      Listen
-                    </button>
+                <!-- 2. THE ONE THING — focal card. ONE row inside the elevated
+                     shell. Order: ▶ play | name | waveform | duration. Card earns
+                     the focal slot through elevation + radius, not through size. -->
+                <a href="#" class="reveal-up press block hero-card p-4 mb-10 group">
+                  <div class="flex items-center gap-4">
+                    <button aria-label="Listen" class="press shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-[11px]" style="background: rgb(var(--fg-default)); color: rgb(var(--brand-primary))">▶</button>
+                    <p class="min-w-0 truncate font-display text-[22px] font-bold leading-none tracking-[-0.02em]">moonrise</p>
+                    <div aria-hidden class="flex items-end gap-[2px] h-4 flex-1 min-w-0">
+                      <div class="peak" style="height: 38%"></div>
+                      <div class="peak" style="height: 54%"></div>
+                      <div class="peak" style="height: 70%"></div>
+                      <div class="peak" style="height: 62%"></div>
+                      <div class="peak" style="height: 82%"></div>
+                      <div class="peak" style="height: 90%"></div>
+                      <div class="peak" style="height: 74%"></div>
+                      <div class="peak" style="height: 58%"></div>
+                      <div class="peak" style="height: 80%"></div>
+                      <div class="peak" style="height: 68%"></div>
+                      <div class="peak" style="height: 52%"></div>
+                      <div class="peak" style="height: 76%"></div>
+                      <div class="peak" style="height: 84%"></div>
+                      <div class="peak" style="height: 64%"></div>
+                      <div class="peak" style="height: 72%"></div>
+                      <div class="peak" style="height: 80%"></div>
+                      <div class="peak" style="height: 50%"></div>
+                      <div class="peak" style="height: 66%"></div>
+                      <div class="peak" style="height: 78%"></div>
+                      <div class="peak" style="height: 56%"></div>
+                      <div class="peak" style="height: 70%"></div>
+                      <div class="peak" style="height: 84%"></div>
+                      <div class="peak" style="height: 60%"></div>
+                      <div class="peak" style="height: 72%"></div>
+                      <div class="peak" style="height: 48%"></div>
+                      <div class="peak" style="height: 62%"></div>
+                      <div class="peak" style="height: 36%"></div>
+                      <div class="peak" style="height: 28%"></div>
+                    </div>
+                    <span class="shrink-0 font-mono text-[12px] tabular-nums" style="color: rgb(var(--fg-muted))">3:18</span>
                   </div>
                 </a>
 
@@ -222,6 +218,31 @@
                   </div>
                 </section>
 
+                <!-- 4. BOOK A SESSION — bare avatars with Book → hint. No drag. -->
+                <section class="reveal-up mt-10">
+                  <p class="section-label mb-3 px-1">Book a session</p>
+                  <div class="flex flex-wrap gap-6 px-1">
+                    <!-- Tile 1 -->
+                    <a href="#" class="press flex flex-col items-center gap-2 rounded-[12px]">
+                      <span class="flex items-center justify-center rounded-full font-mono font-semibold text-white" style="width: 56px; height: 56px; background: rgb(var(--brand-copper)); font-size: 22px">G</span>
+                      <span class="line-clamp-1 max-w-[80px] text-center text-[12px] font-medium">Gili Asraf</span>
+                      <span class="text-[11px] font-medium" style="color: rgb(var(--fg-muted))">Book →</span>
+                    </a>
+                    <!-- Tile 2 -->
+                    <a href="#" class="press flex flex-col items-center gap-2 rounded-[12px]">
+                      <span class="flex items-center justify-center rounded-full font-mono font-semibold text-white" style="width: 56px; height: 56px; background: rgb(var(--brand-primary)); font-size: 22px">M</span>
+                      <span class="line-clamp-1 max-w-[80px] text-center text-[12px] font-medium">Mor Studio</span>
+                      <span class="text-[11px] font-medium" style="color: rgb(var(--fg-muted))">Book →</span>
+                    </a>
+                    <!-- Tile 3 -->
+                    <a href="#" class="press flex flex-col items-center gap-2 rounded-[12px]">
+                      <span class="flex items-center justify-center rounded-full font-mono font-semibold text-white" style="width: 56px; height: 56px; background: #5b8a72; font-size: 22px">Y</span>
+                      <span class="line-clamp-1 max-w-[80px] text-center text-[12px] font-medium">Yuval Cohen</span>
+                      <span class="text-[11px] font-medium" style="color: rgb(var(--fg-muted))">Book →</span>
+                    </a>
+                  </div>
+                </section>
+
               </div>
             </main>
 
@@ -250,11 +271,19 @@
               </h2>
               <p class="mt-3 text-[14px]" style="color: rgb(var(--fg-secondary))">Your new mix is ready.</p>
 
-              <!-- Focal card -->
-              <a href="#" class="press block hero-card p-5 mt-7">
-                <p class="font-display text-[28px] font-bold leading-[1]">moonrise</p>
-                <p class="text-[12px] mt-1.5" style="color: rgb(var(--fg-muted))">Mix · v2 · from Mor · 3:18</p>
-                <div class="flex items-end gap-[2.5px] h-8 mt-4">
+              <!-- Focal card — compact mobile -->
+              <a href="#" class="press block hero-card p-4 mt-7">
+                <div class="flex items-end justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="font-display text-[22px] font-bold leading-[1]">moonrise</p>
+                    <p class="text-[11.5px] mt-1" style="color: rgb(var(--fg-muted))">Mix · v2 · from Mor · 3:18</p>
+                  </div>
+                  <button class="press shrink-0 inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full text-[12px] font-semibold" style="background: rgb(var(--fg-default)); color: rgb(var(--fg-inverse))">
+                    <span class="w-4 h-4 rounded-full flex items-center justify-center text-[8px]" style="background: rgb(var(--brand-primary)); color: rgb(var(--bg-sidebar))">▶</span>
+                    Listen
+                  </button>
+                </div>
+                <div class="flex items-end gap-[2px] h-5 mt-3">
                   <div class="peak" style="height: 50%"></div>
                   <div class="peak" style="height: 72%"></div>
                   <div class="peak" style="height: 88%"></div>
@@ -276,10 +305,6 @@
                   <div class="peak" style="height: 70%"></div>
                   <div class="peak" style="height: 38%"></div>
                 </div>
-                <button class="press w-full mt-5 inline-flex items-center justify-center gap-2 py-3 rounded-full text-[13.5px] font-semibold" style="background: rgb(var(--fg-default)); color: rgb(var(--fg-inverse))">
-                  <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style="background: rgb(var(--brand-primary)); color: rgb(var(--bg-sidebar))">▶</span>
-                  Listen
-                </button>
               </a>
 
               <!-- Also waiting -->
@@ -301,6 +326,26 @@
                     <p class="text-[11.5px] mt-0.5" style="color: rgb(var(--fg-muted))">Vocal tracking · 3 hours</p>
                   </div>
                   <span class="text-[12px]" style="color: rgb(var(--fg-muted))">→</span>
+                </a>
+              </div>
+
+              <!-- Book a session (mobile) -->
+              <p class="section-label mt-7 mb-3">Book a session</p>
+              <div class="flex flex-wrap gap-5 px-1">
+                <a href="#" class="press flex flex-col items-center gap-1.5 rounded-[10px]">
+                  <span class="flex items-center justify-center rounded-full font-mono font-semibold text-white" style="width: 48px; height: 48px; background: rgb(var(--brand-copper)); font-size: 18px">G</span>
+                  <span class="line-clamp-1 max-w-[72px] text-center text-[11px] font-medium">Gili</span>
+                  <span class="text-[10px] font-medium" style="color: rgb(var(--fg-muted))">Book →</span>
+                </a>
+                <a href="#" class="press flex flex-col items-center gap-1.5 rounded-[10px]">
+                  <span class="flex items-center justify-center rounded-full font-mono font-semibold text-white" style="width: 48px; height: 48px; background: rgb(var(--brand-primary)); font-size: 18px">M</span>
+                  <span class="line-clamp-1 max-w-[72px] text-center text-[11px] font-medium">Mor</span>
+                  <span class="text-[10px] font-medium" style="color: rgb(var(--fg-muted))">Book →</span>
+                </a>
+                <a href="#" class="press flex flex-col items-center gap-1.5 rounded-[10px]">
+                  <span class="flex items-center justify-center rounded-full font-mono font-semibold text-white" style="width: 48px; height: 48px; background: #5b8a72; font-size: 18px">Y</span>
+                  <span class="line-clamp-1 max-w-[72px] text-center text-[11px] font-medium">Yuval</span>
+                  <span class="text-[10px] font-medium" style="color: rgb(var(--fg-muted))">Book →</span>
                 </a>
               </div>
 
@@ -365,24 +410,119 @@
       </div>
     </section>
 
-    <!-- Annotations / why this is simpler -->
+    <!-- Before / After comparison for the focal mix card -->
+    <section class="mt-16">
+      <p class="eyebrow mb-3">FOCAL MIX — BEFORE (SHIPPED) vs AFTER (V3)</p>
+      <p class="text-[14px] max-w-[640px] mb-6" style="color: rgb(var(--fg-secondary))">
+        The shipped MixFocal is a thin bordered row (radius-lg). PaymentFocal and SessionFocal stayed as tall white cards (radius-2xl with shadow). The focal slot now has two paradigms — the mix one is visually quieter than the items below it. v3 brings the mix back into the same shell as its siblings.
+      </p>
+
+      <div class="grid grid-cols-2 gap-8 max-w-[920px]">
+        <!-- BEFORE -->
+        <div>
+          <p class="section-label mb-2 px-1">Before (shipped)</p>
+          <div class="rounded-[var(--radius-lg)] border p-4" style="background: rgb(var(--bg-elevated)); border-color: rgb(var(--border-subtle))">
+            <div class="flex items-baseline justify-between gap-3">
+              <div class="min-w-0">
+                <p class="font-display text-[20px] font-bold leading-tight tracking-[-0.02em]">moonrise</p>
+                <p class="mt-0.5 text-[12.5px]" style="color: rgb(var(--fg-muted))">Mix · v2 · from Mor Studio</p>
+              </div>
+              <span class="font-mono text-[10.5px] uppercase tracking-[0.18em]" style="color: rgb(var(--fg-muted))">01</span>
+            </div>
+            <div class="mt-3 flex items-center gap-3">
+              <button class="flex h-9 w-9 items-center justify-center rounded-full text-[10px]" style="background: rgb(var(--fg-default)); color: rgb(var(--brand-primary))">▶</button>
+              <div class="flex h-2 flex-1 items-center gap-[1.5px]">
+                <span class="block flex-1 rounded-full" style="height: 62%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+                <span class="block flex-1 rounded-full" style="height: 70%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+                <span class="block flex-1 rounded-full" style="height: 58%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+                <span class="block flex-1 rounded-full" style="height: 78%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+                <span class="block flex-1 rounded-full" style="height: 66%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+                <span class="block flex-1 rounded-full" style="height: 72%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+                <span class="block flex-1 rounded-full" style="height: 60%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+                <span class="block flex-1 rounded-full" style="height: 80%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+                <span class="block flex-1 rounded-full" style="height: 68%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+                <span class="block flex-1 rounded-full" style="height: 64%; width: 2px; background: rgb(var(--brand-primary)); opacity: 0.32"></span>
+              </div>
+            </div>
+          </div>
+          <ul class="mt-3 text-[12.5px] space-y-1" style="color: rgb(var(--fg-muted))">
+            <li>· radius-lg (16) + thin border, no shadow</li>
+            <li>· Mystery "01" eyebrow</li>
+            <li>· Icon-only play button, no "Listen" label</li>
+            <li>· Smaller title than payment/session siblings</li>
+          </ul>
+        </div>
+
+        <!-- AFTER -->
+        <div>
+          <p class="section-label mb-2 px-1">After (v3)</p>
+          <div class="hero-card p-5">
+            <div class="flex items-end justify-between gap-4">
+              <div class="min-w-0">
+                <p class="font-display text-[24px] font-bold leading-[1]">moonrise</p>
+                <p class="text-[12.5px] mt-1.5" style="color: rgb(var(--fg-muted))">Mix · v2 · from Mor Studio · 3:18</p>
+              </div>
+              <button class="press shrink-0 inline-flex items-center gap-2 pl-3 pr-4 py-2 rounded-full text-[13px] font-semibold" style="background: rgb(var(--fg-default)); color: rgb(var(--fg-inverse))">
+                <span class="w-5 h-5 rounded-full flex items-center justify-center text-[9px]" style="background: rgb(var(--brand-primary)); color: rgb(var(--bg-sidebar))">▶</span>
+                Listen
+              </button>
+            </div>
+            <div class="flex items-end gap-[2px] h-6 mt-4">
+              <div class="peak" style="height: 38%"></div>
+              <div class="peak" style="height: 54%"></div>
+              <div class="peak" style="height: 70%"></div>
+              <div class="peak" style="height: 62%"></div>
+              <div class="peak" style="height: 82%"></div>
+              <div class="peak" style="height: 90%"></div>
+              <div class="peak" style="height: 74%"></div>
+              <div class="peak" style="height: 58%"></div>
+              <div class="peak" style="height: 80%"></div>
+              <div class="peak" style="height: 68%"></div>
+              <div class="peak" style="height: 52%"></div>
+              <div class="peak" style="height: 76%"></div>
+              <div class="peak" style="height: 84%"></div>
+              <div class="peak" style="height: 64%"></div>
+              <div class="peak" style="height: 72%"></div>
+              <div class="peak" style="height: 80%"></div>
+              <div class="peak" style="height: 50%"></div>
+              <div class="peak" style="height: 66%"></div>
+              <div class="peak" style="height: 78%"></div>
+              <div class="peak" style="height: 56%"></div>
+              <div class="peak" style="height: 70%"></div>
+              <div class="peak" style="height: 84%"></div>
+              <div class="peak" style="height: 60%"></div>
+              <div class="peak" style="height: 72%"></div>
+              <div class="peak" style="height: 48%"></div>
+              <div class="peak" style="height: 62%"></div>
+              <div class="peak" style="height: 36%"></div>
+              <div class="peak" style="height: 28%"></div>
+            </div>
+          </div>
+          <ul class="mt-3 text-[12.5px] space-y-1" style="color: rgb(var(--fg-muted))">
+            <li>· radius-2xl (28) + soft elevation shadow — matches payment/session shell</li>
+            <li>· "01" removed</li>
+            <li>· Title + "Listen" pill share the top row → vertical rhythm stays tight</li>
+            <li>· Waveform shrunk (h-6) but full peak set kept</li>
+            <li>· Same shell as payment/session, but card stays small</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Annotations — what changed in v3 -->
     <section class="mt-16 max-w-[760px]">
-      <p class="eyebrow mb-4">WHAT CHANGED FROM V1</p>
+      <p class="eyebrow mb-4">WHAT CHANGED IN V3 (FROM SHIPPED CODE)</p>
       <ul class="space-y-3 text-[14.5px]" style="color: rgb(var(--fg-secondary)); line-height: 1.55">
-        <li><b>One focal item.</b> The home picks the single most-important thing (new mix, or unpaid invoice, or upcoming session) and shows it big at the top. Everything else is a one-line row below.</li>
-        <li><b>No bento.</b> Just a centered column, even on desktop. Same column on mobile. Same code path.</li>
-        <li><b>Studio chips → moved.</b> Out of the home. Shown as "3 studios · Gili · Mor · Yuval" at the bottom. Tap takes you to the full list.</li>
-        <li><b>Balance → folded in.</b> If you owe money, it appears as a row in "Also waiting" ("Pay ₪10,000"). No separate card.</li>
-        <li><b>Activity → moved.</b> The activity feed gets its own page (link from the More tab). Home doesn't need it.</li>
-        <li><b>No "URGENT (2)" header.</b> A small amber dot is enough. No shouting at the user.</li>
-        <li><b>Sentence-case labels.</b> "Also waiting" — not "ALSO WAITING" or eyebrow-spammed everywhere.</li>
-        <li><b>The empty state is calm.</b> If there's nothing to do, the page says "All quiet" and shows one button. We don't manufacture activity.</li>
+        <li><b>1. Unified focal shell.</b> All three focal variants (mix / payment / session) now sit inside the same elevated white card — same radius (2xl), same shadow. The focal slot looks like the focal slot regardless of which variant fills it.</li>
+        <li><b>2. Mix focal restored to mock spec.</b> Compact bordered row → tall card. Tiny play glyph → "Listen" pill. Smaller title → 32px display title. Mystery "01" eyebrow → removed.</li>
+        <li><b>3. "Book a session" tiles read as actions.</b> Each studio avatar gets a tiny "Book →" hint below the name. Without it the row looks like a passive list of "people you know" — adding the verb cue costs nothing and makes intent obvious.</li>
+        <li><b>4. Drag-to-reorder dropped.</b> No grip handle, no cursor change, no keyboard alternative. Most artists have 1–3 studios so manual ordering wasn't paying for its complexity. Tiles render in server order (most recent first).</li>
       </ul>
 
       <div class="mt-8 p-5 rounded-[var(--radius-xl)]" style="background: rgb(var(--bg-elevated)); border: 1px solid rgb(var(--border-subtle))">
-        <p class="section-label mb-2">Inspired by</p>
+        <p class="section-label mb-2">Why these three</p>
         <p class="text-[13.5px]" style="color: rgb(var(--fg-secondary)); line-height: 1.6">
-          Linear's inbox (list rows, no cards) · Spotify's Listen Now (one big focal item) · Cal.com (your next thing front and center) · Things 3 (quiet typographic labels) · iMessage and Notion home (conversational, no badges everywhere).
+          These were the three priority items from the design-critique pass on PR #151. They keep the inbox model intact — the only thing v3 changes is making the model render <em>consistently</em> across all focal variants and removing affordances that nobody can see.
         </p>
       </div>
     </section>

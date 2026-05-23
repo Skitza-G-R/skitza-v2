@@ -1554,6 +1554,12 @@ export const artistRouter = router({
           projectId: projects.id,
           uploadedAt: trackVersions.uploadedAt,
           audioUrl: trackVersions.audioUrl,
+          // Plumbed through so the /artist home focal mix tile can
+          // render the track duration in its one compact row
+          // (▶ play | name | waveform | duration). Nullable —
+          // populated by audio.completeMultipart once the upload
+          // finalises; legacy rows leave it null.
+          durationMs: trackVersions.durationMs,
         })
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
@@ -1681,6 +1687,7 @@ export const artistRouter = router({
           projectId: mixRow.projectId,
           uploadedAt: mixRow.uploadedAt,
           audioUrl: mixRow.audioUrl,
+          durationMs: mixRow.durationMs,
         }
       : null;
 

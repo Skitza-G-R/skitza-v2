@@ -1,25 +1,29 @@
-"use client";
-
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import Link from "next/link";
 
 import type { Studio } from "~/server/artist/identity";
 
-// Client component — bare-avatar "Book a session" tiles.
+// Server component — "Book a session" tile row at the bottom of the
+// artist home.
 //
 //   - One tile per producer the artist has a relationship with.
-//   - Just an avatar circle (colored, with the initial) and the
-//     producer name underneath in small text. No card chrome.
-//   - With 2+ studios, tiles are draggable to reorder. Order is
-//     persisted in localStorage so the artist's preferred ordering
-//     sticks across reloads.
+//   - Avatar circle (colored, with the initial) on top, producer name
+//     below, and a quiet "Book →" hint below that so the row reads as
+//     an action — not as a passive list of "people you know".
 //   - Clicking / tapping a tile opens /artist/book?studio=<id>.
 //
-// Local storage shape: a JSON array of producerIds. New producers
-// (not yet in the saved order) get appended in their incoming order.
-// Producers no longer present are dropped on read.
-
-const STORAGE_KEY = "skitza:artist:studio-order";
+// What was here before:
+//   - Drag-to-reorder (HTML5 DnD) with localStorage persistence under
+//     `skitza:artist:studio-order`.
+//
+// Why it's gone:
+//   - No visible affordance (no grip handle, no cursor change), so
+//     the interaction was undiscoverable.
+//   - No keyboard alternative — a hard accessibility gap.
+//   - Most artists have 1–3 studios; manual ordering wasn't paying
+//     for its complexity.
+//
+// If artist reorder ever becomes a real need, do it on the server
+// (persists across devices) with a visible drag handle on each tile.
 
 const KIND_PALETTE = [
   "rgb(var(--kind-mix))",
@@ -43,106 +47,8 @@ function initial(name: string): string {
   return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "?";
 }
 
-// Read saved order from localStorage and reconcile against the
-// current studio list. Studios missing from saved order are appended.
-function reconcileOrder(studios: Studio[]): string[] {
-  if (typeof window === "undefined") return studios.map((s) => s.producerId);
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return studios.map((s) => s.producerId);
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return studios.map((s) => s.producerId);
-    const savedIds = parsed.filter((x): x is string => typeof x === "string");
-    const currentIds = new Set(studios.map((s) => s.producerId));
-    const inOrder = savedIds.filter((id) => currentIds.has(id));
-    const seen = new Set(inOrder);
-    const newOnes = studios
-      .map((s) => s.producerId)
-      .filter((id) => !seen.has(id));
-    return [...inOrder, ...newOnes];
-  } catch {
-    return studios.map((s) => s.producerId);
-  }
-}
-
 export function BookWithStudios({ studios }: { studios: Studio[] }) {
-  // Start in incoming order. On mount, hydrate from saved order.
-  const [order, setOrder] = useState<string[]>(() =>
-    studios.map((s) => s.producerId),
-  );
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [overIdx, setOverIdx] = useState<number | null>(null);
-  const router = useRouter();
-
-  // Hydrate the saved order after mount + whenever the incoming
-  // studios list changes (new producer connected, one removed).
-  useEffect(() => {
-    setOrder(reconcileOrder(studios));
-  }, [studios]);
-
-  // Persist order whenever it changes.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(order));
-    } catch {
-      /* localStorage may be unavailable (private mode) — silent */
-    }
-  }, [order]);
-
   if (studios.length === 0) return null;
-
-  const byId = new Map(studios.map((s) => [s.producerId, s]));
-  const ordered = order
-    .map((id) => byId.get(id))
-    .filter((s): s is Studio => s !== undefined);
-
-  const dndEnabled = ordered.length > 1;
-
-  const onDragStart = (idx: number) => (e: React.DragEvent) => {
-    setDragIdx(idx);
-    e.dataTransfer.effectAllowed = "move";
-    // Required for Firefox to start a drag.
-    e.dataTransfer.setData("text/plain", String(idx));
-  };
-
-  const onDragOver = (idx: number) => (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setOverIdx(idx);
-  };
-
-  const onDragLeave = () => {
-    setOverIdx(null);
-  };
-
-  const onDrop = (idx: number) => (e: React.DragEvent) => {
-    e.preventDefault();
-    setOverIdx(null);
-    if (dragIdx === null || dragIdx === idx) {
-      setDragIdx(null);
-      return;
-    }
-    const next = [...order];
-    const movedId = next[dragIdx];
-    if (!movedId) {
-      setDragIdx(null);
-      return;
-    }
-    next.splice(dragIdx, 1);
-    next.splice(idx, 0, movedId);
-    setOrder(next);
-    setDragIdx(null);
-  };
-
-  const onDragEnd = () => {
-    setDragIdx(null);
-    setOverIdx(null);
-  };
-
-  const goto = (producerId: string) => {
-    router.push(`/artist/book?studio=${producerId}`);
-  };
 
   return (
     <section
@@ -156,38 +62,14 @@ export function BookWithStudios({ studios }: { studios: Studio[] }) {
         Book a session
       </h2>
       <div className="mt-3 flex flex-wrap gap-5">
-        {ordered.map((s, idx) => {
+        {studios.map((s) => {
           const color = hashColor(s.producerId);
-          const isDragging = dragIdx === idx;
-          const isOver = overIdx === idx && dragIdx !== null && dragIdx !== idx;
-
           return (
-            <div
+            <Link
               key={s.producerId}
-              role="link"
-              tabIndex={0}
-              draggable={dndEnabled}
-              onDragStart={onDragStart(idx)}
-              onDragOver={onDragOver(idx)}
-              onDragLeave={onDragLeave}
-              onDrop={onDrop(idx)}
-              onDragEnd={onDragEnd}
-              onClick={() => {
-                goto(s.producerId);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  goto(s.producerId);
-                }
-              }}
+              href={`/artist/book?studio=${s.producerId}`}
               aria-label={`Book a session with ${s.name}`}
-              className="sk-press flex cursor-pointer flex-col items-center gap-2 rounded-[var(--radius-md)] outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-              style={{
-                opacity: isDragging ? 0.35 : 1,
-                transform: isOver ? "scale(1.04)" : undefined,
-                transition: "transform 160ms cubic-bezier(0.23, 1, 0.32, 1)",
-              }}
+              className="sk-press flex flex-col items-center gap-1.5 rounded-[var(--radius-md)] outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
             >
               <Avatar
                 name={s.name}
@@ -198,7 +80,13 @@ export function BookWithStudios({ studios }: { studios: Studio[] }) {
               <span className="line-clamp-1 max-w-[80px] text-center text-[12px] font-medium text-[rgb(var(--fg-default))]">
                 {s.name}
               </span>
-            </div>
+              <span
+                aria-hidden
+                className="text-[11px] font-medium text-[rgb(var(--fg-muted))]"
+              >
+                Book →
+              </span>
+            </Link>
           );
         })}
       </div>
