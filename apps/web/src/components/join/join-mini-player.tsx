@@ -167,7 +167,9 @@ export function JoinMiniPlayer() {
           {/* Play / pause circle. */}
           <button
             type="button"
-            onClick={() => playerToggle()}
+            onClick={() => {
+              playerToggle();
+            }}
             aria-label={state.playing ? "Pause" : "Play"}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] transition-transform duration-300 hover:scale-105 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
             style={{ transitionTimingFunction: EASE_LINEAR }}
@@ -218,7 +220,9 @@ export function JoinMiniPlayer() {
           {/* Close X. */}
           <button
             type="button"
-            onClick={() => playerClose()}
+            onClick={() => {
+              playerClose();
+            }}
             aria-label="Close player"
             className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.7)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
           >
