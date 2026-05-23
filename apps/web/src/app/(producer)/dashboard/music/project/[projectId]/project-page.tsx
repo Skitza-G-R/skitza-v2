@@ -17,7 +17,7 @@ import {
   useNowPlaying,
 } from "~/components/audio/persistent-player";
 
-import { ProjectCover } from "~/components/dashboard/music/project-cover";
+import { ProjectCover } from "~/components/music/project-cover";
 import {
   fmtCount,
   fmtDuration,
@@ -27,7 +27,7 @@ import {
   kindFromTrackCount,
   padIndex,
   sumDurations,
-} from "~/components/dashboard/music/lib";
+} from "~/components/music/lib";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 
 // ─── Wire types ──────────────────────────────────────────────────────
