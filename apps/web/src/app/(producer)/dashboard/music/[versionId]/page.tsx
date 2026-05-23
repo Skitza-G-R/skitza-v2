@@ -2,9 +2,10 @@ import { auth } from "@clerk/nextjs/server";
 import { TRPCError } from "@trpc/server";
 import { notFound, redirect } from "next/navigation";
 
+import { SongPage, type SongPageData } from "~/components/music/song-page";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { SongPage, type SongPageData } from "./song-page";
+import { l3AddComment, l3ApproveVersion, l3ResolveComment } from "./actions";
 
 type PageProps = { params: Promise<{ versionId: string }> };
 
@@ -69,5 +70,15 @@ export default async function ProducerSongPage({ params }: PageProps) {
     selectedVersionId: data.selectedVersionId,
   };
 
-  return <SongPage data={wire} />;
+  return (
+    <SongPage
+      data={wire}
+      role="producer"
+      actions={{
+        addComment: l3AddComment,
+        resolveComment: l3ResolveComment,
+        approveVersion: l3ApproveVersion,
+      }}
+    />
+  );
 }

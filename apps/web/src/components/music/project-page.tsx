@@ -485,17 +485,15 @@ function Tracklist({
         {tracks.map((t, idx) => {
           const isCurrent = nowPlayingId === t.id;
           const playingHere = isCurrent && isPlaying;
-          // Wrapper element switches by role.
-          //
-          // - producer: whole row is a <Link> → L3 song page. The inner
-          //   play button preventDefault()s so clicking it plays
-          //   without navigating. (Spotify + Apple Music both use this
-          //   pattern: clickable row, dedicated play affordance.)
-          // - artist: L3 doesn't exist on the artist tree yet, so the
-          //   row becomes a `<div role="button">` and clicking it plays
-          //   the track directly. The inner play button still works
-          //   because its stopPropagation prevents the outer onClick
-          //   from also firing.
+          // Whole row is a <Link> → L3 song page on both sides
+          // (Spotify + Apple Music both use this pattern: clickable
+          // row, dedicated play affordance). The inner play button
+          // calls preventDefault + stopPropagation so clicking it
+          // plays without navigating. Only the URL differs by role.
+          const rowHref =
+            role === "producer"
+              ? `/dashboard/music/${t.id}?from=${projectId}`
+              : `/artist/music/song/${t.id}`;
           const rowClassName = [
             "group relative grid items-center gap-3 px-4 py-2.5",
             isCurrent
@@ -513,9 +511,8 @@ function Tracklist({
               className="sk-stagger-item"
               style={{ "--i": String(idx) } as React.CSSProperties}
             >
-              {role === "producer" ? (
               <Link
-                href={`/dashboard/music/${t.id}?from=${projectId}`}
+                href={rowHref}
                 aria-label={`Open ${t.title} song page`}
                 className={rowClassName}
                 style={rowStyle}

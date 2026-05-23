@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
@@ -173,10 +174,26 @@ export function pickDurationMs(
 }
 
 /**
- * URL the dock's expand button sends the producer to. Always points
- * at the L3 song page for the currently-playing track-version.
+ * URL the dock's expand button + title + cover link send the user to.
+ * Always points at the L3 song page for the currently-playing track-
+ * version, but the route prefix flips based on which side of the app
+ * the user is currently on:
+ *
+ *   - /artist/*    →  /artist/music/song/<id>  (artist L3 route)
+ *   - everywhere else (including /dashboard/*) → /dashboard/music/<id>
+ *     (producer L3 route — historical default)
+ *
+ * Pathname-derived rather than role-prop so the dock works on every
+ * surface that mounts it (producer dashboard, artist app, public
+ * /join). Callers don't have to thread a role down.
  */
-export function expandHrefForTrack(track: PlayerTrack): string {
+export function expandHrefForTrack(
+  track: PlayerTrack,
+  pathname: string | null,
+): string {
+  if (pathname && pathname.startsWith("/artist")) {
+    return `/artist/music/song/${track.id}`;
+  }
   return `/dashboard/music/${track.id}`;
 }
 
@@ -187,6 +204,11 @@ export function PersistentPlayer() {
   const [currentMs, setCurrentMs] = useState(0);
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Reactive pathname — re-renders on navigation. Drives
+  // expandHrefForTrack so the dock's title / cover / expand button
+  // route to the right L3 (artist vs producer) without each caller
+  // having to pass a role prop.
+  const pathname = usePathname();
   // Dock is always visible across the dashboard now (legacy song-page
   // hide was retired with the in-card transport). The body-data-
   // attribute padding rule in globals.css (body[data-skitza-dock="1"]
@@ -258,10 +280,26 @@ export function PersistentPlayer() {
   // Drive the <audio> element imperatively from state. Split out so
   // setting a new track (id changes) resets the element before play
   // kicks in.
+  //
+  // Also pause every OTHER <audio> in the document when ours starts.
+  // The artist app currently has two singleton audio elements
+  // mounted side-by-side — this dock's (added in PR1) and the
+  // legacy ArtistAudioProvider's mini-player audio. If both have a
+  // loaded source, hitting Play on one didn't stop the other, so
+  // playback could overlap (or worse, the browser's audio-focus
+  // arbitration would silence ours intermittently → "sometimes
+  // plays, sometimes doesn't"). One-way auto-pause keeps this dock
+  // as the canonical audio source whenever it starts a track; the
+  // full ArtistAudioProvider retirement is a separate ticket.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
     if (state.playing) {
+      if (typeof document !== "undefined") {
+        document.querySelectorAll("audio").forEach((other) => {
+          if (other !== el && !other.paused) other.pause();
+        });
+      }
       void el.play().catch(() => {
         setState((s) => ({ ...s, playing: false }));
       });
@@ -349,6 +387,7 @@ export function PersistentPlayer() {
         onScrub={onScrub}
         onSkip={onSkip}
         hidden={dockHidden}
+        pathname={pathname}
       />
       {/* Mobile dock — <md, sits above the bottom nav */}
       <MobileDock
@@ -356,6 +395,7 @@ export function PersistentPlayer() {
         playing={state.playing}
         onTogglePlay={onTogglePlay}
         hidden={dockHidden}
+        pathname={pathname}
       />
       {/* Hidden audio element — sr-only keeps assistive tech from
           picking it up as a second player (the visible controls above
@@ -382,6 +422,7 @@ function DesktopDock({
   onScrub,
   onSkip,
   hidden = false,
+  pathname,
 }: {
   track: PlayerTrack;
   playing: boolean;
@@ -392,6 +433,7 @@ function DesktopDock({
   onScrub: (pct: number) => void;
   onSkip: (deltaPct: number) => void;
   hidden?: boolean;
+  pathname: string | null;
 }) {
   return (
     <div
@@ -445,7 +487,7 @@ function DesktopDock({
             sk-press gives the same tactile press feedback used elsewhere
             in the app so the whole row reads as one tappable surface. */}
         <Link
-          href={expandHrefForTrack(track)}
+          href={expandHrefForTrack(track, pathname)}
           aria-label={`Open ${track.title} song page`}
           title="Open song page"
           className="sk-press flex min-w-0 items-center gap-3 rounded-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
@@ -524,7 +566,7 @@ function DesktopDock({
             column stays at true geometric center. */}
         <div className="flex items-center justify-end gap-1 justify-self-end border-s border-white/10 ps-3">
           <Link
-            href={expandHrefForTrack(track)}
+            href={expandHrefForTrack(track, pathname)}
             aria-label="Open song page"
             title="Open song page"
             className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md text-white/55 hover:text-white"
@@ -555,11 +597,13 @@ function MobileDock({
   playing,
   onTogglePlay,
   hidden = false,
+  pathname,
 }: {
   track: PlayerTrack;
   playing: boolean;
   onTogglePlay: () => void;
   hidden?: boolean;
+  pathname: string | null;
 }) {
   return (
     <div
@@ -596,7 +640,7 @@ function MobileDock({
             Music mini-player pattern). The dedicated expand button is
             kept too for users who learned that affordance. */}
         <Link
-          href={expandHrefForTrack(track)}
+          href={expandHrefForTrack(track, pathname)}
           aria-label={`Open ${track.title} song page`}
           title="Open song page"
           className="sk-press flex min-w-0 flex-1 items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
@@ -620,7 +664,7 @@ function MobileDock({
           {playing ? <PauseIcon /> : <PlayIcon />}
         </button>
         <Link
-          href={expandHrefForTrack(track)}
+          href={expandHrefForTrack(track, pathname)}
           aria-label="Open song page"
           title="Open song page"
           className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md text-white/70 hover:text-white"

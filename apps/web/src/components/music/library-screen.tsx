@@ -89,21 +89,17 @@ const SORT_LABEL: Record<SongSort, string> = {
 export type MusicLibraryRole = "producer" | "artist";
 
 // Internal href builders centralised here (instead of inlined per-cell)
-// so the URL switch lives in ONE place. Song cards on the artist side
-// fall back to the project page until L3 ships on the artist tree.
+// so the URL switch lives in ONE place. Each side now has its own
+// L2 + L3 route (SK-30 added the artist L3).
 function projectHref(role: MusicLibraryRole, projectId: string): string {
   return role === "producer"
     ? `/dashboard/music/project/${projectId}`
     : `/artist/music/${projectId}`;
 }
-function songHref(
-  role: MusicLibraryRole,
-  songId: string,
-  projectId: string,
-): string {
+function songHref(role: MusicLibraryRole, songId: string): string {
   return role === "producer"
     ? `/dashboard/music/${songId}`
-    : `/artist/music/${projectId}`;
+    : `/artist/music/song/${songId}`;
 }
 
 export function MusicLibraryScreen({
@@ -510,12 +506,18 @@ function SegmentedButton({
       aria-controls={controls}
       onClick={onClick}
       className={[
+        // sk-press provides scale(0.97) on :active for tactile feedback;
+        // sk-trans pairs it with the project's strong custom easing
+        // curve. The hover lift (-translate-y-px) is the new touch —
+        // a 1px nudge that the user reads subconsciously as "this is
+        // clickable" before they even press. Emil-style: invisible
+        // detail that compounds.
         "sk-press inline-flex items-center gap-1.5 rounded-[7px] font-bold sk-trans",
         iconOnly ? "px-[9px] py-[6px]" : "px-[11px] py-[6px]",
         "text-[11.5px]",
         active
           ? "bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
-          : "bg-transparent text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+          : "bg-transparent text-[rgb(var(--fg-muted))] hover:-translate-y-px hover:text-[rgb(var(--fg-default))]",
       ].join(" ")}
     >
       {icon}
@@ -847,7 +849,7 @@ function SongCard({
     .join(" · ");
   return (
     <Link
-      href={songHref(role, song.id, song.projectId)}
+      href={songHref(role, song.id)}
       className="sk-lift group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
     >
       {/* Wrapper sized by ProjectCover's own aspect-ratio. The cover sits
@@ -980,7 +982,7 @@ function SongsTable({
                   buttons inside use preventDefault + stopPropagation
                   so they fire their own action without navigating. */}
               <Link
-                href={songHref(role, s.id, s.projectId)}
+                href={songHref(role, s.id)}
                 aria-label={`Open ${s.trackTitle} song page`}
                 className={[
                   "group grid items-center gap-3 px-4 py-2 hover:bg-[rgb(var(--bg-overlay))]",
