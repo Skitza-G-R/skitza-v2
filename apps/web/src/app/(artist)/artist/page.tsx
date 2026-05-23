@@ -1,5 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 
+import { ActivityTail } from "~/components/artist/home/activity-tail";
 import {
   AlsoWaitingList,
   type WaitingRow,
@@ -97,16 +98,28 @@ export default async function ArtistHomePage() {
     //     bump (lg:max-w-[680px]) for breathing room. The right-side
     //     space becomes intentional negative space (and the future
     //     home for the context rail in Round 3).
-    <div className="mx-auto w-full max-w-[600px] space-y-6 lg:mx-0 lg:max-w-[680px]">
-      <WelcomeModal />
-      <InboxHero
-        firstName={firstName}
-        todayLabel={todayLabel}
-        subline={subline}
-      />
-      <FocalCard item={focal} />
-      <AlsoWaitingList rows={alsoWaiting} />
-      <BookWithStudios studios={studios} />
+    <div className="mx-auto w-full max-w-[600px] lg:mx-0 lg:max-w-[680px]">
+      <div className="space-y-6">
+        <WelcomeModal />
+        <InboxHero
+          firstName={firstName}
+          todayLabel={todayLabel}
+          subline={subline}
+        />
+        <FocalCard item={focal} />
+        <AlsoWaitingList rows={alsoWaiting} />
+        <BookWithStudios studios={studios} />
+        <ActivityTail items={data.activity} />
+      </div>
+
+      {/* Page-end byline — gives the page a clear bottom edge so it
+          doesn't trail off into the persistent player. Faint mono,
+          minimal weight; this is a wayfinder, not a CTA. */}
+      <footer className="mt-12 border-t border-[rgb(var(--border-subtle))] pt-6 text-center">
+        <p className="font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--fg-faint))]">
+          Skitza · powered by your producers
+        </p>
+      </footer>
     </div>
   );
 }
