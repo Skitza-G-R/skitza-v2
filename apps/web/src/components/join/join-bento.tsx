@@ -472,12 +472,102 @@ function TrackRow({ sample, index, producerName }: TrackRowProps) {
           ) : null}
         </span>
 
+        {/* Decorative mini waveform — desktop only; fingerprint is
+            deterministic from track ID so each row looks distinct
+            without an audio decode. */}
+        <MiniWaveform
+          seedKey={sample.id}
+          className={[
+            "hidden sm:block w-[120px] h-5 shrink-0",
+            isActive
+              ? "text-[rgb(var(--brand-primary))]"
+              : "text-[rgb(var(--fg-primary)/0.35)]",
+          ].join(" ")}
+        />
+
         {/* Duration. */}
         <span className="shrink-0 font-mono text-[0.7rem] tabular-nums text-[rgb(var(--fg-muted))]">
           {formatDuration(sample.durationMs)}
         </span>
       </button>
     </li>
+  );
+}
+
+// ─── MiniWaveform (decorative, deterministic from track ID) ────────
+//
+// We don't decode audio per row — that would be 3 wavesurfer instances
+// + 3 audio fetches on first paint. Instead, derive a stable 32-bar
+// pattern from the track's UUID via fnv1a + mulberry32. Each track gets
+// its own "fingerprint" that loads with the HTML.
+//
+// Real audio-decoded waveform fires when the visitor clicks play —
+// the mini player owns that surface.
+
+function fnv1aHash(str: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const WAVEFORM_BAR_COUNT = 32;
+const WAVEFORM_BAR_STRIDE = 3;
+const WAVEFORM_BAR_WIDTH = 2;
+const WAVEFORM_VB_HEIGHT = 16;
+
+function MiniWaveform({
+  seedKey,
+  className,
+}: {
+  seedKey: string;
+  className?: string;
+}) {
+  const rand = mulberry32(fnv1aHash(seedKey));
+  const bars: number[] = [];
+  for (let i = 0; i < WAVEFORM_BAR_COUNT; i++) {
+    // Bias towards mid-amplitude; occasional taller spike. Min 0.18 so
+    // the row never has near-zero bars that look like rendering bugs.
+    bars.push(0.18 + rand() * 0.82);
+  }
+  const vbWidth = WAVEFORM_BAR_COUNT * WAVEFORM_BAR_STRIDE;
+  return (
+    <svg
+      viewBox={`0 0 ${String(vbWidth)} ${String(WAVEFORM_VB_HEIGHT)}`}
+      preserveAspectRatio="none"
+      className={className}
+      aria-hidden
+    >
+      {bars.map((amp, i) => {
+        const h = amp * (WAVEFORM_VB_HEIGHT - 2);
+        const y = (WAVEFORM_VB_HEIGHT - h) / 2;
+        const x = i * WAVEFORM_BAR_STRIDE;
+        return (
+          <rect
+            key={i}
+            x={x}
+            y={y}
+            width={WAVEFORM_BAR_WIDTH}
+            height={h}
+            rx={0.8}
+            fill="currentColor"
+          />
+        );
+      })}
+    </svg>
   );
 }
 

@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   PLAYER_EVENTS,
   pickDurationMs,
+  playerPlay,
   playerToggle,
   playerClose,
   publishNowPlaying,
@@ -31,9 +32,35 @@ import {
 
 type PlayerState = { track: PlayerTrack | null; playing: boolean };
 
+// Subset of the page's PublicSample so the mini player can compute
+// prev/next without importing the bento's full type surface.
+interface MiniPlaylistTrack {
+  id: string;
+  title: string;
+  artist: string | null;
+  audioUrl: string | null;
+  durationMs: number | null;
+}
+
+interface JoinMiniPlayerProps {
+  /**
+   * Playlist context. The mini player uses this to resolve the active
+   * track's index and dispatch the prev/next track via `playerPlay()`.
+   * Optional — when empty / missing, the prev/next buttons render as
+   * disabled (single-track context).
+   */
+  samples?: ReadonlyArray<MiniPlaylistTrack>;
+  /**
+   * Fallback subtitle when a sample has no `artist` — usually the
+   * producer's display name. Passed through to dispatched tracks so
+   * the dock copy stays consistent with the row.
+   */
+  producerName?: string;
+}
+
 const EASE_LINEAR = "cubic-bezier(0.32,0.72,0,1)";
 
-export function JoinMiniPlayer() {
+export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
   const [state, setState] = useState<PlayerState>({ track: null, playing: false });
   const [currentMs, setCurrentMs] = useState(0);
   const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
@@ -139,6 +166,30 @@ export function JoinMiniPlayer() {
       ? Math.min(100, Math.max(0, (currentMs / effectiveDurationMs) * 100))
       : 0;
 
+  // Resolve prev/next from the playlist context. Both fall back to
+  // null when the active track isn't in the list (defensive — shouldn't
+  // happen in practice but keeps the buttons disabled instead of
+  // crashing if a stale track id stays in state).
+  const activeId = state.track.id;
+  const idx = samples?.findIndex((s) => s.id === activeId) ?? -1;
+  const prevTrack =
+    samples && idx > 0 ? samples[idx - 1] ?? null : null;
+  const nextTrack =
+    samples && idx >= 0 && idx < samples.length - 1
+      ? samples[idx + 1] ?? null
+      : null;
+
+  function dispatchTrack(t: MiniPlaylistTrack) {
+    if (!t.audioUrl) return;
+    playerPlay({
+      id: t.id,
+      audioUrl: t.audioUrl,
+      title: t.title,
+      subtitle: t.artist ?? producerName ?? "",
+      durationMs: t.durationMs,
+    });
+  }
+
   function onScrub(e: React.MouseEvent<HTMLButtonElement>) {
     if (!effectiveDurationMs) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -164,27 +215,59 @@ export function JoinMiniPlayer() {
             animation: "skitza-mini-rise 320ms cubic-bezier(0.16,1,0.3,1) both",
           }}
         >
-          {/* Play / pause circle. */}
-          <button
-            type="button"
-            onClick={() => {
-              playerToggle();
-            }}
-            aria-label={state.playing ? "Pause" : "Play"}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] transition-transform duration-300 hover:scale-105 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
-            style={{ transitionTimingFunction: EASE_LINEAR }}
-          >
-            {state.playing ? (
-              <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden fill="currentColor">
-                <rect x="6" y="5" width="4" height="14" rx="1" />
-                <rect x="14" y="5" width="4" height="14" rx="1" />
+          {/* Transport — prev / play-pause / next. */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                if (prevTrack) dispatchTrack(prevTrack);
+              }}
+              disabled={!prevTrack}
+              aria-label="Previous track"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden fill="currentColor">
+                <polygon points="18,5 7,12 18,19" />
+                <rect x="4" y="5" width="2" height="14" rx="0.5" />
               </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" className="h-4 w-4 translate-x-[1px]" aria-hidden fill="currentColor">
-                <polygon points="6,4 20,12 6,20" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                playerToggle();
+              }}
+              aria-label={state.playing ? "Pause" : "Play"}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] transition-transform duration-300 hover:scale-105 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
+              style={{ transitionTimingFunction: EASE_LINEAR }}
+            >
+              {state.playing ? (
+                <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden fill="currentColor">
+                  <rect x="6" y="5" width="4" height="14" rx="1" />
+                  <rect x="14" y="5" width="4" height="14" rx="1" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" className="h-4 w-4 translate-x-[1px]" aria-hidden fill="currentColor">
+                  <polygon points="6,4 20,12 6,20" />
+                </svg>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (nextTrack) dispatchTrack(nextTrack);
+              }}
+              disabled={!nextTrack}
+              aria-label="Next track"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden fill="currentColor">
+                <polygon points="6,5 17,12 6,19" />
+                <rect x="18" y="5" width="2" height="14" rx="0.5" />
               </svg>
-            )}
-          </button>
+            </button>
+          </div>
 
           {/* Title + artist + thin scrubbable progress bar. */}
           <div className="min-w-0 flex flex-col gap-1.5">

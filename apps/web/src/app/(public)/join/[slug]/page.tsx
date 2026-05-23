@@ -96,8 +96,14 @@ export default async function JoinPage({ params }: PageProps) {
 
         {/* Floating mini player — appears at the bottom only when the
             visitor clicks a sample row. Reuses the same `skitza:player:*`
-            event bus as the dashboard's <PersistentPlayer />. */}
-        <JoinMiniPlayer />
+            event bus as the dashboard's <PersistentPlayer />. Passing
+            samples + producerName so the dock can resolve prev/next
+            from the playlist context and apply the producer-name
+            subtitle fallback when a sample lacks an artist. */}
+        <JoinMiniPlayer
+          samples={data.publicSamples}
+          producerName={data.producer.displayName ?? ""}
+        />
       </main>
     </div>
   );
