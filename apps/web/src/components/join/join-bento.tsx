@@ -508,9 +508,15 @@ function TrackRow({ sample, index, producerName }: TrackRowProps) {
 // ─── MiniWaveform (decorative, deterministic from track ID) ────────
 //
 // We don't decode audio per row — that would be 3 wavesurfer instances
-// + 3 audio fetches on first paint. Instead, derive a stable 32-bar
+// + 3 audio fetches on first paint. Instead, derive a stable bar
 // pattern from the track's UUID via fnv1a + mulberry32. Each track gets
 // its own "fingerprint" that loads with the HTML.
+//
+// Premium look (v2): 96 bars at 1px width / 1.5px stride. Heights come
+// from a 2-octave noise mix — a slow envelope swell (low-frequency
+// random walk) plus per-bar detail. Real audio waveforms have musical
+// dynamics, not flat random noise; mixing scales gives the same
+// "phrasing" feel without an audio decode.
 //
 // Real audio-decoded waveform fires when the visitor clicks play —
 // the mini player owns that surface.
@@ -535,10 +541,46 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-const WAVEFORM_BAR_COUNT = 32;
-const WAVEFORM_BAR_STRIDE = 3;
-const WAVEFORM_BAR_WIDTH = 2;
-const WAVEFORM_VB_HEIGHT = 16;
+const WAVEFORM_BAR_COUNT = 96;
+const WAVEFORM_BAR_STRIDE = 1.5;
+const WAVEFORM_BAR_WIDTH = 1;
+const WAVEFORM_VB_HEIGHT = 20;
+// Envelope nodes — coarse anchors interpolated across the bar array
+// to give the waveform musical phrasing rather than flat random noise.
+const WAVEFORM_ENVELOPE_NODES = 8;
+
+function buildWaveformAmplitudes(seed: number): number[] {
+  const rand = mulberry32(seed);
+
+  // Slow envelope (low-frequency random walk through the song).
+  const nodes: number[] = [];
+  for (let i = 0; i < WAVEFORM_ENVELOPE_NODES; i++) {
+    nodes.push(0.35 + rand() * 0.55);
+  }
+
+  const out: number[] = [];
+  for (let i = 0; i < WAVEFORM_BAR_COUNT; i++) {
+    // Interpolate between adjacent envelope nodes.
+    const t = (i / (WAVEFORM_BAR_COUNT - 1)) * (WAVEFORM_ENVELOPE_NODES - 1);
+    const lo = Math.floor(t);
+    const hi = Math.min(WAVEFORM_ENVELOPE_NODES - 1, lo + 1);
+    const frac = t - lo;
+    const a = nodes[lo] ?? 0.5;
+    const b = nodes[hi] ?? 0.5;
+    // Cosine ease so the envelope feels musical, not piecewise-linear.
+    const smooth = 0.5 - 0.5 * Math.cos(frac * Math.PI);
+    const env = a * (1 - smooth) + b * smooth;
+
+    // Per-bar detail layered on top — narrow random jitter so adjacent
+    // bars don't pop wildly but still have texture.
+    const jitter = (rand() - 0.5) * 0.45;
+    // Clamp into [0.12, 1.0] — never invisible, never clipping the
+    // viewBox.
+    const amp = Math.max(0.12, Math.min(1.0, env + jitter));
+    out.push(amp);
+  }
+  return out;
+}
 
 function MiniWaveform({
   seedKey,
@@ -547,13 +589,7 @@ function MiniWaveform({
   seedKey: string;
   className?: string;
 }) {
-  const rand = mulberry32(fnv1aHash(seedKey));
-  const bars: number[] = [];
-  for (let i = 0; i < WAVEFORM_BAR_COUNT; i++) {
-    // Bias towards mid-amplitude; occasional taller spike. Min 0.18 so
-    // the row never has near-zero bars that look like rendering bugs.
-    bars.push(0.18 + rand() * 0.82);
-  }
+  const bars = buildWaveformAmplitudes(fnv1aHash(seedKey));
   const vbWidth = WAVEFORM_BAR_COUNT * WAVEFORM_BAR_STRIDE;
   return (
     <svg
@@ -573,7 +609,7 @@ function MiniWaveform({
             y={y}
             width={WAVEFORM_BAR_WIDTH}
             height={h}
-            rx={0.8}
+            rx={0.5}
             fill="currentColor"
           />
         );
@@ -666,7 +702,14 @@ function useAudioDuration(
 
     const el = document.createElement("audio");
     el.preload = "metadata";
-    el.crossOrigin = "anonymous";
+    // No crossOrigin set on purpose. Reading audio.duration only needs
+    // the container header (which the <audio> element fetches via the
+    // standard media stream), not pixel-data or PCM samples. Setting
+    // crossOrigin="anonymous" makes the browser require a CORS preflight
+    // and a matching Access-Control-Allow-Origin header on R2 — older
+    // tracks in this catalog don't have that header, so the load
+    // silently fails and the row stays "—". Dropping it lets the
+    // metadata probe succeed against any same-protocol audio host.
     el.src = url;
     probedRef.current = el;
 

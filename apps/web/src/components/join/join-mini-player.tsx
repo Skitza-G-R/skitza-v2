@@ -269,7 +269,7 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
             </button>
           </div>
 
-          {/* Title + artist + thin scrubbable progress bar. */}
+          {/* Title + artist + thin scrubbable progress bar + timestamps. */}
           <div className="min-w-0 flex flex-col gap-1.5">
             <div className="min-w-0 flex items-baseline gap-2">
               <p className="truncate text-sm font-bold">
@@ -298,6 +298,14 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
                 }}
               />
             </button>
+            <div className="flex items-baseline justify-between font-mono text-[0.62rem] tabular-nums text-[rgb(var(--bg-base)/0.6)]">
+              <span aria-label="Current time">{formatClockMs(currentMs)}</span>
+              <span aria-label="Total duration">
+                {effectiveDurationMs !== null
+                  ? formatClockMs(effectiveDurationMs)
+                  : "—"}
+              </span>
+            </div>
           </div>
 
           {/* Close X. */}
@@ -336,4 +344,16 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
       `}</style>
     </>
   );
+}
+
+// Format a millisecond offset as M:SS. Used for both the live playhead
+// and the total-duration label in the dock. Falls back to 0:00 for
+// any non-finite or negative input — defensive because the
+// timeupdate event can fire with NaN briefly while metadata loads.
+function formatClockMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "0:00";
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${String(m)}:${String(s).padStart(2, "0")}`;
 }
