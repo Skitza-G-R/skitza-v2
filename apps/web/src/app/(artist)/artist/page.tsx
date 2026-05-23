@@ -86,7 +86,18 @@ export default async function ArtistHomePage() {
   const subline = buildSubline(focal.kind);
 
   return (
-    <div className="mx-auto w-full max-w-[600px] space-y-6">
+    // Column alignment:
+    //   • mobile/tablet (< lg): mx-auto, 600px max — matches the shell's
+    //     centered container, so the page reads as a single centered
+    //     reading column.
+    //   • desktop (lg+): the shell switches to full-width main with
+    //     40px padding. Centering a 600px column inside ~1100px of
+    //     main looks "floating in the middle for no reason," so we
+    //     anchor left (lg:mx-0) and give the column a small width
+    //     bump (lg:max-w-[680px]) for breathing room. The right-side
+    //     space becomes intentional negative space (and the future
+    //     home for the context rail in Round 3).
+    <div className="mx-auto w-full max-w-[600px] space-y-6 lg:mx-0 lg:max-w-[680px]">
       <WelcomeModal />
       <InboxHero
         firstName={firstName}
