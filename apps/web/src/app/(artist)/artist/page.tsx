@@ -13,6 +13,7 @@ import {
 } from "~/components/artist/home/focal-card";
 import { InboxHero } from "~/components/artist/home/inbox-hero";
 import { ThisWeekStrip } from "~/components/artist/home/this-week-strip";
+import { buildSubline } from "~/lib/artist/build-subline";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { WelcomeModal } from "./welcome-modal";
@@ -86,7 +87,7 @@ export default async function ArtistHomePage() {
     focalKind: focal.kind,
   });
 
-  const subline = buildSubline(focal.kind);
+  const subline = buildSubline({ focal, studioCount: studios.length });
 
   // `today` is computed here so the rail's ThisWeekStrip + the home
   // tile share the same reference. Server-rendered → uses the
@@ -96,16 +97,19 @@ export default async function ArtistHomePage() {
   return (
     // Layout strategy by breakpoint:
     //   • mobile/tablet (< lg): single column, mx-auto, 600px max.
-    //     Matches the shell's centered container; reads as one
-    //     reading column. The rail collapses BELOW the main column
-    //     so it's still reachable.
-    //   • desktop (lg+): two-column grid — 680px main column +
-    //     280px right rail with a 48px gap. The rail holds two
-    //     quiet context widgets (this week + wallet) and a brand
-    //     byline. The footer line spans the full width below both
-    //     columns.
-    <div className="mx-auto w-full max-w-[600px] lg:mx-0 lg:max-w-none">
-      <div className="lg:grid lg:grid-cols-[680px_280px] lg:items-start lg:gap-12">
+    //     The rail collapses BELOW the main column with mt-12 so
+    //     it's still reachable, just stacked.
+    //   • desktop (lg+): two-column grid CENTERED in the viewport.
+    //     Main 760px + 48px gap + rail 320px = 1128px. The outer
+    //     `mx-auto max-w-[1128px]` centers the whole block so the
+    //     two columns sit in the middle of the main area, with
+    //     symmetric breathing room left and right — instead of the
+    //     left-anchored / void-on-the-right shape we saw after the
+    //     first attempt. The wider columns also cover more of the
+    //     screen so the page doesn't read as "tight inbox in a wide
+    //     window."
+    <div className="mx-auto w-full max-w-[600px] lg:max-w-[1128px]">
+      <div className="lg:grid lg:grid-cols-[760px_320px] lg:items-start lg:gap-12">
         {/* Main column — all the primary sections. */}
         <div className="space-y-6">
           <WelcomeModal />
@@ -254,19 +258,6 @@ function pickAlsoWaiting(input: {
   }
 
   return rows.slice(0, 2);
-}
-
-function buildSubline(kind: FocalItem["kind"]): string {
-  switch (kind) {
-    case "mix":
-      return "Your new mix is ready.";
-    case "payment":
-      return "One payment to complete.";
-    case "session":
-      return "Session this week.";
-    case "quiet":
-      return "All quiet.";
-  }
 }
 
 function isWithinNextSevenDays(d: Date): boolean {
