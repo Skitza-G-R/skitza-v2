@@ -1,21 +1,25 @@
-import Link from "next/link";
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import type { Studio } from "~/server/artist/identity";
 
-// Server component — the "Book a session with..." block below the
-// inbox list. One soft card per producer the artist has a
-// relationship with. Clicking a card lands on /artist/book with the
-// studio pre-selected.
+// Client component — bare-avatar "Book a session" tiles.
 //
-// Layouts:
-//   - n=1: full-width compact row (avatar + name + Book →)
-//   - n≥2: flex-wrap row of stacked-vertical cards (avatar on top,
-//          name + Book → below). Each card stays ≥160px wide so the
-//          name doesn't truncate; the row wraps gracefully past 3.
+//   - One tile per producer the artist has a relationship with.
+//   - Just an avatar circle (colored, with the initial) and the
+//     producer name underneath in small text. No card chrome.
+//   - With 2+ studios, tiles are draggable to reorder. Order is
+//     persisted in localStorage so the artist's preferred ordering
+//     sticks across reloads.
+//   - Clicking / tapping a tile opens /artist/book?studio=<id>.
 //
-// Avatar color is hashed from producerId against the kind-* palette
-// already defined in globals.css — gives each studio a stable
-// recognizable accent without a real logo upload step.
+// Local storage shape: a JSON array of producerIds. New producers
+// (not yet in the saved order) get appended in their incoming order.
+// Producers no longer present are dropped on read.
+
+const STORAGE_KEY = "skitza:artist:studio-order";
 
 const KIND_PALETTE = [
   "rgb(var(--kind-mix))",
@@ -39,11 +43,106 @@ function initial(name: string): string {
   return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "?";
 }
 
+// Read saved order from localStorage and reconcile against the
+// current studio list. Studios missing from saved order are appended.
+function reconcileOrder(studios: Studio[]): string[] {
+  if (typeof window === "undefined") return studios.map((s) => s.producerId);
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return studios.map((s) => s.producerId);
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return studios.map((s) => s.producerId);
+    const savedIds = parsed.filter((x): x is string => typeof x === "string");
+    const currentIds = new Set(studios.map((s) => s.producerId));
+    const inOrder = savedIds.filter((id) => currentIds.has(id));
+    const seen = new Set(inOrder);
+    const newOnes = studios
+      .map((s) => s.producerId)
+      .filter((id) => !seen.has(id));
+    return [...inOrder, ...newOnes];
+  } catch {
+    return studios.map((s) => s.producerId);
+  }
+}
+
 export function BookWithStudios({ studios }: { studios: Studio[] }) {
-  // Narrow once so we never reach for studios[0] with the lint-banned
-  // non-null assertion. An empty list bails entirely.
-  const [first, ...rest] = studios;
-  if (!first) return null;
+  // Start in incoming order. On mount, hydrate from saved order.
+  const [order, setOrder] = useState<string[]>(() =>
+    studios.map((s) => s.producerId),
+  );
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+  const router = useRouter();
+
+  // Hydrate the saved order after mount + whenever the incoming
+  // studios list changes (new producer connected, one removed).
+  useEffect(() => {
+    setOrder(reconcileOrder(studios));
+  }, [studios]);
+
+  // Persist order whenever it changes.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(order));
+    } catch {
+      /* localStorage may be unavailable (private mode) — silent */
+    }
+  }, [order]);
+
+  if (studios.length === 0) return null;
+
+  const byId = new Map(studios.map((s) => [s.producerId, s]));
+  const ordered = order
+    .map((id) => byId.get(id))
+    .filter((s): s is Studio => s !== undefined);
+
+  const dndEnabled = ordered.length > 1;
+
+  const onDragStart = (idx: number) => (e: React.DragEvent) => {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = "move";
+    // Required for Firefox to start a drag.
+    e.dataTransfer.setData("text/plain", String(idx));
+  };
+
+  const onDragOver = (idx: number) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setOverIdx(idx);
+  };
+
+  const onDragLeave = () => {
+    setOverIdx(null);
+  };
+
+  const onDrop = (idx: number) => (e: React.DragEvent) => {
+    e.preventDefault();
+    setOverIdx(null);
+    if (dragIdx === null || dragIdx === idx) {
+      setDragIdx(null);
+      return;
+    }
+    const next = [...order];
+    const movedId = next[dragIdx];
+    if (!movedId) {
+      setDragIdx(null);
+      return;
+    }
+    next.splice(dragIdx, 1);
+    next.splice(idx, 0, movedId);
+    setOrder(next);
+    setDragIdx(null);
+  };
+
+  const onDragEnd = () => {
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  const goto = (producerId: string) => {
+    router.push(`/artist/book?studio=${producerId}`);
+  };
 
   return (
     <section
@@ -56,78 +155,54 @@ export function BookWithStudios({ studios }: { studios: Studio[] }) {
       >
         Book a session
       </h2>
+      <div className="mt-3 flex flex-wrap gap-5">
+        {ordered.map((s, idx) => {
+          const color = hashColor(s.producerId);
+          const isDragging = dragIdx === idx;
+          const isOver = overIdx === idx && dragIdx !== null && dragIdx !== idx;
 
-      {rest.length === 0 ? (
-        <SoloRow studio={first} />
-      ) : (
-        <div className="mt-2 flex flex-wrap gap-3">
-          {studios.map((s) => (
-            <StackedCard key={s.producerId} studio={s} />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ─── Card variants ──────────────────────────────────────────────────
-
-function SoloRow({ studio }: { studio: Studio }) {
-  const color = hashColor(studio.producerId);
-  return (
-    <Link
-      href={`/artist/book?studio=${studio.producerId}`}
-      className="sk-press mt-2 flex items-center gap-4 rounded-[var(--radius-xl)] bg-[rgb(var(--bg-elevated))] p-4 transition-colors hover:bg-[rgb(var(--bg-overlay))]"
-      style={{
-        boxShadow: "0 1px 0 rgb(17 16 9 / 0.03)",
-        border: "1px solid rgb(var(--border-subtle))",
-      }}
-    >
-      <Avatar
-        name={studio.name}
-        color={color}
-        logoUrl={studio.logoUrl}
-        size={48}
-      />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-semibold text-[rgb(var(--fg-default))]">
-          {studio.name}
-        </p>
-        <p className="mt-0.5 text-[12px] text-[rgb(var(--fg-muted))]">
-          Tap to book a session
-        </p>
+          return (
+            <div
+              key={s.producerId}
+              role="link"
+              tabIndex={0}
+              draggable={dndEnabled}
+              onDragStart={onDragStart(idx)}
+              onDragOver={onDragOver(idx)}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop(idx)}
+              onDragEnd={onDragEnd}
+              onClick={() => {
+                goto(s.producerId);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  goto(s.producerId);
+                }
+              }}
+              aria-label={`Book a session with ${s.name}`}
+              className="sk-press flex cursor-pointer flex-col items-center gap-2 rounded-[var(--radius-md)] outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+              style={{
+                opacity: isDragging ? 0.35 : 1,
+                transform: isOver ? "scale(1.04)" : undefined,
+                transition: "transform 160ms cubic-bezier(0.23, 1, 0.32, 1)",
+              }}
+            >
+              <Avatar
+                name={s.name}
+                color={color}
+                logoUrl={s.logoUrl}
+                size={56}
+              />
+              <span className="line-clamp-1 max-w-[80px] text-center text-[12px] font-medium text-[rgb(var(--fg-default))]">
+                {s.name}
+              </span>
+            </div>
+          );
+        })}
       </div>
-      <span className="font-mono text-[11px] font-medium uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-        Book →
-      </span>
-    </Link>
-  );
-}
-
-function StackedCard({ studio }: { studio: Studio }) {
-  const color = hashColor(studio.producerId);
-  return (
-    <Link
-      href={`/artist/book?studio=${studio.producerId}`}
-      className="sk-press flex min-w-[160px] flex-1 flex-col items-center gap-3 rounded-[var(--radius-xl)] bg-[rgb(var(--bg-elevated))] p-5 text-center transition-colors hover:bg-[rgb(var(--bg-overlay))]"
-      style={{
-        boxShadow: "0 1px 0 rgb(17 16 9 / 0.03)",
-        border: "1px solid rgb(var(--border-subtle))",
-      }}
-    >
-      <Avatar
-        name={studio.name}
-        color={color}
-        logoUrl={studio.logoUrl}
-        size={56}
-      />
-      <p className="line-clamp-1 text-[14px] font-semibold text-[rgb(var(--fg-default))]">
-        {studio.name}
-      </p>
-      <span className="font-mono text-[10.5px] font-medium uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-        Book →
-      </span>
-    </Link>
+    </section>
   );
 }
 
@@ -151,10 +226,6 @@ function Avatar({
         className="shrink-0 overflow-hidden rounded-full ring-1 ring-[rgb(var(--border-subtle))]"
         style={{ width: size, height: size }}
       >
-        {/* Using <img> over next/image because logoUrl is sometimes a
-            data URL or a non-allowlisted remote host; next/image is
-            stricter here. Decorative — the parent Link carries the
-            label. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={logoUrl}
@@ -162,6 +233,7 @@ function Avatar({
           width={size}
           height={size}
           className="h-full w-full object-cover"
+          draggable={false}
         />
       </span>
     );
@@ -170,12 +242,12 @@ function Avatar({
   return (
     <span
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-full font-mono font-semibold text-white"
+      className="flex shrink-0 select-none items-center justify-center rounded-full font-mono font-semibold text-white"
       style={{
         width: size,
         height: size,
         background: color,
-        fontSize: Math.round(size * 0.4),
+        fontSize: Math.round(size * 0.38),
       }}
     >
       {initial(name)}

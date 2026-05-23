@@ -86,7 +86,7 @@ export default async function ArtistHomePage() {
   const subline = buildSubline(focal.kind);
 
   return (
-    <div className="mx-auto w-full max-w-[600px] space-y-10 lg:space-y-12 lg:pt-4">
+    <div className="mx-auto w-full max-w-[600px] space-y-6">
       <WelcomeModal />
       <InboxHero
         firstName={firstName}

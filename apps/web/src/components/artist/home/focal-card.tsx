@@ -105,68 +105,71 @@ function MixFocal({ mix }: { mix: Mix }) {
     });
   };
 
+  // Compact row, modeled after the public page's "Recent work" tile:
+  // title + meta on top, play button + thin track stripe below. Card
+  // is intentionally short — this is one item, not a hero section.
   return (
     <Link
       href={`/artist/music/${mix.projectId}`}
-      className="sk-press block"
+      className="sk-press reveal-up-delay-1 block rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4"
       aria-label={`Open ${mix.trackTitle} project`}
     >
-      <Shell>
-        <p className="font-display text-[30px] font-bold leading-[1] tracking-[-0.025em] text-[rgb(var(--fg-default))] lg:text-[34px]">
-          {mix.trackTitle}
-        </p>
-        <p className="mt-2.5 text-[13px] text-[rgb(var(--fg-muted))] lg:text-[13.5px]">
-          Mix · {mix.label} · from {mix.producerName}
-        </p>
-
-        {/* Single-line preview — small play button + thin track stripe.
-            Whole card navigates to the project; this button stops
-            propagation and plays inline. */}
-        <div className="mt-7 flex items-center gap-4">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onPlay();
-            }}
-            disabled={!ready}
-            aria-label={
-              ready
-                ? isPlaying
-                  ? `Pause ${mix.trackTitle}`
-                  : `Listen to ${mix.trackTitle}`
-                : "Audio still uploading"
-            }
-            className="sk-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              background: "rgb(var(--fg-default))",
-              color: "rgb(var(--brand-primary))",
-            }}
-          >
-            <span aria-hidden>
-              {isPlaying ? "❚❚" : "▶"}
-            </span>
-          </button>
-
-          <div
-            aria-hidden
-            className="flex h-2 flex-1 items-center gap-[1.5px]"
-          >
-            {TRACK_STRIPE.map((h, i) => (
-              <span
-                key={i}
-                className="block w-[2px] flex-1 rounded-full"
-                style={{
-                  height: `${String(h)}%`,
-                  background: "rgb(var(--brand-primary))",
-                  opacity: 0.32,
-                }}
-              />
-            ))}
-          </div>
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-display text-[20px] font-bold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+            {mix.trackTitle}
+          </p>
+          <p className="mt-0.5 truncate text-[12.5px] text-[rgb(var(--fg-muted))]">
+            Mix · {mix.label} · from {mix.producerName}
+          </p>
         </div>
-      </Shell>
+        <span
+          aria-hidden
+          className="shrink-0 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]"
+        >
+          01
+        </span>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onPlay();
+          }}
+          disabled={!ready}
+          aria-label={
+            ready
+              ? isPlaying
+                ? `Pause ${mix.trackTitle}`
+                : `Listen to ${mix.trackTitle}`
+              : "Audio still uploading"
+          }
+          className="sk-press flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
+          style={{
+            background: "rgb(var(--fg-default))",
+            color: "rgb(var(--brand-primary))",
+          }}
+        >
+          <span aria-hidden>{isPlaying ? "❚❚" : "▶"}</span>
+        </button>
+
+        <div aria-hidden className="flex h-2 flex-1 items-center gap-[1.5px]">
+          {TRACK_STRIPE.map((h, i) => (
+            <span
+              key={i}
+              className="block w-[2px] flex-1 rounded-full"
+              style={{
+                height: `${String(h)}%`,
+                background: "rgb(var(--brand-primary))",
+                opacity: 0.32,
+              }}
+            />
+          ))}
+        </div>
+      </div>
     </Link>
   );
 }
