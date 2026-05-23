@@ -43,8 +43,18 @@ export default async function MusicPage() {
     plays: t.plays,
   }));
 
+  // Negative margins break the page out of the artist shell's
+  // `px-4 pt-6 lg:px-10 lg:pt-10` padding so the amber wash spans
+  // edge-to-edge and starts flush at the top. Without this, the
+  // shell padding leaves cream strips on the sides + above the wash.
+  // Same trick we use on the L2 ProjectPage route — both want the
+  // backdrop to read as a full-width canvas, not an inset card. The
+  // inner wrapper's `mt-10` stays so the heading has breathing room
+  // (matches producer where its `-mt-[40px]` shell cancels the inner
+  // mt-10 visually; the artist has no topbar to take that 40px, so
+  // we keep it as real whitespace).
   return (
-    <div className="relative isolate">
+    <div className="relative isolate -mx-4 -mt-6 lg:-mx-10 lg:-mt-10">
       {/* Soft warm-amber wash behind the header.
 
           Producer side terminates the gradient with `via-bg-background`
