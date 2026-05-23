@@ -3,12 +3,18 @@ import Link from "next/link";
 // Server component — the quiet list under the focal card. Shows the
 // urgent items NOT promoted to the focal slot, plus the next session
 // if it isn't already focal. Hairline dividers between rows, no
-// cards.
+// per-row cards.
 //
-// Each row's primary line leads with the most-unique fact (the
-// amount on a payment row, the time on a session row); the secondary
-// line carries context. A small colored dot signals attention
-// urgency — amber for action-required, faint for informational.
+// Section architecture (Round 1, 2026-05-23 polish pass):
+//   - "01 / INBOX" numbered mono eyebrow
+//   - "Also waiting" Syne display subhead
+//   - border-t rule line under the header
+//   - Rows of either WaitingRow content or a single "empty" synth row
+//
+// The numbered eyebrow + display subhead + rule give each section a
+// clear visual identity even when it holds 0 real items. Avoids the
+// "page looks empty / where am I" failure mode the bare 13px label
+// produced.
 
 export type WaitingRow =
   | {
@@ -27,22 +33,33 @@ export type WaitingRow =
       producerName: string;
     };
 
+export type DisplayRow = WaitingRow | { kind: "empty" };
+
+// Pure helper — owns the "if there's nothing, show the empty row"
+// decision so the component is dumb and the behavior is testable in
+// node (no jsdom needed).
+export function getWaitingRows(rows: WaitingRow[]): DisplayRow[] {
+  if (rows.length === 0) return [{ kind: "empty" }];
+  return rows;
+}
+
 export function AlsoWaitingList({ rows }: { rows: WaitingRow[] }) {
-  if (rows.length === 0) return null;
+  const displayRows = getWaitingRows(rows);
 
   return (
     <section
       aria-labelledby="also-waiting-heading"
       className="reveal-up-delay-2"
     >
-      <h2
-        id="also-waiting-heading"
-        className="px-1 text-[13px] font-medium text-[rgb(var(--fg-muted))]"
+      <SectionMarker
+        number="01"
+        eyebrow="Inbox"
+        headingId="also-waiting-heading"
       >
         Also waiting
-      </h2>
-      <div className="-mx-3 mt-1">
-        {rows.map((row, idx) => (
+      </SectionMarker>
+      <div className="-mx-3 mt-3">
+        {displayRows.map((row, idx) => (
           <div key={getKey(row)}>
             {idx > 0 ? (
               <div
@@ -59,7 +76,66 @@ export function AlsoWaitingList({ rows }: { rows: WaitingRow[] }) {
   );
 }
 
-function Row({ row }: { row: WaitingRow }) {
+// ─── Section marker ─────────────────────────────────────────────────
+
+function SectionMarker({
+  number,
+  eyebrow,
+  headingId,
+  children,
+}: {
+  number: string;
+  eyebrow: string;
+  headingId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3 px-1">
+        <p className="font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+          <span style={{ color: "rgb(var(--brand-primary))" }}>{number}</span>
+          <span className="mx-2 text-[rgb(var(--fg-faint))]">/</span>
+          {eyebrow}
+        </p>
+      </div>
+      <h2
+        id={headingId}
+        className="mt-1.5 px-1 font-display text-[20px] font-bold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]"
+      >
+        {children}
+      </h2>
+      <div
+        aria-hidden
+        className="mt-2 h-px"
+        style={{ background: "rgb(var(--border-strong))" }}
+      />
+    </div>
+  );
+}
+
+// ─── Rows ───────────────────────────────────────────────────────────
+
+function Row({ row }: { row: DisplayRow }) {
+  if (row.kind === "empty") {
+    return (
+      <div className="flex items-center gap-4 rounded-[12px] px-3 py-4">
+        <span
+          aria-hidden
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ background: "rgb(var(--fg-faint))" }}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-medium text-[rgb(var(--fg-default))]">
+            Inbox zero
+          </p>
+          <p className="mt-0.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
+            Nothing else waiting on you.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (row.kind === "payment") {
     return (
       <Link
@@ -117,7 +193,8 @@ function Row({ row }: { row: WaitingRow }) {
   );
 }
 
-function getKey(row: WaitingRow): string {
+function getKey(row: DisplayRow): string {
+  if (row.kind === "empty") return "empty";
   return row.kind === "payment"
     ? `payment-${row.bookingId}`
     : `session-${row.sessionId}`;

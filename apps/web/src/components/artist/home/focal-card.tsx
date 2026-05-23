@@ -157,18 +157,27 @@ function MixFocal({ mix }: { mix: Mix }) {
           {mix.trackTitle}
         </p>
 
+        {/* Decorative track stripe — fixed-width peaks, NOT
+            flex-stretched. R1 bug fix: previously each peak had its
+            own `flex-1`, which let the parent flex divide its width
+            equally across all 40 children — turning every peak into
+            a ~10px-wide pill and erasing the height variance. Now
+            each peak is a strict 2.5px wide with a 2px gap; the
+            container's flex-1 still claims the leftover row width,
+            and `overflow-hidden` clips any peaks that don't fit on
+            narrow viewports. */}
         <div
           aria-hidden
-          className="flex h-4 min-w-0 flex-1 items-end gap-[2px]"
+          className="flex h-5 min-w-0 flex-1 items-end gap-[2px] overflow-hidden"
         >
           {TRACK_STRIPE.map((h, i) => (
             <span
               key={i}
-              className="block w-[2px] flex-1 rounded-full"
+              className="block w-[2.5px] shrink-0 rounded-full"
               style={{
                 height: `${String(h)}%`,
                 background: "rgb(var(--brand-primary))",
-                opacity: 0.32,
+                opacity: 0.42,
               }}
             />
           ))}

@@ -55,40 +55,66 @@ export function BookWithStudios({ studios }: { studios: Studio[] }) {
       aria-labelledby="book-with-heading"
       className="reveal-up-delay-3"
     >
+      {/* Section marker — matches the AlsoWaitingList architecture:
+          numbered mono eyebrow + Syne display subhead + rule line.
+          Gives the section a clear visual identity instead of the
+          previous timid 13px label. */}
+      <div className="flex items-baseline justify-between gap-3 px-1">
+        <p className="font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+          <span style={{ color: "rgb(var(--brand-primary))" }}>02</span>
+          <span className="mx-2 text-[rgb(var(--fg-faint))]">/</span>
+          Studios
+        </p>
+      </div>
       <h2
         id="book-with-heading"
-        className="px-1 text-[13px] font-medium text-[rgb(var(--fg-muted))]"
+        className="mt-1.5 px-1 font-display text-[20px] font-bold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]"
       >
         Book a session
       </h2>
-      <div className="mt-3 flex flex-wrap gap-5">
-        {studios.map((s) => {
-          const color = hashColor(s.producerId);
-          return (
-            <Link
-              key={s.producerId}
-              href={`/artist/book?studio=${s.producerId}`}
-              aria-label={`Book a session with ${s.name}`}
-              className="sk-press flex flex-col items-center gap-1.5 rounded-[var(--radius-md)] outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-            >
-              <Avatar
-                name={s.name}
-                color={color}
-                logoUrl={s.logoUrl}
-                size={56}
-              />
-              <span className="line-clamp-1 max-w-[80px] text-center text-[12px] font-medium text-[rgb(var(--fg-default))]">
-                {s.name}
-              </span>
-              <span
-                aria-hidden
-                className="text-[11px] font-medium text-[rgb(var(--fg-muted))]"
+      <div
+        aria-hidden
+        className="mt-2 h-px"
+        style={{ background: "rgb(var(--border-strong))" }}
+      />
+
+      {/* Sunken anchor — a single warm-tinted strip groups the tiles
+          so a lone avatar doesn't float in beige void. NOT an
+          elevated card (no shadow), NOT a per-tile container — just
+          one quiet surface that holds the whole row. */}
+      <div
+        className="mt-4 rounded-[var(--radius-2xl)] px-5 py-5"
+        style={{ background: "rgb(var(--bg-sunken))" }}
+      >
+        <div className="flex flex-wrap items-start gap-5">
+          {studios.map((s) => {
+            const color = hashColor(s.producerId);
+            return (
+              <Link
+                key={s.producerId}
+                href={`/artist/book?studio=${s.producerId}`}
+                aria-label={`Book a session with ${s.name}`}
+                className="sk-press flex flex-col items-center gap-1.5 rounded-[var(--radius-md)] outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
               >
-                Book →
-              </span>
-            </Link>
-          );
-        })}
+                <Avatar
+                  name={s.name}
+                  color={color}
+                  logoUrl={s.logoUrl}
+                  size={56}
+                />
+                <span className="line-clamp-1 max-w-[80px] text-center text-[12px] font-medium text-[rgb(var(--fg-default))]">
+                  {s.name}
+                </span>
+                <span
+                  aria-hidden
+                  className="text-[11px] font-medium text-[rgb(var(--fg-muted))]"
+                >
+                  Book →
+                </span>
+              </Link>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
