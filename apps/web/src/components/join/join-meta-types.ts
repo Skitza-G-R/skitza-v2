@@ -3,7 +3,9 @@
 // and tests can all import it without crossing the use-client boundary.
 //
 // Producer authors these fields in Settings → Profile; they're surfaced
-// by `publicProfile.forJoin` and rendered by `<JoinMetaStrip>`.
+// by `publicProfile.forJoin` and consumed by `<JoinBento>` as inline
+// meta chips (Genres · Response · Streams) at the bottom of the
+// identity column. The formatters live in `join-meta-strip.tsx`.
 
 export interface JoinMeta {
   /** Genre tags. Null/empty hides the "Genres" stat block. */

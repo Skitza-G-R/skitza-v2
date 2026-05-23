@@ -31,6 +31,21 @@ function setNowPlayingState(next: { trackId: string | null; playing: boolean }) 
   });
 }
 
+/**
+ * SK-25: external publish surface — lets a sibling dock component
+ * (e.g. the public-page mini player on /join/<slug>) keep
+ * `useNowPlaying()` consumers in sync when the dashboard's
+ * <PersistentPlayer /> isn't mounted. The two docks never coexist
+ * (different layout trees), so this is a single observable with two
+ * possible writers, not a race.
+ */
+export function publishNowPlaying(next: {
+  trackId: string | null;
+  playing: boolean;
+}): void {
+  setNowPlayingState(next);
+}
+
 /** Subscribe to currently-playing track changes. Returns an unsubscribe fn. */
 function subscribeNowPlaying(cb: () => void): () => void {
   nowPlayingListeners.add(cb);

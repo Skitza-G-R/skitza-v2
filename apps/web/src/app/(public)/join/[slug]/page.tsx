@@ -4,24 +4,20 @@ import { TRPCError } from "@trpc/server";
 
 import { createDb, eq, portfolioTracks } from "@skitza/db";
 import { appRouter } from "~/server/trpc/routers/_app";
-import { JoinHero } from "~/components/join/join-hero";
 import { JoinNav } from "~/components/join/join-nav";
-import { JoinMetaStrip } from "~/components/join/join-meta-strip";
-import { PublicSamplesPlayer } from "~/components/join/public-samples-player";
-import { SignupCta } from "~/components/join/signup-cta";
+import { JoinBento } from "~/components/join/join-bento";
+import { JoinMiniPlayer } from "~/components/join/join-mini-player";
 
-// Story 02 of the /join flow (PRD §6.1-6.2). The URL every producer
-// pastes into their IG bio — `skitza.app/join/<slug>` — lands here for
-// unsigned-in visitors. Public teaser: sticky nav → hero (with portrait
-// card) → meta strip → recent work (3 sample tracks) → dark CTA with
-// social links + signup. No auth; no AppShell; its own layout.
+// SK-25: compacted to a single-viewport layout. The old hero +
+// meta-strip + samples-section + dark-CTA scroll-stack was replaced by
+// a single <JoinBento> — left column identity, right column portrait +
+// compact samples rail. On mobile the portrait drops and the rail
+// collapses to one expanded waveform + N compact rows.
 //
-// Polish pass (2026-05-06, design context 2026): adds sticky nav, meta
-// strip, dark CTA section. Booking is still gated on signup — the
-// producer-side product catalog + real Stripe checkout is Phase H.
+// Booking is still gated on signup (Layer 1, 2026-05-06): every CTA
+// links to /sign-up/join/<slug>. No inline booking modal.
 //
-// English-only, LTR-only per CLAUDE.md i18n scope. No `t()` calls, no
-// NextIntlClientProvider — public route.
+// English-only, LTR-only per CLAUDE.md i18n scope — public route.
 
 type PageProps = { params: Promise<{ slug: string }> };
 
@@ -78,51 +74,36 @@ export default async function JoinPage({ params }: PageProps) {
   const lockedCount = Math.max(0, totalCount - data.publicSamples.length);
 
   return (
-    <div className="relative min-h-dvh">
+    <div className="relative flex min-h-dvh flex-col">
       <JoinNav slug={slug} />
 
-      <main className="relative z-0 flex min-h-dvh flex-col">
-        {/* Accessible page title — the visible display font is h1 on
-            JoinHero, but we also want a plain-text, screen-reader-friendly
-            label that ends with "· Skitza" so the document title + hero
-            are consistent when an AT scrubs the landmark list. */}
+      <main className="relative z-0 flex flex-1 flex-col">
+        {/* SR-only page title — the visible H1 is "Recent work"-adjacent
+            inside the bento; this label gives the document a clean
+            landmark for screen readers. */}
         <h1 className="sr-only">
           Join {data.producer.displayName ?? "this producer"}&apos;s studio on Skitza
         </h1>
 
-        <JoinHero
+        <JoinBento
           producer={data.producer}
           slug={slug}
           externalLinks={data.externalLinks}
+          meta={data.meta}
+          samples={data.publicSamples}
+          lockedCount={lockedCount}
         />
 
-        <JoinMetaStrip meta={data.meta} />
-
-        <PublicSamplesPlayer samples={data.publicSamples} />
-
-        {/* Locked-tracks teaser — just a text line for Wave 1. Only
-            renders when there are actually more tracks the producer
-            hasn't opted in; skipping the visual noise when the catalog
-            is empty or fully-public keeps the page honest. */}
-        {lockedCount > 0 ? (
-          <p
-            aria-label={`${String(lockedCount)} more tracks available after sign up`}
-            className="mx-auto mt-6 max-w-3xl px-6 text-center font-mono text-xs uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))] sm:px-10"
-          >
-            <span aria-hidden className="mr-2">
-              🔒
-            </span>
-            {lockedCount} more track{lockedCount === 1 ? "" : "s"} — sign up to unlock
-          </p>
-        ) : null}
-
-        <SignupCta slug={slug} socialLinks={data.externalLinks} />
-
-        <footer className="bg-[rgb(var(--fg-primary))] pb-10 text-center">
-          <p className="font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--bg-base)/0.4)]">
-            Powered by Skitza
-          </p>
-        </footer>
+        {/* Floating mini player — appears at the bottom only when the
+            visitor clicks a sample row. Reuses the same `skitza:player:*`
+            event bus as the dashboard's <PersistentPlayer />. Passing
+            samples + producerName so the dock can resolve prev/next
+            from the playlist context and apply the producer-name
+            subtitle fallback when a sample lacks an artist. */}
+        <JoinMiniPlayer
+          samples={data.publicSamples}
+          producerName={data.producer.displayName ?? ""}
+        />
       </main>
     </div>
   );
