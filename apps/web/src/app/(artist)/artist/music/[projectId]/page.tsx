@@ -87,11 +87,24 @@ export default async function ArtistProjectPage({ params }: PageProps) {
     packageName: s.packageName,
   }));
 
+  // The shared ProjectPage hero is full-bleed by design (the
+  // atmospheric overlay fades to `rgb(var(--bg-background))` at the
+  // bottom so it melts into the page canvas). The producer dashboard's
+  // <main> has no horizontal/top padding around children, so producer
+  // gets that full-bleed for free. The artist <main>, however, wraps
+  // children in `px-4 pt-6 lg:px-10 lg:pt-10` — that leaves cream
+  // strips above and beside the hero and pushes the page down. We
+  // negate that exact padding at this route's root so the hero spans
+  // edge-to-edge and starts flush at the top, matching producer. The
+  // ProjectPage's own inner <section> re-pads the tracklist + footer
+  // back to normal, so only the hero goes full-bleed.
   return (
-    <ProjectPage
-      data={wire}
-      role="artist"
-      extraBelow={sessions.length > 0 ? <SessionsPanel sessions={sessions} /> : null}
-    />
+    <div className="-mx-4 -mt-6 lg:-mx-10 lg:-mt-10">
+      <ProjectPage
+        data={wire}
+        role="artist"
+        extraBelow={sessions.length > 0 ? <SessionsPanel sessions={sessions} /> : null}
+      />
+    </div>
   );
 }
