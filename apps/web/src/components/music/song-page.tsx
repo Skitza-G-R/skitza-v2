@@ -15,11 +15,45 @@ import {
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 
-import {
-  l3AddComment,
-  l3ApproveVersion,
-  l3ResolveComment,
-} from "./actions";
+// Server actions are passed in as props (see SongPage signature
+// below) rather than imported by a relative path. This is the seam
+// that lets the same component back two routes — producer's
+// /dashboard/music/[versionId] and artist's
+// /artist/music/song/[versionId] — each with its own
+// `revalidatePath`-targeted variant.
+export type MusicL3ActionResult = { ok: true } | { ok: false; error: string };
+
+export type L3Actions = {
+  addComment: (input: {
+    versionId: string;
+    body: string;
+    timestampMs: number;
+  }) => Promise<MusicL3ActionResult>;
+  resolveComment: (input: {
+    versionId: string;
+    id: string;
+    resolved: boolean;
+  }) => Promise<MusicL3ActionResult>;
+  // Producer-only — the artist L3 hides the Approve affordance, so
+  // this callback is never invoked there. Optional so artist route
+  // call-sites don't have to pass a no-op stub.
+  approveVersion?: (input: {
+    versionId: string;
+    approved: boolean;
+  }) => Promise<MusicL3ActionResult>;
+};
+
+// Which side of the app is rendering this screen. Default = "producer"
+// so existing call-sites keep working unchanged.
+//
+// In artist mode:
+//   - the **Approve** CTA in the action rail is hidden (artists don't
+//     approve — that's the producer's job).
+//   - the **"Open in project room"** pill is hidden (the artist
+//     doesn't have a clients-projects surface to cross-link into).
+//   - the breadcrumb middle crumb reads `track.clientName`, which the
+//     artist wire payload overloads with the producer's display name.
+export type SongPageRole = "producer" | "artist";
 
 // ─── Wire types (Date crosses RSC → client as ISO strings) ───────────
 export type SongPageVersion = {
@@ -125,7 +159,15 @@ export function playButtonState(input: {
   };
 }
 
-export function SongPage({ data }: { data: SongPageData }) {
+export function SongPage({
+  data,
+  role = "producer",
+  actions,
+}: {
+  data: SongPageData;
+  role?: SongPageRole;
+  actions: L3Actions;
+}) {
   // Active version — the one the L1 row pointed at by default. Switching
   // a version filters the comment thread to that version's notes.
   const [activeVersionId, setActiveVersionId] = useState(data.selectedVersionId);
@@ -312,7 +354,7 @@ export function SongPage({ data }: { data: SongPageData }) {
     }
 
     startTransition(async () => {
-      const res = await l3AddComment({
+      const res = await actions.addComment({
         versionId: activeVersion.id,
         body,
         timestampMs: currentMs,
@@ -374,7 +416,7 @@ export function SongPage({ data }: { data: SongPageData }) {
     setResolvedOverrides((p) => ({ ...p, [comment.id]: next }));
     if (!activeVersion) return;
     startTransition(async () => {
-      const res = await l3ResolveComment({
+      const res = await actions.resolveComment({
         versionId: activeVersion.id,
         id: comment.id,
         resolved: next,
@@ -388,9 +430,15 @@ export function SongPage({ data }: { data: SongPageData }) {
 
   function handleApproveToggle() {
     if (!activeVersion) return;
+    // Producer-only path. The Approve button is hidden when role
+    // === "artist", so this defensive guard is mostly belt-and-
+    // suspenders. If the callback wasn't passed, we silently no-op
+    // rather than throw.
+    if (!actions.approveVersion) return;
     const isApproved = activeVersion.approvedAtIso !== null;
+    const approveAction = actions.approveVersion;
     startTransition(async () => {
-      const res = await l3ApproveVersion({
+      const res = await approveAction({
         versionId: activeVersion.id,
         approved: !isApproved,
       });
@@ -560,15 +608,18 @@ export function SongPage({ data }: { data: SongPageData }) {
               remains. It jumps to clients-projects (a DIFFERENT
               workflow surface), so it isn't redundant with anything in
               the topbar. `justify-end` keeps it right-aligned where it
-              already lived. */}
+              already lived. Hidden on artist — no clients-projects
+              surface exists for the artist app. */}
           <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
-            <Link
-              href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
-              className="sk-press group inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
-            >
-              <span>Open in project room</span>
-              <ChevronRightIcon />
-            </Link>
+            {role === "producer" ? (
+              <Link
+                href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
+                className="sk-press group inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
+              >
+                <span>Open in project room</span>
+                <ChevronRightIcon />
+              </Link>
+            ) : null}
           </div>
 
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:gap-5">
@@ -737,7 +788,12 @@ export function SongPage({ data }: { data: SongPageData }) {
               </button>
 
               {/* Approve — quiet glass outline by default; filled cream
-                  once approved. Brand amber is reserved for the playhead. */}
+                  once approved. Brand amber is reserved for the playhead.
+                  Producer-only: artists don't approve mixes (that's the
+                  producer's decision). The "Approved" status is still
+                  visible to the artist via the chip in the meta line
+                  above the version pills. */}
+              {role === "producer" ? (
               <button
                 type="button"
                 onClick={handleApproveToggle}
@@ -755,6 +811,7 @@ export function SongPage({ data }: { data: SongPageData }) {
               >
                 <CheckIcon /> {isApproved ? "Approved" : "Approve"}
               </button>
+              ) : null}
 
               {/* Overflow — single glass circle for share / favorite /
                   download. Origin-aware popover scales from this trigger. */}

@@ -594,6 +594,147 @@ const musicSubrouter = router({
         resolvedAt: row.resolvedAt,
       };
     }),
+
+  // L3 song page detail — single track with full version stack +
+  // timestamped comments. Mirrors `producer.music.detail`'s shape so
+  // the shared SongPage component renders identically. Resolves by
+  // VERSION id (the same identifier L1 + L2 rows use) so the route
+  // /artist/music/song/<versionId> deep-links cleanly.
+  //
+  // Auth gate (two-step, same pattern as `project`):
+  //   1. Resolve version → track → projectId.
+  //   2. resolveProjectOwnership(projectId) — NOT_FOUND on miss so we
+  //      don't differentiate "doesn't exist" from "not yours".
+  //
+  // `clientName` on the wire is overloaded with the producer's display
+  // name (same trick as artist.music.list + artist.music.project) so
+  // the shared SongPage's breadcrumb middle crumb reads correctly
+  // without conditional logic.
+  detail: artistProcedure
+    .input(z.object({ versionId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      // (1) Resolve version → projectId.
+      const [head] = await ctx.db
+        .select({
+          versionId: trackVersions.id,
+          trackId: projectTracks.id,
+          trackTitle: projectTracks.title,
+          trackArtist: projectTracks.artist,
+          projectId: projects.id,
+          projectTitle: projects.title,
+          projectProducerId: projects.producerId,
+        })
+        .from(trackVersions)
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(eq(trackVersions.id, input.versionId))
+        .limit(1);
+      if (!head) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // (2) Ownership check — same NOT_FOUND-on-miss helper that L2
+      // and addComment use. We don't bind the helper's `project`
+      // because we already have the data we need from the join above.
+      await resolveProjectOwnership(ctx.db, ctx.clerkUserId, head.projectId);
+
+      // (3) Producer display name for the overloaded `clientName`
+      // field. Defensive fallback (orphan FK shouldn't happen but).
+      const [producerRow] = await ctx.db
+        .select({ displayName: producers.displayName })
+        .from(producers)
+        .where(eq(producers.id, head.projectProducerId))
+        .limit(1);
+      const producerName = producerRow?.displayName ?? "Producer";
+
+      // (4) Full version stack desc by uploadedAt (newest first =
+      // "v3 · current" pill position in the L3 UI). Includes
+      // approvedAt + peaks — peaks ride down with the page payload
+      // so Waveform50 renders the real envelope on first frame.
+      const versions = await ctx.db
+        .select({
+          id: trackVersions.id,
+          label: trackVersions.label,
+          audioUrl: trackVersions.audioUrl,
+          durationMs: trackVersions.durationMs,
+          uploadedAt: trackVersions.uploadedAt,
+          approvedAt: trackVersions.approvedAt,
+          peaks: trackVersions.peaks,
+        })
+        .from(trackVersions)
+        .where(eq(trackVersions.trackId, head.trackId))
+        .orderBy(desc(trackVersions.uploadedAt));
+
+      // (5) Comments across all versions of this track, asc by
+      // timestampMs so the thread reads in track order.
+      const versionIds = versions.map((v) => v.id);
+      const comments = versionIds.length
+        ? await ctx.db
+            .select({
+              id: trackComments.id,
+              versionId: trackComments.versionId,
+              timeMs: trackComments.timestampMs,
+              body: trackComments.body,
+              fromProducer: trackComments.fromProducer,
+              authorName: trackComments.authorName,
+              createdAt: trackComments.createdAt,
+              resolvedAt: trackComments.resolvedAt,
+            })
+            .from(trackComments)
+            .where(inArray(trackComments.versionId, versionIds))
+            .orderBy(asc(trackComments.timestampMs))
+        : [];
+
+      return {
+        track: {
+          id: head.trackId,
+          title: head.trackTitle,
+          artist: head.trackArtist,
+          projectId: head.projectId,
+          projectTitle: head.projectTitle,
+          clientName: producerName,
+        },
+        versions,
+        comments,
+        selectedVersionId: input.versionId,
+      };
+    }),
+
+  // Resolve / re-open a timestamped comment on the artist's project.
+  // Producer-side has `project.resolveComment` (gated on producerId);
+  // mirrored here for the artist so the shared SongPage's Resolve /
+  // Reopen buttons work on /artist/music/song/<versionId>.
+  //
+  // Auth: walk comment → version → track → projectId, then
+  // resolveProjectOwnership to verify the signed-in artist owns the
+  // parent project via client_contacts. NOT_FOUND on any miss.
+  resolveComment: artistProcedure
+    .input(z.object({ id: z.string().uuid(), resolved: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const [c] = await ctx.db
+        .select({ id: trackComments.id, versionId: trackComments.versionId })
+        .from(trackComments)
+        .where(eq(trackComments.id, input.id))
+        .limit(1);
+      if (!c) throw new TRPCError({ code: "NOT_FOUND" });
+      const [v] = await ctx.db
+        .select({ trackId: trackVersions.trackId })
+        .from(trackVersions)
+        .where(eq(trackVersions.id, c.versionId))
+        .limit(1);
+      if (!v) throw new TRPCError({ code: "NOT_FOUND" });
+      const [t] = await ctx.db
+        .select({ projectId: projectTracks.projectId })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, v.trackId))
+        .limit(1);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND" });
+      await resolveProjectOwnership(ctx.db, ctx.clerkUserId, t.projectId);
+
+      await ctx.db
+        .update(trackComments)
+        .set({ resolvedAt: input.resolved ? new Date() : null })
+        .where(eq(trackComments.id, input.id));
+      return { ok: true as const };
+    }),
 });
 
 // Per-project row shape returned by artist.music.projects.
