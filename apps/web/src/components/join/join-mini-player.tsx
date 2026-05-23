@@ -111,6 +111,23 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
     };
   }, []);
 
+  // ─── body data attribute → CSS scopes extra bottom padding ──────
+  // Mirror the dashboard's <PersistentPlayer /> contract: when a track
+  // is loaded, set body[data-skitza-dock="1"] so the page can reserve
+  // room for the floating dock and not bury the last sample row or
+  // meta line behind it on short viewports.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (state.track) {
+      document.body.dataset.skitzaDock = "1";
+    } else {
+      delete document.body.dataset.skitzaDock;
+    }
+    return () => {
+      delete document.body.dataset.skitzaDock;
+    };
+  }, [state.track]);
+
   // ─── Drive the <audio> element from state ───────────────────────
   useEffect(() => {
     const el = audioRef.current;
@@ -205,7 +222,14 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
       <div
         role="region"
         aria-label="Audio player"
-        className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 pointer-events-none"
+        // SK-25 polish: z-50 (was z-40 — same tier as the nav, smell).
+        // bottom uses max(1rem, env(safe-area-inset-bottom) + 0.5rem)
+        // so the dock pill clears the iPhone home indicator in portrait
+        // and landscape without crowding non-notched viewports.
+        className="fixed inset-x-0 z-50 flex justify-center px-4 pointer-events-none"
+        style={{
+          bottom: "max(1rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
+        }}
       >
         <div
           className="pointer-events-auto grid w-full max-w-[560px] grid-cols-[auto_1fr_auto] items-center gap-3 rounded-[18px] border border-[rgb(var(--fg-primary)/0.12)] bg-[rgb(var(--fg-primary))] px-3 py-2.5 text-[rgb(var(--bg-base))] shadow-[0_18px_48px_rgba(0,0,0,0.28),_0_4px_12px_rgba(0,0,0,0.14)] backdrop-blur-md"
@@ -281,22 +305,29 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
                 </p>
               ) : null}
             </div>
+            {/* WCAG 2.5.5: touch target ≥ 24px. Visual bar stays at
+                1.5px but the click region grows to ~28px via vertical
+                padding + negative margin (a "bleeder" — touch area
+                expands without displacing surrounding layout). The
+                visible bar is rendered as an inner span so the
+                surrounding hit region is invisible. */}
             <button
               type="button"
               onClick={onScrub}
               aria-label="Seek"
-              className="group relative h-1.5 w-full overflow-hidden rounded-full bg-[rgb(var(--bg-base)/0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
+              className="group relative -my-3 block w-full py-3 focus-visible:outline-none"
             >
-              <span
-                className="absolute inset-y-0 left-0 bg-[rgb(var(--brand-primary))] transition-transform"
-                style={{
-                  width: "100%",
-                  transform: `scaleX(${(progressPct / 100).toFixed(3)})`,
-                  transformOrigin: "left",
-                  transitionDuration: "120ms",
-                  transitionTimingFunction: EASE_LINEAR,
-                }}
-              />
+              <span className="block h-1.5 w-full overflow-hidden rounded-full bg-[rgb(var(--bg-base)/0.18)] group-focus-visible:ring-2 group-focus-visible:ring-[rgb(var(--brand-primary))] group-focus-visible:ring-offset-1 group-focus-visible:ring-offset-[rgb(var(--fg-primary))]">
+                <span
+                  className="block h-full bg-[rgb(var(--brand-primary))]"
+                  style={{
+                    width: "100%",
+                    transform: `scaleX(${(progressPct / 100).toFixed(3)})`,
+                    transformOrigin: "left",
+                    transition: `transform 120ms ${EASE_LINEAR}`,
+                  }}
+                />
+              </span>
             </button>
             <div className="flex items-baseline justify-between font-mono text-[0.62rem] tabular-nums text-[rgb(var(--bg-base)/0.6)]">
               <span aria-label="Current time">{formatClockMs(currentMs)}</span>
@@ -334,12 +365,39 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
         className="sr-only"
       />
 
-      {/* Tiny keyframe for the dock's rise-on-mount animation. Inlined
-          here so the mini-player is self-contained — no globals.css edit. */}
+      {/* Inline keyframes + dock-aware body padding rule. Self-contained
+          here so the mini-player can be reused without a globals.css
+          edit. The body[data-skitza-dock] selector matches the same
+          attribute the dashboard's <PersistentPlayer /> sets; we scope
+          the public-page rule to [data-join-bento] so it doesn't fight
+          the dashboard's heavier padding values on shared surfaces.
+          Rise animation gates on prefers-reduced-motion: no-preference
+          so vestibular-sensitive visitors get an instant fade-in
+          instead of the slide. */}
       <style>{`
-        @keyframes skitza-mini-rise {
-          from { transform: translateY(120%) scale(0.98); opacity: 0; }
-          to   { transform: translateY(0)   scale(1);    opacity: 1; }
+        @keyframes skitza-mini-rise-fade {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @media (prefers-reduced-motion: no-preference) {
+          @keyframes skitza-mini-rise {
+            from { transform: translateY(120%) scale(0.98); opacity: 0; }
+            to   { transform: translateY(0)   scale(1);    opacity: 1; }
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          @keyframes skitza-mini-rise {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+          }
+        }
+        body[data-skitza-dock="1"] [data-join-bento] {
+          padding-bottom: 6.5rem;
+        }
+        @media (min-width: 640px) {
+          body[data-skitza-dock="1"] [data-join-bento] {
+            padding-bottom: 7.5rem;
+          }
         }
       `}</style>
     </>

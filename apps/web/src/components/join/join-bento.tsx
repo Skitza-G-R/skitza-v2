@@ -104,6 +104,7 @@ export function JoinBento({
   return (
     <section
       aria-label="Producer profile"
+      data-join-bento
       className="relative mx-auto flex w-full max-w-2xl flex-col items-center px-4 pb-24 pt-3 text-center sm:px-6 sm:pt-4"
     >
       <Portrait name={name} initials={initials} logoUrl={producer.logoUrl} />
