@@ -75,7 +75,7 @@ export default async function JoinPage({ params }: PageProps) {
 
   return (
     <div className="relative flex min-h-dvh flex-col">
-      <JoinNav slug={slug} />
+      <JoinNav />
 
       <main className="relative z-0 flex flex-1 flex-col">
         {/* SR-only page title — the visible H1 is "Recent work"-adjacent
