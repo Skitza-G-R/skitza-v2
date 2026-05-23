@@ -1,30 +1,30 @@
-// SK-25 (v2 — centered stack): /join/<slug> redesigned per Gili's
-// review of the bento split-column. New shape is a single centered
-// column: portrait (small square) → eyebrow → name → bio → social
-// chips → primary CTA + sign-up disclosure → samples card. Same
-// "fits-one-viewport" goal, but the visual rhythm now reads like a
-// Linear contact page / Spotify artist landing rather than a
-// two-column dashboard.
+// SK-25 (v3 — Spotify track-list + mini player): centered single-column
+// stack with a tiny portrait, sign-up-disclosure CTA, and a Spotify-
+// style track table. Clicking any row dispatches `playerPlay()` on the
+// shared `skitza:player:*` event bus — <JoinMiniPlayer /> (mounted by
+// page.tsx) catches it and renders the bottom dock.
 //
-// Three notable fixes from v1:
-//   1. The samples card is now a LIGHT surface (warm cream + tiny
-//      amber wash). v1 used `--bg-elevated` which under the public
-//      layout's `data-theme="chrome-dark"` resolves to a near-black
-//      value — and `--fg-primary` stayed warm-dark, so titles became
-//      dark-on-dark. We anchor explicitly to `--bg-base` here.
-//   2. Social links are no longer plain mono text — they're chip
-//      buttons with platform glyphs (spotify/youtube/instagram/etc),
-//      so a visitor reads them as actionable links not labels.
-//   3. CTA disclosure: a small mono line below the primary "Book a
-//      session" pill reads "Sign in or sign up to continue · Free",
-//      so the visitor knows the next step gates on auth rather than
-//      surprising them after the tap.
+// Two key changes from v2:
+//   1. Portrait shrunk drastically (96px mobile / 112px desktop) so the
+//      full page fits a 900px viewport without scroll. v2 used 192px
+//      which alone consumed ~22% of the viewport.
+//   2. Samples card no longer has a featured-waveform + compact-rows
+//      split. Every track is a uniform tight row (track number /
+//      title+artist / duration). Clicking a row's title or the row
+//      itself starts playback in the floating dock — the same UX as
+//      the dashboard's `<PersistentPlayer />` ecosystem.
 
 "use client";
 
 import Link from "next/link";
 
-import { WaveformPlayer } from "~/components/audio/waveform-player";
+import {
+  playerPlay,
+  playerToggle,
+  useNowPlaying,
+  type PlayerTrack,
+} from "~/components/audio/persistent-player";
+
 import {
   formatGenres,
   formatResponseHours,
@@ -71,7 +71,6 @@ const PLATFORM_LABELS: Record<string, string> = {
   tiktok: "TikTok",
 };
 
-// Linear's signature ease.
 const EASE_LINEAR = "cubic-bezier(0.32,0.72,0,1)";
 
 export function JoinBento({
@@ -92,8 +91,6 @@ export function JoinBento({
   const visibleLinks =
     externalLinks?.filter((l) => l.url && l.url.trim().length > 0) ?? [];
 
-  // Meta chips — same 3 fields as v1, rendered as a mono line under
-  // the samples card (small print, not a primary surface).
   const metaChips: string[] = [];
   const genres = formatGenres(meta?.genres ?? null);
   const response = formatResponseHours(meta?.responseHours ?? null);
@@ -105,14 +102,13 @@ export function JoinBento({
   return (
     <section
       aria-label="Producer profile"
-      className="relative mx-auto flex w-full max-w-2xl flex-col items-center px-4 pb-8 pt-4 text-center sm:px-6 sm:pt-6"
+      className="relative mx-auto flex w-full max-w-2xl flex-col items-center px-4 pb-24 pt-3 text-center sm:px-6 sm:pt-4"
     >
       <Portrait name={name} initials={initials} logoUrl={producer.logoUrl} />
 
-      {/* Eyebrow pill. */}
       <span
         className={[
-          "reveal-up-delay-1 mt-4 inline-flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-1",
+          "reveal-up-delay-1 mt-3 inline-flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-1",
           "ring-1 ring-[rgb(var(--fg-primary)/0.12)]",
           "font-mono text-[0.62rem] font-medium uppercase tracking-[0.22em]",
           "text-[rgb(var(--brand-primary))]",
@@ -125,21 +121,19 @@ export function JoinBento({
         Music Producer · Now Booking
       </span>
 
-      {/* Name — smaller than v1 since the portrait now sits above it. */}
       <h2
         className={[
-          "reveal-up-delay-1 mt-3 font-extrabold leading-[0.94] tracking-[-0.03em]",
-          "text-[clamp(2rem,7vw,2.75rem)] sm:text-[clamp(2.25rem,4.5vw,3.25rem)]",
+          "reveal-up-delay-1 mt-2 font-extrabold leading-[0.94] tracking-[-0.03em]",
+          "text-[clamp(1.85rem,6.5vw,2.5rem)] sm:text-[clamp(2rem,4vw,2.75rem)]",
         ].join(" ")}
         style={{ fontFamily: "var(--font-head), var(--font-display)" }}
       >
         {name}
       </h2>
 
-      {/* Bio — centered, narrow column for readability. */}
       <p
         className={[
-          "reveal-up-delay-2 mt-3 max-w-md text-[0.95rem] leading-[1.55]",
+          "reveal-up-delay-2 mt-2 max-w-md text-sm leading-[1.5]",
           producer.bio
             ? "text-[rgb(var(--fg-secondary))]"
             : "text-[rgb(var(--fg-muted))]",
@@ -148,9 +142,8 @@ export function JoinBento({
         {producer.bio ?? "A studio for artists who care about the take, not just the sound."}
       </p>
 
-      {/* Social chip buttons — icon + label. */}
       {visibleLinks.length > 0 ? (
-        <ul className="reveal-up-delay-2 mt-5 flex flex-wrap items-center justify-center gap-2">
+        <ul className="reveal-up-delay-2 mt-4 flex flex-wrap items-center justify-center gap-2">
           {visibleLinks.map((link) => (
             <li key={link.platform}>
               <a
@@ -178,8 +171,7 @@ export function JoinBento({
         </ul>
       ) : null}
 
-      {/* Primary CTA + sign-up disclosure. */}
-      <div className="reveal-up-delay-3 mt-6 flex flex-col items-center gap-2">
+      <div className="reveal-up-delay-3 mt-5 flex flex-col items-center gap-2">
         <Link
           href={`/sign-up/join/${encodeURIComponent(slug)}`}
           className="group inline-flex min-h-11 items-center gap-3 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-primary))] py-1.5 pl-5 pr-1.5 text-sm font-bold text-[rgb(var(--bg-base))] transition-transform duration-500 hover:-translate-y-[1px] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
@@ -199,18 +191,17 @@ export function JoinBento({
         </p>
       </div>
 
-      {/* Samples card — LIGHT surface (cream + tiny amber wash). */}
-      <div className="reveal-up-delay-3 mt-7 w-full">
+      <div className="reveal-up-delay-3 mt-5 w-full">
         <SamplesCard
+          producerName={name}
           samples={samples}
           lockedCount={lockedCount}
           slug={slug}
         />
       </div>
 
-      {/* Meta line under the samples — small mono print. */}
       {metaChips.length > 0 ? (
-        <p className="reveal-up-delay-4 mt-5 font-mono text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+        <p className="reveal-up-delay-4 mt-4 font-mono text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
           {metaChips.join(" · ")}
         </p>
       ) : null}
@@ -218,7 +209,7 @@ export function JoinBento({
   );
 }
 
-// ─── Portrait (centered, smaller square) ───────────────────────────
+// ─── Portrait (small square, top of stack) ─────────────────────────
 
 interface PortraitProps {
   name: string;
@@ -230,21 +221,19 @@ function Portrait({ name, initials, logoUrl }: PortraitProps) {
   return (
     <div
       className={[
-        "reveal-up rounded-[var(--radius-xl)] p-1.5 ring-1 ring-[rgb(var(--fg-primary)/0.05)]",
+        "reveal-up rounded-[var(--radius-lg)] p-1 ring-1 ring-[rgb(var(--fg-primary)/0.05)]",
         "bg-[rgb(var(--fg-primary)/0.025)]",
       ].join(" ")}
     >
       <div
         aria-hidden={!logoUrl}
-        className="relative h-40 w-40 overflow-hidden sm:h-48 sm:w-48"
+        className="relative h-24 w-24 overflow-hidden sm:h-28 sm:w-28"
         style={{
-          // Inner radius = outer radius (--radius-xl: 20px) minus the
-          // p-1.5 (6px) gap, so concentric curves stay parallel.
-          borderRadius: "calc(var(--radius-xl) - 6px)",
+          borderRadius: "calc(var(--radius-lg) - 4px)",
           background:
             "radial-gradient(120% 100% at 30% 25%, rgb(var(--brand-primary)) 0%, rgb(var(--brand-accent)) 55%, rgb(var(--fg-primary)) 100%)",
           boxShadow:
-            "inset 0 1px 1px rgb(255 255 255 / 0.15), inset 0 -32px 64px -32px rgb(0 0 0 / 0.4)",
+            "inset 0 1px 1px rgb(255 255 255 / 0.18), inset 0 -18px 36px -18px rgb(0 0 0 / 0.4)",
         }}
       >
         {logoUrl ? (
@@ -266,7 +255,7 @@ function Portrait({ name, initials, logoUrl }: PortraitProps) {
               className="absolute inset-0 flex items-center justify-center"
             >
               <span
-                className="font-extrabold leading-none tracking-tight text-[rgb(var(--fg-inverse))]/85 text-[clamp(3rem,8vw,4.5rem)]"
+                className="font-extrabold leading-none tracking-tight text-[rgb(var(--fg-inverse))]/85 text-[clamp(1.75rem,5vw,2.25rem)]"
                 style={{
                   fontFamily: "var(--font-head), var(--font-display)",
                 }}
@@ -281,28 +270,34 @@ function Portrait({ name, initials, logoUrl }: PortraitProps) {
   );
 }
 
-// ─── Samples card (light surface, brand-tinted) ────────────────────
+// ─── Samples card — Spotify-style click-to-play track list ─────────
 
 interface SamplesCardProps {
+  producerName: string;
   samples: ReadonlyArray<PublicSample>;
   lockedCount: number;
   slug: string;
 }
 
-function SamplesCard({ samples, lockedCount, slug }: SamplesCardProps) {
+function SamplesCard({
+  producerName,
+  samples,
+  lockedCount,
+  slug,
+}: SamplesCardProps) {
   if (samples.length === 0) {
     return (
       <div
         id="samples"
         className={[
-          "rounded-[1.75rem] p-1.5 ring-1 ring-[rgb(var(--fg-primary)/0.08)]",
+          "rounded-[1.5rem] p-1.5 ring-1 ring-[rgb(var(--fg-primary)/0.08)]",
           "bg-[rgb(var(--bg-base))]",
         ].join(" ")}
       >
         <div
           className="flex items-center justify-center px-6 py-8"
           style={{
-            borderRadius: "calc(1.75rem - 0.375rem)",
+            borderRadius: "calc(1.5rem - 0.375rem)",
             background: "rgb(var(--brand-primary) / 0.04)",
           }}
         >
@@ -314,27 +309,22 @@ function SamplesCard({ samples, lockedCount, slug }: SamplesCardProps) {
     );
   }
 
-  const [feature, ...rest] = samples;
-  if (!feature) return null;
-
   return (
     <div
       id="samples"
       className={[
-        "rounded-[1.75rem] p-1.5 ring-1 ring-[rgb(var(--fg-primary)/0.08)]",
+        "rounded-[1.5rem] p-1.5 ring-1 ring-[rgb(var(--fg-primary)/0.08)]",
         "bg-[rgb(var(--bg-base))]",
       ].join(" ")}
     >
       <div
-        className="p-4 text-left sm:p-5"
+        className="p-3 text-left sm:p-4"
         style={{
-          borderRadius: "calc(1.75rem - 0.375rem)",
-          // Soft amber wash — gives the card a brand-lit feel against
-          // the cream page bg without needing a heavy fill or shadow.
+          borderRadius: "calc(1.5rem - 0.375rem)",
           background: "rgb(var(--brand-primary) / 0.04)",
         }}
       >
-        <div className="mb-3 flex items-baseline justify-between gap-3">
+        <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
           <p className="font-mono text-[0.62rem] font-semibold uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
             Recent work
           </p>
@@ -342,90 +332,203 @@ function SamplesCard({ samples, lockedCount, slug }: SamplesCardProps) {
             aria-hidden
             className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
           >
-            01 / {String(samples.length).padStart(2, "0")}
+            {String(samples.length).padStart(2, "0")} tracks
           </p>
         </div>
 
-        {/* Featured track. */}
-        <div className="mb-3">
-          <div className="mb-2 min-w-0">
-            <h3
-              className="truncate text-base font-extrabold leading-tight tracking-[-0.015em] text-[rgb(var(--fg-primary))]"
-              style={{ fontFamily: "var(--font-head), var(--font-display)" }}
-            >
-              {feature.title}
-            </h3>
-            {feature.artist ? (
-              <p className="mt-0.5 truncate text-xs text-[rgb(var(--fg-secondary))]">
-                {feature.artist}
-              </p>
-            ) : null}
-          </div>
-          {feature.audioUrl ? (
-            <WaveformPlayer
-              src={feature.audioUrl}
-              label={`${feature.title}${feature.artist ? ` by ${feature.artist}` : ""}`}
-              height={56}
+        <ul className="flex flex-col">
+          {samples.map((sample, idx) => (
+            <TrackRow
+              key={sample.id}
+              sample={sample}
+              index={idx}
+              producerName={producerName}
             />
-          ) : (
-            <p className="font-mono text-xs uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-              Processing audio…
-            </p>
-          )}
-        </div>
+          ))}
 
-        {/* Compact rows for tracks 2..N. */}
-        {rest.length > 0 ? (
-          <ul className="flex flex-col divide-y divide-[rgb(var(--fg-primary)/0.08)] border-t border-[rgb(var(--fg-primary)/0.08)]">
-            {rest.map((sample, idx) => (
-              <li
-                key={sample.id}
-                className="flex items-center gap-3 py-2.5"
+          {lockedCount > 0 ? (
+            <li className="mt-1 border-t border-[rgb(var(--fg-primary)/0.08)] pt-2">
+              <Link
+                href={`/sign-up/join/${encodeURIComponent(slug)}`}
+                className="flex items-center gap-3 rounded-[var(--radius-sm)] px-2 py-2 text-left transition-colors duration-200 hover:bg-[rgb(var(--fg-primary)/0.04)]"
               >
-                <span
-                  className="w-6 shrink-0 font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]"
-                  aria-hidden
-                >
-                  {String(idx + 2).padStart(2, "0")}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-[rgb(var(--fg-primary))]">
-                    {sample.title}
-                  </p>
-                  {sample.artist ? (
-                    <p className="truncate text-xs text-[rgb(var(--fg-muted))]">
-                      {sample.artist}
-                    </p>
-                  ) : null}
-                </div>
-                <span className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
-                  {formatDuration(sample.durationMs)}
-                </span>
-              </li>
-            ))}
-
-            {lockedCount > 0 ? (
-              <li className="flex items-center gap-3 py-2.5 text-[rgb(var(--fg-muted))]">
-                <span aria-hidden className="w-6 shrink-0 text-center">
+                <span aria-hidden className="w-6 shrink-0 text-center text-sm">
                   🔒
                 </span>
-                <Link
-                  href={`/sign-up/join/${encodeURIComponent(slug)}`}
-                  className="flex-1 truncate text-sm font-semibold hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:underline"
-                >
+                <span className="flex-1 truncate text-sm font-semibold text-[rgb(var(--fg-muted))]">
                   {lockedCount} more track{lockedCount === 1 ? "" : "s"} — sign up to unlock
-                </Link>
-              </li>
-            ) : null}
-          </ul>
-        ) : lockedCount > 0 ? (
-          <p className="mt-2 border-t border-[rgb(var(--fg-primary)/0.08)] pt-3 font-mono text-[0.62rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            <span aria-hidden className="mr-2">🔒</span>
-            {lockedCount} more track{lockedCount === 1 ? "" : "s"} — sign up to unlock
-          </p>
-        ) : null}
+                </span>
+              </Link>
+            </li>
+          ) : null}
+        </ul>
       </div>
     </div>
+  );
+}
+
+// ─── Individual track row (Spotify-style) ──────────────────────────
+
+interface TrackRowProps {
+  sample: PublicSample;
+  index: number;
+  producerName: string;
+}
+
+function TrackRow({ sample, index, producerName }: TrackRowProps) {
+  const now = useNowPlaying();
+  const isActive = now.trackId === sample.id;
+  const isPlaying = isActive && now.playing;
+
+  function onClick() {
+    if (!sample.audioUrl) return;
+    if (isActive) {
+      // Same row clicked again — toggle pause/resume on the mini player.
+      playerToggle();
+      return;
+    }
+    const track: PlayerTrack = {
+      id: sample.id,
+      audioUrl: sample.audioUrl,
+      title: sample.title,
+      subtitle: sample.artist ?? producerName,
+      durationMs: sample.durationMs,
+    };
+    playerPlay(track);
+  }
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={!sample.audioUrl}
+        aria-label={
+          isPlaying
+            ? `Pause ${sample.title}`
+            : isActive
+              ? `Resume ${sample.title}`
+              : `Play ${sample.title}`
+        }
+        className={[
+          "group flex w-full items-center gap-3 rounded-[var(--radius-sm)] px-2 py-2 text-left",
+          "transition-colors duration-200",
+          isActive
+            ? "bg-[rgb(var(--brand-primary)/0.1)]"
+            : "hover:bg-[rgb(var(--fg-primary)/0.04)]",
+          "disabled:cursor-not-allowed disabled:opacity-60",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]",
+        ].join(" ")}
+      >
+        {/* Index OR play/pause/eq indicator depending on row state. */}
+        <span
+          aria-hidden
+          className={[
+            "relative flex h-6 w-6 shrink-0 items-center justify-center font-mono text-[0.66rem] font-semibold uppercase tracking-[0.16em]",
+            isActive
+              ? "text-[rgb(var(--brand-primary))]"
+              : "text-[rgb(var(--fg-muted))]",
+          ].join(" ")}
+        >
+          {isPlaying ? (
+            <EqBars />
+          ) : isActive ? (
+            <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden>
+              <polygon points="6,4 20,12 6,20" />
+            </svg>
+          ) : (
+            <>
+              <span className="block group-hover:hidden">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <svg
+                viewBox="0 0 24 24"
+                className="hidden h-3 w-3 text-[rgb(var(--fg-primary))] group-hover:block"
+                fill="currentColor"
+                aria-hidden
+              >
+                <polygon points="6,4 20,12 6,20" />
+              </svg>
+            </>
+          )}
+        </span>
+
+        {/* Title + artist. */}
+        <span className="min-w-0 flex-1">
+          <span
+            className={[
+              "block truncate text-sm font-bold",
+              isActive
+                ? "text-[rgb(var(--brand-primary))]"
+                : "text-[rgb(var(--fg-primary))]",
+            ].join(" ")}
+          >
+            {sample.title}
+          </span>
+          {sample.artist ? (
+            <span className="block truncate text-xs text-[rgb(var(--fg-muted))]">
+              {sample.artist}
+            </span>
+          ) : null}
+        </span>
+
+        {/* Duration. */}
+        <span className="shrink-0 font-mono text-[0.7rem] tabular-nums text-[rgb(var(--fg-muted))]">
+          {formatDuration(sample.durationMs)}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+// 3-bar SVG EQ — used as the "currently playing" indicator. Tiny
+// inline animations; cheap to render in every active row.
+function EqBars() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-3 w-3" aria-hidden>
+      <rect x="2" y="4" width="2.4" height="8" fill="currentColor">
+        <animate
+          attributeName="height"
+          values="3;9;5;8;3"
+          dur="900ms"
+          repeatCount="indefinite"
+        />
+        <animate
+          attributeName="y"
+          values="6.5;3.5;5.5;4;6.5"
+          dur="900ms"
+          repeatCount="indefinite"
+        />
+      </rect>
+      <rect x="6.8" y="2" width="2.4" height="12" fill="currentColor">
+        <animate
+          attributeName="height"
+          values="6;3;10;4;6"
+          dur="900ms"
+          repeatCount="indefinite"
+        />
+        <animate
+          attributeName="y"
+          values="5;6.5;3;6;5"
+          dur="900ms"
+          repeatCount="indefinite"
+        />
+      </rect>
+      <rect x="11.6" y="5" width="2.4" height="6" fill="currentColor">
+        <animate
+          attributeName="height"
+          values="4;8;5;9;4"
+          dur="900ms"
+          repeatCount="indefinite"
+        />
+        <animate
+          attributeName="y"
+          values="6;4;5.5;3.5;6"
+          dur="900ms"
+          repeatCount="indefinite"
+        />
+      </rect>
+    </svg>
   );
 }
 
@@ -457,9 +560,6 @@ function ArrowUpRight({ className }: { className?: string }) {
   );
 }
 
-// Tiny platform glyphs. Same recipe as the old <JoinSocialLinks> so the
-// chip vocabulary matches the rest of the marketing surface. Generic
-// music-note for unknown platforms.
 function PlatformIcon({
   platform,
   className,

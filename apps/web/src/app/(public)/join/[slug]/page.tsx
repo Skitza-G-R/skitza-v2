@@ -6,6 +6,7 @@ import { createDb, eq, portfolioTracks } from "@skitza/db";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { JoinNav } from "~/components/join/join-nav";
 import { JoinBento } from "~/components/join/join-bento";
+import { JoinMiniPlayer } from "~/components/join/join-mini-player";
 
 // SK-25: compacted to a single-viewport layout. The old hero +
 // meta-strip + samples-section + dark-CTA scroll-stack was replaced by
@@ -92,6 +93,11 @@ export default async function JoinPage({ params }: PageProps) {
           samples={data.publicSamples}
           lockedCount={lockedCount}
         />
+
+        {/* Floating mini player — appears at the bottom only when the
+            visitor clicks a sample row. Reuses the same `skitza:player:*`
+            event bus as the dashboard's <PersistentPlayer />. */}
+        <JoinMiniPlayer />
       </main>
     </div>
   );
