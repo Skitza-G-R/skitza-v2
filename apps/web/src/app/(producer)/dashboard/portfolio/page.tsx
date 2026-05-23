@@ -57,7 +57,7 @@ export default async function PortfolioPage() {
   const publicProfileUrl = `/join/${me.slug}`;
 
   return (
-    <div className="sk-page-enter mx-auto max-w-[1180px] px-6 pb-24 pt-8">
+    <div className="sk-page-enter mx-auto mt-10 max-w-[1180px] px-6 pb-24 pt-8">
       <header className="mb-10 flex items-end justify-between gap-6">
         <div>
           <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
