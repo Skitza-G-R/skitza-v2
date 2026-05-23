@@ -182,7 +182,7 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
   const currentStep = STEPS[step];
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+88px)] pt-6 sm:px-6">
+    <div className="mx-auto mt-10 flex min-h-dvh max-w-xl flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+88px)] pt-6 sm:px-6">
       {/* Top chrome — wordmark eyebrow + skip link.  Mirrors the
           identity strip used on the public landing + auth pages so
           producers feel they're inside the same product. */}

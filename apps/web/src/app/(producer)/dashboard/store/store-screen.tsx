@@ -203,7 +203,7 @@ export function StoreScreen({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1100px] px-4 pt-6 pb-24 sm:px-6 sm:pt-10">
+    <div className="mx-auto mt-10 w-full max-w-[1100px] px-4 pt-6 pb-24 sm:px-6 sm:pt-10">
       <StoreHeader liveCount={counts.live} hiddenCount={counts.hidden} />
 
       <div className="mb-4 flex justify-end">

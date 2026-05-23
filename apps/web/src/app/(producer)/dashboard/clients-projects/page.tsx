@@ -159,7 +159,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[300px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
       />
-      <div className="sk-page-enter mx-auto max-w-[1400px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
+      <div className="sk-page-enter mx-auto mt-10 max-w-[1400px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
         <WorkspaceListView
           projects={projectRows}
           clients={clientRows}

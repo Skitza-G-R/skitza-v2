@@ -45,7 +45,7 @@ export default async function MusicPage() {
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-background))] to-[rgb(var(--bg-background))]"
       />
-      <div className="mx-auto max-w-[1180px] px-4 pt-6 pb-24 sm:px-7 sm:pt-8">
+      <div className="mx-auto mt-10 max-w-[1180px] px-4 pt-6 pb-24 sm:px-7 sm:pt-8">
         <MusicLibraryScreen tracks={rows} />
       </div>
     </div>

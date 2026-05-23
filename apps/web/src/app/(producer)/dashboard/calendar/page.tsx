@@ -191,12 +191,17 @@ export default async function CalendarPage({
 
   return (
     // Viewport-locked layout: the page is sized to exactly the visible
-    // viewport (minus the mobile bottom-nav reservation) and every
-    // descendant is flex-locked, so the page itself never scrolls.
-    // The Schedule grid measures its own height via ResizeObserver and
-    // sets `--hour-px` from that — no brittle viewport-math fallback
-    // needed at the page level.
-    <div className="mx-auto flex h-[calc(100dvh-5rem)] max-w-[1180px] flex-col px-4 py-2 sm:py-3 lg:h-[100dvh] lg:py-4">
+    // viewport (minus the mobile bottom-nav reservation AND the 40px
+    // sticky topbar) and every descendant is flex-locked, so the page
+    // itself never scrolls. `mt-10` cancels AppShell's `-mt-[40px]`
+    // children wrapper — that wrapper exists so hero gradients bleed
+    // behind the topbar's frosted glass, but the Calendar has no hero
+    // gradient at the top (the H1 sits flush), so it must drop back
+    // into normal flow to keep its title visible. The Schedule grid
+    // measures its own height via ResizeObserver and sets `--hour-px`
+    // from that — no brittle viewport-math fallback needed at the page
+    // level.
+    <div className="mx-auto mt-10 flex h-[calc(100dvh-5rem-40px)] max-w-[1180px] flex-col px-4 py-2 sm:py-3 lg:h-[calc(100dvh-40px)] lg:py-4">
       {/* sm+ surfaces an elevated card; mobile drops the chrome to
           maximise usable width. */}
       <div className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-2xl)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-4 sm:py-3 lg:px-5 lg:py-4">
