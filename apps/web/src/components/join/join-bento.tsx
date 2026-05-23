@@ -17,8 +17,10 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 
 import {
+  pickDurationMs,
   playerPlay,
   playerToggle,
   useNowPlaying,
@@ -379,6 +381,11 @@ function TrackRow({ sample, index, producerName }: TrackRowProps) {
   const now = useNowPlaying();
   const isActive = now.trackId === sample.id;
   const isPlaying = isActive && now.playing;
+  // Resolve real duration via a metadata-only audio probe when the DB
+  // column is null. This is what backfills the row from "—" to "2:43"
+  // a beat after first paint on older tracks that never had their
+  // duration backfilled at upload time.
+  const resolvedDurationMs = useAudioDuration(sample.audioUrl, sample.durationMs);
 
   function onClick() {
     if (!sample.audioUrl) return;
@@ -392,7 +399,9 @@ function TrackRow({ sample, index, producerName }: TrackRowProps) {
       audioUrl: sample.audioUrl,
       title: sample.title,
       subtitle: sample.artist ?? producerName,
-      durationMs: sample.durationMs,
+      // Prefer the resolved value so the mini player's progress bar
+      // initialises with the right denominator immediately.
+      durationMs: resolvedDurationMs ?? sample.durationMs,
     };
     playerPlay(track);
   }
@@ -453,8 +462,9 @@ function TrackRow({ sample, index, producerName }: TrackRowProps) {
           )}
         </span>
 
-        {/* Title + artist. */}
-        <span className="min-w-0 flex-1">
+        {/* Title + artist. Capped width on sm+ so the waveform actually
+            gets room to stretch in the right half of the row. */}
+        <span className="min-w-0 flex-1 sm:flex-none sm:w-[38%]">
           <span
             className={[
               "block truncate text-sm font-bold",
@@ -472,22 +482,23 @@ function TrackRow({ sample, index, producerName }: TrackRowProps) {
           ) : null}
         </span>
 
-        {/* Decorative mini waveform — desktop only; fingerprint is
-            deterministic from track ID so each row looks distinct
-            without an audio decode. */}
+        {/* Decorative mini waveform — desktop only; stretches across the
+            right half of the row, from after the title to right before
+            the duration. Fingerprint deterministic from track ID. */}
         <MiniWaveform
           seedKey={sample.id}
           className={[
-            "hidden sm:block w-[120px] h-5 shrink-0",
+            "hidden sm:block flex-1 min-w-0 h-5",
             isActive
               ? "text-[rgb(var(--brand-primary))]"
               : "text-[rgb(var(--fg-primary)/0.35)]",
           ].join(" ")}
         />
 
-        {/* Duration. */}
+        {/* Duration — falls back to the metadata-resolved value when
+            the DB column is null. */}
         <span className="shrink-0 font-mono text-[0.7rem] tabular-nums text-[rgb(var(--fg-muted))]">
-          {formatDuration(sample.durationMs)}
+          {formatDuration(resolvedDurationMs)}
         </span>
       </button>
     </li>
@@ -628,6 +639,59 @@ function formatDuration(ms: number | null): string {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${String(m)}:${String(s).padStart(2, "0")}`;
+}
+
+/**
+ * Resolve a track's real duration. Prefers the DB column when set;
+ * otherwise mounts a hidden <audio preload="metadata"> for the URL and
+ * reads `audio.duration` from the loadedmetadata event. The browser
+ * fetches only the container header (~few KB), not the whole audio.
+ *
+ * Returns null while loading or if the probe fails — caller decides
+ * what placeholder to render in that window (we show "—" via
+ * formatDuration).
+ */
+function useAudioDuration(
+  url: string | null,
+  dbMs: number | null,
+): number | null {
+  const [probedSec, setProbedSec] = useState<number | null>(null);
+  const probedRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    // Skip the probe when the DB already gave us a usable value or
+    // when there's no audio URL to probe.
+    if (dbMs !== null && Number.isFinite(dbMs) && dbMs > 0) return;
+    if (!url) return;
+
+    const el = document.createElement("audio");
+    el.preload = "metadata";
+    el.crossOrigin = "anonymous";
+    el.src = url;
+    probedRef.current = el;
+
+    function onLoaded() {
+      const d = el.duration;
+      if (Number.isFinite(d) && d > 0) setProbedSec(d);
+    }
+    function onError() {
+      // Silently leave probedSec null — the row keeps showing "—".
+      // Not a UX regression vs. the prior behaviour.
+    }
+    el.addEventListener("loadedmetadata", onLoaded);
+    el.addEventListener("error", onError);
+
+    return () => {
+      el.removeEventListener("loadedmetadata", onLoaded);
+      el.removeEventListener("error", onError);
+      // Hint the browser to release the connection; the next render
+      // can re-probe if url changes.
+      el.src = "";
+      probedRef.current = null;
+    };
+  }, [url, dbMs]);
+
+  return pickDurationMs(dbMs, probedSec);
 }
 
 // ─── Inline glyphs ────────────────────────────────────────────────
