@@ -506,12 +506,18 @@ function SegmentedButton({
       aria-controls={controls}
       onClick={onClick}
       className={[
+        // sk-press provides scale(0.97) on :active for tactile feedback;
+        // sk-trans pairs it with the project's strong custom easing
+        // curve. The hover lift (-translate-y-px) is the new touch —
+        // a 1px nudge that the user reads subconsciously as "this is
+        // clickable" before they even press. Emil-style: invisible
+        // detail that compounds.
         "sk-press inline-flex items-center gap-1.5 rounded-[7px] font-bold sk-trans",
         iconOnly ? "px-[9px] py-[6px]" : "px-[11px] py-[6px]",
         "text-[11.5px]",
         active
           ? "bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
-          : "bg-transparent text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+          : "bg-transparent text-[rgb(var(--fg-muted))] hover:-translate-y-px hover:text-[rgb(var(--fg-default))]",
       ].join(" ")}
     >
       {icon}
