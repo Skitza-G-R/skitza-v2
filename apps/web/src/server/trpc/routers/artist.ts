@@ -242,6 +242,118 @@ const musicSubrouter = router({
     return { projects: merged.slice(0, 50) };
   }),
 
+  // Flat per-track list across every project this artist is part of.
+  // Mirrors the shape `producer.music.list` returns so the L1 Library
+  // screen (extracted from the producer side) renders identically on
+  // the artist side. One row per TRACK — the latest version per track
+  // — with the upload timestamp used to sort newest-first.
+  //
+  // Auth boundary: same gating SELECT as `projects` above — we resolve
+  // the (clerkUserId → email + producerId) tuples via clientContacts,
+  // then scope every downstream query by `(projects.producerId IN,
+  // projects.artistEmail IN)`. Identical fan-out shape to the producer
+  // procedure: one rows query + one comments count query.
+  //
+  // `clientName` on the wire is overloaded: on the producer side it's
+  // the artist's name (the project's `clientName` column). On the
+  // artist side there is no artist-of-the-artist, so we substitute the
+  // producer's display name. The shared component reads it as a
+  // generic "partner label" and renders it identically.
+  list: artistProcedure.query(async ({ ctx }) => {
+    const myContacts = await ctx.db
+      .select({
+        producerId: clientContacts.producerId,
+        email: clientContacts.email,
+      })
+      .from(clientContacts)
+      .where(
+        and(
+          eq(clientContacts.clerkUserId, ctx.clerkUserId),
+          isNull(clientContacts.archivedAt),
+        ),
+      );
+    if (myContacts.length === 0) return { tracks: [] };
+    const myEmails = [...new Set(myContacts.map((c) => c.email.toLowerCase()))];
+    const myProducerIds = [...new Set(myContacts.map((c) => c.producerId))];
+
+    const rows = await ctx.db
+      .select({
+        versionId: trackVersions.id,
+        versionLabel: trackVersions.label,
+        audioUrl: trackVersions.audioUrl,
+        durationMs: trackVersions.durationMs,
+        uploadedAt: trackVersions.uploadedAt,
+        trackId: projectTracks.id,
+        trackTitle: projectTracks.title,
+        trackArtist: projectTracks.artist,
+        projectId: projects.id,
+        projectTitle: projects.title,
+        producerName: producers.displayName,
+      })
+      .from(trackVersions)
+      .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+      .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+      .innerJoin(producers, eq(producers.id, projects.producerId))
+      .where(
+        and(
+          inArray(projects.producerId, myProducerIds),
+          inArray(projects.artistEmail, myEmails),
+        ),
+      )
+      .orderBy(desc(trackVersions.uploadedAt));
+
+    // Collapse versions → tracks, keeping the newest per track.
+    const byTrack = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) {
+      if (!byTrack.has(r.trackId)) byTrack.set(r.trackId, r);
+    }
+    const trackList = Array.from(byTrack.values()).slice(0, 100);
+
+    // Per-version unread-from-producer count — single IN query.
+    // Inverse of the producer side: we count fromProducer = true
+    // comments (producer talking) that aren't yet resolved.
+    const versionIds = trackList.map((t) => t.versionId);
+    const noteRows = versionIds.length
+      ? await ctx.db
+          .select({ versionId: trackComments.versionId })
+          .from(trackComments)
+          .where(
+            and(
+              inArray(trackComments.versionId, versionIds),
+              eq(trackComments.fromProducer, true),
+              isNull(trackComments.resolvedAt),
+            ),
+          )
+      : [];
+    const notesByVersion = new Map<string, number>();
+    for (const n of noteRows) {
+      notesByVersion.set(n.versionId, (notesByVersion.get(n.versionId) ?? 0) + 1);
+    }
+
+    const tracks = trackList.map((r) => ({
+      id: r.versionId,
+      trackId: r.trackId,
+      trackTitle: r.trackTitle,
+      trackArtist: r.trackArtist,
+      label: r.versionLabel,
+      projectId: r.projectId,
+      projectTitle: r.projectTitle,
+      // See the procedure header: this is the producer's display name
+      // surfaced under the producer's `clientName` field on the wire,
+      // so the shared component can render it without conditional logic.
+      clientName: r.producerName,
+      uploadedAt: r.uploadedAt,
+      audioUrl: r.audioUrl,
+      durationMs: r.durationMs,
+      unreadComments: notesByVersion.get(r.versionId) ?? 0,
+      // Schema has no play counter yet — same placeholder the producer
+      // side returns so both libraries render em-dash here.
+      plays: 0,
+    }));
+
+    return { tracks };
+  }),
+
   // Full detail for one project: tracks (ordered by position) with
   // their version stacks (desc by uploadedAt) and timestamped comments
   // (asc by createdAt, grouped onto the parent track). Powers the Now

@@ -1,5 +1,6 @@
 import type { Studio } from "~/server/artist/identity";
 
+import { PersistentPlayer } from "~/components/audio/persistent-player";
 import { ArtistBottomNav } from "~/components/nav/artist-bottom-nav";
 import { ArtistDesktopSidebar } from "~/components/nav/artist-desktop-sidebar";
 import { ArtistMobileTopBar } from "~/components/nav/artist-mobile-top-bar";
@@ -86,6 +87,13 @@ export function ArtistAppShell({
         </div>
 
         <PersistentMiniPlayer />
+        {/* SK-27: PersistentPlayer is the producer-side floating dock.
+            It powers the shared Music Library's Play buttons
+            (useNowPlaying / playerPlay event bus) on the artist side.
+            Renders null when no track is loaded, so it sits inert on
+            artist pages that still use ArtistAudio. Both players will
+            be unified in a follow-up — for PR #1 they coexist. */}
+        <PersistentPlayer />
         <ArtistBottomNav />
       </div>
     </ArtistAudioProvider>
