@@ -5,12 +5,14 @@ import {
   AlsoWaitingList,
   type WaitingRow,
 } from "~/components/artist/home/also-waiting-list";
+import { BalanceSnapshot } from "~/components/artist/home/balance-snapshot";
 import { BookWithStudios } from "~/components/artist/home/book-with-studios";
 import {
   FocalCard,
   type FocalItem,
 } from "~/components/artist/home/focal-card";
 import { InboxHero } from "~/components/artist/home/inbox-hero";
+import { ThisWeekStrip } from "~/components/artist/home/this-week-strip";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { WelcomeModal } from "./welcome-modal";
@@ -86,36 +88,58 @@ export default async function ArtistHomePage() {
 
   const subline = buildSubline(focal.kind);
 
+  // `today` is computed here so the rail's ThisWeekStrip + the home
+  // tile share the same reference. Server-rendered → uses the
+  // server's clock; tolerable for a weekly digest.
+  const today = new Date();
+
   return (
-    // Column alignment:
-    //   • mobile/tablet (< lg): mx-auto, 600px max — matches the shell's
-    //     centered container, so the page reads as a single centered
-    //     reading column.
-    //   • desktop (lg+): the shell switches to full-width main with
-    //     40px padding. Centering a 600px column inside ~1100px of
-    //     main looks "floating in the middle for no reason," so we
-    //     anchor left (lg:mx-0) and give the column a small width
-    //     bump (lg:max-w-[680px]) for breathing room. The right-side
-    //     space becomes intentional negative space (and the future
-    //     home for the context rail in Round 3).
-    <div className="mx-auto w-full max-w-[600px] lg:mx-0 lg:max-w-[680px]">
-      <div className="space-y-6">
-        <WelcomeModal />
-        <InboxHero
-          firstName={firstName}
-          todayLabel={todayLabel}
-          subline={subline}
-        />
-        <FocalCard item={focal} />
-        <AlsoWaitingList rows={alsoWaiting} />
-        <BookWithStudios studios={studios} />
-        <ActivityTail items={data.activity} />
+    // Layout strategy by breakpoint:
+    //   • mobile/tablet (< lg): single column, mx-auto, 600px max.
+    //     Matches the shell's centered container; reads as one
+    //     reading column. The rail collapses BELOW the main column
+    //     so it's still reachable.
+    //   • desktop (lg+): two-column grid — 680px main column +
+    //     280px right rail with a 48px gap. The rail holds two
+    //     quiet context widgets (this week + wallet) and a brand
+    //     byline. The footer line spans the full width below both
+    //     columns.
+    <div className="mx-auto w-full max-w-[600px] lg:mx-0 lg:max-w-none">
+      <div className="lg:grid lg:grid-cols-[680px_280px] lg:items-start lg:gap-12">
+        {/* Main column — all the primary sections. */}
+        <div className="space-y-6">
+          <WelcomeModal />
+          <InboxHero
+            firstName={firstName}
+            todayLabel={todayLabel}
+            subline={subline}
+          />
+          <FocalCard item={focal} />
+          <AlsoWaitingList rows={alsoWaiting} />
+          <BookWithStudios studios={studios} />
+          <ActivityTail items={data.activity} />
+        </div>
+
+        {/* Right rail — desktop-only quiet context. On < lg it
+            naturally falls below the main column (still flex flow,
+            no grid), separated by mt-12. */}
+        <aside
+          aria-label="Context"
+          className="mt-12 space-y-8 lg:mt-0 lg:sticky lg:top-10"
+        >
+          <ThisWeekStrip
+            sessions={data.upcomingSessions.map((s) => ({ startsAt: s.startsAt }))}
+            today={today}
+          />
+          <BalanceSnapshot balance={data.outstandingBalance} />
+        </aside>
       </div>
 
       {/* Page-end byline — gives the page a clear bottom edge so it
           doesn't trail off into the persistent player. Faint mono,
-          minimal weight; this is a wayfinder, not a CTA. */}
-      <footer className="mt-12 border-t border-[rgb(var(--border-subtle))] pt-6 text-center">
+          minimal weight; this is a wayfinder, not a CTA. Spans the
+          full width below both columns. */}
+      <footer className="mt-16 border-t border-[rgb(var(--border-subtle))] pt-6 text-center">
         <p className="font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--fg-faint))]">
           Skitza · powered by your producers
         </p>
