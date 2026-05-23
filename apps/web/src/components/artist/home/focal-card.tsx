@@ -74,9 +74,14 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 // ─── Variant: mix ───────────────────────────────────────────────────
 
-const WAVEFORM_HEIGHTS = [
-  38, 54, 70, 62, 82, 90, 74, 58, 80, 68, 52, 76, 84, 64, 72, 80, 50, 66, 78,
-  56, 70, 84, 60, 72, 48, 62, 36, 28,
+// Subtle decorative bar heights — looks like a single track stripe,
+// not a full waveform. Variation is tight (50–85%) so the row reads
+// as a quiet line, with character. Real peaks live on the project
+// page.
+const TRACK_STRIPE = [
+  62, 70, 58, 78, 66, 72, 60, 80, 68, 64, 76, 72, 58, 70, 82, 64, 72, 60, 76,
+  68, 72, 66, 80, 62, 70, 58, 66, 74, 62, 70, 60, 68, 56, 64, 70, 58, 72, 66,
+  60, 64,
 ];
 
 function MixFocal({ mix }: { mix: Mix }) {
@@ -114,26 +119,10 @@ function MixFocal({ mix }: { mix: Mix }) {
           Mix · {mix.label} · from {mix.producerName}
         </p>
 
-        {/* Decorative waveform — real peaks live on the project detail
-            page. Static heights keep SSR + hydration in sync. */}
-        <div
-          aria-hidden
-          className="mt-6 flex h-10 items-end gap-[3px]"
-        >
-          {WAVEFORM_HEIGHTS.map((h, i) => (
-            <span
-              key={i}
-              className="block w-[3px] flex-1 rounded-full"
-              style={{
-                height: `${String(h)}%`,
-                background: "rgb(var(--brand-primary))",
-                opacity: 0.4,
-              }}
-            />
-          ))}
-        </div>
-
-        <div className="mt-6 lg:mt-7">
+        {/* Single-line preview — small play button + thin track stripe.
+            Whole card navigates to the project; this button stops
+            propagation and plays inline. */}
+        <div className="mt-7 flex items-center gap-4">
           <button
             type="button"
             onClick={(e) => {
@@ -149,24 +138,33 @@ function MixFocal({ mix }: { mix: Mix }) {
                   : `Listen to ${mix.trackTitle}`
                 : "Audio still uploading"
             }
-            className="sk-press inline-flex items-center gap-2.5 rounded-full py-2.5 pl-3.5 pr-5 text-[14px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            className="sk-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
             style={{
               background: "rgb(var(--fg-default))",
-              color: "rgb(var(--fg-inverse))",
+              color: "rgb(var(--brand-primary))",
             }}
           >
-            <span
-              aria-hidden
-              className="flex h-6 w-6 items-center justify-center rounded-full text-[11px]"
-              style={{
-                background: "rgb(var(--brand-primary))",
-                color: "rgb(var(--bg-sidebar))",
-              }}
-            >
+            <span aria-hidden>
               {isPlaying ? "❚❚" : "▶"}
             </span>
-            {isPlaying ? "Pause" : "Listen"}
           </button>
+
+          <div
+            aria-hidden
+            className="flex h-2 flex-1 items-center gap-[1.5px]"
+          >
+            {TRACK_STRIPE.map((h, i) => (
+              <span
+                key={i}
+                className="block w-[2px] flex-1 rounded-full"
+                style={{
+                  height: `${String(h)}%`,
+                  background: "rgb(var(--brand-primary))",
+                  opacity: 0.32,
+                }}
+              />
+            ))}
+          </div>
         </div>
       </Shell>
     </Link>

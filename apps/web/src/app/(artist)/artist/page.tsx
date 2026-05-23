@@ -4,6 +4,7 @@ import {
   AlsoWaitingList,
   type WaitingRow,
 } from "~/components/artist/home/also-waiting-list";
+import { BookWithStudios } from "~/components/artist/home/book-with-studios";
 import {
   FocalCard,
   type FocalItem,
@@ -53,11 +54,13 @@ export default async function ArtistHomePage() {
   if (!userId) return null;
 
   const caller = appRouter.createCaller({ userId });
-  const [user, data, pendingPayments] = await Promise.all([
+  const [user, data, pendingPayments, studiosResp] = await Promise.all([
     currentUser(),
     caller.artist.home(),
     caller.artist.book.myPendingPayments(),
+    caller.artist.studios(),
   ]);
+  const studios = studiosResp.studios;
 
   const firstName = user?.firstName?.trim() || "there";
   const todayLabel = new Date().toLocaleDateString("en-US", {
@@ -92,6 +95,7 @@ export default async function ArtistHomePage() {
       />
       <FocalCard item={focal} />
       <AlsoWaitingList rows={alsoWaiting} />
+      <BookWithStudios studios={studios} />
     </div>
   );
 }
