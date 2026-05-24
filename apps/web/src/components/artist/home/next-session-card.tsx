@@ -1,129 +1,106 @@
 import Link from "next/link";
 
-// Server component — pure render of the next-confirmed-session blob
-// returned by `artist.home`. Polished to mirror the locked design's
-// "date block + producer line + dark CTA" hierarchy. No interactivity
-// at this level so we stay on the server and ship zero JS.
-//
-// Empty state: gentle CTA pointing at /artist/book. The whole point
-// of Home is "what's next" — when there's nothing, we suggest booking.
+import { ProducerArt } from "./producer-art";
 
-export type NextSession = {
-  id: string;
-  startsAt: Date;
-  durationMin: number;
-  producerName: string;
-  producerSlug: string;
-  productName: string | null;
+export type NextSessionStripProps = {
+  nextSession: {
+    id: string;
+    startsAt: Date;
+    durationMin: number;
+    producerName: string;
+    productName: string | null;
+  } | null;
 };
 
-export function NextSessionCard({ session }: { session: NextSession | null }) {
-  if (!session) {
-    return (
-      <section
-        aria-labelledby="next-session-heading"
-        className="reveal-up rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-5"
-      >
-        <h2
-          id="next-session-heading"
-          className="font-mono text-[0.66rem] font-semibold uppercase tracking-wider text-[rgb(var(--fg-muted))]"
-        >
-          Next session
-        </h2>
-        <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-          Nothing booked yet. Pick a time that works for you.
-        </p>
-        <Link
-          href="/artist/book"
-          className="sk-press mt-4 inline-flex items-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-sidebar))]"
-        >
-          Book a session
-          <span aria-hidden style={{ opacity: 0.6 }}>
-            →
-          </span>
-        </Link>
-      </section>
-    );
-  }
-
-  const monthShort = formatMonthShort(session.startsAt);
-  const day = session.startsAt.getDate();
-  const time = formatTime(session.startsAt);
-
+export function NextSessionCard({ nextSession }: NextSessionStripProps) {
+  if (!nextSession) return <EmptyState />;
+  const today = isToday(nextSession.startsAt);
   return (
-    <section
-      aria-labelledby="next-session-heading"
-      className="reveal-up rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
-    >
-      <h2
-        id="next-session-heading"
-        className="mb-3 font-mono text-[0.66rem] font-semibold uppercase tracking-wider text-[rgb(var(--fg-muted))]"
-      >
-        Next session
-      </h2>
-
-      <div className="flex items-start gap-4">
-        {/* Big-date block — design system "date hero" */}
-        <div className="w-14 shrink-0">
-          <div
-            className="font-mono text-[0.65rem] font-bold uppercase tracking-wider"
-            style={{ color: "rgb(var(--brand-primary))" }}
+    <article className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-3">
+      <ProducerArt
+        producerName={nextSession.producerName}
+        size={36}
+        initialsFontSize={11}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center gap-2">
+          <h3
+            className="truncate text-[16px] font-bold text-[var(--fg-default)]"
+            style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.02em" }}
           >
-            {monthShort}
-          </div>
-          <div className="my-0.5 font-display text-[36px] font-extrabold leading-none tracking-[-0.04em] text-[rgb(var(--fg-default))]">
-            {day}
-          </div>
-          <div className="font-mono text-[0.65rem] text-[rgb(var(--fg-muted))]">
-            {time}
-          </div>
+            {nextSession.productName ?? "Session"}
+          </h3>
+          {today && (
+            <span
+              className="rounded-full px-1.5 py-0.5 text-[8.5px] font-extrabold uppercase tracking-[0.08em]"
+              style={{
+                backgroundColor: "var(--brand-primary)",
+                color: "#111009",
+                fontFamily: "var(--font-jetbrains-mono)",
+              }}
+            >TODAY</span>
+          )}
         </div>
-
-        {/* Title + producer line */}
-        <div className="min-w-0 flex-1 pt-0.5">
-          <p className="text-base font-bold leading-tight text-[rgb(var(--fg-default))]">
-            {session.productName ?? "Studio session"}
-          </p>
-          <p className="mt-2 text-[13px] text-[rgb(var(--fg-muted))]">
-            {session.producerName} · {formatDuration(session.durationMin)}
-          </p>
-        </div>
+        <p
+          className="mt-0.5 truncate text-[12.5px] text-[var(--fg-muted)]"
+          style={{ fontFamily: "var(--font-jetbrains-mono)" }}
+        >
+          {formatSessionLine(nextSession.startsAt, nextSession.durationMin)}
+        </p>
       </div>
-
-      {/* Dark CTA — matches design system AmberCTA-like dark variant */}
       <Link
         href="/artist/book"
-        className="sk-press mt-4 flex w-full items-center justify-center gap-2 rounded-[var(--radius-md)] py-3 text-[13.5px] font-semibold"
-        style={{
-          background: "rgb(var(--bg-sidebar))",
-          color: "rgb(var(--fg-onsidebar))",
-        }}
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--border-subtle)] px-3.5 py-2 text-[12.5px] font-semibold text-[var(--fg-default)] transition-colors hover:bg-[var(--bg-background)]"
       >
-        View details
-        <span aria-hidden style={{ opacity: 0.55 }}>
-          →
-        </span>
+        Open calendar →
       </Link>
-    </section>
+    </article>
   );
 }
 
-function formatMonthShort(d: Date): string {
-  return d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+function EmptyState() {
+  return (
+    <article className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-3">
+      <div
+        className="size-9 rounded-full border border-dashed border-[var(--border-subtle)] bg-[var(--bg-background)]"
+        aria-hidden
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <h3
+          className="truncate text-[16px] font-bold text-[var(--fg-default)]"
+          style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.02em" }}
+        >
+          No session booked.
+        </h3>
+        <p className="mt-0.5 truncate text-[12.5px] text-[var(--fg-muted)]">
+          When you book your next session it shows up here.
+        </p>
+      </div>
+      <Link
+        href="/artist/book"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--brand-primary)] px-3.5 py-2 text-[12.5px] font-bold text-[#111009] transition-transform hover:brightness-110 active:scale-[0.97]"
+      >
+        Book a session →
+      </Link>
+    </article>
+  );
 }
 
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+export function isToday(date: Date): boolean {
+  const now = new Date();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
 }
 
-function formatDuration(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h === 0) return `${String(m)} min`;
-  if (m === 0) return `${String(h)}h`;
-  return `${String(h)}h ${String(m)}m`;
+function formatSessionLine(startsAt: Date, durationMin: number): string {
+  const weekday = startsAt.toLocaleDateString("en-US", { weekday: "short" });
+  const hh = String(startsAt.getHours()).padStart(2, "0");
+  const mm = String(startsAt.getMinutes()).padStart(2, "0");
+  const end = new Date(startsAt.getTime() + durationMin * 60_000);
+  const endHh = String(end.getHours()).padStart(2, "0");
+  const endMm = String(end.getMinutes()).padStart(2, "0");
+  return `${weekday} ${hh}:${mm}–${endHh}:${endMm} · ${String(durationMin)}m`;
 }
