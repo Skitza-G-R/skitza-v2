@@ -1178,8 +1178,11 @@ const bookSubrouter = router({
         amountCents = Math.round(price / firstPlan.installments);
       // Plan label for the artist home payment row. Normalize the
       // schema's `split_50_50` kind to the display string "50-50" so
-      // the UI matches the SK-33 handoff copy. Missing plan (no
-      // products row or empty paymentPlans[]) defaults to "upfront".
+      // the UI matches the SK-33 handoff copy. The "upfront" default
+      // covers BOTH a missing plan (no products row / empty
+      // paymentPlans[]) AND the schema's `full` kind — both
+      // semantically mean "one payment, full amount" and the artist
+      // home renders them identically.
       const plan: "50-50" | "monthly" | "upfront" =
         firstPlan?.kind === "split_50_50"
           ? "50-50"
