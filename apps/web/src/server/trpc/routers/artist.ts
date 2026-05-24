@@ -1813,6 +1813,12 @@ export const artistRouter = router({
       // any project tied to my (producer, email). Joins through the
       // project_tracks → projects chain because track_versions only
       // know their parent track, not the project's owner.
+      //
+      // SK-33: leftJoin clientContacts so we can pull the artist's
+      // lastSeenAt for THIS producer and derive `unread` below. Scoped
+      // by clerkUserId + active so we get exactly one contact row per
+      // producer (or zero if the row never existed — defensive only,
+      // since the outer WHERE already filtered by myProducerIds).
       ctx.db
         .select({
           id: trackVersions.id,
@@ -1823,11 +1829,20 @@ export const artistRouter = router({
           projectId: projects.id,
           uploadedAt: trackVersions.uploadedAt,
           audioUrl: trackVersions.audioUrl,
+          lastSeenAt: clientContacts.lastSeenAt,
         })
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
         .innerJoin(projects, eq(projects.id, projectTracks.projectId))
         .innerJoin(producers, eq(producers.id, projects.producerId))
+        .leftJoin(
+          clientContacts,
+          and(
+            eq(clientContacts.producerId, projects.producerId),
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            isNull(clientContacts.archivedAt),
+          ),
+        )
         .where(
           and(
             inArray(projects.producerId, myProducerIds),
@@ -1950,6 +1965,14 @@ export const artistRouter = router({
           projectId: mixRow.projectId,
           uploadedAt: mixRow.uploadedAt,
           audioUrl: mixRow.audioUrl,
+          // SK-33: derive `unread` for the NEW badge on the Last
+          // Upload hero. True when the artist hasn't acknowledged
+          // this track yet — either no lastSeenAt at all (leftJoin
+          // miss, shouldn't happen in practice but defensive) or the
+          // seen-at predates the upload.
+          unread:
+            !mixRow.lastSeenAt ||
+            mixRow.lastSeenAt.getTime() < mixRow.uploadedAt.getTime(),
         }
       : null;
 
