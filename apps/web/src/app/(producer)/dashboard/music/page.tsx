@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import {
   MusicLibraryScreen,
   type MusicLibraryRow,
-} from "~/components/dashboard/music/library-screen";
+} from "~/components/music/library-screen";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Music library — Library → Project → Song flow.

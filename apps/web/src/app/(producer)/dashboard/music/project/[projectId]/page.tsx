@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { ProjectPage, type ProjectPageData } from "./project-page";
+import { ProjectPage, type ProjectPageData } from "~/components/music/project-page";
 
 type PageProps = { params: Promise<{ projectId: string }> };
 

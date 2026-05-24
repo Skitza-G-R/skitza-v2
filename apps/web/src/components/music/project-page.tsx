@@ -17,7 +17,7 @@ import {
   useNowPlaying,
 } from "~/components/audio/persistent-player";
 
-import { ProjectCover } from "~/components/dashboard/music/project-cover";
+import { ProjectCover } from "~/components/music/project-cover";
 import {
   fmtCount,
   fmtDuration,
@@ -27,7 +27,7 @@ import {
   kindFromTrackCount,
   padIndex,
   sumDurations,
-} from "~/components/dashboard/music/lib";
+} from "~/components/music/lib";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 
 // ─── Wire types ──────────────────────────────────────────────────────
@@ -55,9 +55,31 @@ export interface ProjectPageData {
   tracks: ProjectPageTrack[];
 }
 
+// Which side of the app is rendering this screen. Default = "producer"
+// so existing call-sites keep working unchanged.
+//
+// In artist mode:
+//   - tracklist rows do NOT navigate (L3 song page doesn't exist on the
+//     artist tree yet). They become play-on-click buttons.
+//   - the empty-state "Upload track" CTA is hidden (artists don't
+//     upload — that's the producer's job).
+//
+// `extraBelow` lets the artist route append a sessions panel beneath
+// the tracklist footer without forking the component. Producer side
+// doesn't pass it; null check inside keeps the markup clean.
+export type ProjectPageRole = "producer" | "artist";
+
 // ─── Component ───────────────────────────────────────────────────────
 
-export function ProjectPage({ data }: { data: ProjectPageData }) {
+export function ProjectPage({
+  data,
+  role = "producer",
+  extraBelow,
+}: {
+  data: ProjectPageData;
+  role?: ProjectPageRole;
+  extraBelow?: React.ReactNode;
+}) {
   const nowPlaying = useNowPlaying();
   // Inline "Link copied" confirmation. Auto-dismisses 2.4s after the
   // share action triggers a clipboard fallback. Inline (not a modal /
@@ -340,7 +362,7 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
         }}
       >
         {data.tracks.length === 0 ? (
-          <EmptyTracklist projectId={data.project.id} />
+          <EmptyTracklist projectId={data.project.id} role={role} />
         ) : (
           <>
             <Tracklist
@@ -349,6 +371,7 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
               nowPlayingId={nowPlaying.trackId}
               isPlaying={nowPlaying.playing}
               onPlay={handlePlayTrack}
+              role={role}
             />
             <footer
               className="mt-7 flex flex-col gap-1 pt-4 font-mono text-[11.5px] text-[rgb(var(--fg-muted))]"
@@ -380,6 +403,10 @@ export function ProjectPage({ data }: { data: ProjectPageData }) {
             </footer>
           </>
         )}
+        {/* `extraBelow` slot — artist L2 uses it to render the
+            sessions panel beneath the tracklist. Producer side passes
+            nothing and renders nothing. */}
+        {extraBelow ? <div className="mt-7">{extraBelow}</div> : null}
       </section>
     </main>
   );
@@ -425,12 +452,14 @@ function Tracklist({
   nowPlayingId,
   isPlaying,
   onPlay,
+  role,
 }: {
   tracks: ProjectPageTrack[];
   projectId: string;
   nowPlayingId: string | null;
   isPlaying: boolean;
   onPlay: (t: ProjectPageTrack) => void;
+  role: ProjectPageRole;
 }) {
   const cols = "36px minmax(0,1fr) 86px 80px 60px 44px";
   return (
@@ -456,31 +485,37 @@ function Tracklist({
         {tracks.map((t, idx) => {
           const isCurrent = nowPlayingId === t.id;
           const playingHere = isCurrent && isPlaying;
+          // Whole row is a <Link> → L3 song page on both sides
+          // (Spotify + Apple Music both use this pattern: clickable
+          // row, dedicated play affordance). The inner play button
+          // calls preventDefault + stopPropagation so clicking it
+          // plays without navigating. Only the URL differs by role.
+          const rowHref =
+            role === "producer"
+              ? `/dashboard/music/${t.id}?from=${projectId}`
+              : `/artist/music/song/${t.id}`;
+          const rowClassName = [
+            "group relative grid items-center gap-3 px-4 py-2.5",
+            isCurrent
+              ? "bg-[rgb(var(--brand-primary)/0.06)]"
+              : "hover:bg-[rgb(var(--bg-overlay))]",
+          ].join(" ");
+          const rowStyle: React.CSSProperties = {
+            gridTemplateColumns: cols,
+            borderRadius: 12,
+            transition: "background-color 140ms ease-out",
+          };
           return (
             <li
               key={t.id}
               className="sk-stagger-item"
               style={{ "--i": String(idx) } as React.CSSProperties}
             >
-              {/* Whole-row Link makes the entire row a tap target → song
-                  page. The play button inside calls e.preventDefault() so
-                  clicking it plays without navigating. Spotify + Apple
-                  Music both use this pattern (clickable row, dedicated
-                  play affordance). */}
               <Link
-                href={`/dashboard/music/${t.id}?from=${projectId}`}
+                href={rowHref}
                 aria-label={`Open ${t.title} song page`}
-                className={[
-                  "group relative grid items-center gap-3 px-4 py-2.5",
-                  isCurrent
-                    ? "bg-[rgb(var(--brand-primary)/0.06)]"
-                    : "hover:bg-[rgb(var(--bg-overlay))]",
-                ].join(" ")}
-                style={{
-                  gridTemplateColumns: cols,
-                  borderRadius: 12,
-                  transition: "background-color 140ms ease-out",
-                }}
+                className={rowClassName}
+                style={rowStyle}
               >
                 {/* Index → play swap */}
                 <span className="relative flex justify-end">
@@ -578,7 +613,13 @@ function Tracklist({
   );
 }
 
-function EmptyTracklist({ projectId }: { projectId: string }) {
+function EmptyTracklist({
+  projectId,
+  role,
+}: {
+  projectId: string;
+  role: ProjectPageRole;
+}) {
   return (
     <div
       role="status"
@@ -593,14 +634,18 @@ function EmptyTracklist({ projectId }: { projectId: string }) {
         <span className="text-[rgb(var(--brand-primary-dark))]">.</span>
       </h3>
       <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
-        Drop a WAV into this project to kick it off.
+        {role === "producer"
+          ? "Drop a WAV into this project to kick it off."
+          : "Once your producer uploads a mix here, it'll show up below."}
       </p>
-      <Link
-        href={`/dashboard/clients-projects/${projectId}?tab=music&action=upload`}
-        className="mt-4 inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--brand-primary))] px-3.5 py-2 text-[12.5px] font-bold text-[rgb(var(--fg-default))]"
-      >
-        Upload track
-      </Link>
+      {role === "producer" ? (
+        <Link
+          href={`/dashboard/clients-projects/${projectId}?tab=music&action=upload`}
+          className="mt-4 inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--brand-primary))] px-3.5 py-2 text-[12.5px] font-bold text-[rgb(var(--fg-default))]"
+        >
+          Upload track
+        </Link>
+      ) : null}
     </div>
   );
 }

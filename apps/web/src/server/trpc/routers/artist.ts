@@ -242,6 +242,118 @@ const musicSubrouter = router({
     return { projects: merged.slice(0, 50) };
   }),
 
+  // Flat per-track list across every project this artist is part of.
+  // Mirrors the shape `producer.music.list` returns so the L1 Library
+  // screen (extracted from the producer side) renders identically on
+  // the artist side. One row per TRACK — the latest version per track
+  // — with the upload timestamp used to sort newest-first.
+  //
+  // Auth boundary: same gating SELECT as `projects` above — we resolve
+  // the (clerkUserId → email + producerId) tuples via clientContacts,
+  // then scope every downstream query by `(projects.producerId IN,
+  // projects.artistEmail IN)`. Identical fan-out shape to the producer
+  // procedure: one rows query + one comments count query.
+  //
+  // `clientName` on the wire is overloaded: on the producer side it's
+  // the artist's name (the project's `clientName` column). On the
+  // artist side there is no artist-of-the-artist, so we substitute the
+  // producer's display name. The shared component reads it as a
+  // generic "partner label" and renders it identically.
+  list: artistProcedure.query(async ({ ctx }) => {
+    const myContacts = await ctx.db
+      .select({
+        producerId: clientContacts.producerId,
+        email: clientContacts.email,
+      })
+      .from(clientContacts)
+      .where(
+        and(
+          eq(clientContacts.clerkUserId, ctx.clerkUserId),
+          isNull(clientContacts.archivedAt),
+        ),
+      );
+    if (myContacts.length === 0) return { tracks: [] };
+    const myEmails = [...new Set(myContacts.map((c) => c.email.toLowerCase()))];
+    const myProducerIds = [...new Set(myContacts.map((c) => c.producerId))];
+
+    const rows = await ctx.db
+      .select({
+        versionId: trackVersions.id,
+        versionLabel: trackVersions.label,
+        audioUrl: trackVersions.audioUrl,
+        durationMs: trackVersions.durationMs,
+        uploadedAt: trackVersions.uploadedAt,
+        trackId: projectTracks.id,
+        trackTitle: projectTracks.title,
+        trackArtist: projectTracks.artist,
+        projectId: projects.id,
+        projectTitle: projects.title,
+        producerName: producers.displayName,
+      })
+      .from(trackVersions)
+      .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+      .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+      .innerJoin(producers, eq(producers.id, projects.producerId))
+      .where(
+        and(
+          inArray(projects.producerId, myProducerIds),
+          inArray(projects.artistEmail, myEmails),
+        ),
+      )
+      .orderBy(desc(trackVersions.uploadedAt));
+
+    // Collapse versions → tracks, keeping the newest per track.
+    const byTrack = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) {
+      if (!byTrack.has(r.trackId)) byTrack.set(r.trackId, r);
+    }
+    const trackList = Array.from(byTrack.values()).slice(0, 100);
+
+    // Per-version unread-from-producer count — single IN query.
+    // Inverse of the producer side: we count fromProducer = true
+    // comments (producer talking) that aren't yet resolved.
+    const versionIds = trackList.map((t) => t.versionId);
+    const noteRows = versionIds.length
+      ? await ctx.db
+          .select({ versionId: trackComments.versionId })
+          .from(trackComments)
+          .where(
+            and(
+              inArray(trackComments.versionId, versionIds),
+              eq(trackComments.fromProducer, true),
+              isNull(trackComments.resolvedAt),
+            ),
+          )
+      : [];
+    const notesByVersion = new Map<string, number>();
+    for (const n of noteRows) {
+      notesByVersion.set(n.versionId, (notesByVersion.get(n.versionId) ?? 0) + 1);
+    }
+
+    const tracks = trackList.map((r) => ({
+      id: r.versionId,
+      trackId: r.trackId,
+      trackTitle: r.trackTitle,
+      trackArtist: r.trackArtist,
+      label: r.versionLabel,
+      projectId: r.projectId,
+      projectTitle: r.projectTitle,
+      // See the procedure header: this is the producer's display name
+      // surfaced under the producer's `clientName` field on the wire,
+      // so the shared component can render it without conditional logic.
+      clientName: r.producerName,
+      uploadedAt: r.uploadedAt,
+      audioUrl: r.audioUrl,
+      durationMs: r.durationMs,
+      unreadComments: notesByVersion.get(r.versionId) ?? 0,
+      // Schema has no play counter yet — same placeholder the producer
+      // side returns so both libraries render em-dash here.
+      plays: 0,
+    }));
+
+    return { tracks };
+  }),
+
   // Full detail for one project: tracks (ordered by position) with
   // their version stacks (desc by uploadedAt) and timestamped comments
   // (asc by createdAt, grouped onto the parent track). Powers the Now
@@ -253,89 +365,98 @@ const musicSubrouter = router({
   project: artistProcedure
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      // (0) Auth gate — same NOT_FOUND-on-miss ownership resolver the
+      // L3 mutations use. Returns the project row when the signed-in
+      // artist is the project's client_contacts owner.
       const { project } = await resolveProjectOwnership(
         ctx.db,
         ctx.clerkUserId,
         input.projectId,
       );
 
-      // Producer display name — separate SELECT because the ownership
-      // helper doesn't need it. Not blocking: if the producer row is
-      // missing (impossible at runtime given the FK, but defensively)
-      // we fall back to "Producer".
+      // (1) Producer display name. We surface this BOTH as the
+      // overloaded `clientName` (the shared ProjectPage reads it as
+      // "the other party on this project") AND as `producerName`
+      // (kept for the artist-only sessions panel + breadcrumb work).
+      // Defensive fallback because nothing prevents an orphan row.
       const [producerRow] = await ctx.db
         .select({ displayName: producers.displayName })
         .from(producers)
         .where(eq(producers.id, project.producerId))
         .limit(1);
+      const producerName = producerRow?.displayName ?? "Producer";
 
-      // Tracks ordered by position (position ties → createdAt asc).
-      const tracksList = await ctx.db
-        .select()
-        .from(projectTracks)
+      // (2) Every version under this project, newest first. Same
+      // collapsing trick the producer side uses (Map keyed by trackId,
+      // first entry wins → the latest version per track).
+      const versionRows = await ctx.db
+        .select({
+          versionId: trackVersions.id,
+          versionLabel: trackVersions.label,
+          audioUrl: trackVersions.audioUrl,
+          durationMs: trackVersions.durationMs,
+          uploadedAt: trackVersions.uploadedAt,
+          trackId: projectTracks.id,
+          trackTitle: projectTracks.title,
+          trackArtist: projectTracks.artist,
+        })
+        .from(trackVersions)
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
         .where(eq(projectTracks.projectId, project.id))
-        .orderBy(asc(projectTracks.position), asc(projectTracks.createdAt));
+        .orderBy(desc(trackVersions.uploadedAt));
 
-      const trackIds = tracksList.map((t) => t.id);
+      const byTrack = new Map<string, (typeof versionRows)[number]>();
+      for (const v of versionRows) {
+        if (!byTrack.has(v.trackId)) byTrack.set(v.trackId, v);
+      }
+      const trackList = Array.from(byTrack.values());
 
-      // Versions + comments: scope both SELECTs at the DB layer via
-      // inArray. Short-circuit when there are no tracks (and, below, no
-      // versions) so we skip an otherwise-pointless round-trip. This
-      // used to filter in JS after a full-table SELECT — a severe perf
-      // cliff as the platform grows, and a tenant-scope smell.
-      const allVersions = trackIds.length
+      // (3) Unread-from-producer count per latest-version. Inverse of
+      // the producer's filter — we count `fromProducer = true` (the
+      // producer talking) that aren't yet resolved. Same single-IN
+      // shape so a project with N tracks costs one query.
+      const versionIds = trackList.map((t) => t.versionId);
+      const noteRows = versionIds.length
         ? await ctx.db
-            .select()
-            .from(trackVersions)
-            .where(inArray(trackVersions.trackId, trackIds))
-            .orderBy(desc(trackVersions.uploadedAt))
-        : [];
-
-      const versionIds = allVersions.map((v) => v.id);
-      const allComments = versionIds.length
-        ? await ctx.db
-            .select()
+            .select({ versionId: trackComments.versionId })
             .from(trackComments)
-            .where(inArray(trackComments.versionId, versionIds))
-            .orderBy(asc(trackComments.createdAt))
+            .where(
+              and(
+                inArray(trackComments.versionId, versionIds),
+                eq(trackComments.fromProducer, true),
+                isNull(trackComments.resolvedAt),
+              ),
+            )
         : [];
-
-      // Stitch: each track carries its own versions (desc uploadedAt)
-      // and comments (asc createdAt, filtered to its version stack).
-      const tracks = tracksList.map((t) => {
-        const trackVersionsForTrack = allVersions.filter(
-          (v) => v.trackId === t.id,
+      const notesByVersion = new Map<string, number>();
+      for (const n of noteRows) {
+        notesByVersion.set(
+          n.versionId,
+          (notesByVersion.get(n.versionId) ?? 0) + 1,
         );
-        const trackVersionIds = trackVersionsForTrack.map((v) => v.id);
-        const trackCommentsForTrack = allComments
-          .filter((c) => trackVersionIds.includes(c.versionId))
-          .map((c) => ({
-            id: c.id,
-            versionId: c.versionId,
-            timeMs: c.timestampMs,
-            body: c.body,
-            fromProducer: c.fromProducer,
-            authorName: c.authorName,
-            createdAt: c.createdAt,
-            resolvedAt: c.resolvedAt,
-          }));
-        return {
-          id: t.id,
-          title: t.title,
-          artist: t.artist,
-          position: t.position,
-          versions: trackVersionsForTrack.map((v) => ({
-            id: v.id,
-            label: v.label,
-            audioUrl: v.audioUrl,
-            durationMs: v.durationMs,
-            uploadedAt: v.uploadedAt,
-            peaksR2Key: v.peaksR2Key,
-          })),
-          comments: trackCommentsForTrack,
-        };
-      });
+      }
 
+      // (4) Producer-shape flat tracks. Matches ProjectPageTrack on
+      // the shared component, so the artist page.tsx can map this
+      // directly (Date → ISO at the RSC → client boundary).
+      const tracks = trackList.map((r) => ({
+        id: r.versionId,
+        trackId: r.trackId,
+        title: r.trackTitle,
+        artist: r.trackArtist,
+        versionLabel: r.versionLabel,
+        audioUrl: r.audioUrl,
+        durationMs: r.durationMs,
+        uploadedAt: r.uploadedAt,
+        unreadComments: notesByVersion.get(r.versionId) ?? 0,
+        // Schema has no play counter yet — em-dash placeholder, same
+        // as producer.music.project.
+        plays: 0,
+      }));
+
+      // (5) Sessions tied to this project (artist-specific extra; the
+      // producer L2 doesn't render this). Unchanged from the prior
+      // shape — pending_approval / pending_payment / confirmed only.
       const sessionRows = await ctx.db
         .select({
           id: bookings.id,
@@ -361,8 +482,15 @@ const musicSubrouter = router({
         project: {
           id: project.id,
           title: project.title,
+          // `clientName` overloaded with the producer's display name
+          // (see procedure header on artist.music.list) so the shared
+          // ProjectPage renders without conditional logic.
+          clientName: producerName,
+          createdAt: project.createdAt,
+          // Artist-specific extras kept on the wire — used by the
+          // sessions panel + the breadcrumb topbar publisher.
           producerId: project.producerId,
-          producerName: producerRow?.displayName ?? "Producer",
+          producerName,
           finalPaid: project.finalPaid,
         },
         tracks,
@@ -465,6 +593,147 @@ const musicSubrouter = router({
         createdAt: row.createdAt,
         resolvedAt: row.resolvedAt,
       };
+    }),
+
+  // L3 song page detail — single track with full version stack +
+  // timestamped comments. Mirrors `producer.music.detail`'s shape so
+  // the shared SongPage component renders identically. Resolves by
+  // VERSION id (the same identifier L1 + L2 rows use) so the route
+  // /artist/music/song/<versionId> deep-links cleanly.
+  //
+  // Auth gate (two-step, same pattern as `project`):
+  //   1. Resolve version → track → projectId.
+  //   2. resolveProjectOwnership(projectId) — NOT_FOUND on miss so we
+  //      don't differentiate "doesn't exist" from "not yours".
+  //
+  // `clientName` on the wire is overloaded with the producer's display
+  // name (same trick as artist.music.list + artist.music.project) so
+  // the shared SongPage's breadcrumb middle crumb reads correctly
+  // without conditional logic.
+  detail: artistProcedure
+    .input(z.object({ versionId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      // (1) Resolve version → projectId.
+      const [head] = await ctx.db
+        .select({
+          versionId: trackVersions.id,
+          trackId: projectTracks.id,
+          trackTitle: projectTracks.title,
+          trackArtist: projectTracks.artist,
+          projectId: projects.id,
+          projectTitle: projects.title,
+          projectProducerId: projects.producerId,
+        })
+        .from(trackVersions)
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+        .where(eq(trackVersions.id, input.versionId))
+        .limit(1);
+      if (!head) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // (2) Ownership check — same NOT_FOUND-on-miss helper that L2
+      // and addComment use. We don't bind the helper's `project`
+      // because we already have the data we need from the join above.
+      await resolveProjectOwnership(ctx.db, ctx.clerkUserId, head.projectId);
+
+      // (3) Producer display name for the overloaded `clientName`
+      // field. Defensive fallback (orphan FK shouldn't happen but).
+      const [producerRow] = await ctx.db
+        .select({ displayName: producers.displayName })
+        .from(producers)
+        .where(eq(producers.id, head.projectProducerId))
+        .limit(1);
+      const producerName = producerRow?.displayName ?? "Producer";
+
+      // (4) Full version stack desc by uploadedAt (newest first =
+      // "v3 · current" pill position in the L3 UI). Includes
+      // approvedAt + peaks — peaks ride down with the page payload
+      // so Waveform50 renders the real envelope on first frame.
+      const versions = await ctx.db
+        .select({
+          id: trackVersions.id,
+          label: trackVersions.label,
+          audioUrl: trackVersions.audioUrl,
+          durationMs: trackVersions.durationMs,
+          uploadedAt: trackVersions.uploadedAt,
+          approvedAt: trackVersions.approvedAt,
+          peaks: trackVersions.peaks,
+        })
+        .from(trackVersions)
+        .where(eq(trackVersions.trackId, head.trackId))
+        .orderBy(desc(trackVersions.uploadedAt));
+
+      // (5) Comments across all versions of this track, asc by
+      // timestampMs so the thread reads in track order.
+      const versionIds = versions.map((v) => v.id);
+      const comments = versionIds.length
+        ? await ctx.db
+            .select({
+              id: trackComments.id,
+              versionId: trackComments.versionId,
+              timeMs: trackComments.timestampMs,
+              body: trackComments.body,
+              fromProducer: trackComments.fromProducer,
+              authorName: trackComments.authorName,
+              createdAt: trackComments.createdAt,
+              resolvedAt: trackComments.resolvedAt,
+            })
+            .from(trackComments)
+            .where(inArray(trackComments.versionId, versionIds))
+            .orderBy(asc(trackComments.timestampMs))
+        : [];
+
+      return {
+        track: {
+          id: head.trackId,
+          title: head.trackTitle,
+          artist: head.trackArtist,
+          projectId: head.projectId,
+          projectTitle: head.projectTitle,
+          clientName: producerName,
+        },
+        versions,
+        comments,
+        selectedVersionId: input.versionId,
+      };
+    }),
+
+  // Resolve / re-open a timestamped comment on the artist's project.
+  // Producer-side has `project.resolveComment` (gated on producerId);
+  // mirrored here for the artist so the shared SongPage's Resolve /
+  // Reopen buttons work on /artist/music/song/<versionId>.
+  //
+  // Auth: walk comment → version → track → projectId, then
+  // resolveProjectOwnership to verify the signed-in artist owns the
+  // parent project via client_contacts. NOT_FOUND on any miss.
+  resolveComment: artistProcedure
+    .input(z.object({ id: z.string().uuid(), resolved: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const [c] = await ctx.db
+        .select({ id: trackComments.id, versionId: trackComments.versionId })
+        .from(trackComments)
+        .where(eq(trackComments.id, input.id))
+        .limit(1);
+      if (!c) throw new TRPCError({ code: "NOT_FOUND" });
+      const [v] = await ctx.db
+        .select({ trackId: trackVersions.trackId })
+        .from(trackVersions)
+        .where(eq(trackVersions.id, c.versionId))
+        .limit(1);
+      if (!v) throw new TRPCError({ code: "NOT_FOUND" });
+      const [t] = await ctx.db
+        .select({ projectId: projectTracks.projectId })
+        .from(projectTracks)
+        .where(eq(projectTracks.id, v.trackId))
+        .limit(1);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND" });
+      await resolveProjectOwnership(ctx.db, ctx.clerkUserId, t.projectId);
+
+      await ctx.db
+        .update(trackComments)
+        .set({ resolvedAt: input.resolved ? new Date() : null })
+        .where(eq(trackComments.id, input.id));
+      return { ok: true as const };
     }),
 });
 

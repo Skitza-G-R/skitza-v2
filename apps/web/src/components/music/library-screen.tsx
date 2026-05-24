@@ -80,7 +80,35 @@ const SORT_LABEL: Record<SongSort, string> = {
 
 // ─── Public component ────────────────────────────────────────────────
 
-export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
+// Which side of the app is rendering this screen. The producer view is
+// the original — it owns Upload + artist-filter chrome and links into
+// the /dashboard tree. The artist view shares the layout pixel-for-
+// pixel but hides producer-only actions and routes into /artist/* URLs.
+// Default = "producer" so existing call-sites that don't pass a role
+// behave unchanged.
+export type MusicLibraryRole = "producer" | "artist";
+
+// Internal href builders centralised here (instead of inlined per-cell)
+// so the URL switch lives in ONE place. Each side now has its own
+// L2 + L3 route (SK-30 added the artist L3).
+function projectHref(role: MusicLibraryRole, projectId: string): string {
+  return role === "producer"
+    ? `/dashboard/music/project/${projectId}`
+    : `/artist/music/${projectId}`;
+}
+function songHref(role: MusicLibraryRole, songId: string): string {
+  return role === "producer"
+    ? `/dashboard/music/${songId}`
+    : `/artist/music/song/${songId}`;
+}
+
+export function MusicLibraryScreen({
+  tracks,
+  role = "producer",
+}: {
+  tracks: MusicLibraryRow[];
+  role?: MusicLibraryRole;
+}) {
   // "all" is the sentinel for "no artist filter" — any other string is
   // a literal client/artist name from the artist filter pill.
   const [mode, setMode] = useState<Mode>("projects");
@@ -253,16 +281,19 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
             )}
           </p>
         </div>
-        {/* Upload track CTA — placeholder route until upload UX wires up
-            its own page. Routes to clients-projects?action=upload like
-            the prior screen so click never goes nowhere. */}
-        <Link
-          href="/dashboard/clients-projects?action=upload"
-          className="sk-press inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--brand-primary))] px-[15px] py-[9px] text-[12.5px] font-bold text-[rgb(var(--fg-default))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
-        >
-          <Upload size={13} strokeWidth={2.4} />
-          Upload track
-        </Link>
+        {/* Upload track CTA — producer-only. Routes to clients-projects?
+            action=upload like the prior screen so the click lands on the
+            upload entry surface. Hidden in artist mode (artists don't
+            upload tracks; that's the producer's job). */}
+        {role === "producer" ? (
+          <Link
+            href="/dashboard/clients-projects?action=upload"
+            className="sk-press inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--brand-primary))] px-[15px] py-[9px] text-[12.5px] font-bold text-[rgb(var(--fg-default))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
+          >
+            <Upload size={13} strokeWidth={2.4} />
+            Upload track
+          </Link>
+        ) : null}
       </header>
 
       {/* Toolbar — fully-opaque elevated surface with a confident border
@@ -306,12 +337,17 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
           ) : null}
         </div>
 
-        {/* Artist filter pill */}
-        <ArtistFilterPill
-          options={artistOptions}
-          value={artist}
-          onChange={setArtist}
-        />
+        {/* Artist filter pill — producer-only. Producers filter their
+            library by client/artist; artists don't have an equivalent
+            axis (one library, possibly across several producers, but
+            the product decision is "always show all"). */}
+        {role === "producer" ? (
+          <ArtistFilterPill
+            options={artistOptions}
+            value={artist}
+            onChange={setArtist}
+          />
+        ) : null}
 
         {/* Mode toggle (Projects / Songs) — pushed to the right */}
         <div className="ml-auto flex">
@@ -337,17 +373,18 @@ export function MusicLibraryScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
           <EmptyResult
             hasQuery={Boolean(search.trim()) || artist !== "all"}
             hasProjects={totalProjects > 0}
+            role={role}
           />
         ) : mode === "projects" ? (
           view === "grid" ? (
-            <ProjectsGrid projects={projects} />
+            <ProjectsGrid projects={projects} role={role} />
           ) : (
-            <ProjectsTable projects={projects} />
+            <ProjectsTable projects={projects} role={role} />
           )
         ) : view === "grid" ? (
-          <SongsGrid songs={filteredTracks} />
+          <SongsGrid songs={filteredTracks} role={role} />
         ) : (
-          <SongsTable songs={sortedSongs} />
+          <SongsTable songs={sortedSongs} role={role} />
         )}
       </div>
     </div>
@@ -469,12 +506,18 @@ function SegmentedButton({
       aria-controls={controls}
       onClick={onClick}
       className={[
+        // sk-press provides scale(0.97) on :active for tactile feedback;
+        // sk-trans pairs it with the project's strong custom easing
+        // curve. The hover lift (-translate-y-px) is the new touch —
+        // a 1px nudge that the user reads subconsciously as "this is
+        // clickable" before they even press. Emil-style: invisible
+        // detail that compounds.
         "sk-press inline-flex items-center gap-1.5 rounded-[7px] font-bold sk-trans",
         iconOnly ? "px-[9px] py-[6px]" : "px-[11px] py-[6px]",
         "text-[11.5px]",
         active
           ? "bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
-          : "bg-transparent text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+          : "bg-transparent text-[rgb(var(--fg-muted))] hover:-translate-y-px hover:text-[rgb(var(--fg-default))]",
       ].join(" ")}
     >
       {icon}
@@ -574,7 +617,13 @@ function SortDropdown({
 
 // ─── Views ───────────────────────────────────────────────────────────
 
-function ProjectsGrid({ projects }: { projects: ProjectAggregate[] }) {
+function ProjectsGrid({
+  projects,
+  role,
+}: {
+  projects: ProjectAggregate[];
+  role: MusicLibraryRole;
+}) {
   // Featured layout: when the library has more than 6 projects the
   // first card spans 2 columns. Breaks the "every card identical" grid
   // monotony without inventing a new component. Below that threshold a
@@ -599,17 +648,23 @@ function ProjectsGrid({ projects }: { projects: ProjectAggregate[] }) {
             } as React.CSSProperties
           }
         >
-          <ProjectCard project={p} />
+          <ProjectCard project={p} role={role} />
         </li>
       ))}
     </ul>
   );
 }
 
-function ProjectCard({ project }: { project: ProjectAggregate }) {
+function ProjectCard({
+  project,
+  role,
+}: {
+  project: ProjectAggregate;
+  role: MusicLibraryRole;
+}) {
   return (
     <Link
-      href={`/dashboard/music/project/${project.id}`}
+      href={projectHref(role, project.id)}
       className="sk-lift group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
     >
       <div className="relative" style={{ willChange: "transform" }}>
@@ -656,7 +711,13 @@ function ProjectCard({ project }: { project: ProjectAggregate }) {
   );
 }
 
-function ProjectsTable({ projects }: { projects: ProjectAggregate[] }) {
+function ProjectsTable({
+  projects,
+  role,
+}: {
+  projects: ProjectAggregate[];
+  role: MusicLibraryRole;
+}) {
   return (
     <div
       className="overflow-hidden rounded-[12px] border"
@@ -686,7 +747,7 @@ function ProjectsTable({ projects }: { projects: ProjectAggregate[] }) {
         {projects.map((p) => (
           <li key={p.id}>
             <Link
-              href={`/dashboard/music/project/${p.id}`}
+              href={projectHref(role, p.id)}
               className="grid items-center gap-3 px-4 py-2.5 hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:bg-[rgb(var(--bg-overlay))] active:bg-[rgb(var(--bg-overlay))] active:scale-[0.992]"
               style={{
                 gridTemplateColumns:
@@ -742,7 +803,13 @@ function ProjectsTable({ projects }: { projects: ProjectAggregate[] }) {
   );
 }
 
-function SongsGrid({ songs }: { songs: MusicLibraryRow[] }) {
+function SongsGrid({
+  songs,
+  role,
+}: {
+  songs: MusicLibraryRow[];
+  role: MusicLibraryRole;
+}) {
   const nowPlaying = useNowPlaying();
   return (
     <ul
@@ -759,6 +826,7 @@ function SongsGrid({ songs }: { songs: MusicLibraryRow[] }) {
           <SongCard
             song={s}
             isPlaying={nowPlaying.trackId === s.id && nowPlaying.playing}
+            role={role}
           />
         </li>
       ))}
@@ -766,14 +834,22 @@ function SongsGrid({ songs }: { songs: MusicLibraryRow[] }) {
   );
 }
 
-function SongCard({ song, isPlaying }: { song: MusicLibraryRow; isPlaying: boolean }) {
+function SongCard({
+  song,
+  isPlaying,
+  role,
+}: {
+  song: MusicLibraryRow;
+  isPlaying: boolean;
+  role: MusicLibraryRole;
+}) {
   const gradient = gradientForSeed(song.projectId);
   const subtitle = [song.projectTitle, song.clientName ?? song.trackArtist]
     .filter(Boolean)
     .join(" · ");
   return (
     <Link
-      href={`/dashboard/music/${song.id}`}
+      href={songHref(role, song.id)}
       className="sk-lift group flex flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
     >
       {/* Wrapper sized by ProjectCover's own aspect-ratio. The cover sits
@@ -841,7 +917,13 @@ function SongCard({ song, isPlaying }: { song: MusicLibraryRow; isPlaying: boole
   );
 }
 
-function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
+function SongsTable({
+  songs,
+  role,
+}: {
+  songs: MusicLibraryRow[];
+  role: MusicLibraryRole;
+}) {
   const nowPlaying = useNowPlaying();
   // 9 columns now: play/idx, cover thumb, title, artist, version, plays,
   // notes, length, actions. The 40px cover sits between the play column
@@ -900,7 +982,7 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
                   buttons inside use preventDefault + stopPropagation
                   so they fire their own action without navigating. */}
               <Link
-                href={`/dashboard/music/${s.id}`}
+                href={songHref(role, s.id)}
                 aria-label={`Open ${s.trackTitle} song page`}
                 className={[
                   "group grid items-center gap-3 px-4 py-2 hover:bg-[rgb(var(--bg-overlay))]",
@@ -1034,24 +1116,37 @@ function SongsTable({ songs }: { songs: MusicLibraryRow[] }) {
 function EmptyResult({
   hasQuery,
   hasProjects,
+  role,
 }: {
   hasQuery: boolean;
   hasProjects: boolean;
+  role: MusicLibraryRole;
 }) {
-  // Three states:
-  //   1. Filter active   → tell the user to clear it
-  //   2. No projects yet → send them to create one (uploads need a
-  //                        project to live inside)
-  //   3. Has projects, no tracks → show the upload hint
+  // Three states. CTAs route into producer-only surfaces (project
+  // creation, upload), so they're suppressed in artist mode and the
+  // body copy switches to reflect the artist's POV (they don't create
+  // projects — their producer does).
   if (hasQuery) {
     return (
       <EmptyShell
         title="Nothing matches"
-        body="Clear the search or the artist filter to see everything."
+        body={
+          role === "producer"
+            ? "Clear the search or the artist filter to see everything."
+            : "Clear the search to see everything."
+        }
       />
     );
   }
   if (!hasProjects) {
+    if (role === "artist") {
+      return (
+        <EmptyShell
+          title="No projects yet"
+          body="Once a producer opens a project for you, your music will land here."
+        />
+      );
+    }
     return (
       <EmptyShell
         title="Start a project"
@@ -1060,6 +1155,14 @@ function EmptyResult({
           href: "/dashboard/clients-projects?action=new",
           label: "Create your first project",
         }}
+      />
+    );
+  }
+  if (role === "artist") {
+    return (
+      <EmptyShell
+        title="No tracks yet"
+        body="Once your producer uploads a mix, it shows up here."
       />
     );
   }
