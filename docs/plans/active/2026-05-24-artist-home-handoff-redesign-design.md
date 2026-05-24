@@ -43,7 +43,7 @@ The existing `PersistentPlayer` keeps doing the "floating player" job — no cha
 | | CTA | Outline pill `Open calendar →` | single CTA, no Join |
 | **Tertiary — Payments** | Section title | Syne 700, 14px | |
 | | Row height | ~52px | unchanged from handoff |
-| | Amount | Syne 800, 14.5px, **`--copper`** | only place copper appears |
+| | Amount | Syne 800, 14.5px, **`text-brand-copper`** | uses the existing `--brand-copper` token |
 | **Quaternary — Book tiles** | Tile name | Outfit 600, 12.5px | |
 | | Tile height | ~56px | unchanged from handoff |
 
@@ -118,11 +118,8 @@ If any of these matter later, they belong to a follow-up Linear issue with the s
 
 ## Tokens & fonts
 
-- Add to `apps/web/src/app/globals.css`:
-  ```css
-  --copper: #B06830;  /* payment amounts only */
-  ```
-- Add **JetBrains Mono** to the Google Fonts `<link>` (we already load Syne + Outfit via PR #138).
+- No new CSS tokens needed. The handoff's `--copper` (#B06830) **already exists** in Skitza as `--brand-copper` (channel form `176 104 48`) plus a matching Tailwind utility `text-brand-copper`. Use the Tailwind utility on payment amounts.
+- JetBrains Mono is **already loaded** via `next/font/google` in `apps/web/src/app/layout.tsx` (exposes `--font-jetbrains-mono`). Syne + Outfit are loaded the same way.
 - All other tokens (`--brand-primary`, `--bg-background`, `--bg-elevated`, `--bg-sidebar`, `--fg-default`, `--fg-muted`, `--border-subtle`) already exist and match the handoff exactly.
 - Producer gradient: reuse the existing `deriveGradient` helper (already used on the producer side; derives hue from id).
 
@@ -170,9 +167,8 @@ apps/web/src/components/artist/home/
 ```
 apps/web/src/app/(artist)/artist/page.tsx              # rewrite — fetch, compose
 apps/web/src/server/trpc/routers/artist.ts             # add unread + plan fields
-apps/web/src/app/globals.css                           # --copper, JetBrains Mono link
-apps/web/src/app/layout.tsx (or font loader)           # JetBrains Mono import
 apps/web/src/server/trpc/routers/__tests__/artist-home.test.ts  # update for unread field
+(no changes to globals.css or layout.tsx — --brand-copper + fonts already wired)
 ```
 
 ### Deleted (existing v3-clean artist home)
@@ -211,8 +207,7 @@ Plus any `__tests__/*.test.ts` files matched to those components.
 - [ ] `NEW` badge appears when `unread === true` and hides otherwise
 - [ ] Clicking the FAB or "Play track" begins playback in `PersistentPlayer`
 - [ ] Next session strip: TODAY badge appears only when `startsAt` is today, `Open calendar →` navigates to `/artist/book`
-- [ ] Payment row amount is `--copper` (`#B06830`); Pay button is dark/amber-text pill
-- [ ] `--copper` is defined in `globals.css` and used ONLY on payment amounts
+- [ ] Payment row amount uses `text-brand-copper` (`#B06830`); Pay button is dark/amber-text pill
 - [ ] Producer tile grid renders one tile per studio; each tile links to `/artist/book?producerId={id}`
 - [ ] All four empty states render their fallback copy + CTA
 - [ ] Mobile (`<lg`): hero stacks, tiles wrap to 2 cols, no horizontal scroll

@@ -99,7 +99,6 @@
     --brand-primary-soft: 212 150 10;
     --brand-primary-dark: 161 113 6;
     --brand-copper: 176 104 48;
-    --copper: #B06830;  /* payment amounts only — used on artist home payment rows */
 
     /* Session-kind accents for the producer Calendar.
        Used as: `rgb(var(--kind-mix))` for solid stripes and dots,

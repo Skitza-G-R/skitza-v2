@@ -26,61 +26,19 @@
 
 ---
 
-## Task 1: Add `--copper` token
+## Task 1: Confirm `--brand-copper` is available (no-op)
 
-**Files:**
-- Modify: `apps/web/src/app/globals.css` (token block near other color tokens)
+**No code changes.** The original plan added a new `--copper: #B06830` to `globals.css`. During implementation we found Skitza already has `--brand-copper` (channel form `176 104 48`) plus a Tailwind utility `text-brand-copper` — both encoding the same color. We use the existing one. The duplicate `--copper` addition was reverted (see commit `revert(tokens): drop duplicate --copper, use existing --brand-copper`).
 
-**Step 1: Write the failing test**
-
-Create `apps/web/src/__tests__/copper-token.test.ts`:
-
-```typescript
-import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
-describe("--copper token", () => {
-  it("is defined in globals.css with the exact handoff value", () => {
-    const css = readFileSync(
-      join(__dirname, "../app/globals.css"),
-      "utf-8",
-    );
-    expect(css).toMatch(/--copper:\s*#B06830/);
-  });
-});
-```
-
-**Step 2: Run test to verify it fails**
+**Verification:**
 
 ```bash
-pnpm -F web exec vitest run src/__tests__/copper-token.test.ts
+grep -n "brand-copper" apps/web/src/app/globals.css
 ```
 
-Expected: FAIL (`--copper` not found).
+Expected: at least 2 matches (one in the Tailwind `@theme` block, one in the `:root` color token block). Both encode #B06830.
 
-**Step 3: Implement — add the token**
-
-In `apps/web/src/app/globals.css`, inside the existing `:root { ... }` block (right under the other color tokens like `--brand-primary`), add:
-
-```css
-  --copper: #B06830;  /* payment amounts only — used on artist home payment rows */
-```
-
-**Step 4: Run test to verify it passes**
-
-```bash
-pnpm -F web exec vitest run src/__tests__/copper-token.test.ts
-```
-
-Expected: PASS.
-
-**Step 5: Commit**
-
-```bash
-git add apps/web/src/app/globals.css apps/web/src/__tests__/copper-token.test.ts
-git commit -m "feat(tokens): add --copper for artist home payment amounts (SK-33)"
-```
+**No commit.** Move on to Task 2.
 
 ---
 
@@ -1026,8 +984,8 @@ const SRC = readFileSync(
 );
 
 describe("PaymentRequestsSection", () => {
-  it("uses --copper for amounts", () => {
-    expect(SRC).toMatch(/var\(--copper\)/);
+  it("uses text-brand-copper for amounts", () => {
+    expect(SRC).toMatch(/text-brand-copper/);
   });
 
   it("caps the visible list at 3 rows", () => {
@@ -1147,11 +1105,10 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
               </span>
             </div>
             <span
-              className="text-[14.5px] font-extrabold"
+              className="text-brand-copper text-[14.5px] font-extrabold"
               style={{
                 fontFamily: "var(--font-syne)",
                 letterSpacing: "-0.02em",
-                color: "var(--copper)",
               }}
             >
               {formatAmount(booking.amountCents, booking.currency)}
@@ -1577,7 +1534,7 @@ Replaces the existing artist home with the high-fidelity handoff design ([`desig
 ## Behind the scenes
 
 - Backend: `artist.home().latestMix` gains `unread`; `artist.book.myPendingPayments().bookings[]` exposes `plan`. **No schema changes.**
-- Token: `--copper: #B06830` added (payment amounts only).
+- Token: uses the existing `--brand-copper` token via the `text-brand-copper` Tailwind utility (no new tokens added).
 - Mobile: responsive translation — hero stacks, tiles wrap.
 - Deleted: `home-hero.tsx`, `latest-mix-card.tsx`, `upcoming-sessions-card.tsx`, `balance-card.tsx`, `activity-feed.tsx`.
 
@@ -1594,7 +1551,7 @@ Replaces the existing artist home with the high-fidelity handoff design ([`desig
 - [ ] `NEW` badge appears when `unread === true`
 - [ ] Clicking the FAB or "Play track" begins playback in PersistentPlayer
 - [ ] Next session strip: TODAY badge only when today, `Open calendar →` → `/artist/book`
-- [ ] Payment amount is `--copper` (#B06830); Pay button is dark
+- [ ] Payment amount uses `text-brand-copper` (#B06830); Pay button is dark
 - [ ] Producer tile grid renders one per studio; tile → `/artist/book?producerId={id}`
 - [ ] All 4 empty states render their fallback copy + CTA
 - [ ] Mobile (<lg): hero stacks, tiles wrap to 2 cols, no horizontal scroll
