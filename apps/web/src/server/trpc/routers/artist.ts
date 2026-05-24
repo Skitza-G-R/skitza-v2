@@ -1176,6 +1176,16 @@ const bookSubrouter = router({
       if (firstPlan?.kind === "split_50_50") amountCents = Math.round(price / 2);
       else if (firstPlan?.kind === "monthly")
         amountCents = Math.round(price / firstPlan.installments);
+      // Plan label for the artist home payment row. Normalize the
+      // schema's `split_50_50` kind to the display string "50-50" so
+      // the UI matches the SK-33 handoff copy. Missing plan (no
+      // products row or empty paymentPlans[]) defaults to "upfront".
+      const plan: "50-50" | "monthly" | "upfront" =
+        firstPlan?.kind === "split_50_50"
+          ? "50-50"
+          : firstPlan?.kind === "monthly"
+            ? "monthly"
+            : "upfront";
       return {
         id: r.id,
         startsAt: r.startsAt,
@@ -1183,6 +1193,7 @@ const bookSubrouter = router({
         packageName: r.packageName ?? "Session",
         amountCents,
         currency: r.currency ?? "ILS",
+        plan,
       };
     });
     return { bookings: out };

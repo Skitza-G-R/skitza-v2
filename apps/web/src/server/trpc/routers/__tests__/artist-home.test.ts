@@ -662,3 +662,18 @@ describe("artist.home() — latestMix.unread (SK-33)", () => {
     expect(SRC).toMatch(/mixRow\.lastSeenAt/);
   });
 });
+
+// ─── SK-33: plan label on myPendingPayments rows ─────────────────────
+// Same source-grep rationale as the latestMix.unread test above: the
+// dbMock chain doesn't model the products leftJoin shape end-to-end,
+// and the field we added is a pure projection over data already in
+// scope. Two greps: one for the "50-50" literal that normalizes
+// split_50_50, one for `plan` being part of the returned object.
+describe("artist.book.myPendingPayments() — plan label (SK-33)", () => {
+  const SRC = readFileSync(join(__dirname, "../artist.ts"), "utf-8");
+
+  it("normalizes firstPlan.kind to a UI-friendly plan string", () => {
+    expect(SRC).toMatch(/plan:\s*["']50-50["']/);
+    expect(SRC).toMatch(/plan,\s*\n?\s*\}/);
+  });
+});
