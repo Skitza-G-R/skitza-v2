@@ -1,8 +1,16 @@
 // Shared producer art block. Renders the gradient + radial sheen +
 // producer initials in a fixed-size square. Used by the Last Upload
 // card (170×170) and the Book-a-session tiles (44×44).
+//
+// Gradient + initials come from the shared `producer-color` helper so
+// the same producer renders identically on producer and artist surfaces.
 
 import type { CSSProperties } from "react";
+
+import {
+  producerGradient,
+  producerInitials,
+} from "~/lib/_phase4-stubs/producer-color";
 
 type Props = {
   producerName: string;
@@ -17,13 +25,12 @@ export function ProducerArt({
   initialsFontSize,
   className,
 }: Props) {
-  const hue = hueFromName(producerName);
   const fontSize = initialsFontSize ?? Math.round(size * 0.13);
   const inset = Math.max(8, Math.round(size * 0.06));
   const gradientStyle: CSSProperties = {
     width: size,
     height: size,
-    background: `linear-gradient(135deg, oklch(0.72 0.13 ${String(hue)}) 0%, oklch(0.45 0.14 ${String(hue + 30)}) 100%)`,
+    background: producerGradient(producerName),
   };
   return (
     <div
@@ -51,30 +58,8 @@ export function ProducerArt({
           textShadow: "0 1px 3px rgba(0,0,0,0.2)",
         }}
       >
-        {initialsFromName(producerName)}
+        {producerInitials(producerName)}
       </span>
     </div>
   );
-}
-
-// Deterministic hue (0–360) from a name. Same FNV-31 hash style as
-// the existing `~/lib/clients/derive-gradient.ts` helper so two
-// surfaces of the same producer pick consistent colors.
-export function hueFromName(name: string): number {
-  if (!name) return 28; // fallback amber
-  let h = 0;
-  for (let i = 0; i < name.length; i++) {
-    h = (h * 31 + name.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h) % 360;
-}
-
-// 1–2 letter initials. "Gili Studio" → "GS", "Skitza" → "S",
-// empty / whitespace → "??".
-export function initialsFromName(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return "??";
-  const words = trimmed.split(/\s+/).slice(0, 2);
-  const letters = words.map((w) => w.charAt(0).toUpperCase()).join("");
-  return letters || "??";
 }

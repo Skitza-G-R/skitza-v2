@@ -12,16 +12,14 @@ describe("ProducerArt", () => {
     expect(SRC).toMatch(/export\s+function\s+ProducerArt/);
   });
 
-  it("computes hue deterministically from the producer name", () => {
-    expect(SRC).toMatch(/function\s+hueFromName/);
+  it("uses the shared producer-color helpers (no drift between surfaces)", () => {
+    expect(SRC).toMatch(
+      /import\s*\{[^}]*producerGradient[^}]*\}\s*from\s*["']~\/lib\/_phase4-stubs\/producer-color["']/,
+    );
+    expect(SRC).toMatch(/producerInitials/);
   });
 
-  it("renders the OKLCH linear-gradient and the radial sheen overlay", () => {
-    expect(SRC).toMatch(/oklch\(/);
+  it("renders the radial sheen overlay", () => {
     expect(SRC).toMatch(/radial-gradient\(/);
-  });
-
-  it("renders initials computed from the producer name", () => {
-    expect(SRC).toMatch(/function\s+initialsFromName/);
   });
 });
