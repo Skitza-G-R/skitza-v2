@@ -381,3 +381,31 @@ describe("song-page.tsx source — Play button wiring", () => {
     expect(songPageSrc).toContain("playButtonState(");
   });
 });
+
+// ─── SK-32: role-aware project breadcrumb href ──────────────────────
+//
+// The topbar breadcrumb's <project> crumb links back to L2. The L2
+// route shape differs between sides (producer puts /project/ in the
+// middle; artist doesn't). If the href ever silently drops one
+// branch, the artist breadcrumb would point at a 404. Source-grep is
+// enough — we just need both URL shapes present and gated on `role`.
+
+describe("L3 project breadcrumb href is role-aware", () => {
+  it("uses /artist/music/<projectId> when role === 'artist'", () => {
+    expect(songPageSrc).toMatch(
+      /role\s*===\s*["']artist["'][\s\S]{0,80}\/artist\/music\/\$\{data\.track\.projectId\}/,
+    );
+  });
+
+  it("uses /dashboard/music/project/<projectId> for the producer path", () => {
+    expect(songPageSrc).toMatch(
+      /\/dashboard\/music\/project\/\$\{data\.track\.projectId\}/,
+    );
+  });
+
+  it("the project crumb href is the role-derived value (not a hardcoded literal)", () => {
+    // The breadcrumb item should reference `projectHref` (computed
+    // once above the topbarCrumbs array), not inline either URL.
+    expect(songPageSrc).toMatch(/href:\s*projectHref/);
+  });
+});

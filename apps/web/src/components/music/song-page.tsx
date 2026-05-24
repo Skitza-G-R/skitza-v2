@@ -528,14 +528,23 @@ export function SongPage({
   // so we can't link to /dashboard/clients-projects/clients/<id> yet.
   // The clients-projects song page DOES link; if/when we add contact
   // resolution to the Music wire, this can match that pattern.
+  //
+  // SK-32: project crumb href is role-aware. Producer L2 lives at
+  // /dashboard/music/project/<id>; artist L2 lives at /artist/music/
+  // <id> (different route shape, not just prefix). Same role switch
+  // the tracklist row href already uses in project-page.tsx.
   const clientCrumb = data.track.clientName
     ? [{ label: data.track.clientName }]
     : [];
+  const projectHref =
+    role === "artist"
+      ? `/artist/music/${data.track.projectId}`
+      : `/dashboard/music/project/${data.track.projectId}`;
   const topbarCrumbs = [
     ...clientCrumb,
     {
       label: data.track.projectTitle,
-      href: `/dashboard/music/project/${data.track.projectId}`,
+      href: projectHref,
     },
     { label: data.track.title },
   ];
