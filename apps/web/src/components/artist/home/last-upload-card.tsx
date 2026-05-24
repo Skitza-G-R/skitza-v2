@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import {
   playerPlay,
+  playerToggle,
   useNowPlaying,
 } from "~/components/audio/persistent-player";
 
@@ -44,6 +45,10 @@ function FilledCard({
   const { trackId, playing } = useNowPlaying();
   const isThisPlaying = trackId === latestMix.id && playing;
   const onPlay = () => {
+    if (isThisPlaying) {
+      playerToggle();
+      return;
+    }
     playerPlay({
       id: latestMix.id,
       audioUrl: latestMix.audioUrl,

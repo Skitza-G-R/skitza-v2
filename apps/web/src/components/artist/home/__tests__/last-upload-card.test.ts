@@ -40,4 +40,9 @@ describe("LastUploadCard", () => {
   it("renders an empty-state when latestMix is null", () => {
     expect(SRC).toMatch(/Nothing\s*new/);
   });
+
+  it("calls playerToggle when the same track is already playing", () => {
+    expect(SRC).toMatch(/import\s*\{[^}]*playerToggle[^}]*\}\s*from\s*["']~\/components\/audio\/persistent-player["']/);
+    expect(SRC).toMatch(/isThisPlaying[\s\S]*?playerToggle\(\)/);
+  });
 });
