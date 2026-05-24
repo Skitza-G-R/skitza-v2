@@ -98,7 +98,7 @@ export default async function ArtistHomePage() {
           ))}
         </div>
       ) : null}
-      <NextSessionCard session={data.nextSession} />
+      <NextSessionCard nextSession={data.nextSession} />
       <UpcomingSessionsCard sessions={data.upcomingSessions} />
       <LatestMixCard mix={data.latestMix} />
       <BalanceCard balance={data.outstandingBalance} />
