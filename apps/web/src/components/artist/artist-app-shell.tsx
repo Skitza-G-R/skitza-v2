@@ -4,6 +4,8 @@ import { PersistentPlayer } from "~/components/audio/persistent-player";
 import { ArtistBottomNav } from "~/components/nav/artist-bottom-nav";
 import { ArtistDesktopSidebar } from "~/components/nav/artist-desktop-sidebar";
 import { ArtistMobileTopBar } from "~/components/nav/artist-mobile-top-bar";
+import { ArtistTopBar } from "~/components/shell/artist-topbar";
+import { TopBarBreadcrumbProvider } from "~/components/shell/topbar-breadcrumb-context";
 
 import { ArtistAudioProvider } from "./artist-audio-context";
 import { PersistentMiniPlayer } from "./persistent-mini-player";
@@ -42,10 +44,17 @@ import { PersistentMiniPlayer } from "./persistent-mini-player";
 export function ArtistAppShell({
   isProducer: _isProducer,
   studios,
+  unreadCount = 0,
   children,
 }: {
   isProducer: boolean;
   studios: Studio[];
+  /** Bell-dot signal for the desktop topbar. See
+   *  `getArtistShellState` in `~/server/artist/shell-data.ts` for the
+   *  composition (pending payments + sessions within 7 days + recent
+   *  mix flag). Mobile chrome ignores this — the topbar only mounts on
+   *  `lg+` per Gili's SK-31 decision. */
+  unreadCount?: number;
   children: React.ReactNode;
 }) {
   // `_isProducer` parked in scope so the prior call-site signature is
@@ -73,17 +82,31 @@ export function ArtistAppShell({
             scrolling content. */}
         <div className="flex min-w-0 flex-1 flex-col">
           <ArtistMobileTopBar studios={studios} />
-          {/* `pb-20` reserves space for the mobile bottom nav (56px
-              tab row + 8px safe-area buffer). `lg:pb-12` keeps a
-              little vertical breathing room on desktop where there's
-              no bar. `pt-6 lg:pt-10` matches the design's top
-              spacing. `mx-auto max-w-2xl` keeps the artist content
-              column readable at tablet+ widths even on the desktop
-              sidebar layout — Phase 3 pages can opt out by setting
-              their own width. */}
-          <main className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6 lg:max-w-none lg:px-10 lg:pb-12 lg:pt-10">
-            {children}
-          </main>
+          {/* SK-31: replicate the producer top bar on the artist side,
+              desktop only. The `<TopBarBreadcrumbProvider>` wraps both
+              the topbar and `<main>` so deep artist pages can push
+              extra crumbs (song title, booking detail, etc.) into the
+              single sticky topbar surface — same mechanism the
+              producer side uses. The `hidden lg:block` wrapper keeps
+              this strip off mobile, where the existing
+              `ArtistMobileTopBar` continues to own the top of the
+              screen (per Gili's SK-31 decision). */}
+          <TopBarBreadcrumbProvider>
+            <div className="hidden lg:block">
+              <ArtistTopBar unreadCount={unreadCount} />
+            </div>
+            {/* `pb-20` reserves space for the mobile bottom nav (56px
+                tab row + 8px safe-area buffer). `lg:pb-12` keeps a
+                little vertical breathing room on desktop where there's
+                no bar. `pt-6 lg:pt-10` matches the design's top
+                spacing. `mx-auto max-w-2xl` keeps the artist content
+                column readable at tablet+ widths even on the desktop
+                sidebar layout — Phase 3 pages can opt out by setting
+                their own width. */}
+            <main className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6 lg:max-w-none lg:px-10 lg:pb-12 lg:pt-10">
+              {children}
+            </main>
+          </TopBarBreadcrumbProvider>
         </div>
 
         <PersistentMiniPlayer />

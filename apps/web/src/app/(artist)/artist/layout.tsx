@@ -1,6 +1,7 @@
 import { createDb, eq, producers } from "@skitza/db";
 import { ArtistAppShell } from "~/components/artist/artist-app-shell";
 import { AppI18nProvider } from "~/i18n/app-i18n-provider";
+import { getArtistShellState } from "~/server/artist/shell-data";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { requireRole } from "~/server/auth/role";
 
@@ -29,12 +30,23 @@ export default async function ArtistLayout({
   // on every /artist/* navigation instead of suspending. The tRPC
   // procedure is the single source of truth for the dedup + sort logic
   // (identity.groupStudiosForArtist); we just call it once here.
+  //
+  // The artist shell state is fetched in parallel — `getArtistShellState`
+  // is memoised via React.cache so this same call cost is shared with
+  // any other server component that needs the count in the same render.
   const caller = appRouter.createCaller({ userId });
-  const { studios } = await caller.artist.studios();
+  const [{ studios }, shellState] = await Promise.all([
+    caller.artist.studios(),
+    getArtistShellState(),
+  ]);
 
   return (
     <AppI18nProvider>
-      <ArtistAppShell isProducer={!!producerRow} studios={studios}>
+      <ArtistAppShell
+        isProducer={!!producerRow}
+        studios={studios}
+        unreadCount={shellState.unreadCount}
+      >
         {children}
       </ArtistAppShell>
     </AppI18nProvider>
