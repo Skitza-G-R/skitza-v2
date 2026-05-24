@@ -1,108 +1,65 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
-import Link from "next/link";
 
-import { ActivityFeed } from "~/components/artist/home/activity-feed";
-import { BalanceCard } from "~/components/artist/home/balance-card";
-import { HomeHero } from "~/components/artist/home/home-hero";
-import { LatestMixCard } from "~/components/artist/home/latest-mix-card";
+import { BookSessionTiles } from "~/components/artist/home/book-session-tiles";
+import { GreetingStrip } from "~/components/artist/home/greeting-strip";
+import { LastUploadCard } from "~/components/artist/home/last-upload-card";
 import { NextSessionCard } from "~/components/artist/home/next-session-card";
-import { UpcomingSessionsCard } from "~/components/artist/home/upcoming-sessions-card";
+import { PaymentRequestsSection } from "~/components/artist/home/payment-requests-section";
 import { appRouter } from "~/server/trpc/routers/_app";
+
 import { WelcomeModal } from "./welcome-modal";
 
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  ILS: "₪",
-  USD: "$",
-  EUR: "€",
-  GBP: "£",
-};
-
-function formatAmount(amountCents: number, currency: string): string {
-  const symbol = CURRENCY_SYMBOLS[currency.toUpperCase()] ?? `${currency} `;
-  return `${symbol}${(amountCents / 100).toFixed(2)}`;
-}
-
-// Server Component. Reads everything in one tRPC call (artist.home),
-// then hands typed slices to the four child cards. The artist layout
-// already gates non-signed-in traffic + redirects empty users to
-// /artist-welcome, so by the time we get here we're guaranteed a
-// userId AND ≥ 1 studio (or the user is also a producer).
+// /artist — high-fidelity redesign (SK-33).
 //
-// The `auth()` check is defense-in-depth: middleware → layout → page.
-// All three would have to silently pass through an unauthenticated
-// request for this to fall back to `null`.
+// Single column, top to bottom:
+//   1. GreetingStrip          — date eyebrow + greeting
+//   2. LastUploadCard         — PRIMARY hero (170×170 art + big Play FAB)
+//   3. NextSessionCard        — SECONDARY compact strip
+//   4. PaymentRequestsSection — TERTIARY thin list (up to 3 rows)
+//   5. BookSessionTiles       — QUATERNARY producer roster tiles
+//
+// All four sections handle their own empty states. PersistentPlayer
+// is mounted by the artist app shell and stays where it is.
 export default async function ArtistHomePage() {
   const { userId } = await auth();
   if (!userId) return null;
 
   const caller = appRouter.createCaller({ userId });
-  const [user, data, pendingPayments] = await Promise.all([
+  const [user, data, pendingPayments, studiosResp] = await Promise.all([
     currentUser(),
     caller.artist.home(),
     caller.artist.book.myPendingPayments(),
+    caller.artist.studios(),
   ]);
 
-  // Hero copy. firstName falls back to "there" so a user without a
-  // first-name set in Clerk still gets a friendly heading.
   const firstName = user?.firstName?.trim() || "there";
-  const todayLabel = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
 
-  // One-line status: each upstream signal contributes a short bit.
-  // Empty-state copy stays gentle — silence isn't bad news.
-  const bits: string[] = [];
-  if (data.latestMix) bits.push("new mix to review");
-  if (data.nextSession) bits.push("session this week");
-  if (
-    data.outstandingBalance &&
-    data.outstandingBalance.totalCents > 0
-  ) {
-    bits.push("balance pending");
-  }
-  const statusLine = bits.length > 0 ? bits.join(" · ") : "All quiet.";
+  // Shape adapters: the router and the components were built in
+  // separate tasks. The router doesn't (yet) carry durationMs on
+  // latestMix; LastUploadCard needs it for the player's progress
+  // estimate, so we pass null and let the player resolve from audio
+  // metadata on play. studios() returns the canonical Studio shape
+  // ({ producerId, name, slug, logoUrl }); BookSessionTiles only
+  // needs three fields under different keys.
+  const latestMixForCard = data.latestMix
+    ? { ...data.latestMix, durationMs: null }
+    : null;
+  const studiosForTiles = studiosResp.studios.map((s) => ({
+    producerId: s.producerId,
+    producerName: s.name,
+    producerSlug: s.slug,
+  }));
 
   return (
-    <div className="space-y-4">
+    <>
+      <div className="mx-auto flex w-full max-w-[960px] flex-col gap-5 px-7 py-6">
+        <GreetingStrip firstName={firstName} />
+        <LastUploadCard latestMix={latestMixForCard} />
+        <NextSessionCard nextSession={data.nextSession} />
+        <PaymentRequestsSection bookings={pendingPayments.bookings} />
+        <BookSessionTiles studios={studiosForTiles} />
+      </div>
       <WelcomeModal />
-      <HomeHero
-        firstName={firstName}
-        todayLabel={todayLabel}
-        statusLine={statusLine}
-      />
-      <Link
-        href="/artist/book"
-        className="sk-press flex w-full items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-6 py-3.5 font-syne font-bold text-black transition-opacity hover:opacity-90"
-      >
-        + Book a session
-      </Link>
-      {pendingPayments.bookings.length > 0 ? (
-        <div className="space-y-2">
-          {pendingPayments.bookings.map((booking) => (
-            <Link key={booking.id} href={`/artist/payment/${booking.id}`}>
-              <div className="rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--brand-primary)/0.06)] p-4">
-                <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
-                  Session approved — payment required
-                </p>
-                <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
-                  {booking.producerName} · {booking.packageName} ·{" "}
-                  {formatAmount(booking.amountCents, booking.currency)}
-                </p>
-                <p className="mt-2 text-xs font-medium text-[rgb(var(--brand-primary))]">
-                  Complete payment →
-                </p>
-              </div>
-            </Link>
-          ))}
-        </div>
-      ) : null}
-      <NextSessionCard nextSession={data.nextSession} />
-      <UpcomingSessionsCard sessions={data.upcomingSessions} />
-      <LatestMixCard mix={data.latestMix} />
-      <BalanceCard balance={data.outstandingBalance} />
-      <ActivityFeed events={data.activity} />
-    </div>
+    </>
   );
 }
