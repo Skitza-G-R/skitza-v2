@@ -48,11 +48,15 @@ export default async function MusicPage() {
   // edge-to-edge and starts flush at the top. Without this, the
   // shell padding leaves cream strips on the sides + above the wash.
   // Same trick we use on the L2 ProjectPage route — both want the
-  // backdrop to read as a full-width canvas, not an inset card. The
-  // inner wrapper's `mt-10` stays so the heading has breathing room
-  // (matches producer where its `-mt-[40px]` shell cancels the inner
-  // mt-10 visually; the artist has no topbar to take that 40px, so
-  // we keep it as real whitespace).
+  // backdrop to read as a full-width canvas, not an inset card.
+  //
+  // SK-31 update: the artist now has a desktop topbar (lg+). That
+  // topbar already provides ~40px of chrome above the heading, so on
+  // lg+ we drop the inner `mt-10` to keep the heading flush with the
+  // topbar's bottom — matches the producer side, where the shell's
+  // `-mt-[40px]` cancels the inner `mt-10` for the same visual. On
+  // mobile (no new topbar) we keep the mt-10 so the heading still
+  // has breathing room above the amber wash.
   return (
     <div className="relative isolate -mx-4 -mt-6 lg:-mx-10 lg:-mt-10">
       {/* Soft warm-amber wash behind the header.
@@ -60,18 +64,17 @@ export default async function MusicPage() {
           Producer side terminates the gradient with `via-bg-background`
           + `to-bg-background`; on producer the DashboardTopBar's
           backdrop-blur sits over the first 40px so any opacity
-          discontinuity at the via-stop is masked. The artist shell has
-          no topbar on desktop (the mobile topbar is `lg:hidden`), so
-          the same gradient there exposes a faint horizontal band where
-          the amber tint stops decaying. We fade straight to
-          `transparent` here instead — a continuous 0.10 → 0 alpha
-          across the full 360px, with the parent's cream showing
-          through cleanly throughout. No band. */}
+          discontinuity at the via-stop is masked. The artist shell
+          has its own desktop topbar (SK-31) that does the same job on
+          lg+, and on mobile there's no topbar covering the wash, so
+          we fade straight to `transparent` here instead — a
+          continuous 0.10 → 0 alpha across the full 360px, with the
+          parent's cream showing through cleanly throughout. No band. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] to-transparent"
       />
-      <div className="mx-auto mt-10 max-w-[1180px] px-4 pt-6 pb-24 sm:px-7 sm:pt-8">
+      <div className="mx-auto mt-10 max-w-[1180px] px-4 pt-6 pb-24 sm:px-7 sm:pt-8 lg:mt-0">
         <MusicLibraryScreen tracks={rows} role="artist" />
       </div>
     </div>
