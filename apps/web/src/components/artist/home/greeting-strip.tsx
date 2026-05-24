@@ -27,7 +27,7 @@ export function GreetingStrip({ firstName, now }: Props) {
         {dateLabel}
       </p>
       <h1
-        className="mt-1 text-[22px] font-extrabold text-[var(--fg-default)]"
+        className="mt-1 text-[18px] font-extrabold text-[var(--fg-default)]"
         style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.03em" }}
       >
         {greeting}

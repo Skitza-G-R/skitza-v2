@@ -29,8 +29,8 @@ export type LastUploadProps = {
   } | null;
 };
 
-const ART_SIZE = 170;
-const FAB_SIZE = 52;
+const ART_SIZE = 140;
+const FAB_SIZE = 44;
 
 export function LastUploadCard({ latestMix }: LastUploadProps) {
   if (!latestMix) return <EmptyState />;
@@ -59,7 +59,7 @@ function FilledCard({
   };
   const subtitle = `${latestMix.producerName} · ${relativeFrom(latestMix.uploadedAt)}`;
   return (
-    <article className="flex gap-5 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-5 transition-shadow hover:shadow-sm">
+    <article className="flex gap-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 transition-shadow hover:shadow-sm">
       <div className="relative" style={{ width: ART_SIZE, height: ART_SIZE }}>
         <button
           type="button"
@@ -84,6 +84,8 @@ function FilledCard({
             backgroundColor: "var(--brand-primary)",
             color: "#111009",
             boxShadow: "0 6px 18px rgba(0,0,0,0.28)",
+            outline: "3px solid var(--bg-elevated)",
+            outlineOffset: "-1px",
           }}
         >
           {isThisPlaying ? <PauseIcon /> : <PlayIcon />}
@@ -109,7 +111,7 @@ function FilledCard({
           )}
         </div>
         <h2
-          className="mt-1 truncate text-[26px] font-extrabold text-[var(--fg-default)]"
+          className="mt-1 truncate text-[24px] font-extrabold text-[var(--fg-default)]"
           style={{
             fontFamily: "var(--font-syne)",
             letterSpacing: "-0.03em",
@@ -147,7 +149,7 @@ function FilledCard({
 
 function EmptyState() {
   return (
-    <article className="flex gap-5 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-5">
+    <article className="flex gap-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4">
       <div
         className="rounded-[10px] border border-dashed border-[var(--border-subtle)] bg-[var(--bg-background)]"
         style={{ width: ART_SIZE, height: ART_SIZE }}

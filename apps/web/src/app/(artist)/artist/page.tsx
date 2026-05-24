@@ -52,7 +52,7 @@ export default async function ArtistHomePage() {
 
   return (
     <>
-      <div className="mx-auto flex w-full max-w-[960px] flex-col gap-5 px-7 py-6">
+      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 px-7 py-6">
         <GreetingStrip firstName={firstName} />
         <LastUploadCard latestMix={latestMixForCard} />
         <NextSessionCard nextSession={data.nextSession} />
