@@ -175,23 +175,24 @@ apps/web/src/app/layout.tsx (or font loader)           # JetBrains Mono import
 apps/web/src/server/trpc/routers/__tests__/artist-home.test.ts  # update for unread field
 ```
 
-### Deleted (SK-26 inbox model)
+### Deleted (existing v3-clean artist home)
+
+The SK-26 inbox components (`focal-card.tsx`, `inbox-hero.tsx`, `also-waiting-list.tsx`, `this-week-strip.tsx`, `activity-tail.tsx`, `book-with-studios.tsx`, `balance-snapshot.tsx`, `build-subline.ts`) were never merged — they only exist on the SK-26 branch and are not on `v3-clean`. We don't touch them.
+
+What we DO delete on this branch are the **current v3-clean** artist home components:
 
 ```
-apps/web/src/components/artist/home/inbox-hero.tsx
-apps/web/src/components/artist/home/focal-card.tsx
-apps/web/src/components/artist/home/also-waiting-list.tsx
-apps/web/src/components/artist/home/this-week-strip.tsx
-apps/web/src/components/artist/home/activity-tail.tsx
-apps/web/src/components/artist/home/book-with-studios.tsx
-apps/web/src/components/artist/home/balance-snapshot.tsx
-apps/web/src/lib/artist/build-subline.ts
-apps/web/src/components/artist/home/__tests__/also-waiting-list.test.ts
-apps/web/src/components/artist/home/__tests__/this-week-strip.test.ts
-apps/web/src/components/artist/home/__tests__/activity-tail.test.ts
+apps/web/src/components/artist/home/home-hero.tsx
+apps/web/src/components/artist/home/latest-mix-card.tsx
+apps/web/src/components/artist/home/next-session-card.tsx           # name reused for new strip
+apps/web/src/components/artist/home/upcoming-sessions-card.tsx
+apps/web/src/components/artist/home/balance-card.tsx
+apps/web/src/components/artist/home/activity-feed.tsx
 ```
 
-(Plus any `apps/web/src/lib/artist/__tests__/build-subline.test.ts` that exists.)
+Plus any `__tests__/*.test.ts` files matched to those components.
+
+**Naming collision:** the new `next-session-card.tsx` reuses the filename of the deleted one. Delete first, then create. Treat it as a rewrite.
 
 ## Empty states
 
