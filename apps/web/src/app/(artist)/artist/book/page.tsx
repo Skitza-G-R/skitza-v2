@@ -42,7 +42,7 @@ export default async function BookPage({ searchParams }: PageProps) {
   ]);
 
   return (
-    <div className="reveal-up mx-auto w-full max-w-6xl space-y-5">
+    <div className="reveal-up mx-auto w-full max-w-2xl space-y-5 lg:max-w-6xl">
       <BookEyebrow />
       <BookingClient
         activeStudioId={activeStudioId}

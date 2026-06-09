@@ -11,6 +11,8 @@ import {
 } from "react";
 
 import { ProducerPicker } from "~/components/artist/producer-picker";
+import { Check } from "~/components/artist/funnel/funnel-icons";
+import { PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 
 import { confirmBookingAction } from "./actions";
 
@@ -446,19 +448,7 @@ export function BookingClient({
           animation: book-avatar-pop 360ms cubic-bezier(0.23, 1, 0.32, 1)
             both;
         }
-        .book-cta-lift {
-          transition:
-            transform 180ms cubic-bezier(0.23, 1, 0.32, 1),
-            box-shadow 220ms cubic-bezier(0.23, 1, 0.32, 1);
-        }
         @media (hover: hover) and (pointer: fine) {
-          .book-cta-lift:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 8px 24px -6px rgb(var(--brand-primary) / 0.45);
-          }
-          .book-cta-lift:active:not(:disabled) {
-            transform: translateY(0);
-          }
           .book-day-available:hover:not([aria-selected="true"]) {
             transform: scale(1.04);
           }
@@ -469,9 +459,6 @@ export function BookingClient({
           .book-pulse-slow,
           .book-avatar-pop {
             animation: none !important;
-          }
-          .book-cta-lift {
-            transition: none !important;
           }
         }
       `}</style>
@@ -917,6 +904,7 @@ function DayCell({
     ? {
         background: "rgb(var(--brand-primary))",
         color: "rgb(var(--bg-sidebar))",
+        boxShadow: "var(--shadow-glow)",
       }
     : available
       ? {
@@ -927,6 +915,10 @@ function DayCell({
           background: "transparent",
           color: "rgb(var(--fg-faint))",
         };
+  // Available days carry a small amber availability dot; today keeps its
+  // pulsing dot. Both sit at the same anchor and never show on the
+  // selected (solid amber) cell.
+  const showAvailableDot = available && !isSelected && !isToday;
   return (
     <button
       ref={registerRef}
@@ -941,7 +933,7 @@ function DayCell({
       className={`book-stagger sk-press relative flex h-10 items-center justify-center rounded-full font-mono text-[13px] font-semibold tabular-nums disabled:cursor-not-allowed ${available ? "book-day-available" : ""}`}
       style={{
         ...tone,
-        transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, transform 180ms ${EASE_OUT}`,
+        transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}, transform 180ms ${EASE_OUT}`,
         animationDelay: `${String(staggerDelayMs)}ms`,
       }}
     >
@@ -951,6 +943,13 @@ function DayCell({
           aria-hidden
           className="book-pulse absolute bottom-1 h-1 w-1 rounded-full"
           style={{ background: "rgb(var(--brand-primary))" }}
+        />
+      ) : null}
+      {showAvailableDot ? (
+        <span
+          aria-hidden
+          className="absolute bottom-1 h-1 w-1 rounded-full"
+          style={{ background: "rgb(var(--brand-primary) / 0.55)" }}
         />
       ) : null}
     </button>
@@ -1098,15 +1097,18 @@ function TimeColumn({
                         onClick={() => {
                           onPickProduct(p.id);
                         }}
-                        className="book-stagger sk-press flex w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border px-2.5 py-2 text-left"
+                        className="book-stagger sk-press flex w-full items-center justify-between gap-2 rounded-[var(--radius-lg)] border px-3 py-2.5 text-left"
                         style={{
                           background: sel
                             ? "rgb(var(--brand-primary) / 0.06)"
                             : "rgb(var(--bg-elevated))",
                           borderColor: sel
                             ? "rgb(var(--brand-primary))"
-                            : "rgb(var(--border-subtle))",
-                          transition: `background-color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}`,
+                            : "rgb(var(--border-strong))",
+                          boxShadow: sel
+                            ? "0 0 0 1px rgb(var(--brand-primary)), var(--shadow-sm)"
+                            : "var(--shadow-sm)",
+                          transition: `background-color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}`,
                           animationDelay: `${String(i * 35)}ms`,
                         }}
                       >
@@ -1136,7 +1138,7 @@ function TimeColumn({
       {result && !result.ok ? (
         <p
           role="alert"
-          className="mt-3 rounded-[var(--radius-sm)] px-3 py-2 text-[12px]"
+          className="mt-3 rounded-[var(--radius-lg)] px-3.5 py-2.5 text-[12.5px]"
           style={{
             background: "rgb(var(--fg-danger) / 0.08)",
             color: "rgb(var(--fg-danger))",
@@ -1146,37 +1148,56 @@ function TimeColumn({
         </p>
       ) : null}
       {result?.ok ? (
-        <p
+        <div
           role="status"
-          className="mt-3 rounded-[var(--radius-sm)] px-3 py-2 text-[12px] font-semibold"
+          className="reveal-up mt-3 flex items-start gap-2.5 rounded-[var(--radius-lg)] px-3.5 py-3"
           style={{
-            background: "rgb(var(--fg-success) / 0.1)",
-            color: "rgb(var(--fg-success))",
+            background: "rgb(var(--brand-primary) / 0.07)",
+            border: "1px solid rgb(var(--brand-primary) / 0.25)",
           }}
         >
-          Booked. The producer will confirm next.
-        </p>
+          <span
+            aria-hidden
+            className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
+            style={{
+              background: "rgb(var(--brand-primary))",
+              color: "rgb(var(--bg-sidebar))",
+            }}
+          >
+            <Check />
+          </span>
+          <span className="text-[12.5px] leading-snug">
+            <span className="block font-semibold text-[rgb(var(--fg-default))]">
+              Holding this time
+              {activeStudio?.name ? <> while {activeStudio.name} confirms</> : null}
+            </span>
+            <span className="text-[rgb(var(--fg-muted))]">
+              We&apos;ll ping you by app &amp; email the moment they do.
+            </span>
+          </span>
+        </div>
       ) : null}
 
       {showConfirm ? (
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={isPending || result?.ok}
-          className="book-cta-lift sk-press mt-4 w-full rounded-[var(--radius-md)] px-4 py-2.5 text-[13.5px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
-          style={{
-            background: "rgb(var(--brand-primary))",
-            color: "rgb(var(--bg-sidebar))",
-          }}
-        >
-          {isPending
-            ? "Sending…"
-            : result?.ok
-              ? "Sent"
-              : usingCredit
-                ? `Use credit · ${String(selectedPackage?.sessionsRemaining ?? 0)} left`
-                : "Send booking request"}
-        </button>
+        <div className="mt-4">
+          <PrimaryCta
+            onClick={onConfirm}
+            disabled={isPending || result?.ok === true}
+            sub={
+              result?.ok
+                ? undefined
+                : `Holding this time${activeStudio?.name ? ` while ${activeStudio.name} confirms` : ""}`
+            }
+          >
+            {isPending
+              ? "Sending…"
+              : result?.ok
+                ? "Sent"
+                : usingCredit
+                  ? `Use credit · ${String(selectedPackage?.sessionsRemaining ?? 0)} left`
+                  : "Request this slot"}
+          </PrimaryCta>
+        </div>
       ) : null}
 
       <style jsx>{`
@@ -1258,17 +1279,18 @@ function TimeGroup({
                 onClick={() => {
                   onPick(s);
                 }}
-                className="time-pill book-stagger sk-press flex w-full items-center justify-center rounded-[var(--radius-md)] border px-3 py-2.5 font-mono text-[13px] font-semibold tabular-nums"
+                className="time-pill book-stagger sk-press flex w-full items-center justify-center rounded-[var(--radius-lg)] border px-3 py-2.5 font-mono text-[13px] font-semibold tabular-nums"
                 style={{
                   background: sel
                     ? "rgb(var(--brand-primary))"
-                    : "transparent",
+                    : "rgb(var(--bg-elevated))",
                   color: sel
                     ? "rgb(var(--bg-sidebar))"
                     : "rgb(var(--fg-default))",
                   borderColor: sel
                     ? "rgb(var(--brand-primary))"
                     : "rgb(var(--border-strong))",
+                  boxShadow: sel ? "var(--shadow-glow)" : "none",
                   transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, transform 180ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}`,
                   animationDelay: `${String(i * 35)}ms`,
                 }}
