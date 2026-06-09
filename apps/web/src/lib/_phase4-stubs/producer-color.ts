@@ -23,13 +23,18 @@
 // produce visually-different avatars between producer + artist
 // surfaces, so any change here MUST also land in Phase 5.
 
-/** Deterministic 0-360 hue derived from a name string (FNV-31-ish). */
+/** Deterministic hue in [70°, 340°] derived from a name string
+ *  (FNV-31-ish). The reduced range skips the brand-amber band
+ *  (≈25°–65°) so producer gradients never collide with the brand
+ *  color, even after the +30° hue shift on the gradient's end stop. */
 export function producerHue(name: string): number {
+  if (!name) return 200; // fallback blue
   let h = 0;
   for (let i = 0; i < name.length; i++) {
     h = (h * 31 + name.charCodeAt(i)) | 0;
   }
-  return Math.abs(h) % 360;
+  const range = 340 - 70;
+  return (Math.abs(h) % range) + 70;
 }
 
 /** 1-2 letter monogram for a name string. Defaults to "??" on empty. */

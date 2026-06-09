@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Test doubles ────────────────────────────────────────────────────
@@ -157,6 +160,7 @@ const {
       orderBy: () => Link;
       limit: () => Promise<Record<string, unknown>[]>;
       innerJoin: () => Link;
+      leftJoin: () => Link;
       then: Promise<Record<string, unknown>[]>["then"];
     };
     const link: Link = {
@@ -167,6 +171,13 @@ const {
       orderBy: () => link,
       limit: () => get(),
       innerJoin: () => link,
+      // SK-33: latestMix now leftJoin's clientContacts to derive
+      // `unread` from lastSeenAt vs uploadedAt. Transparent passthrough
+      // — the mock's select-shape ignores fields entirely, so the
+      // joined `lastSeenAt` simply doesn't appear in result rows; the
+      // shaping block's `!mixRow.lastSeenAt` clause then defaults
+      // `unread` to true, which the relevant test asserts.
+      leftJoin: () => link,
       // Terminal-as-promise so the router can `await` the chain at any
       // point (e.g. after .where() with no orderBy/limit).
       get then() {
@@ -409,6 +420,8 @@ describe("artist.home", () => {
       projectId: "proj1",
       uploadedAt: new Date("2026-04-17T12:00:00Z"),
       audioUrl: "https://r2/summer-v2.mp3",
+      // SK-33: no `lastSeenAt` seeded → !lastSeenAt → unread = true.
+      unread: true,
     });
   });
 
@@ -631,5 +644,36 @@ describe("artist.home auth boundary (sub-queries)", () => {
     expect(
       findPredicate(activityWhereArg, "inArray", invoices.customerEmail),
     ).not.toBeNull();
+  });
+});
+
+// ─── SK-33: derived unread flag on latestMix ─────────────────────────
+// Source-grep style — the existing dbMock chain doesn't model leftJoin
+// against clientContacts, and threading a 5th marker through the
+// chunky harness would dwarf the actual code change. A grep that
+// asserts both halves (the column read + the shaped field) catches
+// the regression we actually care about: someone deleting or renaming
+// the unread derivation.
+describe("artist.home() — latestMix.unread (SK-33)", () => {
+  const SRC = readFileSync(join(__dirname, "../artist.ts"), "utf-8");
+
+  it("shapes latestMix with an `unread` boolean derived from clientContacts.lastSeenAt", () => {
+    expect(SRC).toMatch(/latestMix\s*=\s*mixRow[\s\S]*?unread:\s*/);
+    expect(SRC).toMatch(/mixRow\.lastSeenAt/);
+  });
+});
+
+// ─── SK-33: plan label on myPendingPayments rows ─────────────────────
+// Same source-grep rationale as the latestMix.unread test above: the
+// dbMock chain doesn't model the products leftJoin shape end-to-end,
+// and the field we added is a pure projection over data already in
+// scope. Two greps: one for the "50-50" literal that normalizes
+// split_50_50, one for `plan` being part of the returned object.
+describe("artist.book.myPendingPayments() — plan label (SK-33)", () => {
+  const SRC = readFileSync(join(__dirname, "../artist.ts"), "utf-8");
+
+  it("normalizes firstPlan.kind to a UI-friendly plan string", () => {
+    expect(SRC).toMatch(/plan:\s*["']50-50["']/);
+    expect(SRC).toMatch(/plan,\s*\n?\s*\}/);
   });
 });
