@@ -12,6 +12,57 @@ import type { ReactNode } from "react";
 
 import { Check, ChevronLeft } from "./funnel-icons";
 
+// Confirmation emblem with the prototype's rippling ring (S5 sent, S11
+// booked). A dark/tinted disc holds the icon while one or two absolutely
+// positioned rings expand-and-fade behind it (`sk-ripple`, gated for
+// reduced motion in globals.css). Visual-only helper — additive, doesn't
+// touch the existing icon imports. `tone` picks the ring/disc accent:
+// amber for "sent", green for "confirmed".
+export function RippleEmblem({
+  children,
+  tone = "amber",
+  className = "",
+}: {
+  children: ReactNode;
+  tone?: "amber" | "success";
+  className?: string;
+}) {
+  const ring =
+    tone === "success"
+      ? "rgb(var(--fg-success) / 0.30)"
+      : "rgb(var(--brand-primary) / 0.30)";
+  const accent =
+    tone === "success" ? "rgb(var(--fg-success))" : "rgb(var(--brand-primary))";
+  return (
+    <div className={`relative inline-flex ${className}`}>
+      <span
+        className="sk-ripple pointer-events-none absolute -inset-[18px] rounded-full"
+        style={{ border: `1.5px solid ${ring}` }}
+        aria-hidden
+      />
+      <span
+        className="sk-ripple pointer-events-none absolute -inset-[18px] rounded-full"
+        style={{ border: `1.5px solid ${ring}`, animationDelay: "0.8s" }}
+        aria-hidden
+      />
+      <span
+        className="relative flex h-[92px] w-[92px] items-center justify-center rounded-full"
+        style={{
+          background: "rgb(var(--bg-sidebar))",
+          color: accent,
+          boxShadow: `0 20px 46px -14px rgb(17 16 9 / 0.55), inset 0 0 0 1.5px ${
+            tone === "success"
+              ? "rgb(var(--fg-success) / 0.40)"
+              : "rgb(var(--brand-primary) / 0.35)"
+          }`,
+        }}
+      >
+        {children}
+      </span>
+    </div>
+  );
+}
+
 // Mono uppercase eyebrow — the recurring "eyebrow → title → body" rhythm.
 // `gold` switches from muted to the readable amber used on light surfaces.
 export function Eyebrow({
@@ -69,18 +120,19 @@ export function FunnelTopBar({
               background: "rgb(var(--bg-elevated))",
               color: "rgb(var(--fg-default))",
               border: "1px solid rgb(var(--fg-default) / 0.08)",
-              boxShadow: "var(--shadow-sm)",
+              boxShadow:
+                "0 1px 2px 0 rgb(17 16 9 / 0.06), 0 4px 12px -4px rgb(17 16 9 / 0.10)",
             }}
           >
             <ChevronLeft />
           </button>
         ) : null}
         <div className="px-12 text-center">
-          <div className="font-syne text-[15px] font-extrabold tracking-tight text-[rgb(var(--fg-default))]">
+          <div className="font-syne text-[15px] font-extrabold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
             {title}
           </div>
           {sub ? (
-            <div className="font-mono text-[9px] tracking-[0.08em] text-[rgb(var(--fg-muted))]">
+            <div className="mt-px font-mono text-[9px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
               {sub}
             </div>
           ) : null}
@@ -143,8 +195,8 @@ export function PrimaryCta({
       type={type}
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
-      className={`relative flex w-full flex-col items-center gap-[3px] overflow-hidden rounded-[var(--radius-lg)] px-[22px] py-4 text-center font-semibold ${
-        disabled ? "cursor-not-allowed" : "sk-press sk-cta-shine"
+      className={`relative flex w-full flex-col items-center gap-[3px] overflow-hidden rounded-[var(--radius-card)] px-[22px] py-4 text-center font-semibold ${
+        disabled ? "cursor-not-allowed" : "sk-cta-press sk-gloss"
       }`}
       style={
         disabled
@@ -153,17 +205,20 @@ export function PrimaryCta({
               color: "rgb(var(--fg-muted) / 0.8)",
             }
           : {
-              background: "rgb(var(--brand-primary))",
+              background:
+                "linear-gradient(180deg, rgb(var(--brand-primary)) 0%, rgb(var(--brand-primary-dark)) 130%)",
               color: "rgb(var(--bg-sidebar))",
-              boxShadow: glow ? "var(--shadow-glow)" : "none",
+              boxShadow: glow
+                ? "var(--shadow-glow), 0 10px 28px -8px rgb(var(--brand-primary) / 0.45)"
+                : "0 6px 18px -8px rgb(var(--brand-primary) / 0.40)",
             }
       }
     >
-      <span className="relative inline-flex items-center gap-[9px] text-[16px]">
+      <span className="relative z-[2] inline-flex items-center gap-[9px] text-[16px]">
         {children}
       </span>
       {sub ? (
-        <span className="relative font-mono text-[10px] font-medium tracking-[0.04em] opacity-70">
+        <span className="relative z-[2] font-mono text-[10px] font-medium tracking-[0.04em] opacity-70">
           {sub}
         </span>
       ) : null}
@@ -183,12 +238,13 @@ export function SecondaryCta({
     <button
       type="button"
       onClick={onClick}
-      className="sk-press flex w-full items-center justify-center gap-[9px] rounded-[var(--radius-lg)] px-[22px] py-[15px] text-[15px] font-semibold"
+      className="sk-press flex w-full items-center justify-center gap-[9px] rounded-[var(--radius-card)] px-[22px] py-[15px] text-[15px] font-semibold"
       style={{
         background: "rgb(var(--bg-elevated))",
         color: "rgb(var(--fg-default))",
         border: "1px solid rgb(var(--border-strong))",
-        boxShadow: "var(--shadow-sm)",
+        boxShadow:
+          "0 1px 2px 0 rgb(17 16 9 / 0.05), 0 6px 16px -10px rgb(17 16 9 / 0.18)",
       }}
     >
       {children}
@@ -214,12 +270,15 @@ export function AgreeCheck({
       role="checkbox"
       aria-checked={checked}
       onClick={onToggle}
-      className="sk-press flex w-full items-center gap-[13px] rounded-[14px] px-4 py-[15px] text-left transition-colors"
+      className="sk-press flex w-full items-center gap-[13px] rounded-[var(--radius-card)] px-4 py-[15px] text-left transition-colors"
       style={{
         background: "rgb(var(--bg-elevated))",
         border: `1.5px solid ${
           checked ? "rgb(var(--brand-primary))" : "rgb(var(--border-strong))"
         }`,
+        boxShadow: checked
+          ? "0 4px 14px -8px rgb(var(--brand-primary) / 0.40)"
+          : "0 1px 2px 0 rgb(17 16 9 / 0.04)",
       }}
     >
       <span
