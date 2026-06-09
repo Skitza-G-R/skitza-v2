@@ -683,6 +683,13 @@ export const notificationKind = pgEnum("notification_kind", [
   "comment_created",     // visitor commented on a track version
   "booking_requested",   // visitor submitted a booking
   "track_approved",      // (future) artist marked a version approved
+  // ─── Purchase flow (SK-37 / BE-1) ─────────────────────────────────
+  // Producer-facing inbox events for the artist purchase journey.
+  // Emitted from server/notifications/emit.ts at each Gate-1 transition.
+  "purchase_requested",  // artist submitted a purchase request (Gate 1 in)
+  "purchase_approved",   // producer approved the request
+  "purchase_declined",   // producer declined the request
+  "agreement_accepted",  // artist accepted the producer's agreement
 ]);
 
 export const notifications = pgTable("notifications", {
@@ -698,6 +705,13 @@ export const notifications = pgTable("notifications", {
   trackVersionId: uuid("track_version_id").references(() => trackVersions.id, { onDelete: "cascade" }),
   commentId: uuid("comment_id").references(() => trackComments.id, { onDelete: "cascade" }),
   bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "cascade" }),
+  // Purchase-flow click-through (SK-37 / BE-1). Forward reference via the
+  // lazy AnyPgColumn callback because `purchaseRequests` is declared
+  // further down (same pattern as bookings.projectId → projects).
+  purchaseRequestId: uuid("purchase_request_id").references(
+    (): AnyPgColumn => purchaseRequests.id,
+    { onDelete: "cascade" },
+  ),
   readAt: timestamp("read_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -899,3 +913,151 @@ export const producerNotes = pgTable(
 
 export type ProducerNote = typeof producerNotes.$inferSelect;
 export type NewProducerNote = typeof producerNotes.$inferInsert;
+
+// ─── Purchase flow (SK-37 / BE-1) ──────────────────────────────────
+// The artist purchase journey's keystone. A `purchaseRequest` is the
+// spine: the artist commits to a product (Gate-1 in), the producer
+// approves/declines (Gate 1), then the artist accepts the agreement.
+// Money, sessions, and delivery layer on top in BE-2/3/4 — this table
+// owns only the request lifecycle + the PRICE-LOCK snapshot so a later
+// product edit can't change the terms the artist agreed to.
+//
+// Reuse, never fork: producerId/clientContactId/productId/projectId/
+// bookingId all reference the existing engagement entities. There is no
+// users/artists table — an "artist" is a `clientContacts` row, resolved
+// per-producer via resolveClientContact(). `projectId`/`bookingId` are
+// nullable and populated downstream (project on approve-undo-elapse,
+// booking by the BE-3 session slice) so the purchase attaches to the
+// SAME project/booking rows the store + calendar flows use.
+export const purchaseRequestStatus = pgEnum("purchase_request_status", [
+  "pending",   // submitted, awaiting producer's Gate-1 decision
+  "approved",  // producer approved (5-min undo window starts at approvedAt)
+  "declined",  // producer declined (artist sees a generic message)
+]);
+
+export const purchaseRequests = pgTable(
+  "purchase_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    // The per-producer "artist" row. Resolved from the signed-in Clerk
+    // user via resolveClientContact(clerkUserId, producerId). The same
+    // human has N clientContact ids across N producers — never a global
+    // user id.
+    clientContactId: uuid("client_contact_id")
+      .notNull()
+      .references(() => clientContacts.id, { onDelete: "cascade" }),
+    // SET NULL on product purge so the price-locked history survives
+    // (mirrors bookings.productId). The *_snapshot columns below are the
+    // source of truth for amounts once the request exists.
+    productId: uuid("product_id").references(() => products.id, {
+      onDelete: "set null",
+    }),
+    // Populated when the engagement project is created/attached (deferred
+    // until the 5-min undo window elapses — links the SAME projects row,
+    // never forks one). SET NULL so a project delete keeps the request.
+    projectId: uuid("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    // Stamped by the BE-3 session slice when a session is scheduled
+    // against this purchase. SET NULL preserves the request on delete.
+    bookingId: uuid("booking_id").references(() => bookings.id, {
+      onDelete: "set null",
+    }),
+    // Human-readable, artist-facing reference (e.g. "SK-7F3QK2"). Minted
+    // in the request mutation; the UNIQUE constraint is the collision
+    // guard (the mutation retries on the rare clash).
+    refNumber: text("ref_number").notNull().unique(),
+    status: purchaseRequestStatus("status").notNull().default("pending"),
+    // Stamped new Date() on every transition (mirrors
+    // bookings.statusChangedAt). approvedAt also anchors the 5-min undo.
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    declinedAt: timestamp("declined_at", { withTimezone: true }),
+    // Identity snapshot from clientContacts so the row reads sensibly
+    // even after a contact archive / SET NULL (matches bookings/projects).
+    artistName: text("artist_name").notNull(),
+    artistEmail: text("artist_email").notNull(),
+    // ─── Price lock (taken at request time) ───────────────────────────
+    // All downstream amount math reads THESE, not the live product —
+    // closing the gap where payment.getPaymentDetails recomputes from
+    // the live products.paymentPlans[0].
+    productNameSnapshot: text("product_name_snapshot").notNull(),
+    // Locked headline amount in minor units. flat/bundle → priceCents;
+    // per_song → songQty × unitPriceCents; hourly → the locked rate.
+    priceCents: integer("price_cents").notNull(),
+    currency: text("currency").notNull(),
+    // The single chosen plan from products.paymentPlans — reuses the
+    // exported PaymentPlan union verbatim (no new shape).
+    paymentPlanSnapshot: jsonb("payment_plan_snapshot")
+      .$type<PaymentPlan>()
+      .notNull(),
+    // Per-song parity with bookings.songQty/unitPriceCents — populated
+    // only for pricingModel='per_song' (or the locked rate for hourly).
+    songQty: integer("song_qty"),
+    unitPriceCents: integer("unit_price_cents"),
+    // Snapshot of products.contractUrl so a later product edit can't
+    // change the agreement the artist is asked to accept. Nullable — the
+    // agreement is an inline checkbox; the URL is the optional reference.
+    contractUrlSnapshot: text("contract_url_snapshot"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    // Producer hub list: filter by producer + status, newest first.
+    producerStatusIdx: index("purchase_requests_producer_status_idx").on(
+      t.producerId,
+      t.status,
+      t.createdAt,
+    ),
+    // "one pending request per (artist, producer)" guard reads this.
+    contactStatusIdx: index("purchase_requests_contact_status_idx").on(
+      t.clientContactId,
+      t.status,
+    ),
+  }),
+);
+export type PurchaseRequest = typeof purchaseRequests.$inferSelect;
+export type NewPurchaseRequest = typeof purchaseRequests.$inferInsert;
+
+// One row per artist acceptance of a producer's agreement, against
+// exactly one purchaseRequest. PDF-signing (Documenso) was removed in
+// Phase 1 in favour of an inline checkbox — so `agreementUrl` is the
+// optional snapshot of the referenced contract (products.contractUrl),
+// and the PRESENCE of `acceptedAt` is the "accepted" flag (matching the
+// trackVersions.approvedAt idiom). UNIQUE(purchaseRequestId) makes
+// acceptance idempotent.
+export const agreementAcceptances = pgTable(
+  "agreement_acceptances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    purchaseRequestId: uuid("purchase_request_id")
+      .notNull()
+      .references(() => purchaseRequests.id, { onDelete: "cascade" }),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    clientContactId: uuid("client_contact_id")
+      .notNull()
+      .references(() => clientContacts.id, { onDelete: "cascade" }),
+    // Audit: the Clerk userId that clicked accept (ctx.clerkUserId).
+    acceptedByClerkUserId: text("accepted_by_clerk_user_id").notNull(),
+    agreementUrl: text("agreement_url"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    uniqPerRequest: unique("agreement_acceptances_request_unique").on(
+      t.purchaseRequestId,
+    ),
+  }),
+);
+export type AgreementAcceptance = typeof agreementAcceptances.$inferSelect;
+export type NewAgreementAcceptance = typeof agreementAcceptances.$inferInsert;
