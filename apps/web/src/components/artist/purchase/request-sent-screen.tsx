@@ -95,7 +95,7 @@ export function RequestSentScreen({
               <div className="flex items-center gap-[13px] px-[18px] pb-4 pt-[17px]">
                 <span
                   className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[12px] font-syne text-[14px] font-extrabold text-white"
-                  style={{ background: coverGradient(product.id === "g1" ? 44 : producer.hue) }}
+                  style={{ background: coverGradient(producer.hue) }}
                 >
                   {producer.initials}
                 </span>

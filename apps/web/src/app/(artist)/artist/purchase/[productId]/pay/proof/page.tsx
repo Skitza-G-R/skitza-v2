@@ -2,13 +2,11 @@ import { auth } from "@clerk/nextjs/server";
 
 import {
   MOCK_PAID_CENTS,
+  MOCK_PRODUCER,
+  MOCK_PRODUCT,
   MOCK_PROOFS,
   MOCK_TOTAL_CENTS,
 } from "~/components/artist/purchase/pay-data";
-import {
-  MOCK_PRODUCER,
-  MOCK_PRODUCT,
-} from "~/components/artist/purchase/purchase-data";
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
 
 type PageProps = { params: Promise<{ productId: string }> };

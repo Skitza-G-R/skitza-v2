@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { VolumeTier } from "~/lib/pricing";
 import { formatPriceLabel } from "~/lib/store/format-price-label";
+import { productHref } from "~/lib/store/product-href";
 
 // "Also from {Producer}" — the quiet tail under the focal card.
 // Borderless rows with hairline dividers, whole row tappable. Meta
@@ -43,7 +44,7 @@ export function QuietProductList({
           return (
             <li key={product.id}>
               <Link
-                href={`/artist/store/${product.id}`}
+                href={productHref(product)}
                 className={`sk-press flex items-baseline justify-between gap-3 px-4 py-3.5 ${
                   isLast ? "" : "border-b"
                 }`}

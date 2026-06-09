@@ -28,8 +28,9 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/product\.description/);
   });
 
-  it("links the primary CTA to /artist/store/{id}", () => {
-    expect(source).toMatch(/\/artist\/store\/\$\{product\.id\}/);
+  it("links the primary CTA via productHref (funnel for flat, legacy for per-song)", () => {
+    expect(source).toMatch(/href=\{productHref\(product\)\}/);
+    expect(source).toMatch(/from\s+['"]~\/lib\/store\/product-href['"]/);
     expect(source).toMatch(/View details/);
   });
 
@@ -42,8 +43,11 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/rounded-\[var\(--radius-lg\)\]/);
   });
 
-  it("renders Stripe · soon as a quiet footnote (mono uppercase)", () => {
-    expect(source).toMatch(/Stripe/);
+  it("renders an honest payment footnote per pricing model (mono uppercase)", () => {
+    // per-song keeps the legacy Stripe-soon line; funnel products promise
+    // request-to-book with no payment yet.
+    expect(source).toMatch(/Stripe · payments soon/);
+    expect(source).toMatch(/Request to book · no payment yet/);
     expect(source).toMatch(/uppercase/);
     expect(source).toMatch(/font-mono/);
   });

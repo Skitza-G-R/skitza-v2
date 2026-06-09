@@ -1350,6 +1350,10 @@ const storeSubrouter = router({
           volumeTiers: products.volumeTiers,
           paymentPlans: products.paymentPlans,
           position: products.position,
+          // Funnel S3/S4 surfaces (SK-46) — the what's-included list and
+          // the producer's uploaded agreement PDF.
+          deliverables: products.deliverables,
+          contractUrl: products.contractUrl,
           producerId: products.producerId,
           producerName: producers.displayName,
           producerSlug: producers.slug,
@@ -1405,6 +1409,8 @@ const storeSubrouter = router({
           | "bundle",
         volumeTiers: row.volumeTiers ?? null,
         paymentPlans: row.paymentPlans,
+        deliverables: row.deliverables ?? null,
+        contractUrl: row.contractUrl ?? null,
         producerId: row.producerId,
         producerName: row.producerName ?? "Untitled Studio",
         producerSlug: row.producerSlug,
