@@ -11,6 +11,8 @@ import {
 } from "react";
 
 import { ProducerPicker } from "~/components/artist/producer-picker";
+import { Check } from "~/components/artist/funnel/funnel-icons";
+import { PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 
 import { confirmBookingAction } from "./actions";
 
@@ -178,7 +180,9 @@ function useLiveTimeZoneLabel(): string | null {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Main client
+// Main client — single mobile-first column (proto S10 "Time" screen).
+// Title → producer/session summary → month calendar → legend → inline
+// time chips → service/credit picker → pinned "Request this slot".
 // ──────────────────────────────────────────────────────────────────────
 
 export function BookingClient({
@@ -300,13 +304,13 @@ export function BookingClient({
     viewYear > initialYear ||
     (viewYear === initialYear && viewMonth > initialMonth);
 
-  // Mobile swap: when a date is picked, hide LeftContext + Calendar at
-  // <lg so the TimeColumn gets the full card width. Desktop keeps the
-  // 3-column layout regardless.
-  const mobileHidden = selectedDate ? "hidden lg:block" : "block";
+  // Gating — identical booleans to the original, only the markup moved.
+  const showServices = chosenStart != null && !usingCredit;
+  const showConfirm =
+    chosenStart != null && (usingCredit || selectedProductId !== null);
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-[480px] space-y-6">
       {studios.length > 1 ? (
         <ProducerPicker
           studios={studios}
@@ -315,84 +319,163 @@ export function BookingClient({
         />
       ) : null}
 
-      <article
-        className="overflow-hidden rounded-[var(--radius-2xl)] border bg-[rgb(var(--bg-elevated))]"
+      {/* ── Title + producer/session summary (folds the old LeftContext) ── */}
+      <header className="sk-rise space-y-3" style={{ animationDelay: "40ms" }}>
+        <h1 className="font-syne text-[28px] font-extrabold leading-[1.04] tracking-[-0.03em] text-balance text-[rgb(var(--fg-default))]">
+          When works for you?
+        </h1>
+        <SummaryLine activeStudio={activeStudio ?? null} />
+      </header>
+
+      {/* ── Month calendar card ── */}
+      <CalendarCard
+        className="sk-rise"
+        style={{ animationDelay: "100ms" }}
+        year={viewYear}
+        month0={viewMonth}
+        daysByDate={daysByDate}
+        today={today}
+        selectedDate={selectedDate}
+        hasAnyAvailability={hasAnyAvailability}
+        producerName={activeStudio?.name ?? null}
+        onPickDate={handlePickDate}
+        onPrevMonth={
+          canGoBack
+            ? () => {
+                const prev = new Date(Date.UTC(viewYear, viewMonth - 1));
+                setViewYear(prev.getUTCFullYear());
+                setViewMonth(prev.getUTCMonth());
+              }
+            : null
+        }
+        onNextMonth={() => {
+          const next = new Date(Date.UTC(viewYear, viewMonth + 1));
+          setViewYear(next.getUTCFullYear());
+          setViewMonth(next.getUTCMonth());
+        }}
+      />
+
+      <Legend />
+
+      {/* ── Inline time chips for the chosen day (no side rail) ── */}
+      {selectedDate ? (
+        <TimeSection
+          key={selectedDate}
+          selectedDate={selectedDate}
+          starts={startsForSelected}
+          chosenStart={chosenStart}
+          onPickStart={handlePickStart}
+        />
+      ) : null}
+
+      {/* ── Service picker (pay path) folds inline once a time is set ── */}
+      {showServices ? (
+        <ServiceBlock
+          products={products}
+          selectedProductId={selectedProductId}
+          activeStudio={activeStudio ?? null}
+          onPick={(id) => {
+            setSelectedProductId(id);
+            setResult(null);
+          }}
+        />
+      ) : null}
+
+      {/* ── Prepaid-credits option folds inline (subtle toggle) ── */}
+      {activePackages.length > 0 ? (
+        <CreditsBlock
+          packages={activePackages}
+          selectedProjectId={selectedPackageProjectId}
+          onPick={(id) => {
+            setSelectedPackageProjectId(id);
+            setSelectedProductId(null);
+            setResult(null);
+          }}
+          onClear={() => {
+            setSelectedPackageProjectId(null);
+            setResult(null);
+          }}
+        />
+      ) : null}
+
+      {/* ── Summary footnote (time zone + reminder note) ── */}
+      <TimeZoneNote />
+
+      {result && !result.ok ? (
+        <p
+          role="alert"
+          className="rounded-card px-3.5 py-2.5 text-[12.5px]"
+          style={{
+            background: "rgb(var(--fg-danger) / 0.08)",
+            color: "rgb(var(--fg-danger))",
+          }}
+        >
+          {result.error}
+        </p>
+      ) : null}
+      {result?.ok ? (
+        <div
+          role="status"
+          className="reveal-up flex items-start gap-2.5 rounded-card px-3.5 py-3"
+          style={{
+            background: "rgb(var(--brand-primary) / 0.07)",
+            border: "1px solid rgb(var(--brand-primary) / 0.25)",
+          }}
+        >
+          <span
+            aria-hidden
+            className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
+            style={{
+              background: "rgb(var(--brand-primary))",
+              color: "rgb(var(--bg-sidebar))",
+            }}
+          >
+            <Check />
+          </span>
+          <span className="text-[12.5px] leading-snug">
+            <span className="block font-semibold text-[rgb(var(--fg-default))]">
+              Holding this time
+              {activeStudio?.name ? <> while {activeStudio.name} confirms</> : null}
+            </span>
+            <span className="text-[rgb(var(--fg-muted))]">
+              We&apos;ll ping you by app &amp; email the moment they do.
+            </span>
+          </span>
+        </div>
+      ) : null}
+
+      {/* ── Pinned-low primary CTA ── */}
+      <div
+        className="sticky bottom-3 z-10 pt-1"
         style={{
-          borderColor: "rgb(var(--border-subtle))",
-          boxShadow: "var(--shadow-md)",
+          background:
+            "linear-gradient(180deg, transparent, rgb(var(--bg-background)) 38%)",
         }}
       >
-        {/* One flat grid: LeftContext | Calendar | TimeColumn.
-            Third column is `auto` → 0 when no date is picked, so the
-            card sits at 2-column width and only expands sideways when
-            the TimeColumn mounts. */}
-        <div className="lg:grid lg:grid-cols-[260px_minmax(360px,1fr)_auto]">
-          <LeftContext
-            className={`${mobileHidden} lg:border-r lg:border-[rgb(var(--border-subtle))]`}
-            activeStudio={activeStudio ?? null}
-            packages={activePackages}
-            selectedProjectId={selectedPackageProjectId}
-            onPickPackage={(id) => {
-              setSelectedPackageProjectId(id);
-              setSelectedProductId(null);
-              setResult(null);
-            }}
-            onClearPackage={() => {
-              setSelectedPackageProjectId(null);
-              setResult(null);
-            }}
-          />
-
-          <CalendarColumn
-            className={`${mobileHidden} border-t border-[rgb(var(--border-subtle))] lg:border-t-0`}
-            year={viewYear}
-            month0={viewMonth}
-            daysByDate={daysByDate}
-            today={today}
-            selectedDate={selectedDate}
-            hasAnyAvailability={hasAnyAvailability}
-            producerName={activeStudio?.name ?? null}
-            onPickDate={handlePickDate}
-            onPrevMonth={
-              canGoBack
-                ? () => {
-                    const prev = new Date(Date.UTC(viewYear, viewMonth - 1));
-                    setViewYear(prev.getUTCFullYear());
-                    setViewMonth(prev.getUTCMonth());
-                  }
-                : null
-            }
-            onNextMonth={() => {
-              const next = new Date(Date.UTC(viewYear, viewMonth + 1));
-              setViewYear(next.getUTCFullYear());
-              setViewMonth(next.getUTCMonth());
-            }}
-          />
-
-          {selectedDate ? (
-            <TimeColumn
-              key={selectedDate}
-              selectedDate={selectedDate}
-              starts={startsForSelected}
-              chosenStart={chosenStart}
-              onPickStart={handlePickStart}
-              products={products}
-              selectedProductId={selectedProductId}
-              onPickProduct={(id) => {
-                setSelectedProductId(id);
-                setResult(null);
-              }}
-              usingCredit={usingCredit}
-              selectedPackage={selectedPackage}
-              activeStudio={activeStudio ?? null}
-              isPending={isPending}
-              result={result}
-              onConfirm={handleConfirm}
-              onBack={resetSelection}
-            />
-          ) : null}
-        </div>
-      </article>
+        <PrimaryCta
+          onClick={handleConfirm}
+          disabled={!showConfirm || isPending || result?.ok === true}
+          sub={
+            result?.ok
+              ? undefined
+              : showConfirm
+                ? `Holding this time${activeStudio?.name ? ` while ${activeStudio.name} confirms` : ""}`
+                : selectedDate == null
+                  ? "Pick a time to continue"
+                  : chosenStart == null
+                    ? "Pick a time to continue"
+                    : "Pick a service to continue"
+          }
+        >
+          {isPending
+            ? "Sending…"
+            : result?.ok
+              ? "Sent"
+              : usingCredit
+                ? `Use credit · ${String(selectedPackage?.sessionsRemaining ?? 0)} left`
+                : "Request this slot"}
+        </PrimaryCta>
+      </div>
 
       {/* Shared motion keyframes scoped to /artist/book. All animations
           stay on transform + opacity for hardware acceleration; all
@@ -437,28 +520,11 @@ export function BookingClient({
           transform-origin: center;
           will-change: transform, opacity;
         }
-        .book-pulse-slow {
-          animation: book-pulse-soft 3.2s ease-in-out infinite;
-          transform-origin: center;
-          will-change: transform, opacity;
-        }
         .book-avatar-pop {
           animation: book-avatar-pop 360ms cubic-bezier(0.23, 1, 0.32, 1)
             both;
         }
-        .book-cta-lift {
-          transition:
-            transform 180ms cubic-bezier(0.23, 1, 0.32, 1),
-            box-shadow 220ms cubic-bezier(0.23, 1, 0.32, 1);
-        }
         @media (hover: hover) and (pointer: fine) {
-          .book-cta-lift:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 8px 24px -6px rgb(var(--brand-primary) / 0.45);
-          }
-          .book-cta-lift:active:not(:disabled) {
-            transform: translateY(0);
-          }
           .book-day-available:hover:not([aria-selected="true"]) {
             transform: scale(1.04);
           }
@@ -466,12 +532,8 @@ export function BookingClient({
         @media (prefers-reduced-motion: reduce) {
           .book-stagger,
           .book-pulse,
-          .book-pulse-slow,
           .book-avatar-pop {
             animation: none !important;
-          }
-          .book-cta-lift {
-            transition: none !important;
           }
         }
       `}</style>
@@ -480,204 +542,57 @@ export function BookingClient({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Left context — producer + session meta + credits
+// Summary line — producer avatar + name + session meta (folds the old
+// LeftContext side rail into one tight row under the title).
 // ──────────────────────────────────────────────────────────────────────
 
-function LeftContext({
-  className,
-  activeStudio,
-  packages,
-  selectedProjectId,
-  onPickPackage,
-  onClearPackage,
-}: {
-  className?: string;
-  activeStudio: Studio | null;
-  packages: ActivePackage[];
-  selectedProjectId: string | null;
-  onPickPackage: (projectId: string) => void;
-  onClearPackage: () => void;
-}) {
+function SummaryLine({ activeStudio }: { activeStudio: Studio | null }) {
   const initial = (activeStudio?.name ?? "S").charAt(0).toUpperCase();
   return (
-    <div className={`flex flex-col gap-5 p-6 lg:p-7 ${className ?? ""}`}>
-      <header className="flex items-center gap-3">
-        {activeStudio?.logoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={activeStudio.logoUrl}
-            alt=""
-            className="book-avatar-pop h-10 w-10 shrink-0 rounded-full object-cover"
-            style={{ boxShadow: "0 0 0 2px rgb(var(--brand-primary) / 0.3)" }}
-          />
-        ) : (
-          <div
-            aria-hidden
-            className="book-avatar-pop flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-[16px] font-extrabold text-[rgb(var(--bg-sidebar))]"
-            style={{
-              background:
-                "linear-gradient(140deg, rgb(var(--brand-primary)), rgb(var(--brand-copper)))",
-            }}
-          >
-            {initial}
-          </div>
-        )}
-        <div className="min-w-0">
-          <p className="truncate text-[14px] font-semibold leading-tight text-[rgb(var(--fg-default))]">
-            {activeStudio?.name ?? "Studio session"}
-          </p>
-          {activeStudio?.slug ? (
-            <p className="truncate font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-              @{activeStudio.slug}
-            </p>
-          ) : null}
-        </div>
-      </header>
-
-      <h1 className="font-display text-[22px] font-extrabold leading-[1.05] tracking-[-0.025em] text-[rgb(var(--fg-default))] text-balance">
-        Studio session
-        <span
-          className="book-pulse-slow inline-block"
-          style={{ color: "rgb(var(--brand-primary))" }}
-        >
-          .
-        </span>
-      </h1>
-
-      <ul className="space-y-2.5 text-[13.5px] text-[rgb(var(--fg-secondary))]">
-        <li className="flex items-center gap-2.5">
-          <ClockIcon />
-          <span>
-            <span className="font-semibold text-[rgb(var(--fg-default))]">
-              {DEFAULT_DURATION_MIN / 60} hours
-            </span>{" "}
-            per session
-          </span>
-        </li>
-        <li className="flex items-center gap-2.5">
-          <BoltIcon />
-          <span>Producer confirms within 24h</span>
-        </li>
-      </ul>
-
-      <p className="text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
-        Pick any open window in the next 14 days. The producer reviews your
-        request and locks it in.
-      </p>
-
-      {packages.length > 0 ? (
-        <CreditsBlock
-          packages={packages}
-          selectedProjectId={selectedProjectId}
-          onPick={onPickPackage}
-          onClear={onClearPackage}
+    <div className="flex items-center gap-2.5">
+      {activeStudio?.logoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={activeStudio.logoUrl}
+          alt=""
+          className="book-avatar-pop h-8 w-8 shrink-0 rounded-full object-cover"
+          style={{ boxShadow: "0 0 0 2px rgb(var(--brand-primary) / 0.3)" }}
         />
-      ) : null}
+      ) : (
+        <div
+          aria-hidden
+          className="book-avatar-pop flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-display text-[13px] font-extrabold text-[rgb(var(--bg-sidebar))]"
+          style={{
+            background:
+              "linear-gradient(140deg, rgb(var(--brand-primary)), rgb(var(--brand-copper)))",
+          }}
+        >
+          {initial}
+        </div>
+      )}
+      <p className="min-w-0 text-[13px] leading-snug text-[rgb(var(--fg-secondary))]">
+        <span className="font-semibold text-[rgb(var(--fg-default))]">
+          {activeStudio?.name ?? "Studio session"}
+        </span>
+        <span className="text-[rgb(var(--fg-muted))]">
+          {" · "}
+          <span className="font-semibold text-[rgb(var(--fg-default))]">
+            {DEFAULT_DURATION_MIN / 60} hours
+          </span>{" "}
+          per session · Producer confirms within 24h
+        </span>
+      </p>
     </div>
   );
 }
 
-function CreditsBlock({
-  packages,
-  selectedProjectId,
-  onPick,
-  onClear,
-}: {
-  packages: ActivePackage[];
-  selectedProjectId: string | null;
-  onPick: (projectId: string) => void;
-  onClear: () => void;
-}) {
-  const totalLeft = packages.reduce((n, p) => n + p.sessionsRemaining, 0);
-  return (
-    <section
-      aria-label="Your prepaid sessions"
-      className="rounded-[var(--radius-lg)] border p-3"
-      style={{
-        background: "rgb(var(--brand-primary) / 0.05)",
-        borderColor: "rgb(var(--brand-primary) / 0.25)",
-      }}
-    >
-      <header className="flex items-baseline justify-between gap-3">
-        <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-          Your sessions
-        </h2>
-        <p className="font-mono text-[10.5px] tabular-nums text-[rgb(var(--fg-secondary))]">
-          {totalLeft} left
-        </p>
-      </header>
-      <ul className="mt-2.5 space-y-1.5">
-        {packages.map((pkg) => {
-          const sel = pkg.projectId === selectedProjectId;
-          const exhausted = pkg.sessionsRemaining <= 0;
-          return (
-            <li key={pkg.projectId}>
-              <button
-                type="button"
-                onClick={() => {
-                  onPick(pkg.projectId);
-                }}
-                disabled={exhausted}
-                className="sk-press flex w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border px-2.5 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
-                style={{
-                  background: sel
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--bg-elevated))",
-                  borderColor: sel
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--brand-primary) / 0.25)",
-                  color: sel
-                    ? "rgb(var(--bg-sidebar))"
-                    : "rgb(var(--fg-default))",
-                  transition: `background-color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}`,
-                }}
-              >
-                <span className="truncate text-[12.5px] font-semibold">
-                  {pkg.packageName ?? pkg.title}
-                </span>
-                <span
-                  className="shrink-0 rounded-[var(--radius-sm)] px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums"
-                  style={{
-                    background: sel
-                      ? "rgb(var(--bg-sidebar) / 0.15)"
-                      : "rgb(var(--brand-primary) / 0.12)",
-                    color: sel
-                      ? "rgb(var(--bg-sidebar))"
-                      : "rgb(var(--brand-primary-dark))",
-                  }}
-                >
-                  {pkg.sessionsRemaining}/{pkg.sessionCount}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      <button
-        type="button"
-        onClick={onClear}
-        className="sk-press mt-2 text-[11px] underline decoration-dotted underline-offset-2"
-        style={{
-          color:
-            selectedProjectId === null
-              ? "rgb(var(--brand-primary-dark))"
-              : "rgb(var(--fg-muted))",
-        }}
-      >
-        {selectedProjectId === null
-          ? "Paying for a new session"
-          : "Pay for a new session instead"}
-      </button>
-    </section>
-  );
-}
-
 // ──────────────────────────────────────────────────────────────────────
-// Calendar column — month grid + timezone footer + keyboard nav
+// Calendar card — month grid + month nav + keyboard nav
 // ──────────────────────────────────────────────────────────────────────
 
-function CalendarColumn({
+function CalendarCard({
   className,
+  style,
   year,
   month0,
   daysByDate,
@@ -690,6 +605,7 @@ function CalendarColumn({
   onNextMonth,
 }: {
   className?: string;
+  style?: React.CSSProperties;
   year: number;
   month0: number;
   daysByDate: Map<string, Day>;
@@ -784,26 +700,29 @@ function CalendarColumn({
     moveFocus(rovingDate, delta);
   };
 
-  const tzLabel = useLiveTimeZoneLabel();
-
   return (
-    <div className={`p-6 lg:p-7 ${className ?? ""}`}>
+    <div
+      className={`overflow-hidden rounded-card border bg-[rgb(var(--bg-elevated))] p-4 sm:p-5 ${className ?? ""}`}
+      style={{
+        borderColor: "rgb(var(--border-subtle))",
+        boxShadow: "var(--shadow-md)",
+        ...style,
+      }}
+    >
       <header className="mb-4 flex items-center justify-between">
-        <h2 className="font-display text-[17px] font-extrabold leading-none tracking-[-0.015em] text-[rgb(var(--fg-default))]">
+        {onPrevMonth ? (
+          <NavButton onClick={onPrevMonth} label="Previous month">
+            <ChevronLeft />
+          </NavButton>
+        ) : (
+          <span className="h-8 w-8" aria-hidden />
+        )}
+        <h2 className="font-syne text-[16px] font-extrabold leading-none tracking-[-0.015em] text-[rgb(var(--fg-default))]">
           {fmtMonthYear(year, month0)}
         </h2>
-        <div className="flex items-center gap-1">
-          {onPrevMonth ? (
-            <NavButton onClick={onPrevMonth} label="Previous month">
-              <ChevronLeft />
-            </NavButton>
-          ) : (
-            <span className="h-8 w-8" aria-hidden />
-          )}
-          <NavButton onClick={onNextMonth} label="Next month">
-            <ChevronRight />
-          </NavButton>
-        </div>
+        <NavButton onClick={onNextMonth} label="Next month">
+          <ChevronRight />
+        </NavButton>
       </header>
 
       {!hasAnyAvailability ? (
@@ -824,16 +743,16 @@ function CalendarColumn({
       <div
         role="grid"
         aria-label={fmtMonthYear(year, month0)}
-        className="grid grid-cols-7 gap-1.5"
+        className="grid grid-cols-7 gap-1"
         onKeyDown={onGridKeyDown}
       >
         {WEEKDAY_HEADERS.map((w) => (
           <div
             key={w}
             role="columnheader"
-            className="pb-2 text-center font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]"
+            className="pb-2 text-center font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-faint))]"
           >
-            {w.slice(0, 3)}
+            {w.slice(0, 1)}
           </div>
         ))}
         {cells.map((cell, i) => {
@@ -875,18 +794,6 @@ function CalendarColumn({
           );
         })}
       </div>
-
-      <footer
-        className="mt-5 flex h-[18px] items-center gap-2 text-[11.5px] text-[rgb(var(--fg-muted))]"
-        aria-live="polite"
-      >
-        {tzLabel ? (
-          <>
-            <GlobeIcon />
-            <span className="font-mono tabular-nums">{tzLabel}</span>
-          </>
-        ) : null}
-      </footer>
     </div>
   );
 }
@@ -915,18 +822,23 @@ function DayCell({
   const disabled = !available;
   const tone = isSelected
     ? {
-        background: "rgb(var(--brand-primary))",
-        color: "rgb(var(--bg-sidebar))",
+        background: "rgb(var(--bg-sidebar))",
+        color: "rgb(var(--bg-elevated))",
+        boxShadow: "var(--shadow-md)",
       }
     : available
       ? {
-          background: "rgb(var(--brand-primary) / 0.1)",
+          background: "transparent",
           color: "rgb(var(--fg-default))",
         }
       : {
           background: "transparent",
           color: "rgb(var(--fg-faint))",
         };
+  // Available days carry a small amber availability dot; today keeps its
+  // pulsing dot. Both sit at the same anchor and never show on the
+  // selected (solid dark) cell.
+  const showAvailableDot = available && !isSelected && !isToday;
   return (
     <button
       ref={registerRef}
@@ -941,7 +853,7 @@ function DayCell({
       className={`book-stagger sk-press relative flex h-10 items-center justify-center rounded-full font-mono text-[13px] font-semibold tabular-nums disabled:cursor-not-allowed ${available ? "book-day-available" : ""}`}
       style={{
         ...tone,
-        transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, transform 180ms ${EASE_OUT}`,
+        transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}, transform 180ms ${EASE_OUT}`,
         animationDelay: `${String(staggerDelayMs)}ms`,
       }}
     >
@@ -950,6 +862,13 @@ function DayCell({
         <span
           aria-hidden
           className="book-pulse absolute bottom-1 h-1 w-1 rounded-full"
+          style={{ background: "rgb(var(--brand-primary))" }}
+        />
+      ) : null}
+      {showAvailableDot ? (
+        <span
+          aria-hidden
+          className="absolute bottom-1 h-1 w-1 rounded-full"
           style={{ background: "rgb(var(--brand-primary))" }}
         />
       ) : null}
@@ -979,255 +898,91 @@ function NavButton({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Time column — appears beside the calendar when a date is selected
+// Legend — available / selected / unavailable key (proto S10).
 // ──────────────────────────────────────────────────────────────────────
 
-function TimeColumn({
+function Legend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-[rgb(var(--fg-muted))]">
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          aria-hidden
+          className="h-[5px] w-[5px] rounded-full"
+          style={{ background: "rgb(var(--brand-primary))" }}
+        />
+        Available
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          aria-hidden
+          className="h-[7px] w-[7px] rounded-full"
+          style={{ background: "rgb(var(--bg-sidebar))" }}
+        />
+        Selected
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          aria-hidden
+          className="h-[7px] w-[7px] rounded-full border"
+          style={{ borderColor: "rgb(var(--border-strong))" }}
+        />
+        Unavailable
+      </span>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Time section — inline chips for the chosen day. Morning / Evening
+// groups render as wrap chips directly under the calendar (no side rail).
+// ──────────────────────────────────────────────────────────────────────
+
+function TimeSection({
   selectedDate,
   starts,
   chosenStart,
   onPickStart,
-  products,
-  selectedProductId,
-  onPickProduct,
-  usingCredit,
-  selectedPackage,
-  activeStudio,
-  isPending,
-  result,
-  onConfirm,
-  onBack,
 }: {
   selectedDate: string;
   starts: StartOption[];
   chosenStart: number | null;
   onPickStart: (opt: StartOption) => void;
-  products: Product[];
-  selectedProductId: string | null;
-  onPickProduct: (id: string) => void;
-  usingCredit: boolean;
-  selectedPackage: ActivePackage | null;
-  activeStudio: Studio | null;
-  isPending: boolean;
-  result: { ok: true } | { ok: false; error: string } | null;
-  onConfirm: () => void;
-  onBack: () => void;
 }) {
   const morningStarts = starts.filter((s) => s.block === "morning");
   const eveningStarts = starts.filter((s) => s.block === "evening");
-  const showServices = chosenStart != null && !usingCredit;
-  const showConfirm =
-    chosenStart != null && (usingCredit || selectedProductId !== null);
   const hours = DEFAULT_DURATION_MIN / 60;
 
   return (
     <section
       aria-label="Pick a time"
-      className="time-column col-span-full flex w-full flex-col border-t border-[rgb(var(--border-subtle))] p-6 lg:col-span-1 lg:w-[300px] lg:border-l lg:border-t-0 lg:p-7"
+      className="sk-rise space-y-3"
+      style={{ animationDelay: "60ms" }}
     >
-      {/* Mobile-only back to calendar. Desktop uses the column's own
-          context (calendar still visible to the left). */}
-      <button
-        type="button"
-        onClick={onBack}
-        className="sk-press mb-3 flex items-center gap-1.5 self-start font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))] lg:hidden"
-        aria-label="Back to calendar"
-      >
-        <ChevronLeft />
-        <span>{fmtDateShort(selectedDate)}</span>
-      </button>
+      <p className="px-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+        {fmtDateShort(selectedDate)} · Available times
+      </p>
 
-      <header className="mb-4 flex items-start justify-between gap-3">
-        <h3 className="font-display text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-[rgb(var(--fg-default))]">
-          {fmtDateLong(selectedDate)}
-        </h3>
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Close"
-          className="sk-press hidden h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] lg:flex"
-        >
-          <XIcon />
-        </button>
-      </header>
-
-      <div className="flex flex-col gap-4 overflow-y-auto lg:max-h-[480px]">
-        {morningStarts.length > 0 ? (
-          <TimeGroup
-            label="Morning"
-            starts={morningStarts}
-            chosenStart={chosenStart}
-            onPick={onPickStart}
-          />
-        ) : null}
-        {eveningStarts.length > 0 ? (
-          <TimeGroup
-            label="Evening"
-            starts={eveningStarts}
-            chosenStart={chosenStart}
-            onPick={onPickStart}
-          />
-        ) : null}
-        {starts.length === 0 ? (
-          <p className="text-[12.5px] text-[rgb(var(--fg-muted))]">
-            No {hours}-hour starts fit in this day&apos;s window.
-          </p>
-        ) : null}
-
-        {showServices ? (
-          <div className="service-reveal mt-1 border-t border-[rgb(var(--border-subtle))] pt-4">
-            <p
-              className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em]"
-              style={{ color: "rgb(var(--brand-primary-dark))" }}
-            >
-              Service
-            </p>
-            {products.length === 0 ? (
-              <p className="mt-2 text-[12.5px] text-[rgb(var(--fg-secondary))]">
-                {activeStudio?.name ?? "This producer"} hasn&apos;t listed
-                services yet. Reach out directly to lock this slot.
-              </p>
-            ) : (
-              <ul className="mt-2 space-y-1.5">
-                {products.map((p, i) => {
-                  const sel = p.id === selectedProductId;
-                  return (
-                    <li key={p.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onPickProduct(p.id);
-                        }}
-                        className="book-stagger sk-press flex w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border px-2.5 py-2 text-left"
-                        style={{
-                          background: sel
-                            ? "rgb(var(--brand-primary) / 0.06)"
-                            : "rgb(var(--bg-elevated))",
-                          borderColor: sel
-                            ? "rgb(var(--brand-primary))"
-                            : "rgb(var(--border-subtle))",
-                          transition: `background-color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}`,
-                          animationDelay: `${String(i * 35)}ms`,
-                        }}
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                            {p.name}
-                          </span>
-                          {p.sessionCount && p.sessionCount > 1 ? (
-                            <span className="text-[11px] text-[rgb(var(--fg-muted))]">
-                              {p.sessionCount} sessions
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="shrink-0 font-mono text-[12px] font-semibold tabular-nums text-[rgb(var(--fg-default))]">
-                          {fmtPrice(p.priceCents, p.currency)}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        ) : null}
-      </div>
-
-      {result && !result.ok ? (
-        <p
-          role="alert"
-          className="mt-3 rounded-[var(--radius-sm)] px-3 py-2 text-[12px]"
-          style={{
-            background: "rgb(var(--fg-danger) / 0.08)",
-            color: "rgb(var(--fg-danger))",
-          }}
-        >
-          {result.error}
+      {morningStarts.length > 0 ? (
+        <TimeGroup
+          label="Morning"
+          starts={morningStarts}
+          chosenStart={chosenStart}
+          onPick={onPickStart}
+        />
+      ) : null}
+      {eveningStarts.length > 0 ? (
+        <TimeGroup
+          label="Evening"
+          starts={eveningStarts}
+          chosenStart={chosenStart}
+          onPick={onPickStart}
+        />
+      ) : null}
+      {starts.length === 0 ? (
+        <p className="px-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
+          No {hours}-hour starts fit in this day&apos;s window.
         </p>
       ) : null}
-      {result?.ok ? (
-        <p
-          role="status"
-          className="mt-3 rounded-[var(--radius-sm)] px-3 py-2 text-[12px] font-semibold"
-          style={{
-            background: "rgb(var(--fg-success) / 0.1)",
-            color: "rgb(var(--fg-success))",
-          }}
-        >
-          Booked. The producer will confirm next.
-        </p>
-      ) : null}
-
-      {showConfirm ? (
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={isPending || result?.ok}
-          className="book-cta-lift sk-press mt-4 w-full rounded-[var(--radius-md)] px-4 py-2.5 text-[13.5px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
-          style={{
-            background: "rgb(var(--brand-primary))",
-            color: "rgb(var(--bg-sidebar))",
-          }}
-        >
-          {isPending
-            ? "Sending…"
-            : result?.ok
-              ? "Sent"
-              : usingCredit
-                ? `Use credit · ${String(selectedPackage?.sessionsRemaining ?? 0)} left`
-                : "Send booking request"}
-        </button>
-      ) : null}
-
-      <style jsx>{`
-        @keyframes time-column-in-desktop {
-          from {
-            opacity: 0;
-            transform: translateX(-8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-        @keyframes time-column-in-mobile {
-          from {
-            opacity: 0;
-            transform: translateY(6px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        @keyframes service-reveal-in {
-          from {
-            opacity: 0;
-            transform: translateY(-4px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .time-column {
-          animation: time-column-in-mobile 200ms ${EASE_OUT} both;
-        }
-        @media (min-width: 1024px) {
-          .time-column {
-            animation: time-column-in-desktop 200ms ${EASE_OUT} both;
-          }
-        }
-        .service-reveal {
-          animation: service-reveal-in 180ms ${EASE_OUT} both;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .time-column,
-          .service-reveal {
-            animation: none !important;
-          }
-        }
-      `}</style>
     </section>
   );
 }
@@ -1245,40 +1000,40 @@ function TimeGroup({
 }) {
   return (
     <div>
-      <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+      <p className="mb-2 px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-faint))]">
         {label}
       </p>
-      <ul className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-2">
         {starts.map((s, i) => {
           const sel = s.minutes === chosenStart;
           return (
-            <li key={s.minutes}>
-              <button
-                type="button"
-                onClick={() => {
-                  onPick(s);
-                }}
-                className="time-pill book-stagger sk-press flex w-full items-center justify-center rounded-[var(--radius-md)] border px-3 py-2.5 font-mono text-[13px] font-semibold tabular-nums"
-                style={{
-                  background: sel
-                    ? "rgb(var(--brand-primary))"
-                    : "transparent",
-                  color: sel
-                    ? "rgb(var(--bg-sidebar))"
-                    : "rgb(var(--fg-default))",
-                  borderColor: sel
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--border-strong))",
-                  transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, transform 180ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}`,
-                  animationDelay: `${String(i * 35)}ms`,
-                }}
-              >
-                {fmtClock(s.minutes)}
-              </button>
-            </li>
+            <button
+              key={s.minutes}
+              type="button"
+              onClick={() => {
+                onPick(s);
+              }}
+              className="time-pill book-stagger sk-press flex items-center justify-center rounded-card border px-5 py-3 font-amount text-[14px] font-semibold"
+              style={{
+                background: sel
+                  ? "rgb(var(--brand-primary))"
+                  : "rgb(var(--bg-elevated))",
+                color: sel
+                  ? "rgb(var(--bg-sidebar))"
+                  : "rgb(var(--fg-default))",
+                borderColor: sel
+                  ? "rgb(var(--brand-primary))"
+                  : "rgb(var(--border-strong))",
+                boxShadow: sel ? "var(--shadow-glow)" : "var(--shadow-sm)",
+                transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, transform 180ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}`,
+                animationDelay: `${String(i * 35)}ms`,
+              }}
+            >
+              {fmtClock(s.minutes)}
+            </button>
           );
         })}
-      </ul>
+      </div>
       <style jsx>{`
         @media (hover: hover) and (pointer: fine) {
           .time-pill:not([style*="rgb(var(--brand-primary))"]):hover {
@@ -1294,47 +1049,212 @@ function TimeGroup({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Icons — small, stroke-consistent inline SVG that inherits color.
+// Service block — pay-path product picker, folded inline (no side rail).
 // ──────────────────────────────────────────────────────────────────────
 
-function ClockIcon() {
+function ServiceBlock({
+  products,
+  selectedProductId,
+  activeStudio,
+  onPick,
+}: {
+  products: Product[];
+  selectedProductId: string | null;
+  activeStudio: Studio | null;
+  onPick: (id: string) => void;
+}) {
   return (
-    <svg
-      aria-hidden
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ color: "rgb(var(--brand-primary-dark))" }}
+    <section
+      aria-label="Service"
+      className="sk-rise space-y-2"
+      style={{ animationDelay: "40ms" }}
     >
-      <circle cx="8" cy="8" r="6.5" />
-      <path d="M8 4.5V8l2.25 1.5" />
-    </svg>
+      <p
+        className="px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em]"
+        style={{ color: "rgb(var(--brand-primary-dark))" }}
+      >
+        Service
+      </p>
+      {products.length === 0 ? (
+        <p className="px-1 text-[12.5px] text-[rgb(var(--fg-secondary))]">
+          {activeStudio?.name ?? "This producer"} hasn&apos;t listed services
+          yet. Reach out directly to lock this slot.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {products.map((p, i) => {
+            const sel = p.id === selectedProductId;
+            return (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onPick(p.id);
+                  }}
+                  className="book-stagger sk-press flex w-full items-center justify-between gap-2 rounded-card border px-4 py-3 text-left"
+                  style={{
+                    background: sel
+                      ? "rgb(var(--brand-primary) / 0.06)"
+                      : "rgb(var(--bg-elevated))",
+                    borderColor: sel
+                      ? "rgb(var(--brand-primary))"
+                      : "rgb(var(--border-strong))",
+                    boxShadow: sel
+                      ? "0 0 0 1px rgb(var(--brand-primary)), var(--shadow-sm)"
+                      : "var(--shadow-sm)",
+                    transition: `background-color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}`,
+                    animationDelay: `${String(i * 35)}ms`,
+                  }}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
+                      {p.name}
+                    </span>
+                    {p.sessionCount && p.sessionCount > 1 ? (
+                      <span className="text-[11px] text-[rgb(var(--fg-muted))]">
+                        {p.sessionCount} sessions
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 font-amount text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                    {fmtPrice(p.priceCents, p.currency)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 
-function BoltIcon() {
+// ──────────────────────────────────────────────────────────────────────
+// Credits block — "use a prepaid session" toggle, folded inline.
+// ──────────────────────────────────────────────────────────────────────
+
+function CreditsBlock({
+  packages,
+  selectedProjectId,
+  onPick,
+  onClear,
+}: {
+  packages: ActivePackage[];
+  selectedProjectId: string | null;
+  onPick: (projectId: string) => void;
+  onClear: () => void;
+}) {
+  const totalLeft = packages.reduce((n, p) => n + p.sessionsRemaining, 0);
   return (
-    <svg
-      aria-hidden
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ color: "rgb(var(--brand-primary-dark))" }}
+    <section
+      aria-label="Your prepaid sessions"
+      className="sk-rise rounded-card border p-3.5"
+      style={{
+        background: "rgb(var(--brand-primary) / 0.05)",
+        borderColor: "rgb(var(--brand-primary) / 0.25)",
+        animationDelay: "40ms",
+      }}
     >
-      <path d="M9 1.5 3 9h4l-1 5.5L13 7H9l1-5.5z" />
-    </svg>
+      <header className="flex items-baseline justify-between gap-3">
+        <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+          Use a prepaid session
+        </h2>
+        <p className="font-amount text-[10.5px] text-[rgb(var(--fg-secondary))]">
+          {totalLeft} left
+        </p>
+      </header>
+      <ul className="mt-2.5 space-y-1.5">
+        {packages.map((pkg) => {
+          const sel = pkg.projectId === selectedProjectId;
+          const exhausted = pkg.sessionsRemaining <= 0;
+          return (
+            <li key={pkg.projectId}>
+              <button
+                type="button"
+                onClick={() => {
+                  onPick(pkg.projectId);
+                }}
+                disabled={exhausted}
+                className="sk-press flex w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border px-2.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  background: sel
+                    ? "rgb(var(--brand-primary))"
+                    : "rgb(var(--bg-elevated))",
+                  borderColor: sel
+                    ? "rgb(var(--brand-primary))"
+                    : "rgb(var(--brand-primary) / 0.25)",
+                  color: sel
+                    ? "rgb(var(--bg-sidebar))"
+                    : "rgb(var(--fg-default))",
+                  transition: `background-color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}`,
+                }}
+              >
+                <span className="truncate text-[12.5px] font-semibold">
+                  {pkg.packageName ?? pkg.title}
+                </span>
+                <span
+                  className="shrink-0 rounded-[var(--radius-sm)] px-1.5 py-0.5 font-amount text-[10px] font-bold"
+                  style={{
+                    background: sel
+                      ? "rgb(var(--bg-sidebar) / 0.15)"
+                      : "rgb(var(--brand-primary) / 0.12)",
+                    color: sel
+                      ? "rgb(var(--bg-sidebar))"
+                      : "rgb(var(--brand-primary-dark))",
+                  }}
+                >
+                  {pkg.sessionsRemaining}/{pkg.sessionCount}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <button
+        type="button"
+        onClick={onClear}
+        className="sk-press mt-2 text-[11px] underline decoration-dotted underline-offset-2"
+        style={{
+          color:
+            selectedProjectId === null
+              ? "rgb(var(--brand-primary-dark))"
+              : "rgb(var(--fg-muted))",
+        }}
+      >
+        {selectedProjectId === null
+          ? "Paying for a new session"
+          : "Pay for a new session instead"}
+      </button>
+    </section>
   );
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Time-zone note — live wall-clock + reminder footnote (polite live
+// region preserved from the calendar footer).
+// ──────────────────────────────────────────────────────────────────────
+
+function TimeZoneNote() {
+  const tzLabel = useLiveTimeZoneLabel();
+  return (
+    <div
+      className="flex items-center gap-2 px-1 text-[11.5px] text-[rgb(var(--fg-muted))]"
+      aria-live="polite"
+    >
+      {tzLabel ? (
+        <>
+          <GlobeIcon />
+          <span className="font-amount">{tzLabel}</span>
+          <span aria-hidden>· Reminders go out 24h &amp; 1h before.</span>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Icons — small, stroke-consistent inline SVG that inherits color.
+// ──────────────────────────────────────────────────────────────────────
 
 function GlobeIcon() {
   return (
@@ -1387,24 +1307,6 @@ function ChevronRight() {
       strokeLinejoin="round"
     >
       <path d="m6 3 5 5-5 5" />
-    </svg>
-  );
-}
-
-function XIcon() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 16 16"
-      width="13"
-      height="13"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m4 4 8 8M12 4l-8 8" />
     </svg>
   );
 }

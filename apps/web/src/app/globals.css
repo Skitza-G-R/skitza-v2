@@ -60,6 +60,10 @@
   --radius-lg: 16px;
   --radius-xl: 20px;
   --radius-2xl: 28px;
+  /* Funnel card radius — the artist purchase prototype uses 18px cards
+     (proto `--r-card`), one notch larger than the global 16px --radius-lg.
+     Yields `rounded-card` in Tailwind for funnel surfaces. */
+  --radius-card: 18px;
 
   /* Fonts — `next/font/google` injects --font-syne / --font-outfit /
      --font-jetbrains-mono on <html>; @theme rebroadcasts them as
@@ -139,6 +143,7 @@
     --radius-lg: 16px;
     --radius-xl: 20px;
     --radius-2xl: 28px;
+    --radius-card: 18px;   /* funnel cards — see @theme note */
 
     /* Shadows — recalibrated to the new palette. The "warm near-black"
        cast (#111009) makes shadows read warmer than pure-black RGB. */
@@ -650,6 +655,18 @@
   }
   .sk-press:active { transform: scale(0.97); filter: brightness(0.96); }
 
+  /* Spring press — the funnel's amber PrimaryCta. Identical contract to
+     `.sk-press` but releases on the overshoot curve (--ease-press) so the
+     button springs back rather than easing, matching the prototype's
+     tactile amber CTA. Reduced-motion no-op below. */
+  .sk-cta-press {
+    transition: transform 200ms var(--ease-press), filter 150ms ease, box-shadow 220ms var(--ease-out-strong);
+  }
+  @media (hover: hover) {
+    .sk-cta-press:hover { filter: brightness(1.04); }
+  }
+  .sk-cta-press:active { transform: scale(0.965); filter: brightness(0.97); }
+
   /* ----------------------------------------------------------------
    * Sidebar motion — drawer-curve width transition + chevron rotation
    * + active-bar fade. Three primitives, all motion-safe and disabled
@@ -1112,6 +1129,123 @@
     animation: sk-pick-pulse 220ms var(--ease-out-strong);
   }
 
+  /* ────────────────────────────────────────────────────────────────
+   * Artist purchase funnel — prototype-match primitives (SK-41, Jun 2026).
+   * The mobile purchase funnel (S3 Detail → S12 Manage) leans on a small
+   * set of premium motions straight from the prototype. All are
+   * transform/opacity-only (GPU) and neutralised in the reduced-motion
+   * block below. Easing reference:
+   *   entrance  cubic-bezier(.16,1,.3,1)   — sk-rise / sk-breathe
+   *   spring    cubic-bezier(.34,1.56,.64,1) — pop-in emblems/badges
+   * ──────────────────────────────────────────────────────────────── */
+
+  /* Staggered section/list entrance. Pair with an inline
+     `animation-delay` (40–60ms steps) for a cascading reveal. */
+  @keyframes sk-rise {
+    from { opacity: 0; transform: translateY(11px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .sk-rise {
+    animation: sk-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* Shimmer sweep — a positioned highlight that slides across a card or
+     skeleton. Apply `.sk-sheen` to a `position: relative; overflow:
+     hidden` parent; the ::after layer is the moving gloss band. */
+  @keyframes sk-sheen {
+    0%   { left: -60%; }
+    24%  { left: 130%; }
+    100% { left: 130%; }
+  }
+  .sk-sheen {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .sk-sheen::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -60%;
+    width: 60%;
+    pointer-events: none;
+    z-index: 1;
+    background: linear-gradient(
+      100deg,
+      transparent 0%,
+      rgb(255 255 255 / 0.45) 50%,
+      transparent 100%
+    );
+    transform: skewX(-12deg);
+    animation: sk-sheen 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  /* Confirmation emblem ring — an expanding/fading ring behind a
+     check/badge. Apply to an absolutely-positioned ring element layered
+     under the emblem. */
+  @keyframes sk-ripple {
+    0%   { transform: scale(1);   opacity: 0.7; }
+    100% { transform: scale(1.7); opacity: 0; }
+  }
+  .sk-ripple {
+    animation: sk-ripple 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  }
+
+  /* Soft pulse halo — emphasis ring on a confirmed/active emblem.
+     currentColor lets the consumer tint it (green check, amber dot). */
+  @keyframes sk-pulse {
+    0%   { box-shadow: 0 0 0 0 currentColor; opacity: 0.9; }
+    70%  { opacity: 0.3; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+  .sk-pulse {
+    animation: sk-pulse 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  /* Breathing opacity — pending / loading dots and "waiting" states. */
+  @keyframes sk-breathe {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+  }
+  .sk-breathe {
+    animation: sk-breathe 1.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  }
+
+  /* Bottom-sheet slide-up alias — `.animate-slide-up-modal` maps onto the
+     existing `skitza-slide-up-modal` keyframe so funnel bottom sheets
+     (cancel sheet) read the same as the Dialog/Sheet primitives. */
+  .animate-slide-up-modal {
+    animation: skitza-slide-up-modal 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transform-origin: bottom;
+  }
+
+  /* CTA gloss sweep — a one-direction diagonal shine that crosses the
+     primary "Request to book" / "Pay" button. Apply `.sk-gloss` to a
+     `position: relative; overflow: hidden` button; the ::after band
+     sweeps across on a gentle loop. Reuses the `skitza-cta-shine`
+     keyframe (translateX + skew). */
+  .sk-gloss {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .sk-gloss::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    background: linear-gradient(
+      110deg,
+      transparent 30%,
+      rgb(255 255 255 / 0.22) 50%,
+      transparent 70%
+    );
+    transform: translateX(-140%) skewX(-14deg);
+    animation: skitza-cta-shine 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  }
+
   /* Drag handle is hidden on touch-only devices — producer is desktop-
      only per CLAUDE.md and native HTML5 DnD doesn't behave well on touch. */
   @media (hover: none) {
@@ -1150,7 +1284,19 @@
     .sk-row-in,
     .sk-step-enter,
     .sk-drop-fade,
-    .sk-pick-pulse { animation: none !important; }
+    .sk-pick-pulse,
+    .sk-rise,
+    .sk-sheen::after,
+    .sk-ripple,
+    .sk-pulse,
+    .sk-breathe,
+    .animate-slide-up-modal,
+    .sk-gloss::after { animation: none !important; }
+    /* Funnel entrance/breathe primitives also force their resting
+       (revealed) state so reduced-motion users never see a flash of the
+       pre-animation frame. */
+    .sk-rise { opacity: 1 !important; transform: none !important; }
+    .sk-breathe { opacity: 1 !important; }
     .ob-stagger > * { opacity: 1 !important; transform: none !important; }
     .ob-press,
     .ob-card-press,
@@ -1175,6 +1321,8 @@
     .sk-lift:hover { transform: none !important; box-shadow: var(--shadow-sm) !important; }
     .sk-press { transition-duration: 0ms !important; }
     .sk-press:active { transform: none !important; filter: none !important; }
+    .sk-cta-press { transition-duration: 0ms !important; }
+    .sk-cta-press:active { transform: none !important; filter: none !important; }
     .sk-sidebar-shell { transition-duration: 0ms !important; }
     .sk-sidebar-chevron { transition-duration: 0ms !important; }
     .sk-sidebar-active-bar { transition-duration: 0ms !important; }
@@ -1229,4 +1377,18 @@
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
   font-feature-settings: "ss02", "zero", "tnum";
   font-variant-numeric: tabular-nums;
+}
+
+/* Amounts & timestamps — the artist purchase funnel renders ₪ prices,
+   running totals, and times in JetBrains Mono (the prototype's mono).
+   `.font-amount` is the semantic alias the funnel screens reach for so
+   the intent is legible at the call-site ("this is a money/time value").
+   Same family + tabular-nums as `font-mono`; the slashed-zero `zero`
+   feature keeps ₪0 / 0:00 unambiguous. Surgical — only call-sites that
+   add this class change. */
+@utility font-amount {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-feature-settings: "zero", "tnum";
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }

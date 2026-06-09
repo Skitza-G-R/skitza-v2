@@ -25,6 +25,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
+import { artistPurchaseRouter } from "./purchase";
 import { groupStudiosForArtist } from "~/server/artist/identity";
 import {
   SITE_URL,
@@ -2199,6 +2200,11 @@ export const artistRouter = router({
 
   // Catalog + checkout. See storeSubrouter for per-procedure docs.
   store: storeSubrouter,
+
+  // Purchase flow (SK-37 / BE-1). request / acceptAgreement / get plus
+  // the frozen BE-2/3/4 stubs. Lives in its own file so the backend
+  // track never collides with the screens track.
+  purchase: artistPurchaseRouter,
 });
 
 // Activity-feed item shape — exported for the component prop type.
