@@ -10,7 +10,7 @@
 import { useRouter } from "next/navigation";
 
 import { Check, CheckLarge, CloseIcon, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
-import { GlassRound, PrimaryCta, SecondaryCta } from "~/components/artist/funnel/funnel-ui";
+import { GlassRound, PrimaryCta, RippleEmblem, SecondaryCta } from "~/components/artist/funnel/funnel-ui";
 import {
   coverGradient,
   formatShekels,
@@ -57,23 +57,10 @@ export function RequestSentScreen({
         <div className="mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
           {/* hero */}
           <div className="sk-safe-top flex flex-col items-center px-[30px] pt-[72px] text-center">
-            {/* emblem with ripple rings */}
-            <div className="relative mb-[26px]">
-              <span
-                className="absolute -inset-[18px] animate-ping rounded-full"
-                style={{ border: "1.5px solid rgb(var(--brand-primary) / 0.25)" }}
-              />
-              <span
-                className="relative flex h-[92px] w-[92px] items-center justify-center rounded-full text-[rgb(var(--brand-primary))]"
-                style={{
-                  background: "rgb(var(--bg-sidebar))",
-                  boxShadow:
-                    "0 20px 46px -14px rgb(17 16 9 / 0.55), inset 0 0 0 1.5px rgb(var(--brand-primary) / 0.35)",
-                }}
-              >
-                <CheckLarge />
-              </span>
-            </div>
+            {/* emblem with rippling rings (foundation: two staggered sk-ripple rings) */}
+            <RippleEmblem tone="amber" className="mb-[26px]">
+              <CheckLarge />
+            </RippleEmblem>
 
             <div className="reveal-up mb-3.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[rgb(var(--brand-primary-dark))]">
               Request sent · #{requestRef}
@@ -89,7 +76,7 @@ export function RequestSentScreen({
           {/* ticket stub */}
           <div className="reveal-up reveal-up-delay-3 px-[22px] pt-6">
             <div
-              className="relative overflow-hidden rounded-[var(--radius-xl)]"
+              className="relative overflow-hidden rounded-card"
               style={{
                 background: "rgb(var(--bg-elevated))",
                 border: "1px solid rgb(var(--border-subtle))",
@@ -121,7 +108,7 @@ export function RequestSentScreen({
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-syne text-[19px] font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))]">
+                  <div className="font-amount text-[19px] font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))]">
                     {formatShekels(product.priceCents)}
                   </div>
                   <div className="font-mono text-[8.5px] tracking-[0.08em] text-[rgb(var(--brand-primary-dark))]">
@@ -160,8 +147,11 @@ export function RequestSentScreen({
                   {steps.map((step, i) => (
                     <div
                       key={step.title}
-                      className="relative flex gap-[13px]"
-                      style={{ paddingBottom: i === steps.length - 1 ? 0 : 16 }}
+                      className="sk-rise relative flex gap-[13px]"
+                      style={{
+                        animationDelay: `${String(40 + i * 70)}ms`,
+                        paddingBottom: i === steps.length - 1 ? 0 : 16,
+                      }}
                     >
                       {i < steps.length - 1 ? (
                         <span
