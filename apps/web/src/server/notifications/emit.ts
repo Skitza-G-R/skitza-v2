@@ -48,3 +48,79 @@ export async function emitBookingRequested(db: Db, input: {
     bookingId: input.bookingId,
   });
 }
+
+// ─── Purchase flow (SK-37 / BE-1) ───────────────────────────────────
+// Producer-facing inbox events for the artist purchase journey. Same
+// fire-and-forget contract as the helpers above — callers wrap in
+// try/catch so a notify failure never breaks the request/approve flow.
+
+export async function emitPurchaseRequested(db: Db, input: {
+  producerId: string;
+  purchaseRequestId: string;
+  artistName: string;
+  artistEmail: string;
+  productName: string;
+  refNumber: string;
+}): Promise<void> {
+  await db.insert(notifications).values({
+    producerId: input.producerId,
+    kind: "purchase_requested",
+    title: `${input.artistName} wants to buy ${input.productName}`,
+    body: `${input.refNumber} — ${input.artistEmail}`,
+    purchaseRequestId: input.purchaseRequestId,
+  });
+}
+
+export async function emitPurchaseApproved(db: Db, input: {
+  producerId: string;
+  purchaseRequestId: string;
+  artistName: string;
+  productName: string;
+  refNumber: string;
+}): Promise<void> {
+  await db.insert(notifications).values({
+    producerId: input.producerId,
+    kind: "purchase_approved",
+    title: `You approved ${input.artistName}'s purchase`,
+    body: `${input.refNumber} — ${input.productName}`,
+    purchaseRequestId: input.purchaseRequestId,
+  });
+}
+
+export async function emitPurchaseDeclined(db: Db, input: {
+  producerId: string;
+  purchaseRequestId: string;
+  artistName: string;
+  productName: string;
+  refNumber: string;
+  reason?: string | null;
+}): Promise<void> {
+  // The reason is producer-internal only — the artist always sees a
+  // generic decline message (BE-1 success criteria).
+  const body = input.reason
+    ? `${input.refNumber} — ${input.productName} · ${input.reason}`
+    : `${input.refNumber} — ${input.productName}`;
+  await db.insert(notifications).values({
+    producerId: input.producerId,
+    kind: "purchase_declined",
+    title: `You declined ${input.artistName}'s purchase`,
+    body,
+    purchaseRequestId: input.purchaseRequestId,
+  });
+}
+
+export async function emitAgreementAccepted(db: Db, input: {
+  producerId: string;
+  purchaseRequestId: string;
+  artistName: string;
+  productName: string;
+  refNumber: string;
+}): Promise<void> {
+  await db.insert(notifications).values({
+    producerId: input.producerId,
+    kind: "agreement_accepted",
+    title: `${input.artistName} accepted the agreement`,
+    body: `${input.refNumber} — ${input.productName}`,
+    purchaseRequestId: input.purchaseRequestId,
+  });
+}
