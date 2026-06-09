@@ -15,9 +15,11 @@ import {
   coverGradient,
   formatShekels,
   type Producer,
-  MOCK_PRODUCER as PURCHASE_MOCK_PRODUCER,
   swatchGradient,
 } from "../purchase/purchase-data";
+// MOCK — the placeholder producer moved to pay-data when the Commit screens
+// went live on BE-1 (SK-46); sessions stay mock until BE-3 (SK-39).
+import { MOCK_PRODUCER as PURCHASE_MOCK_PRODUCER } from "../purchase/pay-data";
 
 // Re-export the shared store primitives so the sessions screens import from
 // one place (no duplicate gradient/format logic).

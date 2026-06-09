@@ -22,6 +22,7 @@ import {
   FunnelTopBar,
   PrimaryCta,
 } from "~/components/artist/funnel/funnel-ui";
+import { requestToBookAction } from "./actions";
 import {
   type AgreementTerm,
   formatShekels,
@@ -49,10 +50,15 @@ export function ReviewAgreeScreen({
     setSending(true);
     setError(null);
     try {
-      // Mock: BE-1's `artist.purchase.request` lands here. It locks the
-      // price, creates the pending request, and returns the ref shown on S5.
-      await new Promise((resolve) => setTimeout(resolve, 1100));
-      router.push(`/artist/purchase/${product.id}/sent`);
+      // BE-1's `artist.purchase.request` (via server action). Locks the
+      // price, creates the pending request, returns the ref shown on S5.
+      const res = await requestToBookAction({ productId: product.id });
+      if (res.ok) {
+        router.push(`/artist/purchase/${product.id}/sent?req=${res.purchaseRequestId}`);
+        return;
+      }
+      setSending(false);
+      setError(res.error);
     } catch {
       setSending(false);
       setError("Couldn't send your request. Check your connection and try again.");
@@ -69,7 +75,7 @@ export function ReviewAgreeScreen({
           title="Review & agree"
           sub="BOOKING TERMS"
           onBack={() => {
-            router.push(`/artist/store/${product.id}`);
+            router.push(`/artist/purchase/${product.id}`);
           }}
         />
 
@@ -79,7 +85,9 @@ export function ReviewAgreeScreen({
             Before we send it
           </h1>
           <p className="reveal-up reveal-up-delay-1 mt-2 text-pretty text-[14px] leading-relaxed text-[rgb(var(--fg-muted))]">
-            {`Here's the plain-language version of your booking terms. ${producer.name}'s full signed agreement is attached as a PDF below.`}
+            {producer.agreement
+              ? `Here's the plain-language version of your booking terms. ${producer.name}'s full signed agreement is attached as a PDF below.`
+              : `Here's the plain-language version of your booking terms with ${producer.name}.`}
           </p>
 
           {/* what you're agreeing to — dark price-locked summary */}
@@ -107,45 +115,47 @@ export function ReviewAgreeScreen({
             </div>
           </div>
 
-          {/* producer-uploaded binding PDF */}
-          <div className="reveal-up reveal-up-delay-2 mt-4">
-            <Eyebrow className="mb-[9px]">
-              <DocIcon />
-              {producer.name}&apos;s full agreement
-            </Eyebrow>
-            <div
-              className="flex w-full items-center gap-3.5 rounded-card px-4 py-3.5"
-              style={{
-                background: "rgb(var(--bg-elevated))",
-                border: "1px solid rgb(var(--border-subtle))",
-                boxShadow: "var(--shadow-sm)",
-              }}
-            >
-              <span
-                className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[12px]"
+          {/* producer-uploaded binding PDF — hidden when none is uploaded */}
+          {producer.agreement ? (
+            <div className="reveal-up reveal-up-delay-2 mt-4">
+              <Eyebrow className="mb-[9px]">
+                <DocIcon />
+                {producer.name}&apos;s full agreement
+              </Eyebrow>
+              <div
+                className="flex w-full items-center gap-3.5 rounded-card px-4 py-3.5"
                 style={{
-                  background: "rgb(var(--brand-primary) / 0.14)",
-                  color: "rgb(var(--brand-primary-dark))",
+                  background: "rgb(var(--bg-elevated))",
+                  border: "1px solid rgb(var(--border-subtle))",
+                  boxShadow: "var(--shadow-sm)",
                 }}
               >
-                <DocIcon width={22} height={22} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[14px] font-semibold text-[rgb(var(--fg-default))]">
-                  {producer.agreement.filename}
-                </div>
-                <div className="mt-[3px] font-mono text-[10.5px] tracking-[0.02em] text-[rgb(var(--fg-muted))]">
-                  PDF · {producer.agreement.sizeLabel} · uploaded by {producer.name}
+                <span
+                  className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[12px]"
+                  style={{
+                    background: "rgb(var(--brand-primary) / 0.14)",
+                    color: "rgb(var(--brand-primary-dark))",
+                  }}
+                >
+                  <DocIcon width={22} height={22} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-semibold text-[rgb(var(--fg-default))]">
+                    {producer.agreement.filename}
+                  </div>
+                  <div className="mt-[3px] font-mono text-[10.5px] tracking-[0.02em] text-[rgb(var(--fg-muted))]">
+                    PDF · uploaded by {producer.name}
+                  </div>
                 </div>
               </div>
+              <div className="mt-[9px] flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+                <span className="mt-px">
+                  <ShieldIcon />
+                </span>
+                <span>The PDF is the binding document. The summary below is for easy reading.</span>
+              </div>
             </div>
-            <div className="mt-[9px] flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-              <span className="mt-px">
-                <ShieldIcon />
-              </span>
-              <span>The PDF is the binding document. The summary below is for easy reading.</span>
-            </div>
-          </div>
+          ) : null}
 
           {/* scrollable plain-language terms */}
           <div className="reveal-up reveal-up-delay-3 mt-[18px]">
@@ -228,7 +238,9 @@ export function ReviewAgreeScreen({
                 setAgreed((v) => !v);
               }}
             >
-              {"I've read the agreement (PDF) and agree to these terms."}
+              {producer.agreement
+                ? "I've read the agreement (PDF) and agree to these terms."
+                : "I've read and agree to these terms."}
             </AgreeCheck>
           </div>
         </div>

@@ -30,8 +30,9 @@ describe("product-detail-screen.tsx (S3) wiring", () => {
     expect(s3Src).toMatch(/PRICE LOCKS WHEN YOU REQUEST/);
   });
 
-  it("maps the what's-included list", () => {
+  it("maps the what's-included list, hidden when deliverables are empty", () => {
     expect(s3Src).toMatch(/product\.includes\.map/);
+    expect(s3Src).toMatch(/product\.includes\.length > 0 \? \(/);
   });
 
   it("shows the producer mini-row (avatar gradient + name)", () => {

@@ -10,11 +10,35 @@
 import {
   formatShekels,
   swatchGradient,
-  MOCK_PRODUCT,
-  MOCK_PRODUCER,
   type Producer,
   type PurchaseProduct,
 } from "./purchase-data";
+
+// ── Placeholder product + producer (BE-2 / BE-3 era) ────────────────────────
+// The Commit screens (S3/S4/S5) were wired to REAL BE-1 data in SK-46; these
+// placeholders remain ONLY for the Pay slice (until BE-2 / SK-38) and the
+// sessions pages (until BE-3 / SK-39), which import them from here.
+export const MOCK_PRODUCER: Producer = {
+  name: "Gili Studio",
+  initials: "GS",
+  hue: 30,
+  agreement: { filename: "Booking_Agreement.pdf" },
+};
+
+export const MOCK_PRODUCT: PurchaseProduct = {
+  id: "g1",
+  name: "Single — start to finish",
+  priceCents: 240000,
+  currency: "ILS",
+  durationLabel: "Multi-session · 3–4 weeks",
+  includes: [
+    "Up to 4 song parts tracked",
+    "Comped & tuned lead vocal",
+    "Full mix + master",
+    "2 revision rounds",
+    "WAV stems + masters delivered",
+  ],
+};
 
 // ── Payment plans ─────────────────────────────────────────────────────────
 
@@ -167,8 +191,6 @@ export function proofStatusCopy(
 export {
   formatShekels,
   swatchGradient,
-  MOCK_PRODUCT,
-  MOCK_PRODUCER,
   type Producer,
   type PurchaseProduct,
 };

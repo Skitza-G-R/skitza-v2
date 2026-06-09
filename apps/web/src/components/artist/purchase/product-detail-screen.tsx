@@ -139,7 +139,9 @@ export function ProductDetailScreen({
             </span>
           </div>
 
-          {/* what's included — amber-check list on an 18px card */}
+          {/* what's included — amber-check list on an 18px card. Hidden when
+              the producer hasn't filled deliverables (real BE-1 data). */}
+          {product.includes.length > 0 ? (
           <div className="sk-rise mt-6" style={{ animationDelay: "180ms" }}>
             <Eyebrow className="mb-[11px]">What&apos;s included</Eyebrow>
             <div
@@ -177,6 +179,7 @@ export function ProductDetailScreen({
               ))}
             </div>
           </div>
+          ) : null}
 
           {/* payment-plan hint */}
           <div

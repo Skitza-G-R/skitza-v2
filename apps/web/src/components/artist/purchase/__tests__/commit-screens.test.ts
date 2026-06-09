@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAgreementTerms,
   formatShekels,
-  makeRequestRef,
+  includesOrFallback,
 } from "../purchase-data";
 
 // Real unit tests for the pure data helpers (no rendering needed), plus
@@ -20,20 +20,21 @@ describe("purchase-data helpers", () => {
     expect(formatShekels(90000)).toBe("₪900");
   });
 
-  it("derives a stable booking ref from the product (deterministic)", () => {
-    const product = { id: "g1", sku: "GS-01" };
-    expect(makeRequestRef(product)).toBe("SKZ-2743-01");
-    // same input → same ref (no Date/random)
-    expect(makeRequestRef(product)).toBe(makeRequestRef(product));
-    expect(makeRequestRef(product)).toMatch(/^SKZ-\d+-\d{2}$/);
-  });
-
   it("builds the agreement summary with the producer name woven in", () => {
     const terms = buildAgreementTerms("Gili Studio", ["Mix", "Master"]);
     expect(terms).toHaveLength(7);
     expect(terms[0]?.body).toContain("Gili Studio");
     const included = terms.find((t) => t.heading === "What's included");
     expect(included?.points).toEqual(["Mix", "Master"]);
+  });
+
+  it("falls back to a generic covers-line when deliverables are empty", () => {
+    expect(includesOrFallback([], "Gili Studio")).toEqual([
+      "Everything agreed with Gili Studio for this offer",
+    ]);
+    const terms = buildAgreementTerms("Gili Studio", []);
+    const included = terms.find((t) => t.heading === "What's included");
+    expect(included?.points?.length).toBe(1);
   });
 });
 
@@ -49,8 +50,20 @@ describe("review-agree-screen.tsx (S4) wiring", () => {
     expect(s4Src).toMatch(/<AgreeCheck/);
   });
 
-  it("routes to the request-sent screen on a successful send", () => {
-    expect(s4Src).toMatch(/router\.push\(`\/artist\/purchase\/\$\{product\.id\}\/sent`\)/);
+  it("fires the real BE-1 request action, then routes to S5 with the request id", () => {
+    expect(s4Src).toMatch(/requestToBookAction\(\{ productId: product\.id \}\)/);
+    expect(s4Src).toMatch(
+      /router\.push\(`\/artist\/purchase\/\$\{product\.id\}\/sent\?req=\$\{res\.purchaseRequestId\}`\)/,
+    );
+    expect(s4Src).toMatch(/from "\.\/actions"/);
+  });
+
+  it("backs out to the S3 entry screen (not the legacy store detail)", () => {
+    expect(s4Src).toMatch(/router\.push\(`\/artist\/purchase\/\$\{product\.id\}`\)/);
+  });
+
+  it("hides the PDF card when the producer has no uploaded agreement", () => {
+    expect(s4Src).toMatch(/\{producer\.agreement \? \(/);
   });
 
   it("designs an inline error state (not a scary wall)", () => {
