@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { VolumeTier } from "~/lib/pricing";
 import { formatPriceLabel, planLabel } from "~/lib/store/format-price-label";
+import { productHref } from "~/lib/store/product-href";
 import { type TaxMode, taxModeFootnote } from "~/lib/tax-mode";
 
 // Producer's flagship offer — full-width focal card at the top of
@@ -95,7 +96,7 @@ export function FocalProductCard({
       ) : null}
 
       <Link
-        href={`/artist/store/${product.id}`}
+        href={productHref(product)}
         className="sk-press mt-5 flex w-full items-center justify-center rounded-[var(--radius-lg)] py-3 text-[14px] font-bold"
         style={{
           background: "rgb(var(--bg-sidebar))",
@@ -106,7 +107,9 @@ export function FocalProductCard({
       </Link>
 
       <p className="mt-3 text-center font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--fg-faint))]">
-        Stripe · payments soon
+        {product.pricingModel === "per_song"
+          ? "Stripe · payments soon"
+          : "Request to book · no payment yet"}
       </p>
     </article>
   );

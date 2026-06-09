@@ -25,8 +25,9 @@ describe("QuietProductList", () => {
     expect(source).toMatch(/formatPriceLabel/);
   });
 
-  it("links each row to /artist/store/{id}", () => {
-    expect(source).toMatch(/\/artist\/store\/\$\{/);
+  it("links each row via productHref (funnel for flat, legacy for per-song)", () => {
+    expect(source).toMatch(/href=\{productHref\(product\)\}/);
+    expect(source).toMatch(/from\s+['"]~\/lib\/store\/product-href['"]/);
   });
 
   it("renders nothing when products list is empty", () => {
