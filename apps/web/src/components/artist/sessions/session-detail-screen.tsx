@@ -25,8 +25,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { ArrowRight } from "~/components/artist/funnel/funnel-icons";
-import { FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import {
+  Check,
+  ClockIcon,
+  CloseIcon,
+} from "~/components/artist/funnel/funnel-icons";
+import { FunnelTopBar } from "~/components/artist/funnel/funnel-ui";
 
 import {
   cancelPolicy,
@@ -94,73 +98,93 @@ export function SessionDetailScreen({
         />
 
         <div className="flex-1 px-5 pb-[176px] pt-4">
-          {/* hero summary card */}
+          {/* hero summary — a DARK card (proto-s12): date/time large in white
+              Syne, status pill, product + producer mini-row */}
           <div
-            className="reveal-up overflow-hidden rounded-[var(--radius-xl)]"
+            className="sk-rise overflow-hidden rounded-card px-[20px] pb-5 pt-[18px]"
             style={{
-              background: "rgb(var(--bg-elevated))",
-              border: "1px solid rgb(var(--border-subtle))",
-              boxShadow: "var(--shadow-sm), 0 18px 44px -24px rgb(17 16 9 / 0.28)",
+              animationDelay: "40ms",
+              background: "rgb(var(--bg-sidebar))",
+              boxShadow:
+                "0 22px 50px -24px rgb(17 16 9 / 0.55), inset 0 0 0 1px rgb(255 255 255 / 0.04)",
             }}
           >
-            <div
-              className="h-1"
-              style={{
-                background:
-                  "linear-gradient(90deg, rgb(var(--brand-primary)), rgb(var(--brand-copper)))",
-              }}
-            />
-
-            <div className="px-[20px] pb-5 pt-[18px]">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--brand-primary-dark))]">
-                  {formatSessionDate(session.startsAtISO)}
-                </span>
-                <StatusPill status={session.status} />
-              </div>
-
-              {/* date + time — large in Syne */}
-              <div className="mt-2.5 font-syne text-[34px] font-extrabold leading-[1.02] tracking-[-0.04em] text-[rgb(var(--fg-default))]">
-                {formatSessionTime(session.startsAtISO)}
-              </div>
-              <div className="mt-1 text-[13px] text-[rgb(var(--fg-muted))]">
+            <div className="flex items-center justify-between">
+              <StatusPill status={session.status} onDark />
+              <span className="font-amount text-[10px] uppercase tracking-[0.16em] text-[rgb(255_255_255_/_0.45)]">
                 {durationLabel} session
-              </div>
+              </span>
+            </div>
 
-              {/* product + producer mini-row */}
-              <div
-                className="mt-[18px] flex items-center gap-[13px] rounded-[var(--radius-lg)] px-3.5 py-3"
-                style={{ background: "rgb(var(--bg-sunken))" }}
+            {/* date + time — large in white Syne, time in font-amount */}
+            <div className="mt-3 font-syne text-[30px] font-extrabold leading-[1.04] tracking-[-0.035em] text-white">
+              {formatSessionDate(session.startsAtISO)} at{" "}
+              <span className="font-amount font-extrabold">
+                {formatSessionTime(session.startsAtISO)}
+              </span>
+            </div>
+
+            {/* product + producer mini-row */}
+            <div
+              className="mt-[18px] flex items-center gap-[13px] rounded-[12px] px-3.5 py-3"
+              style={{ background: "rgb(255 255 255 / 0.06)" }}
+            >
+              <span
+                className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[12px] font-syne text-[14px] font-extrabold text-white"
+                style={{ background: swatchGradient(producer.hue) }}
               >
-                <span
-                  className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[12px] font-syne text-[14px] font-extrabold text-white"
-                  style={{ background: swatchGradient(producer.hue) }}
-                >
-                  {producer.initials}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14.5px] font-semibold text-[rgb(var(--fg-default))]">
-                    {session.productName}
-                  </div>
-                  <div className="mt-px truncate text-[12px] text-[rgb(var(--fg-muted))]">
-                    with {producer.name}
-                  </div>
+                {producer.initials}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[14.5px] font-semibold text-white">
+                  {session.productName}
+                </div>
+                <div className="mt-px truncate text-[12px] text-[rgb(255_255_255_/_0.55)]">
+                  with {producer.name}
                 </div>
               </div>
             </div>
           </div>
 
           {isPast ? (
-            <div className="reveal-up reveal-up-delay-1 mt-5 text-center">
+            <div
+              className="sk-rise mt-5 text-center"
+              style={{ animationDelay: "100ms" }}
+            >
               <p className="text-[13.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
                 This session has passed.
               </p>
             </div>
           ) : null}
 
-          {/* policy notice — only when too close to change it yourself */}
+          {/* within-policy → a calm GREEN note (you can change this yourself);
+              too close → the muted PolicyNotice (message the producer) */}
+          {!isPast && policy.withinPolicy ? (
+            <div
+              className="sk-rise mt-4 flex items-start gap-2.5 rounded-card px-3.5 py-3"
+              style={{
+                animationDelay: "100ms",
+                background: "rgb(var(--fg-success) / 0.08)",
+                border: "1px solid rgb(var(--fg-success) / 0.22)",
+              }}
+            >
+              <span
+                className="mt-[1px] flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full"
+                style={{
+                  background: "rgb(var(--fg-success) / 0.18)",
+                  color: "rgb(var(--fg-success))",
+                }}
+              >
+                <Check width={11} height={11} />
+              </span>
+              <p className="text-[12.5px] leading-snug text-[rgb(var(--fg-secondary))]">
+                You can change this yourself up to {cancelWindowHours}h before.{" "}
+                {producer.name} will be notified.
+              </p>
+            </div>
+          ) : null}
           {!isPast && !policy.withinPolicy ? (
-            <div className="reveal-up reveal-up-delay-1 mt-4">
+            <div className="sk-rise mt-4" style={{ animationDelay: "100ms" }}>
               <PolicyNotice producerName={producer.name} />
             </div>
           ) : null}
@@ -188,37 +212,61 @@ export function SessionDetailScreen({
               </p>
             ) : null}
 
+            {/* amber Reschedule (proto-s12 primary action) */}
             <button
               type="button"
               onClick={reschedule}
               disabled={!policy.withinPolicy}
-              className={`sk-press flex w-full items-center justify-center gap-[9px] rounded-[var(--radius-lg)] px-[22px] py-[15px] text-[15px] font-semibold ${
-                !policy.withinPolicy ? "cursor-not-allowed" : ""
+              className={`relative flex w-full items-center justify-center gap-[9px] overflow-hidden rounded-card px-[22px] py-4 text-[16px] font-semibold ${
+                !policy.withinPolicy ? "cursor-not-allowed" : "sk-cta-press sk-gloss"
+              }`}
+              style={
+                !policy.withinPolicy
+                  ? {
+                      background: "rgb(var(--fg-default) / 0.07)",
+                      color: "rgb(var(--fg-muted) / 0.8)",
+                    }
+                  : {
+                      background:
+                        "linear-gradient(180deg, rgb(var(--brand-primary)) 0%, rgb(var(--brand-primary-dark)) 130%)",
+                      color: "rgb(var(--bg-sidebar))",
+                      boxShadow: "0 6px 18px -8px rgb(var(--brand-primary) / 0.40)",
+                    }
+              }
+            >
+              <span className="relative z-[2] inline-flex items-center gap-[9px]">
+                <ClockIcon width={16} height={16} /> Reschedule
+              </span>
+            </button>
+
+            {/* outlined Cancel — red text, hairline border (destructive but quiet) */}
+            <button
+              type="button"
+              onClick={openCancel}
+              disabled={!policy.withinPolicy}
+              className={`flex w-full items-center justify-center gap-[8px] rounded-card px-[22px] py-[15px] text-[15px] font-semibold ${
+                !policy.withinPolicy ? "cursor-not-allowed" : "sk-press"
               }`}
               style={{
                 background: "rgb(var(--bg-elevated))",
                 color: !policy.withinPolicy
                   ? "rgb(var(--fg-muted) / 0.7)"
-                  : "rgb(var(--fg-default))",
-                border: "1px solid rgb(var(--border-strong))",
+                  : "rgb(var(--fg-danger))",
+                border: `1px solid ${
+                  !policy.withinPolicy
+                    ? "rgb(var(--border-strong))"
+                    : "rgb(var(--fg-danger) / 0.30)"
+                }`,
                 boxShadow: "var(--shadow-sm)",
               }}
             >
-              Reschedule <ArrowRight />
+              <CloseIcon width={15} height={15} /> Cancel session
             </button>
 
-            <PrimaryCta
-              onClick={openCancel}
-              disabled={!policy.withinPolicy}
-              glow={false}
-              sub={
-                policy.withinPolicy
-                  ? "Frees the slot · notifies " + producer.name
-                  : "Too close — message " + producer.name + " instead"
-              }
-            >
-              Cancel session
-            </PrimaryCta>
+            <p className="px-1 pt-0.5 text-center text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
+              The time policy controls changes only. Refunds and deposits follow
+              your signed agreement, off-app.
+            </p>
           </div>
         ) : null}
       </div>

@@ -62,7 +62,7 @@ export function RescheduleConfirmSheet({
 
       {/* sheet */}
       <div
-        className="reveal-up sk-safe-bottom relative w-full max-w-[440px] rounded-t-[var(--radius-2xl)] px-5 pb-5 pt-4"
+        className="animate-slide-up-modal sk-safe-bottom relative w-full max-w-[440px] rounded-t-[var(--radius-2xl)] px-5 pb-5 pt-4"
         style={{
           background: "rgb(var(--bg-elevated))",
           borderTop: "1px solid rgb(var(--border-subtle))",

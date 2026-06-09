@@ -8,15 +8,16 @@
 
 import { useRouter } from "next/navigation";
 
+import { ClockIcon } from "~/components/artist/funnel/funnel-icons";
 import {
   formatSessionTime,
   type SessionListItem,
 } from "./book-data";
 import { StatusPill } from "./status-pill";
 
-function weekdayShort(iso: string): string {
+function monthShort(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
-    weekday: "short",
+    month: "short",
     timeZone: "UTC",
   });
 }
@@ -38,10 +39,10 @@ export function SessionRow({ session }: { session: SessionListItem }) {
       className="sk-press flex w-full items-center gap-3.5 py-3.5 text-left"
     >
       <div className="flex w-12 shrink-0 flex-col items-center">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[rgb(var(--brand-primary))]">
-          {weekdayShort(session.startsAtISO)}
+        <span className="font-amount text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))]">
+          {monthShort(session.startsAtISO)}
         </span>
-        <span className="font-syne text-[19px] font-extrabold leading-none text-[rgb(var(--fg-default))]">
+        <span className="font-amount text-[20px] font-bold leading-none text-[rgb(var(--fg-default))]">
           {dayNumber(session.startsAtISO)}
         </span>
       </div>
@@ -50,8 +51,11 @@ export function SessionRow({ session }: { session: SessionListItem }) {
         <p className="truncate text-[14px] font-semibold leading-tight text-[rgb(var(--fg-default))]">
           {session.productName}
         </p>
-        <p className="mt-0.5 truncate text-[12px] text-[rgb(var(--fg-muted))]">
-          {session.producerName} · {time}
+        <p className="mt-1 flex items-center gap-1.5 truncate text-[12px] text-[rgb(var(--fg-muted))]">
+          <ClockIcon width={12} height={12} className="shrink-0" />
+          <span className="font-amount">{time}</span>
+          <span aria-hidden>·</span>
+          <span className="truncate">{session.producerName}</span>
         </p>
       </div>
 

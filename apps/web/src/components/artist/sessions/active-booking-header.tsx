@@ -24,34 +24,35 @@ export function ActiveBookingHeader({ booking }: { booking: ActiveBooking }) {
 
   return (
     <div
-      className="reveal-up rounded-[var(--radius-lg)] px-4 py-3.5"
+      className="sk-rise rounded-card px-4 py-3.5"
       style={{
+        animationDelay: "100ms",
         background: "rgb(var(--brand-primary) / 0.05)",
         border: "1px solid rgb(var(--brand-primary) / 0.18)",
       }}
     >
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--brand-primary-dark))]">
-            Active package
+          <div className="font-amount text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--brand-primary-dark))]">
+            Active booking
           </div>
-          <div className="mt-1 truncate font-syne text-[15px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+          <div className="mt-1 truncate font-syne text-[16px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
             {booking.productName}
           </div>
         </div>
 
         {mode === "dots" && total !== null ? (
-          <span className="shrink-0 font-mono text-[12px] font-semibold tabular-nums text-[rgb(var(--fg-secondary))]">
-            {used}/{total}
+          <span className="shrink-0 font-amount text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
+            {used} of {total} booked
           </span>
         ) : null}
         {mode === "bar" && total !== null ? (
-          <span className="shrink-0 font-mono text-[12px] font-semibold tabular-nums text-[rgb(var(--fg-secondary))]">
+          <span className="shrink-0 font-amount text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
             {used} of {total}
           </span>
         ) : null}
         {mode === "count" ? (
-          <span className="shrink-0 font-mono text-[12px] font-semibold tabular-nums text-[rgb(var(--fg-secondary))]">
+          <span className="shrink-0 font-amount text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
             {used} sessions booked
           </span>
         ) : null}

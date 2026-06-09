@@ -2,18 +2,20 @@
 
 // S11 — Confirmation moment (the quiet beat right after a slot is booked or
 // held). Echoes request-sent-screen.tsx's calm celebration, scaled DOWN to
-// sit inside the standing "My sessions" shell (no fixed overlay): the same
-// ripple emblem + Syne headline, but a single card the page can stack above
-// the sessions list. Two tones:
+// sit inside the standing "My sessions" shell (no fixed overlay): a single
+// rounded-card the page stacks above the sessions list. Two tones:
 //
-//   confirmed → green CheckLarge ripple + "You're booked — {date} at {time}"
-//   held      → amber ClockIcon  ripple + "Holding this time while {Producer}
-//               confirms" (the producer hasn't approved the slot yet).
+//   confirmed → green RippleEmblem CheckLarge + "YOU'RE BOOKED" + date/time
+//   held      → amber RippleEmblem ClockIcon  + "HOLDING YOUR TIME" — the
+//               producer hasn't approved the slot yet.
 //
-// The "Add to calendar" chip is intentionally greyed — Google Calendar sync
+// Matches proto-s11: a green-tinted card with a rippling green check, the
+// date + time large in Syne (time in font-amount), a one-line subtitle, then
+// a greyed "Add to calendar" chip with a "Soon" badge — Google Calendar sync
 // is v2 (see the design handoff S11 notes), so it reads as coming-soon, not
 // broken.
 
+import { RippleEmblem } from "~/components/artist/funnel/funnel-ui";
 import {
   CheckLarge,
   ClockIcon,
@@ -36,73 +38,71 @@ export function ConfirmationHero({
   const time = formatSessionTime(session.startsAtISO);
 
   // Tone tokens — green = settled, amber = pending the producer's approval.
-  const ring = confirmed
-    ? "rgb(var(--fg-success) / 0.28)"
-    : "rgb(var(--brand-primary) / 0.28)";
-  const emblemColor = confirmed
+  const tone = confirmed ? "success" : "amber";
+  const accent = confirmed
     ? "rgb(var(--fg-success))"
-    : "rgb(var(--brand-primary))";
-  const emblemShadow = confirmed
-    ? "0 14px 34px -12px rgb(17 16 9 / 0.4), inset 0 0 0 1.5px rgb(var(--fg-success) / 0.35)"
-    : "0 14px 34px -12px rgb(17 16 9 / 0.4), inset 0 0 0 1.5px rgb(var(--brand-primary) / 0.35)";
+    : "rgb(var(--brand-primary-dark))";
+  const tint = confirmed
+    ? "rgb(var(--fg-success) / 0.07)"
+    : "rgb(var(--brand-primary) / 0.07)";
+  const ring = confirmed
+    ? "rgb(var(--fg-success) / 0.22)"
+    : "rgb(var(--brand-primary) / 0.22)";
 
   return (
     <div
-      className="reveal-up relative overflow-hidden rounded-[var(--radius-xl)] px-5 py-6 text-center"
+      className="sk-rise relative overflow-hidden rounded-card px-5 pb-6 pt-7 text-center"
       style={{
-        background: confirmed
-          ? "radial-gradient(120% 80% at 50% -10%, rgb(var(--fg-success) / 0.08), transparent 60%), rgb(var(--bg-elevated))"
-          : "radial-gradient(120% 80% at 50% -10%, rgb(var(--brand-primary) / 0.10), transparent 60%), rgb(var(--bg-elevated))",
-        border: "1px solid rgb(var(--border-subtle))",
+        animationDelay: "40ms",
+        background: `radial-gradient(130% 90% at 50% -8%, ${tint}, transparent 62%), rgb(var(--bg-elevated))`,
+        border: `1px solid ${ring}`,
         boxShadow: "var(--shadow-sm)",
       }}
     >
-      {/* emblem with a single ripple ring */}
-      <div className="relative mx-auto mb-4 w-fit">
-        <span
-          className="absolute -inset-[14px] animate-ping rounded-full"
-          style={{ border: `1.5px solid ${ring}` }}
-        />
-        <span
-          className="relative flex h-[66px] w-[66px] items-center justify-center rounded-full"
-          style={{
-            background: "rgb(var(--bg-sidebar))",
-            color: emblemColor,
-            boxShadow: emblemShadow,
-          }}
-        >
-          {confirmed ? <CheckLarge /> : <ClockIcon width={26} height={26} />}
-        </span>
+      {/* rippling emblem — green check (confirmed) / amber clock (held) */}
+      <RippleEmblem tone={tone} className="mb-4">
+        {confirmed ? <CheckLarge /> : <ClockIcon width={30} height={30} />}
+      </RippleEmblem>
+
+      <div
+        className="font-amount text-[10px] font-bold uppercase tracking-[0.18em]"
+        style={{ color: accent }}
+      >
+        {confirmed ? "You're booked" : "Holding this time"}
       </div>
 
-      {confirmed ? (
-        <h2 className="reveal-up reveal-up-delay-1 text-balance font-syne text-[22px] font-extrabold leading-[1.1] tracking-[-0.03em] text-[rgb(var(--fg-default))]">
-          You&apos;re booked — {date} at {time}
-        </h2>
-      ) : (
-        <h2 className="reveal-up reveal-up-delay-1 text-balance font-syne text-[22px] font-extrabold leading-[1.1] tracking-[-0.03em] text-[rgb(var(--fg-default))]">
-          Holding this time while {producerName} confirms
-        </h2>
-      )}
+      {/* date + time — large in Syne, time in font-amount */}
+      <h2 className="mt-2 text-balance font-syne text-[26px] font-extrabold leading-[1.06] tracking-[-0.035em] text-[rgb(var(--fg-default))]">
+        {date} at <span className="font-amount font-extrabold">{time}</span>
+      </h2>
 
-      <p className="reveal-up reveal-up-delay-2 mx-auto mt-2 max-w-[280px] text-pretty text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))]">
+      <p className="mx-auto mt-2 max-w-[280px] text-pretty text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))]">
         {confirmed
-          ? `${date} at ${time} · with ${producerName}`
-          : `${date} at ${time} — we'll ping you the moment ${producerName} approves.`}
+          ? `${session.productName} with ${producerName}`
+          : `Holding this time while ${producerName} confirms — we'll ping you the moment they approve.`}
       </p>
 
       {/* greyed coming-soon chip — Google Calendar sync is v2 */}
-      <div className="reveal-up reveal-up-delay-3 mt-4 flex justify-center">
+      <div className="mt-4 flex items-center justify-center gap-2">
         <span
           aria-disabled
-          className="inline-flex cursor-not-allowed items-center gap-2 rounded-[var(--radius-lg)] px-4 py-2.5 font-mono text-[11px] font-semibold tracking-[0.04em]"
+          className="inline-flex cursor-not-allowed items-center gap-2 rounded-[var(--radius-lg)] px-4 py-2.5 font-amount text-[11px] font-semibold tracking-[0.04em]"
           style={{
             background: "rgb(var(--fg-default) / 0.05)",
-            color: "rgb(var(--fg-muted) / 0.8)",
+            color: "rgb(var(--fg-muted) / 0.85)",
             border: "1px solid rgb(var(--border-subtle))",
           }}
         >
-          Add to calendar — coming soon
+          Add to calendar
+        </span>
+        <span
+          className="inline-flex items-center rounded-full px-2 py-1 font-amount text-[9px] font-bold uppercase tracking-[0.12em]"
+          style={{
+            background: "rgb(var(--fg-default) / 0.05)",
+            color: "rgb(var(--fg-muted) / 0.85)",
+          }}
+        >
+          Soon
         </span>
       </div>
     </div>
