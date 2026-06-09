@@ -84,7 +84,7 @@ export function ReviewAgreeScreen({
 
           {/* what you're agreeing to — dark price-locked summary */}
           <div
-            className="reveal-up reveal-up-delay-1 mt-4 flex items-center gap-[13px] rounded-[var(--radius-lg)] px-4 py-3.5"
+            className="reveal-up reveal-up-delay-1 mt-4 flex items-center gap-[13px] rounded-card px-4 py-3.5"
             style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-inverse))" }}
           >
             <span
@@ -100,7 +100,7 @@ export function ReviewAgreeScreen({
               </div>
             </div>
             <div className="text-right">
-              <div className="font-syne text-[19px] font-extrabold tracking-[-0.03em] text-[rgb(var(--brand-primary))]">
+              <div className="font-amount text-[19px] font-extrabold tracking-[-0.03em] text-[rgb(var(--brand-primary))]">
                 {formatShekels(product.priceCents)}
               </div>
               <div className="font-mono text-[8.5px] tracking-[0.08em] text-white/55">LOCKS NOW</div>
@@ -114,7 +114,7 @@ export function ReviewAgreeScreen({
               {producer.name}&apos;s full agreement
             </Eyebrow>
             <div
-              className="flex w-full items-center gap-3.5 rounded-[var(--radius-lg)] px-4 py-3.5"
+              className="flex w-full items-center gap-3.5 rounded-card px-4 py-3.5"
               style={{
                 background: "rgb(var(--bg-elevated))",
                 border: "1px solid rgb(var(--border-subtle))",
@@ -151,7 +151,7 @@ export function ReviewAgreeScreen({
           <div className="reveal-up reveal-up-delay-3 mt-[18px]">
             <Eyebrow className="mb-[9px]">Plain-language summary</Eyebrow>
             <div
-              className="relative rounded-[var(--radius-lg)]"
+              className="relative rounded-card"
               style={{
                 background: "rgb(var(--bg-elevated))",
                 border: "1px solid rgb(var(--border-subtle))",
@@ -162,8 +162,9 @@ export function ReviewAgreeScreen({
                 {terms.map((term, i) => (
                   <div
                     key={term.heading}
-                    className="py-3.5"
+                    className="sk-rise py-3.5"
                     style={{
+                      animationDelay: `${String(40 + i * 45)}ms`,
                       borderBottom:
                         i === terms.length - 1
                           ? "none"
@@ -206,7 +207,7 @@ export function ReviewAgreeScreen({
               </div>
               {/* fade hint that the card scrolls */}
               <div
-                className="pointer-events-none absolute inset-x-px bottom-px h-7 rounded-b-[15px]"
+                className="pointer-events-none absolute inset-x-px bottom-px h-7 rounded-b-[17px]"
                 style={{
                   background:
                     "linear-gradient(180deg, rgb(var(--bg-elevated) / 0), rgb(var(--bg-elevated) / 0.95))",

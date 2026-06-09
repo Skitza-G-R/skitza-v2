@@ -34,6 +34,14 @@ import {
   type ProducerRepliedToCommentProps,
 } from "./templates/producer-replied-to-comment";
 import {
+  PurchaseApprovedToArtist,
+  type PurchaseApprovedToArtistProps,
+} from "./templates/purchase-approved-to-artist";
+import {
+  PurchaseDeclinedToArtist,
+  type PurchaseDeclinedToArtistProps,
+} from "./templates/purchase-declined-to-artist";
+import {
   SessionReminder1h,
   type SessionReminder1hProps,
 } from "./templates/session-reminder-1h";
@@ -215,6 +223,37 @@ export async function sendClientInviteEmail(
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} invited you to Skitza`,
+    html,
+  });
+}
+
+// ─── Purchase flow (SK-37 / BE-1) ───────────────────────────────────
+// Artist-facing Gate-1 outcome emails. Callers MUST wrap in try/catch +
+// console.error so a transient Resend failure never breaks the
+// approve/decline status transition.
+
+export async function sendPurchaseApprovedEmail(
+  to: string,
+  props: PurchaseApprovedToArtistProps,
+): Promise<void> {
+  const html = await render(<PurchaseApprovedToArtist {...props} />);
+  await getResend().emails.send({
+    from: FROM_ADDRESS,
+    to,
+    subject: `${props.producerName} approved your request`,
+    html,
+  });
+}
+
+export async function sendPurchaseDeclinedEmail(
+  to: string,
+  props: PurchaseDeclinedToArtistProps,
+): Promise<void> {
+  const html = await render(<PurchaseDeclinedToArtist {...props} />);
+  await getResend().emails.send({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Update on your request to ${props.producerName}`,
     html,
   });
 }

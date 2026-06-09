@@ -26,6 +26,7 @@ import type { Stage } from "../../../lib/projects/stages";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
+import { producerPurchaseRouter } from "./purchase";
 import { stripUndefined } from "../strip-undefined";
 
 // Accepts a subset of producer-editable fields. The schema's cascade is
@@ -386,6 +387,11 @@ export function classifyUrgency(args: ClassifyArgs): UrgencyKind | null {
 }
 
 export const producerRouter = router({
+  // Purchase flow (SK-37 / BE-1). approve / decline / undoApproval /
+  // list (Gate 1) plus the frozen BE-2/3 stubs. Defined in ./purchase
+  // so the backend track stays out of the screens track's files.
+  purchase: producerPurchaseRouter,
+
   // Current producer's profile — used by Settings to populate the form.
   // Same producerProcedure middleware so the SELECT is tenant-scoped
   // (UserId → Producer row) + the empty-row race is already handled by
