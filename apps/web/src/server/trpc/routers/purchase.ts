@@ -400,6 +400,46 @@ export const artistPurchaseRouter = router({
       };
     }),
 
+  // The artist's open request with one studio, if any. Read-only — the S3
+  // entry screen uses this to disable "Request to book" while a request is
+  // in review (Gate 1 allows one open request per studio; the `request`
+  // mutation enforces it with CONFLICT, this read just surfaces it early).
+  // Added by the Screens track (SK-46) following BE-1's patterns.
+  pending: artistProcedure
+    .input(z.object({ producerId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [contact] = await ctx.db
+        .select({ id: clientContacts.id })
+        .from(clientContacts)
+        .where(
+          and(
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            eq(clientContacts.producerId, input.producerId),
+            isNull(clientContacts.archivedAt),
+          ),
+        )
+        .limit(1);
+      if (!contact) return { pending: null };
+
+      const [row] = await ctx.db
+        .select({
+          id: purchaseRequests.id,
+          refNumber: purchaseRequests.refNumber,
+          productId: purchaseRequests.productId,
+          createdAt: purchaseRequests.createdAt,
+        })
+        .from(purchaseRequests)
+        .where(
+          and(
+            eq(purchaseRequests.clientContactId, contact.id),
+            eq(purchaseRequests.status, "pending"),
+          ),
+        )
+        .orderBy(desc(purchaseRequests.createdAt))
+        .limit(1);
+      return { pending: row ?? null };
+    }),
+
   // ── Frozen stubs (BE-2 / BE-3 / BE-4) ──────────────────────────────
   paymentPlan: router({
     preview: artistProcedure
