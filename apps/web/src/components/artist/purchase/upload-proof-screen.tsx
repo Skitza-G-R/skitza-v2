@@ -183,7 +183,7 @@ export function UploadProofScreen({
           {/* paid-in-full banner (green) — the happy end of the Pay step */}
           {isPaidInFull ? (
             <div
-              className="reveal-up reveal-up-delay-1 mt-4 flex items-center gap-3 rounded-[var(--radius-lg)] px-4 py-3.5"
+              className="reveal-up reveal-up-delay-1 rounded-card mt-4 flex items-center gap-3 px-4 py-3.5"
               style={{
                 background: "rgb(var(--fg-success) / 0.12)",
                 border: "1px solid rgb(var(--fg-success) / 0.3)",
@@ -208,7 +208,7 @@ export function UploadProofScreen({
           {isRejected && !isPaidInFull ? (
             <div
               role="alert"
-              className="reveal-up reveal-up-delay-1 mt-4 rounded-[var(--radius-lg)] px-4 py-3.5"
+              className="reveal-up reveal-up-delay-1 rounded-card mt-4 px-4 py-3.5"
               style={{
                 background: "rgb(var(--fg-danger) / 0.08)",
                 border: "1px solid rgb(var(--fg-danger) / 0.28)",
@@ -239,7 +239,7 @@ export function UploadProofScreen({
           {/* the amount THIS proof covers */}
           {!isPaidInFull ? (
             <div
-              className="reveal-up reveal-up-delay-2 mt-4 flex items-center justify-between rounded-[var(--radius-lg)] px-4 py-3.5"
+              className="reveal-up reveal-up-delay-2 rounded-card mt-4 flex items-center justify-between px-4 py-3.5"
               style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-inverse))" }}
             >
               <div className="min-w-0">
@@ -248,7 +248,7 @@ export function UploadProofScreen({
                   This proof covers
                 </div>
               </div>
-              <div className="font-syne text-[22px] font-extrabold tracking-[-0.03em] text-[rgb(var(--brand-primary))]">
+              <div className="font-amount text-[22px] font-bold tracking-[-0.03em] text-[rgb(var(--brand-primary))]">
                 {formatShekels(thisProofCents)}
               </div>
             </div>
@@ -270,7 +270,7 @@ export function UploadProofScreen({
                 type="button"
                 onClick={pickFile}
                 disabled={isUploading || isAwaiting}
-                className="sk-press flex w-full flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] px-5 py-7 text-center"
+                className="sk-press rounded-card flex w-full flex-col items-center justify-center gap-2 px-5 py-7 text-center"
                 style={{
                   background: "rgb(var(--bg-elevated))",
                   border: file
@@ -356,13 +356,14 @@ export function UploadProofScreen({
                 Proofs you&apos;ve sent
               </Eyebrow>
               <div className="flex flex-col gap-2">
-                {proofs.map((proof) => {
+                {proofs.map((proof, i) => {
                   const copy = proofStatusCopy(proof.status, producer.name);
                   return (
                     <div
                       key={proof.id}
-                      className="flex items-center gap-3 rounded-[var(--radius-lg)] px-4 py-3"
+                      className="sk-rise rounded-card flex items-center gap-3 px-4 py-3"
                       style={{
+                        animationDelay: `${String(60 + i * 60)}ms`,
                         background: "rgb(var(--bg-elevated))",
                         border: "1px solid rgb(var(--border-subtle))",
                         boxShadow: "var(--shadow-sm)",
@@ -378,7 +379,7 @@ export function UploadProofScreen({
                         <DocIcon width={16} height={16} />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="font-syne text-[14.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+                        <div className="font-amount text-[14.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
                           {formatShekels(proof.amountCents)}
                         </div>
                         <div className="mt-px text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
@@ -406,7 +407,7 @@ export function UploadProofScreen({
 
           {/* running total — thin progress bar driven by paidProgress */}
           <div
-            className="reveal-up reveal-up-delay-4 mt-[18px] rounded-[var(--radius-lg)] px-4 py-3.5"
+            className="reveal-up reveal-up-delay-4 rounded-card mt-[18px] px-4 py-3.5"
             style={{
               background: "rgb(var(--bg-elevated))",
               border: "1px solid rgb(var(--border-subtle))",
@@ -417,7 +418,7 @@ export function UploadProofScreen({
               <span className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
                 Paid so far
               </span>
-              <span className="font-syne text-[14px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+              <span className="font-amount text-[14px] font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
                 {progress.paidLabel}{" "}
                 <span className="text-[rgb(var(--fg-muted))]">of {progress.totalLabel}</span>
               </span>
@@ -441,7 +442,7 @@ export function UploadProofScreen({
               />
             </div>
             {!progress.isPaidInFull ? (
-              <div className="mt-2 font-mono text-[10.5px] tracking-[0.02em] text-[rgb(var(--fg-muted))]">
+              <div className="mt-2 font-amount text-[10.5px] tracking-[0.02em] text-[rgb(var(--fg-muted))]">
                 {formatShekels(progress.remainingCents)} left · downloads unlock at 100%
               </div>
             ) : null}

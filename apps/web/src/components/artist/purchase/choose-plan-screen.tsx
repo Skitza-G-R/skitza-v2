@@ -75,8 +75,8 @@ export function ChoosePlanScreen({
           </p>
 
           {/* plan cards */}
-          <div className="reveal-up reveal-up-delay-2 mt-5 flex flex-col gap-3.5">
-            {options.map((opt) => {
+          <div className="mt-5 flex flex-col gap-3">
+            {options.map((opt, i) => {
               const isSelected = opt.plan === selected;
               return (
                 <button
@@ -87,8 +87,9 @@ export function ChoosePlanScreen({
                   onClick={() => {
                     setSelected(opt.plan);
                   }}
-                  className="sk-press relative w-full rounded-[var(--radius-lg)] px-[18px] pb-[18px] pt-4 text-left transition-colors"
+                  className="sk-press sk-rise rounded-card relative w-full px-[18px] pb-4 pt-4 text-left transition-colors"
                   style={{
+                    animationDelay: `${String(140 + i * 60)}ms`,
                     background: isSelected
                       ? "rgb(var(--brand-primary) / 0.06)"
                       : "rgb(var(--bg-elevated))",
@@ -127,7 +128,7 @@ export function ChoosePlanScreen({
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <div className="font-syne text-[18px] font-extrabold tracking-[-0.03em] text-[rgb(var(--brand-primary-dark))]">
+                      <div className="font-amount text-[19px] font-bold tracking-[-0.03em] text-[rgb(var(--brand-primary-dark))]">
                         {formatShekels(opt.dueNowCents)}
                       </div>
                       <div className="font-mono text-[8.5px] tracking-[0.08em] text-[rgb(var(--fg-muted))]">
@@ -138,7 +139,7 @@ export function ChoosePlanScreen({
 
                   {/* schedule */}
                   <div
-                    className="mt-3.5 rounded-[12px] px-3.5 py-2.5"
+                    className="mt-3 rounded-[12px] px-3.5 py-2"
                     style={{
                       background: isSelected
                         ? "rgb(var(--bg-elevated))"
@@ -160,7 +161,7 @@ export function ChoosePlanScreen({
                         <span className="text-[12.5px] text-[rgb(var(--fg-secondary))]">
                           {row.label}
                         </span>
-                        <span className="font-mono text-[12.5px] font-medium tabular-nums text-[rgb(var(--fg-default))]">
+                        <span className="font-amount text-[12.5px] font-medium text-[rgb(var(--fg-default))]">
                           {formatShekels(row.amountCents)}
                         </span>
                       </div>
@@ -171,7 +172,10 @@ export function ChoosePlanScreen({
             })}
           </div>
 
-          <div className="reveal-up reveal-up-delay-3 mt-4">
+          <div
+            className="sk-rise mt-4"
+            style={{ animationDelay: `${String(140 + options.length * 60)}ms` }}
+          >
             <Eyebrow>Money is handled off-app — Skitza keeps the record.</Eyebrow>
           </div>
         </div>

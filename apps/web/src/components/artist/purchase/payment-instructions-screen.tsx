@@ -145,23 +145,35 @@ export function PaymentInstructionsScreen({
         />
 
         <div className="flex-1 px-5 pb-[184px] pt-3.5">
-          {/* amount due now — the hero number */}
-          <Eyebrow gold className="reveal-up mb-2">
-            Due now
-          </Eyebrow>
-          <div className="reveal-up reveal-up-delay-1 font-syne text-[44px] font-extrabold leading-none tracking-[-0.04em] tabular-nums text-[rgb(var(--fg-default))]">
-            {formatShekels(amountDueNowCents)}
+          {/* amount due now — dark hero card (matches the prototype) */}
+          <div
+            className="sk-rise rounded-card px-[18px] pb-[18px] pt-[15px]"
+            style={{
+              background: "rgb(var(--bg-sidebar))",
+              color: "rgb(var(--fg-inverse))",
+              boxShadow: "0 18px 40px -16px rgb(17 16 9 / 0.45)",
+            }}
+          >
+            <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--brand-primary))]">
+              Amount due now
+            </div>
+            <div className="mt-1.5 font-amount text-[42px] font-bold leading-none tracking-[-0.04em] text-white">
+              {formatShekels(amountDueNowCents)}
+            </div>
+            <p className="mt-2 text-[12.5px] leading-snug text-white/55">
+              Pay using your bank or Bit, then upload your proof.
+            </p>
           </div>
-          <p className="reveal-up reveal-up-delay-1 mt-2.5 text-pretty text-[14px] leading-relaxed text-[rgb(var(--fg-muted))]">
-            Pay using your bank or Bit, then upload your proof.
-          </p>
 
           {bank ? (
             /* method — bank transfer + Bit, each value copyable */
-            <div className="reveal-up reveal-up-delay-2 mt-5">
+            <div
+              className="sk-rise mt-[18px]"
+              style={{ animationDelay: "80ms" }}
+            >
               <Eyebrow className="mb-[9px]">Bank transfer</Eyebrow>
               <div
-                className="rounded-[var(--radius-lg)] px-[18px]"
+                className="rounded-card px-[18px]"
                 style={{
                   background: "rgb(var(--bg-elevated))",
                   border: "1px solid rgb(var(--border-subtle))",
@@ -177,7 +189,7 @@ export function PaymentInstructionsScreen({
 
               <Eyebrow className="mb-[9px] mt-[18px]">Bit</Eyebrow>
               <div
-                className="rounded-[var(--radius-lg)] px-[18px]"
+                className="rounded-card px-[18px]"
                 style={{
                   background: "rgb(var(--bg-elevated))",
                   border: "1px solid rgb(var(--border-subtle))",
@@ -190,8 +202,9 @@ export function PaymentInstructionsScreen({
           ) : (
             /* fallback — producer hasn't shared details yet */
             <div
-              className="reveal-up reveal-up-delay-2 mt-5 flex items-start gap-3 rounded-[var(--radius-lg)] px-4 py-4"
+              className="sk-rise rounded-card mt-[18px] flex items-start gap-3 px-4 py-4"
               style={{
+                animationDelay: "80ms",
                 background: "rgb(var(--bg-elevated))",
                 border: "1px solid rgb(var(--border-subtle))",
                 boxShadow: "var(--shadow-sm)",
@@ -220,9 +233,10 @@ export function PaymentInstructionsScreen({
 
           {/* card pay — v2, greyed + inert */}
           <div
-            className="reveal-up reveal-up-delay-3 mt-3.5 flex items-center justify-between gap-3 rounded-[var(--radius-lg)] px-4 py-3.5"
+            className="sk-rise rounded-card mt-3 flex items-center justify-between gap-3 px-4 py-3.5"
             aria-disabled="true"
             style={{
+              animationDelay: "140ms",
               background: "rgb(var(--bg-background))",
               border: "1px dashed rgb(var(--border-strong))",
               opacity: 0.6,
