@@ -40,17 +40,17 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
 
   return (
     <section aria-labelledby="payment-requests-heading">
-      <header className="flex items-baseline justify-between border-b border-[var(--border-subtle)] pb-2">
+      <header className="flex items-baseline justify-between border-b border-[rgb(var(--border-subtle))] pb-2">
         <div className="flex items-baseline gap-3">
           <h2
             id="payment-requests-heading"
-            className="text-[14px] font-bold text-[var(--fg-default)]"
+            className="text-[14px] font-bold text-[rgb(var(--fg-default))]"
             style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.01em" }}
           >
             Payment requests
           </h2>
           <span
-            className="uppercase text-[10.5px] tracking-[0.04em] text-[var(--fg-muted)]"
+            className="uppercase text-[10.5px] tracking-[0.04em] text-[rgb(var(--fg-muted))]"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
             {bookings.length} OPEN · {formatAmount(total, currency)}
@@ -58,12 +58,12 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
         </div>
         <Link
           href="/artist/book"
-          className="text-[12px] font-medium text-[var(--fg-muted)] transition-colors hover:text-[var(--fg-default)]"
+          className="text-[12px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
         >
           Pay all →
         </Link>
       </header>
-      <ul className="divide-y divide-[var(--border-subtle)]">
+      <ul className="divide-y divide-[rgb(var(--border-subtle))]">
         {visible.map((booking) => (
           <li
             key={booking.id}
@@ -75,10 +75,10 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
               initialsFontSize={10}
             />
             <div className="flex min-w-0 flex-col">
-              <span className="truncate text-[13.5px] font-semibold text-[var(--fg-default)]">
+              <span className="truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
                 {booking.packageName}
               </span>
-              <span className="truncate text-[11.5px] text-[var(--fg-muted)]">
+              <span className="truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
                 {booking.producerName} ·{" "}
                 <span style={{ fontFamily: "var(--font-jetbrains-mono)" }}>
                   {booking.plan}
@@ -96,7 +96,7 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
             </span>
             <Link
               href={`/artist/payment/${booking.id}`}
-              className="inline-flex items-center rounded-full bg-[var(--bg-sidebar)] px-3 py-1.5 text-[11.5px] font-bold text-[var(--brand-primary)] transition-transform hover:brightness-110 active:scale-[0.97]"
+              className="inline-flex items-center rounded-full bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[11.5px] font-bold text-[rgb(var(--brand-primary))] transition-transform hover:brightness-110 active:scale-[0.97]"
             >
               Pay
             </Link>

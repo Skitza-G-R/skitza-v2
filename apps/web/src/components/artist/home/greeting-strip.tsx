@@ -21,13 +21,13 @@ export function GreetingStrip({ firstName, now }: Props) {
   return (
     <header className="pb-4">
       <p
-        className="uppercase text-[10.5px] font-semibold tracking-[0.12em] text-[var(--fg-muted)]"
+        className="uppercase text-[10.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))]"
         style={{ fontFamily: "var(--font-jetbrains-mono)" }}
       >
         {dateLabel}
       </p>
       <h1
-        className="mt-1 text-[18px] font-extrabold text-[var(--fg-default)]"
+        className="mt-1 text-[18px] font-extrabold text-[rgb(var(--fg-default))]"
         style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.03em" }}
       >
         {greeting}

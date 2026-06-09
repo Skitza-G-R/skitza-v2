@@ -13,17 +13,17 @@ export type BookSessionTilesProps = {
 export function BookSessionTiles({ studios }: BookSessionTilesProps) {
   return (
     <section aria-labelledby="book-session-heading">
-      <header className="flex items-baseline justify-between border-b border-[var(--border-subtle)] pb-2">
+      <header className="flex items-baseline justify-between border-b border-[rgb(var(--border-subtle))] pb-2">
         <div className="flex items-baseline gap-3">
           <h2
             id="book-session-heading"
-            className="text-[14px] font-bold text-[var(--fg-default)]"
+            className="text-[14px] font-bold text-[rgb(var(--fg-default))]"
             style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.01em" }}
           >
             Book a session
           </h2>
           <span
-            className="uppercase text-[10.5px] tracking-[0.04em] text-[var(--fg-muted)]"
+            className="uppercase text-[10.5px] tracking-[0.04em] text-[rgb(var(--fg-muted))]"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
             {studios.length} IN ROSTER
@@ -31,7 +31,7 @@ export function BookSessionTiles({ studios }: BookSessionTilesProps) {
         </div>
         <Link
           href="/artist/book"
-          className="text-[12px] font-medium text-[var(--fg-muted)] transition-colors hover:text-[var(--fg-default)]"
+          className="text-[12px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
         >
           Browse all →
         </Link>
@@ -44,14 +44,14 @@ export function BookSessionTiles({ studios }: BookSessionTilesProps) {
             <li key={s.producerId}>
               <Link
                 href={`/artist/book?producerId=${s.producerId}`}
-                className="flex items-center gap-2.5 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-2 transition-colors hover:bg-[var(--bg-background)]"
+                className="flex items-center gap-2.5 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 transition-colors hover:bg-[rgb(var(--bg-background))]"
               >
                 <ProducerArt
                   producerName={s.producerName}
                   size={44}
                   initialsFontSize={14}
                 />
-                <span className="truncate text-[12.5px] font-semibold text-[var(--fg-default)]">
+                <span className="truncate text-[12.5px] font-semibold text-[rgb(var(--fg-default))]">
                   {s.producerName}
                 </span>
               </Link>
@@ -67,7 +67,7 @@ function EmptyState() {
   return (
     <Link
       href="/artist/book"
-      className="mt-3 flex items-center justify-center rounded-[10px] border border-dashed border-[var(--border-subtle)] px-4 py-6 text-[13px] font-semibold text-[var(--fg-muted)] transition-colors hover:bg-[var(--bg-background)]"
+      className="mt-3 flex items-center justify-center rounded-[10px] border border-dashed border-[rgb(var(--border-subtle))] px-4 py-6 text-[13px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-background))]"
     >
       Find a studio →
     </Link>

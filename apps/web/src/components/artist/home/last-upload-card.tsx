@@ -59,12 +59,15 @@ function FilledCard({
   };
   const subtitle = `${latestMix.producerName} · ${relativeFrom(latestMix.uploadedAt)}`;
   return (
-    <article className="flex gap-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 transition-shadow hover:shadow-sm">
-      <div className="relative" style={{ width: ART_SIZE, height: ART_SIZE }}>
+    <article className="flex gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 transition-shadow hover:shadow-sm">
+      <div
+        className="relative shrink-0"
+        style={{ width: ART_SIZE, height: ART_SIZE }}
+      >
         <button
           type="button"
           onClick={onPlay}
-          className="absolute inset-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]"
+          className="absolute inset-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
           aria-label={isThisPlaying ? "Pause track" : "Play track"}
         >
           <ProducerArt
@@ -81,10 +84,10 @@ function FilledCard({
             height: FAB_SIZE,
             bottom: 10,
             right: 10,
-            backgroundColor: "var(--brand-primary)",
+            backgroundColor: "rgb(var(--brand-primary))",
             color: "#111009",
             boxShadow: "0 6px 18px rgba(0,0,0,0.28)",
-            outline: "3px solid var(--bg-elevated)",
+            outline: "3px solid rgb(var(--bg-elevated))",
             outlineOffset: "-1px",
           }}
         >
@@ -94,7 +97,7 @@ function FilledCard({
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-2">
           <p
-            className="uppercase text-[9.5px] font-semibold tracking-[0.12em] text-[var(--fg-muted)]"
+            className="uppercase text-[9.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))]"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
             LAST UPLOAD
@@ -103,7 +106,7 @@ function FilledCard({
             <span
               className="rounded-full px-1.5 py-0.5 text-[8.5px] font-extrabold uppercase tracking-[0.08em]"
               style={{
-                backgroundColor: "var(--brand-primary)",
+                backgroundColor: "rgb(var(--brand-primary))",
                 color: "#111009",
                 fontFamily: "var(--font-jetbrains-mono)",
               }}
@@ -111,7 +114,7 @@ function FilledCard({
           )}
         </div>
         <h2
-          className="mt-1 truncate text-[24px] font-extrabold text-[var(--fg-default)]"
+          className="mt-1 truncate text-[24px] font-extrabold text-[rgb(var(--fg-default))]"
           style={{
             fontFamily: "var(--font-syne)",
             letterSpacing: "-0.03em",
@@ -120,24 +123,24 @@ function FilledCard({
         >
           {latestMix.trackTitle}
           {latestMix.label ? (
-            <span className="text-[var(--fg-muted)]"> · {latestMix.label}</span>
+            <span className="text-[rgb(var(--fg-muted))]"> · {latestMix.label}</span>
           ) : null}
         </h2>
-        <p className="mt-1 truncate text-[12.5px] text-[var(--fg-muted)]">
+        <p className="mt-1 truncate text-[12.5px] text-[rgb(var(--fg-muted))]">
           {subtitle}
         </p>
-        <div className="mt-auto flex items-center gap-2 pt-4">
+        <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
           <button
             type="button"
             onClick={onPlay}
-            className="inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-sidebar)] px-3.5 py-2 text-[13px] font-bold text-[var(--brand-primary)] transition-transform hover:brightness-110 active:scale-[0.97]"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[rgb(var(--bg-sidebar))] px-3.5 py-2 text-[13px] font-bold text-[rgb(var(--brand-primary))] transition-transform hover:brightness-110 active:scale-[0.97]"
           >
             <PlayIcon size={12} />
             {isThisPlaying ? "Pause track" : "Play track"}
           </button>
           <Link
             href={`/artist/music/${latestMix.projectId}`}
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] px-3.5 py-2 text-[12.5px] font-semibold text-[var(--fg-default)] transition-colors hover:bg-[var(--bg-background)]"
+            className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))]"
           >
             Open library →
           </Link>
@@ -149,34 +152,34 @@ function FilledCard({
 
 function EmptyState() {
   return (
-    <article className="flex gap-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4">
+    <article className="flex gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
       <div
-        className="rounded-[10px] border border-dashed border-[var(--border-subtle)] bg-[var(--bg-background)]"
+        className="shrink-0 rounded-[10px] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))]"
         style={{ width: ART_SIZE, height: ART_SIZE }}
         aria-hidden
       />
       <div className="flex min-w-0 flex-1 flex-col justify-between">
         <div>
           <p
-            className="uppercase text-[9.5px] font-semibold tracking-[0.12em] text-[var(--fg-muted)]"
+            className="uppercase text-[9.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))]"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
             LAST UPLOAD
           </p>
           <h2
-            className="mt-1 text-[22px] font-extrabold text-[var(--fg-default)]"
+            className="mt-1 text-[22px] font-extrabold text-[rgb(var(--fg-default))]"
             style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.03em" }}
           >
             Nothing new from your studios yet.
           </h2>
-          <p className="mt-1 text-[12.5px] text-[var(--fg-muted)]">
+          <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
             Mixes show up here the moment a producer uploads.
           </p>
         </div>
         <div className="pt-4">
           <Link
             href="/artist/music"
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] px-3.5 py-2 text-[12.5px] font-semibold text-[var(--fg-default)] transition-colors hover:bg-[var(--bg-background)]"
+            className="inline-flex items-center gap-1 rounded-full border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))]"
           >
             Open library →
           </Link>

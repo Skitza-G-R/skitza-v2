@@ -16,7 +16,7 @@ export function NextSessionCard({ nextSession }: NextSessionStripProps) {
   if (!nextSession) return <EmptyState />;
   const today = isToday(nextSession.startsAt);
   return (
-    <article className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-3">
+    <article className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3">
       <ProducerArt
         producerName={nextSession.producerName}
         size={36}
@@ -25,7 +25,7 @@ export function NextSessionCard({ nextSession }: NextSessionStripProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2">
           <h3
-            className="truncate text-[16px] font-bold text-[var(--fg-default)]"
+            className="truncate text-[16px] font-bold text-[rgb(var(--fg-default))]"
             style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.02em" }}
           >
             {nextSession.productName ?? "Session"}
@@ -34,7 +34,7 @@ export function NextSessionCard({ nextSession }: NextSessionStripProps) {
             <span
               className="rounded-full px-1.5 py-0.5 text-[8.5px] font-extrabold uppercase tracking-[0.08em]"
               style={{
-                backgroundColor: "var(--brand-primary)",
+                backgroundColor: "rgb(var(--brand-primary))",
                 color: "#111009",
                 fontFamily: "var(--font-jetbrains-mono)",
               }}
@@ -42,7 +42,7 @@ export function NextSessionCard({ nextSession }: NextSessionStripProps) {
           )}
         </div>
         <p
-          className="mt-0.5 truncate text-[12.5px] text-[var(--fg-muted)]"
+          className="mt-0.5 truncate text-[12.5px] text-[rgb(var(--fg-muted))]"
           style={{ fontFamily: "var(--font-jetbrains-mono)" }}
         >
           {formatSessionLine(nextSession.startsAt, nextSession.durationMin)}
@@ -50,7 +50,7 @@ export function NextSessionCard({ nextSession }: NextSessionStripProps) {
       </div>
       <Link
         href="/artist/book"
-        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--border-subtle)] px-3.5 py-2 text-[12.5px] font-semibold text-[var(--fg-default)] transition-colors hover:bg-[var(--bg-background)]"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))]"
       >
         Open calendar →
       </Link>
@@ -60,25 +60,25 @@ export function NextSessionCard({ nextSession }: NextSessionStripProps) {
 
 function EmptyState() {
   return (
-    <article className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-3">
+    <article className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3">
       <div
-        className="size-9 rounded-full border border-dashed border-[var(--border-subtle)] bg-[var(--bg-background)]"
+        className="size-9 rounded-full border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))]"
         aria-hidden
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <h3
-          className="truncate text-[16px] font-bold text-[var(--fg-default)]"
+          className="truncate text-[16px] font-bold text-[rgb(var(--fg-default))]"
           style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.02em" }}
         >
           No session booked.
         </h3>
-        <p className="mt-0.5 truncate text-[12.5px] text-[var(--fg-muted)]">
+        <p className="mt-0.5 truncate text-[12.5px] text-[rgb(var(--fg-muted))]">
           When you book your next session it shows up here.
         </p>
       </div>
       <Link
         href="/artist/book"
-        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--brand-primary)] px-3.5 py-2 text-[12.5px] font-bold text-[#111009] transition-transform hover:brightness-110 active:scale-[0.97]"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-2 text-[12.5px] font-bold text-[#111009] transition-transform hover:brightness-110 active:scale-[0.97]"
       >
         Book a session →
       </Link>
