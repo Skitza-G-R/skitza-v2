@@ -43,4 +43,14 @@ describe("ProducerHero", () => {
   it("renders on an elevated surface (bg-elevated)", () => {
     expect(source).toMatch(/var\(--bg-elevated\)/);
   });
+
+  // Tailwind v4 registers --tw-ring-color with `inherits: false`, so a
+  // value set on a parent never reaches the ringed child — the ring
+  // color class must sit on the same element as ring-4.
+  it("sets the ring color on the ringed elements, not via a parent var", () => {
+    expect(source).toMatch(/ring-\[rgb\(var\(--bg-elevated\)\)\]/);
+    // A quoted "--tw-ring-color" is a style-object key — the broken
+    // parent-variable pattern. (Unquoted prose in comments is fine.)
+    expect(source).not.toMatch(/"--tw-ring-color"/);
+  });
 });

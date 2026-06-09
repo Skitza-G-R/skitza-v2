@@ -19,7 +19,10 @@ const PLAN_LABELS: Record<
 
 export function formatCents(cents: number, currency: string): string {
   const prefix = CURRENCY_SYMBOL[currency] ?? `${currency} `;
+  // Whole amounts stay bare ("₪100"); fractional ones always carry two
+  // digits so "$99.90" never collapses to "$99.9".
   const major = (cents / 100).toLocaleString(undefined, {
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   });
   return `${prefix}${major}`;

@@ -28,27 +28,23 @@ export function ProducerHero({
         }}
       />
       <div className="relative px-5 pb-6 pt-10 sm:px-6 sm:pb-7 sm:pt-12">
-        <div
-          className="absolute -top-8 left-5 sm:-top-10 sm:left-6"
-          style={
-            {
-              // Ring color matches the card surface so the circle reads
-              // as "punched through" the gradient instead of floated.
-              "--tw-ring-color": "rgb(var(--bg-elevated))",
-            } as React.CSSProperties
-          }
-        >
+        {/* Ring color matches the card surface so the circle reads as
+            "punched through" the gradient instead of floated. It must sit
+            on the ringed elements themselves — Tailwind v4 registers
+            --tw-ring-color with `inherits: false`, so a parent value
+            never reaches the child. */}
+        <div className="absolute -top-8 left-5 sm:-top-10 sm:left-6">
           {producerLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={producerLogoUrl}
               alt=""
-              className="h-16 w-16 rounded-full object-cover ring-4 sm:h-20 sm:w-20"
+              className="h-16 w-16 rounded-full object-cover ring-4 ring-[rgb(var(--bg-elevated))] sm:h-20 sm:w-20"
               style={{ boxShadow: "var(--shadow-sm)" }}
             />
           ) : (
             <div
-              className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[rgb(var(--brand-primary)/0.7)] to-[rgb(var(--brand-accent)/0.5)] font-display text-2xl font-bold text-[rgb(var(--fg-inverse))] ring-4 sm:h-20 sm:w-20"
+              className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[rgb(var(--brand-primary)/0.7)] to-[rgb(var(--brand-accent)/0.5)] font-display text-2xl font-bold text-[rgb(var(--fg-inverse))] ring-4 ring-[rgb(var(--bg-elevated))] sm:h-20 sm:w-20"
               style={{ boxShadow: "var(--shadow-sm)" }}
             >
               {initial}

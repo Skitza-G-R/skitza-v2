@@ -7,10 +7,13 @@ import {
 } from "../format-price-label";
 
 describe("formatCents", () => {
-  it("renders USD with $ glyph", () => {
-    expect(formatCents(12_50, "USD")).toBe("$12.5");
+  it("renders USD with $ glyph and two-digit cents", () => {
+    expect(formatCents(12_50, "USD")).toBe("$12.50");
   });
-  it("renders ILS with ₪ glyph", () => {
+  it("pads trailing-zero cents (no '$99.9')", () => {
+    expect(formatCents(99_90, "USD")).toBe("$99.90");
+  });
+  it("drops the decimals entirely on whole amounts", () => {
     expect(formatCents(10_000, "ILS")).toBe("₪100");
   });
   it("falls back to currency code when unknown", () => {
