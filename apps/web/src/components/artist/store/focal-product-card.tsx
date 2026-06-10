@@ -59,8 +59,11 @@ export function FocalProductCard({
         boxShadow: "var(--shadow-sm)",
       }}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
+      {/* SK-49: below sm the title/meta take the full width and the price
+          drops to its own line — side-by-side squeezed the meta into a
+          one-word-per-line column on phones. sm+ is the original layout. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 sm:flex-1">
           <h3 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-[rgb(var(--fg-default))] sm:text-[24px]">
             {product.name}
           </h3>
@@ -70,7 +73,7 @@ export function FocalProductCard({
             </p>
           ) : null}
         </div>
-        <div className="flex flex-col items-end gap-1">
+        <div className="flex flex-row items-baseline gap-2 sm:flex-col sm:items-end sm:gap-1">
           <span
             className="shrink-0 font-mono text-[22px] font-extrabold tabular-nums text-[rgb(var(--fg-default))]"
             style={{ letterSpacing: "-0.02em" }}

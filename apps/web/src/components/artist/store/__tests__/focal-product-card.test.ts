@@ -28,6 +28,11 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/product\.description/);
   });
 
+  it("stacks the header on phones — price drops below the title (SK-49)", () => {
+    expect(source).toMatch(/flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between/);
+    expect(source).toMatch(/flex flex-row items-baseline gap-2 sm:flex-col sm:items-end/);
+  });
+
   it("links the primary CTA via productHref (funnel for flat, legacy for per-song)", () => {
     expect(source).toMatch(/href=\{productHref\(product\)\}/);
     expect(source).toMatch(/from\s+['"]~\/lib\/store\/product-href['"]/);
