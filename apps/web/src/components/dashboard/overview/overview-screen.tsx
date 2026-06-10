@@ -245,7 +245,7 @@ export function OverviewScreen({
             Today&rsquo;s session
           </h2>
           <div className="mb-3.5 flex items-start gap-3.5">
-            <div className="w-14 shrink-0">
+            <div className="min-w-14 shrink-0">
               <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.06em] text-[rgb(var(--brand-primary))]">
                 {formatDayLabel(todaySession.occurredAt)}
               </p>
