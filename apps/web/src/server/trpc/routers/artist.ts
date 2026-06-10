@@ -33,6 +33,7 @@ import {
 } from "~/server/email/send";
 import { getSiteUrl } from "~/server/stripe/client";
 import { coerceTaxMode } from "~/lib/tax-mode";
+import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
 
 // ─── Ownership guard ─────────────────────────────────────────────────
 // Resolves the signed-in artist's ownership of a given project. Both
@@ -1321,7 +1322,10 @@ const storeSubrouter = router({
       const mapped: StoreProductRow[] = rows.map((r) => ({
         id: r.id,
         name: r.name,
-        description: r.description,
+        // Artist surfaces show only the human tagline — the wizard encodes
+        // revisions/contract terms into description after a "---" marker
+        // (SK-49: the raw block leaked onto the store cards).
+        description: decodeDescription(r.description).tagline || null,
         priceCents: r.priceCents,
         currency: r.currency,
         durationMin: r.durationMin,
@@ -1410,7 +1414,8 @@ const storeSubrouter = router({
       return {
         id: row.id,
         name: row.name,
-        description: row.description,
+        // Tagline only — see SK-49 note on the list read above.
+        description: decodeDescription(row.description).tagline || null,
         priceCents: row.priceCents,
         currency: row.currency,
         durationMin: row.durationMin,
