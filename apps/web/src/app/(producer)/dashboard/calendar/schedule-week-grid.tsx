@@ -85,13 +85,17 @@ export function ScheduleWeekGrid({
   }
 
   return (
+    // <lg: the 7-day grid keeps a usable 640px min-width and the
+    // section scrolls horizontally (sk-scroll-x = thin scrollbar +
+    // momentum). lg+: grid fills the section, no horizontal scroll —
+    // identical to the locked desktop layout.
     <section
       ref={sectionRef}
       aria-label="Weekly schedule"
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+      className="sk-scroll-x relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] lg:overflow-x-hidden"
     >
       <div
-        className="grid min-h-0 flex-1"
+        className="relative grid min-h-0 min-w-[640px] flex-1 lg:min-w-0"
         style={{ gridTemplateColumns: "46px repeat(7, minmax(0, 1fr))" }}
       >
         {/* Header row — fixed compact height so the body rows soak up
@@ -148,15 +152,16 @@ export function ScheduleWeekGrid({
             cellsPerDay={perDay}
           />
         ))}
-      </div>
 
-      {/* Now-line — overlaid via a portal-style absolute child of the
-          first day cell when applicable. Implemented inside the grid
-          rather than overlay-positioned so it scrolls with content
-          (the grid is the only scroll container on small widths). */}
-      {showNowLine && todayIdx >= 0 ? (
-        <NowLineOverlay todayIdx={todayIdx} firstHour={HOUR_START} />
-      ) : null}
+        {/* Now-line — absolute child of the (relative) grid itself, so
+            its %-math references the grid's content width and the line
+            rides along when the grid scrolls horizontally on <lg. On
+            lg+ the grid spans the full section — same geometry as
+            before. */}
+        {showNowLine && todayIdx >= 0 ? (
+          <NowLineOverlay todayIdx={todayIdx} firstHour={HOUR_START} />
+        ) : null}
+      </div>
     </section>
   );
 }

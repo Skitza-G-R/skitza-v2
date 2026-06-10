@@ -24,7 +24,7 @@ export function GCalPill({
           ? "Synced — Google Calendar"
           : "Connect Google Calendar (coming soon)"
       }
-      className="sk-press inline-flex items-center gap-2.5 rounded-[9px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] py-2 pl-2.5 pr-3 text-[0.78rem] tracking-tight text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9_/_0.04)] transition-colors hover:border-[rgb(var(--border-strong))]"
+      className="sk-press inline-flex min-h-[44px] items-center gap-2.5 rounded-[9px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] py-2 pl-2.5 pr-3 text-[0.78rem] tracking-tight text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9_/_0.04)] transition-colors hover:border-[rgb(var(--border-strong))] lg:min-h-0"
       style={{ fontWeight: 600 }}
     >
       <GcalLogo />
