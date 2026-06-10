@@ -16,9 +16,18 @@
   position: relative;
 }
 
-@media (max-width: 768px) {
+/* Mobile (<lg, the canonical shell breakpoint — the producer bottom
+   tab bar renders below 1024px, so Settings flips to its one-column
+   phone layout at the same width). `minmax(0, 1fr)` pins the single
+   track to the viewport width so no card's min-content can force the
+   page wider than the phone (horizontal overflow). `auto 1fr` keeps
+   the chip rail at its natural height — without it the grid's
+   min-height stretch hands the rail row half the free viewport space
+   and the active chip renders as a giant pill. */
+@media (max-width: 1023px) {
   .s-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
   }
 }
 
@@ -91,14 +100,26 @@
   flex: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1023px) {
   .s-nav {
-    padding: 16px;
+    /* Horizontal chip rail (artist mobile grammar). Sticky just below
+       the 40px shell topbar so section switching stays reachable
+       mid-scroll. Scrollbar hidden — the cut-off chip at the right
+       edge is the scroll affordance. */
+    padding: 12px 16px;
     border-right: none;
     border-bottom: 1px solid rgb(var(--border-subtle));
     flex-direction: row;
+    align-items: center;
     overflow-x: auto;
     gap: 6px;
+    position: sticky;
+    top: 40px;
+    z-index: 4;
+    scrollbar-width: none;
+  }
+  .s-nav::-webkit-scrollbar {
+    display: none;
   }
   .s-nav .s-eyebrow,
   .s-nav h1 {
@@ -106,6 +127,9 @@
   }
   .s-nav button {
     flex-shrink: 0;
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 10px 14px;
   }
 }
 
@@ -117,9 +141,12 @@
 .s-content-inner {
   max-width: 760px;
 }
-@media (max-width: 768px) {
+@media (max-width: 1023px) {
   .s-content {
-    padding: 24px 16px 120px;
+    /* px-4 phone gutters. The taller bottom pad clears the shell's
+       bottom tab bar reservation PLUS the floating savebar that
+       docks above it when there are unsaved edits. */
+    padding: 24px 16px 140px;
   }
 }
 
@@ -235,6 +262,48 @@
   padding-right: 36px;
 }
 
+/* ─── Mobile tap targets (<lg) ──────────────────────────────────────── */
+/* 44px minimum hit areas across the page's interactive controls.
+   Visual sizes stay close to desktop; the toggle keeps its 38×22
+   pill and grows an invisible ::before hit extension instead. */
+@media (max-width: 1023px) {
+  .s-input,
+  .s-select {
+    max-width: none;
+    min-height: 44px;
+  }
+  .s-btn {
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+  .s-slug-open {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    min-height: 44px;
+  }
+  .s-seg button {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 6px 18px;
+  }
+  .s-toggle::before {
+    content: "";
+    position: absolute;
+    inset: -11px -8px;
+  }
+  .s-payments-alt > summary {
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 0;
+  }
+}
+
 /* ─── Slug preview (Profile section) ────────────────────────────────── */
 /* Read-only display of the producer's public share URL. The host
    uses --fg-muted (it's context); the handle uses --fg-default (it's
@@ -277,6 +346,13 @@
 }
 .s-slug-open:hover {
   background: rgb(var(--bg-background));
+}
+@media (max-width: 640px) {
+  .s-slug-preview {
+    max-width: 100%;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* ─── Buttons (settings-scoped) ─────────────────────────────────────── */
@@ -535,6 +611,18 @@
   line-height: 1.45;
 }
 
+@media (max-width: 640px) {
+  .s-plan-hero {
+    padding: 20px 18px;
+  }
+  .s-usage {
+    padding: 16px 18px;
+  }
+  .s-usage-soft {
+    padding: 12px 18px 16px;
+  }
+}
+
 /* ─── Notif matrix ──────────────────────────────────────────────────── */
 /* Heads-up callout at the top of the notifications card. Pinned to the
    card edge so the matrix below feels visually attached to the same
@@ -605,6 +693,22 @@
 .s-notif-cell {
   display: flex;
   justify-content: center;
+}
+
+/* Phone width: the 1fr/80/80 matrix overflows 390px. Channel columns
+   narrow to toggle width (the 38px pill + breathing room) and the
+   event column takes the rest — all six rows stay on one screen with
+   no horizontal scrolling. */
+@media (max-width: 640px) {
+  .s-notif-head,
+  .s-notif-row {
+    grid-template-columns: minmax(0, 1fr) 52px 56px;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .s-notif-note {
+    padding: 12px 16px;
+  }
 }
 
 /* ─── Integrations list ─────────────────────────────────────────────── */
@@ -791,12 +895,32 @@
   color: #111009;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1023px) {
   .s-savebar {
-    padding: 10px 16px 76px;
+    /* Floating card docked ABOVE the shell's bottom tab bar (fixed,
+       z-30, ~62px tall + safe-area; the shell reserves 80px). The
+       savebar must not slide under it, so it floats with rounded
+       corners instead of hugging the viewport edge. The hidden-state
+       transform adds the dock offset so the bar fully clears the
+       viewport (and the tab bar) when there's nothing to save. */
+    left: 12px;
+    right: 12px;
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+    border-radius: 16px;
+    padding: 12px 14px;
+    flex-wrap: wrap;
+    gap: 10px;
+    transform: translateY(calc(100% + 96px + env(safe-area-inset-bottom, 0px)));
   }
   .s-savebar-lead {
     font-size: 12px;
+  }
+  .s-savebar-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .s-savebar-actions .s-btn {
+    flex: 1;
   }
 }
 
