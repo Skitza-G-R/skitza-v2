@@ -89,10 +89,9 @@ export function ClientCompactRow({
       onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
       onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
       onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
-      className="group relative grid items-center gap-3 border-b px-3 py-3 transition-colors duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] last:border-b-0 hover:bg-[rgb(var(--bg-background)/0.55)]"
+      className="group relative border-b transition-colors duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] last:border-b-0 hover:bg-[rgb(var(--bg-background)/0.55)]"
       style={{
         borderBottomColor: "rgb(var(--border-subtle))",
-        gridTemplateColumns: CLIENTS_TABLE_GRID,
       }}
     >
       {/* Whole-row click target — sits at z-0 so per-cell interactive
@@ -104,6 +103,12 @@ export function ClientCompactRow({
         aria-label={`Open ${name}`}
       />
 
+      {/* Desktop (md+) — exact 10-column grid, unchanged. Hidden below
+          md where the fixed tracks cannot fit a phone viewport. */}
+      <div
+        className="hidden items-center gap-3 px-3 py-3 md:grid"
+        style={{ gridTemplateColumns: CLIENTS_TABLE_GRID }}
+      >
       {/* Grip — opacity 0 by default, 0.6 on row hover. Pointer-events
           on so dragstart works without bubbling to the Link. */}
       <span
@@ -197,6 +202,70 @@ export function ClientCompactRow({
         style={{ color: "rgb(var(--fg-muted))" }}
         aria-hidden
       />
+      </div>
+
+      {/* Mobile (<md) — SK-47: 2-line card-style row. Line 1 = avatar +
+          name + LinkPill, line 2 = email · projects · owed. The Link
+          overlay above covers the whole row (>=44px tap target); the
+          drag grip is desktop-only (touch drag conflicts with scroll). */}
+      <div className="flex min-h-[44px] items-center gap-3 px-4 py-3 md:hidden">
+        <span
+          className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-mono text-[12px] font-bold text-white"
+          style={{ background: avatarBg }}
+          aria-hidden
+        >
+          {initials}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span
+              className="min-w-0 truncate text-[13.5px] font-semibold"
+              style={{ color: "rgb(var(--fg-default))" }}
+            >
+              {name}
+            </span>
+            <span className="relative z-10 inline-flex shrink-0">
+              {onInvite ? (
+                <LinkPill
+                  state={linkState}
+                  onInvite={() => {
+                    onInvite(client);
+                  }}
+                />
+              ) : (
+                <LinkPill state={linkState} />
+              )}
+            </span>
+          </span>
+          <span
+            className="mt-1 flex items-center gap-1 text-[12px]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            <span className="min-w-0 truncate">{email ?? "No email"}</span>
+            <span aria-hidden>&middot;</span>
+            <span className="shrink-0 tabular-nums">
+              {projects} {projects === 1 ? "project" : "projects"}
+            </span>
+            {owed > 0 ? (
+              <>
+                <span aria-hidden>&middot;</span>
+                <span
+                  className="shrink-0 font-semibold tabular-nums"
+                  style={{ color: "rgb(var(--fg-danger))" }}
+                >
+                  {formatMoney(owed, currency)} owed
+                </span>
+              </>
+            ) : null}
+          </span>
+        </span>
+        <ChevronRight
+          size={16}
+          className="relative z-10 shrink-0"
+          style={{ color: "rgb(var(--fg-muted))" }}
+          aria-hidden
+        />
+      </div>
     </div>
   );
 }

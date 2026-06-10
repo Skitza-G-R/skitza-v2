@@ -146,12 +146,10 @@ export function ProjectRow({
       onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
       onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
       onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
-      className="group relative grid items-center gap-3 overflow-hidden rounded-[var(--radius-md)] border px-3 py-2.5 transition-colors hover:border-[rgb(var(--border-strong))]"
+      className="group relative overflow-hidden rounded-[var(--radius-md)] border transition-colors hover:border-[rgb(var(--border-strong))]"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
-        gridTemplateColumns:
-          "24px 44px minmax(0,1.6fr) minmax(0,1fr) 120px 100px 110px 36px",
       }}
     >
       {accentBarColor ? (
@@ -162,6 +160,16 @@ export function ProjectRow({
         />
       ) : null}
 
+      {/* Desktop (md+) — exact 8-column grid, unchanged from the
+          original single-layout row. Hidden below md where the grid's
+          fixed tracks (~650px) cannot fit a phone viewport. */}
+      <div
+        className="hidden items-center gap-3 px-3 py-2.5 md:grid"
+        style={{
+          gridTemplateColumns:
+            "24px 44px minmax(0,1.6fr) minmax(0,1fr) 120px 100px 110px 36px",
+        }}
+      >
       <span
         // G8 — grip is permanently visible at muted opacity so the user
         // sees at-a-glance that rows are reorderable. Brightens on row
@@ -265,6 +273,65 @@ export function ProjectRow({
         size={14}
         style={{ color: "rgb(var(--fg-muted))" }}
       />
+      </div>
+
+      {/* Mobile (<md) — SK-47: 2-line card-style row. Line 1 = avatar +
+          title + status pill, line 2 = client · deadline · balance.
+          The whole row is one Link (>=44px tap target); the drag grip
+          is desktop-only (touch drag conflicts with scroll). */}
+      <Link
+        href={`/dashboard/clients-projects/${id}`}
+        className="flex min-h-[44px] items-center gap-3 px-3.5 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary)/0.4)] md:hidden"
+        draggable={false}
+      >
+        <span
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[12px] font-bold text-white"
+          style={{ background: badgeBg }}
+          aria-hidden
+        >
+          {initials}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span
+              className="min-w-0 truncate text-[14px] font-semibold"
+              style={{ color: "rgb(var(--fg-default))" }}
+            >
+              {title}
+            </span>
+            <span
+              className={`inline-flex shrink-0 items-center rounded-[6px] border px-1.5 py-[2px] text-[9.5px] font-semibold uppercase tracking-[0.1em] ${toneCls}`}
+              style={tone}
+            >
+              {status}
+            </span>
+          </span>
+          <span
+            className="mt-1 flex items-center gap-1 text-[12px]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            <span className="min-w-0 truncate">{client}</span>
+            <span aria-hidden>&middot;</span>
+            <span className="shrink-0">{deadline}</span>
+            {balance > 0 ? (
+              <>
+                <span aria-hidden>&middot;</span>
+                <span
+                  className="shrink-0 font-semibold tabular-nums"
+                  style={{ color: "rgb(var(--fg-danger))" }}
+                >
+                  {formatMoney(balance, currency)}
+                </span>
+              </>
+            ) : null}
+          </span>
+        </span>
+        <ChevronRight
+          size={16}
+          className="shrink-0"
+          style={{ color: "rgb(var(--fg-muted))" }}
+        />
+      </Link>
     </div>
   );
 }
