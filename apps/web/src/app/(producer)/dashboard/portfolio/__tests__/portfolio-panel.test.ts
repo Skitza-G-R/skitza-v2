@@ -416,7 +416,9 @@ describe("portfolio-panel.tsx — structural invariants", () => {
       /aria-label=\{isPlaying \? "Pause" : "Play"\}/,
     );
     const waveMatch = panelSource.search(/aria-label="Seek"/);
-    const nameMatch = panelSource.search(/width:\s*168\s*\}/);
+    // 2026-06-10 (SK-47): the name column's fixed 168px width moved from
+    // an inline style to a responsive class (flexes on mobile).
+    const nameMatch = panelSource.search(/sm:w-\[168px\]/);
     const publicMatch = panelSource.search(
       /isPublicSample\s*\?\s*"Public"\s*:\s*"Private"/,
     );

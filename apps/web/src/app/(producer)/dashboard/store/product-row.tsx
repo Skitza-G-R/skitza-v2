@@ -80,7 +80,7 @@ export function ProductRow({
         if (e.key === "Enter") onOpen();
       }}
       className={[
-        "sk-row-in grid cursor-pointer items-center gap-[14px] border-t border-[rgb(var(--border-subtle))] px-[18px] py-3 transition-colors duration-150",
+        "sk-row-in grid cursor-pointer items-center gap-[14px] border-t border-[rgb(var(--border-subtle))] px-[18px] py-3 transition-colors duration-150 max-sm:min-w-[800px]",
         "hover:bg-[rgb(17_16_9/0.025)]",
         "focus-visible:outline-none focus-visible:bg-[rgb(17_16_9/0.04)]",
         product.active ? "" : "opacity-60",

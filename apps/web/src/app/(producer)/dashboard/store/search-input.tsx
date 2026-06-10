@@ -20,7 +20,7 @@ interface SearchInputProps {
 export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
   function SearchInput({ value, onChange, placeholder = "Search products" }, ref) {
     return (
-      <label className="relative inline-flex h-9 items-center rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2.5 pr-1.5 text-[12.5px] focus-within:border-[rgb(var(--border-strong))]">
+      <label className="relative inline-flex h-11 min-w-0 flex-1 items-center rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2.5 pr-1.5 text-[12.5px] focus-within:border-[rgb(var(--border-strong))] sm:h-9 sm:flex-none">
         <Search size={14} strokeWidth={2.1} className="text-[rgb(var(--fg-muted))]" />
         <input
           ref={ref}
@@ -30,7 +30,7 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
             onChange(e.target.value);
           }}
           placeholder={placeholder}
-          className="ml-1.5 h-full w-[180px] bg-transparent outline-none placeholder:text-[rgb(var(--fg-faint))]"
+          className="ml-1.5 h-full w-full min-w-0 bg-transparent outline-none placeholder:text-[rgb(var(--fg-faint))] sm:w-[180px]"
         />
         <KeyboardHintChip label="/" />
       </label>

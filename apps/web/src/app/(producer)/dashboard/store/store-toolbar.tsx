@@ -50,7 +50,8 @@ export const StoreToolbar = forwardRef<HTMLInputElement, StoreToolbarProps>(
             { value: "hidden", label: "Hidden", count: counts.hidden },
           ]}
         />
-        <div className="flex items-center gap-3">
+        {/* Full-width on mobile so the search field can grow; auto on sm+. */}
+        <div className="flex w-full items-center gap-3 sm:w-auto">
           <ViewToggle value={view} onChange={onViewChange} enableTable={enableTable} />
           <SearchInput ref={searchRef} value={search} onChange={onSearchChange} />
         </div>

@@ -10,9 +10,10 @@ interface KeyboardHintChipProps {
 
 export function KeyboardHintChip({ label }: KeyboardHintChipProps) {
   return (
+    // Hidden on mobile — there is no physical keyboard to hint at.
     <kbd
       aria-hidden
-      className="ml-2 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1 font-mono text-[10px] font-bold text-[rgb(var(--fg-muted))]"
+      className="ml-2 hidden h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1 font-mono text-[10px] font-bold text-[rgb(var(--fg-muted))] sm:inline-flex"
     >
       {label}
     </kbd>

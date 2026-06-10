@@ -102,16 +102,17 @@ export function ProductCard({
       onDrop={drag?.onDrop}
       className={[
         "group relative grid items-center rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 transition-[border-color,transform,box-shadow] duration-200",
+        // Mobile (<sm): 2-row layout — tile + name + price on top,
+        // action cluster on its own row. Desktop (sm+): the original
+        // single-row 5-column grid (grip restored).
+        "grid-cols-[60px_minmax(0,1fr)_auto] gap-x-3 gap-y-3",
+        "sm:grid-cols-[20px_60px_minmax(0,1fr)_auto_auto] sm:gap-x-3.5 sm:gap-y-0",
         "hover:border-[rgb(var(--border-strong))] hover:-translate-y-px hover:shadow-[0_14px_36px_-22px_rgba(17,16,9,0.28),0_2px_8px_-3px_rgba(17,16,9,0.05)]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2",
         product.active ? "" : "opacity-60",
         drag?.isDragging ? "opacity-40 scale-[0.98]" : "",
         recentlyAdded ? "sk-shimmer-glow" : "",
       ].join(" ")}
-      style={{
-        gridTemplateColumns: "20px 60px minmax(0,1fr) auto auto",
-        columnGap: 14,
-      }}
     >
       {/* Hover accent stripe in tile color */}
       <span
@@ -136,9 +137,10 @@ export function ProductCard({
         />
       ) : null}
 
+      {/* Grip hidden on mobile — HTML5 drag doesn't fire on touch. */}
       <span
         aria-hidden
-        className="sk-drag-handle text-[rgb(var(--fg-muted))] opacity-30 transition-opacity group-hover:opacity-100"
+        className="sk-drag-handle hidden text-[rgb(var(--fg-muted))] opacity-30 transition-opacity group-hover:opacity-100 sm:block"
         style={{ cursor: drag ? "grab" : "default" }}
       >
         <GripVertical size={16} strokeWidth={2.1} />
@@ -156,7 +158,7 @@ export function ProductCard({
       </div>
 
       <div className="shrink-0 flex flex-col items-end gap-0.5">
-        <p className="text-right font-display text-[26px] font-extrabold leading-none tracking-[-0.02em] text-[rgb(var(--fg-default))] tabular-nums">
+        <p className="text-right font-display text-[20px] font-extrabold leading-none tracking-[-0.02em] text-[rgb(var(--fg-default))] tabular-nums sm:text-[26px]">
           {formatMoney(displayCents, product.currency)}
         </p>
         {taxCaption ? (
@@ -170,7 +172,7 @@ export function ProductCard({
       </div>
 
       <div
-        className="no-card-click-block flex items-center gap-2.5"
+        className="no-card-click-block col-span-3 flex items-center justify-end gap-2.5 border-t border-[rgb(var(--border-subtle))] pt-3 sm:col-span-1 sm:border-t-0 sm:pt-0"
         onClick={(e) => {
           e.stopPropagation();
         }}
@@ -194,7 +196,7 @@ export function ProductCard({
         <button
           type="button"
           onClick={onEdit}
-          className="sk-press inline-flex items-center gap-1 rounded-[8px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 py-1.5 text-[12px] font-semibold text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]"
+          className="sk-press inline-flex min-h-[44px] items-center gap-1 rounded-[8px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-[12px] font-semibold text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))] sm:min-h-0 sm:px-2.5 sm:py-1.5"
         >
           <Pencil size={12} strokeWidth={2.2} /> Edit
         </button>
@@ -202,7 +204,7 @@ export function ProductCard({
           type="button"
           onClick={onDelete}
           aria-label={`Delete ${product.name}`}
-          className="sk-press inline-flex h-[34px] w-[34px] items-center justify-center rounded-[8px] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
+          className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[8px] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:h-[34px] sm:w-[34px]"
         >
           <Trash2 size={14} strokeWidth={2.1} />
         </button>
