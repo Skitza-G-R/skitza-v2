@@ -212,7 +212,7 @@ export function OverviewScreen({
                   </div>
                   <Link
                     href={`/dashboard/calendar?booking=${a.id}`}
-                    className="sk-press inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--bg-sidebar))] px-3 py-2.5 text-xs font-bold text-[rgb(var(--brand-primary))]"
+                    className="sk-press inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--bg-sidebar))] px-3 py-2.5 text-xs font-bold text-[rgb(var(--brand-primary))] lg:min-h-0"
                   >
                     Review request
                     <ArrowRightIcon />
@@ -224,7 +224,7 @@ export function OverviewScreen({
           {pendingApprovals.length > 3 ? (
             <Link
               href="/dashboard/calendar"
-              className="mt-3 inline-flex w-full items-center justify-center font-mono text-[10.5px] font-semibold uppercase tracking-widest text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--brand-primary))]"
+              className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center font-mono text-[10.5px] font-semibold uppercase tracking-widest text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--brand-primary))] lg:min-h-0"
             >
               See all {pendingApprovals.length} requests →
             </Link>
@@ -546,7 +546,7 @@ function UrgentCard({
         </h2>
         <Link
           href="/dashboard/clients-projects"
-          className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--brand-primary))]"
+          className="-m-2 p-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--brand-primary))]"
         >
           View all →
         </Link>
@@ -564,7 +564,10 @@ function UrgentCard({
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <ProjectGradientBadge gradient={p.gradient} />
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    {/* <lg: title + urgency pill may wrap to two lines so
+                        long titles don't crush the pill on a 390px
+                        screen. lg+: original single-line truncate. */}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 lg:flex-nowrap">
                       <span className="truncate text-[13.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
                         {p.title}
                       </span>
@@ -664,7 +667,7 @@ function RecentUploadsCard({
         </h2>
         <Link
           href="/dashboard/music"
-          className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--brand-primary))]"
+          className="-m-2 p-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--brand-primary))]"
         >
           Library →
         </Link>
@@ -685,8 +688,11 @@ function RecentUploadsCard({
                   {u.projectClientName || "—"}
                 </p>
               </div>
+              {/* <lg: the mono eyebrow labels are hidden so the two
+                  meta columns shrink to just their values — leaves the
+                  track title readable room on a 390px screen. */}
               <div className="flex shrink-0 flex-col items-end gap-0.5">
-                <span className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+                <span className="hidden font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))] lg:inline">
                   Uploaded
                 </span>
                 <span className="text-[12px] font-bold text-[rgb(var(--fg-default))]">
@@ -694,7 +700,7 @@ function RecentUploadsCard({
                 </span>
               </div>
               <div className="ml-3 flex shrink-0 flex-col items-end gap-0.5">
-                <span className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+                <span className="hidden font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))] lg:inline">
                   Duration
                 </span>
                 <span className="font-mono text-[12px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
@@ -734,9 +740,12 @@ function FinancialPulseCard({
           {monthShort(now)}
         </span>
       </header>
-      <div className="flex flex-wrap items-stretch">
+      {/* <lg: the three stat tiles stack full-width with bottom-border
+          dividers (a squeezed 3-up wrap reads badly on a phone).
+          lg+: original flex-wrap row with right-border dividers. */}
+      <div className="flex flex-col items-stretch lg:flex-row lg:flex-wrap">
         {/* Earned this month */}
-        <div className="relative min-w-[200px] flex-1 border-r border-[rgb(var(--border-subtle)/0.7)] px-4 py-3 sm:px-5">
+        <div className="relative border-b border-[rgb(var(--border-subtle)/0.7)] px-4 py-3 sm:px-5 lg:min-w-[200px] lg:flex-1 lg:border-b-0 lg:border-r">
           <div className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
             Earned this month
           </div>
@@ -778,7 +787,7 @@ function FinancialPulseCard({
           ) : null}
         </div>
         {/* Outstanding */}
-        <div className="min-w-[200px] flex-1 border-r border-[rgb(var(--border-subtle)/0.7)] px-4 py-3 sm:px-5">
+        <div className="border-b border-[rgb(var(--border-subtle)/0.7)] px-4 py-3 sm:px-5 lg:min-w-[200px] lg:flex-1 lg:border-b-0 lg:border-r">
           <div className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
             Outstanding
           </div>
@@ -792,7 +801,7 @@ function FinancialPulseCard({
           </div>
         </div>
         {/* Needs follow-up */}
-        <div className="min-w-[220px] flex-1 px-4 py-3 sm:px-5">
+        <div className="px-4 py-3 sm:px-5 lg:min-w-[220px] lg:flex-1">
           <div className="font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
             Needs follow-up
           </div>

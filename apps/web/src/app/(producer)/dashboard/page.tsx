@@ -110,7 +110,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       <div className="relative isolate">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.12)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[320px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.12)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))] lg:h-[520px]"
         />
         <div className="sk-page-enter mx-auto max-w-[1920px]">
           <h1 className="sr-only">Today</h1>
@@ -141,13 +141,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                   <div className="mt-3 flex gap-3">
                     <Link
                       href={`/dashboard/clients-projects/${session.projectId}?tab=music`}
-                      className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--brand-primary))] hover:underline"
+                      className="inline-flex min-h-[44px] items-center font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--brand-primary))] hover:underline lg:min-h-0"
                     >
                       Upload files →
                     </Link>
                     <Link
                       href={`/dashboard/clients-projects/${session.projectId}`}
-                      className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-secondary))] hover:underline"
+                      className="inline-flex min-h-[44px] items-center font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-secondary))] hover:underline lg:min-h-0"
                     >
                       Update project →
                     </Link>
@@ -233,7 +233,7 @@ function FinishSetupNudge() {
       </div>
       <a
         href="/dashboard/onboarding"
-        className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110"
+        className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110 lg:min-h-10"
       >
         Finish setup
       </a>
