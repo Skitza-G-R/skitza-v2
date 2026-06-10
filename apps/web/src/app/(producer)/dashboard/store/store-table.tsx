@@ -44,10 +44,13 @@ export function StoreTable({
   onDelete,
 }: StoreTableProps) {
   return (
-    <div className="overflow-hidden rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[0_1px_2px_rgba(17,16,9,0.03)]">
+    // Mobile: the 5-column grid is wider than the screen, so the card
+    // becomes a horizontal scroller (min-w on each row keeps columns
+    // intact). Desktop is unchanged.
+    <div className="overflow-hidden rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[0_1px_2px_rgba(17,16,9,0.03)] max-sm:overflow-x-auto">
       {/* Header strip */}
       <div
-        className="grid gap-[14px] border-b border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.025)] px-[18px] py-[11px]"
+        className="grid gap-[14px] border-b border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.025)] px-[18px] py-[11px] max-sm:min-w-[800px]"
         style={{ gridTemplateColumns: GRID }}
       >
         {["NAME", "TYPE", "PRICE", "STATUS", "ACTIONS"].map((col, idx) => (
@@ -66,7 +69,7 @@ export function StoreTable({
       {/* LIVE group */}
       {live.length > 0 ? (
         <>
-          <div className="border-t border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.015)] px-[18px] pt-[10px] pb-[6px] font-display text-[10px] font-bold uppercase tracking-[0.1em] text-[rgb(var(--fg-muted))]">
+          <div className="border-t border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.015)] px-[18px] pt-[10px] pb-[6px] font-display text-[10px] font-bold uppercase tracking-[0.1em] text-[rgb(var(--fg-muted))] max-sm:min-w-[800px]">
             LIVE
           </div>
           {live.map((p) => (
@@ -96,7 +99,7 @@ export function StoreTable({
       {/* HIDDEN group */}
       {showHiddenGroup && hidden.length > 0 ? (
         <>
-          <div className="border-t border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.015)] px-[18px] pt-[10px] pb-[6px] font-display text-[10px] font-bold uppercase tracking-[0.1em] text-[rgb(var(--fg-muted))]">
+          <div className="border-t border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.015)] px-[18px] pt-[10px] pb-[6px] font-display text-[10px] font-bold uppercase tracking-[0.1em] text-[rgb(var(--fg-muted))] max-sm:min-w-[800px]">
             HIDDEN · {hidden.length}
           </div>
           {hidden.map((p) => (

@@ -39,7 +39,9 @@ export function ScheduleWeekNav({
           onClick={onToday}
           aria-pressed={onCurrentWeek}
           className={[
-            "sk-press inline-flex h-8 items-center justify-center rounded-[var(--radius-md)] px-3.5 text-[0.72rem] tracking-tight transition-colors",
+            // h-11 below lg = the 44px mobile tap-target rule;
+            // collapses to the spec's compact h-8 on desktop.
+            "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-md)] px-3.5 text-[0.72rem] tracking-tight transition-colors lg:h-8",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
             onCurrentWeek
               ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
@@ -52,7 +54,10 @@ export function ScheduleWeekNav({
         <NavArrow direction="next" onClick={onNext} />
       </div>
 
-      <div className="flex flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+      {/* <lg: the week readout takes its own full row so the date
+          never wraps mid-label next to the nav cluster. lg+: original
+          flex-1 inline slot. */}
+      <div className="flex w-full flex-wrap items-baseline gap-x-3 gap-y-0.5 lg:w-auto lg:flex-1">
         <h2
           className="font-display text-base tracking-tight text-[rgb(var(--fg-default))]"
           style={{ fontWeight: 800, letterSpacing: "-0.02em" }}
@@ -82,7 +87,7 @@ function NavArrow({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
+      className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] lg:h-8 lg:w-8"
     >
       <svg
         width="14"

@@ -27,7 +27,7 @@ export function ViewToggle({ value, onChange, enableTable = false }: ViewToggleP
           onChange("cards");
         }}
         className={[
-          "sk-press inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1 text-[11.5px] font-semibold",
+          "sk-press inline-flex min-h-[44px] items-center gap-1.5 rounded-[8px] px-2.5 py-2.5 text-[11.5px] font-semibold sm:min-h-0 sm:py-1",
           value === "cards"
             ? "bg-[rgb(var(--bg-base,242_237_230))] text-[rgb(var(--fg-default))]"
             : "text-[rgb(var(--fg-muted))]",
@@ -45,7 +45,7 @@ export function ViewToggle({ value, onChange, enableTable = false }: ViewToggleP
           if (enableTable) onChange("table");
         }}
         className={[
-          "sk-press inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1 text-[11.5px] font-semibold",
+          "sk-press inline-flex min-h-[44px] items-center gap-1.5 rounded-[8px] px-2.5 py-2.5 text-[11.5px] font-semibold sm:min-h-0 sm:py-1",
           value === "table" && enableTable
             ? "bg-[rgb(var(--bg-base,242_237_230))] text-[rgb(var(--fg-default))]"
             : "text-[rgb(var(--fg-muted))]",

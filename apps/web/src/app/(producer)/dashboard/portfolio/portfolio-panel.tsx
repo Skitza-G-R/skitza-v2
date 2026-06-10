@@ -221,11 +221,13 @@ export function PortfolioPanel({
   addedAudioUrls: string[];
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,38fr)_minmax(0,62fr)] gap-10">
-      <div data-portfolio-col="left">
+    // Mobile (<lg): single column, Featured tracks first. Desktop (lg+):
+    // original 2-col 38/62 split, Social links left.
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,38fr)_minmax(0,62fr)] lg:gap-10">
+      <div data-portfolio-col="left" className="order-2 lg:order-none">
         <SocialLinksSection initialLinks={links} />
       </div>
-      <div data-portfolio-col="right">
+      <div data-portfolio-col="right" className="order-1 lg:order-none">
         <FeaturedTracksSection
           initialTracks={tracks}
           library={library}
@@ -311,7 +313,7 @@ function FeaturedTracksSection({
       aria-labelledby="portfolio-tracks-heading"
       className="sk-portfolio-section"
     >
-      <header className="mb-5 flex items-end justify-between gap-3">
+      <header className="mb-5 flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
         <div>
           <h2
             id="portfolio-tracks-heading"
@@ -320,8 +322,10 @@ function FeaturedTracksSection({
           >
             Featured tracks
           </h2>
+          {/* Drag is desktop-only (grip hidden < sm) — don't promise it on phones. */}
           <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            PICK YOUR BEST. DRAG TO REORDER.
+            <span className="sm:hidden">PICK YOUR BEST.</span>
+            <span className="hidden sm:inline">PICK YOUR BEST. DRAG TO REORDER.</span>
           </p>
         </div>
         <AddFromLibraryButton
@@ -518,11 +522,13 @@ function TrackRow({
   return (
     <li ref={setNodeRef} style={sortableStyle} className="group/track">
       <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.55)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:ring-[rgb(var(--border-strong))] transition-[box-shadow,background-color] duration-300 ease-out">
-        <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-3.5 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+        {/* Mobile: row wraps — play + meta on top, waveform on its own
+            full-width line, grip hidden (drag stays desktop-only). */}
+        <div className="flex flex-wrap items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-3.5 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:flex-nowrap">
           {/* drag handle */}
           <button
             type="button"
-            className="grid h-9 w-4 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted)/0.6)] transition-colors duration-200 ease-out hover:text-[rgb(var(--fg-primary))] group-hover/track:text-[rgb(var(--fg-muted))] active:cursor-grabbing"
+            className="hidden h-9 w-4 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted)/0.6)] transition-colors duration-200 ease-out hover:text-[rgb(var(--fg-primary))] group-hover/track:text-[rgb(var(--fg-muted))] active:cursor-grabbing sm:grid"
             {...attributes}
             {...listeners}
             aria-label="Drag to reorder"
@@ -570,7 +576,7 @@ function TrackRow({
             aria-label="Seek"
             onClick={onWaveClick}
             disabled={!row.audioUrl}
-            className="flex h-10 flex-1 min-w-0 items-center gap-[2px] transition-opacity duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40"
+            className="order-last flex h-10 w-full flex-none min-w-0 items-center gap-[2px] transition-opacity duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40 sm:order-none sm:w-auto sm:flex-1"
           >
             {bars.map((h, i) => {
               const playedFraction = (i + 1) / bars.length;
@@ -593,8 +599,8 @@ function TrackRow({
 
           <Separator />
 
-          {/* col 3: name + artist · duration */}
-          <div className="min-w-0 shrink-0" style={{ width: 168 }}>
+          {/* col 3: name + artist · duration — flexes on mobile, fixed 168px on sm+ */}
+          <div className="min-w-0 flex-1 sm:w-[168px] sm:flex-none">
             <p
               className="truncate text-[14px] leading-tight text-[rgb(var(--fg-primary))]"
               style={{ fontWeight: 600, letterSpacing: "-0.01em" }}
@@ -617,8 +623,8 @@ function TrackRow({
 
           <Separator />
 
-          {/* col 4: public / private mono label — fixed width so the divider sits at a stable x */}
-          <div className="flex shrink-0 items-center" style={{ width: 64 }}>
+          {/* col 4: public / private mono label — fixed width on sm+ so the divider sits at a stable x */}
+          <div className="flex shrink-0 items-center sm:w-16">
             <span
               aria-hidden="true"
               className={[
@@ -638,7 +644,7 @@ function TrackRow({
             type="button"
             aria-label={`Remove ${row.title}`}
             onClick={onRemove}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/track:opacity-100 active:scale-[0.92]"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/track:opacity-100 active:scale-[0.92] max-sm:h-11 max-sm:w-11 max-sm:opacity-100"
           >
             <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
               <path d="M3 3l6 6M9 3l-6 6" />
@@ -653,12 +659,12 @@ function TrackRow({
 // Visible vertical hairline between row columns. Stronger than
 // --border-subtle so it actually shows against the cream inner card;
 // inset top + bottom relative to the row height so it reads as a
-// divider, not a touching edge.
+// divider, not a touching edge. Hidden on mobile where the row wraps.
 function Separator() {
   return (
     <span
       aria-hidden="true"
-      className="block h-7 w-px shrink-0 bg-[rgb(var(--fg-muted)/0.28)]"
+      className="hidden h-7 w-px shrink-0 bg-[rgb(var(--fg-muted)/0.28)] sm:block"
     />
   );
 }
@@ -772,7 +778,7 @@ function SocialLinksSection({
           <button
             type="submit"
             disabled={adding || !url.trim()}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-xs font-medium text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:border-[rgb(var(--fg-primary))] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[rgb(var(--bg-elevated))]"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-xs font-medium text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:border-[rgb(var(--fg-primary))] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[rgb(var(--bg-elevated))] sm:min-h-0"
           >
             <svg
               viewBox="0 0 16 16"
@@ -862,10 +868,10 @@ function LinkRow({
     <li ref={setNodeRef} style={sortableStyle} className="group/link">
       <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.55)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/link:ring-[rgb(var(--border-strong))] transition-[box-shadow,background-color] duration-300 ease-out">
         <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
-          {/* drag handle */}
+          {/* drag handle — hidden on mobile (drag stays desktop-only) */}
           <button
             type="button"
-            className="grid h-7 w-5 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:cursor-grabbing"
+            className="hidden h-7 w-5 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:cursor-grabbing sm:grid"
             {...attributes}
             {...listeners}
             aria-label="Drag to reorder"
@@ -906,7 +912,7 @@ function LinkRow({
             type="button"
             aria-label={`Remove ${PLATFORM_LABEL[row.platform]} link`}
             onClick={onRemove}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/link:opacity-100 active:scale-[0.92]"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/link:opacity-100 active:scale-[0.92] max-sm:h-11 max-sm:w-11 max-sm:opacity-100"
           >
             <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
               <path d="M3 3l6 6M9 3l-6 6" />
@@ -975,7 +981,7 @@ function AddFromLibraryButton({
         onClick={() => {
           setOpen(true);
         }}
-        className="inline-flex items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-semibold text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.94)] hover:-translate-y-px hover:shadow-[0_10px_28px_-8px_rgb(var(--brand-primary)/0.6),0_4px_10px_-2px_rgb(17_16_9_/_0.14)] active:scale-[0.97] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none"
+        className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-semibold text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.94)] hover:-translate-y-px hover:shadow-[0_10px_28px_-8px_rgb(var(--brand-primary)/0.6),0_4px_10px_-2px_rgb(17_16_9_/_0.14)] active:scale-[0.97] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none sm:min-h-0 sm:w-auto"
         style={{
           boxShadow:
             "0 6px 18px -6px rgb(var(--brand-primary) / 0.45), 0 2px 6px -1px rgb(17 16 9 / 0.10)",
@@ -1222,13 +1228,14 @@ function PickerTable({
               <th className="px-5 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
                 Title
               </th>
-              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+              {/* Project + Uploaded hidden on mobile — Title + Artist + action fit 390px */}
+              <th className="hidden px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))] sm:table-cell">
                 Project
               </th>
               <th className="px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
                 Artist
               </th>
-              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+              <th className="hidden px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))] sm:table-cell">
                 Uploaded
               </th>
               <th className="px-5 py-2.5 text-right font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
@@ -1306,13 +1313,13 @@ function PickerRow({
       >
         <span className="block max-w-[200px] truncate">{row.trackTitle}</span>
       </td>
-      <td className="px-3 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))]">
+      <td className="hidden px-3 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))] sm:table-cell">
         <span className="block max-w-[140px] truncate">{row.projectTitle}</span>
       </td>
       <td className="px-3 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))]">
         <span className="block max-w-[120px] truncate">{row.artistName}</span>
       </td>
-      <td className="px-3 py-3 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] tabular-nums">
+      <td className="hidden px-3 py-3 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] tabular-nums sm:table-cell">
         {date}
       </td>
       <td className="px-5 py-3 text-right">

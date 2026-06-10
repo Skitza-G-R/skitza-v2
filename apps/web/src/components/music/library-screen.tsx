@@ -638,15 +638,19 @@ function ProjectsGrid({
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(196px, 1fr))" }}
     >
       {projects.map((p, i) => (
+        // Featured span applies from sm: up only — below 640px the
+        // auto-fill grid resolves to a single column, and a span-2 item
+        // there would force an implicit second column off the right
+        // edge of the phone viewport. At sm+ the grid always fits 2+
+        // columns, so the span is safe.
         <li
           key={p.id}
-          className="sk-stagger-item"
-          style={
-            {
-              "--i": String(i),
-              gridColumn: useFeatured && i === 0 ? "span 2" : undefined,
-            } as React.CSSProperties
+          className={
+            useFeatured && i === 0
+              ? "sk-stagger-item sm:col-span-2"
+              : "sk-stagger-item"
           }
+          style={{ "--i": String(i) } as React.CSSProperties}
         >
           <ProjectCard project={p} role={role} />
         </li>
@@ -719,13 +723,19 @@ function ProjectsTable({
   role: MusicLibraryRole;
 }) {
   return (
+    // Below lg the fixed px columns outgrow a phone viewport and the
+    // fr title columns collapse to 0 — so the card becomes a
+    // horizontal scroller with a min content width that keeps every
+    // column readable. At lg+ neither class applies: same overflow-
+    // hidden card as before.
     <div
-      className="overflow-hidden rounded-[12px] border"
+      className="overflow-hidden rounded-[12px] border max-lg:overflow-x-auto"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
       }}
     >
+      <div className="max-lg:min-w-[640px]">
       {/* Header */}
       <div
         className="grid items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
@@ -799,6 +809,7 @@ function ProjectsTable({
           </li>
         ))}
       </ul>
+      </div>
     </div>
   );
 }
@@ -948,13 +959,16 @@ function SongsTable({
   }
 
   return (
+    // Same mobile treatment as ProjectsTable: horizontal scroller
+    // below lg with a readable min content width; untouched at lg+.
     <div
-      className="overflow-hidden rounded-[12px] border"
+      className="overflow-hidden rounded-[12px] border max-lg:overflow-x-auto"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
       }}
     >
+      <div className="max-lg:min-w-[700px]">
       <div
         className="grid items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
         style={{
@@ -1109,6 +1123,7 @@ function SongsTable({
           );
         })}
       </ul>
+      </div>
     </div>
   );
 }

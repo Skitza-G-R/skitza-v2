@@ -57,8 +57,9 @@ export default async function PortfolioPage() {
   const publicProfileUrl = `/join/${me.slug}`;
 
   return (
-    <div className="sk-page-enter mx-auto mt-10 max-w-[1180px] px-6 pb-24 pt-8">
-      <header className="mb-10 flex items-end justify-between gap-6">
+    <div className="sk-page-enter mx-auto mt-10 max-w-[1180px] px-4 pb-24 pt-8 sm:px-6">
+      {/* Mobile: title stacks above the CTA. Desktop: original side-by-side row. */}
+      <header className="mb-8 flex flex-col items-start gap-5 sm:mb-10 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <div>
           <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
             PORTFOLIO
@@ -75,7 +76,7 @@ export default async function PortfolioPage() {
           href={publicProfileUrl}
           target="_blank"
           rel="noreferrer noopener"
-          className="inline-flex shrink-0 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-semibold text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.94)] hover:-translate-y-px hover:shadow-[0_10px_28px_-8px_rgb(var(--brand-primary)/0.6),0_4px_10px_-2px_rgb(17_16_9_/_0.14)] active:scale-[0.97] active:translate-y-0"
+          className="inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-semibold text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.94)] hover:-translate-y-px hover:shadow-[0_10px_28px_-8px_rgb(var(--brand-primary)/0.6),0_4px_10px_-2px_rgb(17_16_9_/_0.14)] active:scale-[0.97] active:translate-y-0 sm:min-h-0"
           style={{
             boxShadow:
               "0 6px 18px -6px rgb(var(--brand-primary) / 0.45), 0 2px 6px -1px rgb(17 16 9 / 0.10)",

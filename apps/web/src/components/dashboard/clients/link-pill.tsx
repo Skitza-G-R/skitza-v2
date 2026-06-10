@@ -50,7 +50,7 @@ export function LinkPill({ state, onInvite }: LinkPillProps) {
     <button
       type="button"
       onClick={onInvite}
-      className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide transition-colors hover:bg-[rgb(var(--brand-primary)/0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]"
+      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide transition-colors hover:bg-[rgb(var(--brand-primary)/0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))] sm:min-h-0"
       style={{
         background: "rgb(var(--brand-primary)/0.10)",
         borderColor: "rgb(var(--brand-primary)/0.40)",

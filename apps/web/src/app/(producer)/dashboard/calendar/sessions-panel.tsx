@@ -189,7 +189,9 @@ function FilterChip({
       onClick={onClick}
       aria-pressed={active}
       className={[
-        "sk-press inline-flex h-7 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-3 text-[12px] tracking-tight transition-colors",
+        // h-11 below lg = 44px mobile tap target; compact h-7 on
+        // desktop matches the locked spec.
+        "sk-press inline-flex h-11 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-3 text-[12px] tracking-tight transition-colors lg:h-7",
         active
           ? "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9_/_0.08)]"
           : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -221,7 +223,9 @@ function SearchPill({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="inline-flex h-9 min-w-[220px] items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12.5px] focus-within:border-[rgb(var(--brand-primary))]">
+    // <lg: full-width 44px-tall field on its own toolbar row; lg+
+    // restores the compact 220px pill.
+    <div className="inline-flex h-11 w-full items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12.5px] focus-within:border-[rgb(var(--brand-primary))] lg:h-9 lg:w-auto lg:min-w-[220px]">
       <SearchIcon />
       <input
         type="search"

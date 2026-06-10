@@ -20,7 +20,7 @@ export function NewProductButton({ onClick, disabled = false }: NewProductButton
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="sk-press inline-flex items-center justify-center rounded-[10px] px-4 py-2.5 text-[13px] font-bold text-[rgb(var(--bg-sidebar))] shadow-[0_2px_14px_rgb(var(--brand-primary)/0.32)] transition-transform hover:translate-y-[-1px] disabled:opacity-50"
+      className="sk-press inline-flex min-h-[44px] w-full items-center justify-center rounded-[10px] px-4 py-2.5 text-[13px] font-bold text-[rgb(var(--bg-sidebar))] shadow-[0_2px_14px_rgb(var(--brand-primary)/0.32)] transition-transform hover:translate-y-[-1px] disabled:opacity-50 sm:min-h-0 sm:w-auto"
       style={{ background: "rgb(var(--brand-primary))" }}
     >
       <Plus size={15} strokeWidth={2.4} />

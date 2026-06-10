@@ -56,7 +56,9 @@ export function ClientsTableHeader({
     <div
       role="row"
       data-testid="clients-table-header"
-      className="grid items-center gap-3 border-b px-3 py-2.5"
+      // SK-47: hidden below md — mobile renders ClientCompactRow as a
+      // 2-line card, so the 10-column header has nothing to align with.
+      className="hidden items-center gap-3 border-b px-3 py-2.5 md:grid"
       style={{
         gridTemplateColumns: GRID_TEMPLATE,
         borderBottomColor: "rgb(var(--border-subtle))",

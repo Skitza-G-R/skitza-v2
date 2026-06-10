@@ -60,10 +60,12 @@ export function SessionRow({
   const kindToken = KIND_COLORS[kind];
 
   return (
+    // <lg: two-row grid — date + body on top, the action buttons get
+    // their own full-width row so the body isn't crushed on a 390px
+    // screen. lg+: the spec's single-row 54px | 1fr | auto layout.
     <div
-      className="grid items-center gap-3.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 transition-colors hover:border-[rgb(var(--border-strong))]"
+      className="grid grid-cols-[54px_minmax(0,1fr)] items-center gap-3.5 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 transition-colors hover:border-[rgb(var(--border-strong))] lg:grid-cols-[54px_minmax(0,1fr)_auto]"
       style={{
-        gridTemplateColumns: "54px minmax(0, 1fr) auto",
         opacity: dimmed ? 0.6 : 1,
       }}
     >
@@ -177,7 +179,7 @@ function Actions({
   onCancel: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="col-span-2 flex items-center justify-end gap-1 lg:col-span-1">
       <IconBtn label="Change time" onClick={onChangeTime}>
         <CalendarClockMini />
       </IconBtn>
@@ -211,7 +213,8 @@ function IconBtn({
       aria-label={label}
       onClick={onClick}
       className={[
-        "sk-press inline-flex h-[30px] w-[30px] items-center justify-center rounded-[7px] border transition-colors",
+        // 44px tap target below lg; compact 30px square on desktop.
+        "sk-press inline-flex h-11 w-11 items-center justify-center rounded-[7px] border transition-colors lg:h-[30px] lg:w-[30px]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
         tone === "danger"
           ? "border-[rgb(var(--fg-danger)/0.25)] bg-transparent text-[rgb(var(--fg-danger))] hover:border-[rgb(var(--fg-danger)/0.45)] hover:bg-[rgb(var(--fg-danger)/0.08)]"

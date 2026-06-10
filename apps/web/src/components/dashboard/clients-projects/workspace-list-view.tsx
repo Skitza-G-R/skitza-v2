@@ -131,7 +131,7 @@ export interface WorkspaceListViewProps {
 // makes the hover lift feel intentional, not springy. active:scale
 // gives the "pressed-down" tactile beat per emil-design-eng.
 const HEADER_CTA_CLASS =
-  "inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-[13px] font-semibold shadow-[0_8px_20px_-6px_rgb(var(--brand-primary)/0.45),0_2px_6px_-2px_rgb(var(--brand-primary)/0.35)] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:scale-[1.02] hover:shadow-[0_12px_26px_-6px_rgb(var(--brand-primary)/0.55),0_3px_8px_-2px_rgb(var(--brand-primary)/0.4)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2";
+  "inline-flex min-h-[44px] items-center gap-1.5 self-start rounded-full px-5 py-2.5 text-[13px] font-semibold shadow-[0_8px_20px_-6px_rgb(var(--brand-primary)/0.45),0_2px_6px_-2px_rgb(var(--brand-primary)/0.35)] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:scale-[1.02] hover:shadow-[0_12px_26px_-6px_rgb(var(--brand-primary)/0.55),0_3px_8px_-2px_rgb(var(--brand-primary)/0.4)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 sm:min-h-0 sm:self-auto";
 
 const HEADER_CTA_STYLE = {
   background: "rgb(var(--brand-primary))",
@@ -376,7 +376,7 @@ export function WorkspaceListView({
 
   return (
     <div className="flex flex-col gap-5">
-      <header className="flex items-end justify-between gap-3">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex min-w-0 flex-col gap-1">
           <span
             className="text-[10.5px] font-bold uppercase tracking-[0.14em]"
@@ -385,7 +385,7 @@ export function WorkspaceListView({
             Workspace
           </span>
           <h1
-            className="font-syne text-[46px] font-extrabold leading-[0.96] tracking-[-0.035em]"
+            className="font-syne text-[34px] font-extrabold leading-[0.96] tracking-[-0.035em] sm:text-[46px]"
             style={{ color: "rgb(var(--fg-default))" }}
           >
             Clients &amp; Projects
@@ -532,7 +532,7 @@ export function WorkspaceListView({
             role="tab"
             aria-selected={tab === "clients"}
             onClick={() => { setTab("clients"); }}
-            className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-3.5 py-2.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] sm:min-h-0 sm:py-1.5"
             style={{
               background:
                 tab === "clients" ? "rgb(var(--bg-elevated))" : "transparent",
@@ -552,7 +552,7 @@ export function WorkspaceListView({
             role="tab"
             aria-selected={tab === "projects"}
             onClick={() => { setTab("projects"); }}
-            className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-3.5 py-2.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] sm:min-h-0 sm:py-1.5"
             style={{
               background:
                 tab === "projects" ? "rgb(var(--bg-elevated))" : "transparent",
@@ -582,7 +582,7 @@ export function WorkspaceListView({
                     type="button"
                     onClick={() => { setProjectFilter(f.value); }}
                     aria-pressed={active}
-                    className="inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full border px-3.5 py-2.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:py-1.5"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -614,7 +614,7 @@ export function WorkspaceListView({
                     type="button"
                     onClick={() => { setClientFilter(f.value); }}
                     aria-pressed={active}
-                    className="inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full border px-3.5 py-2.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:py-1.5"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -663,7 +663,7 @@ export function WorkspaceListView({
               onClick={() => { setLayout("cards"); }}
               aria-pressed={layout === "cards"}
               aria-label="Card layout"
-              className="rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:min-w-0"
               style={{
                 background:
                   layout === "cards"
@@ -682,7 +682,7 @@ export function WorkspaceListView({
               onClick={() => { setLayout("table"); }}
               aria-pressed={layout === "table"}
               aria-label="Table layout"
-              className="rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)]"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:min-w-0"
               style={{
                 background:
                   layout === "table"
@@ -701,7 +701,7 @@ export function WorkspaceListView({
             <select
               value={sort}
               onChange={(e) => { setSort(e.target.value as SortValue); }}
-              className="appearance-none rounded-full border bg-transparent py-1.5 pl-3 pr-7 text-[12px] font-medium focus:outline-none"
+              className="min-h-[44px] appearance-none rounded-full border bg-transparent py-2.5 pl-3 pr-7 text-[12px] font-medium focus:outline-none sm:min-h-0 sm:py-1.5"
               style={{
                 background: "rgb(var(--bg-elevated))",
                 borderColor: "rgb(var(--border-subtle))",

@@ -16,7 +16,10 @@ import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
 // missing (older browsers, insecure context) we still flip the visual
 // state so the producer sees acknowledgment, but skip the write.
 //
-// Mobile: the row collapses to a vertical stack via `flex-wrap`.
+// Mobile (<lg): the row collapses to a vertical stack via `flex-wrap` —
+// the URL pill takes its own full-width line, the slug truncates so
+// long handles can't overflow a 390px viewport, and the Copy button
+// keeps a >=44px tap target.
 //
 // `slug` — the producer's chosen handle. We don't render this strip
 // when the slug is null (the Day-1 empty branch handles that case).
@@ -83,8 +86,8 @@ export function PublicLinkStrip({ slug }: PublicLinkStripProps) {
             </p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2 rounded-[var(--radius-md)] border border-white/10 bg-white/5 p-1.5">
-          <span className="px-3 font-mono text-[13.5px] font-medium">
+        <div className="flex w-full min-w-0 items-center gap-2 rounded-[var(--radius-md)] border border-white/10 bg-white/5 p-1.5 lg:w-auto lg:shrink-0">
+          <span className="min-w-0 flex-1 truncate px-3 font-mono text-[13.5px] font-medium lg:flex-none">
             <span className="text-white/30">{displayBase}/join/</span>
             <span className="text-white">{slug}</span>
           </span>
@@ -92,7 +95,7 @@ export function PublicLinkStrip({ slug }: PublicLinkStripProps) {
             type="button"
             onClick={onCopy}
             className={[
-              "sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-4 py-2 text-[12.5px] font-bold",
+              "sk-press inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-4 py-2 text-[12.5px] font-bold lg:min-h-0",
               copied
                 ? "bg-[rgb(var(--fg-success))] text-white"
                 : "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]",

@@ -48,7 +48,9 @@ export function ProjectsTableHeader({
   return (
     <div
       role="row"
-      className="grid items-center gap-3 border-b px-3 py-2"
+      // SK-47: hidden below md — mobile renders ProjectRow as a 2-line
+      // card, so the 8-column header has nothing to align with there.
+      className="hidden items-center gap-3 border-b px-3 py-2 md:grid"
       style={{
         gridTemplateColumns:
           "24px 44px minmax(0,1.6fr) minmax(0,1fr) 120px 100px 110px 36px",

@@ -38,7 +38,7 @@ export function SegmentedTabs<V extends string>({
               onChange(it.value);
             }}
             className={[
-              "sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-semibold transition-colors",
+              "sk-press inline-flex min-h-[44px] items-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-2.5 text-[12px] font-semibold transition-colors sm:min-h-0 sm:py-1.5",
               active
                 ? "bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark,140_95_6))]"
                 : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",

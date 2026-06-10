@@ -169,7 +169,7 @@ function WorkingHoursCard({
         <button
           type="button"
           onClick={copyMonToWeekdays}
-          className="sk-press font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] transition-opacity hover:opacity-70"
+          className="sk-press -m-2 p-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] transition-opacity hover:opacity-70"
           style={{ fontWeight: 700 }}
         >
           Copy Mon to weekdays
@@ -248,7 +248,7 @@ function WorkingHoursCard({
           type="button"
           onClick={handleSave}
           disabled={!dirty || isPending}
-          className="sk-press inline-flex h-9 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50"
+          className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
           style={{ fontWeight: 700 }}
         >
           {isPending ? "Saving…" : "Save changes"}
@@ -325,10 +325,12 @@ function DayRow({
   void dayNum;
   const isOn = windows.length > 0;
   return (
+    // <lg: two-row layout — toggle | day | hours on top, the time
+    // windows on a full-width second row so the selects aren't crushed
+    // on a 390px screen. lg+: the spec's single-row 4-column grid.
     <li
-      className="grid items-center gap-3 py-3"
+      className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 py-3 lg:grid-cols-[44px_100px_minmax(0,1fr)_auto]"
       style={{
-        gridTemplateColumns: "44px 100px minmax(0, 1fr) auto",
         borderBottom: isLast ? "none" : "1px solid rgb(var(--border-subtle))",
       }}
     >
@@ -339,7 +341,7 @@ function DayRow({
       >
         {dayLabel}
       </span>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="col-span-3 row-start-2 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-3 lg:row-start-1">
         {isOn ? (
           <>
             {windows.map((w, i) => (
@@ -366,7 +368,7 @@ function DayRow({
                     onRemoveWindow(w.id);
                   }}
                   aria-label="Remove window"
-                  className="sk-press inline-flex h-6 w-6 items-center justify-center rounded-full text-[rgb(var(--fg-faint))] hover:text-[rgb(var(--fg-default))]"
+                  className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-faint))] hover:text-[rgb(var(--fg-default))] lg:h-6 lg:w-6"
                 >
                   <XMini />
                 </button>
@@ -375,7 +377,7 @@ function DayRow({
             <button
               type="button"
               onClick={onAddWindow}
-              className="sk-press inline-flex h-6 items-center justify-center rounded-[var(--radius-sm)] border border-dashed border-[rgb(var(--brand-primary)/0.5)] bg-transparent px-2.5 text-[10.5px] text-[rgb(var(--brand-primary-dark))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.06)]"
+              className="sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border border-dashed border-[rgb(var(--brand-primary)/0.5)] bg-transparent px-2.5 text-[10.5px] text-[rgb(var(--brand-primary-dark))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.06)] lg:h-6"
               style={{ fontWeight: 700 }}
             >
               + Add window
@@ -385,7 +387,7 @@ function DayRow({
           <span className="text-[12.5px] italic text-[rgb(var(--fg-faint))]">Closed</span>
         )}
       </div>
-      <span className="font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+      <span className="col-start-3 row-start-1 font-mono text-[11px] text-[rgb(var(--fg-muted))] lg:col-start-4">
         {isOn ? `${formatHours(totalH)}h` : "—"}
       </span>
     </li>
@@ -437,7 +439,7 @@ function TimeSelect({
       onChange={(e) => {
         onChange(e.target.value);
       }}
-      className="h-7 appearance-none rounded-[7px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 font-mono text-[12.5px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+      className="h-11 appearance-none rounded-[7px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 font-mono text-[12.5px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-7"
       style={{ fontWeight: 600 }}
     >
       {slots.map((slot) => (
@@ -551,7 +553,8 @@ function BookingPrefsCard({
                     onWeekStartChange(opt);
                   }}
                   className={[
-                    "sk-press inline-flex h-7 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors",
+                    // 44px tap target below lg; compact h-7 on desktop.
+                    "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors lg:h-7",
                     isActive
                       ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                       : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -636,7 +639,8 @@ function ChipGroup<T extends number | string>({
             }}
             aria-pressed={isActive}
             className={[
-              "sk-press inline-flex h-7 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors",
+              // 44px tap target below lg; compact h-7 on desktop.
+              "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors lg:h-7",
               isActive
                 ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                 : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -690,7 +694,7 @@ function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
           onClick={() => {
             setOpen(true);
           }}
-          className="sk-press font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] transition-opacity hover:opacity-70"
+          className="sk-press -m-2 p-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] transition-opacity hover:opacity-70"
           style={{ fontWeight: 700 }}
         >
           + Block dates
@@ -727,7 +731,7 @@ function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
                 onClick={() => {
                   handleRemove(b.id);
                 }}
-                className="sk-press inline-flex h-6 w-6 items-center justify-center rounded-full text-[rgb(var(--fg-faint))] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+                className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-faint))] hover:text-[rgb(var(--fg-default))] disabled:opacity-50 lg:h-6 lg:w-6"
               >
                 <XMini />
               </button>
@@ -811,7 +815,7 @@ function BlockDatesModal({
               setReason(e.target.value);
             }}
             placeholder="Family vacation"
-            className="h-9 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12.5px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+            className="h-11 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12.5px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-9"
           />
         </Field>
         <div className="grid grid-cols-2 gap-3">
@@ -822,7 +826,7 @@ function BlockDatesModal({
               onChange={(e) => {
                 setFrom(e.target.value);
               }}
-              className="h-9 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[12px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+              className="h-11 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[12px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-9"
               style={{ fontWeight: 600 }}
             />
           </Field>
@@ -834,7 +838,7 @@ function BlockDatesModal({
                 setTo(e.target.value);
               }}
               min={from}
-              className="h-9 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[12px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+              className="h-11 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[12px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-9"
               style={{ fontWeight: 600 }}
             />
           </Field>
@@ -855,7 +859,7 @@ function BlockDatesModal({
           onClick={() => {
             onOpenChange(false);
           }}
-          className="sk-press inline-flex h-9 items-center justify-center rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[12.5px] text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-default))]"
+          className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[12.5px] text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-default))] lg:h-9"
           style={{ fontWeight: 600 }}
         >
           Cancel
@@ -864,7 +868,7 @@ function BlockDatesModal({
           type="button"
           onClick={handleAdd}
           disabled={!from || isPending}
-          className="sk-press inline-flex h-9 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
           style={{ fontWeight: 700 }}
         >
           {isPending ? "Saving…" : "Block dates"}
