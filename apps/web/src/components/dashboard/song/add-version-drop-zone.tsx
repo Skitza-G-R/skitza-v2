@@ -62,7 +62,10 @@ export function AddVersionDropZone({
       disabled={disabled}
       aria-label="Add a new version"
       data-dragging={isDragging || undefined}
-      className="group relative grid w-full items-center gap-3 rounded-[var(--radius-md)] border border-dashed px-3 py-2 text-left transition-colors hover:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:bg-transparent"
+      // <md the row is a simple flex line (the desktop grid's fixed
+      // trailing columns crushed the copy at 390px); md+ keeps the
+      // exact VersionRow grid geometry so columns stay flush.
+      className="group relative flex min-h-[64px] w-full items-center gap-3 rounded-[var(--radius-md)] border border-dashed px-3 py-2 text-left transition-colors hover:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:bg-transparent md:grid md:min-h-0"
       style={{
         gridTemplateColumns: "36px minmax(0,1fr) 48px 48px 56px 32px",
         borderColor: "rgb(var(--brand-primary)/0.40)",
@@ -83,7 +86,7 @@ export function AddVersionDropZone({
       </span>
 
       {/* 2 — Headline + hint (occupies the title+meta cell) */}
-      <div className="relative z-10 min-w-0">
+      <div className="relative z-10 min-w-0 flex-1">
         <p
           className="truncate text-[14px] font-medium leading-tight"
           style={{ color: "rgb(var(--brand-primary))" }}
@@ -98,13 +101,13 @@ export function AddVersionDropZone({
         </p>
       </div>
 
-      {/* 3-6 — Empty placeholder cells. We keep them in the DOM (as
-              empty spans) so the row's grid columns line up perfectly
-              with every VersionRow below it. */}
-      <span aria-hidden className="relative z-10" />
-      <span aria-hidden className="relative z-10" />
-      <span aria-hidden className="relative z-10" />
-      <span aria-hidden className="relative z-10" />
+      {/* 3-6 — Empty placeholder cells (md+ only). We keep them in the
+              DOM (as empty spans) so the row's grid columns line up
+              perfectly with every VersionRow below it. */}
+      <span aria-hidden className="relative z-10 hidden md:inline" />
+      <span aria-hidden className="relative z-10 hidden md:inline" />
+      <span aria-hidden className="relative z-10 hidden md:inline" />
+      <span aria-hidden className="relative z-10 hidden md:inline" />
     </button>
   );
 }

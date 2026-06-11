@@ -154,9 +154,8 @@ export function VersionRow({
       data-version-id={version.id}
       data-current={isCurrent ? "true" : "false"}
       aria-disabled={!hasAudio}
-      className={`group relative grid w-full items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors hover:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] ${beforeClass} ${hasAudio ? "" : "cursor-not-allowed opacity-60"}`}
+      className={`group relative w-full rounded-[var(--radius-md)] border text-left transition-colors hover:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] ${beforeClass} ${hasAudio ? "" : "cursor-not-allowed opacity-60"}`}
       style={{
-        gridTemplateColumns: "36px minmax(0,1fr) 48px 48px 56px 32px",
         borderColor: "rgb(var(--border-subtle))",
         background: rowBg,
       }}
@@ -164,6 +163,15 @@ export function VersionRow({
         hasAudio ? `Play ${songTitle} ${versionLabel}` : "No audio available"
       }
     >
+      {/* Desktop (md+) — exact 6-column grid, unchanged from the
+          original single-layout row. Hidden below md: ~220px of fixed
+          trailing columns crushed the title to "G b…" on phones. */}
+      <div
+        className="hidden items-center gap-3 px-3 py-2 md:grid"
+        style={{
+          gridTemplateColumns: "36px minmax(0,1fr) 48px 48px 56px 32px",
+        }}
+      >
       {/* 1 — 36px gradient cover tile */}
       <span
         aria-hidden
@@ -232,6 +240,63 @@ export function VersionRow({
           aria-label={hasAudio ? "Play" : "No audio available"}
         />
       </span>
+      </div>
+
+      {/* Mobile (<md) — 64px two-line row. The version label leads
+          (titles repeat the page's song on every row); the whole
+          button is the play action, so content is decorative. */}
+      <div
+        aria-hidden
+        className="pointer-events-none relative z-10 flex min-h-[64px] items-center gap-3 px-3 py-2.5 md:hidden"
+      >
+        <span
+          className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)]"
+          style={{ background: coverBg }}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span
+              className="font-mono text-[14px] font-semibold tabular-nums"
+              style={{ color: titleColor }}
+            >
+              {versionLabel}
+            </span>
+            <span
+              className="font-mono text-[12px] tabular-nums"
+              style={{ color: "rgb(var(--fg-muted))" }}
+            >
+              {formatDuration(version.durationMs)}
+            </span>
+          </span>
+          <span
+            className="mt-0.5 block truncate text-[12px]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            {meta}
+          </span>
+        </span>
+        {version.noteCount > 0 ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 text-[12px] tabular-nums"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            <MessageSquare size={12} aria-hidden />
+            {version.noteCount}
+          </span>
+        ) : null}
+        <span
+          className="inline-flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full border transition-colors"
+          style={{
+            background: playBg,
+            borderColor: isCurrent
+              ? "rgb(var(--brand-primary))"
+              : "rgb(var(--border-subtle))",
+            color: playColor,
+          }}
+        >
+          <Play size={12} fill="currentColor" />
+        </span>
+      </div>
     </button>
   );
 }
