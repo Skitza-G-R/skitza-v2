@@ -1,9 +1,20 @@
 # Session Recap
 
 > **For the next session: READ THIS FIRST.**
-> Last updated: **2026-06-10, overnight autonomous session** (Gili's /goal: finish artist flows, merge everything, make producer mobile-responsive).
+> Last updated: **2026-06-11, SK-51 landing mobile premium pass** (Gili's /goal: homepage first impression on a phone should feel premium, Spotify-level).
 
 ## Where things stand
+
+### SK-51 — landing page mobile premium pass (branch giasraf/sk-51-…, PR pending)
+
+Gili's phone screenshot showed the homepage broken on mobile (zoomed, cut off both edges, cream gutter on the right). Audited at a true 390px viewport with a CDP probe (`/tmp/sk51/audit.mjs`):
+
+- **Root cause**: the page scrolls inside `.landing-v3-root` (overflow-y:auto), and the hero product-peek mock (fixed 156px fake sidebar + 3-col stats, min-content ≈ 422px) stretched the hero grid track to 422px → host scrollWidth 422 on a 390 screen → whole page panned sideways. The `sk-reveal-left/right` ±22px X-offsets added more sideways poke.
+- **Bonus bug found (was live on desktop prod too)**: hero h1 rendered "Oneapp. Yourwhole studio." — inter-word spaces were INSIDE the inline-block `.hero-word` spans, and trailing spaces in inline-blocks get trimmed. Fixed by emitting the space as a text node between spans.
+- **Fixes** (all mobile-scoped via sm:/lg:, desktop pixel-checked identical at 1440 before/after): `overflow-x: clip` on the scroll host; mock sidebar hidden <sm + min-w-0 guards on grid children; 3D tilt flattened <lg; reveals are Y-only <lg (landing-scoped, in landing.css); hero CTAs stack full-width 52px; section paddings get mobile tiers (24px gutters); h2 mobile floors 30px (StackReplace 24px + desktop-only <br> + nowrap on "Forty-seven"); pricing strike-note drops to its own line; founder block + footer stack; mock stats go 2+1 (Follow-up card full-width); menu links 44px.
+- **Research** (live-CSS pull from Spotify/Linear/Vercel/Superhuman/etc.): mobile hero 36-44px lh 0.95-1.1 max 3 lines, body 16px floor, ONE primary CTA 48-56px, fade-up-only reveals, text-wrap balance — all applied. Report in the SK-51 session transcript.
+- Verified: 390 + 360 probes = scrollWidth exactly viewport, zero offenders, full gate green (2942 tests). The red "1 issue" dev-overlay badge in screenshots = pre-existing hydration warning (proved present on untouched baseline; dev-only).
+- Flagged, NOT done (desktop-visible, out of mobile scope): landing CTA radii are 10-12px vs buttons.md's 16px standard; section order (FounderNote sits after FAQ; research says credibility-before-pricing converts better).
 
 ### Artist purchase flow — LIVE END-TO-END on v3-clean (Gate 1)
 
