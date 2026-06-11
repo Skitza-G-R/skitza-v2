@@ -49,15 +49,18 @@ export function MobileClientRow({
   onInvite,
   divider,
 }: MobileClientRowProps) {
-  const { id, name, email, linkState, projects, lifetime, owed } = client;
+  const { id, name, linkState, projects, lifetime, owed } = client;
   const currency = client.currency ?? "USD";
 
+  // Never surface the email in the list (Gili, round 2) — it's noise
+  // at a glance and quietly leaks contact data in over-the-shoulder
+  // situations. It lives inside the client page.
   const secondary =
     projects > 0
       ? `${String(projects)} ${projects === 1 ? "project" : "projects"}${
           lifetime > 0 ? ` · ${formatMoney(lifetime, currency)} lifetime` : ""
         }`
-      : (email ?? "No projects yet");
+      : "No projects yet";
 
   const showInvite = linkState === "none" && owed <= 0;
 

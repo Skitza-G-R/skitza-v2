@@ -605,7 +605,7 @@ export function WorkspaceListView({
             tabs (mockup-match). On phones the chips become one
             non-wrapping horizontal scroller (Spotify/Maps chip-bar
             pattern) instead of a ragged two-line wrap. */}
-        <div className="order-2 flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:order-none md:w-auto md:flex-wrap md:overflow-visible">
+        <div className="order-3 flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:order-none md:w-auto md:flex-wrap md:overflow-visible">
           {tab === "projects"
             ? PROJECT_FILTERS.map((f) => {
                 const active = projectFilter === f.value;
@@ -675,17 +675,22 @@ export function WorkspaceListView({
 
         {/* Right cluster — layout switcher + sort.
             ml-auto pushes them to the right edge on wide rows. On
-            phones this is its own full-width row (Spotify's library
-            pattern: sort control left, view toggle right) — seg +
-            toggle + sort can't share 358px without wrapping raggedly. */}
-        <div className="order-3 flex w-full flex-row-reverse items-center justify-between gap-2 md:order-none md:ml-auto md:w-auto md:flex-row md:justify-start">
+            phones the layout toggle is hidden (cards and table render
+            the same compact rows there — Gili, round 2), so the
+            cluster is just the sort pill and shares row 1 with the
+            tab seg; the chips scroller owns row 2. */}
+        <div className="order-2 ml-auto flex items-center gap-2 md:order-none">
           {/* G18 — Layout switcher available on BOTH tabs. Projects:
               cards = vertical ProjectRow stack, table = same stack
               with a sortable ProjectsTableHeader on top. Clients:
               cards = 3-col ClientCard grid, table = ClientsTableHeader
               + ClientCompactRow stack. */}
           <div
-            className="inline-flex items-center gap-0.5 rounded-full border p-0.5"
+            // hidden <md (SK-58): on phones both layouts render the
+            // same compact rows, so the toggle was two buttons doing
+            // one thing. Display class branches per element — never
+            // stack `hidden` with a base `inline-flex`.
+            className="hidden items-center gap-0.5 rounded-full border p-0.5 md:inline-flex"
             style={{
               background: "rgb(var(--bg-elevated))",
               borderColor: "rgb(var(--border-subtle))",

@@ -833,61 +833,72 @@ function MobileFullPlayer({
 
       <div
         className="relative flex h-full min-h-0 flex-col px-6 pb-6"
-        style={{ paddingTop: "max(14px, env(safe-area-inset-top))" }}
+        style={{ paddingTop: "max(6px, env(safe-area-inset-top))" }}
       >
-        {/* Header — collapse chevron / context / song page link. */}
-        <div className="flex items-center justify-between">
-          <button
-            ref={collapseBtnRef}
-            type="button"
-            aria-label="Minimize player"
-            onClick={onCollapse}
-            className="sk-press -ml-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-white/80 hover:text-white"
+        {/* Grab handle — the whole strip is the minimize control
+            (Samply/Apple-sheet language: a quiet pill up top instead
+            of header chrome). Escape and the Close footer also exist. */}
+        <button
+          ref={collapseBtnRef}
+          type="button"
+          aria-label="Minimize player"
+          onClick={onCollapse}
+          className="sk-press mx-auto flex h-11 w-full max-w-[160px] items-center justify-center"
+        >
+          <span aria-hidden className="h-[5px] w-10 rounded-full bg-white/25" />
+        </button>
+
+        {/* Artwork — square, screen-width minus gutters, capped so it
+            never starves the transport on short phones. Soft radial
+            highlight over the identity gradient (Samply's airbrushed
+            cover feel) instead of a flat color slab. */}
+        <div className="flex min-h-0 flex-1 items-center justify-center py-3">
+          <div
+            aria-hidden
+            className="relative aspect-square w-full max-w-[360px] overflow-hidden rounded-[28px] shadow-[0_28px_70px_rgba(0,0,0,0.55)]"
+            style={{
+              background: tint,
+              maxHeight: "min(360px, 46vh)",
+            }}
           >
-            <ChevronDownIcon />
-          </button>
-          <div className="min-w-0 flex-1 px-2 text-center">
-            <p className="font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-white/55">
-              Now playing
-            </p>
-            <p className="truncate text-[11.5px] font-semibold text-white/85">
-              {track.subtitle}
-            </p>
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(115% 95% at 22% 14%, rgba(255,255,255,0.34), transparent 58%), radial-gradient(120% 100% at 85% 95%, rgba(0,0,0,0.28), transparent 55%)",
+              }}
+            />
+            <span className="pointer-events-none absolute inset-0 rounded-[28px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]" />
           </div>
+        </div>
+
+        {/* Title row — the name itself opens the song page (Gili,
+            round 2), with a round glass button as the explicit
+            affordance for the same destination. */}
+        <div className="flex items-center gap-3">
           <Link
             href={expandHrefForTrack(track, pathname)}
+            onClick={onCollapse}
+            className="group min-w-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] rounded-md"
+            aria-label={`Open ${track.title} song page`}
+          >
+            <p className="truncate text-[22px] font-extrabold leading-tight tracking-[-0.015em] group-active:opacity-70">
+              {track.title}
+            </p>
+            <p className="mt-0.5 truncate text-[14px] font-semibold text-[rgb(var(--brand-primary))]">
+              {track.subtitle}
+            </p>
+          </Link>
+          <Link
+            href={expandHrefForTrack(track, pathname)}
+            onClick={onCollapse}
             aria-label="Open song page"
             title="Open song page"
-            onClick={onCollapse}
-            className="sk-press -mr-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-white/80 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/85 hover:bg-white/[0.14] hover:text-white"
           >
             <ExpandIcon />
           </Link>
-        </div>
-
-        {/* Artwork — square, screen-width minus gutters, capped so it
-            never starves the transport on short phones. */}
-        <div className="flex min-h-0 flex-1 items-center justify-center py-4">
-          <div
-            aria-hidden
-            className="aspect-square w-full max-w-[340px] rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.5)]"
-            style={{
-              background: tint,
-              maxHeight: "min(340px, 42vh)",
-            }}
-          >
-            <span className="block h-full w-full rounded-2xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]" />
-          </div>
-        </div>
-
-        {/* Title block */}
-        <div className="min-w-0">
-          <p className="truncate text-[21px] font-extrabold leading-tight tracking-[-0.015em]">
-            {track.title}
-          </p>
-          <p className="mt-1 truncate text-[14px] font-semibold text-[rgb(var(--brand-primary))]">
-            {track.subtitle}
-          </p>
         </div>
 
         {/* Seek — tall waveform + time stamps. */}
@@ -1142,14 +1153,6 @@ function CloseIcon() {
     <svg viewBox="0 0 16 16" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <line x1="4" y1="4" x2="12" y2="12" />
       <line x1="12" y1="4" x2="4" y2="12" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width={18} height={18} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <polyline points="4 6 8 10 12 6" />
     </svg>
   );
 }
