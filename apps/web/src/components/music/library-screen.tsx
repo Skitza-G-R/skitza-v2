@@ -632,17 +632,19 @@ function ProjectsGrid({
   const FEATURED_THRESHOLD = 6;
   const useFeatured = projects.length > FEATURED_THRESHOLD;
   return (
+    // Below sm the auto-fill grid would resolve to ONE full-width
+    // column (giant ~360px covers on a phone), so phones get an
+    // explicit 2-col grid with a tighter gap. From sm up the original
+    // auto-fill behavior applies unchanged.
     <ul
       role="list"
-      className="grid gap-[22px]"
-      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(196px, 1fr))" }}
+      className="grid grid-cols-2 gap-3.5 sm:gap-[22px] sm:grid-cols-[repeat(auto-fill,minmax(196px,1fr))]"
     >
       {projects.map((p, i) => (
         // Featured span applies from sm: up only — below 640px the
-        // auto-fill grid resolves to a single column, and a span-2 item
-        // there would force an implicit second column off the right
-        // edge of the phone viewport. At sm+ the grid always fits 2+
-        // columns, so the span is safe.
+        // grid is a fixed 2-col phone grid where a span-2 item would
+        // read as a jarring full-width banner. At sm+ the grid always
+        // fits 2+ columns, so the span is safe.
         <li
           key={p.id}
           className={
@@ -696,7 +698,7 @@ function ProjectCard({
       </div>
       <div className="min-w-0">
         <p
-          className="truncate font-display text-[15px] font-bold leading-tight text-[rgb(var(--fg-default))]"
+          className="truncate font-display text-[14px] font-bold leading-tight text-[rgb(var(--fg-default))] sm:text-[15px]"
           style={{ letterSpacing: "-0.02em" }}
         >
           {project.title}
@@ -723,19 +725,19 @@ function ProjectsTable({
   role: MusicLibraryRole;
 }) {
   return (
-    // Below lg the fixed px columns outgrow a phone viewport and the
-    // fr title columns collapse to 0 — so the card becomes a
-    // horizontal scroller with a min content width that keeps every
-    // column readable. At lg+ neither class applies: same overflow-
-    // hidden card as before.
+    <>
+    {/* Below lg the fixed px columns outgrow a phone viewport, so the
+        wide table is desktop-only (max-lg:hidden) and phones get the
+        compact list rows rendered after it. At lg+ nothing changes:
+        same overflow-hidden card as before. */}
     <div
-      className="overflow-hidden rounded-[12px] border max-lg:overflow-x-auto"
+      className="overflow-hidden rounded-[12px] border max-lg:hidden"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
       }}
     >
-      <div className="max-lg:min-w-[640px]">
+      <div>
       {/* Header */}
       <div
         className="grid items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
@@ -811,6 +813,58 @@ function ProjectsTable({
       </ul>
       </div>
     </div>
+
+    {/* Mobile/tablet (below lg): compact list rows — same hrefs and
+        data as the table, Spotify-style. Thumb + title/artist + kind
+        chip + duration; ≥44px tap target per row. */}
+    <ul
+      role="list"
+      className="overflow-hidden rounded-[12px] border lg:hidden"
+      style={{
+        background: "rgb(var(--bg-elevated))",
+        borderColor: "rgb(var(--border-subtle))",
+      }}
+    >
+      {projects.map((p) => (
+        <li key={p.id}>
+          <Link
+            href={projectHref(role, p.id)}
+            className="flex items-center gap-3 px-3 py-2.5 active:bg-[rgb(var(--bg-overlay))]"
+            style={{
+              borderBottom: "1px solid rgb(var(--border-subtle))",
+              transition: "background-color 140ms ease-out",
+            }}
+          >
+            <ProjectCover
+              seed={p.id}
+              gradient={p.gradient}
+              kind={null}
+              wordmark={false}
+              showKind={false}
+              shadow="none"
+              radius="8px"
+              className="h-11 w-11 shrink-0"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-display text-[14px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+                {p.title}
+              </span>
+              <span className="block truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                {p.artistLabel ? `${p.artistLabel} · ` : ""}
+                {String(p.trackCount)} track{p.trackCount === 1 ? "" : "s"}
+              </span>
+            </span>
+            <span className="inline-flex shrink-0 items-center rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--fg-default))]">
+              {p.kind}
+            </span>
+            <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-[rgb(var(--fg-muted))]">
+              {fmtDuration(p.durationMs)}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+    </>
   );
 }
 
@@ -823,10 +877,11 @@ function SongsGrid({
 }) {
   const nowPlaying = useNowPlaying();
   return (
+    // Same phone treatment as ProjectsGrid: explicit 2 columns below
+    // sm, original auto-fill from sm up.
     <ul
       role="list"
-      className="grid gap-[22px]"
-      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(196px, 1fr))" }}
+      className="grid grid-cols-2 gap-3.5 sm:gap-[22px] sm:grid-cols-[repeat(auto-fill,minmax(196px,1fr))]"
     >
       {songs.map((s, i) => (
         <li
@@ -959,16 +1014,18 @@ function SongsTable({
   }
 
   return (
-    // Same mobile treatment as ProjectsTable: horizontal scroller
-    // below lg with a readable min content width; untouched at lg+.
+    <>
+    {/* Same mobile treatment as ProjectsTable: the wide table is
+        desktop-only (max-lg:hidden); phones get the compact list rows
+        rendered after it. Untouched at lg+. */}
     <div
-      className="overflow-hidden rounded-[12px] border max-lg:overflow-x-auto"
+      className="overflow-hidden rounded-[12px] border max-lg:hidden"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
       }}
     >
-      <div className="max-lg:min-w-[700px]">
+      <div>
       <div
         className="grid items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
         style={{
@@ -1125,6 +1182,89 @@ function SongsTable({
       </ul>
       </div>
     </div>
+
+    {/* Mobile/tablet (below lg): compact list rows. Whole row is the
+        same Link → song page; the cover thumb doubles as the play
+        affordance (preventDefault + stopPropagation, same handlePlay).
+        Title + version chip + duration, ≥44px tap targets. */}
+    <ul
+      role="list"
+      className="overflow-hidden rounded-[12px] border lg:hidden"
+      style={{
+        background: "rgb(var(--bg-elevated))",
+        borderColor: "rgb(var(--border-subtle))",
+      }}
+    >
+      {songs.map((s) => {
+        const isCurrent = nowPlaying.trackId === s.id;
+        const isPlayingHere = isCurrent && nowPlaying.playing;
+        return (
+          <li key={s.id}>
+            <Link
+              href={songHref(role, s.id)}
+              aria-label={`Open ${s.trackTitle} song page`}
+              className={[
+                "flex items-center gap-3 px-3 py-2.5 active:bg-[rgb(var(--bg-overlay))]",
+                isCurrent ? "bg-[rgb(var(--brand-primary)/0.055)]" : "",
+              ].join(" ")}
+              style={{
+                borderBottom: "1px solid rgb(var(--border-subtle))",
+                transition: "background-color 140ms ease-out",
+              }}
+            >
+              <span className="relative h-11 w-11 shrink-0">
+                <ProjectCover
+                  seed={s.projectId}
+                  gradient={gradientForSeed(s.projectId)}
+                  kind={null}
+                  showKind={false}
+                  shadow="none"
+                  radius="8px"
+                  className="h-11 w-11"
+                />
+                <button
+                  type="button"
+                  aria-label={isPlayingHere ? "Pause" : "Play"}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handlePlay(s);
+                  }}
+                  disabled={!s.audioUrl}
+                  className="absolute inset-0 flex items-center justify-center rounded-[8px] text-white disabled:opacity-40"
+                >
+                  {isPlayingHere ? (
+                    <EqBars playing size={12} />
+                  ) : (
+                    <Play
+                      size={14}
+                      strokeWidth={2.6}
+                      fill="currentColor"
+                      className="drop-shadow-[0_1px_3px_rgba(17,16,9,0.45)]"
+                    />
+                  )}
+                </button>
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13.5px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+                  {s.trackTitle}
+                </span>
+                <span className="block truncate text-[11px] text-[rgb(var(--fg-muted))]">
+                  {s.projectTitle}
+                </span>
+              </span>
+              <span className="inline-flex shrink-0 items-center rounded-[4px] bg-[rgb(var(--bg-sunken))] px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase text-[rgb(var(--fg-default))]">
+                {s.label}
+              </span>
+              <span className="shrink-0 font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
+                {fmtDuration(s.durationMs)}
+              </span>
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
+    </>
   );
 }
 
