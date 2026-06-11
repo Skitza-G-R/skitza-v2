@@ -298,18 +298,17 @@ export function MusicLibraryScreen({
 
       {/* Toolbar — fully-opaque elevated surface with a confident border
           so it reads as the lid of the library section, not a floating
-          translucent strip. */}
-      <div
-        className="flex flex-wrap items-center gap-2.5 rounded-[12px] border px-3 py-2.5"
-        style={{
-          background: "rgb(var(--bg-elevated))",
-          borderColor: "rgb(var(--border-strong))",
-        }}
-      >
+          translucent strip. On phones (SK-55) the card chrome drops
+          away and the controls re-flow into two tidy rows — search (+
+          artist filter), then mode toggle left / sort + view right —
+          the Spotify library pattern. md+ keeps the card exactly as
+          designed (background/border moved from inline style to md:
+          classes so the mobile reset can win). */}
+      <div className="flex flex-wrap items-center gap-2 md:gap-2.5 md:rounded-[12px] md:border md:border-[rgb(var(--border-strong))] md:bg-[rgb(var(--bg-elevated))] md:px-3 md:py-2.5">
         {/* Search — focus-within ring brightens the pill so the
             keyboardable surface is visible without a heavy outline. */}
         <div
-          className="sk-trans flex min-w-[220px] max-w-[320px] flex-1 items-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)]"
+          className="sk-trans flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--bg-elevated))] px-3 py-2 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)] md:min-w-[220px] md:max-w-[320px] md:py-1.5"
           style={{ border: "1px solid rgb(var(--border-subtle))" }}
         >
           <Search size={13} className="text-[rgb(var(--fg-muted))]" />
@@ -349,8 +348,13 @@ export function MusicLibraryScreen({
           />
         ) : null}
 
-        {/* Mode toggle (Projects / Songs) — pushed to the right */}
-        <div className="ml-auto flex">
+        {/* Phone-only row break — everything after this wraps onto the
+            second toolbar row. Display:none from md up. */}
+        <span aria-hidden className="w-full md:hidden" />
+
+        {/* Mode toggle (Projects / Songs) — pushed to the right on
+            desktop; anchors the second row's left edge on phones. */}
+        <div className="flex md:ml-auto">
           <ModeToggle value={mode} onChange={setMode} />
         </div>
 
@@ -582,7 +586,9 @@ function SortDropdown({
   return (
     <label
       className={[
-        "sk-trans relative inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-[11.5px] font-semibold",
+        // ml-auto pushes sort + view to the right edge of the phone
+        // toolbar's second row; md+ resets to the desktop card flow.
+        "sk-trans relative ml-auto inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-[11.5px] font-semibold md:ml-0",
         disabled
           ? "cursor-not-allowed text-[rgb(var(--fg-faint))]"
           : "sk-press text-[rgb(var(--fg-default))]",

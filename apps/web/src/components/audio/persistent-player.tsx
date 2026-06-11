@@ -389,11 +389,18 @@ export function PersistentPlayer() {
         hidden={dockHidden}
         pathname={pathname}
       />
-      {/* Mobile dock — <md, sits above the bottom nav */}
+      {/* Mobile dock — <md, sits above the bottom nav. Tapping it
+          expands into the full-screen player (SK-55), so it needs the
+          full transport state, not just play/pause. */}
       <MobileDock
         track={state.track}
         playing={state.playing}
+        currentMs={currentMs}
+        durationMs={effectiveDurationMs}
+        progressPct={progressPct}
         onTogglePlay={onTogglePlay}
+        onScrub={onScrub}
+        onSkip={onSkip}
         hidden={dockHidden}
         pathname={pathname}
       />
@@ -595,93 +602,361 @@ function DesktopDock({
 function MobileDock({
   track,
   playing,
+  currentMs,
+  durationMs,
+  progressPct,
   onTogglePlay,
+  onScrub,
+  onSkip,
   hidden = false,
   pathname,
 }: {
   track: PlayerTrack;
   playing: boolean;
+  currentMs: number;
+  durationMs: number | null;
+  progressPct: number;
   onTogglePlay: () => void;
+  onScrub: (pct: number) => void;
+  onSkip: (deltaPct: number) => void;
   hidden?: boolean;
   pathname: string | null;
 }) {
+  // SK-55 — tapping the mini bar expands a full-screen player (the
+  // Spotify/Apple-Music pattern). One state flag toggles the
+  // `.expanded` class on the overlay; CSS transitions do the motion.
+  const [expanded, setExpanded] = useState(false);
+  const collapseBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  // Force-collapse if the dock is hidden externally (e.g. close event).
+  useEffect(() => {
+    if (hidden) setExpanded(false);
+  }, [hidden]);
+
+  // While expanded: lock body scroll, close on Escape, and move focus
+  // to the collapse chevron so keyboard/VoiceOver users land inside
+  // the dialog.
+  useEffect(() => {
+    if (!expanded) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    collapseBtnRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [expanded]);
+
   return (
-    <div
-      role="region"
-      aria-label="Audio player"
-      aria-hidden={hidden}
-      // Sits above the producer bottom nav (~62px tall) on <md.
-      // .persistent-player-dock from globals.css already handles the
-      // bottom-nav + safe-area offset; here we just ensure the dock
-      // takes the dark pill aesthetic and only renders <md.
-      className={[
-        "persistent-player-dock fixed inset-x-2 z-40 flex md:hidden",
-        hidden ? "pointer-events-none" : "",
-      ].join(" ")}
-      style={{
-        transform: hidden ? "translateY(120%) scale(0.98)" : "translateY(0) scale(1)",
-        opacity: hidden ? 0 : 1,
-        filter: hidden ? "blur(6px)" : "blur(0px)",
-        transition: hidden
-          ? "transform 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1), filter 380ms cubic-bezier(0.16, 1, 0.3, 1)"
-          : "transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1), filter 240ms cubic-bezier(0.16, 1, 0.3, 1)",
-        willChange: "transform, opacity, filter",
-      }}
-    >
+    <>
       <div
-        className="flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]"
+        role="region"
+        aria-label="Audio player"
+        aria-hidden={hidden}
+        // Sits above the producer bottom nav (~62px tall) on <md.
+        // .persistent-player-dock from globals.css already handles the
+        // bottom-nav + safe-area offset; here we just ensure the dock
+        // takes the dark pill aesthetic and only renders <md.
+        className={[
+          "persistent-player-dock fixed inset-x-2 z-40 flex md:hidden",
+          hidden ? "pointer-events-none" : "",
+        ].join(" ")}
         style={{
-          background: "#1A1A1A",
-          borderColor: "rgba(255,255,255,0.08)",
-          color: "#fff",
+          transform: hidden ? "translateY(120%) scale(0.98)" : "translateY(0) scale(1)",
+          opacity: hidden ? 0 : 1,
+          filter: hidden ? "blur(6px)" : "blur(0px)",
+          transition: hidden
+            ? "transform 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1), filter 380ms cubic-bezier(0.16, 1, 0.3, 1)"
+            : "transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1), filter 240ms cubic-bezier(0.16, 1, 0.3, 1)",
+          willChange: "transform, opacity, filter",
         }}
       >
-        {/* Cover + title is one tappable surface → song page (Apple
-            Music mini-player pattern). The dedicated expand button is
-            kept too for users who learned that affordance. */}
-        <Link
-          href={expandHrefForTrack(track, pathname)}
-          aria-label={`Open ${track.title} song page`}
-          title="Open song page"
-          className="sk-press flex min-w-0 flex-1 items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+        <div
+          className="flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]"
+          style={{
+            background: "#1A1A1A",
+            borderColor: "rgba(255,255,255,0.08)",
+            color: "#fff",
+          }}
         >
-          <Cover track={track} size={38} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
-              {track.title}
+          {/* Cover + title is one tappable surface → expands the
+              full-screen player (Spotify/Apple-Music mini-bar
+              behavior). The song PAGE stays reachable from inside the
+              expanded player's header. */}
+          <button
+            type="button"
+            onClick={() => {
+              setExpanded(true);
+            }}
+            aria-label={`Expand player — ${track.title}`}
+            aria-expanded={expanded}
+            className="sk-press flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+          >
+            <Cover track={track} size={38} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
+                {track.title}
+              </p>
+              <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
+                {track.subtitle}
+              </p>
+            </div>
+          </button>
+          <button
+            type="button"
+            aria-label={playing ? "Pause" : "Play"}
+            onClick={onTogglePlay}
+            className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)]"
+          >
+            {playing ? <PauseIcon /> : <PlayIcon />}
+          </button>
+          <button
+            type="button"
+            aria-label="Expand player"
+            title="Expand player"
+            onClick={() => {
+              setExpanded(true);
+            }}
+            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md text-white/70 hover:text-white"
+          >
+            <ExpandIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="Close player"
+            title="Close player"
+            onClick={() => {
+              playerClose();
+            }}
+            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.06] text-white/70 hover:text-white"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+      </div>
+
+      <MobileFullPlayer
+        track={track}
+        playing={playing}
+        currentMs={currentMs}
+        durationMs={durationMs}
+        progressPct={progressPct}
+        onTogglePlay={onTogglePlay}
+        onScrub={onScrub}
+        onSkip={onSkip}
+        expanded={expanded}
+        onCollapse={() => {
+          setExpanded(false);
+        }}
+        collapseBtnRef={collapseBtnRef}
+        pathname={pathname}
+      />
+    </>
+  );
+}
+
+// ─── Mobile full-screen player (SK-55) ───────────────────────────────
+//
+// Always mounted under the mini dock so the slide-up/down transition
+// can run both ways; the `expanded` flag toggles the transform (CSS
+// class-toggle pattern — the state machine is one boolean, the motion
+// is pure CSS). Apple-sheet curve, 340ms up / feels-quicker down via
+// the same curve (distance shrinks as it leaves). Reduced-motion users
+// get an instant swap.
+
+function MobileFullPlayer({
+  track,
+  playing,
+  currentMs,
+  durationMs,
+  progressPct,
+  onTogglePlay,
+  onScrub,
+  onSkip,
+  expanded,
+  onCollapse,
+  collapseBtnRef,
+  pathname,
+}: {
+  track: PlayerTrack;
+  playing: boolean;
+  currentMs: number;
+  durationMs: number | null;
+  progressPct: number;
+  onTogglePlay: () => void;
+  onScrub: (pct: number) => void;
+  onSkip: (deltaPct: number) => void;
+  expanded: boolean;
+  onCollapse: () => void;
+  collapseBtnRef: React.RefObject<HTMLButtonElement | null>;
+  pathname: string | null;
+}) {
+  // Tint the top of the sheet with the track's identity gradient —
+  // same producerGradient hash the covers use, so mini → full reads
+  // as the same object growing.
+  const tint = producerGradient(track.subtitle);
+  return (
+    <div
+      role="dialog"
+      aria-modal={expanded}
+      aria-label={`Now playing — ${track.title}`}
+      aria-hidden={!expanded}
+      className={[
+        "fixed inset-0 z-50 flex flex-col md:hidden",
+        "motion-reduce:transition-none",
+        expanded ? "" : "pointer-events-none",
+      ].join(" ")}
+      style={{
+        background: "#141414",
+        color: "#fff",
+        transform: expanded ? "translateY(0)" : "translateY(100%)",
+        transition: "transform 340ms cubic-bezier(0.32, 0.72, 0, 1)",
+        willChange: "transform",
+        visibility: expanded ? "visible" : undefined,
+      }}
+    >
+      {/* Identity tint — fades from the track gradient into the dark
+          sheet so the artwork sits in its own light. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[46%] opacity-[0.32]"
+        style={{
+          background: tint,
+          maskImage: "linear-gradient(to bottom, black, transparent)",
+          WebkitMaskImage: "linear-gradient(to bottom, black, transparent)",
+        }}
+      />
+
+      <div
+        className="relative flex h-full min-h-0 flex-col px-6 pb-6"
+        style={{ paddingTop: "max(14px, env(safe-area-inset-top))" }}
+      >
+        {/* Header — collapse chevron / context / song page link. */}
+        <div className="flex items-center justify-between">
+          <button
+            ref={collapseBtnRef}
+            type="button"
+            aria-label="Minimize player"
+            onClick={onCollapse}
+            className="sk-press -ml-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-white/80 hover:text-white"
+          >
+            <ChevronDownIcon />
+          </button>
+          <div className="min-w-0 flex-1 px-2 text-center">
+            <p className="font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-white/55">
+              Now playing
             </p>
-            <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
+            <p className="truncate text-[11.5px] font-semibold text-white/85">
               {track.subtitle}
             </p>
           </div>
-        </Link>
-        <button
-          type="button"
-          aria-label={playing ? "Pause" : "Play"}
-          onClick={onTogglePlay}
-          className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)]"
+          <Link
+            href={expandHrefForTrack(track, pathname)}
+            aria-label="Open song page"
+            title="Open song page"
+            onClick={onCollapse}
+            className="sk-press -mr-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-white/80 hover:text-white"
+          >
+            <ExpandIcon />
+          </Link>
+        </div>
+
+        {/* Artwork — square, screen-width minus gutters, capped so it
+            never starves the transport on short phones. */}
+        <div className="flex min-h-0 flex-1 items-center justify-center py-4">
+          <div
+            aria-hidden
+            className="aspect-square w-full max-w-[340px] rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.5)]"
+            style={{
+              background: tint,
+              maxHeight: "min(340px, 42vh)",
+            }}
+          >
+            <span className="block h-full w-full rounded-2xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]" />
+          </div>
+        </div>
+
+        {/* Title block */}
+        <div className="min-w-0">
+          <p className="truncate text-[21px] font-extrabold leading-tight tracking-[-0.015em]">
+            {track.title}
+          </p>
+          <p className="mt-1 truncate text-[14px] font-semibold text-[rgb(var(--brand-primary))]">
+            {track.subtitle}
+          </p>
+        </div>
+
+        {/* Seek — tall waveform + time stamps. */}
+        <div className="mt-4">
+          <div className="flex items-center">
+            <MiniWaveform
+              seed={track.id}
+              progressPct={progressPct}
+              onScrub={onScrub}
+              tall
+            />
+          </div>
+          <div className="mt-1.5 flex items-center justify-between font-mono text-[10.5px] tabular-nums text-white/55">
+            <span>{fmtTime(currentMs)}</span>
+            <span>{durationMs ? fmtTime(durationMs) : "–:––"}</span>
+          </div>
+        </div>
+
+        {/* Transport — 64px play/pause flanked by ±10% skips. */}
+        <div className="mt-2 flex items-center justify-center gap-9">
+          <button
+            type="button"
+            aria-label="Skip back"
+            onClick={() => {
+              onSkip(-10);
+            }}
+            className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
+          >
+            <SkipBackIcon />
+          </button>
+          <button
+            type="button"
+            aria-label={playing ? "Pause" : "Play"}
+            onClick={onTogglePlay}
+            className="sk-press inline-flex h-16 w-16 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
+          >
+            <span className="scale-[1.45]">
+              {playing ? <PauseIcon /> : <PlayIcon />}
+            </span>
+          </button>
+          <button
+            type="button"
+            aria-label="Skip forward"
+            onClick={() => {
+              onSkip(10);
+            }}
+            className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
+          >
+            <SkipForwardIcon />
+          </button>
+        </div>
+
+        {/* Footer — quiet close action, clear of the home indicator. */}
+        <div
+          className="mt-3 flex justify-center"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
-          {playing ? <PauseIcon /> : <PlayIcon />}
-        </button>
-        <Link
-          href={expandHrefForTrack(track, pathname)}
-          aria-label="Open song page"
-          title="Open song page"
-          className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md text-white/70 hover:text-white"
-        >
-          <ExpandIcon />
-        </Link>
-        <button
-          type="button"
-          aria-label="Close player"
-          title="Close player"
-          onClick={() => {
-            playerClose();
-          }}
-          className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.06] text-white/70 hover:text-white"
-        >
-          <CloseIcon />
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              onCollapse();
+              playerClose();
+            }}
+            className="sk-press inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/45 hover:text-white/80"
+          >
+            <CloseIcon />
+            Close player
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -747,10 +1022,13 @@ function MiniWaveform({
   seed,
   progressPct,
   onScrub,
+  tall = false,
 }: {
   seed: string;
   progressPct: number;
   onScrub: (pct: number) => void;
+  /** Full-screen player variant — taller strip, thicker bars. */
+  tall?: boolean;
 }) {
   const heights = seededBars(seed, MINI_BAR_COUNT);
   const playedBars = Math.floor((progressPct / 100) * MINI_BAR_COUNT);
@@ -776,7 +1054,10 @@ function MiniWaveform({
         const pct = ((e.clientX - r.left) / r.width) * 100;
         onScrub(pct);
       }}
-      className="relative h-6 flex-1 cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40"
+      className={[
+        "relative flex-1 cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40",
+        tall ? "h-12" : "h-6",
+      ].join(" ")}
     >
       <div className="absolute inset-0 flex items-center justify-between gap-[2px]">
         {heights.map((h, i) => (
@@ -784,7 +1065,8 @@ function MiniWaveform({
             key={`mb-${String(i)}`}
             aria-hidden
             className={[
-              "block w-[2px] rounded-full transition-colors",
+              "block rounded-full transition-colors",
+              tall ? "w-[3px]" : "w-[2px]",
               i < playedBars ? "bg-white" : "bg-white/20",
             ].join(" ")}
             style={{ height: `${String(h * 100)}%` }}
@@ -860,6 +1142,14 @@ function CloseIcon() {
     <svg viewBox="0 0 16 16" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <line x1="4" y1="4" x2="12" y2="12" />
       <line x1="12" y1="4" x2="4" y2="12" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width={18} height={18} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="4 6 8 10 12 6" />
     </svg>
   );
 }
