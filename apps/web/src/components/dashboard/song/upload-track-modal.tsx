@@ -387,7 +387,7 @@ export function UploadTrackModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="upload-track-modal-body"
-          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[520px] rounded-[18px] bg-[rgb(var(--bg-background))] p-6 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
+          className="sk-sheet-mobile fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[520px] rounded-[18px] bg-[rgb(var(--bg-background))] p-6 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -628,7 +628,7 @@ export function UploadTrackModal({
             ) : null}
 
             {/* ─── Action row ─────────────────────────────────── */}
-            <div className="mt-2 flex items-center justify-end gap-2">
+            <div className="mt-2 flex flex-col-reverse gap-2 md:flex-row md:items-center md:justify-end">
               <button
                 type="button"
                 onClick={handleClose}
