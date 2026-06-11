@@ -11,7 +11,10 @@ import { weekEyebrow } from "./calendar-week";
 import { SchedulePanel } from "./schedule-panel";
 import type { ScheduleSession } from "./schedule-week-grid";
 import type { TodaySession } from "./schedule-today-agenda";
-import type { PendingRequest } from "./schedule-pending-card";
+import {
+  SchedulePendingCard,
+  type PendingRequest,
+} from "./schedule-pending-card";
 import { SessionsPanel } from "./sessions-panel";
 import type { SessionListItem } from "./session-row";
 
@@ -33,6 +36,10 @@ export default async function CalendarPage({
   let todaySessions: TodaySession[] = [];
   let pendingRequests: PendingRequest[] = [];
   let scheduleAutoConfirm = false;
+  // SK-56 — sessions-first mobile view for the schedule tab (the week
+  // grid is desktop-only). Pending + the 21-day upcoming window mapped
+  // into the SessionsPanel's row shape.
+  let scheduleMobileSessions: SessionListItem[] = [];
   const initialNow = new Date();
   if (active === "schedule") {
     const [pending, upcoming, settings] = await Promise.all([
@@ -73,6 +80,27 @@ export default async function CalendarPage({
       })),
     ];
 
+    scheduleMobileSessions = [
+      ...pending.map<SessionListItem>((b) => ({
+        id: b.id,
+        artistName: b.artistName,
+        artistEmail: b.artistEmail,
+        startsAt: b.startsAt.toISOString(),
+        durationMin: b.durationMin,
+        packageName: b.packageNameSnapshot,
+        status: "pending_approval",
+      })),
+      ...upcoming.map<SessionListItem>((b) => ({
+        id: b.id,
+        artistName: b.artistName,
+        artistEmail: b.artistEmail,
+        startsAt: b.startsAt.toISOString(),
+        durationMin: b.durationMin,
+        packageName: b.packageName,
+        status: "confirmed",
+      })),
+    ];
+
     // Today's agenda — confirmed sessions whose date matches "today".
     const startOfToday = new Date(initialNow);
     startOfToday.setHours(0, 0, 0, 0);
@@ -94,7 +122,15 @@ export default async function CalendarPage({
   // -------- Sessions tab data --------
   let allSessions: SessionListItem[] = [];
   if (active === "sessions") {
-    const list = await caller.booking.list();
+    // SK-56: settings ride along so the mobile view can render the
+    // Pending-requests card (with its auto-confirm empty state) above
+    // the sessions list — on phones the Schedule tab is hidden and
+    // Sessions absorbs pending approvals.
+    const [list, settings] = await Promise.all([
+      caller.booking.list(),
+      caller.booking.availability.getSettings(),
+    ]);
+    scheduleAutoConfirm = settings.autoConfirmBookings;
     allSessions = list.map((b) => ({
       id: b.id,
       artistName: b.artistName,
@@ -104,6 +140,18 @@ export default async function CalendarPage({
       packageName: b.packageNameSnapshot,
       status: b.status,
     }));
+    pendingRequests = list
+      .filter((b) => b.status === "pending_approval")
+      .map((b) => ({
+        id: b.id,
+        artistName: b.artistName,
+        artistEmail: b.artistEmail,
+        startsAt: b.startsAt.toISOString(),
+        durationMin: b.durationMin,
+        packageName: b.packageNameSnapshot,
+        message: b.notes,
+        receivedAtIso: b.createdAt.toISOString(),
+      }));
   }
 
   // -------- Availability tab data --------
@@ -244,19 +292,51 @@ export default async function CalendarPage({
           className="reveal-up flex min-h-0 flex-1 flex-col"
         >
           {active === "schedule" && (
-            <SchedulePanel
-              sessions={scheduleSessions}
-              todaySessions={todaySessions}
-              pending={pendingRequests}
-              autoConfirm={scheduleAutoConfirm}
-              initialNow={initialNow.toISOString()}
-            />
+            <>
+              {/* Desktop keeps the full week-grid schedule. */}
+              <div className="hidden min-h-0 flex-1 flex-col lg:flex">
+                <SchedulePanel
+                  sessions={scheduleSessions}
+                  todaySessions={todaySessions}
+                  pending={pendingRequests}
+                  autoConfirm={scheduleAutoConfirm}
+                  initialNow={initialNow.toISOString()}
+                />
+              </div>
+              {/* SK-56 — phones never show the week grid. Direct hits
+                  on ?tab=schedule (or the bare URL) render the same
+                  sessions-first view the mobile Sessions tab owns:
+                  pending requests on top, then the sessions list
+                  (pending + the 21-day upcoming window). */}
+              <div className="flex min-h-0 flex-1 flex-col gap-3 lg:hidden">
+                <div className="shrink-0">
+                  <SchedulePendingCard
+                    initial={pendingRequests}
+                    autoConfirm={scheduleAutoConfirm}
+                  />
+                </div>
+                <SessionsPanel
+                  sessions={scheduleMobileSessions}
+                  initialNow={initialNow.toISOString()}
+                />
+              </div>
+            </>
           )}
           {active === "sessions" && (
-            <SessionsPanel
-              sessions={allSessions}
-              initialNow={initialNow.toISOString()}
-            />
+            <>
+              {/* SK-56 — pending requests live here on phones (the
+                  Schedule tab that used to own them is desktop-only). */}
+              <div className="shrink-0 pb-3 lg:hidden">
+                <SchedulePendingCard
+                  initial={pendingRequests}
+                  autoConfirm={scheduleAutoConfirm}
+                />
+              </div>
+              <SessionsPanel
+                sessions={allSessions}
+                initialNow={initialNow.toISOString()}
+              />
+            </>
           )}
           {active === "availability" && (
             <AvailabilityPanel

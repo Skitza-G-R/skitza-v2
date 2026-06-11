@@ -35,6 +35,13 @@ export function CalendarTabs({ active }: { active: CalendarTabKey }) {
       <div className="inline-flex min-w-max items-center gap-1 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-1">
         {TABS.map((tab) => {
           const isActive = active === tab.id;
+          // SK-56: the Schedule tab is desktop-only (the week grid is
+          // useless at phone widths). When a phone lands on
+          // ?tab=schedule anyway (direct URL), the page renders the
+          // sessions-first mobile view — so the Sessions pill takes
+          // the active look below lg to match what's on screen.
+          const isMobileProxyActive =
+            tab.id === "sessions" && active === "schedule";
           return (
             <Link
               key={tab.id}
@@ -47,11 +54,17 @@ export function CalendarTabs({ active }: { active: CalendarTabKey }) {
                 // 44px min tap target on mobile per Skitza rule;
                 // collapses to ~30px on sm+ to match the spec's
                 // 7×16-padded compact desktop pill.
-                "sk-press inline-flex min-h-[44px] shrink-0 items-center justify-center whitespace-nowrap rounded-[var(--radius-lg)] px-4 text-[0.78rem] tracking-tight transition-colors sm:min-h-0 sm:py-1.5",
+                // Display lives in the per-tab branch below — `hidden`
+                // and a base `inline-flex` are both display utilities,
+                // so stacking them is stylesheet-order roulette.
+                "sk-press min-h-[44px] shrink-0 items-center justify-center whitespace-nowrap rounded-[var(--radius-lg)] px-4 text-[0.78rem] tracking-tight transition-colors sm:min-h-0 sm:py-1.5",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-sunken))]",
+                tab.id === "schedule" ? "hidden lg:inline-flex" : "inline-flex",
                 isActive
                   ? "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9_/_0.08)]"
-                  : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+                  : isMobileProxyActive
+                    ? "max-lg:bg-[rgb(var(--bg-elevated))] max-lg:text-[rgb(var(--fg-default))] max-lg:shadow-[0_1px_2px_rgb(17_16_9_/_0.08)] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                    : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
               ].join(" ")}
               style={{ fontWeight: 700 }}
             >
