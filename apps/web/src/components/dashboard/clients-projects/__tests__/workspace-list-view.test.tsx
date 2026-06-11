@@ -381,13 +381,16 @@ describe("WorkspaceListView — round-3 toolbar match (icons + 4 client filters 
     expect(SRC).toMatch(/Clients\s+·\s+\$\{String\(filteredClients\.length\)\}/);
   });
 
-  it("toolbar is a single flex row with the tab seg + chips + (right cluster)", () => {
-    // After the round-3 polish the tab seg + filter chips + layout
-    // switcher + sort dropdown all live in the SAME flex row (the
-    // HTML mockup composes them inline). Source-grep for the
-    // single-row container's classNames.
+  it("toolbar is a single flex row on md+ and re-flows on phones (SK-54)", () => {
+    // Desktop (md+) keeps the round-3 mockup composition: tab seg +
+    // filter chips + layout switcher + sort all inline in ONE flex
+    // row (md:order-none everywhere, right cluster md:ml-auto).
+    // Phones re-flow the SAME DOM via CSS order into three tidy
+    // rows: seg → chips (horizontal scroller) → sort + view toggle.
     expect(SRC).toMatch(/flex flex-wrap items-center gap-2\.5/);
-    expect(SRC).toMatch(/ml-auto flex items-center gap-2/);
+    expect(SRC).toMatch(/md:ml-auto/);
+    // Chip bar scrolls horizontally on phones instead of wrapping.
+    expect(SRC).toMatch(/overflow-x-auto[\s\S]{0,200}md:flex-wrap/);
   });
 
   it("Clients filter predicates branch on 'needs-attention' AND 'done'", () => {
