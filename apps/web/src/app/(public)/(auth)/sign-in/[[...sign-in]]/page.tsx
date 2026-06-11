@@ -11,7 +11,7 @@ import { AuthHero } from "~/components/auth/auth-hero";
 // `SignInScreen`.
 export default function Page() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <AuthHero
         eyebrow="Sign in"
         title="Welcome back"

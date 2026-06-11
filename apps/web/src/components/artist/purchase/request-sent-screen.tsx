@@ -65,7 +65,7 @@ export function RequestSentScreen({
             <div className="reveal-up mb-3.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[rgb(var(--brand-primary-dark))]">
               Request sent · #{requestRef}
             </div>
-            <h1 className="reveal-up reveal-up-delay-1 text-balance font-syne text-[31px] font-extrabold leading-[1.06] tracking-[-0.04em] text-[rgb(var(--fg-default))]">
+            <h1 className="reveal-up reveal-up-delay-1 text-balance font-syne text-[28px] font-extrabold leading-[1.06] tracking-[-0.04em] text-[rgb(var(--fg-default))]">
               Your request is with {producer.name}
             </h1>
             <p className="reveal-up reveal-up-delay-2 mt-3.5 max-w-[290px] text-pretty text-[14.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">

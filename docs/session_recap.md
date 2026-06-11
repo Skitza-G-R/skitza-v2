@@ -1,11 +1,11 @@
 # Session Recap
 
 > **For the next session: READ THIS FIRST.**
-> Last updated: **2026-06-11, SK-51 landing mobile premium pass** (Gili's /goal: homepage first impression on a phone should feel premium, Spotify-level).
+> Last updated: **2026-06-11, mobile funnel passes** — SK-50 artist mobile (#173), SK-51 landing mobile (#174), SK-52 auth mobile (#175); all driven by Gili's /goal: first impression on a phone = premium, Spotify-level.
 
 ## Where things stand
 
-### SK-51 — landing page mobile premium pass (branch giasraf/sk-51-…, PR pending)
+### SK-51 + SK-52 — landing + auth mobile premium pass (PR #174 / PR #175 MERGED)
 
 Gili's phone screenshot showed the homepage broken on mobile (zoomed, cut off both edges, cream gutter on the right). Audited at a true 390px viewport with a CDP probe (`/tmp/sk51/audit.mjs`):
 
@@ -16,6 +16,23 @@ Gili's phone screenshot showed the homepage broken on mobile (zoomed, cut off bo
 - Verified: 390 + 360 probes = scrollWidth exactly viewport, zero offenders, full gate green (2942 tests). The red "1 issue" dev-overlay badge in screenshots = pre-existing hydration warning (proved present on untouched baseline; dev-only).
 - Flagged, NOT done (desktop-visible, out of mobile scope): landing CTA radii are 10-12px vs buttons.md's 16px standard; section order (FounderNote sits after FAQ; research says credibility-before-pricing converts better).
 
+- **SK-52 follow-on (PR #175, merged)**: auth pages — Clerk card kept (de-card attempt rejected by Gili: "you ruined desktop"), padding slimmed <lg, cl-rootBox width:100% (iOS Safari shrank the fit-content cycle and beached the card left), tighter shell — sign-up fits one phone screen (990→736px). Clerk-cascade gotcha: Tailwind-v4 @layer utilities lose to Clerk's unlayered CSS; scoped !important CSS in globals.css is the fix.
+
+### SK-50 — artist mobile ship-ready audit + polish (MERGED via #173)
+
+Audited ALL artist screens at true 390px against the handoff prototype (refs: /tmp/proto-refs/). Fixes landed on the branch (full gate green, 2942 tests):
+- **Music L1/L2 mobile rework** (worst section): L1 2-col cover grid below sm; L2 stacked hero (full title) + Spotify-style track rows below lg (desktop tables untouched at lg+, CSS-only switch).
+- **Home density**: LastUpload/NextSession/PaymentRequests no longer truncate at 390; amounts quiet mono; warm empty placeholder; empty helper-line wrap.
+- **Funnel polish**: S3 footer overlap FIXED + price in white card; S4 PDF "View" pill; S5 heading; S7 neutral-till-selected prices; S8 plan recap + greyed card row + amber COPY pills; S9 heading/eyebrow/installments hint; S12 dead band gone + green Confirmed pill; S11 green hero + full names.
+- **Store (S2)**: hero vignette + readable producer-hue avatar; focal card got a record-sleeve cover band reusing the S3 `coverGradient`/`producerHue` — store and funnel share identity art.
+- **Join bio contrast bug** (LIVE IN PROD too): chrome-dark flips `--fg-secondary` light on the cream bento (≈1.1:1) — pinned literal #3D3730/#6B6359 in join-bento.tsx.
+- **S6 heartbeat card**: purchase-status card (pending-review + stepper, real artist.purchase.pending) — agent in flight when this was written.
+
+Verification gotchas learned: headless-Chrome CLI clamps windows to ≥500px (layout at 500, PNG cropped to 390 → fake right-chop, hidden overflow) — use Playwright viewport or the CDP script /tmp/sk50-audit/fix-s2/capture.mjs; first capture after a dev-server restart can show stale CSS (recapture); measure scrollWidth BEFORE fullPage screenshots; fixed bottom-nav paints over content in fullPage captures (rows can hide behind it).
+
+TEMP screenshot harness at apps/web/src/app/screenshot-preview/ (untracked) — DELETE before committing. Audit tracker: /tmp/sk50-audit/AUDIT.md.
+
+Open flags for Gili/Raz: music cover palette is cool green/violet vs warm handoff hues (shared w/ producer — product decision); /artist/sessions has no nav entry from the Book tab (IA question); store focal cover for "Gili Studio" hashes to plum (producer identity hue, consistent w/ S3, not the proto's amber).
 ### Artist purchase flow — LIVE END-TO-END on v3-clean (Gate 1)
 
 All of it merged on the night of 2026-06-09→10:

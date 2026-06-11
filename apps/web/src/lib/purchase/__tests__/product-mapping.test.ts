@@ -31,9 +31,10 @@ describe("durationLabel", () => {
 });
 
 describe("agreementFor", () => {
-  it("derives the filename from the contract URL (decoded)", () => {
+  it("derives the filename from the contract URL (decoded) and keeps the url", () => {
     expect(agreementFor(ROW.contractUrl)).toEqual({
       filename: "Booking Agreement.pdf",
+      url: ROW.contractUrl,
     });
   });
 
@@ -46,6 +47,7 @@ describe("agreementFor", () => {
   it("falls back to a sane label on an unparseable URL", () => {
     expect(agreementFor("not-a-url")).toEqual({
       filename: "Booking_Agreement.pdf",
+      url: "not-a-url",
     });
   });
 });

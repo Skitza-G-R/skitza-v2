@@ -137,9 +137,12 @@ export function JoinBento({
       <p
         className={[
           "reveal-up-delay-2 mt-2 max-w-md text-sm leading-[1.5]",
-          producer.bio
-            ? "text-[rgb(var(--fg-secondary))]"
-            : "text-[rgb(var(--fg-muted))]",
+          // The bento surface is always cream, but this section lives
+          // inside the public layout's chrome-dark scope where
+          // --fg-secondary flips to a light value (215 206 194 on
+          // cream ≈ 1.1:1 contrast — unreadable). Pin the literal
+          // light-surface values instead of the theme tokens.
+          producer.bio ? "text-[#3D3730]" : "text-[#6B6359]",
         ].join(" ")}
       >
         {producer.bio ?? "A studio for artists who care about the take, not just the sound."}

@@ -163,15 +163,15 @@ export function UploadProofScreen({
       <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
         <FunnelTopBar
           title="Upload proof"
-          sub="PROOF OF PAYMENT"
+          sub={isPaidInFull ? "PROOF OF PAYMENT" : `OF ${formatShekels(thisProofCents)}`}
           onBack={() => {
             router.back();
           }}
         />
 
         <div className="flex-1 px-5 pb-[184px] pt-3.5">
-          {/* heading */}
-          <h1 className="reveal-up font-syne text-[26px] font-extrabold leading-[1.1] tracking-[-0.035em] text-[rgb(var(--fg-default))]">
+          {/* heading — sized to hold one line at 390px */}
+          <h1 className="reveal-up font-syne text-[23px] font-extrabold leading-[1.1] tracking-[-0.035em] text-[rgb(var(--fg-default))]">
             {isPaidInFull ? "All paid up" : "Upload your proof"}
           </h1>
           <p className="reveal-up reveal-up-delay-1 mt-2 text-pretty text-[14px] leading-relaxed text-[rgb(var(--fg-muted))]">
@@ -345,6 +345,11 @@ export function UploadProofScreen({
                 ) : null}
                 <span>{headline.headline}</span>
               </div>
+
+              {/* installments hint (proto-s9) */}
+              <p className="mt-1.5 text-center text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+                Paying in installments? Upload one each time.
+              </p>
             </div>
           ) : null}
 

@@ -1,17 +1,22 @@
 import Link from "next/link";
 
+import { coverGradient } from "~/components/artist/purchase/purchase-data";
+import { producerHue } from "~/lib/_phase4-stubs/producer-color";
 import type { VolumeTier } from "~/lib/pricing";
 import { formatPriceLabel, planLabel } from "~/lib/store/format-price-label";
 import { productHref } from "~/lib/store/product-href";
 import { type TaxMode, taxModeFootnote } from "~/lib/tax-mode";
 
 // Producer's flagship offer — full-width focal card at the top of
-// each storefront. Title block left, price block right, description
-// underneath, full-width "View details" CTA, "Stripe · soon" as a
-// quiet centered footnote below the CTA so it reads as a coming-soon
-// disclosure, not a competing sibling action.
+// each storefront. A slim producer-hued cover band tops the card
+// (same coverGradient the S3 funnel hero uses, so tapping through
+// feels continuous), then title block left, price block right,
+// description underneath, full-width "View details" CTA, "Stripe ·
+// soon" as a quiet centered footnote below the CTA so it reads as a
+// coming-soon disclosure, not a competing sibling action.
 export function FocalProductCard({
   product,
+  producerName,
   taxMode = "tax_free",
   taxRatePct = 18,
 }: {
@@ -26,6 +31,7 @@ export function FocalProductCard({
     sessionCount: number | null;
     durationMin: number | null;
   };
+  producerName: string;
   taxMode?: TaxMode;
   taxRatePct?: number;
 }) {
@@ -52,13 +58,26 @@ export function FocalProductCard({
 
   return (
     <article
-      className="reveal-up rounded-[var(--radius-lg)] border p-6 sm:p-8"
+      className="reveal-up overflow-hidden rounded-[var(--radius-lg)] border"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
-        boxShadow: "var(--shadow-sm)",
+        boxShadow: "var(--shadow-md)",
       }}
     >
+      {/* slim record-sleeve cover band — producer-hued coverGradient
+          (matches the S3 funnel band this card links into) with a
+          quiet mono SIGNATURE tag pinned to its bottom edge */}
+      <div
+        aria-hidden
+        className="flex h-[76px] items-end px-6 pb-2.5 sm:h-[84px] sm:px-8"
+        style={{ background: coverGradient(producerHue(producerName)) }}
+      >
+        <span className="font-mono text-[9px] font-bold uppercase tracking-[0.22em] text-white/85">
+          Signature
+        </span>
+      </div>
+      <div className="p-6 sm:p-8">
       {/* SK-49: below sm the title/meta take the full width and the price
           drops to its own line — side-by-side squeezed the meta into a
           one-word-per-line column on phones. sm+ is the original layout. */}
@@ -114,6 +133,7 @@ export function FocalProductCard({
           ? "Stripe · payments soon"
           : "Request to book · no payment yet"}
       </p>
+      </div>
     </article>
   );
 }

@@ -32,6 +32,26 @@ export type BankDetails = {
   bit: string;
 };
 
+// Inline copy glyph — kept local so the shared icon set stays untouched
+// (mirrors UploadGlyph in upload-proof-screen.tsx).
+function CopyGlyph() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="9" width="12" height="12" rx="2.5" />
+      <path d="M5 15H4.5A1.5 1.5 0 013 13.5v-9A1.5 1.5 0 014.5 3h9A1.5 1.5 0 0115 4.5V5" />
+    </svg>
+  );
+}
+
 // Small inline copy control — writes one value to the clipboard and flips to a
 // brief "Copied" confirmation. Kept inline (not a shared atom) per the brief.
 function CopyButton({ value, label }: { value: string; label: string }) {
@@ -57,17 +77,17 @@ function CopyButton({ value, label }: { value: string; label: string }) {
         void copy();
       }}
       aria-label={`Copy ${label}`}
-      className="sk-press inline-flex shrink-0 items-center gap-[5px] rounded-[10px] px-2.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.08em] transition-colors"
+      className="sk-press inline-flex shrink-0 items-center gap-[5px] rounded-full px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.08em] transition-colors"
       style={
         copied
           ? {
-              background: "rgb(var(--brand-primary) / 0.14)",
-              color: "rgb(var(--brand-primary-dark))",
+              background: "rgb(var(--fg-success) / 0.14)",
+              color: "rgb(var(--fg-success))",
             }
           : {
-              background: "rgb(var(--bg-background))",
-              color: "rgb(var(--fg-secondary))",
-              border: "1px solid rgb(var(--border-subtle))",
+              /* amber-tinted pill (proto-s8) */
+              background: "rgb(var(--brand-primary) / 0.14)",
+              color: "rgb(var(--brand-primary-dark))",
             }
       }
     >
@@ -77,7 +97,10 @@ function CopyButton({ value, label }: { value: string; label: string }) {
           Copied
         </>
       ) : (
-        "Copy"
+        <>
+          <CopyGlyph />
+          Copy
+        </>
       )}
     </button>
   );
@@ -114,6 +137,8 @@ export function PaymentInstructionsScreen({
   amountDueNowCents,
   bank,
   planParam,
+  productName,
+  planLabel,
 }: {
   productId: string;
   producerName: string;
@@ -122,6 +147,10 @@ export function PaymentInstructionsScreen({
   bank: BankDetails | null;
   /** Selected plan, carried through to the proof screen. */
   planParam: string | undefined;
+  /** Recap row in the dark amount card: "{productName} · {planLabel}". */
+  productName?: string | undefined;
+  /** Human label of the chosen plan (e.g. "Split 50 / 50"). */
+  planLabel?: string | undefined;
 }) {
   const router = useRouter();
 
@@ -160,6 +189,12 @@ export function PaymentInstructionsScreen({
             <div className="mt-1.5 font-amount text-[42px] font-bold leading-none tracking-[-0.04em] text-white">
               {formatShekels(amountDueNowCents)}
             </div>
+            {/* chosen-plan recap (proto-s8): "{product} · {plan}" */}
+            {productName ?? planLabel ? (
+              <div className="mt-2 truncate text-[12.5px] font-medium text-white/80">
+                {[productName, planLabel].filter(Boolean).join(" · ")}
+              </div>
+            ) : null}
             <p className="mt-2 text-[12.5px] leading-snug text-white/55">
               Pay using your bank or Bit, then upload your proof.
             </p>
@@ -231,7 +266,8 @@ export function PaymentInstructionsScreen({
             </div>
           )}
 
-          {/* card pay — v2, greyed + inert */}
+          {/* card pay — v2, greyed + inert. Faint text + washed row so it
+              never reads as tappable. */}
           <div
             className="sk-rise rounded-card mt-3 flex items-center justify-between gap-3 px-4 py-3.5"
             aria-disabled="true"
@@ -239,10 +275,10 @@ export function PaymentInstructionsScreen({
               animationDelay: "140ms",
               background: "rgb(var(--bg-background))",
               border: "1px dashed rgb(var(--border-strong))",
-              opacity: 0.6,
+              opacity: 0.45,
             }}
           >
-            <div className="text-[14px] font-semibold text-[rgb(var(--fg-muted))]">
+            <div className="text-[14px] font-medium text-[rgb(var(--fg-muted))]">
               Pay by card
             </div>
             <div className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">

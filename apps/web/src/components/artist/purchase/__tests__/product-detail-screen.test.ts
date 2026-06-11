@@ -27,7 +27,7 @@ describe("product-detail-screen.tsx (S3) wiring", () => {
   it("renders the product name and locked price", () => {
     expect(s3Src).toMatch(/product\.name/);
     expect(s3Src).toMatch(/formatShekels\(product\.priceCents\)/);
-    expect(s3Src).toMatch(/PRICE LOCKS WHEN YOU REQUEST/);
+    expect(s3Src).toMatch(/LOCKS AT REQUEST/);
   });
 
   it("maps the what's-included list, hidden when deliverables are empty", () => {

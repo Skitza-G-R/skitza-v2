@@ -13,11 +13,12 @@ import type { ReactNode } from "react";
 import { Check, ChevronLeft } from "./funnel-icons";
 
 // Confirmation emblem with the prototype's rippling ring (S5 sent, S11
-// booked). A dark/tinted disc holds the icon while one or two absolutely
-// positioned rings expand-and-fade behind it (`sk-ripple`, gated for
-// reduced motion in globals.css). Visual-only helper — additive, doesn't
-// touch the existing icon imports. `tone` picks the ring/disc accent:
-// amber for "sent", green for "confirmed".
+// booked). A disc holds the icon while one or two absolutely positioned
+// rings expand-and-fade behind it (`sk-ripple`, gated for reduced motion
+// in globals.css). Visual-only helper — additive, doesn't touch the
+// existing icon imports. `tone` picks the disc: amber "sent" keeps the
+// dark disc with an amber icon; "confirmed" is a SOLID green disc with a
+// white icon (proto-s11).
 export function RippleEmblem({
   children,
   tone = "amber",
@@ -27,12 +28,10 @@ export function RippleEmblem({
   tone?: "amber" | "success";
   className?: string;
 }) {
-  const ring =
-    tone === "success"
-      ? "rgb(var(--fg-success) / 0.30)"
-      : "rgb(var(--brand-primary) / 0.30)";
-  const accent =
-    tone === "success" ? "rgb(var(--fg-success))" : "rgb(var(--brand-primary))";
+  const success = tone === "success";
+  const ring = success
+    ? "rgb(var(--fg-success) / 0.30)"
+    : "rgb(var(--brand-primary) / 0.30)";
   return (
     <div className={`relative inline-flex ${className}`}>
       <span
@@ -47,15 +46,21 @@ export function RippleEmblem({
       />
       <span
         className="relative flex h-[92px] w-[92px] items-center justify-center rounded-full"
-        style={{
-          background: "rgb(var(--bg-sidebar))",
-          color: accent,
-          boxShadow: `0 20px 46px -14px rgb(17 16 9 / 0.55), inset 0 0 0 1.5px ${
-            tone === "success"
-              ? "rgb(var(--fg-success) / 0.40)"
-              : "rgb(var(--brand-primary) / 0.35)"
-          }`,
-        }}
+        style={
+          success
+            ? {
+                background: "rgb(var(--fg-success))",
+                color: "rgb(255 255 255)",
+                boxShadow:
+                  "0 20px 46px -14px rgb(var(--fg-success) / 0.55), inset 0 0 0 1.5px rgb(255 255 255 / 0.18)",
+              }
+            : {
+                background: "rgb(var(--bg-sidebar))",
+                color: "rgb(var(--brand-primary))",
+                boxShadow:
+                  "0 20px 46px -14px rgb(17 16 9 / 0.55), inset 0 0 0 1.5px rgb(var(--brand-primary) / 0.35)",
+              }
+        }
       >
         {children}
       </span>
