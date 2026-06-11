@@ -1394,41 +1394,32 @@
 }
 
 /* ----------------------------------------------------------------
- * Auth surfaces — de-card the Clerk form (SK-52).
+ * Auth surfaces — compact the Clerk card on phones (SK-52).
  *
- * The locked auth design inlines Clerk's <SignIn>/<SignUp> form
- * directly on the cream FormColumn — no white card. The ClerkProvider
- * `appearance.elements.card` override in app/layout.tsx passes
- * Tailwind utilities, but Tailwind v4 emits utilities inside a
- * cascade @layer while Clerk injects UNLAYERED runtime CSS — and
- * unlayered normal declarations beat layered ones, so the white card
- * (32px/40px padding) silently came back. On a 375px phone that
- * squeezed the inputs to ~255px and pushed the CTA below the fold.
+ * Clerk's <SignIn>/<SignUp> white card IS the approved look (Gili
+ * 2026-06-11 — an earlier de-card attempt was rejected: "you ruined
+ * desktop"). Desktop is untouched: nothing here applies ≥1024px.
  *
- * Plain, unlayered, scoped CSS with !important is the supported
- * escape hatch. Scoped under .sk-auth-form (the wrapper div in the
- * auth layout's FormColumn) so no other Clerk surface (UserButton
- * popover etc.) is affected.
+ * On phones the card's default 32px/40px padding squeezed the inputs
+ * to ~255px and pushed the CTA below the iPhone SE fold, so below lg
+ * we slim ONLY the padding. Why plain CSS and not
+ * `appearance.elements`: Tailwind v4 emits utilities inside a cascade
+ * @layer while Clerk injects UNLAYERED runtime CSS, and unlayered
+ * normal declarations win — Tailwind strings passed to Clerk
+ * silently lose whenever Clerk styles the same property. Scoped
+ * under .sk-auth-form (the wrapper div in the auth layout's
+ * FormColumn) so no other Clerk surface (UserButton popover etc.)
+ * is affected.
  * ---------------------------------------------------------------- */
-.sk-auth-form .cl-cardBox {
-  width: 100% !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-.sk-auth-form .cl-card {
-  background: transparent !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-}
-.sk-auth-form .cl-footer {
-  background: transparent !important;
-  margin-top: 4px !important;
-}
-.sk-auth-form .cl-footerAction {
-  background: transparent !important;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
+@media (max-width: 1023px) {
+  .sk-auth-form .cl-cardBox {
+    width: 100% !important;
+  }
+  .sk-auth-form .cl-card {
+    padding: 24px 20px !important;
+  }
+  .sk-auth-form .cl-footerAction {
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+  }
 }
