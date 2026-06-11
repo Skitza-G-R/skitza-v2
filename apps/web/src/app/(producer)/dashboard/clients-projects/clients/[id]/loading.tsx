@@ -22,7 +22,7 @@ export default function ClientSpaceLoading() {
         {/* Full-bleed dark hero band (negative horizontal margins
             cancel the page padding, matching the real hero's pattern). */}
         <Skel
-          className="-mx-4 h-[300px] sm:-mx-6"
+          className="-mx-4 h-[420px] sm:-mx-6 md:h-[300px]"
           tone="band"
         />
 

@@ -26,7 +26,7 @@ export default function SongSpaceLoading() {
         <Skel className="h-[220px] rounded-[var(--radius-lg)]" tone="band" />
 
         {/* 4-cell stat strip placeholder */}
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
           <Skel className="h-[88px] rounded-[var(--radius-md)]" />
           <Skel className="h-[88px] rounded-[var(--radius-md)]" />
           <Skel className="h-[88px] rounded-[var(--radius-md)]" />
