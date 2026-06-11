@@ -136,7 +136,7 @@ export default async function JoinSignUpPage({ params }: Props) {
   if (role.kind === "producer-complete") {
     const producerName = role.producer.displayName ?? "a producer";
     return (
-      <div className="space-y-6">
+      <div className="space-y-5 sm:space-y-6">
         <AuthHero
           eyebrow="Already signed in"
           title="You're signed in as a producer"
@@ -189,7 +189,7 @@ export default async function JoinSignUpPage({ params }: Props) {
   // `fallbackRedirectUrl` IS URL-encoded — Next's router handles the
   // final navigation and expects a valid URL.
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <AuthHero
         eyebrow="Join Skitza"
         title="Make it official"

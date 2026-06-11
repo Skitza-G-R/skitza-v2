@@ -62,7 +62,7 @@ function BrandPanel() {
   return (
     <aside
       // Mobile: short header band; desktop: full-height column.
-      className="relative overflow-hidden px-6 py-7 text-white sm:px-10 lg:px-14 lg:py-12"
+      className="relative overflow-hidden px-6 py-4 text-white sm:px-10 sm:py-7 lg:px-14 lg:py-12"
       style={{
         background:
           "linear-gradient(155deg, #100E07 0%, #1d1810 55%, #2c2412 100%)",
@@ -189,7 +189,7 @@ function BrandPanel() {
 
 function FormColumn({ children }: { children: ReactNode }) {
   return (
-    <section className="relative flex flex-col px-6 py-8 sm:px-10 sm:py-10 lg:px-14 lg:py-12">
+    <section className="relative flex flex-col px-6 py-6 sm:px-10 sm:py-10 lg:px-14 lg:py-12">
       {/* The mobile-only marketing eyebrow that used to live here was
           retired now that each page renders its own `<AuthHero>` (see
           apps/web/src/components/auth/auth-hero.tsx). Per-page hero
@@ -199,10 +199,12 @@ function FormColumn({ children }: { children: ReactNode }) {
           double-stacked above it on mobile. */}
 
       {/* Clerk form wrapper — centered on desktop, top-aligned on
-          mobile. The wrapper is a flex column so Clerk's variable-
-          height form expands without pushing the footer. */}
-      <div className="flex flex-1 items-center justify-center">
-        <div className="w-full max-w-[400px]">{children}</div>
+          mobile (phones shouldn't float the form mid-air; on an
+          iPhone SE centering pushed the CTA below the fold). The
+          `sk-auth-form` hook scopes the Clerk de-card CSS in
+          globals.css. */}
+      <div className="flex flex-1 items-start justify-center lg:items-center">
+        <div className="sk-auth-form w-full max-w-[400px]">{children}</div>
       </div>
 
       {/* Footer links — same on every auth surface. The "Back to
@@ -210,7 +212,7 @@ function FormColumn({ children }: { children: ReactNode }) {
           on `/tmp/skitza-design/tabs/auth.jsx`. Mono uppercase keeps
           it visually quiet against the brand-amber CTA. */}
       <div
-        className="font-mono mt-10 flex flex-wrap items-center justify-between gap-3 text-[11px] uppercase tracking-[0.14em]"
+        className="font-mono mt-8 flex flex-wrap items-center justify-between gap-3 text-[11px] uppercase tracking-[0.14em] lg:mt-10"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
         <Link href="/" className="hover:text-[rgb(var(--fg-primary))]">
