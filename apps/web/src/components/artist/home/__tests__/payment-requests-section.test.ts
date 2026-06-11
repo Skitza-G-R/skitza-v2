@@ -8,8 +8,11 @@ const SRC = readFileSync(
 );
 
 describe("PaymentRequestsSection", () => {
-  it("uses text-brand-copper for amounts", () => {
-    expect(SRC).toMatch(/text-brand-copper/);
+  it("renders row amounts in quiet mono, not display copper (SK-50)", () => {
+    expect(SRC).not.toMatch(/text-brand-copper/);
+    expect(SRC).toMatch(
+      /var\(--font-jetbrains-mono\)[\s\S]{0,120}formatAmount\(booking\.amountCents/,
+    );
   });
 
   it("caps the visible list at 3 rows", () => {

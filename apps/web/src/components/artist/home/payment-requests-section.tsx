@@ -40,17 +40,17 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
 
   return (
     <section aria-labelledby="payment-requests-heading">
-      <header className="flex items-baseline justify-between border-b border-[rgb(var(--border-subtle))] pb-2">
-        <div className="flex items-baseline gap-3">
+      <header className="flex items-baseline justify-between gap-3 border-b border-[rgb(var(--border-subtle))] pb-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <h2
             id="payment-requests-heading"
-            className="text-[14px] font-bold text-[rgb(var(--fg-default))]"
+            className="whitespace-nowrap text-[14px] font-bold text-[rgb(var(--fg-default))]"
             style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.01em" }}
           >
             Payment requests
           </h2>
           <span
-            className="uppercase text-[10.5px] tracking-[0.04em] text-[rgb(var(--fg-muted))]"
+            className="whitespace-nowrap uppercase text-[10.5px] tracking-[0.04em] text-[rgb(var(--fg-muted))]"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
             {bookings.length} OPEN · {formatAmount(total, currency)}
@@ -58,7 +58,7 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
         </div>
         <Link
           href="/artist/book"
-          className="text-[12px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
+          className="shrink-0 whitespace-nowrap text-[12px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
         >
           Pay all →
         </Link>
@@ -67,36 +67,32 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
         {visible.map((booking) => (
           <li
             key={booking.id}
-            className="grid grid-cols-[28px_minmax(0,1fr)_auto_auto] items-center gap-3 px-1 py-2.5"
+            className="grid grid-cols-[28px_minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 px-1 py-2.5"
           >
             <ProducerArt
               producerName={booking.producerName}
               size={28}
               initialsFontSize={10}
+              className="row-span-2"
             />
-            <div className="flex min-w-0 flex-col">
-              <span className="truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
-                {booking.packageName}
+            <span className="col-span-3 min-w-0 text-[13.5px] font-semibold text-[rgb(var(--fg-default))] max-sm:line-clamp-2 sm:col-span-1 sm:truncate">
+              {booking.packageName}
+            </span>
+            <span className="col-start-2 row-start-2 min-w-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+              {booking.producerName} ·{" "}
+              <span style={{ fontFamily: "var(--font-jetbrains-mono)" }}>
+                {booking.plan}
               </span>
-              <span className="truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
-                {booking.producerName} ·{" "}
-                <span style={{ fontFamily: "var(--font-jetbrains-mono)" }}>
-                  {booking.plan}
-                </span>
-              </span>
-            </div>
+            </span>
             <span
-              className="text-brand-copper text-[14.5px] font-extrabold"
-              style={{
-                fontFamily: "var(--font-syne)",
-                letterSpacing: "-0.02em",
-              }}
+              className="col-start-3 row-start-2 whitespace-nowrap text-[13px] text-[rgb(var(--fg-default))] sm:row-span-2 sm:row-start-1"
+              style={{ fontFamily: "var(--font-jetbrains-mono)" }}
             >
               {formatAmount(booking.amountCents, booking.currency)}
             </span>
             <Link
               href={`/artist/payment/${booking.id}`}
-              className="inline-flex items-center rounded-full bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[11.5px] font-bold text-[rgb(var(--brand-primary))] transition-transform hover:brightness-110 active:scale-[0.97]"
+              className="col-start-4 row-start-2 inline-flex items-center rounded-full bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[11.5px] font-bold text-[rgb(var(--brand-primary))] transition-transform hover:brightness-110 active:scale-[0.97] sm:row-span-2 sm:row-start-1"
             >
               Pay
             </Link>
