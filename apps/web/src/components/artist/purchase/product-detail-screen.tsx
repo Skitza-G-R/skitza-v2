@@ -88,17 +88,26 @@ export function ProductDetailScreen({
         </div>
 
         <div className="flex-1 px-5 pb-[200px] pt-5">
-          {/* locked price — JetBrains Mono amount */}
-          <div className="sk-rise" style={{ animationDelay: "100ms" }}>
+          {/* locked price — bordered white card (proto-s3): mono eyebrow +
+              big JetBrains Mono amount + the session meta, right-aligned */}
+          <div
+            className="sk-rise rounded-card px-[18px] pb-4 pt-3.5"
+            style={{
+              animationDelay: "100ms",
+              background: "rgb(var(--bg-elevated))",
+              border: "1px solid rgb(var(--border-subtle))",
+              boxShadow: "var(--shadow-sm)",
+            }}
+          >
             <span className="inline-flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--brand-primary-dark))]">
               <LockIcon />
-              PRICE LOCKS WHEN YOU REQUEST
+              LOCKS AT REQUEST
             </span>
-            <div className="mt-1.5 flex items-end gap-3">
+            <div className="mt-1.5 flex items-end justify-between gap-3">
               <span className="font-amount text-[42px] font-extrabold leading-none tracking-[-0.04em] text-[rgb(var(--fg-default))]">
                 {formatShekels(product.priceCents)}
               </span>
-              <span className="mb-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
+              <span className="mb-1 text-right text-[12.5px] leading-snug text-[rgb(var(--fg-muted))]">
                 {product.durationLabel}
               </span>
             </div>
@@ -191,14 +200,21 @@ export function ProductDetailScreen({
           </div>
         </div>
 
-        {/* pinned action — fades the scrolling content beneath it */}
-        <div
-          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pb-3.5 pt-3.5"
-          style={{
-            background:
-              "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
-          }}
-        >
+        {/* pinned action — a short cream fade on top of a SOLID backdrop so
+            the scrolling content never shows through the footer rows */}
+        <div className="sticky bottom-0 z-10">
+          <div
+            aria-hidden
+            className="pointer-events-none h-7"
+            style={{
+              background:
+                "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background)) 100%)",
+            }}
+          />
+          <div
+            className="sk-safe-bottom px-[18px] pb-3.5"
+            style={{ background: "rgb(var(--bg-background))" }}
+          >
           <div className="mb-2.5 flex items-center justify-between px-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
             <span>Payment</span>
             <span>Set after approval</span>
@@ -217,6 +233,7 @@ export function ProductDetailScreen({
           >
             Request to book <ArrowRight />
           </PrimaryCta>
+          </div>
         </div>
       </div>
     </div>

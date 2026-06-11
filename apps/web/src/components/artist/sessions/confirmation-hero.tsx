@@ -43,10 +43,10 @@ export function ConfirmationHero({
     ? "rgb(var(--fg-success))"
     : "rgb(var(--brand-primary-dark))";
   const tint = confirmed
-    ? "rgb(var(--fg-success) / 0.07)"
-    : "rgb(var(--brand-primary) / 0.07)";
+    ? "rgb(var(--fg-success) / 0.10)"
+    : "rgb(var(--brand-primary) / 0.08)";
   const ring = confirmed
-    ? "rgb(var(--fg-success) / 0.22)"
+    ? "rgb(var(--fg-success) / 0.25)"
     : "rgb(var(--brand-primary) / 0.22)";
 
   return (
@@ -54,7 +54,8 @@ export function ConfirmationHero({
       className="sk-rise relative overflow-hidden rounded-card px-5 pb-6 pt-7 text-center"
       style={{
         animationDelay: "40ms",
-        background: `radial-gradient(130% 90% at 50% -8%, ${tint}, transparent 62%), rgb(var(--bg-elevated))`,
+        /* proto-s11: the whole card is tone-tinted, not just a top glow */
+        background: `linear-gradient(0deg, ${tint}, ${tint}), rgb(var(--bg-elevated))`,
         border: `1px solid ${ring}`,
         boxShadow: "var(--shadow-sm)",
       }}

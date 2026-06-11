@@ -9,7 +9,8 @@
 //
 // The hero card states the booking plainly (date + time large in Syne,
 // duration, the product + producer mini-row, a StatusPill). The action stack
-// pins low and thumb-reachable: Reschedule (secondary) + Cancel (primary).
+// (Reschedule + Cancel + the policy footnote) flows directly under the policy
+// note (proto-s12) — no dead band, no viewport pinning.
 //
 // The cancel/reschedule TIME-POLICY gates the ACTIONS only, not money. We
 // read the live clock once at render and inject it into the pure
@@ -97,7 +98,7 @@ export function SessionDetailScreen({
           }}
         />
 
-        <div className="flex-1 px-5 pb-[176px] pt-4">
+        <div className="flex-1 px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-4">
           {/* hero summary — a DARK card (proto-s12): date/time large in white
               Syne, status pill, product + producer mini-row */}
           <div
@@ -188,87 +189,85 @@ export function SessionDetailScreen({
               <PolicyNotice producerName={producer.name} />
             </div>
           ) : null}
-        </div>
 
-        {/* pinned-low action stack — hidden once the session has passed */}
-        {!isPast ? (
-          <div
-            className="sk-safe-bottom sticky bottom-0 z-10 flex flex-col gap-2.5 px-[18px] pb-3.5 pt-3.5"
-            style={{
-              background:
-                "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
-            }}
-          >
-            {error ? (
-              <p
-                className="rounded-[12px] px-3.5 py-2.5 text-center text-[12.5px] font-medium"
-                style={{
-                  background: "rgb(var(--fg-danger) / 0.1)",
-                  color: "rgb(var(--fg-danger))",
-                }}
-                role="alert"
-              >
-                {error}
-              </p>
-            ) : null}
-
-            {/* amber Reschedule (proto-s12 primary action) */}
-            <button
-              type="button"
-              onClick={reschedule}
-              disabled={!policy.withinPolicy}
-              className={`relative flex w-full items-center justify-center gap-[9px] overflow-hidden rounded-card px-[22px] py-4 text-[16px] font-semibold ${
-                !policy.withinPolicy ? "cursor-not-allowed" : "sk-cta-press sk-gloss"
-              }`}
-              style={
-                !policy.withinPolicy
-                  ? {
-                      background: "rgb(var(--fg-default) / 0.07)",
-                      color: "rgb(var(--fg-muted) / 0.8)",
-                    }
-                  : {
-                      background:
-                        "linear-gradient(180deg, rgb(var(--brand-primary)) 0%, rgb(var(--brand-primary-dark)) 130%)",
-                      color: "rgb(var(--bg-sidebar))",
-                      boxShadow: "0 6px 18px -8px rgb(var(--brand-primary) / 0.40)",
-                    }
-              }
+          {/* action stack flows right under the policy note (proto-s12) —
+              hidden once the session has passed */}
+          {!isPast ? (
+            <div
+              className="sk-rise mt-5 flex flex-col gap-2.5"
+              style={{ animationDelay: "160ms" }}
             >
-              <span className="relative z-[2] inline-flex items-center gap-[9px]">
-                <ClockIcon width={16} height={16} /> Reschedule
-              </span>
-            </button>
+              {error ? (
+                <p
+                  className="rounded-[12px] px-3.5 py-2.5 text-center text-[12.5px] font-medium"
+                  style={{
+                    background: "rgb(var(--fg-danger) / 0.1)",
+                    color: "rgb(var(--fg-danger))",
+                  }}
+                  role="alert"
+                >
+                  {error}
+                </p>
+              ) : null}
 
-            {/* outlined Cancel — red text, hairline border (destructive but quiet) */}
-            <button
-              type="button"
-              onClick={openCancel}
-              disabled={!policy.withinPolicy}
-              className={`flex w-full items-center justify-center gap-[8px] rounded-card px-[22px] py-[15px] text-[15px] font-semibold ${
-                !policy.withinPolicy ? "cursor-not-allowed" : "sk-press"
-              }`}
-              style={{
-                background: "rgb(var(--bg-elevated))",
-                color: !policy.withinPolicy
-                  ? "rgb(var(--fg-muted) / 0.7)"
-                  : "rgb(var(--fg-danger))",
-                border: `1px solid ${
+              {/* amber Reschedule (proto-s12 primary action) */}
+              <button
+                type="button"
+                onClick={reschedule}
+                disabled={!policy.withinPolicy}
+                className={`relative flex w-full items-center justify-center gap-[9px] overflow-hidden rounded-card px-[22px] py-4 text-[16px] font-semibold ${
+                  !policy.withinPolicy ? "cursor-not-allowed" : "sk-cta-press sk-gloss"
+                }`}
+                style={
                   !policy.withinPolicy
-                    ? "rgb(var(--border-strong))"
-                    : "rgb(var(--fg-danger) / 0.30)"
-                }`,
-                boxShadow: "var(--shadow-sm)",
-              }}
-            >
-              <CloseIcon width={15} height={15} /> Cancel session
-            </button>
+                    ? {
+                        background: "rgb(var(--fg-default) / 0.07)",
+                        color: "rgb(var(--fg-muted) / 0.8)",
+                      }
+                    : {
+                        background:
+                          "linear-gradient(180deg, rgb(var(--brand-primary)) 0%, rgb(var(--brand-primary-dark)) 130%)",
+                        color: "rgb(var(--bg-sidebar))",
+                        boxShadow: "0 6px 18px -8px rgb(var(--brand-primary) / 0.40)",
+                      }
+                }
+              >
+                <span className="relative z-[2] inline-flex items-center gap-[9px]">
+                  <ClockIcon width={16} height={16} /> Reschedule
+                </span>
+              </button>
 
-            <p className="px-1 pt-0.5 text-center text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
-              The time policy controls changes only. Refunds and deposits follow
-              your signed agreement, off-app.
-            </p>
-          </div>
-        ) : null}
+              {/* outlined Cancel — red text, hairline border (destructive but quiet) */}
+              <button
+                type="button"
+                onClick={openCancel}
+                disabled={!policy.withinPolicy}
+                className={`flex w-full items-center justify-center gap-[8px] rounded-card px-[22px] py-[15px] text-[15px] font-semibold ${
+                  !policy.withinPolicy ? "cursor-not-allowed" : "sk-press"
+                }`}
+                style={{
+                  background: "rgb(var(--bg-elevated))",
+                  color: !policy.withinPolicy
+                    ? "rgb(var(--fg-muted) / 0.7)"
+                    : "rgb(var(--fg-danger))",
+                  border: `1px solid ${
+                    !policy.withinPolicy
+                      ? "rgb(var(--border-strong))"
+                      : "rgb(var(--fg-danger) / 0.30)"
+                  }`,
+                  boxShadow: "var(--shadow-sm)",
+                }}
+              >
+                <CloseIcon width={15} height={15} /> Cancel session
+              </button>
+
+              <p className="px-1 pt-0.5 text-center text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
+                The time policy controls changes only. Refunds and deposits follow
+                your signed agreement, off-app.
+              </p>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {sheetOpen ? (

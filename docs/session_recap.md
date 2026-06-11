@@ -1,9 +1,25 @@
 # Session Recap
 
 > **For the next session: READ THIS FIRST.**
-> Last updated: **2026-06-10, overnight autonomous session** (Gili's /goal: finish artist flows, merge everything, make producer mobile-responsive).
+> Last updated: **2026-06-11, SK-50 artist-mobile ship-ready pass** (Gili's /goal: the artist side should feel ready to ship on mobile; audit vs the "handoff 4" design package, fix until done).
 
 ## Where things stand
+
+### SK-50 — artist mobile ship-ready audit + polish (IN FLIGHT on branch giasraf/sk-50-…)
+
+Audited ALL artist screens at true 390px against the handoff prototype (refs: /tmp/proto-refs/). Fixes landed on the branch (full gate green, 2942 tests):
+- **Music L1/L2 mobile rework** (worst section): L1 2-col cover grid below sm; L2 stacked hero (full title) + Spotify-style track rows below lg (desktop tables untouched at lg+, CSS-only switch).
+- **Home density**: LastUpload/NextSession/PaymentRequests no longer truncate at 390; amounts quiet mono; warm empty placeholder; empty helper-line wrap.
+- **Funnel polish**: S3 footer overlap FIXED + price in white card; S4 PDF "View" pill; S5 heading; S7 neutral-till-selected prices; S8 plan recap + greyed card row + amber COPY pills; S9 heading/eyebrow/installments hint; S12 dead band gone + green Confirmed pill; S11 green hero + full names.
+- **Store (S2)**: hero vignette + readable producer-hue avatar; focal card got a record-sleeve cover band reusing the S3 `coverGradient`/`producerHue` — store and funnel share identity art.
+- **Join bio contrast bug** (LIVE IN PROD too): chrome-dark flips `--fg-secondary` light on the cream bento (≈1.1:1) — pinned literal #3D3730/#6B6359 in join-bento.tsx.
+- **S6 heartbeat card**: purchase-status card (pending-review + stepper, real artist.purchase.pending) — agent in flight when this was written.
+
+Verification gotchas learned: headless-Chrome CLI clamps windows to ≥500px (layout at 500, PNG cropped to 390 → fake right-chop, hidden overflow) — use Playwright viewport or the CDP script /tmp/sk50-audit/fix-s2/capture.mjs; first capture after a dev-server restart can show stale CSS (recapture); measure scrollWidth BEFORE fullPage screenshots; fixed bottom-nav paints over content in fullPage captures (rows can hide behind it).
+
+TEMP screenshot harness at apps/web/src/app/screenshot-preview/ (untracked) — DELETE before committing. Audit tracker: /tmp/sk50-audit/AUDIT.md.
+
+Open flags for Gili/Raz: music cover palette is cool green/violet vs warm handoff hues (shared w/ producer — product decision); /artist/sessions has no nav entry from the Book tab (IA question); store focal cover for "Gili Studio" hashes to plum (producer identity hue, consistent w/ S3, not the proto's amber).
 
 ### Artist purchase flow — LIVE END-TO-END on v3-clean (Gate 1)
 

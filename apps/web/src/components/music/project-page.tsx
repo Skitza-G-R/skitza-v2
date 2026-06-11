@@ -253,12 +253,30 @@ export function ProjectPage({
             </button>
           </div>
 
-          {/* Cover + meta — flex row, ends at bottom so the title baseline
-              aligns with the cover's bottom edge. Wraps on narrow screens.
-              Hero elements reveal in a 4-step cascade so the page assembles
-              visually rather than appearing as a single block. */}
-          <div className="flex flex-wrap items-end gap-8 pb-1.5">
+          {/* Cover + meta — flex row from sm up, ends at bottom so the
+              title baseline aligns with the cover's bottom edge. Below
+              sm the row stacks: smaller cover on top, title below at a
+              size that fits a phone (the side-by-side layout starved
+              the title of width and clipped it). Hero elements reveal
+              in a 4-step cascade so the page assembles visually rather
+              than appearing as a single block. */}
+          <div className="flex flex-col gap-5 pb-1.5 sm:flex-row sm:flex-wrap sm:items-end sm:gap-8">
             <div className="reveal-up reveal-up-delay-1">
+              {/* Phone cover: no kind badge — at 132px the badge
+                  ("ALBUM", 79px in Syne) collides with the wordmark,
+                  and the kind eyebrow right below the cover already
+                  says it. Two CSS-toggled covers keep the sm+ instance
+                  byte-identical to the original. */}
+              <ProjectCover
+                seed={data.project.id}
+                gradient={gradient}
+                kind={null}
+                showKind={false}
+                wordmark
+                shadow="hero"
+                radius="18px"
+                className="h-[132px] w-[132px] shrink-0 sm:hidden"
+              />
               <ProjectCover
                 seed={data.project.id}
                 gradient={gradient}
@@ -266,7 +284,7 @@ export function ProjectPage({
                 wordmark
                 shadow="hero"
                 radius="18px"
-                className="h-[232px] w-[232px] shrink-0"
+                className="hidden h-[232px] w-[232px] shrink-0 sm:block"
               />
             </div>
             <div className="min-w-0 flex-1">
@@ -279,13 +297,16 @@ export function ProjectPage({
               >
                 {kind}
               </span>
+              {/* Font size moved from the inline style into classes so
+                  it can shrink below sm: 32px fits a phone column and
+                  long titles wrap to 2 lines instead of clipping. The
+                  sm+ clamp is byte-identical to the old inline value —
+                  capped lower than the original 76px max so the title
+                  reads as bold without becoming a billboard. Apple
+                  Music's album hero caps around 56–60px. */}
               <h1
-                className="reveal-up reveal-up-delay-2 mt-3 font-display font-extrabold text-white"
+                className="reveal-up reveal-up-delay-2 mt-3 font-display text-[32px] font-extrabold text-white sm:text-[length:clamp(36px,4.4vw,60px)]"
                 style={{
-                  // Capped lower than the original 76px max so the
-                  // title reads as bold without becoming a billboard.
-                  // Apple Music's album hero caps around 56–60px.
-                  fontSize: "clamp(36px, 4.4vw, 60px)",
                   lineHeight: 0.96,
                   letterSpacing: "-0.035em",
                   textShadow: "0 2px 12px rgba(17,16,9,0.22)",
@@ -464,9 +485,12 @@ function Tracklist({
   const cols = "36px minmax(0,1fr) 86px 80px 60px 44px";
   return (
     <>
-      {/* Header eyebrow row */}
+      {/* Header eyebrow row — desktop only. Below lg the fixed px
+          columns outgrow a phone viewport, so the whole table (header
+          + grid rows) is lg+ and phones get the compact list rows
+          rendered at the end. */}
       <div
-        className="grid items-center gap-3 px-4 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+        className="grid items-center gap-3 px-4 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))] max-lg:hidden"
         style={{
           gridTemplateColumns: cols,
           borderBottom: "1px solid rgb(var(--border-subtle))",
@@ -481,7 +505,7 @@ function Tracklist({
           <Clock3 size={11} strokeWidth={2} />
         </span>
       </div>
-      <ul role="list">
+      <ul role="list" className="max-lg:hidden">
         {tracks.map((t, idx) => {
           const isCurrent = nowPlayingId === t.id;
           const playingHere = isCurrent && isPlaying;
@@ -602,6 +626,93 @@ function Tracklist({
                 </span>
 
                 <span className="text-right font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
+                  {fmtDuration(t.durationMs)}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Mobile/tablet (below lg): compact list rows. Same Link target
+          and onPlay handler as the table rows — the always-visible
+          44px play circle replaces the hover-reveal index swap (no
+          hover on touch). Title + version chip + duration (mono). */}
+      <ul role="list" className="lg:hidden">
+        {tracks.map((t, idx) => {
+          const isCurrent = nowPlayingId === t.id;
+          const playingHere = isCurrent && isPlaying;
+          const rowHref =
+            role === "producer"
+              ? `/dashboard/music/${t.id}?from=${projectId}`
+              : `/artist/music/song/${t.id}`;
+          return (
+            <li
+              key={t.id}
+              className="sk-stagger-item"
+              style={{ "--i": String(idx) } as React.CSSProperties}
+            >
+              <Link
+                href={rowHref}
+                aria-label={`Open ${t.title} song page`}
+                className={[
+                  "flex items-center gap-3 px-2 py-2",
+                  isCurrent
+                    ? "bg-[rgb(var(--brand-primary)/0.06)]"
+                    : "active:bg-[rgb(var(--bg-overlay))]",
+                ].join(" ")}
+                style={{
+                  borderRadius: 12,
+                  transition: "background-color 140ms ease-out",
+                }}
+              >
+                <button
+                  type="button"
+                  aria-label={playingHere ? "Pause" : "Play"}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPlay(t);
+                  }}
+                  disabled={!t.audioUrl}
+                  className={[
+                    "sk-press inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full disabled:opacity-40",
+                    isCurrent
+                      ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
+                      : "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
+                  ].join(" ")}
+                  style={
+                    isCurrent
+                      ? undefined
+                      : { border: "1px solid rgb(var(--border-subtle))" }
+                  }
+                >
+                  {playingHere ? (
+                    <EqBars playing size={13} />
+                  ) : (
+                    <Play size={14} strokeWidth={2.6} fill="currentColor" />
+                  )}
+                </button>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+                    {t.title}
+                  </span>
+                  {t.artist ? (
+                    <span className="mt-0.5 block truncate font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+                      {t.artist}
+                    </span>
+                  ) : null}
+                </span>
+                <span
+                  className="inline-flex shrink-0 items-center rounded-[6px] px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase text-[rgb(var(--fg-default))]"
+                  style={{
+                    background: "rgb(var(--bg-elevated))",
+                    border: "1px solid rgb(var(--border-subtle))",
+                  }}
+                >
+                  {t.versionLabel}
+                </span>
+                <span className="shrink-0 font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
                   {fmtDuration(t.durationMs)}
                 </span>
               </Link>

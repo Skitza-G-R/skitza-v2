@@ -22,7 +22,10 @@ export const MOCK_PRODUCER: Producer = {
   name: "Gili Studio",
   initials: "GS",
   hue: 30,
-  agreement: { filename: "Booking_Agreement.pdf" },
+  agreement: {
+    filename: "Booking_Agreement.pdf",
+    url: "https://example.com/Booking_Agreement.pdf",
+  },
 };
 
 export const MOCK_PRODUCT: PurchaseProduct = {

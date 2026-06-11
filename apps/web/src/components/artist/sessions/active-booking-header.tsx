@@ -36,7 +36,7 @@ export function ActiveBookingHeader({ booking }: { booking: ActiveBooking }) {
           <div className="font-amount text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--brand-primary-dark))]">
             Active booking
           </div>
-          <div className="mt-1 truncate font-syne text-[16px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+          <div className="mt-1 line-clamp-2 font-syne text-[16px] font-extrabold leading-snug tracking-[-0.02em] text-[rgb(var(--fg-default))]">
             {booking.productName}
           </div>
         </div>

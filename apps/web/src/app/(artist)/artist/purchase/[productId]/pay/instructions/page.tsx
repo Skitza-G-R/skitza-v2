@@ -6,6 +6,7 @@ import {
   MOCK_BANK,
   MOCK_PLAN_OPTIONS,
   MOCK_PRODUCER,
+  MOCK_PRODUCT,
   type PaymentPlan,
 } from "~/components/artist/purchase/pay-data";
 
@@ -42,6 +43,8 @@ export default async function PaymentInstructionsPage({
       amountDueNowCents={dueNowCents}
       bank={MOCK_BANK}
       planParam={plan}
+      productName={MOCK_PRODUCT.name}
+      planLabel={selected?.title}
     />
   );
 }

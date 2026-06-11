@@ -82,7 +82,7 @@ export function ReviewAgreeScreen({
         <div className="flex-1 px-5 pb-[184px] pt-3.5">
           {/* heading */}
           <h1 className="reveal-up font-syne text-[26px] font-extrabold leading-[1.1] tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-            Before we send it
+            Before we send&nbsp;it
           </h1>
           <p className="reveal-up reveal-up-delay-1 mt-2 text-pretty text-[14px] leading-relaxed text-[rgb(var(--fg-muted))]">
             {producer.agreement
@@ -147,6 +147,21 @@ export function ReviewAgreeScreen({
                     PDF · uploaded by {producer.name}
                   </div>
                 </div>
+                {producer.agreement.url ? (
+                  /* open affordance — near-black pill, amber "View" (proto-s4) */
+                  <a
+                    href={producer.agreement.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="sk-press inline-flex shrink-0 items-center rounded-full px-[18px] py-2 text-[13.5px] font-bold"
+                    style={{
+                      background: "rgb(var(--bg-sidebar))",
+                      color: "rgb(var(--brand-primary))",
+                    }}
+                  >
+                    View
+                  </a>
+                ) : null}
               </div>
               <div className="mt-[9px] flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
                 <span className="mt-px">

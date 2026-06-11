@@ -29,7 +29,7 @@ export function durationLabel(sessionCount: number, durationMin: number): string
  */
 export function agreementFor(
   contractUrl: string | null | undefined,
-): { filename: string } | null {
+): { filename: string; url: string } | null {
   if (!contractUrl) return null;
   let filename = "Booking_Agreement.pdf";
   try {
@@ -39,7 +39,7 @@ export function agreementFor(
   } catch {
     // Not a parseable URL — keep the default label rather than crash.
   }
-  return { filename };
+  return { filename, url: contractUrl };
 }
 
 type StoreProductRow = {

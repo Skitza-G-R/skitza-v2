@@ -16,7 +16,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { ArrowRight, Check } from "~/components/artist/funnel/funnel-icons";
+import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
 import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import {
   formatShekels,
@@ -57,7 +57,7 @@ export function ChoosePlanScreen({
       <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
         <FunnelTopBar
           title="Choose a plan"
-          sub="PAYMENT"
+          sub={producer.name}
           onBack={() => {
             router.push(`/artist/purchase/${productId}`);
           }}
@@ -127,12 +127,21 @@ export function ChoosePlanScreen({
                         {opt.blurb}
                       </p>
                     </div>
+                    {/* mono eyebrow ABOVE the price; amber price only on the
+                        selected card — unselected stays neutral (proto-s7) */}
                     <div className="shrink-0 text-right">
-                      <div className="font-amount text-[19px] font-bold tracking-[-0.03em] text-[rgb(var(--brand-primary-dark))]">
-                        {formatShekels(opt.dueNowCents)}
-                      </div>
                       <div className="font-mono text-[8.5px] tracking-[0.08em] text-[rgb(var(--fg-muted))]">
-                        DUE NOW
+                        DUE TODAY
+                      </div>
+                      <div
+                        className="mt-px font-amount text-[19px] font-bold tracking-[-0.03em]"
+                        style={{
+                          color: isSelected
+                            ? "rgb(var(--brand-primary-dark))"
+                            : "rgb(var(--fg-default))",
+                        }}
+                      >
+                        {formatShekels(opt.dueNowCents)}
                       </div>
                     </div>
                   </div>
@@ -158,7 +167,18 @@ export function ChoosePlanScreen({
                               : "1px solid rgb(var(--border-subtle))",
                         }}
                       >
-                        <span className="text-[12.5px] text-[rgb(var(--fg-secondary))]">
+                        <span className="flex items-center gap-2 text-[12.5px] text-[rgb(var(--fg-secondary))]">
+                          {/* small dot bullet — amber for today's payment */}
+                          <span
+                            aria-hidden
+                            className="h-[5px] w-[5px] shrink-0 rounded-full"
+                            style={{
+                              background:
+                                i === 0
+                                  ? "rgb(var(--brand-primary))"
+                                  : "rgb(var(--fg-default) / 0.22)",
+                            }}
+                          />
                           {row.label}
                         </span>
                         <span className="font-amount text-[12.5px] font-medium text-[rgb(var(--fg-default))]">
@@ -172,9 +192,23 @@ export function ChoosePlanScreen({
             })}
           </div>
 
+          {/* deposit footnote (proto-s7) */}
           <div
-            className="sk-rise mt-4"
+            className="sk-rise mt-4 flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]"
             style={{ animationDelay: `${String(140 + options.length * 60)}ms` }}
+          >
+            <span className="mt-px">
+              <ShieldIcon />
+            </span>
+            <span>
+              The deposit secures your slot and is usually final once {producer.name} begins.
+              Sessions can run on a deposit — downloads unlock at full payment.
+            </span>
+          </div>
+
+          <div
+            className="sk-rise mt-3"
+            style={{ animationDelay: `${String(200 + options.length * 60)}ms` }}
           >
             <Eyebrow>Money is handled off-app — Skitza keeps the record.</Eyebrow>
           </div>
