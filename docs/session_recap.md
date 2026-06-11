@@ -1,9 +1,25 @@
 # Session Recap
 
 > **For the next session: READ THIS FIRST.**
-> Last updated: **2026-06-11, mobile funnel passes** — SK-50 artist mobile (#173), SK-51 landing mobile (#174), SK-52 auth mobile (#175); all driven by Gili's /goal: first impression on a phone = premium, Spotify-level.
+> Last updated: **2026-06-11 evening, producer mobile premium wave** — SK-53..SK-57 (#176-#180) all merged to v3-clean the same evening Gili filed her 8-item phone audit. Earlier the same day: SK-50/51/52 merged AND promoted to skitza.app.
 
 ## Where things stand
+
+### Producer mobile premium wave — SK-53..SK-57 (ALL MERGED, NOT promoted)
+
+Gili's phone audit (5 screenshots, 8 issues) → research-backed plan (`docs/plans/active/2026-06-11-producer-mobile-premium-wave.md`, Spotify/Samply/Calendly/Cal.com/HubSpot/Stripe specs) → 5 PRs, each gated + CDP-screenshot-verified at a true 390px + 1440 desktop check. **Everything `<lg`/`<md`/`<sm` scoped; desktop byte-preserved (Gili mid-run: "all the fixes are for mobile only").**
+
+- **#176 SK-53** — `/dashboard` phone home = `MobileTodayFeed` (compact greeting → Needs-you action cards → Today's session → Recent activity). Killed: public-link strip, financial pulse, recent uploads on phones. Fixed: duplicate "session done" cards (grouped per project) + "paid ₪0" (no-amount → "sent a payment"). Topbar: search pill desktop-only; section label at every width.
+- **#177 SK-54** — clients list = 72px two-line rows in one hairline card (owed = the right-side number; link state = avatar dot; invite pill when unlinked+nothing owed). Toolbar re-flowed via CSS `order` (seg / chips-scroller / sort+toggle). Compact KPI strip (shared StatTile untouched). H1 26px mobile (Syne at 28px measured 372px > 358 available).
+- **#178 SK-55** — mini player tap → full-screen player (`.expanded` class toggle, 340ms Apple-sheet curve, scroll lock, Escape, tall waveform, 64px transport, safe-area paddings). Library toolbar = two phone rows, card chrome md+ only. `library-screen.tsx` is shared — artist side captured, gets the same cleanup.
+- **#179 SK-56** — Schedule tab hidden `<lg`; bottom-nav Calendar → `?tab=sessions`; pending-requests card lives on Sessions on phones (and the `?tab=schedule` mobile fallback renders the same sessions-first view, Sessions pill proxy-active). Availability windows stack one-per-line (Cal.com), full-width "+ Add window".
+- **#180 SK-57** — store card price moved under the name (side column chopped "Full produ…"), wizard offer tiles = full-width rows on phones, type-step double padding removed `<sm`, sheet insets tightened + step label truncated + home-indicator clearance.
+
+**Vercel**: all 5 v3-clean builds READY (head `f14298a` = dpl_DCfxi65kGFVC935ebv467xdNT72D). **Production untouched** — skitza.app still serves `0d2edb5` (pre-wave); promote + `vercel alias set` awaits Gili's go (verify in Incognito — SW cache).
+
+**Settings page**: swept at 390 post-wave — clean (SK-47's pass holds), no changes.
+
+**Traps learned**: `hidden` + a base `inline-flex` on one element = stylesheet-order roulette (branch the display class per element); Syne is wide — CDP-measure nowrap width before sizing mobile H1s; route-scoped CSS (`settings.css`) must be imported by any preview harness; gh squash single-commit PRs take the commit headline unless `--subject "SK-N: …"` is passed.
 
 ### SK-51 + SK-52 — landing + auth mobile premium pass (PR #174 / PR #175 MERGED)
 
@@ -67,7 +83,7 @@ Known pre-existing (NOT this branch): Overview "Today's session" 36px time overf
 Prod Neon project is **`skitza` (quiet-sun-92221754)** — Raz applied migration 0021 there. The `skitza-v3` project (raspy-pine) is stale since 2026-05-26. (CLAUDE.md's "fresh skitza-v3 project" note is outdated.) Migration 0021 is applied; nothing pending from tonight's merges (all tonight's PRs were schema-free).
 
 ### Deploy state
-Everything merged to v3-clean; **NOT promoted to skitza.app** (deliberately left for Gili — verify in Incognito first, then `vercel promote <dpl> && vercel alias set <dpl> skitza.app`, matching `githubCommitSha`).
+SK-50/51/52 (commit `0d2edb5`) were promoted to skitza.app on 2026-06-11 (~18:00, dpl_HoXc1r2 → production). The producer-mobile wave (SK-53..57, head `f14298a`) is merged + built but **NOT promoted** — same drill when Gili says go: `vercel promote <dpl> && vercel alias set <dpl> skitza.app`, matching `githubCommitSha`, then verify in Incognito (service-worker cache).
 
 ## Testing/things that bit us tonight (carry forward)
 - **Bare `var(--token)` colors render INVISIBLE** — tokens are RGB triplets; always `rgb(var(--token))`. This broke the whole SK-33 home until a screenshot audit caught it.
