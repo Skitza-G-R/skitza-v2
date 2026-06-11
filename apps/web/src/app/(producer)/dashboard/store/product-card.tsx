@@ -102,10 +102,12 @@ export function ProductCard({
       onDrop={drag?.onDrop}
       className={[
         "group relative grid items-center rounded-[14px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 transition-[border-color,transform,box-shadow] duration-200",
-        // Mobile (<sm): 2-row layout — tile + name + price on top,
-        // action cluster on its own row. Desktop (sm+): the original
+        // Mobile (<sm): tile + full-width name on top, price line
+        // beneath it (SK-57 — a side-by-side price column left the
+        // name ~124px and chopped it to "Full produ…"), action
+        // cluster on its own row. Desktop (sm+): the original
         // single-row 5-column grid (grip restored).
-        "grid-cols-[60px_minmax(0,1fr)_auto] gap-x-3 gap-y-3",
+        "grid-cols-[60px_minmax(0,1fr)] gap-x-3 gap-y-2.5",
         "sm:grid-cols-[20px_60px_minmax(0,1fr)_auto_auto] sm:gap-x-3.5 sm:gap-y-0",
         "hover:border-[rgb(var(--border-strong))] hover:-translate-y-px hover:shadow-[0_14px_36px_-22px_rgba(17,16,9,0.28),0_2px_8px_-3px_rgba(17,16,9,0.05)]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2",
@@ -149,7 +151,11 @@ export function ProductCard({
       <TypeTile type={tile} hidden={!product.active} />
 
       <div className="min-w-0">
-        <p className="truncate font-display text-[17px] font-bold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+        {/* SK-57: phones let the name wrap to two lines — the price
+            column squeezed it to ~166px and "Full production day"
+            rendered as "Full produ…". sm+ keeps the single ellipsis
+            line (line-clamp-1 === truncate visually). */}
+        <p className="line-clamp-2 font-display text-[16px] font-bold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))] sm:line-clamp-1 sm:text-[17px]">
           {product.name || <span className="italic text-[rgb(var(--fg-faint))]">Untitled</span>}
         </p>
         <p className="mt-0.5 truncate text-[12.5px] leading-[1.45] text-[rgb(var(--fg-muted))]">
@@ -157,8 +163,8 @@ export function ProductCard({
         </p>
       </div>
 
-      <div className="shrink-0 flex flex-col items-end gap-0.5">
-        <p className="text-right font-display text-[20px] font-extrabold leading-none tracking-[-0.02em] text-[rgb(var(--fg-default))] tabular-nums sm:text-[26px]">
+      <div className="col-start-2 row-start-2 flex shrink-0 flex-row items-baseline gap-2 sm:col-auto sm:row-auto sm:flex-col sm:items-end sm:gap-0.5">
+        <p className="text-left font-display text-[17px] font-extrabold leading-none tracking-[-0.02em] text-[rgb(var(--fg-default))] tabular-nums sm:text-right sm:text-[26px]">
           {formatMoney(displayCents, product.currency)}
         </p>
         {taxCaption ? (
@@ -172,7 +178,7 @@ export function ProductCard({
       </div>
 
       <div
-        className="no-card-click-block col-span-3 flex items-center justify-end gap-2.5 border-t border-[rgb(var(--border-subtle))] pt-3 sm:col-span-1 sm:border-t-0 sm:pt-0"
+        className="no-card-click-block col-span-2 flex items-center justify-end gap-2.5 border-t border-[rgb(var(--border-subtle))] pt-3 sm:col-span-1 sm:border-t-0 sm:pt-0"
         onClick={(e) => {
           e.stopPropagation();
         }}

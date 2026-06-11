@@ -105,8 +105,10 @@ export function EditorShell({
               to   { opacity: 1; transform: scale(1) translateY(0); }
             }`}</style>
 
-            {/* Header — X on LEFT, title block to its right (vertically centered with X). */}
-            <div className="border-b border-[rgb(var(--border-subtle))] px-6 pb-[18px] pt-[20px]">
+            {/* Header — X on LEFT, title block to its right (vertically
+                centered with X). SK-57: tighter insets below sm so the
+                bottom sheet reads phone-native, not scaled desktop. */}
+            <div className="border-b border-[rgb(var(--border-subtle))] px-5 pb-3.5 pt-4 sm:px-6 sm:pb-[18px] sm:pt-[20px]">
               <div className="flex items-center gap-3">
                 <DialogPrimitive.Close
                   aria-label="Close"
@@ -116,7 +118,10 @@ export function EditorShell({
                 </DialogPrimitive.Close>
                 <div className="min-w-0 flex-1">
                   <span
-                    className="block font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
+                    // truncate — edit mode appends the product name
+                    // ("· EDITING · Full production day") which
+                    // overflows a 390px sheet header otherwise.
+                    className="block truncate font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
                   >
                     {stepLabel}
                   </span>
@@ -139,10 +144,12 @@ export function EditorShell({
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+            <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-6 sm:py-5">{children}</div>
 
-            {/* Footer — Back on left, Continue/Save on right. Cancel removed: Close X handles it. */}
-            <div className="flex items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] px-6 py-4">
+            {/* Footer — Back on left, Continue/Save on right. Cancel
+                removed: Close X handles it. Bottom padding clears the
+                iOS home indicator when the sheet is bottom-anchored. */}
+            <div className="flex items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] px-5 py-3 max-sm:pb-[max(12px,env(safe-area-inset-bottom))] sm:px-6 sm:py-4">
               <div>
                 {isFirstStep ? null : (
                   <button
