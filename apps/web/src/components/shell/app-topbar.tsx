@@ -148,12 +148,12 @@ export function AppTopBar({
       }}
     >
       <div className="flex w-full items-center gap-3 px-3 py-1 sm:gap-4 sm:px-4">
-        {/* Breadcrumb (top-left). Hidden on the smallest screens
-            where the search trigger needs the full row to read; the
-            search pill still hints the page via context. */}
+        {/* Breadcrumb (top-left). Visible at every width — on phones
+            (where the search pill is gone, see below) the section
+            label is what anchors the slim chrome strip. */}
         <div
           data-testid="topbar-section-label"
-          className="hidden min-w-0 flex-shrink overflow-hidden md:block"
+          className="min-w-0 flex-shrink overflow-hidden"
         >
           <Breadcrumb items={items} />
         </div>
@@ -161,13 +161,16 @@ export function AppTopBar({
         {/* Search trigger (right, next to the bell). Renders as a pill
             input but is a button — clicking dispatches whatever the
             wrapping side wired (producer: command palette; artist: no
-            handler today). */}
+            handler today). Desktop-only (`lg:`): on phones a ⌘K-pill
+            wastes the whole strip and a hardware keyboard shortcut
+            means nothing, so mobile chrome is just label + bell
+            (Gili's 2026-06-11 audit, item 3). */}
         <div className="ml-auto flex justify-end">
           <button
             type="button"
             onClick={onSearchClick}
             data-testid="topbar-search-trigger"
-            className="inline-flex w-[260px] max-w-[420px] items-center gap-2 rounded-full border py-1.5 pl-3 pr-2 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:w-[320px] lg:w-[400px]"
+            className="hidden w-[260px] max-w-[420px] items-center gap-2 rounded-full border py-1.5 pl-3 pr-2 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:w-[320px] lg:inline-flex lg:w-[400px]"
             style={{
               background: "rgb(var(--bg-elevated))",
               borderColor: "rgb(var(--border-subtle))",

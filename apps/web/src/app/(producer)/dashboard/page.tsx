@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { MobileTodayFeed } from "~/components/dashboard/overview/mobile-today-feed";
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
 import { PaymentReceivedBanner } from "~/components/dashboard/payment-received-banner";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -104,6 +105,18 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     message: b.notes,
   }));
 
+  // Shared by the desktop banner and the mobile feed so the two
+  // surfaces can never drift on which bookings they show.
+  const paidBookings = recentPaid.map((p) => ({
+    id: p.id,
+    artistName: p.artistName,
+    packageNameSnapshot: p.packageNameSnapshot,
+    unitPriceCents: p.unitPriceCents,
+    songQty: p.songQty,
+    projectId: p.projectId,
+    projectName: p.projectName,
+  }));
+
   return (
     <>
       {/* Hero gradient + page chrome — preserved from Story 06. */}
@@ -115,10 +128,45 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <div className="sk-page-enter mx-auto max-w-[1920px]">
           <h1 className="sr-only">Today</h1>
 
+          {/* MOBILE (<lg) — the phone home is a dedicated activity +
+              notifications feed (Gili's 2026-06-11 audit). The desktop
+              banners + OverviewScreen below are all wrapped
+              `hidden lg:block`; this feed owns the small screen. */}
+          <MobileTodayFeed
+            displayName={me.displayName}
+            pendingApprovals={pendingApprovals}
+            followUps={followUpSessions.map((s) => ({
+              id: s.id,
+              artistName: s.artistName,
+              projectTitle: s.projectTitle,
+              projectId: s.projectId,
+            }))}
+            payments={paidBookings}
+            todaySession={todaySession}
+            urgentProjects={urgent.items}
+            activity={today.items.map((it) => ({
+              id: it.id,
+              kind: it.kind,
+              title: it.title,
+              subtitle: it.subtitle,
+              occurredAt: it.occurredAt,
+              href: it.href,
+              unread: it.unread,
+            }))}
+            showSetupNudge={showSetupNudge}
+            now={now}
+          />
+
           {/* FinishSetupNudge fires for producers who used `?skip=1`
               from onboarding and haven't added packages yet. Top of
-              the page so it stays the highest-priority CTA. */}
-          {showSetupNudge ? <FinishSetupNudge /> : null}
+              the page so it stays the highest-priority CTA.
+              Desktop-only — the mobile feed renders its own compact
+              setup card. */}
+          {showSetupNudge ? (
+            <div className="hidden lg:block">
+              <FinishSetupNudge />
+            </div>
+          ) : null}
 
           {/* Post-session follow-up nudges. Confirmed sessions whose
               end time has passed while the project still sits in
@@ -126,7 +174,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               populated layout so it's the first thing a producer
               sees when there's stale work to close out. */}
           {followUpSessions.length > 0 ? (
-            <div className="mx-4 mb-5 mt-5 space-y-2 sm:mx-6">
+            <div className="mx-4 mb-5 mt-5 hidden space-y-2 sm:mx-6 lg:block">
               {followUpSessions.map((session) => (
                 <div
                   key={session.id}
@@ -162,51 +210,45 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               "above-layout system banners" share one vertical lane.
               Per-row dismiss runs through the payment-banner server
               action which revalidates this page. */}
-          <PaymentReceivedBanner
-            bookings={recentPaid.map((p) => ({
-              id: p.id,
-              artistName: p.artistName,
-              packageNameSnapshot: p.packageNameSnapshot,
-              unitPriceCents: p.unitPriceCents,
-              songQty: p.songQty,
-              projectId: p.projectId,
-              projectName: p.projectName,
-            }))}
-          />
+          <div className="hidden lg:block">
+            <PaymentReceivedBanner bookings={paidBookings} />
+          </div>
 
           {/* Overview — always renders. Each section handles its own
               empty state. The PublicLinkStrip inside OverviewScreen
               gives a fresh producer the same share-your-link CTA the
               old day-1 takeover card was built for, but inline with
               the full dashboard scaffold around it. */}
-          <OverviewScreen
-            displayName={me.displayName}
-            slug={me.slug}
-            pulseStats={today.pulseStats}
-            pendingApprovals={pendingApprovals}
-            todaySession={todaySession}
-            urgentProjects={urgent.items}
-            recentUploads={today.recentUploads.map((u) => ({
-              versionId: u.versionId,
-              trackId: u.trackId,
-              title: u.title,
-              versionLabel: u.versionLabel,
-              uploadedAt: u.uploadedAt,
-              durationMs: u.durationMs,
-              projectId: u.projectId,
-              projectClientName: u.projectClientName,
-            }))}
-            activity={today.items.map((it) => ({
-              id: it.id,
-              kind: it.kind,
-              title: it.title,
-              subtitle: it.subtitle,
-              occurredAt: it.occurredAt,
-              href: it.href,
-              unread: it.unread,
-            }))}
-            now={now}
-          />
+          <div className="hidden lg:block">
+            <OverviewScreen
+              displayName={me.displayName}
+              slug={me.slug}
+              pulseStats={today.pulseStats}
+              pendingApprovals={pendingApprovals}
+              todaySession={todaySession}
+              urgentProjects={urgent.items}
+              recentUploads={today.recentUploads.map((u) => ({
+                versionId: u.versionId,
+                trackId: u.trackId,
+                title: u.title,
+                versionLabel: u.versionLabel,
+                uploadedAt: u.uploadedAt,
+                durationMs: u.durationMs,
+                projectId: u.projectId,
+                projectClientName: u.projectClientName,
+              }))}
+              activity={today.items.map((it) => ({
+                id: it.id,
+                kind: it.kind,
+                title: it.title,
+                subtitle: it.subtitle,
+                occurredAt: it.occurredAt,
+                href: it.href,
+                unread: it.unread,
+              }))}
+              now={now}
+            />
+          </div>
         </div>
       </div>
     </>
