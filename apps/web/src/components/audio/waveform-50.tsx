@@ -469,7 +469,16 @@ export function Waveform50({
                 }}
                 aria-label={`Jump to ${fmt(c.timeMs)}`}
                 className={[
-                  "sk-press pointer-events-auto absolute bottom-0 -translate-x-1/2 rounded-full",
+                  "sk-press pointer-events-auto absolute bottom-0 z-10 -translate-x-1/2 rounded-full",
+                  // Invisible tap zone — the visual tick is 2×12px,
+                  // effectively untappable on touch. A centered 28×44px
+                  // pseudo-element clears the 44px floor. Width is kept
+                  // at 28px so the zone only shadows a thin strip of
+                  // the seek surface directly under each marker —
+                  // clicking between markers still seeks. z-10 keeps
+                  // that strip above the slider div (a later positioned
+                  // sibling that would otherwise win the hit-test).
+                  "before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-7 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']",
                   "transition-[height,width,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
                   isHovered ? "h-4 w-[3px] opacity-100" : "h-3 w-[2px] opacity-90",
                   c.fromProducer

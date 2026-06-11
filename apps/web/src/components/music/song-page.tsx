@@ -618,9 +618,11 @@ export function SongPage({
               workflow surface), so it isn't redundant with anything in
               the topbar. `justify-end` keeps it right-aligned where it
               already lived. Hidden on artist — no clients-projects
-              surface exists for the artist app. */}
-          <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
-            {role === "producer" ? (
+              surface exists for the artist app — and the wrapper row
+              collapses with it, so the artist hero doesn't carry a
+              dead 16px spacer at the top. */}
+          {role === "producer" ? (
+            <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
               <Link
                 href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
                 className="sk-press group inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
@@ -628,8 +630,8 @@ export function SongPage({
                 <span>Open in project room</span>
                 <ChevronRightIcon />
               </Link>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:gap-5">
             {/* Album-art tile — Double-bezel: glass outer ring + inner
@@ -729,7 +731,14 @@ export function SongPage({
                         }}
                         style={{ animationDelay: `${String(120 + i * 50)}ms` }}
                         className={[
-                          "sk-press reveal-up inline-flex items-center gap-1 rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-[10.5px] font-bold tracking-wide",
+                          "sk-press reveal-up relative inline-flex items-center gap-1 rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-[10.5px] font-bold tracking-wide",
+                          // Invisible tap-area extension — the pill renders
+                          // ~26px tall; +12px each side clears the 44px touch
+                          // floor (the pseudo resolves against the padding
+                          // box, inside the 1px border). x stays at 2px so
+                          // adjacent pills (gap-1 = 4px apart) don't overlap
+                          // each other's zones.
+                          "before:absolute before:-inset-y-3 before:-inset-x-0.5 before:content-['']",
                           "transition-[background-color,border-color,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                           isActive
                             ? "border-white bg-white text-[rgb(17_16_9)] shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)]"
@@ -991,7 +1000,7 @@ export function SongPage({
                 onClick={() => {
                   setShowResolved((s) => !s);
                 }}
-                className="sk-press rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-default)/0.04)] hover:text-[rgb(var(--fg-default))]"
+                className="sk-press relative rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] transition-colors before:absolute before:-inset-y-3 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.04)] hover:text-[rgb(var(--fg-default))]"
               >
                 {showResolved ? "Hide resolved" : "Show resolved"}
               </button>
@@ -1103,13 +1112,18 @@ export function SongPage({
                       <span className="min-w-0 flex-1 basis-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))] transition-[max-height,color] duration-200 group-hover/note:whitespace-normal group-hover:text-[rgb(var(--fg-default))]">
                         {c.body}
                       </span>
+                      {/* Hover-revealed on desktop; touch devices have
+                          no hover, so `[@media(hover:none)]:inline`
+                          keeps the affordance permanently visible
+                          there. Same invisible ±15px tap extension as
+                          the active-card actions. */}
                       <button
                         type="button"
                         data-test="comment-jump"
                         onClick={() => {
                           handleJumpToComment(c.timeMs);
                         }}
-                        className="hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] group-hover/note:inline"
+                        className="relative hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))] group-hover/note:inline [@media(hover:none)]:inline"
                       >
                         Jump
                       </button>
@@ -1119,7 +1133,7 @@ export function SongPage({
                         onClick={() => {
                           handleReplyToComment(c.authorName);
                         }}
-                        className="hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] group-hover/note:inline"
+                        className="relative hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))] group-hover/note:inline [@media(hover:none)]:inline"
                       >
                         Reply
                       </button>
@@ -1128,7 +1142,7 @@ export function SongPage({
                         onClick={() => {
                           handleResolveToggle(c);
                         }}
-                        className="hidden shrink-0 text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] group-hover/note:inline"
+                        className="relative hidden shrink-0 text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))] group-hover/note:inline [@media(hover:none)]:inline"
                       >
                         Reopen
                       </button>
@@ -1185,14 +1199,21 @@ export function SongPage({
                       <p className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-default))]">
                         {c.body}
                       </p>
-                      <div className="mt-1 flex gap-2.5 text-[10px] font-bold tracking-wide opacity-60 transition-opacity duration-200 group-hover/note:opacity-100">
+                      {/* Touch devices have no hover to lift the 60%
+                          dim — render the actions at full opacity when
+                          the device can't hover. Each action also gets
+                          an invisible ±15px vertical tap extension
+                          (15px text row → 45px effective target); the
+                          x extension stays at 4px so neighbours
+                          (gap-2.5 = 10px apart) don't overlap. */}
+                      <div className="mt-1 flex gap-2.5 text-[10px] font-bold tracking-wide opacity-60 transition-opacity duration-200 group-hover/note:opacity-100 [@media(hover:none)]:opacity-100">
                         <button
                           type="button"
                           data-test="comment-jump"
                           onClick={() => {
                             handleJumpToComment(c.timeMs);
                           }}
-                          className="text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))]"
                         >
                           Jump to
                         </button>
@@ -1202,7 +1223,7 @@ export function SongPage({
                           onClick={() => {
                             handleReplyToComment(c.authorName);
                           }}
-                          className="text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))]"
                         >
                           Reply
                         </button>
@@ -1211,7 +1232,7 @@ export function SongPage({
                           onClick={() => {
                             handleResolveToggle(c);
                           }}
-                          className="text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))]"
                         >
                           Resolve
                         </button>
