@@ -39,16 +39,30 @@ describe("AppTopBar (shared)", () => {
     expect(SRC).toMatch(/lastIndexOf\(["']\/["']\)/);
   });
 
-  it("renders the section label in a md+ slot via <Breadcrumb />", () => {
+  it("renders the section label at every width via <Breadcrumb />", () => {
     // Single source of truth for in-page navigation. Deep pages
     // append crumbs through `useTopBarBreadcrumb`; the section root
     // itself becomes a clickable Link when extras exist (one-click
-    // return to the list).
-    expect(SRC).toMatch(/data-testid="topbar-section-label"/);
-    expect(SRC).toMatch(/hidden[\s\S]{0,200}md:block/);
+    // return to the list). Since SK-53 (mobile audit) the label slot
+    // is visible at EVERY width — on phones the search pill is gone,
+    // so the label is what anchors the slim chrome strip.
+    expect(SRC).toMatch(
+      /data-testid="topbar-section-label"\s*\n?\s*className="min-w-0/,
+    );
     expect(SRC).toContain("Breadcrumb");
     expect(SRC).toContain("useTopBarBreadcrumb");
     expect(SRC).toMatch(/<Breadcrumb\s+items=\{items\}/);
+  });
+
+  it("hides the search trigger below lg (mobile chrome = label + bell)", () => {
+    // SK-53: a ⌘K search pill is dead weight on a phone — it ate the
+    // whole strip and the shortcut hint means nothing without a
+    // keyboard. Desktop (lg+) keeps the pill exactly as before. The
+    // artist side mounts this bar desktop-only, so the change is
+    // producer-mobile by construction.
+    expect(SRC).toMatch(
+      /data-testid="topbar-search-trigger"[\s\S]{0,500}className="hidden[\s\S]{0,500}lg:inline-flex/,
+    );
   });
 
   it("renders a search trigger that delegates to onSearchClick", () => {
