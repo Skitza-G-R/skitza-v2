@@ -78,6 +78,7 @@ export default async function StorePage({ searchParams }: PageProps) {
             sessionCount: focal.sessionCount,
             durationMin: focal.durationMin,
           }}
+          producerName={activeStudio.name}
           taxMode={taxMode}
           taxRatePct={taxRatePct}
         />
