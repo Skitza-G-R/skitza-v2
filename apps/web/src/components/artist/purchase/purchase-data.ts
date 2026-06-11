@@ -22,8 +22,9 @@ export type Producer = {
   initials: string;
   /** Cover-gradient hue so the booking thumbnail matches the store. */
   hue: number;
-  /** The uploaded Booking_Agreement.pdf — null when none is uploaded. */
-  agreement: { filename: string } | null;
+  /** The uploaded Booking_Agreement.pdf — null when none is uploaded.
+      `url` opens the PDF itself (S4's View pill); optional for mocks. */
+  agreement: { filename: string; url?: string } | null;
 };
 
 export type AgreementTerm = {
