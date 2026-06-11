@@ -341,13 +341,17 @@ function DayRow({
       >
         {dayLabel}
       </span>
-      <div className="col-span-3 row-start-2 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-3 lg:row-start-1">
+      {/* SK-56: phones stack each time window on its own line (the
+          Calendly/Cal.com pattern) — two selects + an X wrapping
+          mid-row read as clutter at 390px. lg+ keeps the spec's
+          inline wrap. */}
+      <div className="col-span-3 row-start-2 flex flex-col items-stretch gap-2 lg:col-span-1 lg:col-start-3 lg:row-start-1 lg:flex-row lg:flex-wrap lg:items-center">
         {isOn ? (
           <>
             {windows.map((w, i) => (
               <span key={w.id} className="flex items-center gap-1.5">
                 {i > 0 ? (
-                  <span aria-hidden className="h-4 w-px bg-[rgb(var(--border-subtle))]" />
+                  <span aria-hidden className="hidden h-4 w-px bg-[rgb(var(--border-subtle))] lg:block" />
                 ) : null}
                 <TimeSelect
                   value={minToHHMM(w.startMin)}
@@ -368,7 +372,7 @@ function DayRow({
                     onRemoveWindow(w.id);
                   }}
                   aria-label="Remove window"
-                  className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-faint))] hover:text-[rgb(var(--fg-default))] lg:h-6 lg:w-6"
+                  className="sk-press ml-auto inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-faint))] hover:text-[rgb(var(--fg-default))] lg:ml-0 lg:h-6 lg:w-6"
                 >
                   <XMini />
                 </button>
