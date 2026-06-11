@@ -636,9 +636,14 @@ export function SongPage({
                 gradient core with reflection + a centered audio glyph.
                 Reads as physical hardware, not a placeholder box. */}
             <div className="reveal-up shrink-0">
+              {/* `max-md:w-fit` — in the stacked (mobile) hero the
+                  flex-col stretches this block to the full viewport
+                  width, leaving the 88px art core stranded inside a
+                  wide empty glass slab. Hug the content below md; at
+                  md+ the shrink-0 row item already hugs. */}
               <div
                 aria-hidden
-                className="relative rounded-[20px] p-[2px]"
+                className="relative rounded-[20px] p-[2px] max-md:w-fit"
                 style={{
                   background:
                     "linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.08) 40%, rgba(255,255,255,0.18) 100%)",

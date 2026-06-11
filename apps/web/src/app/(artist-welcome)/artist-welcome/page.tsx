@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { SignOutLink } from "./sign-out-link";
 
 // Brand-new sign-in with no studio relationships yet. We can't
 // magically know which producers want to work with this artist —
@@ -18,12 +18,7 @@ export default function ArtistWelcomePage() {
       <p className="mt-8 text-xs text-[rgb(var(--fg-muted))]">
         Already have an invite link?
       </p>
-      <Link
-        href="/sign-out"
-        className="mt-2 inline-block text-sm text-[rgb(var(--brand-primary))] underline decoration-dotted underline-offset-2"
-      >
-        Sign out + click the invite from your email
-      </Link>
+      <SignOutLink />
     </div>
   );
 }
