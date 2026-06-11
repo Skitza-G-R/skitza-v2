@@ -5,6 +5,22 @@
 
 ## Where things stand
 
+### Clients & Projects mobile premium wave — SK-59..62 ALL MERGED (2026-06-11 evening)
+
+Gili's /goal: every producer mobile flow in the Clients tab production-ready — 0 bugs, premium design. Plan doc: `docs/plans/active/2026-06-11-clients-projects-mobile-premium.md` (#183) — audit at true 390px + fetched research (HIG/M3/NN/g/Spotify). Four PRs, each gate-green + probe-verified at 390 AND 360, desktop byte-identical:
+
+| PR | Issue | What shipped |
+|---|---|---|
+| #184 | SK-59 | TrackRow + VersionRow = Spotify-style 64px two-line rows `<md` (album page was 521px wide w/ INVISIBLE song titles); AlbumTabs + SongTabs = one-line scrollable pill rails; AddVersionDropZone flex `<md` |
+| #185 | SK-60 | All 3 heroes (Album/Song/ClientSpace) stack `<md`: 26px Syne 2-line-clamp titles (were "De…"/"No…"/invisible), 72px avatars, full-width 44px CTAs, email clamped in band; 3 source-regex tests updated |
+| #186 | SK-61 | All 7 dialogs = bottom sheets `<768px` via unlayered `.sk-sheet-mobile` (globals.css end); 48px/16px inputs (kills iOS zoom-on-focus); footers stack primary-on-top; remove-client = HIG action sheet |
+| #187 | SK-62 | Payments milestones = two-line money rows; Invoice/reminder stack full-width; 3 loading.tsx match new mobile shapes; Studio Log verified fluid (untouched); full sweep 390+360 clean |
+
+**Traps for future passes:** Tailwind v4 `-translate-x-1/2` emits the standalone `translate` property — `transform: none` alone does NOT reset it (sheet rendered at -50%,-50% till `translate: none`). globals.css body is `@layer base` → overrides of Tailwind utilities must go UNLAYERED at file end (SK-52 pattern). Capture viewports taller than a real phone fake "dead space" below short pages — judge vertical rhythm at 844px.
+
+**NOT done / follow-ups:** skitza.app NOT promoted (Gili's call); Vercel build of bf5b43f unverified at write time; sticky tab rails flagged as possible polish (z-index vs topbar/dock needs own pass); per-modal sticky footers skipped (sheets scroll instead).
+
+
 ### Producer mobile premium wave — SK-53..SK-57 (ALL MERGED, NOT promoted)
 
 Gili's phone audit (5 screenshots, 8 issues) → research-backed plan (`docs/plans/active/2026-06-11-producer-mobile-premium-wave.md`, Spotify/Samply/Calendly/Cal.com/HubSpot/Stripe specs) → 5 PRs, each gated + CDP-screenshot-verified at a true 390px + 1440 desktop check. **Everything `<lg`/`<md`/`<sm` scoped; desktop byte-preserved (Gili mid-run: "all the fixes are for mobile only").**
