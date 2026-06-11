@@ -26,8 +26,15 @@ function presetToTile(id: PresetId): TileType {
 
 export function TypeStep({ picked, onPick }: TypeStepProps) {
   return (
-    <div className="p-6">
-      <div className="grid grid-cols-2 gap-3">
+    // No own padding below sm — the editor-shell body already pads the
+    // step (px-5/py-4); doubling up squeezed the tiles into ~160px
+    // columns. sm+ keeps the original inset.
+    <div className="sm:p-6">
+      {/* SK-57: phones stack the offer types as full-width rows — in a
+          2-up grid each tile's description column was ~72px wide and
+          wrapped one word per line (the "chopped text" from Gili's
+          audit). sm+ keeps the original 2×2. */}
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
         {TYPE_PRESETS.map((p) => {
           const tile = presetToTile(p.id);
           const theme = TILE_THEME[tile];
