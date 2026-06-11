@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import { LogoMark } from "~/components/brand/logo-mark";
 import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
@@ -415,7 +415,7 @@ function Nav({
             <a
               href="#features"
               onClick={() => { setMenuOpen(false); }}
-              className="rounded-md px-3 py-2 text-[14px]"
+              className="rounded-md px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               Features
@@ -423,7 +423,7 @@ function Nav({
             <a
               href="#how"
               onClick={() => { setMenuOpen(false); }}
-              className="rounded-md px-3 py-2 text-[14px]"
+              className="rounded-md px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               How it works
@@ -431,7 +431,7 @@ function Nav({
             <a
               href="#pricing"
               onClick={() => { setMenuOpen(false); }}
-              className="rounded-md px-3 py-2 text-[14px]"
+              className="rounded-md px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               Pricing
@@ -439,14 +439,14 @@ function Nav({
             <a
               href="#faq"
               onClick={() => { setMenuOpen(false); }}
-              className="rounded-md px-3 py-2 text-[14px]"
+              className="rounded-md px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               FAQ
             </a>
             <Link
               href="/sign-in"
-              className="rounded-md px-3 py-2 text-[14px]"
+              className="rounded-md px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               Sign in
@@ -482,15 +482,15 @@ function Hero() {
 
   return (
     <section
-      className="relative overflow-hidden"
-      style={{ background: "#111009", color: "#F2EDE6", padding: "64px 20px 80px" }}
+      className="relative overflow-hidden px-6 pb-16 pt-12 sm:px-5 sm:pb-20 sm:pt-16"
+      style={{ background: "#111009", color: "#F2EDE6" }}
     >
       <div className="animate-shine" />
       <div className="hero-grid-bg is-dark absolute inset-0 pointer-events-none opacity-100" />
 
-      <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-2 lg:gap-16">
+      <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-10 sm:gap-12 lg:grid-cols-2 lg:gap-16">
         {/* Left — copy + CTAs */}
-        <div className="sk-reveal-left">
+        <div className="sk-reveal-left min-w-0">
           <div
             className="mb-5 inline-flex items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em]"
             style={{
@@ -524,29 +524,27 @@ function Hero() {
                   {line.map((word, wIdx) => {
                     const i = wordIndex++;
                     const isLastWord = isLast && wIdx === line.length - 1;
-                    if (isLastWord) {
-                      const stripped = word.replace(/\.$/, "");
-                      return (
+                    // The inter-word space must be a text node BETWEEN the
+                    // inline-block word spans — a trailing space INSIDE an
+                    // inline-block gets trimmed by the browser, which used
+                    // to render the headline as "Oneapp. Yourwhole studio."
+                    return (
+                      <Fragment key={wIdx}>
                         <span
-                          key={wIdx}
                           className="hero-word"
                           style={{ ["--w-i" as string]: i } as React.CSSProperties}
                         >
-                          {stripped}
-                          <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
-                          {wIdx < line.length - 1 ? " " : ""}
+                          {isLastWord ? (
+                            <>
+                              {word.replace(/\.$/, "")}
+                              <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
+                            </>
+                          ) : (
+                            word
+                          )}
                         </span>
-                      );
-                    }
-                    return (
-                      <span
-                        key={wIdx}
-                        className="hero-word"
-                        style={{ ["--w-i" as string]: i } as React.CSSProperties}
-                      >
-                        {word}
-                        {wIdx < line.length - 1 ? " " : ""}
-                      </span>
+                        {wIdx < line.length - 1 ? " " : null}
+                      </Fragment>
                     );
                   })}
                 </span>
@@ -566,10 +564,10 @@ function Hero() {
             mix delivers itself the moment the invoice clears.
           </p>
 
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <Link
               href={SIGNUP_HREF}
-              className="sk-pop inline-flex items-center gap-2 rounded-[12px] px-[22px] py-[14px] text-[14.5px] font-bold tracking-tight"
+              className="sk-pop inline-flex items-center justify-center gap-2 rounded-[12px] px-[22px] py-4 text-[15px] font-bold tracking-tight sm:py-[14px] sm:text-[14.5px]"
               style={{
                 background: "rgb(var(--brand-primary))",
                 color: "#111009",
@@ -581,7 +579,7 @@ function Hero() {
             </Link>
             <a
               href="#how"
-              className="sk-pop inline-flex items-center gap-2 rounded-[12px] border px-[22px] py-[14px] text-[14.5px] font-bold"
+              className="sk-pop inline-flex items-center justify-center gap-2 rounded-[12px] border px-[22px] py-4 text-[15px] font-bold sm:py-[14px] sm:text-[14.5px]"
               style={{
                 background: "transparent",
                 color: "#F2EDE6",
@@ -595,7 +593,7 @@ function Hero() {
 
           {/* Trial-terms strip — pre-launch, no fabricated social proof. */}
           <div
-            className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px]"
+            className="mt-9 flex flex-wrap items-center gap-x-4 gap-y-2.5 text-[12.5px] sm:mt-10 sm:gap-x-5 sm:gap-y-2"
             style={{ color: "rgb(242 237 230 / 0.65)" }}
           >
             <span className="inline-flex items-center gap-2">
@@ -610,7 +608,7 @@ function Hero() {
               <strong className="font-bold text-white">5 founding producers</strong>{" "}
               · onboarding now
             </span>
-            <span style={{ color: "rgb(242 237 230 / 0.35)" }}>·</span>
+            <span className="hidden sm:inline" style={{ color: "rgb(242 237 230 / 0.35)" }}>·</span>
             <span className="inline-flex items-center gap-1.5">
               <Icon name="check" size={13} strokeWidth={3} />
               14-day free trial
@@ -631,7 +629,7 @@ function Hero() {
 
 function HeroProductPeek() {
   return (
-    <div className="sk-reveal-right sk-d-1 sk-float-slow relative">
+    <div className="sk-reveal-right sk-d-1 sk-float-slow relative min-w-0">
       <div
         className="hero-peek-frame relative overflow-hidden rounded-2xl"
         style={{
@@ -657,10 +655,11 @@ function HeroProductPeek() {
             </div>
           </div>
         </div>
-        {/* body */}
-        <div className="flex" style={{ minHeight: 420, background: "#F2EDE6" }}>
+        {/* body — the fake sidebar is a desktop luxury; on phones the
+            main panel alone fills the frame and stays legible. */}
+        <div className="flex min-h-[360px] sm:min-h-[420px]" style={{ background: "#F2EDE6" }}>
           <div
-            className="flex flex-col gap-1"
+            className="hidden flex-col gap-1 sm:flex"
             style={{
               width: 156,
               background: "#111009",
@@ -715,7 +714,7 @@ function HeroProductPeek() {
             </div>
           </div>
           <div className="flex-1 overflow-hidden p-4">
-            <div className="mb-2.5 flex items-center justify-between">
+            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
               <div>
                 <div
                   className="font-syne text-[17px] font-extrabold"
@@ -776,8 +775,10 @@ function HeroProductPeek() {
               </div>
             </div>
 
-            {/* Finance pulse — 3 cols */}
-            <div className="mb-3 grid grid-cols-3 gap-2">
+            {/* Finance pulse — 3 cols on desktop; on phones the
+                "Follow up" card spans full width so the name + amount
+                never wrap mid-word. */}
+            <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
               {[
                 { label: "Earned · Nov", value: "$8,420", note: "+ 22% vs Oct", noteColor: "#15803d", dot: false },
                 { label: "Outstanding", value: "$1,200", note: "2 invoices", noteColor: "#6b6359", dot: false },
@@ -788,10 +789,10 @@ function HeroProductPeek() {
                   noteColor: "#dc2626",
                   dot: true,
                 },
-              ].map((c) => (
+              ].map((c, ci) => (
                 <div
                   key={c.label}
-                  className="relative rounded-md p-2.5"
+                  className={`relative rounded-md p-2.5 ${ci === 2 ? "col-span-2 sm:col-span-1" : ""}`}
                   style={{ background: "#fff", border: "1px solid #e8e1d4" }}
                 >
                   {c.dot && (
@@ -810,7 +811,7 @@ function HeroProductPeek() {
                     {c.label}
                   </div>
                   <div
-                    className="font-mono text-[18px] font-extrabold"
+                    className="font-mono text-[15px] font-extrabold sm:text-[18px]"
                     style={{ color: "#111009", letterSpacing: "-0.02em" }}
                   >
                     {c.value}
@@ -933,11 +934,10 @@ function StackReplace() {
   return (
     <section
       id="stack-replace"
-      className="border-b border-t"
+      className="border-b border-t px-6 py-16 sm:px-5 sm:py-20"
       style={{
         background: "rgb(var(--bg-background))",
         borderColor: "rgb(var(--border-subtle))",
-        padding: "80px 20px",
       }}
     >
       <div className="mx-auto max-w-6xl text-center">
@@ -945,18 +945,26 @@ function StackReplace() {
         <h2
           className="font-syne sk-reveal sk-d-1 m-0 font-extrabold"
           style={{
-            fontSize: "clamp(32px, 4vw, 52px)",
+            // 24px floor: this is the longest headline on the page and
+            // Syne extrabold runs wide — anything bigger stacks 5 thin
+            // lines on a 390px phone.
+            fontSize: "clamp(24px, 4vw, 52px)",
             letterSpacing: "-0.035em",
-            lineHeight: 1,
+            lineHeight: 1.06,
             color: "rgb(var(--fg-default))",
           }}
         >
           Six tabs. Six logins.
-          <br />
-          Forty-seven emails per session.
+          {/* Forced break is a desktop rhythm; on phones it fights the
+              balanced wrapper and produces five thin lines. */}
+          <br className="hidden sm:inline" />{" "}
+          {/* nowrap: browsers treat the hyphen in "Forty-seven" as a
+              line-break spot, which split the word across lines. */}
+          <span className="whitespace-nowrap">Forty-seven</span> emails per
+          session.
         </h2>
 
-        <div className="mx-auto mt-14 grid max-w-4xl gap-8 md:grid-cols-2 md:items-stretch">
+        <div className="mx-auto mt-10 grid max-w-4xl gap-8 sm:mt-14 md:grid-cols-2 md:items-stretch">
           {/* Without */}
           <div
             className="sk-reveal-left sk-d-2 relative rounded-2xl border p-6"
@@ -1033,8 +1041,15 @@ function StackReplace() {
               style={{ background: "#111009" }}
             >
               <div className="animate-shine" />
-              <div className="relative flex flex-1 flex-col items-center justify-center gap-3">
-                <LogoLockup markSize={60} wordmarkSize={56} />
+              <div className="relative flex flex-1 flex-col items-center justify-center gap-3 py-6 sm:py-0">
+                {/* Two sizes: the 60px desktop lockup overflows a 390px
+                    card, so phones get a 44px cut of the same lockup. */}
+                <span className="sm:hidden">
+                  <LogoLockup markSize={44} wordmarkSize={40} />
+                </span>
+                <span className="hidden sm:inline-flex">
+                  <LogoLockup markSize={60} wordmarkSize={56} />
+                </span>
                 <div
                   className="font-mono text-center text-[12px]"
                   style={{ color: "rgb(255 255 255 / 0.6)" }}
@@ -1064,11 +1079,10 @@ function FeaturesSection() {
   return (
     <section
       id="features"
-      className="border-b"
+      className="border-b px-6 py-8 sm:px-5 sm:py-10"
       style={{
         background: "rgb(var(--bg-background))",
         borderColor: "rgb(var(--border-subtle))",
-        padding: "40px 20px",
       }}
     >
       <div className="mx-auto max-w-7xl">
@@ -1077,9 +1091,9 @@ function FeaturesSection() {
           <h2
             className="font-syne mx-auto mt-3.5 max-w-3xl font-extrabold"
             style={{
-              fontSize: "clamp(32px, 4vw, 52px)",
+              fontSize: "clamp(30px, 4vw, 52px)",
               letterSpacing: "-0.035em",
-              lineHeight: 1,
+              lineHeight: 1.02,
             }}
           >
             Your studio. On autopilot.
@@ -1134,9 +1148,9 @@ function FeatureHero({
   reverse?: boolean;
 }) {
   return (
-    <div className="grid items-center gap-10 py-16 lg:grid-cols-2 lg:gap-16">
+    <div className="grid items-center gap-8 py-12 sm:gap-10 sm:py-16 lg:grid-cols-2 lg:gap-16">
       <div
-        className={reverse ? "sk-reveal-right" : "sk-reveal-left"}
+        className={(reverse ? "sk-reveal-right" : "sk-reveal-left") + " min-w-0"}
         style={{ order: reverse ? 2 : 1 }}
       >
         <div
@@ -1163,7 +1177,7 @@ function FeatureHero({
         </p>
       </div>
       <div
-        className={(reverse ? "sk-reveal-left" : "sk-reveal-right") + " sk-d-2"}
+        className={(reverse ? "sk-reveal-left" : "sk-reveal-right") + " sk-d-2 min-w-0"}
         style={{ order: reverse ? 1 : 2 }}
       >
         {children}
@@ -1496,7 +1510,8 @@ function FeatureGrid() {
   return (
     <section
       id="feature-grid"
-      style={{ background: "rgb(var(--bg-background))", padding: "40px 20px 88px" }}
+      className="px-6 pb-16 pt-8 sm:px-5 sm:pb-[88px] sm:pt-10"
+      style={{ background: "rgb(var(--bg-background))" }}
     >
       <div className="mx-auto max-w-6xl">
         <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -1553,21 +1568,21 @@ function HowSection() {
   return (
     <section
       id="how"
-      className="relative overflow-hidden"
-      style={{ background: "#111009", color: "#fff", padding: "88px 20px" }}
+      className="relative overflow-hidden px-6 py-16 sm:px-5 sm:py-[88px]"
+      style={{ background: "#111009", color: "#fff" }}
     >
       <div className="animate-shine" />
       <div className="relative mx-auto max-w-6xl">
-        <div className="sk-reveal mb-14 text-center">
+        <div className="sk-reveal mb-10 text-center sm:mb-14">
           <div className="label-tiny" style={{ color: "rgba(212,150,10,0.7)" }}>
             03 · Setup
           </div>
           <h2
             className="font-syne mt-3.5 font-extrabold"
             style={{
-              fontSize: "clamp(32px, 4vw, 52px)",
+              fontSize: "clamp(30px, 4vw, 52px)",
               letterSpacing: "-0.035em",
-              lineHeight: 1,
+              lineHeight: 1.02,
             }}
           >
             Set it up once. Let it run forever.
@@ -1621,14 +1636,13 @@ function FounderNote() {
   return (
     <section
       id="founder"
-      className="border-t"
+      className="border-t px-6 py-16 sm:px-5 sm:py-[88px]"
       style={{
         background: "rgb(var(--bg-background))",
         borderColor: "rgb(var(--border-subtle))",
-        padding: "88px 20px",
       }}
     >
-      <div className="sk-reveal mx-auto flex max-w-3xl gap-6 sm:gap-8">
+      <div className="sk-reveal mx-auto flex max-w-3xl flex-col gap-5 sm:flex-row sm:gap-8">
         <div
           className="grad-amber flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-[18px] font-extrabold"
           style={{ color: "#111009" }}
@@ -1674,7 +1688,8 @@ function Pricing() {
   return (
     <section
       id="pricing"
-      style={{ background: "rgb(var(--bg-background))", padding: "0 20px 88px" }}
+      className="px-6 pb-16 sm:px-5 sm:pb-[88px]"
+      style={{ background: "rgb(var(--bg-background))" }}
     >
       <div className="mx-auto max-w-3xl">
         <div className="sk-reveal mb-10 text-center">
@@ -1682,9 +1697,9 @@ function Pricing() {
           <h2
             className="font-syne mt-3.5 font-extrabold"
             style={{
-              fontSize: "clamp(32px, 4vw, 52px)",
+              fontSize: "clamp(30px, 4vw, 52px)",
               letterSpacing: "-0.035em",
-              lineHeight: 1,
+              lineHeight: 1.02,
             }}
           >
             One plan. No surprises.
@@ -1692,7 +1707,7 @@ function Pricing() {
         </div>
 
         <div
-          className="sk-reveal-scale sk-d-1 relative overflow-hidden rounded-3xl border p-8"
+          className="sk-reveal-scale sk-d-1 relative overflow-hidden rounded-3xl border p-6 sm:p-8"
           style={{
             background: "#fff",
             borderColor: "rgb(var(--border-subtle))",
@@ -1706,9 +1721,9 @@ function Pricing() {
             Early access
           </div>
 
-          <div className="mb-2 mt-2.5 flex items-baseline gap-3.5">
+          <div className="mb-2 mt-2.5 flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
             <span
-              className="font-syne text-[64px] font-extrabold"
+              className="font-syne text-[56px] font-extrabold sm:text-[64px]"
               style={{ letterSpacing: "-0.04em", lineHeight: 1 }}
             >
               $29
@@ -1716,8 +1731,10 @@ function Pricing() {
             <span className="text-[14px]" style={{ color: "rgb(var(--fg-muted))" }}>
               /month
             </span>
+            {/* On phones this drops to its own line instead of
+                wrapping mid-phrase against the card edge. */}
             <span
-              className="font-mono text-[12px] line-through"
+              className="font-mono w-full text-[12px] line-through sm:w-auto"
               style={{ color: "rgb(var(--fg-muted))" }}
             >
               $79 after launch
@@ -1808,7 +1825,8 @@ function FAQ({
   return (
     <section
       id="faq"
-      style={{ background: "rgb(var(--bg-background))", padding: "0 20px 88px" }}
+      className="px-6 pb-16 sm:px-5 sm:pb-[88px]"
+      style={{ background: "rgb(var(--bg-background))" }}
     >
       <div className="mx-auto max-w-3xl">
         <div className="sk-reveal mb-8">
@@ -1816,9 +1834,9 @@ function FAQ({
           <h2
             className="font-syne mt-3.5 font-extrabold"
             style={{
-              fontSize: "clamp(32px, 4vw, 44px)",
+              fontSize: "clamp(30px, 4vw, 44px)",
               letterSpacing: "-0.035em",
-              lineHeight: 1,
+              lineHeight: 1.02,
             }}
           >
             Things people ask before signing up.
@@ -1878,8 +1896,8 @@ function FinalCTA() {
   return (
     <section
       id="final-cta"
-      className="final-cta relative overflow-hidden text-center"
-      style={{ background: "#111009", color: "#fff", padding: "120px 20px" }}
+      className="final-cta relative overflow-hidden px-6 py-20 text-center sm:px-5 sm:py-[120px]"
+      style={{ background: "#111009", color: "#fff" }}
     >
       <div className="animate-shine" />
       <div className="sk-reveal-scale relative mx-auto max-w-3xl">
@@ -1902,7 +1920,7 @@ function FinalCTA() {
         </p>
         <Link
           href={SIGNUP_HREF}
-          className="sk-pop mt-8 inline-flex items-center gap-2.5 rounded-xl px-7 py-4 text-[15px] font-bold"
+          className="sk-pop mt-8 inline-flex w-full items-center justify-center gap-2.5 rounded-xl px-7 py-4 text-[15px] font-bold sm:w-auto"
           style={{
             background: "rgb(var(--brand-primary))",
             color: "#111009",
@@ -1938,17 +1956,19 @@ function LandingFooter() {
         fontSize: 12,
       }}
     >
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
+      <div className="mx-auto flex max-w-7xl flex-col items-center gap-4 text-center sm:flex-row sm:flex-wrap sm:justify-between sm:text-left">
         <LogoLockup markSize={24} wordmarkSize={16} />
-        <span className="font-mono">© 2026 · Built for producers, by producers</span>
-        <div className="flex gap-5">
-          <Link href="/privacy" style={{ color: "inherit" }} className="hover:text-white">
+        <span className="font-mono order-3 sm:order-none">
+          © 2026 · Built for producers, by producers
+        </span>
+        <div className="flex gap-6 sm:gap-5">
+          <Link href="/privacy" style={{ color: "inherit" }} className="py-1 hover:text-white">
             Privacy
           </Link>
-          <Link href="/terms" style={{ color: "inherit" }} className="hover:text-white">
+          <Link href="/terms" style={{ color: "inherit" }} className="py-1 hover:text-white">
             Terms
           </Link>
-          <Link href="/about" style={{ color: "inherit" }} className="hover:text-white">
+          <Link href="/about" style={{ color: "inherit" }} className="py-1 hover:text-white">
             About
           </Link>
         </div>

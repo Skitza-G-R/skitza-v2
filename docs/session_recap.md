@@ -1,11 +1,24 @@
 # Session Recap
 
 > **For the next session: READ THIS FIRST.**
-> Last updated: **2026-06-11, SK-50 artist-mobile ship-ready pass** (Gili's /goal: the artist side should feel ready to ship on mobile; audit vs the "handoff 4" design package, fix until done).
+> Last updated: **2026-06-11, mobile funnel passes** — SK-50 artist mobile (#173), SK-51 landing mobile (#174), SK-52 auth mobile (#175); all driven by Gili's /goal: first impression on a phone = premium, Spotify-level.
 
 ## Where things stand
 
-### SK-50 — artist mobile ship-ready audit + polish (IN FLIGHT on branch giasraf/sk-50-…)
+### SK-51 + SK-52 — landing + auth mobile premium pass (PR #174 / PR #175 MERGED)
+
+Gili's phone screenshot showed the homepage broken on mobile (zoomed, cut off both edges, cream gutter on the right). Audited at a true 390px viewport with a CDP probe (`/tmp/sk51/audit.mjs`):
+
+- **Root cause**: the page scrolls inside `.landing-v3-root` (overflow-y:auto), and the hero product-peek mock (fixed 156px fake sidebar + 3-col stats, min-content ≈ 422px) stretched the hero grid track to 422px → host scrollWidth 422 on a 390 screen → whole page panned sideways. The `sk-reveal-left/right` ±22px X-offsets added more sideways poke.
+- **Bonus bug found (was live on desktop prod too)**: hero h1 rendered "Oneapp. Yourwhole studio." — inter-word spaces were INSIDE the inline-block `.hero-word` spans, and trailing spaces in inline-blocks get trimmed. Fixed by emitting the space as a text node between spans.
+- **Fixes** (all mobile-scoped via sm:/lg:, desktop pixel-checked identical at 1440 before/after): `overflow-x: clip` on the scroll host; mock sidebar hidden <sm + min-w-0 guards on grid children; 3D tilt flattened <lg; reveals are Y-only <lg (landing-scoped, in landing.css); hero CTAs stack full-width 52px; section paddings get mobile tiers (24px gutters); h2 mobile floors 30px (StackReplace 24px + desktop-only <br> + nowrap on "Forty-seven"); pricing strike-note drops to its own line; founder block + footer stack; mock stats go 2+1 (Follow-up card full-width); menu links 44px.
+- **Research** (live-CSS pull from Spotify/Linear/Vercel/Superhuman/etc.): mobile hero 36-44px lh 0.95-1.1 max 3 lines, body 16px floor, ONE primary CTA 48-56px, fade-up-only reveals, text-wrap balance — all applied. Report in the SK-51 session transcript.
+- Verified: 390 + 360 probes = scrollWidth exactly viewport, zero offenders, full gate green (2942 tests). The red "1 issue" dev-overlay badge in screenshots = pre-existing hydration warning (proved present on untouched baseline; dev-only).
+- Flagged, NOT done (desktop-visible, out of mobile scope): landing CTA radii are 10-12px vs buttons.md's 16px standard; section order (FounderNote sits after FAQ; research says credibility-before-pricing converts better).
+
+- **SK-52 follow-on (PR #175, merged)**: auth pages — Clerk card kept (de-card attempt rejected by Gili: "you ruined desktop"), padding slimmed <lg, cl-rootBox width:100% (iOS Safari shrank the fit-content cycle and beached the card left), tighter shell — sign-up fits one phone screen (990→736px). Clerk-cascade gotcha: Tailwind-v4 @layer utilities lose to Clerk's unlayered CSS; scoped !important CSS in globals.css is the fix.
+
+### SK-50 — artist mobile ship-ready audit + polish (MERGED via #173)
 
 Audited ALL artist screens at true 390px against the handoff prototype (refs: /tmp/proto-refs/). Fixes landed on the branch (full gate green, 2942 tests):
 - **Music L1/L2 mobile rework** (worst section): L1 2-col cover grid below sm; L2 stacked hero (full title) + Spotify-style track rows below lg (desktop tables untouched at lg+, CSS-only switch).
@@ -20,7 +33,6 @@ Verification gotchas learned: headless-Chrome CLI clamps windows to ≥500px (la
 TEMP screenshot harness at apps/web/src/app/screenshot-preview/ (untracked) — DELETE before committing. Audit tracker: /tmp/sk50-audit/AUDIT.md.
 
 Open flags for Gili/Raz: music cover palette is cool green/violet vs warm handoff hues (shared w/ producer — product decision); /artist/sessions has no nav entry from the Book tab (IA question); store focal cover for "Gili Studio" hashes to plum (producer identity hue, consistent w/ S3, not the proto's amber).
-
 ### Artist purchase flow — LIVE END-TO-END on v3-clean (Gate 1)
 
 All of it merged on the night of 2026-06-09→10:

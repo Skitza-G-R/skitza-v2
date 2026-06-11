@@ -96,6 +96,37 @@
   transform-style: preserve-3d;
   perspective: 1400px;
 }
+
+/* ----------------------------------------------------------------
+ * Mobile (<lg) — SK-51 premium pass.
+ *
+ * 1. Reveals travel on Y only. The desktop ±22px X-offsets read as
+ *    "slide in from the side" next to wide margins; full-bleed on a
+ *    phone they shear off the screen edge mid-animation.
+ * 2. The product peek loses its 3-D tilt — a skewed card at
+ *    full-bleed width reads broken, not dimensional.
+ * 3. Headings wrap balanced (no orphan words) — same trick Spotify
+ *    and Vercel ship.
+ * ---------------------------------------------------------------- */
+.landing-v3-root h1,
+.landing-v3-root h2,
+.landing-v3-root h3 {
+  text-wrap: balance;
+}
+@media (max-width: 1023px) {
+  .landing-v3-root .sk-reveal-left,
+  .landing-v3-root .sk-reveal-right {
+    transform: translateY(16px);
+  }
+  .landing-v3-root .sk-reveal-left.is-in,
+  .landing-v3-root .sk-reveal-right.is-in {
+    transform: translateY(0);
+  }
+  .landing-v3-root .hero-peek-frame {
+    transform: none;
+    transform-style: flat;
+  }
+}
 .landing-v3-root .hero-grid-bg {
   background-image:
     linear-gradient(rgb(var(--fg-default) / 0.06) 1px, transparent 1px),
@@ -118,6 +149,12 @@
  * ---------------------------------------------------------------- */
 .landing-v3-root.scroll-host {
   overflow-y: auto;
+  /* Hard guard: the landing scrolls inside this container, and with
+     overflow-y set, any child poking past the right edge would make
+     the WHOLE page pannable sideways (the 390px-screen bug, SK-51).
+     `clip` forbids horizontal scrolling entirely without creating a
+     second scroll context. */
+  overflow-x: clip;
   height: 100dvh;
   /* Sticky nav (#navbar) is ~56px tall; pad anchor jumps so the
      destination heading isn't cropped under the bar. */
