@@ -20,6 +20,7 @@ import {
   type ClientCardData,
 } from "~/components/dashboard/clients/client-card";
 import { InviteToAppModal } from "~/components/dashboard/clients/invite-modal";
+import { MobileClientRow } from "~/components/dashboard/clients/mobile-client-row";
 import { NewClientModal } from "~/components/dashboard/clients/new-client-modal";
 import {
   NewProjectModal,
@@ -385,7 +386,7 @@ export function WorkspaceListView({
             Workspace
           </span>
           <h1
-            className="font-syne text-[34px] font-extrabold leading-[0.96] tracking-[-0.035em] sm:text-[46px]"
+            className="font-syne text-[26px] font-extrabold leading-[0.96] tracking-[-0.035em] sm:text-[46px]"
             style={{ color: "rgb(var(--fg-default))" }}
           >
             Clients &amp; Projects
@@ -457,11 +458,38 @@ export function WorkspaceListView({
         ) : null}
       </header>
 
+      {/* KPI strip, mobile (<md) — SK-54: the full StatTiles (22px Syne
+          value + sub-line + px-5 padding) read as dead space stacked
+          2-up on a phone. Compact tiles: label + value only, tight
+          padding; the sub-line context lives on desktop. */}
+      <div className="grid grid-cols-2 gap-2 md:hidden">
+        <MobileKpiTile
+          label="Earnings"
+          value={formatMoney(kpis.earnings, currency)}
+        />
+        <MobileKpiTile
+          label="Outstanding"
+          value={
+            kpis.outstanding > 0
+              ? formatMoney(kpis.outstanding, currency)
+              : "—"
+          }
+          tone={kpis.outstanding > 0 ? "danger" : "default"}
+        />
+        <MobileKpiTile
+          label="Needs attention"
+          value={String(kpis.needsAttention)}
+          tone={kpis.needsAttention > 0 ? "danger" : "default"}
+        />
+        <MobileKpiTile label="Next deadline" value={kpis.nextDeadline} />
+      </div>
+
       {/* KPI strip — 4 cards across, full bleed. Labels include the
           implied time window ("This month") and each tile carries an
           explanatory sub-line so the producer can scan with full
-          context (mockup-match — every tile has "headline + meaning"). */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          context (mockup-match — every tile has "headline + meaning").
+          Desktop-only since SK-54 (compact strip above owns <md). */}
+      <div className="hidden gap-3 md:grid md:grid-cols-4">
         <StatTile
           label="Earnings · this month"
           value={formatMoney(kpis.earnings, currency)}
@@ -517,9 +545,12 @@ export function WorkspaceListView({
         {/* Tab segmented control with icons (Users + FolderKanban),
             matching the HTML mockup's iconified pill. The icon
             tightens the at-a-glance scan — even before reading the
-            label you know which surface you're switching to. */}
+            label you know which surface you're switching to.
+            SK-54 mobile re-flow (CSS order, DOM untouched): row 1 =
+            seg + right cluster, row 2 = filter chips as a horizontal
+            scroller. md+ keeps the mockup's single wrapping row. */}
         <div
-          className="inline-flex items-center gap-1 rounded-full border p-1"
+          className="order-1 inline-flex items-center gap-1 rounded-full border p-1 md:order-none"
           style={{
             background: "rgb(var(--bg-background))",
             borderColor: "rgb(var(--border-subtle))",
@@ -571,8 +602,10 @@ export function WorkspaceListView({
 
         {/* Filter chips, inline with the tab seg on the same row.
             'Needs attention' carries the pulsing red dot on both
-            tabs (mockup-match). */}
-        <div className="flex flex-wrap items-center gap-1.5">
+            tabs (mockup-match). On phones the chips become one
+            non-wrapping horizontal scroller (Spotify/Maps chip-bar
+            pattern) instead of a ragged two-line wrap. */}
+        <div className="order-2 flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:order-none md:w-auto md:flex-wrap md:overflow-visible">
           {tab === "projects"
             ? PROJECT_FILTERS.map((f) => {
                 const active = projectFilter === f.value;
@@ -582,7 +615,7 @@ export function WorkspaceListView({
                     type="button"
                     onClick={() => { setProjectFilter(f.value); }}
                     aria-pressed={active}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full border px-3.5 py-2.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:py-1.5"
+                    className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:py-1.5"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -614,7 +647,7 @@ export function WorkspaceListView({
                     type="button"
                     onClick={() => { setClientFilter(f.value); }}
                     aria-pressed={active}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full border px-3.5 py-2.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:py-1.5"
+                    className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:py-1.5"
                     style={{
                       background: active
                         ? "rgb(var(--fg-default))"
@@ -641,9 +674,11 @@ export function WorkspaceListView({
         </div>
 
         {/* Right cluster — layout switcher + sort.
-            ml-auto pushes them to the right edge on wide rows;
-            collapses inline on narrow viewports via flex-wrap. */}
-        <div className="ml-auto flex items-center gap-2">
+            ml-auto pushes them to the right edge on wide rows. On
+            phones this is its own full-width row (Spotify's library
+            pattern: sort control left, view toggle right) — seg +
+            toggle + sort can't share 358px without wrapping raggedly. */}
+        <div className="order-3 flex w-full flex-row-reverse items-center justify-between gap-2 md:order-none md:ml-auto md:w-auto md:flex-row md:justify-start">
           {/* G18 — Layout switcher available on BOTH tabs. Projects:
               cards = vertical ProjectRow stack, table = same stack
               with a sortable ProjectsTableHeader on top. Clients:
@@ -784,18 +819,40 @@ export function WorkspaceListView({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {filteredClients.map((c) => (
-            <ClientCard
-              key={c.id}
-              client={c}
-              onInvite={handleInviteClient}
-              onDragStart={handleClientDragStart}
-              onDragOver={handleClientDragOver}
-              onDrop={handleClientDrop}
-            />
-          ))}
-        </div>
+        <>
+          {/* SK-54 mobile (<md): one hairline-divided card of compact
+              two-line rows — the desktop ClientCard (with its 3-column
+              stat box) stretched full-width reads as dead space on a
+              phone. Drag-reorder stays desktop-only (SK-47 precedent). */}
+          <div
+            className="overflow-hidden rounded-[var(--radius-md)] border md:hidden"
+            style={{
+              background: "rgb(var(--bg-elevated))",
+              borderColor: "rgb(var(--border-subtle))",
+            }}
+          >
+            {filteredClients.map((c, i) => (
+              <MobileClientRow
+                key={c.id}
+                client={c}
+                onInvite={handleInviteClient}
+                divider={i < filteredClients.length - 1}
+              />
+            ))}
+          </div>
+          <div className="hidden gap-3 md:grid md:grid-cols-2 xl:grid-cols-3">
+            {filteredClients.map((c) => (
+              <ClientCard
+                key={c.id}
+                client={c}
+                onInvite={handleInviteClient}
+                onDragStart={handleClientDragStart}
+                onDragOver={handleClientDragOver}
+                onDrop={handleClientDrop}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {inviteTarget ? (
@@ -845,6 +902,48 @@ export function WorkspaceListView({
           setNewProjectOpen(false);
         }}
       />
+    </div>
+  );
+}
+
+// SK-54 — compact KPI tile for the phone strip. The shared StatTile
+// (Syne 22px value + sub-line + px-5 padding, used by 5 surfaces)
+// stays untouched; this is the <md-only sibling with label + value
+// and nothing else.
+function MobileKpiTile({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "danger";
+}) {
+  return (
+    <div
+      className="rounded-[var(--radius-md)] border px-3 py-2.5"
+      style={{
+        background: "rgb(var(--bg-elevated))",
+        borderColor: "rgb(var(--border-subtle))",
+      }}
+    >
+      <span
+        className="block text-[9px] font-bold uppercase tracking-widest"
+        style={{ color: "rgb(var(--fg-muted))" }}
+      >
+        {label}
+      </span>
+      <span
+        className="font-syne mt-1 block truncate text-[17px] font-extrabold leading-none tracking-[-0.02em] tabular-nums"
+        style={{
+          color:
+            tone === "danger"
+              ? "rgb(var(--fg-danger))"
+              : "rgb(var(--fg-default))",
+        }}
+      >
+        {value}
+      </span>
     </div>
   );
 }
