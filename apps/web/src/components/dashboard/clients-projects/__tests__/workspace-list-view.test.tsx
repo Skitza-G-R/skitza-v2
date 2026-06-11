@@ -381,16 +381,20 @@ describe("WorkspaceListView — round-3 toolbar match (icons + 4 client filters 
     expect(SRC).toMatch(/Clients\s+·\s+\$\{String\(filteredClients\.length\)\}/);
   });
 
-  it("toolbar is a single flex row on md+ and re-flows on phones (SK-54)", () => {
+  it("toolbar is a single flex row on md+ and re-flows on phones (SK-54/58)", () => {
     // Desktop (md+) keeps the round-3 mockup composition: tab seg +
     // filter chips + layout switcher + sort all inline in ONE flex
-    // row (md:order-none everywhere, right cluster md:ml-auto).
-    // Phones re-flow the SAME DOM via CSS order into three tidy
-    // rows: seg → chips (horizontal scroller) → sort + view toggle.
+    // row (md:order-none everywhere, right cluster ml-auto).
+    // Phones (SK-58, Gili's preview round) re-flow the SAME DOM via
+    // CSS order into TWO tidy rows: seg + sort share row 1 (cluster
+    // order-2 ml-auto), chips scroll on row 2 (order-3 w-full); the
+    // layout toggle is hidden <md (both layouts render the same
+    // compact rows there).
     expect(SRC).toMatch(/flex flex-wrap items-center gap-2\.5/);
-    expect(SRC).toMatch(/md:ml-auto/);
-    // Chip bar scrolls horizontally on phones instead of wrapping.
-    expect(SRC).toMatch(/overflow-x-auto[\s\S]{0,200}md:flex-wrap/);
+    expect(SRC).toMatch(/order-2 ml-auto flex items-center gap-2 md:order-none/);
+    expect(SRC).toMatch(/order-3[\s\S]{0,120}overflow-x-auto[\s\S]{0,200}md:flex-wrap/);
+    // Layout toggle group: display branches per element (hidden <md).
+    expect(SRC).toMatch(/hidden items-center gap-0\.5 rounded-full border p-0\.5 md:inline-flex/);
   });
 
   it("Clients filter predicates branch on 'needs-attention' AND 'done'", () => {

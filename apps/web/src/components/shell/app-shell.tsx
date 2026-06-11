@@ -69,15 +69,19 @@ export async function AppShell({ children }: { children: ReactNode }) {
         displayName={displayName}
         plan={plan}
       />
-      {/* `pb-20` on mobile reserves space for the fixed bottom nav
-          (56px tab row + 8px safe-area buffer). `lg:pb-0` strips it
-          on desktop where the bar isn't rendered. The skip-to-content
-          target lives at the root layout (see app/layout.tsx) so we
-          don't need a second link here. */}
+      {/* Mobile bottom padding reserves space for the fixed bottom nav:
+          56px tab row + breathing room + the iPhone home-indicator
+          inset (env safe-area). SK-58: the old static pb-20 (80px) was
+          shorter than the real bar (~96px on notched iPhones), so the
+          last list row hid behind the nav — Gili caught it on the
+          clients page. `lg:pb-0` strips it on desktop where the bar
+          isn't rendered. The skip-to-content target lives at the root
+          layout (see app/layout.tsx) so we don't need a second link
+          here. */}
       <main
         id="main-content"
         tabIndex={-1}
-        className="min-w-0 flex-1 pb-20 lg:pb-0"
+        className="min-w-0 flex-1 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-0"
       >
         {/* Sticky topbar from the HTML mockup: breadcrumb · search
             trigger · notifications bell. Sits at the top of <main> so
