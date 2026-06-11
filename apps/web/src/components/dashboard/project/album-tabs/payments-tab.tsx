@@ -174,11 +174,13 @@ export function PaymentsTab({
           </p>
         ) : null}
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        {/* <md: stacked full-width 48px buttons, primary (Invoice) on
+            top via col-reverse. md+: the original inline pill pair. */}
+        <div className="mt-4 flex flex-col-reverse gap-2 md:flex-row md:flex-wrap md:items-center">
           <button
             type="button"
             onClick={onSendReminder}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors"
+            className="inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors md:min-h-0 md:justify-start"
             style={{
               background: "transparent",
               borderColor: "rgb(var(--border-subtle))",
@@ -191,7 +193,7 @@ export function PaymentsTab({
           <button
             type="button"
             onClick={onSendInvoice}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-semibold transition-colors"
+            className="inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-semibold transition-colors md:min-h-0 md:justify-start"
             style={{
               background: "rgb(var(--brand-primary))",
               color: "rgb(var(--bg-sidebar))",
@@ -229,35 +231,43 @@ export function PaymentsTab({
               return (
                 <li
                   key={m.id}
-                  className="flex items-center gap-3 rounded-[var(--radius-md)] border px-4 py-3"
+                  // <md: two-line money row — label + amount on top,
+                  // status chip + date below (the one-liner truncated
+                  // "Mid-project pay…" at 390px). md+: original
+                  // chip · label · date · amount one-liner via order.
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[var(--radius-md)] border px-4 py-3 md:flex-nowrap"
                   style={{
                     background: "rgb(var(--bg-elevated))",
                     borderColor: "rgb(var(--border-subtle))",
                   }}
                 >
-                  <span
-                    className="inline-flex items-center rounded-[var(--radius-sm)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
-                    style={{ color: s.color, background: s.bg }}
-                  >
-                    {s.label}
-                  </span>
                   <p
-                    className="flex-1 truncate text-[13px] font-medium"
+                    className="order-1 min-w-0 flex-1 truncate text-[14px] font-medium md:order-2 md:text-[13px]"
                     style={{ color: "rgb(var(--fg-default))" }}
                   >
                     {m.label}
                   </p>
                   <span
-                    className="whitespace-nowrap text-[12px]"
-                    style={{ color: "rgb(var(--fg-muted))" }}
-                  >
-                    {formatDate(m.date)}
-                  </span>
-                  <span
-                    className="ml-3 whitespace-nowrap font-mono text-[13px] tabular-nums"
+                    className="order-2 whitespace-nowrap font-mono text-[14px] tabular-nums md:order-4 md:ml-3 md:text-[13px]"
                     style={{ color: "rgb(var(--fg-default))" }}
                   >
                     {formatMoney(m.amountCents, currency)}
+                  </span>
+                  <span
+                    aria-hidden
+                    className="order-3 basis-full md:hidden"
+                  />
+                  <span
+                    className="order-4 inline-flex items-center rounded-[var(--radius-sm)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest md:order-1"
+                    style={{ color: s.color, background: s.bg }}
+                  >
+                    {s.label}
+                  </span>
+                  <span
+                    className="order-5 whitespace-nowrap text-[12px] md:order-3"
+                    style={{ color: "rgb(var(--fg-muted))" }}
+                  >
+                    {formatDate(m.date)}
                   </span>
                 </li>
               );

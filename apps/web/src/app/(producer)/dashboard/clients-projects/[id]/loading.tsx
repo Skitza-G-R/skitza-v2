@@ -17,11 +17,12 @@ export default function AlbumSpaceLoading() {
         {/* Breadcrumb placeholder — "Clients & Projects › {project}". */}
         <Skel className="mb-4 h-4 w-56 rounded" />
 
-        {/* Dark gradient placeholder for the AlbumHero band */}
-        <Skel className="h-[260px] rounded-[var(--radius-lg)]" tone="band" />
+        {/* Dark gradient placeholder for the AlbumHero band — shorter
+            below md to match the SK-60 stacked mobile hero. */}
+        <Skel className="h-[200px] rounded-[var(--radius-lg)] md:h-[260px]" tone="band" />
 
-        {/* 4-cell stat strip */}
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* 4-cell stat strip — 2×2 below md, matching AlbumStatStrip */}
+        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
           <Skel className="h-[88px] rounded-[var(--radius-md)]" />
           <Skel className="h-[88px] rounded-[var(--radius-md)]" />
           <Skel className="h-[88px] rounded-[var(--radius-md)]" />
