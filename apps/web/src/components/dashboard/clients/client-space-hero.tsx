@@ -204,7 +204,9 @@ export function ClientSpaceHero({
       // margins cancel the page padding so the hero stretches to the
       // content-area edges. Stat-tile row sits inside the band, then a
       // hairline bottom border separates it from the projects list.
-      className="relative -mx-4 overflow-hidden border-b px-[34px] py-9 pb-7 text-white sm:-mx-6"
+      // <md: tighter band padding + stacked layout (the desktop row
+      // crushed "Noa Kirel" to "No…" at 390px). md+: original values.
+      className="relative -mx-4 overflow-hidden border-b px-5 py-6 pb-6 text-white sm:-mx-6 md:px-[34px] md:py-9 md:pb-7"
       style={{
         background: heroBg(token),
         borderBottomColor: "rgb(var(--border-strong))",
@@ -213,10 +215,10 @@ export function ClientSpaceHero({
     >
       <HeroGlowOrbs />
 
-      <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-6">
-        <div className="flex min-w-0 items-end gap-[22px]">
+      <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-4 md:gap-6">
+        <div className="flex min-w-0 items-center gap-3.5 md:items-end md:gap-[22px]">
           <span
-            className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] font-syne text-[42px] font-extrabold text-white"
+            className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-[18px] font-syne text-[26px] font-extrabold text-white md:h-28 md:w-28 md:rounded-[24px] md:text-[42px]"
             style={{
               background: avatarBg,
               boxShadow:
@@ -231,9 +233,11 @@ export function ClientSpaceHero({
             <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-white/78">
               CLIENT
             </p>
-            <div className="my-1 flex flex-wrap items-center gap-3">
+            <div className="my-1 flex flex-wrap items-center gap-2 md:gap-3">
               <h1
-                className="truncate font-syne text-[54px] font-extrabold leading-[0.95] tracking-[-0.035em] text-white"
+                // <md the name wraps up to 2 lines instead of
+                // truncating. md+ keeps the one-line 54px crop.
+                className="line-clamp-2 font-syne text-[26px] font-extrabold leading-[1.06] tracking-[-0.035em] text-white md:line-clamp-none md:truncate md:text-[54px] md:leading-[0.95]"
                 style={{ textShadow: "0 2px 20px rgba(0,0,0,0.25)" }}
               >
                 {name}
@@ -247,8 +251,10 @@ export function ClientSpaceHero({
 
             <ul className="mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px] text-white/92">
               {email ? (
-                <li className="inline-flex items-center gap-1.5">
-                  <Mail size={12} aria-hidden />
+                // max-w-full keeps long emails inside the band on
+                // phones (they overflowed to the screen edge at 390px).
+                <li className="inline-flex max-w-full items-center gap-1.5">
+                  <Mail size={12} className="shrink-0" aria-hidden />
                   <span className="truncate">{email}</span>
                 </li>
               ) : null}
@@ -308,7 +314,7 @@ export function ClientSpaceHero({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 self-end">
+        <div className="flex w-full items-center gap-2 md:w-auto md:shrink-0 md:self-end">
           <button
             type="button"
             onClick={() => { setNewProjectOpen(true); }}
@@ -321,7 +327,8 @@ export function ClientSpaceHero({
             // Solid-white primary pill — G14: the client hero's only
             // primary CTA should match the design's `btn-light`
             // (background:#fff; color:#111009) for max prominence.
-            className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
+            // <md it stretches full-width at a 44px touch height.
+            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white md:min-h-0 md:flex-none md:justify-start"
             style={{ color: "rgb(var(--bg-sidebar))" }}
           >
             <Plus size={14} />
@@ -338,7 +345,7 @@ export function ClientSpaceHero({
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               aria-label="Client actions"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 md:h-9 md:w-9"
             >
               <MoreVertical size={16} strokeWidth={2.2} />
             </button>

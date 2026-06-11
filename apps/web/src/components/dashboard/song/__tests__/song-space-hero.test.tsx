@@ -111,6 +111,9 @@ describe("SongSpaceHero — dark hero band for the Song Space", () => {
     // song title to seed a stable gradient, mirroring AlbumHero.
     expect(SRC).toContain("producerGradient");
     expect(SRC).toMatch(/rounded-\[24px\]/);
-    expect(SRC).toMatch(/<Music\s*size=\{44\}/);
+    // SK-60: the icon is display-branched per breakpoint — 30px <md,
+    // the original 44px at md+.
+    expect(SRC).toMatch(/<Music[\s\S]{0,80}size=\{44\}/);
+    expect(SRC).toMatch(/<Music[\s\S]{0,80}size=\{30\}/);
   });
 });

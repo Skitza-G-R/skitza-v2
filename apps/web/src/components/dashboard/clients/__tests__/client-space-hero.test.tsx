@@ -104,7 +104,8 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
   it("renders the '+ New project' pill as a <button> (not a <Link>)", () => {
     // Range widened to {0,900} to accommodate the disabled-state
     // styling + title prop added in the email-null guard.
-    expect(SRC).toMatch(/<button[\s\S]{0,900}New project/);
+    // Range widened to {0,1400} for the SK-60 mobile classes + comment.
+    expect(SRC).toMatch(/<button[\s\S]{0,1400}New project/);
     expect(SRC).not.toMatch(/<Link[\s\S]{0,200}newProjectHref/);
   });
 
@@ -147,7 +148,9 @@ describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () =>
   });
 
   it("G4: h1 is 54px Syne with the design's negative tracking", () => {
-    expect(SRC).toMatch(/font-syne[\s\S]*?text-\[54px\][\s\S]*?tracking-\[-0\.035em\]/);
+    // SK-60: 26px 2-line clamp <md; the design's 54px one-liner at md+.
+    expect(SRC).toMatch(/font-syne[\s\S]*?tracking-\[-0\.035em\][\s\S]*?md:text-\[54px\]/);
+    expect(SRC).toMatch(/line-clamp-2[\s\S]*?text-\[26px\]/);
   });
 
   it("G5: includes HeroGlowOrbs decorative element", () => {

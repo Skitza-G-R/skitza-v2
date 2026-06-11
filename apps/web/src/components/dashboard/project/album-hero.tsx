@@ -77,7 +77,9 @@ export function AlbumHero({
       // the parent <main>) so the hero stretches to the content-area
       // edges while body content below keeps its gutters. Bottom
       // border (--border-strong) creates the design's hairline beneath.
-      className="relative -mx-4 overflow-hidden border-b px-[34px] py-9 pb-7 text-white sm:-mx-6"
+      // <md: tighter band padding + stacked layout (the desktop row
+      // crushed "Debut Album" to "De…" at 390px). md+: original values.
+      className="relative -mx-4 overflow-hidden border-b px-5 py-6 pb-6 text-white sm:-mx-6 md:px-[34px] md:py-9 md:pb-7"
       style={{
         background: heroBg(token),
         borderBottomColor: "rgb(var(--border-strong))",
@@ -86,10 +88,10 @@ export function AlbumHero({
     >
       <HeroGlowOrbs />
 
-      <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-6">
-        <div className="flex min-w-0 items-end gap-[22px]">
+      <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-4 md:gap-6">
+        <div className="flex min-w-0 items-center gap-3.5 md:items-end md:gap-[22px]">
           <span
-            className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] font-syne text-[42px] font-extrabold text-white shadow-[0_18px_40px_rgba(0,0,0,0.36)]"
+            className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-[18px] font-syne text-[26px] font-extrabold text-white shadow-[0_18px_40px_rgba(0,0,0,0.36)] md:h-28 md:w-28 md:rounded-[24px] md:text-[42px]"
             style={{
               background: avatarBg,
               boxShadow:
@@ -105,7 +107,10 @@ export function AlbumHero({
               PROJECT · {stageEyebrow}
             </p>
             <h1
-              className="my-1 truncate font-syne text-[54px] font-extrabold leading-[0.95] tracking-[-0.035em] text-white"
+              // <md the title wraps up to 2 lines instead of
+              // truncating — Syne at 26px measured against SK-54's
+              // 390px budget. md+ keeps the one-line 54px crop.
+              className="my-1 line-clamp-2 font-syne text-[26px] font-extrabold leading-[1.06] tracking-[-0.035em] text-white md:line-clamp-none md:truncate md:text-[54px] md:leading-[0.95]"
               style={{ textShadow: "0 2px 20px rgba(0,0,0,0.25)" }}
             >
               {name}
@@ -136,7 +141,7 @@ export function AlbumHero({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 self-end">
+        <div className="flex w-full items-center gap-2 [&>button]:min-h-[44px] [&>button]:flex-1 [&>button]:justify-center md:w-auto md:shrink-0 md:self-end md:[&>button]:min-h-0 md:[&>button]:flex-none">
           {onPlayLatest ? (
             <HeroCTA variant="play" onClick={onPlayLatest}>
               Play latest
