@@ -1441,3 +1441,47 @@
     padding: 12px 18px !important;
   }
 }
+
+/* SK-61 — Clients & Projects dialogs become bottom sheets on phones.
+ * Opt-in via `sk-sheet-mobile` on a Radix DialogContent. UNLAYERED on
+ * purpose: these rules must out-rank Tailwind's layered positioning
+ * utilities on the same element (left-1/2 top-1/2 -translate-x-1/2 …),
+ * and unlayered author CSS beats every @layer. Scoped <768px so
+ * desktop dialogs render byte-identical. */
+@media (max-width: 767px) {
+  .sk-sheet-mobile {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    /* Tailwind v4's -translate-x-1/2 uses the standalone `translate`
+     * property — resetting `transform` alone leaves the -50% offset. */
+    translate: none;
+    transform: none;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 20px 20px 0 0;
+    max-height: 92dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+    animation: skitza-slide-up-modal 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    transform-origin: bottom;
+  }
+  /* 16px font on sheet inputs stops iOS Safari's zoom-on-focus jump;
+   * 48px min-height gives a comfortable touch target. */
+  .sk-sheet-mobile input:not([type="checkbox"]):not([type="radio"]),
+  .sk-sheet-mobile select {
+    min-height: 48px;
+    font-size: 16px;
+  }
+  .sk-sheet-mobile textarea {
+    font-size: 16px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sk-sheet-mobile {
+      animation: none;
+    }
+  }
+}

@@ -68,7 +68,7 @@ export function RemoveClientConfirmModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="remove-client-modal-body"
-          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[440px] rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
+          className="sk-sheet-mobile fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[440px] rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start gap-3">
             <span
@@ -126,12 +126,15 @@ export function RemoveClientConfirmModal({
             </li>
           </ul>
 
-          <div className="mt-5 flex items-center justify-end gap-2">
+          {/* <md: HIG action-sheet order — the red destructive action
+              full-width on top, Cancel below it. md+: the original
+              right-aligned Cancel/Remove pair. */}
+          <div className="mt-5 flex flex-col-reverse gap-2 md:flex-row md:items-center md:justify-end">
             <button
               type="button"
               onClick={onClose}
               disabled={pending}
-              className="sk-press inline-flex items-center justify-center rounded-[10px] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+              className="sk-press inline-flex min-h-[48px] items-center justify-center rounded-[10px] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50 md:min-h-0"
             >
               Cancel
             </button>
@@ -139,7 +142,7 @@ export function RemoveClientConfirmModal({
               type="button"
               onClick={handleRemove}
               disabled={pending}
-              className="sk-press inline-flex items-center justify-center gap-1.5 rounded-[10px] px-4 py-2 text-[13px] font-semibold text-white shadow-[0_4px_14px_-2px_rgb(var(--fg-danger)/0.5)] disabled:opacity-50 disabled:shadow-none"
+              className="sk-press inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-[10px] px-4 py-2 text-[13px] font-semibold text-white shadow-[0_4px_14px_-2px_rgb(var(--fg-danger)/0.5)] disabled:opacity-50 disabled:shadow-none md:min-h-0"
               style={{ background: "rgb(var(--fg-danger))" }}
             >
               {pending ? "Removing…" : "Remove client"}
