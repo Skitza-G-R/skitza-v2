@@ -59,7 +59,10 @@ export function SongTabs({
 
   return (
     <div
-      className="inline-flex items-center gap-1 self-start rounded-[var(--radius-sm)] border p-1 shadow-[var(--shadow-sm)]"
+      // <md: pills scroll sideways inside the rail (the 4-tab single
+      // mode measured 444px and panned the page to 461px). md+:
+      // original inline-flex.
+      className="flex max-w-full items-center gap-1 self-start overflow-x-auto rounded-[var(--radius-sm)] border p-1 shadow-[var(--shadow-sm)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:inline-flex md:max-w-none md:overflow-visible"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
@@ -81,7 +84,7 @@ export function SongTabs({
             onClick={() => {
               onChange(t.key);
             }}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-4 py-1.5 text-[12px] font-semibold transition-colors"
+            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-sm)] px-4 py-1.5 text-[12px] font-semibold transition-colors min-h-[44px] md:min-h-0"
             style={{
               background: isActive
                 ? "rgb(var(--bg-sidebar))"

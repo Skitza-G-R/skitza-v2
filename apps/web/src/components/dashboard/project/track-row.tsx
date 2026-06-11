@@ -99,9 +99,8 @@ export function TrackRow({
       onDragStart={onDragStart ? (e) => { onDragStart(e, track.id); } : undefined}
       onDragOver={onDragOver ? (e) => { onDragOver(e, track.id); } : undefined}
       onDrop={onDrop ? (e) => { onDrop(e, track.id); } : undefined}
-      className="group relative grid items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2 transition-colors hover:bg-[rgb(var(--bg-elevated))]"
+      className="group relative rounded-[var(--radius-md)] border transition-colors hover:bg-[rgb(var(--bg-elevated))] active:bg-[rgb(var(--bg-elevated))]"
       style={{
-        gridTemplateColumns: "22px 30px 38px minmax(0,1fr) 130px 180px 22px",
         borderColor: "rgb(var(--border-subtle))",
         background: "rgb(var(--bg-background))",
       }}
@@ -111,6 +110,17 @@ export function TrackRow({
         className="absolute inset-0 z-0 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
         aria-label={`Open ${track.title}`}
       />
+
+      {/* Desktop (md+) — exact 7-column grid, unchanged from the
+          original single-layout row. Hidden below md: the fixed tracks
+          (~420px) pushed phones to a 521px layout and crushed the
+          minmax(0,1fr) title column to 0px (invisible song titles). */}
+      <div
+        className="hidden items-center gap-3 px-3 py-2 md:grid"
+        style={{
+          gridTemplateColumns: "22px 30px 38px minmax(0,1fr) 130px 180px 22px",
+        }}
+      >
 
       {/* 1 — Drag handle (hidden until group hover) */}
       <span
@@ -201,6 +211,58 @@ export function TrackRow({
       >
         <ChevronRight size={16} />
       </span>
+      </div>
+
+      {/* Mobile (<md) — Spotify-style 64px two-line row. Content is
+          pointer-transparent so every tap lands on the overlay Link;
+          drag + index column are desktop-only. */}
+      <div
+        aria-hidden
+        className="pointer-events-none relative z-10 flex min-h-[64px] items-center gap-3 px-3 py-2.5 md:hidden"
+      >
+        <span
+          className="h-11 w-11 shrink-0 rounded-[var(--radius-sm)]"
+          style={{ background: coverBg }}
+        />
+        <span className="min-w-0 flex-1">
+          <span
+            className="block truncate text-[15px] font-medium leading-tight"
+            style={{ color: "rgb(var(--fg-default))" }}
+          >
+            {track.title}
+          </span>
+          <span
+            className="mt-0.5 flex items-center gap-1.5 text-[12px]"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: stageHue }}
+            />
+            <span className="min-w-0 truncate">
+              {stageLabel(track.workflowStage)}
+              {meta ? ` · ${meta}` : ""}
+            </span>
+          </span>
+          <span
+            className="mt-1.5 block h-[2px] max-w-[180px] overflow-hidden rounded-full"
+            style={{ background: "rgb(var(--border-subtle))" }}
+          >
+            <span
+              className="block h-full rounded-full"
+              style={{
+                width: `${String(clampedProgress)}%`,
+                background: "rgb(var(--brand-primary))",
+              }}
+            />
+          </span>
+        </span>
+        <ChevronRight
+          size={16}
+          className="shrink-0"
+          style={{ color: "rgb(var(--fg-muted))" }}
+        />
+      </div>
     </div>
   );
 }
