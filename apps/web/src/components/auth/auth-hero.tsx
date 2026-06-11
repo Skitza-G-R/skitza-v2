@@ -22,7 +22,7 @@ export type AuthHeroProps = {
 
 export function AuthHero({ eyebrow, title, blurb }: AuthHeroProps) {
   return (
-    <header className="mb-7">
+    <header className="mb-6 sm:mb-7">
       <div
         className="font-mono mb-3 text-[11px] font-semibold uppercase tracking-[0.18em]"
         style={{ color: "rgb(var(--fg-muted))" }}
@@ -30,7 +30,7 @@ export function AuthHero({ eyebrow, title, blurb }: AuthHeroProps) {
         {eyebrow}
       </div>
       <h1
-        className="font-syne mb-2 text-[30px] font-extrabold leading-[1.1]"
+        className="font-syne mb-2 text-[26px] font-extrabold leading-[1.1] sm:text-[30px]"
         style={{
           letterSpacing: "-0.025em",
           color: "rgb(var(--fg-primary))",
