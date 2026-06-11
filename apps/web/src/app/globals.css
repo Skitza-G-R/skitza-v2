@@ -1412,14 +1412,30 @@
  * is affected.
  * ---------------------------------------------------------------- */
 @media (max-width: 1023px) {
+  /* rootBox MUST get an explicit width: Clerk leaves it fit-content
+     while cardBox is 100%-of-parent — a sizing cycle Chrome resolves
+     by stretching but iOS Safari resolves by SHRINKING to
+     max-content, which beached the card on the left of Gili's
+     iPhone. An explicit 100% breaks the cycle on every engine. */
+  .sk-auth-form .cl-rootBox {
+    width: 100% !important;
+  }
   .sk-auth-form .cl-cardBox {
     width: 100% !important;
   }
   .sk-auth-form .cl-card {
-    padding: 24px 20px !important;
+    padding: 20px 18px !important;
+  }
+  /* Clerk's internal stack gaps are desktop-scale; tighten so the
+     full sign-up (band -> CTA -> "Secured by Clerk") lands inside
+     one phone viewport. */
+  .sk-auth-form .cl-main {
+    gap: 18px !important;
+  }
+  .sk-auth-form .cl-form {
+    gap: 16px !important;
   }
   .sk-auth-form .cl-footerAction {
-    padding-left: 20px !important;
-    padding-right: 20px !important;
+    padding: 12px 18px !important;
   }
 }

@@ -62,7 +62,7 @@ function BrandPanel() {
   return (
     <aside
       // Mobile: short header band; desktop: full-height column.
-      className="relative overflow-hidden px-6 py-5 text-white sm:px-10 sm:py-7 lg:px-14 lg:py-12"
+      className="relative overflow-hidden px-6 py-4 text-white sm:px-10 sm:py-7 lg:px-14 lg:py-12"
       style={{
         background:
           "linear-gradient(155deg, #100E07 0%, #1d1810 55%, #2c2412 100%)",
@@ -189,7 +189,7 @@ function BrandPanel() {
 
 function FormColumn({ children }: { children: ReactNode }) {
   return (
-    <section className="relative flex flex-col px-6 py-7 sm:px-10 sm:py-10 lg:px-14 lg:py-12">
+    <section className="relative flex flex-col px-6 py-6 sm:px-10 sm:py-10 lg:px-14 lg:py-12">
       {/* The mobile-only marketing eyebrow that used to live here was
           retired now that each page renders its own `<AuthHero>` (see
           apps/web/src/components/auth/auth-hero.tsx). Per-page hero

@@ -22,7 +22,7 @@ import { AuthHero } from "~/components/auth/auth-hero";
 // `SignUpScreen` ("Build your hall." + the no-card-needed blurb).
 export default function Page() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <AuthHero
         eyebrow="Join Skitza"
         title="Build your hall"
