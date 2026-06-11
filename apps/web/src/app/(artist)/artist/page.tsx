@@ -25,34 +25,44 @@ async function loadPendingPurchase(
   caller: Caller,
   studios: Array<{ producerId: string; name: string }>,
 ) {
-  const hits = await Promise.all(
-    studios.map(async (studio) => {
-      const { pending } = await caller.artist.purchase.pending({
-        producerId: studio.producerId,
-      });
-      return pending ? { pending, studio } : null;
-    }),
-  );
-  const open = hits
-    .filter((h) => h !== null)
-    .sort(
-      (a, b) => b.pending.createdAt.getTime() - a.pending.createdAt.getTime(),
-    )[0];
-  if (!open) return null;
+  // Fail soft: this card is an enhancement, not the page's critical
+  // path. If the probe throws (e.g. an environment whose DB hasn't run
+  // the purchase_requests migration yet — this took down /artist on the
+  // SK-50 preview), log it and render the home without the card.
+  try {
+    const hits = await Promise.all(
+      studios.map(async (studio) => {
+        const { pending } = await caller.artist.purchase.pending({
+          producerId: studio.producerId,
+        });
+        return pending ? { pending, studio } : null;
+      }),
+    );
+    const open = hits
+      .filter((h) => h !== null)
+      .sort(
+        (a, b) =>
+          b.pending.createdAt.getTime() - a.pending.createdAt.getTime(),
+      )[0];
+    if (!open) return null;
 
-  const request = await caller.artist.purchase.get({
-    purchaseRequestId: open.pending.id,
-  });
-  // If the status flipped between the two reads (approve/decline race),
-  // skip the card rather than render a stale stage.
-  if (request.status !== "pending") return null;
+    const request = await caller.artist.purchase.get({
+      purchaseRequestId: open.pending.id,
+    });
+    // If the status flipped between the two reads (approve/decline race),
+    // skip the card rather than render a stale stage.
+    if (request.status !== "pending") return null;
 
-  return {
-    stage: "pending_review" as const,
-    productName: request.productNameSnapshot,
-    priceCents: request.priceCents,
-    producerName: open.studio.name,
-  };
+    return {
+      stage: "pending_review" as const,
+      productName: request.productNameSnapshot,
+      priceCents: request.priceCents,
+      producerName: open.studio.name,
+    };
+  } catch (err) {
+    console.error("[artist-home] pending-purchase probe failed", err);
+    return null;
+  }
 }
 
 // /artist — high-fidelity redesign (SK-33).
