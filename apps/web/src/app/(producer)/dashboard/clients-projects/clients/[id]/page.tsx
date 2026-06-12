@@ -164,7 +164,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
         ) : (
           <div className="mt-6 flex flex-col gap-2">
             {projectRows.map((row) => (
-              <ProjectRow key={row.id} row={row} />
+              <ProjectRow key={row.id} row={row} hideClient />
             ))}
           </div>
         )}

@@ -51,6 +51,12 @@ interface ProjectRowProps {
   onDragStart?: (e: DragEvent<HTMLDivElement>, id: string) => void;
   onDragOver?: (e: DragEvent<HTMLDivElement>, id: string) => void;
   onDrop?: (e: DragEvent<HTMLDivElement>, id: string) => void;
+  /**
+   * SK-64 — omit the client name from the MOBILE meta line. Set by the
+   * Client Space page, where every row belongs to the client whose
+   * page you're on. Desktop columns are unaffected.
+   */
+  hideClient?: boolean;
 }
 
 function toneClass(tone: ProjectRowStatusTone): string {
@@ -108,6 +114,7 @@ function formatMoney(cents: number, currency: string): string {
 
 export function ProjectRow({
   row,
+  hideClient,
   onDragStart,
   onDragOver,
   onDrop,
@@ -306,25 +313,38 @@ export function ProjectRow({
               {status}
             </span>
           </span>
-          <span
-            className="mt-1 flex items-center gap-1 text-[12px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
-            <span className="min-w-0 truncate">{client}</span>
-            <span aria-hidden>&middot;</span>
-            <span className="shrink-0">{deadline}</span>
-            {balance > 0 ? (
-              <>
-                <span aria-hidden>&middot;</span>
-                <span
-                  className="shrink-0 font-semibold tabular-nums"
-                  style={{ color: "rgb(var(--fg-danger))" }}
-                >
-                  {formatMoney(balance, currency)}
-                </span>
-              </>
-            ) : null}
-          </span>
+          {/* SK-64 — meta segments are conditional: the client name is
+              omitted inside that client's own space, and a missing
+              deadline no longer renders a dangling em dash. */}
+          {(!hideClient || deadline !== "\u2014" || balance > 0) ? (
+            <span
+              className="mt-1 flex items-center gap-1 text-[12px]"
+              style={{ color: "rgb(var(--fg-muted))" }}
+            >
+              {!hideClient ? (
+                <span className="min-w-0 truncate">{client}</span>
+              ) : null}
+              {deadline !== "\u2014" ? (
+                <>
+                  {!hideClient ? <span aria-hidden>&middot;</span> : null}
+                  <span className="shrink-0">{deadline}</span>
+                </>
+              ) : null}
+              {balance > 0 ? (
+                <>
+                  {!hideClient || deadline !== "\u2014" ? (
+                    <span aria-hidden>&middot;</span>
+                  ) : null}
+                  <span
+                    className="shrink-0 font-semibold tabular-nums"
+                    style={{ color: "rgb(var(--fg-danger))" }}
+                  >
+                    {formatMoney(balance, currency)}
+                  </span>
+                </>
+              ) : null}
+            </span>
+          ) : null}
         </span>
         <ChevronRight
           size={16}
