@@ -22,6 +22,14 @@ interface StatTileProps {
   variant?: StatTileVariant;
   sub?: ReactNode;
   glow?: StatTileGlow;
+  /**
+   * SK-63 — opt-in mobile density. Below `md` the tile drops its own
+   * border/radius (the parent strip renders ONE hairline-divided card)
+   * and shrinks padding + value type so four stats fit in ~120px
+   * instead of ~440px. md+ is byte-identical to the default. Off by
+   * default so other StatTile surfaces are unaffected.
+   */
+  mobileCompact?: boolean;
 }
 
 function valueColor(variant: StatTileVariant): string {
@@ -49,11 +57,15 @@ export function StatTile({
   variant = "default",
   sub,
   glow = "none",
+  mobileCompact = false,
 }: StatTileProps) {
   const glowBg = glowGradient(glow);
+  const boxCls = mobileCompact
+    ? "relative flex flex-col gap-1 overflow-hidden rounded-none border-0 px-3.5 py-3 md:gap-1.5 md:rounded-[var(--radius-md)] md:border md:px-5 md:py-4"
+    : "relative flex flex-col gap-1.5 overflow-hidden rounded-[var(--radius-md)] border px-5 py-4";
   return (
     <div
-      className="relative flex flex-col gap-1.5 overflow-hidden rounded-[var(--radius-md)] border px-5 py-4"
+      className={boxCls}
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
@@ -79,7 +91,11 @@ export function StatTile({
         // Outfit-semibold reading was too neutral against the heading
         // hierarchy; Syne is what gives the prototype its "premium
         // datum" feel.
-        className="relative font-syne text-[22px] font-extrabold leading-none tracking-[-0.02em] tabular-nums"
+        className={
+          mobileCompact
+            ? "relative font-syne text-[16px] font-extrabold leading-none tracking-[-0.02em] tabular-nums md:text-[22px]"
+            : "relative font-syne text-[22px] font-extrabold leading-none tracking-[-0.02em] tabular-nums"
+        }
         style={{ color: valueColor(variant) }}
       >
         {value}

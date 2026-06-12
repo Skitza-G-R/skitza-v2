@@ -134,7 +134,7 @@ export function AlbumHero({
                 </span>
               </li>
               <li className="inline-flex items-center gap-1.5">
-                <DollarSign size={12} aria-hidden />
+                <DollarSign size={12} className="hidden md:block" aria-hidden />
                 <span>{formatMoney(totalCents, currency)}</span>
               </li>
             </ul>

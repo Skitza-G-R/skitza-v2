@@ -52,8 +52,8 @@ export function AlbumStatStrip({
   const stageHue = stageColor(workflowStage);
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      <StatTile
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--border-subtle))] md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent">
+      <StatTile mobileCompact
         label="Status"
         value={
           <span
@@ -73,7 +73,7 @@ export function AlbumStatStrip({
           </span>
         }
       />
-      <StatTile
+      <StatTile mobileCompact
         label="Progress"
         value={
           <span className="tabular-nums">{clampedProgress}%</span>
@@ -94,18 +94,18 @@ export function AlbumStatStrip({
         }
       />
       {isOverdue ? (
-        <StatTile label="Deadline" value={deadline} variant="danger" />
+        <StatTile mobileCompact label="Deadline" value={deadline} variant="danger" />
       ) : (
-        <StatTile label="Deadline" value={deadline} />
+        <StatTile mobileCompact label="Deadline" value={deadline} />
       )}
       {outstandingCents > 0 ? (
-        <StatTile
+        <StatTile mobileCompact
           label="Outstanding"
           value={formatMoney(outstandingCents, currency)}
           variant="danger"
         />
       ) : (
-        <StatTile label="Outstanding" value="Paid" variant="ok" />
+        <StatTile mobileCompact label="Outstanding" value="Paid" variant="ok" />
       )}
     </div>
   );

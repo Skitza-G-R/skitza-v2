@@ -77,9 +77,9 @@ export function SongSpaceStatStrip({
   );
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      <StatTile label="Status" value={statusContent} />
-      <StatTile
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--border-subtle))] md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent">
+      <StatTile mobileCompact label="Status" value={statusContent} />
+      <StatTile mobileCompact
         label="Progress"
         value={<span className="tabular-nums">{clampedProgress}%</span>}
         sub={
@@ -98,11 +98,11 @@ export function SongSpaceStatStrip({
         }
       />
       {isOverdue ? (
-        <StatTile label="Deadline" value={deadline} variant="danger" />
+        <StatTile mobileCompact label="Deadline" value={deadline} variant="danger" />
       ) : (
-        <StatTile label="Deadline" value={deadline} />
+        <StatTile mobileCompact label="Deadline" value={deadline} />
       )}
-      <StatTile
+      <StatTile mobileCompact
         label="Versions"
         value={
           <span className="font-mono tabular-nums">{currentVersion}</span>
