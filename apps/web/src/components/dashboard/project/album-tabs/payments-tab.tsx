@@ -116,7 +116,7 @@ export function PaymentsTab({
           borderColor: "rgb(var(--border-subtle))",
         }}
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-3 gap-3 md:gap-4">
           <div>
             <p
               className="text-[10px] font-bold uppercase tracking-widest"
@@ -125,7 +125,7 @@ export function PaymentsTab({
               Total
             </p>
             <p
-              className="mt-1 font-syne text-[24px] font-bold tabular-nums"
+              className="mt-1 font-syne text-[17px] font-bold tabular-nums md:text-[24px]"
               style={{ color: "rgb(var(--fg-default))" }}
             >
               {formatMoney(totalCents, currency)}
@@ -139,7 +139,7 @@ export function PaymentsTab({
               Paid
             </p>
             <p
-              className="mt-1 font-syne text-[24px] font-bold tabular-nums"
+              className="mt-1 font-syne text-[17px] font-bold tabular-nums md:text-[24px]"
               style={{ color: "rgb(var(--fg-success))" }}
             >
               {formatMoney(paidCents, currency)}
@@ -153,7 +153,7 @@ export function PaymentsTab({
               Balance
             </p>
             <p
-              className="mt-1 font-syne text-[24px] font-bold tabular-nums"
+              className="mt-1 font-syne text-[17px] font-bold tabular-nums md:text-[24px]"
               style={{
                 color: balanceIsDanger
                   ? "rgb(var(--fg-danger))"

@@ -264,14 +264,18 @@ export function ClientSpaceHero({
                   <span>{phone}</span>
                 </li>
               ) : null}
-              <li className="inline-flex items-center gap-1.5">
+              {/* SK-64 — both items are duplicated by the stat strip
+                  60px below ("Active projects" / "Joined" tiles), so
+                  on phones they only added meta lines. md+ keeps them
+                  (the desktop strip sits further away). */}
+              <li className="hidden items-center gap-1.5 md:inline-flex">
                 <FolderOpen size={12} aria-hidden />
                 <span>
                   {activeProjects} active{" "}
                   {activeProjects === 1 ? "project" : "projects"}
                 </span>
               </li>
-              <li className="inline-flex items-center gap-1.5">
+              <li className="hidden items-center gap-1.5 md:inline-flex">
                 <Calendar size={12} aria-hidden />
                 <span>{joined}</span>
               </li>
