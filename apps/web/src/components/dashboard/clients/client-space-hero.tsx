@@ -386,18 +386,18 @@ export function ClientSpaceHero({
         </div>
       </div>
 
-      <div className="relative mx-auto mt-6 grid max-w-[1100px] grid-cols-2 gap-3 md:grid-cols-4">
-        <StatTile
+      <div className="relative mx-auto mt-5 max-w-[1100px] md:mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--border-subtle))] md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent">
+        <StatTile mobileCompact
           label="Lifetime"
           value={formatMoney(lifetime, currency)}
         />
-        <StatTile
+        <StatTile mobileCompact
           label="Outstanding"
           value={outstanding > 0 ? formatMoney(outstanding, currency) : "—"}
           variant={outstanding > 0 ? "danger" : "default"}
         />
-        <StatTile label="Active projects" value={activeProjects} />
-        <StatTile label="Joined" value={joined} />
+        <StatTile mobileCompact label="Active projects" value={activeProjects} />
+        <StatTile mobileCompact label="Joined" value={joined} />
       </div>
 
       {!onInvite && producerSlug !== undefined && producerSlug.length > 0 ? (
