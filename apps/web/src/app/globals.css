@@ -48,6 +48,9 @@
   /* Brand */
   --color-brand-primary: rgb(212 150 10);    /* #D4960A — locked amber */
   --color-brand-copper: rgb(176 104 48);     /* #B06830 — secondary */
+  /* Text/icons sitting ON the amber brand fill (primary CTAs). Handoff 4
+     ruling (2026-07-05): dark #1a1407 beats white for contrast on amber. */
+  --color-fg-on-brand: rgb(26 20 7);         /* #1a1407 */
 
   /* Borders */
   --color-border-subtle: rgb(232 225 212);   /* #E8E1D4 */
@@ -103,6 +106,7 @@
     --brand-primary-soft: 212 150 10;
     --brand-primary-dark: 161 113 6;
     --brand-copper: 176 104 48;
+    --fg-on-brand: 26 20 7;   /* #1a1407 — text on amber CTAs */
 
     /* Session-kind accents for the producer Calendar.
        Used as: `rgb(var(--kind-mix))` for solid stripes and dots,
@@ -668,6 +672,31 @@
     .sk-cta-press:hover { filter: brightness(1.04); }
   }
   .sk-cta-press:active { transform: scale(0.965); filter: brightness(0.97); }
+
+  /* Handoff-4 press-liveness tiers (2026-07-05). Three touch-feedback
+     depths from the prototype's pointer handler, ported as scoped CSS:
+     pop (.93) for small round/icon buttons, lift (.965) = `.sk-cta-press`
+     above, row (.975) for full-width tappable rows. All release on the
+     springy overshoot curve. Reduced-motion no-op below. */
+  .sk-press-pop {
+    transition: transform 200ms var(--ease-press), filter 150ms ease;
+  }
+  .sk-press-pop:active { transform: scale(0.93); filter: brightness(0.96); }
+  .sk-press-row {
+    transition: transform 200ms var(--ease-press), background-color 200ms ease;
+  }
+  .sk-press-row:active { transform: scale(0.975); }
+
+  /* Eyebrow label — the handoff's recurring mono kicker: 10px uppercase
+     JetBrains Mono with wide tracking. Pair with an 18×1px rule span
+     where the design shows the prefix line. Color via text-* utilities. */
+  .label-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+  }
 
   /* ----------------------------------------------------------------
    * Sidebar motion — drawer-curve width transition + chevron rotation
@@ -1325,6 +1354,10 @@
     .sk-press:active { transform: none !important; filter: none !important; }
     .sk-cta-press { transition-duration: 0ms !important; }
     .sk-cta-press:active { transform: none !important; filter: none !important; }
+    .sk-press-pop,
+    .sk-press-row { transition-duration: 0ms !important; }
+    .sk-press-pop:active,
+    .sk-press-row:active { transform: none !important; filter: none !important; }
     .sk-sidebar-shell { transition-duration: 0ms !important; }
     .sk-sidebar-chevron { transition-duration: 0ms !important; }
     .sk-sidebar-active-bar { transition-duration: 0ms !important; }
