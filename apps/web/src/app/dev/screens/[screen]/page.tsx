@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 
 import { ProductDetailScreen } from "~/components/artist/purchase/product-detail-screen";
+import { RequestSentScreen } from "~/components/artist/purchase/request-sent-screen";
+import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
+import { buildAgreementTerms } from "~/components/artist/purchase/purchase-data";
 import {
   MOCK_PRODUCER,
   MOCK_PRODUCT,
@@ -32,6 +35,22 @@ export default async function DevScreenPage({ params }: Params) {
           producer={MOCK_PRODUCER}
           productId="00000000-0000-4000-8000-000000000000"
           pendingRequest
+        />
+      );
+    case "s4":
+      return (
+        <ReviewAgreeScreen
+          product={MOCK_PRODUCT}
+          producer={MOCK_PRODUCER}
+          terms={buildAgreementTerms(MOCK_PRODUCER.name, MOCK_PRODUCT.includes)}
+        />
+      );
+    case "s5":
+      return (
+        <RequestSentScreen
+          product={MOCK_PRODUCT}
+          producer={MOCK_PRODUCER}
+          requestRef="SK-7F3QK2"
         />
       );
     default:

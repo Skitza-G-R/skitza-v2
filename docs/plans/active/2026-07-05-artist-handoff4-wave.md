@@ -109,11 +109,11 @@ verifying | paid | declined` (migration). Map: approved→awaiting_payment on ap
       receipt head ("LOCKS AT REQUEST" mono, 36px Syne price, sessions/deposit column), 138px
       skCover band, plan-hint chips, dark price-lock note, includes checklist. Keep
       `artist.store.product` + `artist.purchase.pending` wiring + disabled-pending CTA.
-- [ ] W2.2 S4 review & agree: PDF row card rendering `products.contractUrl` with real View link,
+- [x] W2.2 S4 review & agree: PDF row card rendering `products.contractUrl` with real View link,
       dark summary strip, 256px scrollable plain-language summary with fade, CheckRow restyle.
       Remove plan choice from request time (moves to S7) per decision 3 — request stores offered
       set/provisional default.
-- [ ] W2.3 S5 request sent: perforated ticket card w/ price-locked stub + server refNumber, 3-node
+- [x] W2.3 S5 request sent: perforated ticket card w/ price-locked stub + server refNumber, 3-node
       what-happens-next timeline, ripple emblem, dual footer (Home / Store).
 - [ ] W2.4 S6 home heartbeat (`purchase-status-card.tsx`): handoff hero card — StatusPill,
       4-node Stepper (Request→Pay→Sessions→Delivered), WHAT'S NEXT panel, context CTA
@@ -196,6 +196,13 @@ verifying | paid | declined` (migration). Map: approved→awaiting_payment on ap
 
 ## Progress log (append one line per loop iteration: what shipped, what's next, blockers)
 
+- 2026-07-05 12:05 — W2.2 + W2.3 VERIFIED CONFORMANT (S4 agree, S5 sent). Both screens were
+  already built to this handoff revision by SK-46: S4 has the dark price strip, PDF View pill,
+  256px scrollable numbered summary w/ fade, AgreeCheck + disabled-reason CTA; S5 has the server
+  refNumber eyebrow, perforated price-locked ticket, 3-node timeline, dual footer. Screenshots
+  in transcript (dev gallery /dev/screens/s4|s5). Zero code deltas; gallery extended. Linear
+  reconciled: SK-65 umbrella + SK-66..69 children (A=W0-W1, B=W2-W3, C=W4-W5, D=W6-W7).
+  Next: W2.4 S6 heartbeat.
 - 2026-07-05 11:55 — W2.1 COMPLETE (S3 ticket). product-detail-screen rebuilt to the handoff-4
   ticket default: slim 138px cover band + StickyNav (gained scroll-container + className props),
   Syne title + tagline on cream, receipt price card (36px Syne, sessions/deposit column),
