@@ -34,6 +34,11 @@ export const MOCK_PRODUCT: PurchaseProduct = {
   priceCents: 240000,
   currency: "ILS",
   durationLabel: "Multi-session · 3–4 weeks",
+  tagline: "Track, comp, mix & master one song.",
+  sessions: 3,
+  depositPct: 50,
+  revisions: 2,
+  planKinds: ["full", "split_50_50"],
   includes: [
     "Up to 4 song parts tracked",
     "Comped & tuned lead vocal",

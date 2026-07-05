@@ -105,7 +105,7 @@ verifying | paid | declined` (migration). Map: approved→awaiting_payment on ap
 
 ### W2 — Artist UI: real-data screens restyled to Handoff 4
 
-- [ ] W2.1 S3 product detail (`components/artist/purchase/product-detail-screen.tsx`): ticket
+- [x] W2.1 S3 product detail (`components/artist/purchase/product-detail-screen.tsx`): ticket
       receipt head ("LOCKS AT REQUEST" mono, 36px Syne price, sessions/deposit column), 138px
       skCover band, plan-hint chips, dark price-lock note, includes checklist. Keep
       `artist.store.product` + `artist.purchase.pending` wiring + disabled-pending CTA.
@@ -196,6 +196,19 @@ verifying | paid | declined` (migration). Map: approved→awaiting_payment on ap
 
 ## Progress log (append one line per loop iteration: what shipped, what's next, blockers)
 
+- 2026-07-05 11:55 — W2.1 COMPLETE (S3 ticket). product-detail-screen rebuilt to the handoff-4
+  ticket default: slim 138px cover band + StickyNav (gained scroll-container + className props),
+  Syne title + tagline on cream, receipt price card (36px Syne, sessions/deposit column),
+  producer row, bare-row includes + duration/revisions meta, plan-hint card with per-plan chips
+  (planKinds from offeredPlans), dark price-lock note. artist.store.product now returns
+  depositPct/depositModel/milestones/revisions; PurchaseProduct/product-mapping extended (+tests).
+  NEW: dev-only screen gallery /dev/screens/[screen] (404 in prod) so visual QA runs without a
+  Clerk session — per Raz's screenshots-for-verification directive. VERIFIED via Chrome at
+  localhost:3000/dev/screens/s3: ticket card, chips, dark note, pinned CTA, StickyNav collapse
+  all render to spec (screenshots in session transcript). Preview-tool nav is pinned to '/' —
+  Chrome MCP is the screenshot path (ACCESS_TOKEN via ?t= once, then Clerk dev handshake).
+  Linear connector authorized by Raz but tools don't reach this running session — issues to be
+  reconciled at PR time. Next: W2.2 S4 + W2.3 S5.
 - 2026-07-05 11:30 — W1 COMPLETE (BE-2 money loop). Status enum +verifying/+paid ('approved'
   doubles as awaiting-payment; 'paid' = sessions unlocked, never regresses; paid-in-full derived
   from invoices). PaymentPlan union +milestones (choice carries no schedule; server embeds

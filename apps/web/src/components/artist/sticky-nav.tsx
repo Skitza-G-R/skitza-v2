@@ -25,7 +25,7 @@ const QUANT = 0.02;
 
 type StickyNavProps = {
   title: string;
-  sub?: string;
+  sub?: string | undefined;
   /** Renders a round back button linking here (Link). */
   backHref?: string;
   /** Alternative to backHref for client-side back (e.g. router.back). */
@@ -36,6 +36,11 @@ type StickyNavProps = {
   /** Scroll offsets (px) where the collapse starts/completes. */
   start?: number;
   end?: number;
+  /** Read scroll from this container instead of the window (funnel
+      overlays scroll their own fixed div). */
+  scrollContainerRef?: React.RefObject<HTMLElement | null>;
+  /** Extra classes on the fixed root — e.g. max-w constraints. */
+  className?: string | undefined;
 };
 
 export function StickyNav({
@@ -47,26 +52,31 @@ export function StickyNav({
   action,
   start = 46,
   end = 116,
+  scrollContainerRef,
+  className,
 }: StickyNavProps) {
   const [ease, setEase] = useState(0);
 
   useEffect(() => {
+    const container = scrollContainerRef?.current ?? null;
     let raf = 0;
     const read = () => {
       raf = 0;
-      const next = stickyEase(window.scrollY, start, end);
+      const scrolled = container ? container.scrollTop : window.scrollY;
+      const next = stickyEase(scrolled, start, end);
       setEase((prev) => (Math.abs(next - prev) < QUANT && next !== 0 && next !== 1 ? prev : next));
     };
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(read);
     };
     read();
-    window.addEventListener("scroll", onScroll, { passive: true });
+    const target: HTMLElement | Window = container ?? window;
+    target.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      window.removeEventListener("scroll", onScroll);
+      target.removeEventListener("scroll", onScroll);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [start, end]);
+  }, [start, end, scrollContainerRef]);
 
   const btnStyle: React.CSSProperties = {
     width: 38,
@@ -87,7 +97,7 @@ export function StickyNav({
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-50"
+      className={`pointer-events-none fixed inset-x-0 top-0 z-50 mx-auto ${className ?? ""}`}
       style={{ height: `calc(env(safe-area-inset-top, 0px) + ${String(NAV_H + 8)}px)` }}
     >
       {/* solid backing fades in */}

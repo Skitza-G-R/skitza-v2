@@ -2,7 +2,10 @@
 // funnel's screen props (`PurchaseProduct` / `Producer`). Pure functions —
 // the S3/S4/S5 route pages call these so the screens stay data-only.
 
+import type { PaymentPlan } from "@skitza/db";
+
 import type { Producer, PurchaseProduct } from "~/components/artist/purchase/purchase-data";
+import { offeredPlans } from "~/lib/purchase/request-helpers";
 import {
   producerHue,
   producerInitials,
@@ -52,6 +55,12 @@ type StoreProductRow = {
   deliverables: string[] | null;
   producerName: string | null;
   contractUrl: string | null;
+  description: string | null;
+  revisions: number;
+  depositPct: number;
+  depositModel: string;
+  milestones: { label: string; pct: number }[] | null;
+  paymentPlans: PaymentPlan[];
 };
 
 /** Screen-shaped product from the real store row. */
@@ -63,6 +72,11 @@ export function toPurchaseProduct(row: StoreProductRow): PurchaseProduct {
     currency: row.currency,
     durationLabel: durationLabel(row.sessionCount, row.durationMin),
     includes: row.deliverables ?? [],
+    tagline: row.description,
+    sessions: row.sessionCount,
+    depositPct: row.depositPct,
+    revisions: row.revisions,
+    planKinds: offeredPlans(row).map((p) => p.kind),
   };
 }
 
