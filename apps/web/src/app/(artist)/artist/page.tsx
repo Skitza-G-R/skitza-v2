@@ -32,32 +32,50 @@ async function loadPendingPurchase(
   try {
     const hits = await Promise.all(
       studios.map(async (studio) => {
-        const { pending } = await caller.artist.purchase.pending({
+        const { current } = await caller.artist.purchase.current({
           producerId: studio.producerId,
         });
-        return pending ? { pending, studio } : null;
+        return current ? { current, studio } : null;
       }),
     );
     const open = hits
       .filter((h) => h !== null)
       .sort(
         (a, b) =>
-          b.pending.createdAt.getTime() - a.pending.createdAt.getTime(),
+          b.current.createdAt.getTime() - a.current.createdAt.getTime(),
       )[0];
     if (!open) return null;
+    const { current, studio } = open;
 
-    const request = await caller.artist.purchase.get({
-      purchaseRequestId: open.pending.id,
-    });
-    // If the status flipped between the two reads (approve/decline race),
-    // skip the card rather than render a stale stage.
-    if (request.status !== "pending") return null;
+    // BE-2 status → heartbeat stage (handoff S6's five states).
+    const stage =
+      current.status === "pending"
+        ? ("pending_review" as const)
+        : current.status === "approved"
+          ? ("awaiting_payment" as const)
+          : current.status === "verifying"
+            ? ("verifying" as const)
+            : current.status === "paid"
+              ? ("paid" as const)
+              : ("declined" as const);
+
+    // Context CTA (handoff S6): approved → S7 plan chooser; paid → book.
+    const action =
+      stage === "awaiting_payment" && current.productId
+        ? {
+            actionHref: `/artist/purchase/${current.productId}/pay?req=${current.id}`,
+            actionLabel: "Choose a payment plan",
+          }
+        : stage === "paid"
+          ? { actionHref: "/artist/book", actionLabel: "Book a session" }
+          : {};
 
     return {
-      stage: "pending_review" as const,
-      productName: request.productNameSnapshot,
-      priceCents: request.priceCents,
-      producerName: open.studio.name,
+      stage,
+      productName: current.productNameSnapshot,
+      priceCents: current.priceCents,
+      producerName: studio.name,
+      ...action,
     };
   } catch (err) {
     console.error("[artist-home] pending-purchase probe failed", err);

@@ -1,5 +1,10 @@
 import { notFound } from "next/navigation";
 
+import {
+  PurchaseStatusCard,
+  type PurchaseStage,
+} from "~/components/artist/home/purchase-status-card";
+
 import { ProductDetailScreen } from "~/components/artist/purchase/product-detail-screen";
 import { RequestSentScreen } from "~/components/artist/purchase/request-sent-screen";
 import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
@@ -53,7 +58,37 @@ export default async function DevScreenPage({ params }: Params) {
           requestRef="SK-7F3QK2"
         />
       );
-    default:
+    default: {
+      if (screen.startsWith("s6-")) {
+        const stage = screen.slice(3) as PurchaseStage;
+        const valid: PurchaseStage[] = [
+          "pending_review",
+          "awaiting_payment",
+          "verifying",
+          "paid",
+          "declined",
+        ];
+        if (!valid.includes(stage)) notFound();
+        return (
+          <div className="mx-auto max-w-[440px] px-5 py-16">
+            <PurchaseStatusCard
+              stage={stage}
+              productName={MOCK_PRODUCT.name}
+              priceCents={MOCK_PRODUCT.priceCents}
+              producerName={MOCK_PRODUCER.name}
+              {...(stage === "awaiting_payment"
+                ? {
+                    actionHref: "/dev/screens/s3",
+                    actionLabel: "Choose a payment plan",
+                  }
+                : stage === "paid"
+                  ? { actionHref: "/dev/screens/s3", actionLabel: "Book a session" }
+                  : {})}
+            />
+          </div>
+        );
+      }
       notFound();
+    }
   }
 }

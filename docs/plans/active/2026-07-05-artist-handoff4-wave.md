@@ -115,7 +115,7 @@ verifying | paid | declined` (migration). Map: approved→awaiting_payment on ap
       set/provisional default.
 - [x] W2.3 S5 request sent: perforated ticket card w/ price-locked stub + server refNumber, 3-node
       what-happens-next timeline, ripple emblem, dual footer (Home / Store).
-- [ ] W2.4 S6 home heartbeat (`purchase-status-card.tsx`): handoff hero card — StatusPill,
+- [x] W2.4 S6 home heartbeat (`purchase-status-card.tsx`): handoff hero card — StatusPill,
       4-node Stepper (Request→Pay→Sessions→Delivered), WHAT'S NEXT panel, context CTA
       (awaiting_payment→S7, paid→S10), declined = generic copy → store. All 5 states renderable;
       pending/awaiting/declined live now, verifying/paid live after W1.
@@ -196,6 +196,12 @@ verifying | paid | declined` (migration). Map: approved→awaiting_payment on ap
 
 ## Progress log (append one line per loop iteration: what shipped, what's next, blockers)
 
+- 2026-07-05 12:25 — W2.4 COMPLETE (S6 heartbeat). New artist.purchase.current read (latest
+  request incl. paid ≤30d / declined ≤7d) replaces the pending-only home probe — all 5 handoff
+  states now reachable. Card: +declined stage (neutral pill, red-! first node, generic copy),
+  +context CTA Link (approved → S7 pay w/ ?req=, paid → book) in fg-on-brand dark-on-amber,
+  breathing dot only on amber pills, lock line hidden on terminal states. Gallery s6-* states;
+  screenshots verified awaiting_payment/paid/declined. Stale no-<Link> test updated.
 - 2026-07-05 12:05 — W2.2 + W2.3 VERIFIED CONFORMANT (S4 agree, S5 sent). Both screens were
   already built to this handoff revision by SK-46: S4 has the dark price strip, PDF View pill,
   256px scrollable numbered summary w/ fade, AgreeCheck + disabled-reason CTA; S5 has the server

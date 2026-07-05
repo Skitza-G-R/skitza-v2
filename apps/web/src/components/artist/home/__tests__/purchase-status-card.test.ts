@@ -98,9 +98,15 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
     expect(SRC).toMatch(/One booking at a time/);
   });
 
-  it("has no messaging row or fake actions (v1 has no messaging)", () => {
+  it("has no messaging row or fake buttons (v1 has no messaging)", () => {
     expect(SRC).not.toMatch(/Message/);
     expect(SRC).not.toMatch(/<button/);
-    expect(SRC).not.toMatch(/<Link/);
+  });
+
+  it("renders the context CTA only when the page passes a real target (BE-2)", () => {
+    // The handoff-S6 action (choose plan / book) is a real <Link>, gated
+    // on actionHref so stages without an action render none.
+    expect(SRC).toMatch(/actionHref && actionLabel \? \(/);
+    expect(SRC).toMatch(/<Link/);
   });
 });

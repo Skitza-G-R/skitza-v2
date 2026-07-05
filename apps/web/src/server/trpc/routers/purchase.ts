@@ -569,6 +569,56 @@ export const artistPurchaseRouter = router({
       return { pending: row ?? null };
     }),
 
+  // The home heartbeat's read (S6, W2.4): the artist's LATEST request
+  // with this studio in ANY state the card renders — open money-loop
+  // states always; 'paid' for 30 days after its last transition (the
+  // book-your-session nudge); 'declined' for 7 days (the generic
+  // couldn't-confirm state). Older terminal rows fall off the card.
+  current: artistProcedure
+    .input(z.object({ producerId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [contact] = await ctx.db
+        .select({ id: clientContacts.id })
+        .from(clientContacts)
+        .where(
+          and(
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            eq(clientContacts.producerId, input.producerId),
+            isNull(clientContacts.archivedAt),
+          ),
+        )
+        .limit(1);
+      if (!contact) return { current: null };
+
+      const [row] = await ctx.db
+        .select({
+          id: purchaseRequests.id,
+          refNumber: purchaseRequests.refNumber,
+          productId: purchaseRequests.productId,
+          status: purchaseRequests.status,
+          productNameSnapshot: purchaseRequests.productNameSnapshot,
+          priceCents: purchaseRequests.priceCents,
+          currency: purchaseRequests.currency,
+          statusChangedAt: purchaseRequests.statusChangedAt,
+          createdAt: purchaseRequests.createdAt,
+        })
+        .from(purchaseRequests)
+        .where(eq(purchaseRequests.clientContactId, contact.id))
+        .orderBy(desc(purchaseRequests.createdAt))
+        .limit(1);
+      if (!row) return { current: null };
+
+      const openStatuses: string[] = [...OPEN_STATUSES];
+      const anchor = row.statusChangedAt ?? row.createdAt;
+      const ageMs = Date.now() - anchor.getTime();
+      const DAY = 24 * 60 * 60 * 1000;
+      const visible =
+        openStatuses.includes(row.status) ||
+        (row.status === "paid" && ageMs <= 30 * DAY) ||
+        (row.status === "declined" && ageMs <= 7 * DAY);
+      return { current: visible ? row : null };
+    }),
+
   // ── BE-2 — payment plans (S7) ──────────────────────────────────────
   paymentPlan: router({
     // Frozen-contract shape: the CURRENT snapshot plan's charge math and
