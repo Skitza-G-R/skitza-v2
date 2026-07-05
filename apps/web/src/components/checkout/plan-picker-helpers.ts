@@ -25,6 +25,14 @@ export function planLabel(
     const half = Math.floor(total / 2) + (total % 2);
     return `50/50 — ${format(half)} now, ${format(total - half)} on delivery`;
   }
+  if (p.kind === "milestones") {
+    // BE-2: milestone plans are chosen off-app (S7) — this Stripe picker
+    // never offers them, but the type must narrow before the monthly math.
+    const first = p.milestones[0];
+    return first
+      ? `Milestones — ${first.label} first`
+      : "Milestones";
+  }
   // calculateCharges puts the remainder on the FIRST charge (see
   // apps/web/src/server/payments/plan.ts). Mirror that here so the
   // label matches the actual charge sequence on odd-cent totals —

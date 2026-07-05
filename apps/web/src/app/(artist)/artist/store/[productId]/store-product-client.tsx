@@ -30,7 +30,10 @@ export function StoreProductClient({
   };
 }) {
   const first = product.paymentPlans[0];
-  const [plan, setPlan] = useState<PaymentPlan | null>(first ?? null);
+  const [plan, setPlan] = useState<Exclude<
+    PaymentPlan,
+    { kind: "milestones" }
+  > | null>(first?.kind === "milestones" ? null : (first ?? null));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -109,7 +112,11 @@ export function StoreProductClient({
             plans={product.paymentPlans}
             totalCents={isPerSong ? songQty * unitPriceCents : product.priceCents}
             currency={product.currency}
-            onChoose={setPlan}
+            onChoose={(p) => {
+              // Milestone plans are off-app only (BE-2) — the Stripe
+              // picker never charges them.
+              if (p.kind !== "milestones") setPlan(p);
+            }}
           />
         </div>
       ) : null}

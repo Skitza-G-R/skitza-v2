@@ -124,3 +124,22 @@ export async function emitAgreementAccepted(db: Db, input: {
     purchaseRequestId: input.purchaseRequestId,
   });
 }
+
+export async function emitProofSubmitted(db: Db, input: {
+  producerId: string;
+  purchaseRequestId: string;
+  artistName: string;
+  productName: string;
+  refNumber: string;
+  amountCents: number;
+  currency: string;
+}): Promise<void> {
+  const amount = `${input.currency === "ILS" ? "\u20aa" : ""}${(input.amountCents / 100).toLocaleString("en-US")}`;
+  await db.insert(notifications).values({
+    producerId: input.producerId,
+    kind: "proof_submitted",
+    title: `${input.artistName} uploaded a proof of payment`,
+    body: `${input.refNumber} \u2014 ${amount} \u00b7 ${input.productName}`,
+    purchaseRequestId: input.purchaseRequestId,
+  });
+}

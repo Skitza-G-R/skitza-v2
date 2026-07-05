@@ -58,6 +58,18 @@ export function buildDocKey(args: { producerId: string; contractId: string; file
   return `producers/${args.producerId}/contracts/${args.contractId}/${sanitize(args.filename)}`;
 }
 
+// Proof-of-payment screenshots/PDFs (BE-2). Stored in the AUDIO bucket
+// (the only one with a public base + browser-PUT CORS today) under a
+// proofs/ prefix; the random component keeps URLs unguessable.
+export function buildProofKey(args: {
+  producerId: string;
+  purchaseRequestId: string;
+  filename: string;
+}) {
+  const rand = randomBytes(4).toString("hex");
+  return `producers/${args.producerId}/proofs/${args.purchaseRequestId}/${rand}-${sanitize(args.filename)}`;
+}
+
 // R2 Public Development URLs are bucket-scoped (e.g. https://pub-<id>.r2.dev
 // IS the bucket endpoint), so the URL format is `${base}/${key}` — no bucket
 // name in the path. `bucket` is kept as a parameter for future use if we ever

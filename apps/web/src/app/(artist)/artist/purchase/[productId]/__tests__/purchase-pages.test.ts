@@ -68,9 +68,12 @@ describe("artist.purchase.pending read (SK-46)", () => {
     expect(routerSrc).toMatch(/\.input\(z\.object\(\{ producerId: z\.string\(\)\.uuid\(\) \}\)\)/);
   });
 
-  it("only surfaces status='pending' rows for the signed-in artist's contact", () => {
+  it("surfaces every OPEN request (pending/approved/verifying) for the signed-in artist's contact — BE-2 widened guard", () => {
     expect(routerSrc).toMatch(
-      /eq\(purchaseRequests\.clientContactId, contact\.id\),\s*\n\s*eq\(purchaseRequests\.status, "pending"\)/,
+      /eq\(purchaseRequests\.clientContactId, contact\.id\),\s*\n\s*inArray\(purchaseRequests\.status, \[\.\.\.OPEN_STATUSES\]\)/,
+    );
+    expect(routerSrc).toMatch(
+      /const OPEN_STATUSES = \["pending", "approved", "verifying"\] as const/,
     );
     expect(routerSrc).toMatch(/if \(!contact\) return \{ pending: null \}/);
   });

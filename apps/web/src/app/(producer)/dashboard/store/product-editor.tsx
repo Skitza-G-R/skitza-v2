@@ -162,7 +162,12 @@ function paymentPlanFromDb(plans: PaymentPlan[] | undefined): {
   if (first.kind === "split_50_50") {
     return { paymentPlan: "split", installmentsCount: 3 };
   }
-  return { paymentPlan: "installments", installmentsCount: first.installments };
+  if (first.kind === "monthly") {
+    return { paymentPlan: "installments", installmentsCount: first.installments };
+  }
+  // milestones (BE-2) — the editor authors it via depositModel, not the
+  // paymentPlans array; seed the picker with its default.
+  return { paymentPlan: "full", installmentsCount: 3 };
 }
 
 function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft {

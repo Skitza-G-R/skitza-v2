@@ -9,8 +9,34 @@ import type { PaymentPlan } from "@skitza/db";
 // A chosen plan is valid only if the product actually offers it (same
 // kind; for monthly, same installment count). Mirrors the "unlisted
 // plan" guard inside initiatePaidPlanCheckout.
+export type PaymentPlanChoice =
+  | { kind: "full" }
+  | { kind: "split_50_50" }
+  | { kind: "monthly"; installments: number }
+  | { kind: "milestones" };
+
+// The full set of plans a product offers: its paymentPlans array, plus a
+// virtual milestones plan when the product's deposit model is milestone-
+// based (the schedule lives in products.milestones, not paymentPlans).
+// The milestones CHOICE carries no schedule — the server embeds the
+// product's own rows at snapshot time so a tampered payload can't
+// invent one (see PaymentPlanChoice above).
+export function offeredPlans(product: {
+  paymentPlans: PaymentPlan[] | null;
+  depositModel: string;
+  milestones: { label: string; pct: number }[] | null;
+}): PaymentPlan[] {
+  const plans: PaymentPlan[] = [...(product.paymentPlans ?? [])].filter(
+    (p) => p.kind !== "milestones",
+  );
+  if (product.depositModel === "milestones" && product.milestones?.length) {
+    plans.push({ kind: "milestones", milestones: product.milestones });
+  }
+  return plans;
+}
+
 export function planIsOffered(
-  chosen: PaymentPlan,
+  chosen: PaymentPlanChoice,
   offered: PaymentPlan[],
 ): boolean {
   return offered.some((p) => {
