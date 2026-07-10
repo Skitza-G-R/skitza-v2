@@ -196,6 +196,15 @@ verifying | paid | declined` (migration). Map: approved→awaiting_payment on ap
 
 ## Progress log (append one line per loop iteration: what shipped, what's next, blockers)
 
+- 2026-07-10 — WAVE PAUSED & PUSHED at Raz's request. Branch pushed, PR #192 open to
+  v3-clean (title SK-65) covering W0+W1+W2.1–W2.4; SK-66 → In Review. Gate green (2,988+
+  tests). RESUME AT W2.5 (S2 Shelf — prototype fully specced in docs/design/handoff-4/
+  skitza-store.jsx: StoreHero 132px band + hand-picked banner, flagship shelf card, 2-col
+  cover grid; omit play badges/tier/booked — no schema data). Then W2.6 → W7 per checklist.
+  Reminders for the next session: ALL file writes via Bash only (prettier hook bug — fix was
+  spawned as a separate task, verify merged before trusting Write/Edit); dev screenshot QA via
+  /dev/screens gallery + Chrome MCP (ACCESS_TOKEN ?t= once, then Clerk dev handshake).
+
 - 2026-07-05 12:25 — W2.4 COMPLETE (S6 heartbeat). New artist.purchase.current read (latest
   request incl. paid ≤30d / declined ≤7d) replaces the pending-only home probe — all 5 handoff
   states now reachable. Card: +declined stage (neutral pill, red-! first node, generic copy),
