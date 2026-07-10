@@ -164,10 +164,12 @@ export type NewProducer = typeof producers.$inferInsert;
 
 export const portfolioTracks = pgTable("portfolio_tracks", {
   id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  producerId: uuid("producer_id")
+    .notNull()
+    .references(() => producers.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
-  artist: text("artist"),                 // optional credit line
-  audioUrl: text("audio_url"),            // nullable during upload — filled by audio.completeMultipart
+  artist: text("artist"), // optional credit line
+  audioUrl: text("audio_url"), // nullable during upload — filled by audio.completeMultipart
   artworkUrl: text("artwork_url"),
   position: integer("position").notNull().default(0), // for ordering
   audioR2Key: text("audio_r2_key"),
@@ -200,7 +202,9 @@ export type NewPortfolioTrack = typeof portfolioTracks.$inferInsert;
 // `position` gives drag-free ordering.
 export const products = pgTable("products", {
   id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  producerId: uuid("producer_id")
+    .notNull()
+    .references(() => producers.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
   // For session-style products (mix-in-person, live tracking) duration
@@ -209,14 +213,14 @@ export const products = pgTable("products", {
   // the producer needs to block on their calendar"; we keep it
   // required at the DB level but the dashboard surfaces it as
   // "Duration (optional)".
-  durationMin: integer("duration_min").notNull(),            // per session
+  durationMin: integer("duration_min").notNull(), // per session
   sessionCount: integer("session_count").notNull().default(1),
   // Flat/bundle price. Still the canonical price for flat products.
   // Per-song products read from volumeTiers instead; hourly reads from
   // hourlyRateCents.
-  priceCents: integer("price_cents").notNull().default(0),   // 0 = free / discovery
-  currency: text("currency").notNull().default("USD"),       // ISO 4217
-  depositPct: integer("deposit_pct").notNull().default(0),   // 0..100 for depositModel='flat'
+  priceCents: integer("price_cents").notNull().default(0), // 0 = free / discovery
+  currency: text("currency").notNull().default("USD"), // ISO 4217
+  depositPct: integer("deposit_pct").notNull().default(0), // 0..100 for depositModel='flat'
   active: boolean("active").notNull().default(true),
   position: integer("position").notNull().default(0),
   // `kind` classifies the offering: "mix" | "master" | "production" |
@@ -235,9 +239,7 @@ export const products = pgTable("products", {
   pricingModel: text("pricing_model").notNull().default("flat"),
   // Per-song tiers: [{ minQty, pricePerUnitCents }, ...], ascending
   // on minQty. Null for non-per-song products.
-  volumeTiers: jsonb("volume_tiers").$type<
-    { minQty: number; pricePerUnitCents: number }[]
-  >(),
+  volumeTiers: jsonb("volume_tiers").$type<{ minQty: number; pricePerUnitCents: number }[]>(),
   // Hourly rate in cents. Only populated for pricingModel='hourly'.
   hourlyRateCents: integer("hourly_rate_cents"),
   // Deliverables chip list — "Mixed master", "Stems", "Credit",
@@ -276,7 +278,9 @@ export type NewProduct = typeof products.$inferInsert;
 // start of day: 0..1440 (inclusive start, exclusive end).
 export const availabilityBlocks = pgTable("availability_blocks", {
   id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  producerId: uuid("producer_id")
+    .notNull()
+    .references(() => producers.id, { onDelete: "cascade" }),
   weekday: integer("weekday").notNull(),
   startMin: integer("start_min").notNull(),
   endMin: integer("end_min").notNull(),
@@ -291,19 +295,28 @@ export type NewAvailabilityBlock = typeof availabilityBlocks.$inferInsert;
 // "00:00 UTC on the 20th". Inclusive on both ends. `reason` is a free-
 // text hint the producer sees in the dashboard (never shown to the
 // visitor — visitor just sees "fully booked").
-export const availabilityBlackouts = pgTable("availability_blackouts", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  startDate: text("start_date").notNull(),  // ISO date YYYY-MM-DD in producer's TZ
-  endDate: text("end_date").notNull(),      // inclusive
-  reason: text("reason"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  // Fast producer-scoped lookup, ordered by startDate — the slot
-  // computation lists every blackout for a producer, so this index
-  // covers both the filter + the sort.
-  producerStartIdx: index("availability_blackouts_producer_start_idx").on(t.producerId, t.startDate),
-}));
+export const availabilityBlackouts = pgTable(
+  "availability_blackouts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    startDate: text("start_date").notNull(), // ISO date YYYY-MM-DD in producer's TZ
+    endDate: text("end_date").notNull(), // inclusive
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // Fast producer-scoped lookup, ordered by startDate — the slot
+    // computation lists every blackout for a producer, so this index
+    // covers both the filter + the sort.
+    producerStartIdx: index("availability_blackouts_producer_start_idx").on(
+      t.producerId,
+      t.startDate,
+    ),
+  }),
+);
 
 export type Blackout = typeof availabilityBlackouts.$inferSelect;
 export type NewBlackout = typeof availabilityBlackouts.$inferInsert;
@@ -321,7 +334,9 @@ export const bookingStatus = pgEnum("booking_status", [
 
 export const bookings = pgTable("bookings", {
   id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  producerId: uuid("producer_id")
+    .notNull()
+    .references(() => producers.id, { onDelete: "cascade" }),
   // productId nullable + SET NULL on delete so a product purge doesn't
   // obliterate the historical booking. We copy product snapshots onto
   // the booking row (see packageNameSnapshot) to preserve history too.
@@ -333,7 +348,9 @@ export const bookings = pgTable("bookings", {
   // back-filled to NULL; confirm → createProject wires new confirmed
   // bookings to a project automatically. SET NULL on project delete so
   // the booking history survives.
-  projectId: uuid("project_id").references((): AnyPgColumn => projects.id, { onDelete: "set null" }),
+  projectId: uuid("project_id").references((): AnyPgColumn => projects.id, {
+    onDelete: "set null",
+  }),
   artistName: text("artist_name").notNull(),
   artistEmail: text("artist_email").notNull(),
   artistPhone: text("artist_phone"),
@@ -398,12 +415,12 @@ export type NewBooking = typeof bookings.$inferInsert;
 // final_review → paid → archived). The share_token surface and
 // depositPaid/finalPaid v1 proxies live on this row as well.
 export const projectStage = pgEnum("project_stage", [
-  "lead",          // potential, not yet booked
-  "booked",        // booking created
+  "lead", // potential, not yet booked
+  "booked", // booking created
   "in_production", // actively working
-  "final_review",  // final mix sent, awaiting approval
-  "paid",          // final invoice paid
-  "archived",      // closed
+  "final_review", // final mix sent, awaiting approval
+  "paid", // final invoice paid
+  "archived", // closed
 ]);
 
 // New workflow enum introduced by the Clients & Projects v3 redesign
@@ -420,7 +437,9 @@ export const workflowStage = pgEnum("workflow_stage", [
 
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
+  producerId: uuid("producer_id")
+    .notNull()
+    .references(() => producers.id, { onDelete: "cascade" }),
   // SET NULL so a booking delete doesn't nuke the collab history.
   bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
   title: text("title").notNull(),
@@ -552,7 +571,9 @@ export type NewProject = typeof projects.$inferInsert;
 // (e.g. "feat. Someone"). Position orders tracks on the share page.
 export const projectTracks = pgTable("project_tracks", {
   id: uuid("id").defaultRandom().primaryKey(),
-  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   artist: text("artist"),
   position: integer("position").notNull().default(0),
@@ -572,10 +593,12 @@ export type NewProjectTrack = typeof projectTracks.$inferInsert;
 // (e.g. "Rough Mix", "Mix v2", "Master", "Instrumental").
 export const trackVersions = pgTable("track_versions", {
   id: uuid("id").defaultRandom().primaryKey(),
-  trackId: uuid("track_id").notNull().references(() => projectTracks.id, { onDelete: "cascade" }),
+  trackId: uuid("track_id")
+    .notNull()
+    .references(() => projectTracks.id, { onDelete: "cascade" }),
   label: text("label").notNull(),
-  audioUrl: text("audio_url"),             // nullable during upload — filled by audio.completeMultipart
-  durationMs: integer("duration_ms"),       // optional; we populate when known
+  audioUrl: text("audio_url"), // nullable during upload — filled by audio.completeMultipart
+  durationMs: integer("duration_ms"), // optional; we populate when known
   audioR2Key: text("audio_r2_key"),
   sizeBytes: bigint("size_bytes", { mode: "number" }),
   peaksR2Key: text("peaks_r2_key"),
@@ -605,7 +628,9 @@ export type NewTrackVersion = typeof trackVersions.$inferInsert;
 // `resolvedAt` is the audit trail + the UI filter.
 export const trackComments = pgTable("track_comments", {
   id: uuid("id").defaultRandom().primaryKey(),
-  versionId: uuid("version_id").notNull().references(() => trackVersions.id, { onDelete: "cascade" }),
+  versionId: uuid("version_id")
+    .notNull()
+    .references(() => trackVersions.id, { onDelete: "cascade" }),
   authorName: text("author_name").notNull(),
   authorEmail: text("author_email").notNull(),
   body: text("body").notNull(),
@@ -625,60 +650,69 @@ export type NewTrackComment = typeof trackComments.$inferInsert;
 // pre-fill returning-artist details. `emailHash` is sha256(lower) and
 // is the dedupe key alongside producerId; the raw lowercase email is
 // kept for display. Scoped per-producer so contacts don't leak.
-export const clientContacts = pgTable("client_contacts", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  emailHash: text("email_hash").notNull(),       // sha256 of lowercased email — privacy + dedupe key
-  email: text("email").notNull(),                 // raw lowercase email — displayed in UI
-  name: text("name").notNull(),
-  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
-  // Phase H.2 meta fields — nullable so existing rows (and every
-  // auto-upsert path) can ignore them. Producers fill these in from the
-  // CRM hub for classification + private context. `tags` is an array of
-  // short free-text labels ("label: Universal", "genre: hip-hop"), drawn
-  // with chips; `notes` is a multi-line producer-only field; and
-  // `referralSource` captures "how did they hear about me" for
-  // marketing intelligence.
-  //
-  // Batch D (0028) narrowed `tags` from nullable → NOT NULL DEFAULT
-  // '{}'. Every read site can now treat the array as present, which
-  // simplifies the tag-pill renderers on Project Room + CRM.
-  tags: text("tags").array().notNull().default(sql`'{}'`),
-  notes: text("notes"),
-  // Optional phone-of-record, captured by the New Client modal in the
-  // Clients & Projects v3 redesign (DESIGN.md §6.1). Nullable so every
-  // pre-existing row + auto-upsert path can ignore it. Free-text — we
-  // don't validate format server-side beyond a 40-char ceiling because
-  // producers paste WhatsApp / international strings in many shapes.
-  phone: text("phone"),
-  referralSource: text("referral_source"),
-  // Stamped by the Clerk user.created webhook on first artist sign-in.
-  // Null = client has never signed in. Once stamped, the artist app can
-  // resolve all studios for this person via a single index lookup on
-  // (clerkUserId).
-  clerkUserId: text("clerk_user_id"),
-  // Soft-delete marker for artist-initiated disconnect (Settings →
-  // Disconnect). Set timestamp = "this artist removed the connection";
-  // null = active. Producer-side queries IGNORE this flag (CRM keeps
-  // history); artist-side queries filter `IS NULL` so a disconnected
-  // studio disappears from the switcher / music / store / book.
-  archivedAt: timestamp("archived_at", { withTimezone: true }),
-  // Linkpill "Invited" state for the Clients & Projects v3 redesign.
-  // Stamped when the producer triggers Send Invite (email or copy-link)
-  // from the Invite-to-App modal. Cleared when Clerk webhook resolves
-  // `clerkUserId`. NULL means "no invite ever sent".
-  invitedAt: timestamp("invited_at", { withTimezone: true }),
-  // Drag-to-reorder slot for the Clients list. NOT NULL with default 0
-  // so existing rows back-fill safely. Reorder mutations update many
-  // rows in a single transaction.
-  position: integer("position").notNull().default(0),
-}, (t) => ({
-  uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
-  clerkUserIdx: index("client_contacts_clerk_user_idx")
-    .on(t.clerkUserId)
-    .where(sql`${t.clerkUserId} IS NOT NULL`),
-}));
+export const clientContacts = pgTable(
+  "client_contacts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    emailHash: text("email_hash").notNull(), // sha256 of lowercased email — privacy + dedupe key
+    email: text("email").notNull(), // raw lowercase email — displayed in UI
+    name: text("name").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    // Phase H.2 meta fields — nullable so existing rows (and every
+    // auto-upsert path) can ignore them. Producers fill these in from the
+    // CRM hub for classification + private context. `tags` is an array of
+    // short free-text labels ("label: Universal", "genre: hip-hop"), drawn
+    // with chips; `notes` is a multi-line producer-only field; and
+    // `referralSource` captures "how did they hear about me" for
+    // marketing intelligence.
+    //
+    // Batch D (0028) narrowed `tags` from nullable → NOT NULL DEFAULT
+    // '{}'. Every read site can now treat the array as present, which
+    // simplifies the tag-pill renderers on Project Room + CRM.
+    tags: text("tags")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    notes: text("notes"),
+    // Optional phone-of-record, captured by the New Client modal in the
+    // Clients & Projects v3 redesign (DESIGN.md §6.1). Nullable so every
+    // pre-existing row + auto-upsert path can ignore it. Free-text — we
+    // don't validate format server-side beyond a 40-char ceiling because
+    // producers paste WhatsApp / international strings in many shapes.
+    phone: text("phone"),
+    referralSource: text("referral_source"),
+    // Stamped by the Clerk user.created webhook on first artist sign-in.
+    // Null = client has never signed in. Once stamped, the artist app can
+    // resolve all studios for this person via a single index lookup on
+    // (clerkUserId).
+    clerkUserId: text("clerk_user_id"),
+    // Soft-delete marker for artist-initiated disconnect (Settings →
+    // Disconnect). Set timestamp = "this artist removed the connection";
+    // null = active. Producer-side queries IGNORE this flag (CRM keeps
+    // history); artist-side queries filter `IS NULL` so a disconnected
+    // studio disappears from the switcher / music / store / book.
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    // Linkpill "Invited" state for the Clients & Projects v3 redesign.
+    // Stamped when the producer triggers Send Invite (email or copy-link)
+    // from the Invite-to-App modal. Cleared when Clerk webhook resolves
+    // `clerkUserId`. NULL means "no invite ever sent".
+    invitedAt: timestamp("invited_at", { withTimezone: true }),
+    // Drag-to-reorder slot for the Clients list. NOT NULL with default 0
+    // so existing rows back-fill safely. Reorder mutations update many
+    // rows in a single transaction.
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({
+    uniqPerProducer: unique("client_contacts_producer_email_unique").on(t.producerId, t.emailHash),
+    clerkUserIdx: index("client_contacts_clerk_user_idx")
+      .on(t.clerkUserId)
+      .where(sql`${t.clerkUserId} IS NOT NULL`),
+  }),
+);
 
 export type ClientContact = typeof clientContacts.$inferSelect;
 export type NewClientContact = typeof clientContacts.$inferInsert;
@@ -692,47 +726,61 @@ export type NewClientContact = typeof clientContacts.$inferInsert;
 // apps/web/src/server/notifications/emit.ts insert rows fire-and-
 // forget so a notify failure can never block the primary flow.
 export const notificationKind = pgEnum("notification_kind", [
-  "comment_created",     // visitor commented on a track version
-  "booking_requested",   // visitor submitted a booking
-  "track_approved",      // (future) artist marked a version approved
+  "comment_created", // visitor commented on a track version
+  "booking_requested", // visitor submitted a booking
+  "track_approved", // (future) artist marked a version approved
   // ─── Purchase flow (SK-37 / BE-1) ─────────────────────────────────
   // Producer-facing inbox events for the artist purchase journey.
   // Emitted from server/notifications/emit.ts at each Gate-1 transition.
-  "purchase_requested",  // artist submitted a purchase request (Gate 1 in)
-  "purchase_approved",   // producer approved the request
-  "purchase_declined",   // producer declined the request
-  "agreement_accepted",  // artist accepted the producer's agreement
-  "proof_submitted",     // artist uploaded a proof of payment (Gate 2 in)
+  "purchase_requested", // artist submitted a purchase request (Gate 1 in)
+  "purchase_approved", // producer approved the request
+  "purchase_declined", // producer declined the request
+  "agreement_accepted", // artist accepted the producer's agreement
+  "proof_submitted", // artist uploaded a proof of payment (Gate 2 in)
 ]);
 
-export const notifications = pgTable("notifications", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id").notNull().references(() => producers.id, { onDelete: "cascade" }),
-  kind: notificationKind("kind").notNull(),
-  title: text("title").notNull(),
-  body: text("body").notNull().default(""),
-  // Related refs — nullable FKs for click-through. Only one is
-  // populated per row; the UI routes to the right page based on
-  // which id is present.
-  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
-  trackVersionId: uuid("track_version_id").references(() => trackVersions.id, { onDelete: "cascade" }),
-  commentId: uuid("comment_id").references(() => trackComments.id, { onDelete: "cascade" }),
-  bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "cascade" }),
-  // Purchase-flow click-through (SK-37 / BE-1). Forward reference via the
-  // lazy AnyPgColumn callback because `purchaseRequests` is declared
-  // further down (same pattern as bookings.projectId → projects).
-  purchaseRequestId: uuid("purchase_request_id").references(
-    (): AnyPgColumn => purchaseRequests.id,
-    { onDelete: "cascade" },
-  ),
-  readAt: timestamp("read_at", { withTimezone: true }),
-  archivedAt: timestamp("archived_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  // Covers the inbox list query: filter by producer + active/archived
-  // bucket, order by createdAt desc.
-  producerActiveIdx: index("notifications_producer_active_idx").on(t.producerId, t.archivedAt, t.createdAt),
-}));
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    kind: notificationKind("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    // Related refs — nullable FKs for click-through. Only one is
+    // populated per row; the UI routes to the right page based on
+    // which id is present.
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    trackVersionId: uuid("track_version_id").references(() => trackVersions.id, {
+      onDelete: "cascade",
+    }),
+    commentId: uuid("comment_id").references(() => trackComments.id, { onDelete: "cascade" }),
+    bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "cascade" }),
+    // Purchase-flow click-through (SK-37 / BE-1). Forward reference via the
+    // lazy AnyPgColumn callback because `purchaseRequests` is declared
+    // further down (same pattern as bookings.projectId → projects).
+    purchaseRequestId: uuid("purchase_request_id").references(
+      (): AnyPgColumn => purchaseRequests.id,
+      {
+        onDelete: "cascade",
+      },
+    ),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // Covers the inbox list query: filter by producer + active/archived
+    // bucket, order by createdAt desc.
+    producerActiveIdx: index("notifications_producer_active_idx").on(
+      t.producerId,
+      t.archivedAt,
+      t.createdAt,
+    ),
+  }),
+);
 
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
@@ -754,69 +802,87 @@ export const invoiceStatus = pgEnum("invoice_status", [
   "uncollectible",
 ]);
 
-export const invoices = pgTable("invoices", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id")
-    .notNull()
-    .references(() => producers.id, { onDelete: "cascade" }),
-  // Loose links — a producer might invoice a project before a booking
-  // exists, or stand-alone. SET NULL on delete so the invoice ledger
-  // survives a project/booking purge.
-  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
-  bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
-  // Auto-installments — points back at the project whose payment plan
-  // generated this invoice. Separate from projectId because a legacy
-  // project may have invoices without a plan. SET NULL preserves the
-  // ledger if the project is deleted.
-  paymentPlanProjectId: uuid("payment_plan_project_id")
-    .references(() => projects.id, { onDelete: "set null" }),
-  // Stripe linkage. checkoutSessionId is set immediately on Checkout
-  // creation; paymentIntentId arrives later via the
-  // checkout.session.completed webhook (it doesn't exist until the
-  // visitor actually starts paying).
-  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
-  stripePaymentIntentId: text("stripe_payment_intent_id"),
-  amountCents: integer("amount_cents").notNull(),
-  currency: text("currency").notNull(),
-  description: text("description"),
-  // Free-text role within the engagement: 'deposit' | 'final' |
-  // 'milestone' | 'full'. Kept as text so we can introduce new kinds
-  // (e.g. 'rush_fee') without an enum migration.
-  kind: text("kind").notNull(),
-  status: invoiceStatus("status").notNull().default("draft"),
-  customerEmail: text("customer_email"),
-  customerName: text("customer_name"),
-  paidAt: timestamp("paid_at", { withTimezone: true }),
-  // Stamped once by the Autopilot cron's unpaid-reminder sweep the
-  // first time it emails the producer about this invoice. Null =
-  // never sent. Idempotency key for the cron. Migration 0033 (audit
-  // Task 12).
-  reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
-  // ─── BE-2 off-app proof-of-payment (migration 0022) ──────────────
-  // Each submitted proof is ONE invoice row: status 'sent' = awaiting
-  // Gate-2 verification, 'paid' = confirmed, 'void' = rejected (note in
-  // rejectionNote). Running total paid for a purchase = SUM(amountCents)
-  // of its 'paid' rows. SET NULL keeps the ledger if the request goes.
-  purchaseRequestId: uuid("purchase_request_id")
-    .references(() => purchaseRequests.id, { onDelete: "set null" }),
-  proofFileUrl: text("proof_file_url"),
-  proofNote: text("proof_note"),
-  rejectionNote: text("rejection_note"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  // Gate-2 queue + running-total reads.
-  purchaseRequestIdx: index("invoices_purchase_request_idx").on(t.purchaseRequestId),
-  // Covers the dashboard list query: producer-scoped, ordered desc.
-  producerCreatedIdx: index("invoices_producer_created_idx").on(t.producerId, t.createdAt),
-  // Partial unique index — Stripe fires invoice.paid +
-  // payment_intent.succeeded near-parallel for subscription invoices.
-  // Without this, both handlers pass the SELECT-check and both INSERT,
-  // producing duplicate ledger rows. WHERE clause keeps legacy rows
-  // without a PI (deposits pre-checkout, manual invoices) unaffected.
-  piUnique: uniqueIndex("invoices_stripe_payment_intent_unique")
-    .on(t.stripePaymentIntentId)
-    .where(sql`${t.stripePaymentIntentId} IS NOT NULL`),
-}));
+export const paymentProofStatus = pgEnum("payment_proof_status", [
+  "pending",
+  "confirmed",
+  "rejected",
+]);
+
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    // Loose links — a producer might invoice a project before a booking
+    // exists, or stand-alone. SET NULL on delete so the invoice ledger
+    // survives a project/booking purge.
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
+    // Auto-installments — points back at the project whose payment plan
+    // generated this invoice. Separate from projectId because a legacy
+    // project may have invoices without a plan. SET NULL preserves the
+    // ledger if the project is deleted.
+    paymentPlanProjectId: uuid("payment_plan_project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    // Stripe linkage. checkoutSessionId is set immediately on Checkout
+    // creation; paymentIntentId arrives later via the
+    // checkout.session.completed webhook (it doesn't exist until the
+    // visitor actually starts paying).
+    stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull(),
+    description: text("description"),
+    // Free-text role within the engagement: 'deposit' | 'final' |
+    // 'milestone' | 'full'. Kept as text so we can introduce new kinds
+    // (e.g. 'rush_fee') without an enum migration.
+    kind: text("kind").notNull(),
+    status: invoiceStatus("status").notNull().default("draft"),
+    customerEmail: text("customer_email"),
+    customerName: text("customer_name"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    // Stamped once by the Autopilot cron's unpaid-reminder sweep the
+    // first time it emails the producer about this invoice. Null =
+    // never sent. Idempotency key for the cron. Migration 0033 (audit
+    // Task 12).
+    reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+    // Purchase linkage for confirmed off-app money. Pending/rejected proofs
+    // now live only in paymentProofs; these legacy proof columns remain so
+    // migration 0023 can preserve rows created by the short-lived model.
+    purchaseRequestId: uuid("purchase_request_id").references(() => purchaseRequests.id, {
+      onDelete: "set null",
+    }),
+    // A confirmed off-app proof creates exactly one paid invoice. The
+    // unique partial index below makes producer confirmation idempotent.
+    paymentProofId: uuid("payment_proof_id").references((): AnyPgColumn => paymentProofs.id, {
+      onDelete: "set null",
+    }),
+    proofFileUrl: text("proof_file_url"),
+    proofNote: text("proof_note"),
+    rejectionNote: text("rejection_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // Gate-2 queue + running-total reads.
+    purchaseRequestIdx: index("invoices_purchase_request_idx").on(t.purchaseRequestId),
+    // Covers the dashboard list query: producer-scoped, ordered desc.
+    producerCreatedIdx: index("invoices_producer_created_idx").on(t.producerId, t.createdAt),
+    // Partial unique index — Stripe fires invoice.paid +
+    // payment_intent.succeeded near-parallel for subscription invoices.
+    // Without this, both handlers pass the SELECT-check and both INSERT,
+    // producing duplicate ledger rows. WHERE clause keeps legacy rows
+    // without a PI (deposits pre-checkout, manual invoices) unaffected.
+    piUnique: uniqueIndex("invoices_stripe_payment_intent_unique")
+      .on(t.stripePaymentIntentId)
+      .where(sql`${t.stripePaymentIntentId} IS NOT NULL`),
+    proofUnique: uniqueIndex("invoices_payment_proof_unique")
+      .on(t.paymentProofId)
+      .where(sql`${t.paymentProofId} IS NOT NULL`),
+  }),
+);
 
 export type Invoice = typeof invoices.$inferSelect;
 export type NewInvoice = typeof invoices.$inferInsert;
@@ -829,19 +895,23 @@ export type NewInvoice = typeof invoices.$inferInsert;
 // Composite primary key prevents duplicates without needing a separate
 // surrogate id. Cascade on either side — if the producer or contact
 // goes away, the Stripe customer mapping has no meaning.
-export const stripeCustomers = pgTable("stripe_customers", {
-  producerId: uuid("producer_id")
-    .notNull()
-    .references(() => producers.id, { onDelete: "cascade" }),
-  clientContactId: uuid("client_contact_id")
-    .notNull()
-    .references(() => clientContacts.id, { onDelete: "cascade" }),
-  stripeCustomerId: text("stripe_customer_id").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  pk: primaryKey({ columns: [t.producerId, t.clientContactId] }),
-  customerIdx: index("stripe_customers_customer_idx").on(t.stripeCustomerId),
-}));
+export const stripeCustomers = pgTable(
+  "stripe_customers",
+  {
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    clientContactId: uuid("client_contact_id")
+      .notNull()
+      .references(() => clientContacts.id, { onDelete: "cascade" }),
+    stripeCustomerId: text("stripe_customer_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.producerId, t.clientContactId] }),
+    customerIdx: index("stripe_customers_customer_idx").on(t.stripeCustomerId),
+  }),
+);
 
 export type StripeCustomer = typeof stripeCustomers.$inferSelect;
 export type NewStripeCustomer = typeof stripeCustomers.$inferInsert;
@@ -880,27 +950,23 @@ export const producerExternalLinks = pgTable(
     url: text("url").notNull(),
     title: text("title"),
     position: integer("position").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     // Per-producer list-by-position lookup hits this directly. Ordering
     // columns in the index to match the ORDER BY on the render path
     // avoids a sort on rows.
-    producerIdx: index("producer_external_links_producer_idx").on(
-      t.producerId,
-      t.position,
-    ),
+    producerIdx: index("producer_external_links_producer_idx").on(t.producerId, t.position),
     // Story 06 of onboarding rebuild — one URL per platform per
     // producer. The onboarding wizard's portfolio editor exposes 3
     // platform inputs (Spotify / YouTube / Instagram); each producer
     // gets exactly one row per platform, and saving a new URL upserts
     // (ON CONFLICT (producer_id, platform) DO UPDATE) — which requires
     // this constraint to target. Migration 0034 backfills + adds it.
-    uniqPerPlatform: unique(
-      "producer_external_links_producer_platform_unique",
-    ).on(t.producerId, t.platform),
+    uniqPerPlatform: unique("producer_external_links_producer_platform_unique").on(
+      t.producerId,
+      t.platform,
+    ),
   }),
 );
 
@@ -921,18 +987,11 @@ export const producerNotes = pgTable(
       .notNull()
       .references(() => producers.id, { onDelete: "cascade" }),
     body: text("body").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    byProducerCreated: index("producer_notes_producer_created_idx").on(
-      t.producerId,
-      t.createdAt,
-    ),
+    byProducerCreated: index("producer_notes_producer_created_idx").on(t.producerId, t.createdAt),
   }),
 );
 
@@ -955,14 +1014,14 @@ export type NewProducerNote = typeof producerNotes.$inferInsert;
 // booking by the BE-3 session slice) so the purchase attaches to the
 // SAME project/booking rows the store + calendar flows use.
 export const purchaseRequestStatus = pgEnum("purchase_request_status", [
-  "pending",   // submitted, awaiting producer's Gate-1 decision
-  "approved",  // producer approved — doubles as AWAITING PAYMENT (BE-2):
-               // the artist is choosing a plan / paying off-app
+  "pending", // submitted, awaiting producer's Gate-1 decision
+  "approved", // producer approved — doubles as AWAITING PAYMENT (BE-2):
+  // the artist is choosing a plan / paying off-app
   "verifying", // first proof of payment submitted, awaiting Gate 2
-  "paid",      // first payment confirmed — sessions unlocked. Later
-               // installments live on `invoices` rows and never regress
-               // this status; "paid in full" = SUM(paid invoices) ≥ priceCents
-  "declined",  // producer declined (artist sees a generic message)
+  "paid", // first payment confirmed — sessions unlocked. Later
+  // installments live on `invoices` rows and never regress
+  // this status; "paid in full" = SUM(paid invoices) ≥ priceCents
+  "declined", // producer declined (artist sees a generic message)
 ]);
 
 export const purchaseRequests = pgTable(
@@ -1021,9 +1080,17 @@ export const purchaseRequests = pgTable(
     currency: text("currency").notNull(),
     // The single chosen plan from products.paymentPlans — reuses the
     // exported PaymentPlan union verbatim (no new shape).
-    paymentPlanSnapshot: jsonb("payment_plan_snapshot")
-      .$type<PaymentPlan>()
+    paymentPlanSnapshot: jsonb("payment_plan_snapshot").$type<PaymentPlan>().notNull(),
+    // Every plan offered at request time. S7 reads only this frozen list,
+    // so later product edits cannot change the artist's agreement.
+    paymentPlanOptionsSnapshot: jsonb("payment_plan_options_snapshot")
+      .$type<PaymentPlan[]>()
       .notNull(),
+    // Null while the request carries only its provisional default. S7 stamps
+    // this when the artist explicitly chooses, before any proof is accepted.
+    paymentPlanChosenAt: timestamp("payment_plan_chosen_at", {
+      withTimezone: true,
+    }),
     // Per-song parity with bookings.songQty/unitPriceCents — populated
     // only for pricingModel='per_song' (or the locked rate for hourly).
     songQty: integer("song_qty"),
@@ -1032,9 +1099,7 @@ export const purchaseRequests = pgTable(
     // change the agreement the artist is asked to accept. Nullable — the
     // agreement is an inline checkbox; the URL is the optional reference.
     contractUrlSnapshot: text("contract_url_snapshot"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     // Producer hub list: filter by producer + status, newest first.
@@ -1044,14 +1109,64 @@ export const purchaseRequests = pgTable(
       t.createdAt,
     ),
     // "one pending request per (artist, producer)" guard reads this.
-    contactStatusIdx: index("purchase_requests_contact_status_idx").on(
-      t.clientContactId,
-      t.status,
-    ),
+    contactStatusIdx: index("purchase_requests_contact_status_idx").on(t.clientContactId, t.status),
   }),
 );
 export type PurchaseRequest = typeof purchaseRequests.$inferSelect;
 export type NewPurchaseRequest = typeof purchaseRequests.$inferInsert;
+
+// Private proof uploads are not invoices. A pending/rejected proof must
+// never appear in revenue, outstanding balance, or reminder queries. Only
+// confirmation creates a paid invoice linked through paymentProofId.
+export const paymentProofs = pgTable(
+  "payment_proofs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    purchaseRequestId: uuid("purchase_request_id")
+      .notNull()
+      .references(() => purchaseRequests.id, { onDelete: "cascade" }),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull(),
+    kind: text("kind").notNull(),
+    // New proofs are private in docs. Migrated invoice-era proofs remain in
+    // audio, so bucket ownership must travel with the key.
+    storageBucket: text("storage_bucket").$type<"audio" | "docs">().notNull().default("docs"),
+    storageKey: text("storage_key").notNull().unique(),
+    originalFileName: text("original_file_name"),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    status: paymentProofStatus("status").notNull().default("pending"),
+    note: text("note"),
+    rejectionNote: text("rejection_note"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    purchaseStatusIdx: index("payment_proofs_purchase_status_idx").on(
+      t.purchaseRequestId,
+      t.status,
+    ),
+    producerStatusCreatedIdx: index("payment_proofs_producer_status_created_idx").on(
+      t.producerId,
+      t.status,
+      t.createdAt,
+    ),
+    // One proof under review per purchase. This is the final database-level
+    // race guard after the transaction/advisory lock in the API.
+    pendingPerRequest: uniqueIndex("payment_proofs_one_pending_per_request")
+      .on(t.purchaseRequestId)
+      .where(sql`${t.status} = 'pending'`),
+  }),
+);
+export type PaymentProof = typeof paymentProofs.$inferSelect;
+export type NewPaymentProof = typeof paymentProofs.$inferInsert;
 
 // One row per artist acceptance of a producer's agreement, against
 // exactly one purchaseRequest. PDF-signing (Documenso) was removed in
@@ -1076,17 +1191,11 @@ export const agreementAcceptances = pgTable(
     // Audit: the Clerk userId that clicked accept (ctx.clerkUserId).
     acceptedByClerkUserId: text("accepted_by_clerk_user_id").notNull(),
     agreementUrl: text("agreement_url"),
-    acceptedAt: timestamp("accepted_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    uniqPerRequest: unique("agreement_acceptances_request_unique").on(
-      t.purchaseRequestId,
-    ),
+    uniqPerRequest: unique("agreement_acceptances_request_unique").on(t.purchaseRequestId),
   }),
 );
 export type AgreementAcceptance = typeof agreementAcceptances.$inferSelect;

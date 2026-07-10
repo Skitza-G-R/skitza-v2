@@ -79,8 +79,8 @@ export function StickyNav({
   }, [start, end, scrollContainerRef]);
 
   const btnStyle: React.CSSProperties = {
-    width: 38,
-    height: 38,
+    width: 44,
+    height: 44,
     borderRadius: 999,
     display: "inline-flex",
     alignItems: "center",
@@ -133,7 +133,7 @@ export function StickyNav({
             {backContent}
           </button>
         ) : (
-          <span style={{ width: 38 }} />
+          <span style={{ width: 44 }} />
         )}
         {/* collapsing centered title */}
         <div
@@ -149,7 +149,7 @@ export function StickyNav({
             </div>
           ) : null}
         </div>
-        {action ?? <span style={{ width: 38 }} />}
+        {action ?? <span style={{ width: 44 }} />}
       </div>
     </div>
   );

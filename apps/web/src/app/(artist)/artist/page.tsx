@@ -12,15 +12,8 @@ import { WelcomeModal } from "./welcome-modal";
 
 type Caller = ReturnType<typeof appRouter.createCaller>;
 
-// The purchase-status "heartbeat" card (S6): surface the artist's open
-// purchase request, if any. Same source of truth as the purchase entry
-// page (`artist.purchase.pending` per studio, then `get` for the
-// price-locked snapshot). `pending` only returns Gate-1 rows
-// (status="pending"), so the only stage reachable here today is
-// "pending_review" — approved/declined requests aren't discoverable
-// from the home page yet.
-// BE-2 (SK-38): wire awaiting-payment/verifying stages once the artist
-// can see payment state on approved requests.
+// The purchase-status "heartbeat" card (S6): surface the latest real request
+// for each connected studio, including payment progress from Gate 2.
 async function loadPendingPurchase(
   caller: Caller,
   studios: Array<{ producerId: string; name: string }>,
@@ -40,12 +33,13 @@ async function loadPendingPurchase(
     );
     const open = hits
       .filter((h) => h !== null)
-      .sort(
-        (a, b) =>
-          b.current.createdAt.getTime() - a.current.createdAt.getTime(),
-      )[0];
+      .sort((a, b) => b.current.createdAt.getTime() - a.current.createdAt.getTime())[0];
     if (!open) return null;
     const { current, studio } = open;
+    // A deleted product nulls productId, but the locked request must remain
+    // payable. The pay routes use `req` as ownership/source of truth, so the
+    // request id is a safe canonical URL placeholder in that legacy case.
+    const paymentRouteProductId = current.productId ?? current.id;
 
     // BE-2 status → heartbeat stage (handoff S6's five states).
     const stage =
@@ -59,21 +53,28 @@ async function loadPendingPurchase(
               ? ("paid" as const)
               : ("declined" as const);
 
-    // Context CTA (handoff S6): approved → S7 plan chooser; paid → book.
+    // Context CTA: approved → choose the plan. A confirmed deposit opens
+    // sessions, but a remaining balance keeps the next-payment route handy.
     const action =
-      stage === "awaiting_payment" && current.productId
+      stage === "awaiting_payment"
         ? {
-            actionHref: `/artist/purchase/${current.productId}/pay?req=${current.id}`,
+            actionHref: `/artist/purchase/${paymentRouteProductId}/pay?req=${current.id}`,
             actionLabel: "Choose a payment plan",
           }
-        : stage === "paid"
-          ? { actionHref: "/artist/book", actionLabel: "Book a session" }
-          : {};
+        : stage === "paid" && current.remainingCents > 0
+          ? {
+              actionHref: `/artist/purchase/${paymentRouteProductId}/pay/instructions?req=${current.id}`,
+              actionLabel: "Make next payment",
+            }
+          : stage === "paid"
+            ? { actionHref: "/artist/book", actionLabel: "Book a session" }
+            : {};
 
     return {
       stage,
       productName: current.productNameSnapshot,
       priceCents: current.priceCents,
+      remainingCents: current.remainingCents,
       producerName: studio.name,
       ...action,
     };
@@ -101,14 +102,13 @@ export default async function ArtistHomePage() {
 
   const caller = appRouter.createCaller({ userId });
   const studiosPromise = caller.artist.studios();
-  const [user, data, pendingPayments, studiosResp, pendingPurchase] =
-    await Promise.all([
-      currentUser(),
-      caller.artist.home(),
-      caller.artist.book.myPendingPayments(),
-      studiosPromise,
-      studiosPromise.then((resp) => loadPendingPurchase(caller, resp.studios)),
-    ]);
+  const [user, data, pendingPayments, studiosResp, pendingPurchase] = await Promise.all([
+    currentUser(),
+    caller.artist.home(),
+    caller.artist.book.myPendingPayments(),
+    studiosPromise,
+    studiosPromise.then((resp) => loadPendingPurchase(caller, resp.studios)),
+  ]);
 
   const firstName = user?.firstName?.trim() || "there";
 
@@ -119,9 +119,7 @@ export default async function ArtistHomePage() {
   // metadata on play. studios() returns the canonical Studio shape
   // ({ producerId, name, slug, logoUrl }); BookSessionTiles only
   // needs three fields under different keys.
-  const latestMixForCard = data.latestMix
-    ? { ...data.latestMix, durationMs: null }
-    : null;
+  const latestMixForCard = data.latestMix ? { ...data.latestMix, durationMs: null } : null;
   const studiosForTiles = studiosResp.studios.map((s) => ({
     producerId: s.producerId,
     producerName: s.name,

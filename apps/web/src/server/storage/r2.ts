@@ -50,7 +50,11 @@ function sanitize(name: string): string {
   return cleaned;
 }
 
-export function buildAudioKey(args: { producerId: string; trackVersionId: string; filename: string }) {
+export function buildAudioKey(args: {
+  producerId: string;
+  trackVersionId: string;
+  filename: string;
+}) {
   return `producers/${args.producerId}/tracks/${args.trackVersionId}/${sanitize(args.filename)}`;
 }
 
@@ -58,9 +62,9 @@ export function buildDocKey(args: { producerId: string; contractId: string; file
   return `producers/${args.producerId}/contracts/${args.contractId}/${sanitize(args.filename)}`;
 }
 
-// Proof-of-payment screenshots/PDFs (BE-2). Stored in the AUDIO bucket
-// (the only one with a public base + browser-PUT CORS today) under a
-// proofs/ prefix; the random component keeps URLs unguessable.
+// Proof-of-payment screenshots/PDFs (BE-2). Stored in the PRIVATE docs
+// bucket. Callers receive short-lived signed PUT/GET URLs; no public URL is
+// persisted or returned.
 export function buildProofKey(args: {
   producerId: string;
   purchaseRequestId: string;
@@ -68,6 +72,19 @@ export function buildProofKey(args: {
 }) {
   const rand = randomBytes(4).toString("hex");
   return `producers/${args.producerId}/proofs/${args.purchaseRequestId}/${rand}-${sanitize(args.filename)}`;
+}
+
+export function isProofKeyForPurchase(
+  key: string,
+  args: { producerId: string; purchaseRequestId: string },
+): boolean {
+  const prefix = `producers/${args.producerId}/proofs/${args.purchaseRequestId}/`;
+  return (
+    key.startsWith(prefix) &&
+    key.length > prefix.length &&
+    !key.includes("..") &&
+    !/^https?:/i.test(key)
+  );
 }
 
 // R2 Public Development URLs are bucket-scoped (e.g. https://pub-<id>.r2.dev

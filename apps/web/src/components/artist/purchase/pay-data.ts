@@ -1,11 +1,11 @@
-// Types + placeholder data for the artist Pay section (SK-42, epic SK-36).
+// Shared types, display helpers, and development-gallery data for artist Pay.
 //
 // Payment in v1 is OFF-APP: after a producer approves the booking, the artist
 // pays by bank transfer or Bit, then uploads a proof-of-payment screenshot.
 // Card pay (Tranzila) is v2 — shown greyed as "coming soon", not wired here.
 //
-// MOCK — BE-2 (SK-38) provides plans + POP upload + Gate 2; swap MOCK_* for the
-// tRPC caller in page.tsx, screens unchanged.
+// The live Pay routes read frozen request data. The two MOCK identity exports
+// below remain only for the development gallery and later session prototypes.
 
 import {
   formatShekels,
@@ -15,9 +15,8 @@ import {
 } from "./purchase-data";
 
 // ── Placeholder product + producer (BE-2 / BE-3 era) ────────────────────────
-// The Commit screens (S3/S4/S5) were wired to REAL BE-1 data in SK-46; these
-// placeholders remain ONLY for the Pay slice (until BE-2 / SK-38) and the
-// sessions pages (until BE-3 / SK-39), which import them from here.
+// Live purchase routes never read these placeholders. They remain only for
+// the dev screen gallery and sessions pages that are still under construction.
 export const MOCK_PRODUCER: Producer = {
   name: "Gili Studio",
   initials: "GS",
@@ -61,6 +60,97 @@ export type PlanOption = {
   /** Each row is one payment; amounts always sum to the total exactly. */
   schedule: { label: string; amountCents: number }[];
 };
+
+export type LivePaymentPlanChoice =
+  | { kind: "full" }
+  | { kind: "split_50_50" }
+  | { kind: "monthly"; installments: number }
+  | { kind: "milestones" };
+
+export type LivePlanOption = {
+  id: string;
+  choice: LivePaymentPlanChoice;
+  title: string;
+  blurb: string;
+  dueNowCents: number;
+  schedule: { label: string; amountCents: number }[];
+};
+
+export function nextPlanIndex(
+  currentIndex: number,
+  optionCount: number,
+  key: string,
+): number | null {
+  if (optionCount <= 0) return null;
+
+  switch (key) {
+    case "ArrowDown":
+    case "ArrowRight":
+      return (currentIndex + 1) % optionCount;
+    case "ArrowUp":
+    case "ArrowLeft":
+      return (currentIndex - 1 + optionCount) % optionCount;
+    case "Home":
+      return 0;
+    case "End":
+      return optionCount - 1;
+    default:
+      return null;
+  }
+}
+
+type ServerPlanOption = {
+  kind: LivePaymentPlanChoice["kind"];
+  installments?: number;
+  charges: number[];
+  dueNowCents: number;
+  labels: string[];
+};
+
+export function paymentPlanLabel(
+  kind: LivePaymentPlanChoice["kind"],
+  installments?: number | null,
+): string {
+  switch (kind) {
+    case "full":
+      return "Pay in full";
+    case "split_50_50":
+      return "Split 50 / 50";
+    case "monthly":
+      return `${String(installments ?? 2)} monthly payments`;
+    case "milestones":
+      return "Milestone payments";
+  }
+}
+
+export function livePlanOptions(options: ServerPlanOption[]): LivePlanOption[] {
+  return options.map((option) => {
+    const installments = option.kind === "monthly" ? (option.installments ?? 2) : null;
+    const choice: LivePaymentPlanChoice =
+      option.kind === "monthly"
+        ? { kind: "monthly", installments: installments ?? 2 }
+        : { kind: option.kind };
+    const blurb =
+      option.kind === "full"
+        ? "One payment now. Simplest, with nothing left to track."
+        : option.kind === "split_50_50"
+          ? "Half secures your slot, and the rest is due on delivery."
+          : option.kind === "monthly"
+            ? `Spread the total across ${String(installments)} clear monthly payments.`
+            : "Pay as the agreed project milestones are reached.";
+    return {
+      id: option.kind === "monthly" ? `monthly-${String(installments)}` : option.kind,
+      choice,
+      title: paymentPlanLabel(option.kind, installments),
+      blurb,
+      dueNowCents: option.dueNowCents,
+      schedule: option.charges.map((amountCents, index) => ({
+        label: option.labels[index] ?? `Payment ${String(index + 1)}`,
+        amountCents,
+      })),
+    };
+  });
+}
 
 // Static copy per plan — the amounts are computed from the total below.
 const PLAN_COPY: Record<PaymentPlan, { title: string; blurb: string }> = {
@@ -124,10 +214,7 @@ function buildOption(plan: PaymentPlan, totalCents: number): PlanOption {
   };
 }
 
-export function planOptions(
-  totalCents: number,
-  allowed: PaymentPlan[],
-): PlanOption[] {
+export function planOptions(totalCents: number, allowed: PaymentPlan[]): PlanOption[] {
   return allowed.map((plan) => buildOption(plan, totalCents));
 }
 
@@ -149,9 +236,7 @@ export function paidProgress(
 } {
   const remainingCents = Math.max(0, totalCents - paidCents);
   const pct =
-    totalCents <= 0
-      ? 100
-      : Math.min(100, Math.max(0, Math.round((paidCents / totalCents) * 100)));
+    totalCents <= 0 ? 100 : Math.min(100, Math.max(0, Math.round((paidCents / totalCents) * 100)));
   return {
     paidLabel: formatShekels(paidCents),
     totalLabel: formatShekels(totalCents),
@@ -163,13 +248,7 @@ export function paidProgress(
 
 // ── Proof-of-payment status ─────────────────────────────────────────────────
 
-export type ProofStatus =
-  | "empty"
-  | "attached"
-  | "uploading"
-  | "awaiting"
-  | "rejected"
-  | "paid";
+export type ProofStatus = "empty" | "attached" | "uploading" | "awaiting" | "rejected" | "paid";
 
 export function proofStatusCopy(
   status: ProofStatus,
@@ -196,33 +275,4 @@ export function proofStatusCopy(
 
 // ── Re-exports so screens import everything from one place ──────────────────
 
-export {
-  formatShekels,
-  swatchGradient,
-  type Producer,
-  type PurchaseProduct,
-};
-
-// ── Placeholder content (mirrors the prototype's flagship offer) ────────────
-// MOCK — BE-2 (SK-38) provides plans + POP upload + Gate 2; swap MOCK_* for the
-// tRPC caller in page.tsx, screens unchanged.
-
-export const MOCK_PLAN_OPTIONS: PlanOption[] = planOptions(
-  MOCK_PRODUCT.priceCents,
-  ["full", "split", "milestones"],
-);
-
-export const MOCK_BANK = {
-  bank: "Bank Hapoalim",
-  branch: "613",
-  account: "12-345678",
-  bit: "052-000-0000",
-};
-
-export const MOCK_PROOFS: { id: string; amountCents: number; status: ProofStatus }[] = [
-  { id: "pop-1", amountCents: 120000, status: "awaiting" },
-];
-
-// A partial running total — half the flagship offer is paid so far.
-export const MOCK_PAID_CENTS = 120000;
-export const MOCK_TOTAL_CENTS = MOCK_PRODUCT.priceCents;
+export { formatShekels, swatchGradient, type Producer, type PurchaseProduct };
