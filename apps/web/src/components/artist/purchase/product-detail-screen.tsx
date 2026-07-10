@@ -18,12 +18,7 @@
 import { useRef } from "react";
 import { useRouter } from "next/navigation";
 
-import {
-  ArrowRight,
-  Check,
-  ClockIcon,
-  LockIcon,
-} from "~/components/artist/funnel/funnel-icons";
+import { ArrowRight, Check, ClockIcon, LockIcon } from "~/components/artist/funnel/funnel-icons";
 import { Eyebrow, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { StickyNav } from "~/components/artist/sticky-nav";
 import {
@@ -47,7 +42,7 @@ function PlanChip({ children }: { children: React.ReactNode }) {
       className="inline-flex items-center rounded-[var(--radius-sm)] border px-2.5 py-[5px] font-mono text-[10px] font-semibold tracking-[0.06em]"
       style={{
         background: "rgb(var(--bg-elevated))",
-        borderColor: "rgb(var(--border-strong))",
+        borderColor: "rgb(var(--border-control))",
         color: "rgb(var(--fg-secondary))",
       }}
     >
@@ -61,11 +56,14 @@ export function ProductDetailScreen({
   producer,
   productId,
   pendingRequest = false,
+  previewAgreeHref,
 }: {
   product: PurchaseProduct;
   producer: Producer;
   productId: string;
   pendingRequest?: boolean;
+  /** Dev-gallery navigation only; real routes derive this from productId. */
+  previewAgreeHref?: string | undefined;
 }) {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -105,7 +103,7 @@ export function ProductDetailScreen({
           </span>
         </div>
 
-        {/* pending banner — a request is already in review with this studio */}
+        {/* active-purchase banner — the slot stays occupied until paid in full */}
         {pendingRequest ? (
           <div
             className="sk-rise mx-5 mt-3.5 flex items-start gap-2.5 rounded-[14px] border px-3.5 py-3"
@@ -114,19 +112,19 @@ export function ProductDetailScreen({
               borderColor: "rgb(var(--brand-primary) / 0.26)",
             }}
           >
-            <span className="mt-px text-[rgb(var(--brand-primary-dark))]">
+            <span className="mt-px text-[rgb(var(--brand-primary-text))]">
               <ClockIcon />
             </span>
-            <span className="text-[12.5px] leading-normal text-[rgb(var(--brand-primary-dark))]">
-              A request is already in review with {producer.name || "this studio"}.
-              You can pick this up once that one&apos;s settled.
+            <span className="text-[12.5px] leading-normal text-[rgb(var(--brand-primary-text))]">
+              You already have an active purchase with {producer.name || "this studio"}. You can
+              start another once it is fully paid.
             </span>
           </div>
         ) : null}
 
         {/* ticket head — title + tagline + receipt price card */}
         <div className="px-5 pt-[18px]">
-          <h1 className="sk-rise font-syne text-[26px] font-extrabold leading-[1.1] tracking-[-0.035em] text-[rgb(var(--fg-default))] [text-wrap:pretty]">
+          <h1 className="sk-rise font-syne text-[26px] leading-[1.1] font-extrabold tracking-[-0.035em] [text-wrap:pretty] text-[rgb(var(--fg-default))]">
             {product.name}
           </h1>
           {product.tagline ? (
@@ -146,19 +144,17 @@ export function ProductDetailScreen({
             }}
           >
             <div>
-              <span className="inline-flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+              <span className="inline-flex items-center gap-1.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
                 <LockIcon />
                 Locks at request
               </span>
-              <div className="mt-1.5 font-syne text-[36px] font-extrabold leading-none tracking-[-0.04em] text-[rgb(var(--fg-default))]">
+              <div className="font-syne mt-1.5 text-[36px] leading-none font-extrabold tracking-[-0.04em] text-[rgb(var(--fg-default))]">
                 {formatShekels(product.priceCents)}
               </div>
             </div>
             <div className="text-right font-mono text-[10px] leading-[1.7] text-[rgb(var(--fg-muted))]">
               <div>
-                {product.sessions > 1
-                  ? `${String(product.sessions)} sessions`
-                  : "1 project"}
+                {product.sessions > 1 ? `${String(product.sessions)} sessions` : "1 project"}
               </div>
               {product.depositPct > 0 ? (
                 <div>{String(product.depositPct)}% deposit</div>
@@ -179,7 +175,7 @@ export function ProductDetailScreen({
             }}
           >
             <span
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] font-syne text-[13px] font-extrabold text-white"
+              className="font-syne flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] text-[13px] font-extrabold text-white"
               style={{ background: swatchGradient(producer.hue) }}
             >
               {producer.initials}
@@ -197,7 +193,7 @@ export function ProductDetailScreen({
               onClick={() => {
                 router.push("/artist/store");
               }}
-              className="sk-press-row shrink-0 text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))]"
+              className="sk-press-row -my-3 inline-flex min-h-11 shrink-0 items-center px-2 text-[12.5px] font-semibold text-[rgb(var(--brand-primary-text))]"
             >
               Store
             </button>
@@ -207,15 +203,17 @@ export function ProductDetailScreen({
         {/* what's included — bare amber-check rows + meta line */}
         {product.includes.length > 0 ? (
           <div className="sk-rise px-5 pt-5" style={{ animationDelay: "140ms" }}>
-            <Eyebrow className="mb-3">What&apos;s included</Eyebrow>
-            <div className="flex flex-col gap-[11px]">
+            <h2 className="mb-3">
+              <Eyebrow>What&apos;s included</Eyebrow>
+            </h2>
+            <ul className="flex list-none flex-col gap-[11px]">
               {product.includes.map((line) => (
-                <div key={line} className="flex items-start gap-[11px]">
+                <li key={line} className="flex items-start gap-[11px]">
                   <span
                     className="mt-px flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
                     style={{
                       background: "rgb(var(--brand-primary) / 0.14)",
-                      color: "rgb(var(--brand-primary-dark))",
+                      color: "rgb(var(--brand-primary-text))",
                     }}
                   >
                     <Check width={12} height={12} />
@@ -223,9 +221,9 @@ export function ProductDetailScreen({
                   <span className="text-[14px] leading-normal text-[rgb(var(--fg-secondary))]">
                     {line}
                   </span>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
             <div className="mt-4 flex flex-wrap gap-[18px] text-[12.5px] text-[rgb(var(--fg-muted))]">
               <span className="inline-flex items-center gap-1.5">
                 <ClockIcon />
@@ -248,23 +246,27 @@ export function ProductDetailScreen({
             style={{ borderColor: "rgb(var(--border-subtle))" }}
           >
             <div className="flex items-center justify-between">
-              <Eyebrow>Payment</Eyebrow>
-              <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+              <h2>
+                <Eyebrow>Payment</Eyebrow>
+              </h2>
+              <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[9px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
                 Set after approval
               </span>
             </div>
             <p className="mt-2.5 text-[13.5px] leading-normal text-[rgb(var(--fg-secondary))]">
-              Pay in <b className="font-bold">full</b>, or on a{" "}
-              <b className="font-bold">plan</b> — {producer.name || "the producer"}{" "}
-              sets which options this offer allows once they approve your request.
+              Pay in <b className="font-bold">full</b>, or on a <b className="font-bold">plan</b> —{" "}
+              {producer.name || "the producer"} sets which options this offer allows once they
+              approve your request.
             </p>
-            <div className="mt-3 flex flex-wrap gap-[7px]">
+            <ul className="mt-3 flex list-none flex-wrap gap-[7px]">
               {product.planKinds.map((kind) => (
-                <PlanChip key={kind}>
-                  {(PLAN_CHIP_LABELS[kind] ?? (() => kind))(product.priceCents)}
-                </PlanChip>
+                <li key={kind}>
+                  <PlanChip>
+                    {(PLAN_CHIP_LABELS[kind] ?? (() => kind))(product.priceCents)}
+                  </PlanChip>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         </div>
 
@@ -274,7 +276,7 @@ export function ProductDetailScreen({
             className="flex items-start gap-[11px] rounded-[var(--radius-lg)] px-[15px] py-[13px]"
             style={{
               background: "rgb(var(--bg-sidebar))",
-              color: "rgb(var(--fg-inverse))",
+              color: "rgb(var(--fg-onsidebar))",
             }}
           >
             <span className="mt-px text-[rgb(var(--brand-primary))]">
@@ -282,11 +284,9 @@ export function ProductDetailScreen({
             </span>
             <span className="text-[12.5px] leading-[1.55]">
               Your price locks now —{" "}
-              <b className="font-bold text-white">
-                {formatShekels(product.priceCents)}
-              </b>{" "}
-              stays fixed once you request. No money moves yet; this just sends
-              a request to {producer.name || "the producer"}.
+              <b className="font-bold text-white">{formatShekels(product.priceCents)}</b> stays
+              fixed once you request. No money moves yet; this just sends a request to{" "}
+              {producer.name || "the producer"}.
             </span>
           </div>
         </div>
@@ -309,13 +309,13 @@ export function ProductDetailScreen({
           >
             <PrimaryCta
               onClick={() => {
-                router.push(`/artist/purchase/${productId}/agree`);
+                router.push(previewAgreeHref ?? `/artist/purchase/${productId}/agree`);
               }}
               disabled={pendingRequest}
               glow={!pendingRequest}
               sub={
                 pendingRequest
-                  ? "You have a request in review — finish that first."
+                  ? "You have an active purchase — finish paying that first."
                   : "Price locks now · no payment yet"
               }
             >

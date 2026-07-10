@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { TRPCError } from "@trpc/server";
 
@@ -10,6 +11,8 @@ type PageProps = {
   params: Promise<{ productId: string }>;
   searchParams: Promise<{ req?: string }>;
 };
+
+export const metadata: Metadata = { title: "Request sent" };
 
 // S5 — Request sent (Commit). Real BE-1 data (SK-46): the request id comes
 // back from `requestToBookAction` as `?req=`; we read the row with

@@ -9,27 +9,21 @@
 //
 // Card pay is v2 (Tranzila), shown here as a greyed, inert "coming soon" row.
 //
-// Data-only props (serializable from the server page). Navigation + the
-// clipboard copy live here. When BE-2 (SK-38) lands the producer's real bank
-// details, the page swaps the mock for the caller — the screen is unchanged.
+// Data-only props come from the locked request and the producer's real
+// payment settings. Navigation + clipboard copy live here.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
-import {
-  Eyebrow,
-  FunnelTopBar,
-  PrimaryCta,
-} from "~/components/artist/funnel/funnel-ui";
+import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { formatShekels } from "./pay-data";
 
 // The producer's off-app payment details. Absent → "will send details".
-export type BankDetails = {
-  bank: string;
-  branch: string;
-  account: string;
-  bit: string;
+export type PaymentDetails = {
+  bankTransfer?: string | undefined;
+  bitPhone?: string | undefined;
+  note?: string | undefined;
 };
 
 // Inline copy glyph — kept local so the shared icon set stays untouched
@@ -37,6 +31,7 @@ export type BankDetails = {
 function CopyGlyph() {
   return (
     <svg
+      aria-hidden="true"
       width="11"
       height="11"
       viewBox="0 0 24 24"
@@ -55,59 +50,113 @@ function CopyGlyph() {
 // Small inline copy control — writes one value to the clipboard and flips to a
 // brief "Copied" confirmation. Kept inline (not a shared atom) per the brief.
 function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
+  function copyWithSelection(): boolean {
+    const field = document.createElement("textarea");
+    field.value = value;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.append(field);
+    field.select();
+    // Deprecated but still the only broadly supported fallback when the
+    // async Clipboard API is denied inside an embedded mobile browser.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const copied = document.execCommand("copy");
+    field.remove();
+    buttonRef.current?.focus();
+    return copied;
+  }
 
   async function copy() {
+    let copied = false;
     try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => {
-        setCopied(false);
-      }, 1600);
+      // Some embedded browsers expose the API but leave its promise pending.
+      // Bound the wait so the selection fallback always gets a chance.
+      await Promise.race([
+        navigator.clipboard.writeText(value),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error("Clipboard timed out"));
+          }, 600);
+        }),
+      ]);
+      copied = true;
     } catch {
-      // Clipboard blocked (insecure context / denied) — stay silent; the value
-      // is still visible to read off manually.
+      copied = copyWithSelection();
     }
+    setCopyState(copied ? "copied" : "failed");
+    setTimeout(() => {
+      setCopyState("idle");
+    }, 1800);
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        void copy();
-      }}
-      aria-label={`Copy ${label}`}
-      className="sk-press inline-flex shrink-0 items-center gap-[5px] rounded-full px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.08em] transition-colors"
-      style={
-        copied
-          ? {
-              background: "rgb(var(--fg-success) / 0.14)",
-              color: "rgb(var(--fg-success))",
-            }
-          : {
-              /* amber-tinted pill (proto-s8) */
-              background: "rgb(var(--brand-primary) / 0.14)",
-              color: "rgb(var(--brand-primary-dark))",
-            }
-      }
-    >
-      {copied ? (
-        <>
-          <Check width={11} height={11} />
-          Copied
-        </>
-      ) : (
-        <>
-          <CopyGlyph />
-          Copy
-        </>
-      )}
-    </button>
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => {
+          void copy();
+        }}
+        aria-label={
+          copyState === "copied"
+            ? `Copied: ${label}`
+            : copyState === "failed"
+              ? `Copy manually: ${label}`
+              : `Copy ${label}`
+        }
+        className="sk-press inline-flex min-h-11 shrink-0 items-center gap-[5px] rounded-full border px-3 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase transition-colors"
+        style={
+          copyState === "copied"
+            ? {
+                background: "rgb(var(--fg-success) / 0.14)",
+                borderColor: "rgb(var(--fg-success-text) / 0.65)",
+                color: "rgb(var(--fg-success-text))",
+              }
+            : copyState === "failed"
+              ? {
+                  background: "rgb(var(--fg-danger) / 0.1)",
+                  borderColor: "rgb(var(--fg-danger-text) / 0.65)",
+                  color: "rgb(var(--fg-danger-text))",
+                }
+              : {
+                  /* amber-tinted pill (proto-s8) */
+                  background: "rgb(var(--brand-primary) / 0.14)",
+                  borderColor: "rgb(var(--brand-primary-text) / 0.65)",
+                  color: "rgb(var(--brand-primary-text))",
+                }
+        }
+      >
+        {copyState === "copied" ? (
+          <>
+            <Check aria-hidden="true" width={11} height={11} />
+            Copied
+          </>
+        ) : copyState === "failed" ? (
+          <>Copy manually</>
+        ) : (
+          <>
+            <CopyGlyph />
+            Copy
+          </>
+        )}
+      </button>
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {copyState === "copied"
+          ? `${label} copied to the clipboard.`
+          : copyState === "failed"
+            ? `Copy failed for ${label}. Select and copy it manually.`
+            : ""}
+      </span>
+    </>
   );
 }
 
 // One label/value row inside the bank card, with its own copy control.
-function DetailRow({
+function PaymentDetailBlock({
   label,
   value,
   copyLabel,
@@ -117,12 +166,12 @@ function DetailRow({
   copyLabel: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-3">
-      <div className="min-w-0">
-        <div className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+    <div className="flex items-start justify-between gap-3 py-3.5">
+      <div className="min-w-0 flex-1">
+        <div className="font-mono text-[9.5px] tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
           {label}
         </div>
-        <div className="mt-0.5 truncate font-mono text-[14.5px] font-semibold tabular-nums text-[rgb(var(--fg-default))]">
+        <div className="mt-1 font-mono text-[13.5px] leading-relaxed font-semibold break-words whitespace-pre-wrap text-[rgb(var(--fg-default))] tabular-nums">
           {value}
         </div>
       </div>
@@ -133,30 +182,38 @@ function DetailRow({
 
 export function PaymentInstructionsScreen({
   productId,
+  purchaseRequestId,
   producerName,
   amountDueNowCents,
-  bank,
-  planParam,
+  paymentDetails,
   productName,
   planLabel,
+  previewProofHref,
 }: {
   productId: string;
+  purchaseRequestId: string;
   producerName: string;
   amountDueNowCents: number;
-  /** The producer's details, or null → they'll send them after approval. */
-  bank: BankDetails | null;
-  /** Selected plan, carried through to the proof screen. */
-  planParam: string | undefined;
+  /** The producer's details, or null → they'll send them directly. */
+  paymentDetails: PaymentDetails | null;
   /** Recap row in the dark amount card: "{productName} · {planLabel}". */
   productName?: string | undefined;
   /** Human label of the chosen plan (e.g. "Split 50 / 50"). */
   planLabel?: string | undefined;
+  /** Dev-gallery navigation only; production routes derive S9 from the request id. */
+  previewProofHref?: string | undefined;
 }) {
   const router = useRouter();
+  const hasPaymentDetails = Boolean(
+    paymentDetails?.bankTransfer?.trim() || paymentDetails?.bitPhone?.trim(),
+  );
 
   const goToProof = () => {
-    const qs = planParam ? `?plan=${encodeURIComponent(planParam)}` : "";
-    router.push(`/artist/purchase/${productId}/pay/proof${qs}`);
+    if (previewProofHref) {
+      router.push(previewProofHref);
+      return;
+    }
+    router.push(`/artist/purchase/${productId}/pay/proof?req=${purchaseRequestId}`);
   };
 
   return (
@@ -173,24 +230,26 @@ export function PaymentInstructionsScreen({
           }}
         />
 
-        <div className="flex-1 px-5 pb-[184px] pt-3.5">
+        <div className="flex-1 px-5 pt-3.5 pb-[184px]">
+          <h1 className="sr-only">Payment instructions</h1>
+
           {/* amount due now — dark hero card (matches the prototype) */}
           <div
-            className="sk-rise rounded-card px-[18px] pb-[18px] pt-[15px]"
+            className="sk-rise rounded-card px-[18px] pt-[15px] pb-[18px]"
             style={{
               background: "rgb(var(--bg-sidebar))",
-              color: "rgb(var(--fg-inverse))",
+              color: "rgb(var(--fg-onsidebar))",
               boxShadow: "0 18px 40px -16px rgb(17 16 9 / 0.45)",
             }}
           >
-            <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--brand-primary))]">
+            <div className="font-mono text-[9.5px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary))] uppercase">
               Amount due now
             </div>
-            <div className="mt-1.5 font-amount text-[42px] font-bold leading-none tracking-[-0.04em] text-white">
+            <div className="font-amount mt-1.5 text-[42px] leading-none font-bold tracking-[-0.04em] text-white">
               {formatShekels(amountDueNowCents)}
             </div>
             {/* chosen-plan recap (proto-s8): "{product} · {plan}" */}
-            {productName ?? planLabel ? (
+            {(productName ?? planLabel) ? (
               <div className="mt-2 truncate text-[12.5px] font-medium text-white/80">
                 {[productName, planLabel].filter(Boolean).join(" · ")}
               </div>
@@ -200,13 +259,12 @@ export function PaymentInstructionsScreen({
             </p>
           </div>
 
-          {bank ? (
+          {hasPaymentDetails && paymentDetails ? (
             /* method — bank transfer + Bit, each value copyable */
-            <div
-              className="sk-rise mt-[18px]"
-              style={{ animationDelay: "80ms" }}
-            >
-              <Eyebrow className="mb-[9px]">Bank transfer</Eyebrow>
+            <div className="sk-rise mt-[18px]" style={{ animationDelay: "80ms" }}>
+              <h2 className="mb-[9px]">
+                <Eyebrow>Bank transfer</Eyebrow>
+              </h2>
               <div
                 className="rounded-card px-[18px]"
                 style={{
@@ -215,24 +273,46 @@ export function PaymentInstructionsScreen({
                   boxShadow: "var(--shadow-sm)",
                 }}
               >
-                <DetailRow label="Bank" value={bank.bank} copyLabel="bank name" />
-                <div style={{ borderTop: "1px solid rgb(var(--border-subtle))" }} />
-                <DetailRow label="Branch" value={bank.branch} copyLabel="branch number" />
-                <div style={{ borderTop: "1px solid rgb(var(--border-subtle))" }} />
-                <DetailRow label="Account" value={bank.account} copyLabel="account number" />
+                {paymentDetails.bankTransfer ? (
+                  <PaymentDetailBlock
+                    label="Transfer details"
+                    value={paymentDetails.bankTransfer}
+                    copyLabel="bank transfer details"
+                  />
+                ) : (
+                  <div className="py-4 text-[13px] text-[rgb(var(--fg-muted))]">
+                    Ask {producerName} for their bank transfer details.
+                  </div>
+                )}
               </div>
 
-              <Eyebrow className="mb-[9px] mt-[18px]">Bit</Eyebrow>
-              <div
-                className="rounded-card px-[18px]"
-                style={{
-                  background: "rgb(var(--bg-elevated))",
-                  border: "1px solid rgb(var(--border-subtle))",
-                  boxShadow: "var(--shadow-sm)",
-                }}
-              >
-                <DetailRow label="Bit number" value={bank.bit} copyLabel="Bit number" />
-              </div>
+              {paymentDetails.bitPhone ? (
+                <>
+                  <h2 className="mt-[18px] mb-[9px]">
+                    <Eyebrow>Bit</Eyebrow>
+                  </h2>
+                  <div
+                    className="rounded-card px-[18px]"
+                    style={{
+                      background: "rgb(var(--bg-elevated))",
+                      border: "1px solid rgb(var(--border-subtle))",
+                      boxShadow: "var(--shadow-sm)",
+                    }}
+                  >
+                    <PaymentDetailBlock
+                      label="Bit number"
+                      value={paymentDetails.bitPhone}
+                      copyLabel="Bit number"
+                    />
+                  </div>
+                </>
+              ) : null}
+
+              {paymentDetails.note ? (
+                <p className="mt-3 text-[12.5px] leading-relaxed whitespace-pre-wrap text-[rgb(var(--fg-muted))]">
+                  {paymentDetails.note}
+                </p>
+              ) : null}
             </div>
           ) : (
             /* fallback — producer hasn't shared details yet */
@@ -249,7 +329,7 @@ export function PaymentInstructionsScreen({
                 className="mt-px flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]"
                 style={{
                   background: "rgb(var(--brand-primary) / 0.14)",
-                  color: "rgb(var(--brand-primary-dark))",
+                  color: "rgb(var(--brand-primary-text))",
                 }}
               >
                 <ShieldIcon width={16} height={16} />
@@ -270,18 +350,17 @@ export function PaymentInstructionsScreen({
               never reads as tappable. */}
           <div
             className="sk-rise rounded-card mt-3 flex items-center justify-between gap-3 px-4 py-3.5"
-            aria-disabled="true"
+            role="note"
+            aria-label="Pay by card, coming soon"
             style={{
               animationDelay: "140ms",
               background: "rgb(var(--bg-background))",
-              border: "1px dashed rgb(var(--border-strong))",
+              border: "1px dashed rgb(var(--border-control))",
               opacity: 0.45,
             }}
           >
-            <div className="text-[14px] font-medium text-[rgb(var(--fg-muted))]">
-              Pay by card
-            </div>
-            <div className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+            <div className="text-[14px] font-medium text-[rgb(var(--fg-muted))]">Pay by card</div>
+            <div className="font-mono text-[9.5px] tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
               Coming soon
             </div>
           </div>
@@ -300,7 +379,7 @@ export function PaymentInstructionsScreen({
 
         {/* pinned action */}
         <div
-          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pb-3.5 pt-3.5"
+          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5"
           style={{
             background:
               "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",

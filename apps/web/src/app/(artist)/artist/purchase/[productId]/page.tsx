@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { TRPCError } from "@trpc/server";
 
@@ -7,6 +8,8 @@ import { toProducer, toPurchaseProduct } from "~/lib/purchase/product-mapping";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ productId: string }> };
+
+export const metadata: Metadata = { title: "Product details" };
 
 // S3 — Product detail + "Request to book" (Commit · ENTRY). The funnel's
 // front door: the artist reads the offer, sees the price (which locks at

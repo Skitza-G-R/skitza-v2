@@ -54,11 +54,11 @@ describe("ArtistAppShell + ArtistTopBar wiring", () => {
   });
 
   it("renders the topbar above <main> so it sits at the top of the column", () => {
-    // Match the JSX element specifically (`<main className=`) so we
+    // Match the JSX element specifically (`<main`) so we
     // don't pick up the literal `<main>` text in the rationale
     // comment above.
     const topbarIdx = SRC.indexOf("<ArtistTopBar");
-    const mainIdx = SRC.indexOf("<main className");
+    const mainIdx = SRC.indexOf("<main", topbarIdx);
     expect(topbarIdx).toBeGreaterThan(-1);
     expect(mainIdx).toBeGreaterThan(topbarIdx);
   });

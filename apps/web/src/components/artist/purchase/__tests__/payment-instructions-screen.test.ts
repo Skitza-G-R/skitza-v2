@@ -13,6 +13,22 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const S8_PATH = join(here, "..", "payment-instructions-screen.tsx");
 const s8Src = readFileSync(S8_PATH, "utf8");
+const PAGE_PATH = join(
+  here,
+  "..",
+  "..",
+  "..",
+  "..",
+  "app",
+  "(artist)",
+  "artist",
+  "purchase",
+  "[productId]",
+  "pay",
+  "instructions",
+  "page.tsx",
+);
+const pageSrc = readFileSync(PAGE_PATH, "utf8");
 
 describe("payment-instructions-screen.tsx (S8) wiring", () => {
   it("is a client component (clipboard + router live here)", () => {
@@ -24,26 +40,41 @@ describe("payment-instructions-screen.tsx (S8) wiring", () => {
     expect(s8Src).toMatch(/from "\.\/pay-data"/);
   });
 
+  it("exposes one clear page heading to assistive technology", () => {
+    expect(s8Src).toMatch(/<h1 className="sr-only">Payment instructions<\/h1>/);
+  });
+
   it("offers a copy control that writes to the clipboard", () => {
     // an inline CopyButton that toggles a 'copied' confirmation state
     expect(s8Src).toMatch(/CopyButton/);
     expect(s8Src).toMatch(/navigator\.clipboard|writeText/);
+    expect(s8Src).toMatch(/Promise\.race/);
+    expect(s8Src).toMatch(/document\.execCommand\("copy"\)/);
     expect(s8Src).toMatch(/Copied/);
+    expect(s8Src).toMatch(/Copy manually/);
   });
 
   it("shows a greyed 'Pay by card — coming soon' row that is NOT a link/button action", () => {
     expect(s8Src).toMatch(/coming soon/i);
     // the coming-soon card must be inert: no onClick / href / <a> / role=button on it
-    expect(s8Src).toMatch(/aria-disabled/);
+    expect(s8Src).toMatch(/role="note"/);
+    expect(s8Src).toMatch(/aria-label="Pay by card, coming soon"/);
   });
 
   it("routes the primary action to the proof-upload screen", () => {
-    expect(s8Src).toMatch(/router\.push\(`\/artist\/purchase\/\$\{productId\}\/pay\/proof/);
+    expect(s8Src).toMatch(/router\.push\(\s*`\/artist\/purchase\/\$\{productId\}\/pay\/proof/);
+    expect(s8Src).toMatch(/req=\$\{purchaseRequestId\}/);
   });
 
   it("supports the 'producer will send details' fallback when bank details are absent", () => {
     expect(s8Src).toMatch(/will send/i);
-    // a branch keyed on whether bank details exist
-    expect(s8Src).toMatch(/bank\b/);
+    expect(s8Src).toMatch(/paymentDetails/);
+  });
+
+  it("reads the locked request's real payment instructions", () => {
+    expect(pageSrc).toMatch(/caller\.artist\.purchase\.paymentInstructions/);
+    expect(pageSrc).toMatch(/purchaseRequestId: req/);
+    expect(pageSrc).toMatch(/data\.productId && data\.productId !== productId/);
+    expect(pageSrc).not.toMatch(/MOCK_/);
   });
 });

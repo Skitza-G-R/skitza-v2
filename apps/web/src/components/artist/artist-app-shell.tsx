@@ -9,6 +9,7 @@ import { TopBarBreadcrumbProvider } from "~/components/shell/topbar-breadcrumb-c
 
 import { ArtistAudioProvider } from "./artist-audio-context";
 import { PersistentMiniPlayer } from "./persistent-mini-player";
+import { ArtistShellChrome } from "./artist-shell-chrome";
 
 // Artist app shell — Phase 2 (locked design system).
 //
@@ -75,13 +76,17 @@ export function ArtistAppShell({
       >
         {/* Desktop-only left rail. `hidden lg:flex` is set inside the
             sidebar component so this fragment stays declarative. */}
-        <ArtistDesktopSidebar studios={studios} />
+        <ArtistShellChrome>
+          <ArtistDesktopSidebar studios={studios} />
+        </ArtistShellChrome>
 
         {/* Main column — top bar (mobile only) + content + bottom nav
             (mobile only). Flex-column so the top bar sits flush above
             scrolling content. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <ArtistMobileTopBar studios={studios} />
+          <ArtistShellChrome>
+            <ArtistMobileTopBar studios={studios} />
+          </ArtistShellChrome>
           {/* SK-31: replicate the producer top bar on the artist side,
               desktop only. The `<TopBarBreadcrumbProvider>` wraps both
               the topbar and `<main>` so deep artist pages can push
@@ -92,9 +97,11 @@ export function ArtistAppShell({
               `ArtistMobileTopBar` continues to own the top of the
               screen (per Gili's SK-31 decision). */}
           <TopBarBreadcrumbProvider>
-            <div className="hidden lg:block">
-              <ArtistTopBar unreadCount={unreadCount} />
-            </div>
+            <ArtistShellChrome>
+              <div className="hidden lg:block">
+                <ArtistTopBar unreadCount={unreadCount} />
+              </div>
+            </ArtistShellChrome>
             {/* `pb-20` reserves space for the mobile bottom nav (56px
                 tab row + 8px safe-area buffer). `lg:pb-12` keeps a
                 little vertical breathing room on desktop where there's
@@ -103,21 +110,27 @@ export function ArtistAppShell({
                 column readable at tablet+ widths even on the desktop
                 sidebar layout — Phase 3 pages can opt out by setting
                 their own width. */}
-            <main className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6 lg:max-w-none lg:px-10 lg:pb-12 lg:pt-10">
+            <main
+              id="main-content"
+              tabIndex={-1}
+              className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6 lg:max-w-none lg:px-10 lg:pb-12 lg:pt-10"
+            >
               {children}
             </main>
           </TopBarBreadcrumbProvider>
         </div>
 
-        <PersistentMiniPlayer />
-        {/* SK-27: PersistentPlayer is the producer-side floating dock.
-            It powers the shared Music Library's Play buttons
-            (useNowPlaying / playerPlay event bus) on the artist side.
-            Renders null when no track is loaded, so it sits inert on
-            artist pages that still use ArtistAudio. Both players will
-            be unified in a follow-up — for PR #1 they coexist. */}
-        <PersistentPlayer />
-        <ArtistBottomNav />
+        <ArtistShellChrome>
+          <PersistentMiniPlayer />
+          {/* SK-27: PersistentPlayer is the producer-side floating dock.
+              It powers the shared Music Library's Play buttons
+              (useNowPlaying / playerPlay event bus) on the artist side.
+              Renders null when no track is loaded, so it sits inert on
+              artist pages that still use ArtistAudio. Both players will
+              be unified in a follow-up — for PR #1 they coexist. */}
+          <PersistentPlayer />
+          <ArtistBottomNav />
+        </ArtistShellChrome>
       </div>
     </ArtistAudioProvider>
   );

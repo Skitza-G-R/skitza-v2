@@ -29,11 +29,9 @@ export function RippleEmblem({
   className?: string;
 }) {
   const success = tone === "success";
-  const ring = success
-    ? "rgb(var(--fg-success) / 0.30)"
-    : "rgb(var(--brand-primary) / 0.30)";
+  const ring = success ? "rgb(var(--fg-success) / 0.30)" : "rgb(var(--brand-primary) / 0.30)";
   return (
-    <div className={`relative inline-flex ${className}`}>
+    <div aria-hidden="true" className={`relative inline-flex ${className}`}>
       <span
         className="sk-ripple pointer-events-none absolute -inset-[18px] rounded-full"
         style={{ border: `1.5px solid ${ring}` }}
@@ -49,10 +47,10 @@ export function RippleEmblem({
         style={
           success
             ? {
-                background: "rgb(var(--fg-success))",
-                color: "rgb(255 255 255)",
+                background: "rgb(var(--fg-success-text))",
+                color: "rgb(var(--fg-on-success))",
                 boxShadow:
-                  "0 20px 46px -14px rgb(var(--fg-success) / 0.55), inset 0 0 0 1.5px rgb(255 255 255 / 0.18)",
+                  "0 20px 46px -14px rgb(var(--fg-success-text) / 0.55), inset 0 0 0 1.5px rgb(255 255 255 / 0.18)",
               }
             : {
                 background: "rgb(var(--bg-sidebar))",
@@ -80,21 +78,18 @@ export function Eyebrow({
   className?: string;
 }) {
   return (
-    <div
-      className={`inline-flex items-center gap-[9px] whitespace-nowrap font-mono text-[10px] font-bold uppercase tracking-[0.16em] ${
-        gold
-          ? "text-[rgb(var(--brand-primary-dark))]"
-          : "text-[rgb(var(--fg-muted))]"
+    <span
+      className={`inline-flex items-center gap-[9px] font-mono text-[10px] font-bold tracking-[0.16em] whitespace-nowrap uppercase ${
+        gold ? "text-[rgb(var(--brand-primary-text))]" : "text-[rgb(var(--fg-muted))]"
       } ${className}`}
     >
       {children}
-    </div>
+    </span>
   );
 }
 
-// Solid, blurred top bar for funnel screens with no cover image. Sticks to
-// the top of the scroll container; `sk-safe-top` keeps the title clear of
-// the device notch.
+// Solid top bar for funnel screens with no cover image. An opaque surface is
+// intentional: narrow embedded browsers can render backdrop blur as black.
 export function FunnelTopBar({
   title,
   sub,
@@ -108,36 +103,33 @@ export function FunnelTopBar({
     <header
       className="sk-safe-top sticky top-0 z-20"
       style={{
-        background: "rgb(var(--bg-background) / 0.9)",
-        backdropFilter: "blur(16px) saturate(160%)",
-        WebkitBackdropFilter: "blur(16px) saturate(160%)",
+        background: "rgb(var(--bg-background))",
         borderBottom: "1px solid rgb(var(--fg-default) / 0.07)",
       }}
     >
-      <div className="relative flex h-[52px] items-center justify-center px-[14px]">
+      <div className="relative flex h-[56px] items-center justify-center px-[14px]">
         {onBack ? (
           <button
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="sk-press absolute left-[14px] inline-flex h-[38px] w-[38px] items-center justify-center rounded-full"
+            className="sk-press absolute left-[14px] inline-flex h-11 w-11 items-center justify-center rounded-full"
             style={{
               background: "rgb(var(--bg-elevated))",
               color: "rgb(var(--fg-default))",
               border: "1px solid rgb(var(--fg-default) / 0.08)",
-              boxShadow:
-                "0 1px 2px 0 rgb(17 16 9 / 0.06), 0 4px 12px -4px rgb(17 16 9 / 0.10)",
+              boxShadow: "0 1px 2px 0 rgb(17 16 9 / 0.06), 0 4px 12px -4px rgb(17 16 9 / 0.10)",
             }}
           >
             <ChevronLeft />
           </button>
         ) : null}
-        <div className="px-12 text-center">
-          <div className="font-syne text-[15px] font-extrabold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+        <div className="min-w-0 px-14 text-center">
+          <div className="font-syne truncate text-[clamp(13px,4vw,15px)] font-extrabold tracking-[-0.01em] whitespace-nowrap text-[rgb(var(--fg-default))]">
             {title}
           </div>
           {sub ? (
-            <div className="mt-px font-mono text-[9px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            <div className="mt-px font-mono text-[9px] tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
               {sub}
             </div>
           ) : null}
@@ -162,7 +154,7 @@ export function GlassRound({
       type="button"
       onClick={onClick}
       aria-label={ariaLabel}
-      className="sk-press inline-flex h-[38px] w-[38px] items-center justify-center rounded-full"
+      className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full"
       style={{
         background: "rgba(255, 255, 255, 0.86)",
         color: "rgb(var(--fg-default))",
@@ -187,6 +179,7 @@ export function PrimaryCta({
   glow = true,
   sub,
   type = "button",
+  ariaBusy = false,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -194,12 +187,14 @@ export function PrimaryCta({
   glow?: boolean;
   sub?: ReactNode;
   type?: "button" | "submit";
+  ariaBusy?: boolean;
 }) {
   return (
     <button
       type={type}
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
+      aria-busy={ariaBusy || undefined}
       className={`relative flex w-full flex-col items-center gap-[3px] overflow-hidden rounded-[var(--radius-card)] px-[22px] py-4 text-center font-semibold ${
         disabled ? "cursor-not-allowed" : "sk-cta-press sk-gloss"
       }`}
@@ -219,7 +214,11 @@ export function PrimaryCta({
             }
       }
     >
-      <span className="relative z-[2] inline-flex items-center gap-[9px] text-[16px]">
+      <span
+        className="relative z-[2] inline-flex items-center gap-[9px] text-[16px]"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         {children}
       </span>
       {sub ? (
@@ -232,13 +231,7 @@ export function PrimaryCta({
 }
 
 // White secondary action with a strong hairline border.
-export function SecondaryCta({
-  children,
-  onClick,
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-}) {
+export function SecondaryCta({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
   return (
     <button
       type="button"
@@ -247,9 +240,8 @@ export function SecondaryCta({
       style={{
         background: "rgb(var(--bg-elevated))",
         color: "rgb(var(--fg-default))",
-        border: "1px solid rgb(var(--border-strong))",
-        boxShadow:
-          "0 1px 2px 0 rgb(17 16 9 / 0.05), 0 6px 16px -10px rgb(17 16 9 / 0.18)",
+        border: "1px solid rgb(var(--border-control))",
+        boxShadow: "0 1px 2px 0 rgb(17 16 9 / 0.05), 0 6px 16px -10px rgb(17 16 9 / 0.18)",
       }}
     >
       {children}
@@ -278,9 +270,7 @@ export function AgreeCheck({
       className="sk-press flex w-full items-center gap-[13px] rounded-[var(--radius-card)] px-4 py-[15px] text-left transition-colors"
       style={{
         background: "rgb(var(--bg-elevated))",
-        border: `1.5px solid ${
-          checked ? "rgb(var(--brand-primary))" : "rgb(var(--border-strong))"
-        }`,
+        border: `1.5px solid ${checked ? "rgb(var(--focus-ring))" : "rgb(var(--border-control))"}`,
         boxShadow: checked
           ? "0 4px 14px -8px rgb(var(--brand-primary) / 0.40)"
           : "0 1px 2px 0 rgb(17 16 9 / 0.04)",
@@ -290,15 +280,13 @@ export function AgreeCheck({
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] transition-all"
         style={{
           background: checked ? "rgb(var(--brand-primary))" : "rgb(var(--bg-elevated))",
-          border: `2px solid ${
-            checked ? "rgb(var(--brand-primary))" : "rgb(var(--border-strong))"
-          }`,
+          border: `2px solid ${checked ? "rgb(var(--focus-ring))" : "rgb(var(--border-control))"}`,
           color: "rgb(var(--bg-sidebar))",
         }}
       >
         {checked ? <Check /> : null}
       </span>
-      <span className="text-[14px] font-medium leading-snug text-[rgb(var(--fg-default))]">
+      <span className="text-[14px] leading-snug font-medium text-[rgb(var(--fg-default))]">
         {children}
       </span>
     </button>

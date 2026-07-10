@@ -46,22 +46,28 @@ export function buildPlanOptions(offered: PaymentPlan[], totalCents: number): Pl
   return offered.map((p) => planOption(p, totalCents));
 }
 
-// Progress of an off-app payment against a charge schedule. Proof
-// amounts don't have to align 1:1 with charges — we walk the schedule
-// cumulatively, so a ₪1,500 payment against [1200, 1200] completes the
-// first charge and part-covers the second.
+// Progress of confirmed money against a charge schedule. The math tolerates
+// historical partial/over payments, while the current proof-submit endpoint
+// requires the exact `nextDueCents` before it accepts new evidence.
 export function chargesProgress(
   charges: number[],
   paidCents: number,
+  reservedProofCents = 0,
 ): {
   chargesCompleted: number;
   remainingCents: number;
+  /** Pending proofs reserve balance until the producer confirms/rejects. */
+  reservedCents: number;
+  /** Maximum amount a new proof may claim without exceeding the balance. */
+  availableToSubmitCents: number;
   /** the amount that finishes the CURRENT charge (null once fully paid) */
   nextDueCents: number | null;
 } {
   const total = charges.reduce((a, b) => a + b, 0);
   const paid = Math.max(0, paidCents);
   const remaining = Math.max(0, total - paid);
+  const reserved = Math.min(remaining, Math.max(0, reservedProofCents));
+  const availableToSubmit = Math.max(0, remaining - reserved);
 
   let cumulative = 0;
   let completed = 0;
@@ -77,6 +83,8 @@ export function chargesProgress(
     return {
       chargesCompleted: charges.length,
       remainingCents: 0,
+      reservedCents: 0,
+      availableToSubmitCents: 0,
       nextDueCents: null,
     };
   }
@@ -85,6 +93,8 @@ export function chargesProgress(
   return {
     chargesCompleted: completed,
     remainingCents: remaining,
+    reservedCents: reserved,
+    availableToSubmitCents: availableToSubmit,
     nextDueCents: Math.min(nextCharge - coveredIntoNext, remaining),
   };
 }
