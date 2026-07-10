@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { MobileTodayFeed } from "~/components/dashboard/overview/mobile-today-feed";
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
 import { PaymentReceivedBanner } from "~/components/dashboard/payment-received-banner";
+import { PurchaseRequestsBanner } from "~/components/dashboard/purchase-requests-banner";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
@@ -46,12 +47,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // urgency strip), and SK-20's recent-paid-unacknowledged bookings
   // (drives the payment-received banner above OverviewScreen). All
   // independent reads run in parallel.
-  const [today, me, followUpRaw, pendingBookings, urgent, recentPaid] =
+  const [today, me, followUpRaw, pendingBookings, pendingPurchaseRequests, urgent, recentPaid] =
     await Promise.all([
       caller.producer.today(),
       caller.producer.me(),
       caller.booking.needsFollowUp(),
       caller.booking.list({ status: "pending_approval" }),
+      caller.producer.purchase.list({ status: "pending" }),
       caller.producer.overview.urgent(),
       caller.booking.recentPaidUnacknowledged(),
     ]);
@@ -128,6 +130,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <div className="sk-page-enter mx-auto max-w-[1920px]">
           <h1 className="sr-only">Today</h1>
 
+          {pendingPurchaseRequests.requests.length > 0 ? (
+            <div className="mx-4 mb-5 mt-5 hidden sm:mx-6 lg:mx-8 lg:mb-0 lg:mt-8 lg:block">
+              <PurchaseRequestsBanner requests={pendingPurchaseRequests.requests} />
+            </div>
+          ) : null}
+
           {/* MOBILE (<lg) — the phone home is a dedicated activity +
               notifications feed (Gili's 2026-06-11 audit). The desktop
               banners + OverviewScreen below are all wrapped
@@ -135,6 +143,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           <MobileTodayFeed
             displayName={me.displayName}
             pendingApprovals={pendingApprovals}
+            pendingPurchaseRequests={pendingPurchaseRequests.requests}
             followUps={followUpSessions.map((s) => ({
               id: s.id,
               artistName: s.artistName,
@@ -225,6 +234,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               slug={me.slug}
               pulseStats={today.pulseStats}
               pendingApprovals={pendingApprovals}
+              pendingPurchaseRequestsCount={pendingPurchaseRequests.requests.length}
               todaySession={todaySession}
               urgentProjects={urgent.items}
               recentUploads={today.recentUploads.map((u) => ({

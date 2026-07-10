@@ -34,6 +34,7 @@ describe("DashboardTopBar (producer wrapper)", () => {
     expect(SRC).toMatch(/"\/dashboard\/clients-projects":\s*"Clients & Projects"/);
     expect(SRC).toMatch(/"\/dashboard\/music":\s*"Music"/);
     expect(SRC).toMatch(/"\/dashboard\/calendar":\s*"Calendar"/);
+    expect(SRC).toMatch(/"\/dashboard\/requests":\s*"Requests"/);
     expect(SRC).toMatch(/"\/dashboard\/settings":\s*"Settings"/);
   });
 

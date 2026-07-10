@@ -32,6 +32,7 @@ export interface ShellNotificationItem {
   trackVersionId: string | null;
   commentId: string | null;
   bookingId: string | null;
+  purchaseRequestId: string | null;
 }
 
 export interface ShellState {
@@ -89,6 +90,7 @@ export const getShellState = cache(async (): Promise<ShellState> => {
       trackVersionId: notifications.trackVersionId,
       commentId: notifications.commentId,
       bookingId: notifications.bookingId,
+      purchaseRequestId: notifications.purchaseRequestId,
     })
     .from(notifications)
     .where(
@@ -111,6 +113,7 @@ export const getShellState = cache(async (): Promise<ShellState> => {
       trackVersionId: r.trackVersionId,
       commentId: r.commentId,
       bookingId: r.bookingId,
+      purchaseRequestId: r.purchaseRequestId,
     }));
   return {
     slug: row.slug,

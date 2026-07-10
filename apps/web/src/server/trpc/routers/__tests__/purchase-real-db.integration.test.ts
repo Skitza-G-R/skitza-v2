@@ -237,6 +237,64 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     expect(["approved", "declined"]).toContain(persisted?.status);
   }, 30_000);
 
+  it("keeps a declined request visible to its artist as a generic terminal state", async () => {
+    const { caller: artist } = await createArtist("declined-gate-one");
+    const producer = appRouter.createCaller({ userId: producerUserId });
+    const created = await artist.artist.purchase.request({
+      productId,
+      paymentPlan: { kind: "full" },
+      agreementAccepted: true,
+    });
+
+    await producer.producer.purchase.decline({
+      id: created.purchaseRequestId,
+      reason: "Private producer note",
+    });
+
+    const current = await artist.artist.purchase.current({ producerId });
+    expect(current.current).toMatchObject({
+      id: created.purchaseRequestId,
+      status: "declined",
+    });
+    await expect(
+      artist.artist.purchase.paymentPlan.choose({
+        purchaseRequestId: created.purchaseRequestId,
+        paymentPlan: { kind: "full" },
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "A plan can be chosen once the request is approved and before the first payment.",
+    });
+  });
+
+  it("does not offer or accept an expired approval undo", async () => {
+    const { caller: artist } = await createArtist("expired-undo");
+    const producer = appRouter.createCaller({ userId: producerUserId });
+    const created = await artist.artist.purchase.request({
+      productId,
+      paymentPlan: { kind: "full" },
+      agreementAccepted: true,
+    });
+    await producer.producer.purchase.approve({ id: created.purchaseRequestId });
+
+    const freshDetail = await producer.producer.purchase.get({ id: created.purchaseRequestId });
+    expect(freshDetail.request.undoableUntil).toBeInstanceOf(Date);
+
+    await db
+      .update(purchaseRequests)
+      .set({ approvedAt: new Date(Date.now() - 6 * 60_000) })
+      .where(eq(purchaseRequests.id, created.purchaseRequestId));
+
+    const expiredDetail = await producer.producer.purchase.get({ id: created.purchaseRequestId });
+    expect(expiredDetail.request.undoableUntil).toBeNull();
+    await expect(
+      producer.producer.purchase.undoApproval({ id: created.purchaseRequestId }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "The undo window has elapsed.",
+    });
+  });
+
   it("keeps approval undo and plan choice coherent under a real database race", async () => {
     const { caller: artist } = await createArtist("undo-race");
     const producer = appRouter.createCaller({ userId: producerUserId });
@@ -374,6 +432,44 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     const acceptance = acceptances[0];
     if (!acceptance) throw new Error("Purchase acceptance was not persisted");
     expect(acceptance.acceptedByClerkUserId).toBe(artistUserId);
+
+    // Gate 1 producer hub: the owner sees the newly-created pending row
+    // with its locked snapshot and agreement; another producer sees
+    // neither the list item nor the private detail.
+    const ownerPending = await producer.producer.purchase.list({ status: "pending" });
+    expect(ownerPending.requests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: created.purchaseRequestId,
+          status: "pending",
+          artistName: "E2E Artist",
+          productNameSnapshot: "E2E Premium Single",
+          priceCents: 240_000,
+        }),
+      ]),
+    );
+    const detail = await producer.producer.purchase.get({ id: created.purchaseRequestId });
+    expect(detail.request).toMatchObject({
+      id: created.purchaseRequestId,
+      status: "pending",
+      artistName: "E2E Artist",
+      productNameSnapshot: "E2E Premium Single",
+      priceCents: 240_000,
+      paymentPlanOptionsSnapshot: [{ kind: "full" }, { kind: "split_50_50" }],
+      contractUrlSnapshot: "https://example.com/e2e-agreement.pdf",
+    });
+    expect(detail.agreement).toMatchObject({
+      agreementUrl: "https://example.com/e2e-agreement.pdf",
+    });
+    expect(detail.agreement.acceptedAt).toBeInstanceOf(Date);
+
+    const attackerPending = await attackerProducer.producer.purchase.list({ status: "pending" });
+    expect(attackerPending.requests).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: created.purchaseRequestId })]),
+    );
+    await expect(
+      attackerProducer.producer.purchase.get({ id: created.purchaseRequestId }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     await expect(
       strangerArtist.artist.purchase.proofOfPayment.state({

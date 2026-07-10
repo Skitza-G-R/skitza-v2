@@ -12,6 +12,7 @@ import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer
 import type { Stage } from "~/lib/projects/stages";
 import { STAGE_LABEL } from "~/lib/projects/stages";
 import { formatRelativeTime } from "~/lib/time/relative";
+import { formatMoney } from "~/lib/format/money";
 
 import { MobilePaymentRow } from "./mobile-payment-row";
 
@@ -43,6 +44,13 @@ export interface MobileTodayFeedProps {
     artistName: string;
     startsAt: Date;
     packageNameSnapshot: string | null;
+  }>;
+  pendingPurchaseRequests: Array<{
+    id: string;
+    artistName: string;
+    productNameSnapshot: string;
+    priceCents: number;
+    currency: string;
   }>;
   /** Raw follow-up sessions; the feed groups them per project. */
   followUps: Array<{
@@ -92,6 +100,7 @@ export interface MobileTodayFeedProps {
 export function MobileTodayFeed({
   displayName,
   pendingApprovals,
+  pendingPurchaseRequests,
   followUps,
   payments,
   todaySession,
@@ -109,6 +118,7 @@ export function MobileTodayFeed({
 
   const needsYouCount =
     pendingApprovals.length +
+    pendingPurchaseRequests.length +
     followUpGroups.length +
     payments.length +
     urgentProjects.length +
@@ -158,6 +168,10 @@ export function MobileTodayFeed({
           </FeedLabel>
           <div className="flex flex-col gap-2.5">
             {showSetupNudge ? <SetupNudgeCard /> : null}
+
+            {pendingPurchaseRequests.map((request) => (
+              <PurchaseRequestCard key={request.id} request={request} />
+            ))}
 
             {pendingApprovals.map((a) => (
               <ApprovalCard key={a.id} approval={a} />
@@ -306,6 +320,33 @@ function ApprovalCard({
         Review
         <ChevronRight size={12} aria-hidden />
       </span>
+    </Link>
+  );
+}
+
+function PurchaseRequestCard({
+  request,
+}: {
+  request: MobileTodayFeedProps["pendingPurchaseRequests"][number];
+}) {
+  return (
+    <Link
+      href={`/dashboard/requests/${request.id}`}
+      className="sk-press flex items-center gap-3 rounded-[var(--radius-lg)] border-[1.5px] border-[rgb(var(--brand-primary)/0.4)] bg-[rgb(var(--bg-elevated))] p-3.5 shadow-[0_4px_24px_rgb(var(--brand-primary)/0.08)]"
+    >
+      <FeedAvatar name={request.artistName} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[15px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+          {request.artistName}
+        </p>
+        <p className="mt-0.5 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+          {request.productNameSnapshot}
+        </p>
+        <p className="mt-1 font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[rgb(var(--brand-primary))]">
+          Purchase request · {formatMoney(request.priceCents, request.currency)}
+        </p>
+      </div>
+      <ChevronRight size={16} aria-hidden className="shrink-0 text-[rgb(var(--brand-primary))]" />
     </Link>
   );
 }

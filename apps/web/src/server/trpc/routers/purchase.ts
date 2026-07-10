@@ -33,6 +33,8 @@ import {
   isUniqueViolation,
   offeredPlans,
   planIsOffered,
+  PURCHASE_APPROVAL_UNDO_MS,
+  purchaseApprovalUndoableUntil,
 } from "~/lib/purchase/request-helpers";
 import type { PaymentPlanChoice } from "~/lib/purchase/request-helpers";
 import { calculateCharges } from "~/server/payments/plan";
@@ -68,11 +70,9 @@ import { artistProcedure } from "../artist-procedure";
 import { producerProcedure } from "../producer-procedure";
 import { router } from "../init";
 
-// 5-minute Gate-1 undo window. There is no scheduler in the app, so the
-// window is enforced purely at undo-time (now − approvedAt < UNDO_MS).
 // Per Raz's call, the engagement project is NOT created on approve — it's
-// deferred until the window elapses — so undo has nothing to reverse.
-const UNDO_MS = 5 * 60 * 1000;
+// deferred until the Gate-1 undo window elapses — so undo has nothing to
+// reverse.
 
 const PAYMENT_PLAN_INPUT = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("full") }),
@@ -1423,7 +1423,7 @@ export const producerPurchaseRouter = router({
         ok: true as const,
         status: "approved" as const,
         approvedAt,
-        undoableUntil: new Date(approvedAt.getTime() + UNDO_MS),
+        undoableUntil: new Date(approvedAt.getTime() + PURCHASE_APPROVAL_UNDO_MS),
         projectId: req.projectId,
       };
     }),
@@ -1512,7 +1512,7 @@ export const producerPurchaseRouter = router({
             message: "There's no approval to undo.",
           });
         }
-        if (Date.now() - req.approvedAt.getTime() >= UNDO_MS) {
+        if (!purchaseApprovalUndoableUntil(req.approvedAt)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "The undo window has elapsed.",
@@ -1583,6 +1583,61 @@ export const producerPurchaseRouter = router({
         .where(and(...filters))
         .orderBy(desc(purchaseRequests.createdAt));
       return { requests: rows };
+    }),
+
+  // Gate 1 review detail. This deliberately returns the request-time
+  // snapshots rather than live product data: a producer must review the
+  // exact price, payment options, and agreement the artist accepted even
+  // after the product has been edited or removed.
+  get: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const request = await loadProducerRequest(ctx.db, ctx.producerId, input.id);
+      const [acceptance] = await ctx.db
+        .select({
+          acceptedAt: agreementAcceptances.acceptedAt,
+          agreementUrl: agreementAcceptances.agreementUrl,
+        })
+        .from(agreementAcceptances)
+        .where(
+          and(
+            eq(agreementAcceptances.purchaseRequestId, request.id),
+            eq(agreementAcceptances.producerId, ctx.producerId),
+          ),
+        )
+        .limit(1);
+
+      return {
+        request: {
+          id: request.id,
+          refNumber: request.refNumber,
+          status: request.status,
+          statusChangedAt: request.statusChangedAt,
+          approvedAt: request.approvedAt,
+          declinedAt: request.declinedAt,
+          createdAt: request.createdAt,
+          artistName: request.artistName,
+          artistEmail: request.artistEmail,
+          productId: request.productId,
+          productNameSnapshot: request.productNameSnapshot,
+          priceCents: request.priceCents,
+          currency: request.currency,
+          songQty: request.songQty,
+          unitPriceCents: request.unitPriceCents,
+          paymentPlanSnapshot: request.paymentPlanSnapshot,
+          paymentPlanOptionsSnapshot: frozenPlanOptions(request),
+          paymentPlanChosenAt: request.paymentPlanChosenAt,
+          undoableUntil:
+            request.status === "approved" && request.paymentPlanChosenAt === null
+              ? purchaseApprovalUndoableUntil(request.approvedAt)
+              : null,
+          contractUrlSnapshot: request.contractUrlSnapshot,
+        },
+        agreement: {
+          acceptedAt: acceptance?.acceptedAt ?? null,
+          agreementUrl: acceptance?.agreementUrl ?? request.contractUrlSnapshot ?? null,
+        },
+      };
     }),
 
   // ── BE-2 — Gate 2: verify / reject proofs ──────────────────────────

@@ -62,6 +62,9 @@ export interface OverviewScreenProps {
     /** Maps to the schema's `notes` column (the artist's message). */
     message: string | null;
   }>;
+  /** Gate-1 purchase requests live in their own Requests hub, but still
+   * count as work that keeps a producer out of the fresh-dashboard state. */
+  pendingPurchaseRequestsCount?: number;
   todaySession: {
     id: string;
     title: string;
@@ -110,6 +113,7 @@ export function OverviewScreen({
   slug,
   pulseStats,
   pendingApprovals,
+  pendingPurchaseRequestsCount = 0,
   todaySession,
   urgentProjects,
   recentUploads,
@@ -132,7 +136,7 @@ export function OverviewScreen({
     activityCount: activity.length,
     urgentCount: urgentProjects.length,
     hasTodaySession: todaySession !== null,
-    pendingApprovalsCount: pendingApprovals.length,
+    pendingApprovalsCount: pendingApprovals.length + pendingPurchaseRequestsCount,
   });
   // Collapse the 2-up Urgent+Recent grid when Urgent has nothing but
   // Recent has uploads — see the JSX block below for the rationale.

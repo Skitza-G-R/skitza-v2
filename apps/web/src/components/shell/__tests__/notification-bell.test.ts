@@ -20,6 +20,7 @@ function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotifica
     trackVersionId: null,
     commentId: null,
     bookingId: null,
+    purchaseRequestId: null,
     ...overrides,
   };
 }
@@ -47,6 +48,17 @@ describe("notificationHref", () => {
         }),
       ),
     ).toBe("/dashboard/booking?id=b-1");
+  });
+
+  it("routes a purchase request notification to the producer request detail", () => {
+    expect(
+      notificationHref(
+        makeItem({
+          kind: "purchase_requested",
+          purchaseRequestId: "request-1",
+        }),
+      ),
+    ).toBe("/dashboard/requests/request-1");
   });
 
   it("prefers projectId over bookingId when both are present", () => {
