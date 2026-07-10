@@ -53,11 +53,18 @@ describe("product-detail-screen.tsx (S3) wiring", () => {
 
   it("routes the primary CTA to the agree screen", () => {
     expect(s3Src).toMatch(/Request to book/);
-    expect(s3Src).toMatch(/router\.push\(`\/artist\/purchase\/\$\{productId\}\/agree`\)/);
+    expect(s3Src).toMatch(
+      /previewAgreeHref \?\? `\/artist\/purchase\/\$\{productId\}\/agree`/,
+    );
   });
 
-  it("disables the CTA when a request is already in review", () => {
+  it("disables the CTA while any purchase still has a balance", () => {
     expect(s3Src).toMatch(/pendingRequest/);
-    expect(s3Src).toMatch(/You have a request in review — finish that first\./);
+    expect(s3Src).toMatch(/active purchase/);
+    expect(s3Src).toMatch(/fully paid/);
+  });
+
+  it("gives the Store text action a full mobile touch target", () => {
+    expect(s3Src).toMatch(/min-h-11/);
   });
 });

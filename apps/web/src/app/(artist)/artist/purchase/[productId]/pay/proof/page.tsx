@@ -1,44 +1,79 @@
 import { auth } from "@clerk/nextjs/server";
+import { TRPCError } from "@trpc/server";
+import { notFound, redirect } from "next/navigation";
 
-import {
-  MOCK_PAID_CENTS,
-  MOCK_PRODUCER,
-  MOCK_PRODUCT,
-  MOCK_PROOFS,
-  MOCK_TOTAL_CENTS,
-} from "~/components/artist/purchase/pay-data";
+import type { ProofStatus } from "~/components/artist/purchase/pay-data";
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
+import { appRouter } from "~/server/trpc/routers/_app";
 
-type PageProps = { params: Promise<{ productId: string }> };
+type PageProps = {
+  params: Promise<{ productId: string }>;
+  searchParams: Promise<{ req?: string }>;
+};
 
-// S9 — Upload proof of payment (Pay). v1 is OFF-APP: the artist pays by bank
-// transfer / Bit, then uploads a screenshot or PDF here for the producer to
-// verify (Gate 2). Mock data while BE-2 (SK-38) is in flight; when the
-// presigned-upload + Gate-2 procedures land, swap MOCK_* for the tRPC
-// caller's plan + proofs + running total — the screen props don't change.
-//
-// The `auth()` check is defense-in-depth: middleware → layout → page.
-export default async function PurchaseProofPage({ params }: PageProps) {
+// S9 — the real private proof ledger for this owned purchase. Storage keys
+// remain server-only; the client receives only safe status/amount metadata.
+export default async function PurchaseProofPage({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) return null;
 
   const { productId } = await params;
-  const product = { ...MOCK_PRODUCT, id: productId };
-  const producer = MOCK_PRODUCER;
+  const { req } = await searchParams;
+  if (!req) redirect(`/artist/purchase/${productId}`);
 
-  const paidCents = MOCK_PAID_CENTS;
-  const totalCents = MOCK_TOTAL_CENTS;
-  // The amount this next proof is expected to cover = whatever's still owed.
-  const thisProofCents = Math.max(0, totalCents - paidCents);
+  const caller = appRouter.createCaller({ userId });
+  try {
+    const data = await caller.artist.purchase.proofOfPayment.state({
+      purchaseRequestId: req,
+    });
+    if (data.productId && data.productId !== productId) notFound();
+    if (!(["approved", "verifying", "paid"] as string[]).includes(data.requestStatus)) {
+      redirect("/artist");
+    }
+    if (!data.planChosenAt) {
+      redirect(`/artist/purchase/${productId}/pay?req=${req}`);
+    }
 
-  return (
-    <UploadProofScreen
-      product={product}
-      producer={producer}
-      proofs={MOCK_PROOFS}
-      paidCents={paidCents}
-      totalCents={totalCents}
-      thisProofCents={thisProofCents}
-    />
-  );
+    const proofs: Array<{
+      id: string;
+      amountCents: number;
+      status: ProofStatus;
+    }> = data.proofs.map((proof) => ({
+      id: proof.id,
+      amountCents: proof.amountCents,
+      status:
+        proof.status === "pending"
+          ? "awaiting"
+          : proof.status === "confirmed"
+            ? "paid"
+            : "rejected",
+    }));
+    const latest = data.proofs.at(-1);
+    const initialStatus: ProofStatus = data.paidInFull
+      ? "paid"
+      : latest?.status === "pending"
+        ? "awaiting"
+        : latest?.status === "rejected"
+          ? "rejected"
+          : "empty";
+
+    return (
+      <UploadProofScreen
+        productName={data.productName}
+        producerName={data.producerName}
+        purchaseRequestId={req}
+        proofs={proofs}
+        paidCents={data.paidCents}
+        totalCents={data.totalCents}
+        thisProofCents={data.amountDueNowCents}
+        status={initialStatus}
+        rejectionNote={
+          latest?.status === "rejected" ? (latest.rejectionNote ?? undefined) : undefined
+        }
+      />
+    );
+  } catch (error) {
+    if (error instanceof TRPCError && error.code === "NOT_FOUND") notFound();
+    throw error;
+  }
 }

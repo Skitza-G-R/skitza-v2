@@ -44,6 +44,8 @@ const PAGE_PATH = join(
 );
 const s7Src = readFileSync(S7_PATH, "utf8");
 const pageSrc = readFileSync(PAGE_PATH, "utf8");
+const ACTIONS_PATH = join(here, "..", "actions.ts");
+const actionsSrc = readFileSync(ACTIONS_PATH, "utf8");
 
 describe("choose-plan-screen.tsx (S7) wiring", () => {
   it("is a client component", () => {
@@ -55,9 +57,23 @@ describe("choose-plan-screen.tsx (S7) wiring", () => {
     expect(s7Src).toMatch(/formatShekels/);
   });
 
-  it("page builds plan options from pay-data (planOptions / MOCK_*)", () => {
-    expect(pageSrc).toMatch(/from "~\/components\/artist\/purchase\/pay-data"/);
-    expect(pageSrc).toMatch(/MOCK_PLAN_OPTIONS|planOptions/);
+  it("page requires the request id and reads the frozen server options", () => {
+    expect(pageSrc).toMatch(/searchParams: Promise<\{ req\?: string \}>/);
+    expect(pageSrc).toMatch(/caller\.artist\.purchase\.paymentPlan\.options/);
+    expect(pageSrc).toMatch(/purchaseRequestId: req/);
+    expect(pageSrc).toMatch(/data\.productId && data\.productId !== productId/);
+    expect(pageSrc).not.toMatch(/MOCK_/);
+  });
+
+  it("persists the plan choice before moving to payment instructions", () => {
+    expect(s7Src).toMatch(/choosePaymentPlanAction/);
+    expect(actionsSrc).toMatch(/artist\.purchase\.paymentPlan\.choose/);
+    expect(s7Src).toMatch(/purchaseRequestId/);
+  });
+
+  it("does not bounce a pending or declined request between pay screens", () => {
+    expect(pageSrc).toMatch(/data\.status === "verifying" \|\| data\.status === "paid"/);
+    expect(pageSrc).toMatch(/redirect\("\/artist"\)/);
   });
 
   it("renders a card per option and its schedule rows + amounts", () => {
@@ -72,7 +88,15 @@ describe("choose-plan-screen.tsx (S7) wiring", () => {
 
   it("gates the primary action on a plan being selected", () => {
     expect(s7Src).toMatch(/useState/);
-    expect(s7Src).toMatch(/disabled=\{!selected\}/);
+    expect(s7Src).toMatch(/disabled=\{!selected \|\| isSaving\}/);
+  });
+
+  it("implements the radio-group keyboard pattern with one tab stop", () => {
+    expect(s7Src).toMatch(/handlePlanKeyDown/);
+    expect(s7Src).toMatch(/nextPlanIndex/);
+    expect(s7Src).toMatch(/onKeyDown=\{\(event\) =>/);
+    expect(s7Src).toMatch(/tabIndex=\{tabStopIndex === i \? 0 : -1\}/);
+    expect(s7Src).toMatch(/event\.key === " " \|\| event\.key === "Enter"/);
   });
 
   it("gives the selected card an amber ring (brand-primary)", () => {
@@ -82,7 +106,7 @@ describe("choose-plan-screen.tsx (S7) wiring", () => {
 
   it("routes Continue to the instructions step with the chosen plan", () => {
     expect(s7Src).toMatch(
-      /router\.push\(`\/artist\/purchase\/\$\{productId\}\/pay\/instructions\?plan=\$\{selected\}`\)/,
+      /router\.push\(\s*`\/artist\/purchase\/\$\{productId\}\/pay\/instructions\?req=\$\{purchaseRequestId\}`,?\s*\)/,
     );
   });
 
@@ -97,7 +121,12 @@ describe("choose-plan-screen.tsx (S7) wiring", () => {
     expect(s7Src).toMatch(/sk-safe-bottom/);
   });
 
-  it("back arrow returns to the product purchase screen", () => {
-    expect(s7Src).toMatch(/router\.push\(`\/artist\/purchase\/\$\{productId\}`\)/);
+  it("lets the long off-app note wrap instead of widening the mobile viewport", () => {
+    expect(s7Src).not.toMatch(/<Eyebrow>Money is handled off-app/);
+    expect(s7Src).toMatch(/Money is handled off-app — Skitza keeps the record/);
+  });
+
+  it("back arrow returns to the artist home heartbeat", () => {
+    expect(s7Src).toMatch(/router\.push\("\/artist"\)/);
   });
 });

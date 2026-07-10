@@ -1,4 +1,4 @@
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   agreementAcceptances,
@@ -9,19 +9,18 @@ import {
   inArray,
   invoices,
   isNull,
+  paymentProofs,
   producers,
   products,
   purchaseRequests,
+  sql,
 } from "@skitza/db";
 import type { Db, PaymentPlan, PurchaseRequest } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { after } from "next/server";
 import { z } from "zod";
 
-import {
-  snapshotProductPrice,
-  validatePerSongUnit,
-} from "~/lib/purchase/price-snapshot";
+import { snapshotProductPrice, validatePerSongUnit } from "~/lib/purchase/price-snapshot";
 import {
   generateRefNumber,
   isUniqueViolation,
@@ -36,7 +35,7 @@ import {
   invoiceKindForCharge,
   planOption,
 } from "~/server/payments/plan-preview";
-import { BUCKETS, buildProofKey, getR2, publicUrl } from "~/server/storage/r2";
+import { BUCKETS, buildProofKey, getR2, isProofKeyForPurchase } from "~/server/storage/r2";
 import {
   emitAgreementAccepted,
   emitProofSubmitted,
@@ -72,34 +71,43 @@ const PAYMENT_PLAN_INPUT = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("milestones") }),
 ]);
 
-// Statuses that still occupy the artist's single active-purchase slot
-// with a studio. `paid` is deliberately NOT here — once sessions unlock
-// the artist may start a new purchase (business rule: "while anything
-// is pending"). Declined/paid rows never block.
-const OPEN_STATUSES = ["pending", "approved", "verifying"] as const;
+// Rows that can still occupy the artist's single active-purchase slot.
+// `paid` means at least one payment was confirmed and sessions unlocked;
+// it continues to block until confirmed invoices cover the FULL snapshot.
+const BLOCKING_CANDIDATE_STATUSES = ["pending", "approved", "verifying", "paid"] as const;
 
 // Statuses in which money screens (S7-S9) are reachable.
-const PAYING_STATUSES = new Set<PurchaseRequest["status"]>([
-  "approved",
-  "verifying",
-  "paid",
-]);
+const PAYING_STATUSES = new Set<PurchaseRequest["status"]>(["approved", "verifying", "paid"]);
+
+const PROOF_CONTENT_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "application/pdf",
+] as const;
+const MAX_PROOF_BYTES = 15 * 1024 * 1024;
 
 // Running total confirmed for a purchase = SUM of its paid invoices.
-async function paidTotalCents(
-  db: Db,
-  purchaseRequestId: string,
-): Promise<number> {
+async function paidTotalCents(db: Db, purchaseRequestId: string): Promise<number> {
   const rows = await db
     .select({ amountCents: invoices.amountCents })
     .from(invoices)
+    .where(and(eq(invoices.purchaseRequestId, purchaseRequestId), eq(invoices.status, "paid")));
+  return rows.reduce((sum, r) => sum + r.amountCents, 0);
+}
+
+async function pendingProofTotalCents(db: Db, purchaseRequestId: string): Promise<number> {
+  const rows = await db
+    .select({ amountCents: paymentProofs.amountCents })
+    .from(paymentProofs)
     .where(
       and(
-        eq(invoices.purchaseRequestId, purchaseRequestId),
-        eq(invoices.status, "paid"),
+        eq(paymentProofs.purchaseRequestId, purchaseRequestId),
+        eq(paymentProofs.status, "pending"),
       ),
     );
-  return rows.reduce((sum, r) => sum + r.amountCents, 0);
+  return rows.reduce((sum, row) => sum + row.amountCents, 0);
 }
 
 // Resolve a client plan choice into a snapshot-safe PaymentPlan. The
@@ -119,6 +127,21 @@ function resolvePlanChoice(
   return { kind: "milestones", milestones: product.milestones };
 }
 
+function planFromFrozenOptions(
+  choice: PaymentPlanChoice,
+  plans: PaymentPlan[],
+): PaymentPlan | null {
+  return (
+    plans.find((plan) => {
+      if (plan.kind !== choice.kind) return false;
+      if (plan.kind === "monthly" && choice.kind === "monthly") {
+        return plan.installments === choice.installments;
+      }
+      return true;
+    }) ?? null
+  );
+}
+
 // A purchase accepts a proof while Gate 1 has passed and money is still
 // owed. Returns the charge math so callers don't recompute it.
 async function assertAcceptsProof(db: Db, request: PurchaseRequest) {
@@ -128,41 +151,47 @@ async function assertAcceptsProof(db: Db, request: PurchaseRequest) {
       message: "This purchase isn't ready for a payment yet.",
     });
   }
-  const charges = calculateCharges(
-    request.paymentPlanSnapshot,
-    request.priceCents,
-  );
+  if (!request.paymentPlanChosenAt) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Choose a payment plan before uploading proof.",
+    });
+  }
+  const charges = calculateCharges(request.paymentPlanSnapshot, request.priceCents);
   const paid = await paidTotalCents(db, request.id);
-  const progress = chargesProgress(charges, paid);
+  const reserved = await pendingProofTotalCents(db, request.id);
+  const progress = chargesProgress(charges, paid, reserved);
   if (progress.remainingCents <= 0) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "This purchase is already paid in full.",
     });
   }
-  return { charges, paid, progress };
+  if (progress.availableToSubmitCents <= 0 && progress.reservedCents > 0) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "A payment proof is already being reviewed.",
+    });
+  }
+  return { charges, paid, reserved, progress };
 }
 
-// Load a proof invoice the signed-in producer owns (joined to its
-// purchase for status transitions + artist identity). Non-proof
-// invoices (no purchaseRequestId) surface as NOT_FOUND via the join.
-async function loadProducerProof(db: Db, producerId: string, invoiceId: string) {
+// Load a private proof the signed-in producer owns, joined to its purchase
+// for status transitions + artist identity.
+async function loadProducerProof(db: Db, producerId: string, proofId: string) {
   const [row] = await db
     .select({
-      invoice: invoices,
+      proof: paymentProofs,
       request: purchaseRequests,
       producerName: producers.displayName,
     })
-    .from(invoices)
-    .innerJoin(
-      purchaseRequests,
-      eq(purchaseRequests.id, invoices.purchaseRequestId),
-    )
-    .innerJoin(producers, eq(producers.id, invoices.producerId))
-    .where(eq(invoices.id, invoiceId))
+    .from(paymentProofs)
+    .innerJoin(purchaseRequests, eq(purchaseRequests.id, paymentProofs.purchaseRequestId))
+    .innerJoin(producers, eq(producers.id, paymentProofs.producerId))
+    .where(eq(paymentProofs.id, proofId))
     .limit(1);
   if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-  if (row.invoice.producerId !== producerId) {
+  if (row.proof.producerId !== producerId) {
     throw new TRPCError({ code: "FORBIDDEN" });
   }
   return row;
@@ -171,7 +200,7 @@ async function loadProducerProof(db: Db, producerId: string, invoiceId: string) 
 // Insert a purchase request, retrying with a fresh ref_number on the
 // (astronomically unlikely) UNIQUE clash.
 async function insertPurchaseRequest(
-  db: Db,
+  db: Pick<Db, "insert">,
   values: Omit<typeof purchaseRequests.$inferInsert, "refNumber">,
 ): Promise<PurchaseRequest> {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -261,6 +290,7 @@ export const artistPurchaseRouter = router({
       z.object({
         productId: z.string().uuid(),
         paymentPlan: PAYMENT_PLAN_INPUT,
+        agreementAccepted: z.literal(true),
         // Required for per_song products; ignored otherwise. The unit
         // price is re-validated against the volume-tier ladder so a
         // tampered payload can't lock an unauthorised rate.
@@ -306,7 +336,8 @@ export const artistPurchaseRouter = router({
       //    embeds the product's milestone schedule for that plan kind —
       //    this is PROVISIONAL: decision 3 (2026-07-05) moves the real
       //    choice to S7 post-approval via paymentPlan.choose.
-      if (!planIsOffered(input.paymentPlan, offeredPlans(prod))) {
+      const paymentPlanOptionsSnapshot = offeredPlans(prod);
+      if (!planIsOffered(input.paymentPlan, paymentPlanOptionsSnapshot)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "That payment plan isn't offered for this product.",
@@ -329,8 +360,7 @@ export const artistPurchaseRouter = router({
         if (!v.ok) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message:
-              "Per-song products need a valid song count — pick one and try again.",
+            message: "Per-song products need a valid song count — pick one and try again.",
           });
         }
         const snap = snapshotProductPrice(prod, {
@@ -349,47 +379,78 @@ export const artistPurchaseRouter = router({
       if (priceCents <= 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message:
-            "This product isn't available for purchase yet — contact the producer directly.",
+          message: "This product isn't available for purchase yet — contact the producer directly.",
         });
       }
 
-      // 5. One OPEN request per (artist, producer) — widened in BE-2 to
-      //    cover the whole money loop (pending/approved/verifying), so an
-      //    artist can't start a second purchase mid-payment.
-      const [pending] = await ctx.db
-        .select({ id: purchaseRequests.id })
-        .from(purchaseRequests)
-        .where(
-          and(
-            eq(purchaseRequests.clientContactId, contact.id),
-            inArray(purchaseRequests.status, [...OPEN_STATUSES]),
-          ),
-        )
-        .limit(1);
-      if (pending) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message:
-            "You already have a pending request with this studio — finish or cancel it first.",
-        });
-      }
+      // 5. Serialize the artist/studio slot. The advisory lock closes the
+      //    double-click race that a SELECT followed by INSERT cannot close.
+      //    A partially-paid row remains blocking until paid invoices reach
+      //    the full price snapshot.
+      const inserted = await ctx.db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${contact.id}, 0))`);
 
-      // 6. Insert (price-locked) with ref-number retry.
-      const inserted = await insertPurchaseRequest(ctx.db, {
-        producerId: prod.producerId,
-        clientContactId: contact.id,
-        productId: prod.id,
-        status: "pending",
-        artistName: contact.name,
-        artistEmail: contact.email,
-        productNameSnapshot: prod.name,
-        priceCents,
-        currency: prod.currency,
-        paymentPlanSnapshot: snapshotPlan,
-        songQty,
-        unitPriceCents,
-        contractUrlSnapshot: prod.contractUrl ?? null,
+        const candidates = await tx
+          .select({
+            id: purchaseRequests.id,
+            status: purchaseRequests.status,
+            priceCents: purchaseRequests.priceCents,
+          })
+          .from(purchaseRequests)
+          .where(
+            and(
+              eq(purchaseRequests.clientContactId, contact.id),
+              inArray(purchaseRequests.status, [...BLOCKING_CANDIDATE_STATUSES]),
+            ),
+          );
+
+        for (const candidate of candidates) {
+          let blocks = candidate.status !== "paid";
+          if (candidate.status === "paid") {
+            const paidRows = await tx
+              .select({ amountCents: invoices.amountCents })
+              .from(invoices)
+              .where(
+                and(eq(invoices.purchaseRequestId, candidate.id), eq(invoices.status, "paid")),
+              );
+            const paidCents = paidRows.reduce((sum, row) => sum + row.amountCents, 0);
+            blocks = paidCents < candidate.priceCents;
+          }
+          if (blocks) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "You already have an active purchase with this studio. Finish paying it before starting another.",
+            });
+          }
+        }
+
+        // 6. Price, agreement URL, chosen plan, and every offered plan are
+        //    frozen in the same transaction as the acceptance record.
+        const request = await insertPurchaseRequest(tx, {
+          producerId: prod.producerId,
+          clientContactId: contact.id,
+          productId: prod.id,
+          status: "pending",
+          artistName: contact.name,
+          artistEmail: contact.email,
+          productNameSnapshot: prod.name,
+          priceCents,
+          currency: prod.currency,
+          paymentPlanSnapshot: snapshotPlan,
+          paymentPlanOptionsSnapshot,
+          songQty,
+          unitPriceCents,
+          contractUrlSnapshot: prod.contractUrl ?? null,
+        });
+        await tx.insert(agreementAcceptances).values({
+          purchaseRequestId: request.id,
+          producerId: request.producerId,
+          clientContactId: request.clientContactId,
+          acceptedByClerkUserId: ctx.clerkUserId,
+          agreementUrl: request.contractUrlSnapshot ?? null,
+        });
+        return request;
       });
 
       // 7. Notify the producer (in-app inbox). Fire-and-forget.
@@ -420,11 +481,7 @@ export const artistPurchaseRouter = router({
   acceptAgreement: artistProcedure
     .input(z.object({ purchaseRequestId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const request = await resolveOwnedRequest(
-        ctx.db,
-        ctx.clerkUserId,
-        input.purchaseRequestId,
-      );
+      const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
       if (request.status !== "approved") {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -502,11 +559,7 @@ export const artistPurchaseRouter = router({
   get: artistProcedure
     .input(z.object({ purchaseRequestId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const request = await resolveOwnedRequest(
-        ctx.db,
-        ctx.clerkUserId,
-        input.purchaseRequestId,
-      );
+      const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
       const [accept] = await ctx.db
         .select({ id: agreementAcceptances.id })
         .from(agreementAcceptances)
@@ -549,24 +602,30 @@ export const artistPurchaseRouter = router({
         .limit(1);
       if (!contact) return { pending: null };
 
-      const [row] = await ctx.db
+      const rows = await ctx.db
         .select({
           id: purchaseRequests.id,
           refNumber: purchaseRequests.refNumber,
           productId: purchaseRequests.productId,
           status: purchaseRequests.status,
+          priceCents: purchaseRequests.priceCents,
           createdAt: purchaseRequests.createdAt,
         })
         .from(purchaseRequests)
         .where(
           and(
             eq(purchaseRequests.clientContactId, contact.id),
-            inArray(purchaseRequests.status, [...OPEN_STATUSES]),
+            inArray(purchaseRequests.status, [...BLOCKING_CANDIDATE_STATUSES]),
           ),
         )
-        .orderBy(desc(purchaseRequests.createdAt))
-        .limit(1);
-      return { pending: row ?? null };
+        .orderBy(desc(purchaseRequests.createdAt));
+
+      for (const row of rows) {
+        if (row.status !== "paid") return { pending: row };
+        const paidCents = await paidTotalCents(ctx.db, row.id);
+        if (paidCents < row.priceCents) return { pending: row };
+      }
+      return { pending: null };
     }),
 
   // The home heartbeat's read (S6, W2.4): the artist's LATEST request
@@ -608,15 +667,26 @@ export const artistPurchaseRouter = router({
         .limit(1);
       if (!row) return { current: null };
 
-      const openStatuses: string[] = [...OPEN_STATUSES];
       const anchor = row.statusChangedAt ?? row.createdAt;
       const ageMs = Date.now() - anchor.getTime();
       const DAY = 24 * 60 * 60 * 1000;
+      const paidCents = await paidTotalCents(ctx.db, row.id);
+      const paidInFull = paidCents >= row.priceCents;
       const visible =
-        openStatuses.includes(row.status) ||
-        (row.status === "paid" && ageMs <= 30 * DAY) ||
+        ["pending", "approved", "verifying"].includes(row.status) ||
+        (row.status === "paid" && (!paidInFull || ageMs <= 30 * DAY)) ||
         (row.status === "declined" && ageMs <= 7 * DAY);
-      return { current: visible ? row : null };
+      if (!visible) return { current: null };
+      const pendingProofCents = await pendingProofTotalCents(ctx.db, row.id);
+      return {
+        current: {
+          ...row,
+          paidCents,
+          pendingProofCents,
+          remainingCents: Math.max(0, row.priceCents - paidCents),
+          paidInFull,
+        },
+      };
     }),
 
   // ── BE-2 — payment plans (S7) ──────────────────────────────────────
@@ -626,11 +696,7 @@ export const artistPurchaseRouter = router({
     preview: artistProcedure
       .input(z.object({ purchaseRequestId: z.string().uuid() }))
       .query(async ({ ctx, input }) => {
-        const request = await resolveOwnedRequest(
-          ctx.db,
-          ctx.clerkUserId,
-          input.purchaseRequestId,
-        );
+        const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
         const plan = request.paymentPlanSnapshot;
         const charges = calculateCharges(plan, request.priceCents);
         const paid = await paidTotalCents(ctx.db, request.id);
@@ -645,36 +711,25 @@ export const artistPurchaseRouter = router({
         };
       }),
 
-    // Every plan the product offers, priced against the LOCKED total —
-    // the S7 chooser's card data. Falls back to the snapshot plan when
-    // the product row is gone (the price lock outlives the product).
+    // Every plan offered at REQUEST TIME, priced against the locked total.
+    // Never read the live product here: the artist agreed to this snapshot.
     options: artistProcedure
       .input(z.object({ purchaseRequestId: z.string().uuid() }))
       .query(async ({ ctx, input }) => {
-        const request = await resolveOwnedRequest(
-          ctx.db,
-          ctx.clerkUserId,
-          input.purchaseRequestId,
-        );
-        let offered: PaymentPlan[] = [request.paymentPlanSnapshot];
-        if (request.productId) {
-          const [prod] = await ctx.db
-            .select({
-              paymentPlans: products.paymentPlans,
-              depositModel: products.depositModel,
-              milestones: products.milestones,
-            })
-            .from(products)
-            .where(eq(products.id, request.productId))
-            .limit(1);
-          if (prod) {
-            const fromProduct = offeredPlans(prod);
-            if (fromProduct.length > 0) offered = fromProduct;
-          }
-        }
+        const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
+        const offered = request.paymentPlanOptionsSnapshot;
+        const [producer] = await ctx.db
+          .select({ displayName: producers.displayName })
+          .from(producers)
+          .where(eq(producers.id, request.producerId))
+          .limit(1);
         return {
+          productId: request.productId,
+          productName: request.productNameSnapshot,
+          producerName: producer?.displayName ?? "Your producer",
           status: request.status,
-          chosenKind: request.paymentPlanSnapshot.kind,
+          chosenPlan: request.paymentPlanSnapshot,
+          chosenAt: request.paymentPlanChosenAt,
           totalCents: request.priceCents,
           currency: request.currency,
           options: buildPlanOptions(offered, request.priceCents),
@@ -692,64 +747,85 @@ export const artistPurchaseRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const request = await resolveOwnedRequest(
-          ctx.db,
-          ctx.clerkUserId,
-          input.purchaseRequestId,
-        );
-        if (request.status !== "approved") {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "A plan can be chosen once the request is approved and before the first payment.",
-          });
-        }
-        const [inFlight] = await ctx.db
-          .select({ id: invoices.id })
-          .from(invoices)
-          .where(
-            and(
-              eq(invoices.purchaseRequestId, request.id),
-              inArray(invoices.status, ["sent", "paid"]),
-            ),
-          )
-          .limit(1);
-        if (inFlight) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "The plan is locked — a payment is already in flight.",
-          });
-        }
-        if (!request.productId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "This product is no longer available — contact the producer.",
-          });
-        }
-        const [prod] = await ctx.db
-          .select()
-          .from(products)
-          .where(eq(products.id, request.productId))
-          .limit(1);
-        if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
-        if (!planIsOffered(input.paymentPlan, offeredPlans(prod))) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "That payment plan isn't offered for this product.",
-          });
-        }
-        const snapshotPlan = resolvePlanChoice(input.paymentPlan, prod);
-        if (!snapshotPlan) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "That payment plan isn't offered for this product.",
-          });
-        }
-        await ctx.db
-          .update(purchaseRequests)
-          .set({ paymentPlanSnapshot: snapshotPlan })
-          .where(eq(purchaseRequests.id, request.id));
+        const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
+        const snapshotPlan = await ctx.db.transaction(async (tx) => {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${request.id}, 0))`);
+          const [lockedRequest] = await tx
+            .select()
+            .from(purchaseRequests)
+            .where(eq(purchaseRequests.id, request.id))
+            .limit(1);
+          if (!lockedRequest) throw new TRPCError({ code: "NOT_FOUND" });
+          if (lockedRequest.status !== "approved") {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "A plan can be chosen once the request is approved and before the first payment.",
+            });
+          }
+          if (!planIsOffered(input.paymentPlan, lockedRequest.paymentPlanOptionsSnapshot)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "That payment plan isn't offered for this product.",
+            });
+          }
+          const selectedPlan = planFromFrozenOptions(
+            input.paymentPlan,
+            lockedRequest.paymentPlanOptionsSnapshot,
+          );
+          if (!selectedPlan) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "That payment plan isn't offered for this product.",
+            });
+          }
+          if (lockedRequest.paymentPlanChosenAt) {
+            if (
+              JSON.stringify(lockedRequest.paymentPlanSnapshot) === JSON.stringify(selectedPlan)
+            ) {
+              return selectedPlan;
+            }
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Your payment plan is already locked.",
+            });
+          }
+
+          const [inFlightInvoice] = await tx
+            .select({ id: invoices.id })
+            .from(invoices)
+            .where(
+              and(
+                eq(invoices.purchaseRequestId, lockedRequest.id),
+                inArray(invoices.status, ["sent", "paid"]),
+              ),
+            )
+            .limit(1);
+          const [inFlightProof] = await tx
+            .select({ id: paymentProofs.id })
+            .from(paymentProofs)
+            .where(
+              and(
+                eq(paymentProofs.purchaseRequestId, lockedRequest.id),
+                eq(paymentProofs.status, "pending"),
+              ),
+            )
+            .limit(1);
+          if (inFlightInvoice || inFlightProof) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "The plan is locked — a payment is already in flight.",
+            });
+          }
+          await tx
+            .update(purchaseRequests)
+            .set({
+              paymentPlanSnapshot: selectedPlan,
+              paymentPlanChosenAt: new Date(),
+            })
+            .where(eq(purchaseRequests.id, lockedRequest.id));
+          return selectedPlan;
+        });
         return {
           ok: true as const,
           plan: planOption(snapshotPlan, request.priceCents),
@@ -761,15 +837,17 @@ export const artistPurchaseRouter = router({
   paymentInstructions: artistProcedure
     .input(z.object({ purchaseRequestId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const request = await resolveOwnedRequest(
-        ctx.db,
-        ctx.clerkUserId,
-        input.purchaseRequestId,
-      );
+      const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
       if (!PAYING_STATUSES.has(request.status)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "This purchase isn't awaiting payment.",
+        });
+      }
+      if (!request.paymentPlanChosenAt) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Choose a payment plan first.",
         });
       }
       const [producer] = await ctx.db
@@ -781,23 +859,27 @@ export const artistPurchaseRouter = router({
         .where(eq(producers.id, request.producerId))
         .limit(1);
       const details = producer?.paymentDetails ?? {};
-      const charges = calculateCharges(
-        request.paymentPlanSnapshot,
-        request.priceCents,
-      );
+      const charges = calculateCharges(request.paymentPlanSnapshot, request.priceCents);
       const paid = await paidTotalCents(ctx.db, request.id);
-      const progress = chargesProgress(charges, paid);
-      const hasDetails = [details.bankTransfer, details.bitPhone].some((v) =>
-        Boolean(v?.trim()),
-      );
+      const reserved = await pendingProofTotalCents(ctx.db, request.id);
+      const progress = chargesProgress(charges, paid, reserved);
+      const hasDetails = [details.bankTransfer, details.bitPhone].some((v) => Boolean(v?.trim()));
       return {
         refNumber: request.refNumber,
+        productId: request.productId,
+        productName: request.productNameSnapshot,
         planKind: request.paymentPlanSnapshot.kind,
+        planInstallments:
+          request.paymentPlanSnapshot.kind === "monthly"
+            ? request.paymentPlanSnapshot.installments
+            : null,
         currency: request.currency,
         totalCents: request.priceCents,
         paidCents: paid,
+        pendingProofCents: reserved,
         remainingCents: progress.remainingCents,
-        amountDueNowCents: progress.nextDueCents,
+        amountDueNowCents: progress.availableToSubmitCents > 0 ? progress.nextDueCents : null,
+        availableToSubmitCents: progress.availableToSubmitCents,
         producerName: producer?.displayName ?? null,
         hasDetails,
         bankTransfer: details.bankTransfer ?? null,
@@ -808,34 +890,66 @@ export const artistPurchaseRouter = router({
 
   // ── BE-2 — proof of payment (S9, Gate 2 in) ────────────────────────
   proofOfPayment: router({
-    // Presigned browser PUT for the proof image/PDF. Proofs live in the
-    // audio bucket (public base + CORS already provisioned) under an
-    // unguessable proofs/ key.
+    // Everything S9 needs, derived from the locked request and the private
+    // proof ledger. No storage key or public object URL leaves this query.
+    state: artistProcedure
+      .input(z.object({ purchaseRequestId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
+        const [producer] = await ctx.db
+          .select({ displayName: producers.displayName })
+          .from(producers)
+          .where(eq(producers.id, request.producerId))
+          .limit(1);
+        const proofs = await ctx.db
+          .select({
+            id: paymentProofs.id,
+            amountCents: paymentProofs.amountCents,
+            status: paymentProofs.status,
+            rejectionNote: paymentProofs.rejectionNote,
+            createdAt: paymentProofs.createdAt,
+          })
+          .from(paymentProofs)
+          .where(eq(paymentProofs.purchaseRequestId, request.id))
+          .orderBy(paymentProofs.createdAt);
+        const charges = calculateCharges(request.paymentPlanSnapshot, request.priceCents);
+        const paid = await paidTotalCents(ctx.db, request.id);
+        const reserved = proofs
+          .filter((proof) => proof.status === "pending")
+          .reduce((sum, proof) => sum + proof.amountCents, 0);
+        const progress = chargesProgress(charges, paid, reserved);
+        return {
+          purchaseRequestId: request.id,
+          productId: request.productId,
+          productName: request.productNameSnapshot,
+          producerName: producer?.displayName ?? "Your producer",
+          requestStatus: request.status,
+          planChosenAt: request.paymentPlanChosenAt,
+          currency: request.currency,
+          totalCents: request.priceCents,
+          paidCents: paid,
+          pendingProofCents: reserved,
+          remainingCents: progress.remainingCents,
+          amountDueNowCents: progress.nextDueCents ?? 0,
+          availableToSubmitCents: progress.availableToSubmitCents,
+          paidInFull: progress.remainingCents === 0,
+          proofs,
+        };
+      }),
+
+    // Presigned browser PUT for a PRIVATE proof image/PDF. Only the object
+    // key is returned; viewing always requires a fresh ownership-checked URL.
     presign: artistProcedure
       .input(
         z.object({
           purchaseRequestId: z.string().uuid(),
           fileName: z.string().min(1).max(200),
-          contentType: z.enum([
-            "image/jpeg",
-            "image/png",
-            "image/webp",
-            "image/heic",
-            "application/pdf",
-          ]),
-          sizeBytes: z
-            .number()
-            .int()
-            .positive()
-            .max(15 * 1024 * 1024),
+          contentType: z.enum(PROOF_CONTENT_TYPES),
+          sizeBytes: z.number().int().positive().max(MAX_PROOF_BYTES),
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const request = await resolveOwnedRequest(
-          ctx.db,
-          ctx.clerkUserId,
-          input.purchaseRequestId,
-        );
+        const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
         await assertAcceptsProof(ctx.db, request);
         const key = buildProofKey({
           producerId: request.producerId,
@@ -845,70 +959,156 @@ export const artistPurchaseRouter = router({
         const uploadUrl = await getSignedUrl(
           getR2(),
           new PutObjectCommand({
-            Bucket: BUCKETS.audio,
+            Bucket: BUCKETS.docs,
             Key: key,
             ContentType: input.contentType,
+            ContentLength: input.sizeBytes,
           }),
           { expiresIn: 900 },
         );
-        return { uploadUrl, fileUrl: publicUrl("audio", key), key };
+        return { uploadUrl, storageKey: key };
       }),
 
-    // Frozen contract — records the proof as ONE invoices row ('sent' =
-    // awaiting Gate-2 verification). Multiple proofs per purchase are
-    // the installment path; the running total sums paid rows.
+    // Records a private proof. A transaction-level advisory lock plus the
+    // database's one-pending-proof index prevents two fast submissions from
+    // reserving more than the remaining balance.
     submit: artistProcedure
       .input(
         z.object({
           purchaseRequestId: z.string().uuid(),
           amountCents: z.number().int().positive(),
-          fileUrl: z.string().url(),
+          storageKey: z.string().min(1).max(1024),
+          originalFileName: z.string().trim().min(1).max(200),
           note: z.string().max(2000).optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const request = await resolveOwnedRequest(
-          ctx.db,
-          ctx.clerkUserId,
-          input.purchaseRequestId,
-        );
-        const { charges, progress } = await assertAcceptsProof(ctx.db, request);
-        if (input.amountCents > progress.remainingCents) {
+        const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
+        if (
+          !isProofKeyForPurchase(input.storageKey, {
+            producerId: request.producerId,
+            purchaseRequestId: request.id,
+          })
+        ) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "That amount is more than what's left to pay.",
+            message: "That proof upload doesn't belong to this purchase.",
           });
         }
-        const kind = invoiceKindForCharge(
-          request.paymentPlanSnapshot.kind,
-          progress.chargesCompleted,
-          charges.length,
-        );
-        const [row] = await ctx.db
-          .insert(invoices)
-          .values({
-            producerId: request.producerId,
-            projectId: request.projectId,
-            purchaseRequestId: request.id,
-            amountCents: input.amountCents,
-            currency: request.currency,
-            description: `Proof of payment — ${request.refNumber}`,
-            kind,
-            status: "sent",
-            customerEmail: request.artistEmail,
-            customerName: request.artistName,
-            proofFileUrl: input.fileUrl,
-            proofNote: input.note ?? null,
-          })
-          .returning({ id: invoices.id });
-        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-        if (request.status === "approved") {
-          await ctx.db
-            .update(purchaseRequests)
-            .set({ status: "verifying", statusChangedAt: new Date() })
-            .where(eq(purchaseRequests.id, request.id));
+        let sizeBytes = 0;
+        let contentType = "";
+        try {
+          const object = await getR2().send(
+            new HeadObjectCommand({
+              Bucket: BUCKETS.docs,
+              Key: input.storageKey,
+            }),
+          );
+          sizeBytes = object.ContentLength ?? 0;
+          contentType = (object.ContentType ?? "").toLowerCase();
+        } catch {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The proof upload could not be found. Upload it again.",
+          });
         }
+        if (
+          sizeBytes <= 0 ||
+          sizeBytes > MAX_PROOF_BYTES ||
+          !PROOF_CONTENT_TYPES.includes(contentType as (typeof PROOF_CONTENT_TYPES)[number])
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "That proof file isn't a supported image or PDF.",
+          });
+        }
+
+        const row = await ctx.db.transaction(async (tx) => {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${request.id}, 0))`);
+          const [lockedRequest] = await tx
+            .select()
+            .from(purchaseRequests)
+            .where(eq(purchaseRequests.id, request.id))
+            .limit(1);
+          if (
+            !lockedRequest ||
+            !PAYING_STATUSES.has(lockedRequest.status) ||
+            !lockedRequest.paymentPlanChosenAt
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "This purchase isn't ready for a payment yet.",
+            });
+          }
+          const paidRows = await tx
+            .select({ amountCents: invoices.amountCents })
+            .from(invoices)
+            .where(
+              and(eq(invoices.purchaseRequestId, lockedRequest.id), eq(invoices.status, "paid")),
+            );
+          const pendingRows = await tx
+            .select({ amountCents: paymentProofs.amountCents })
+            .from(paymentProofs)
+            .where(
+              and(
+                eq(paymentProofs.purchaseRequestId, lockedRequest.id),
+                eq(paymentProofs.status, "pending"),
+              ),
+            );
+          const paid = paidRows.reduce((sum, item) => sum + item.amountCents, 0);
+          const reserved = pendingRows.reduce((sum, item) => sum + item.amountCents, 0);
+          const charges = calculateCharges(
+            lockedRequest.paymentPlanSnapshot,
+            lockedRequest.priceCents,
+          );
+          const progress = chargesProgress(charges, paid, reserved);
+          if (progress.reservedCents > 0) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "A payment proof is already being reviewed.",
+            });
+          }
+          if (input.amountCents > progress.availableToSubmitCents) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "That amount is more than what's left to pay.",
+            });
+          }
+          const kind = invoiceKindForCharge(
+            lockedRequest.paymentPlanSnapshot.kind,
+            progress.chargesCompleted,
+            charges.length,
+          );
+          const [proof] = await tx
+            .insert(paymentProofs)
+            .values({
+              producerId: lockedRequest.producerId,
+              projectId: lockedRequest.projectId,
+              purchaseRequestId: lockedRequest.id,
+              amountCents: input.amountCents,
+              currency: lockedRequest.currency,
+              kind,
+              storageBucket: "docs",
+              storageKey: input.storageKey,
+              originalFileName: input.originalFileName,
+              contentType,
+              sizeBytes,
+              status: "pending",
+              note: input.note ?? null,
+            })
+            .returning();
+          if (!proof) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+          }
+          if (lockedRequest.status === "approved") {
+            await tx
+              .update(purchaseRequests)
+              .set({ status: "verifying", statusChangedAt: new Date() })
+              .where(eq(purchaseRequests.id, lockedRequest.id));
+          }
+          return proof;
+        });
 
         try {
           await emitProofSubmitted(ctx.db, {
@@ -924,7 +1124,28 @@ export const artistPurchaseRouter = router({
           console.error("[notify] proof-submitted failed", err);
         }
 
-        return { ok: true as const, invoiceId: row.id };
+        return { ok: true as const, proofId: row.id };
+      }),
+
+    view: artistProcedure
+      .input(z.object({ proofId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        const [proof] = await ctx.db
+          .select()
+          .from(paymentProofs)
+          .where(eq(paymentProofs.id, input.proofId))
+          .limit(1);
+        if (!proof) throw new TRPCError({ code: "NOT_FOUND" });
+        await resolveOwnedRequest(ctx.db, ctx.clerkUserId, proof.purchaseRequestId);
+        const url = await getSignedUrl(
+          getR2(),
+          new GetObjectCommand({
+            Bucket: BUCKETS[proof.storageBucket],
+            Key: proof.storageKey,
+          }),
+          { expiresIn: 300 },
+        );
+        return { url, expiresInSeconds: 300 };
       }),
   }),
   session: router({
@@ -937,17 +1158,15 @@ export const artistPurchaseRouter = router({
           songId: z.string().uuid().optional(),
         }),
       )
-      .mutation(
-        (): { bookingId: string; projectId: string } =>
-          notImplemented("BE-3 artist.purchase.session.schedule"),
+      .mutation((): { bookingId: string; projectId: string } =>
+        notImplemented("BE-3 artist.purchase.session.schedule"),
       ),
   }),
   delivery: router({
     canDownload: artistProcedure
       .input(z.object({ versionId: z.string().uuid() }))
-      .query(
-        (): { locked: boolean; reason?: "unpaid" } =>
-          notImplemented("BE-4 artist.purchase.delivery.canDownload"),
+      .query((): { locked: boolean; reason?: "unpaid" } =>
+        notImplemented("BE-4 artist.purchase.delivery.canDownload"),
       ),
   }),
 });
@@ -1028,7 +1247,11 @@ export const producerPurchaseRouter = router({
       const req = await loadProducerRequest(ctx.db, ctx.producerId, input.id);
 
       if (req.status === "declined") {
-        return { ok: true as const, status: "declined" as const, declinedAt: req.declinedAt ?? new Date() };
+        return {
+          ok: true as const,
+          status: "declined" as const,
+          declinedAt: req.declinedAt ?? new Date(),
+        };
       }
       if (req.status !== "pending") {
         throw new TRPCError({
@@ -1106,9 +1329,7 @@ export const producerPurchaseRouter = router({
     .input(
       z
         .object({
-          status: z
-            .enum(["pending", "approved", "verifying", "paid", "declined"])
-            .optional(),
+          status: z.enum(["pending", "approved", "verifying", "paid", "declined"]).optional(),
         })
         .optional(),
     )
@@ -1141,177 +1362,239 @@ export const producerPurchaseRouter = router({
     pending: producerProcedure.query(async ({ ctx }) => {
       const rows = await ctx.db
         .select({
-          invoiceId: invoices.id,
-          amountCents: invoices.amountCents,
-          currency: invoices.currency,
-          proofFileUrl: invoices.proofFileUrl,
-          proofNote: invoices.proofNote,
-          createdAt: invoices.createdAt,
+          proofId: paymentProofs.id,
+          amountCents: paymentProofs.amountCents,
+          currency: paymentProofs.currency,
+          originalFileName: paymentProofs.originalFileName,
+          contentType: paymentProofs.contentType,
+          sizeBytes: paymentProofs.sizeBytes,
+          proofNote: paymentProofs.note,
+          createdAt: paymentProofs.createdAt,
           purchaseRequestId: purchaseRequests.id,
           refNumber: purchaseRequests.refNumber,
           artistName: purchaseRequests.artistName,
           productNameSnapshot: purchaseRequests.productNameSnapshot,
           totalCents: purchaseRequests.priceCents,
         })
-        .from(invoices)
-        .innerJoin(
-          purchaseRequests,
-          eq(purchaseRequests.id, invoices.purchaseRequestId),
-        )
+        .from(paymentProofs)
+        .innerJoin(purchaseRequests, eq(purchaseRequests.id, paymentProofs.purchaseRequestId))
         .where(
-          and(
-            eq(invoices.producerId, ctx.producerId),
-            eq(invoices.status, "sent"),
-          ),
+          and(eq(paymentProofs.producerId, ctx.producerId), eq(paymentProofs.status, "pending")),
         )
-        .orderBy(desc(invoices.createdAt));
+        .orderBy(desc(paymentProofs.createdAt));
       return { proofs: rows };
     }),
 
-    // Frozen contract — Gate-2 approve: the invoice is confirmed paid,
-    // and the FIRST confirmation moves the purchase to 'paid' (sessions
-    // unlock). Idempotent on an already-paid invoice.
-    confirm: producerProcedure
-      .input(z.object({ invoiceId: z.string().uuid() }))
-      .mutation(async ({ ctx, input }) => {
-        const proof = await loadProducerProof(
-          ctx.db,
-          ctx.producerId,
-          input.invoiceId,
+    view: producerProcedure
+      .input(z.object({ proofId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        const { proof } = await loadProducerProof(ctx.db, ctx.producerId, input.proofId);
+        const url = await getSignedUrl(
+          getR2(),
+          new GetObjectCommand({
+            Bucket: BUCKETS[proof.storageBucket],
+            Key: proof.storageKey,
+          }),
+          { expiresIn: 300 },
         );
-        const { invoice, request } = proof;
-        if (invoice.status === "paid") {
+        return { url, expiresInSeconds: 300 };
+      }),
+
+    // Gate-2 approve: confirm the private proof and atomically create ONE
+    // paid ledger invoice. The proof-id unique index makes retries safe.
+    confirm: producerProcedure
+      .input(z.object({ proofId: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const loaded = await loadProducerProof(ctx.db, ctx.producerId, input.proofId);
+        const { proof, request } = loaded;
+        if (proof.status === "confirmed") {
           const paid = await paidTotalCents(ctx.db, request.id);
           return {
             ok: true as const,
+            proofStatus: "confirmed" as const,
             invoiceStatus: "paid" as const,
             depositPaid: paid > 0,
             finalPaid: paid >= request.priceCents,
           };
         }
-        if (invoice.status !== "sent") {
+        if (proof.status !== "pending") {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `Cannot confirm a ${invoice.status} proof.`,
+            message: `Cannot confirm a ${proof.status} proof.`,
           });
         }
-        const now = new Date();
-        await ctx.db
-          .update(invoices)
-          .set({ status: "paid", paidAt: now })
-          .where(eq(invoices.id, invoice.id));
-        const paid = await paidTotalCents(ctx.db, request.id);
-        if (request.status === "verifying") {
-          await ctx.db
-            .update(purchaseRequests)
-            .set({ status: "paid", statusChangedAt: now })
-            .where(eq(purchaseRequests.id, request.id));
-        }
-        const finalPaid = paid >= request.priceCents;
-
-        after(async () => {
-          try {
-            await sendProofVerifiedEmail(request.artistEmail, {
-              artistName: request.artistName,
-              producerName: proof.producerName ?? "Your producer",
-              productName: request.productNameSnapshot,
-              refNumber: request.refNumber,
-              currency: request.currency,
-              amountCents: invoice.amountCents,
-              paidCents: paid,
-              totalCents: request.priceCents,
-              paidInFull: finalPaid,
+        const result = await ctx.db.transaction(async (tx) => {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${request.id}, 0))`);
+          const [lockedProof] = await tx
+            .select()
+            .from(paymentProofs)
+            .where(eq(paymentProofs.id, proof.id))
+            .limit(1);
+          if (!lockedProof) throw new TRPCError({ code: "NOT_FOUND" });
+          if (lockedProof.status === "rejected") {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Cannot confirm a rejected proof.",
             });
-          } catch (err) {
-            console.error("[email] proof-verified failed", err);
           }
+          const now = new Date();
+          const didConfirm = lockedProof.status === "pending";
+          if (lockedProof.status === "pending") {
+            await tx
+              .update(paymentProofs)
+              .set({ status: "confirmed", confirmedAt: now })
+              .where(eq(paymentProofs.id, lockedProof.id));
+            await tx.insert(invoices).values({
+              producerId: request.producerId,
+              projectId: request.projectId,
+              purchaseRequestId: request.id,
+              paymentProofId: lockedProof.id,
+              amountCents: lockedProof.amountCents,
+              currency: request.currency,
+              description: `Confirmed off-app payment — ${request.refNumber}`,
+              kind: lockedProof.kind,
+              status: "paid",
+              paidAt: now,
+              customerEmail: request.artistEmail,
+              customerName: request.artistName,
+            });
+          }
+          const paidRows = await tx
+            .select({ amountCents: invoices.amountCents })
+            .from(invoices)
+            .where(and(eq(invoices.purchaseRequestId, request.id), eq(invoices.status, "paid")));
+          const paid = paidRows.reduce((sum, item) => sum + item.amountCents, 0);
+          if (request.status !== "paid") {
+            await tx
+              .update(purchaseRequests)
+              .set({ status: "paid", statusChangedAt: now })
+              .where(eq(purchaseRequests.id, request.id));
+          }
+          return {
+            paid,
+            finalPaid: paid >= request.priceCents,
+            didConfirm,
+          };
         });
+
+        if (result.didConfirm) {
+          after(async () => {
+            try {
+              await sendProofVerifiedEmail(request.artistEmail, {
+                artistName: request.artistName,
+                producerName: loaded.producerName ?? "Your producer",
+                productName: request.productNameSnapshot,
+                refNumber: request.refNumber,
+                currency: request.currency,
+                amountCents: proof.amountCents,
+                paidCents: result.paid,
+                totalCents: request.priceCents,
+                paidInFull: result.finalPaid,
+              });
+            } catch (err) {
+              console.error("[email] proof-verified failed", err);
+            }
+          });
+        }
 
         return {
           ok: true as const,
+          proofStatus: "confirmed" as const,
           invoiceStatus: "paid" as const,
-          depositPaid: paid > 0,
-          finalPaid,
+          depositPaid: result.paid > 0,
+          finalPaid: result.finalPaid,
         };
       }),
 
-    // Net-new (not in the frozen BE-1 contract): Gate-2 reject with an
-    // ARTIST-FACING note (unlike Gate-1 declines). The invoice voids and
-    // the artist re-uploads; nothing else about the purchase changes.
+    // Gate-2 reject with an ARTIST-FACING note (unlike Gate-1 declines).
+    // Confirmation and rejection take the same per-request lock so they
+    // cannot both win when two producer tabs act at nearly the same time.
     reject: producerProcedure
       .input(
         z.object({
-          invoiceId: z.string().uuid(),
+          proofId: z.string().uuid(),
           note: z.string().trim().min(1).max(2000),
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const proof = await loadProducerProof(
-          ctx.db,
-          ctx.producerId,
-          input.invoiceId,
-        );
-        const { invoice, request } = proof;
-        if (invoice.status === "void") {
-          return { ok: true as const, invoiceStatus: "void" as const };
+        const loaded = await loadProducerProof(ctx.db, ctx.producerId, input.proofId);
+        const { proof, request } = loaded;
+        if (proof.status === "rejected") {
+          return { ok: true as const, proofStatus: "rejected" as const };
         }
-        if (invoice.status !== "sent") {
+        if (proof.status !== "pending") {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `Cannot reject a ${invoice.status} proof.`,
+            message: `Cannot reject a ${proof.status} proof.`,
           });
         }
-        const now = new Date();
-        await ctx.db
-          .update(invoices)
-          .set({ status: "void", rejectionNote: input.note })
-          .where(eq(invoices.id, invoice.id));
-
-        // If that was the only live proof and nothing is confirmed yet,
-        // fall back to awaiting-payment so S6/S9 re-open cleanly.
-        if (request.status === "verifying") {
-          const [otherSent] = await ctx.db
-            .select({ id: invoices.id })
-            .from(invoices)
-            .where(
-              and(
-                eq(invoices.purchaseRequestId, request.id),
-                eq(invoices.status, "sent"),
-              ),
-            )
+        const didReject = await ctx.db.transaction(async (tx) => {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${request.id}, 0))`);
+          const [lockedProof] = await tx
+            .select()
+            .from(paymentProofs)
+            .where(eq(paymentProofs.id, proof.id))
             .limit(1);
-          const paid = await paidTotalCents(ctx.db, request.id);
-          if (!otherSent && paid === 0) {
-            await ctx.db
-              .update(purchaseRequests)
-              .set({ status: "approved", statusChangedAt: now })
-              .where(eq(purchaseRequests.id, request.id));
-          }
-        }
-
-        after(async () => {
-          try {
-            await sendProofRejectedEmail(request.artistEmail, {
-              artistName: request.artistName,
-              producerName: proof.producerName ?? "Your producer",
-              productName: request.productNameSnapshot,
-              refNumber: request.refNumber,
-              note: input.note,
+          if (!lockedProof) throw new TRPCError({ code: "NOT_FOUND" });
+          if (lockedProof.status === "confirmed") {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Cannot reject a confirmed proof.",
             });
-          } catch (err) {
-            console.error("[email] proof-rejected failed", err);
           }
+          if (lockedProof.status === "rejected") return false;
+
+          const now = new Date();
+          await tx
+            .update(paymentProofs)
+            .set({
+              status: "rejected",
+              rejectionNote: input.note,
+              rejectedAt: now,
+            })
+            .where(eq(paymentProofs.id, lockedProof.id));
+
+          // Before the first confirmed payment, rejection returns the request
+          // to awaiting-payment. After a deposit it stays paid/sessions-open.
+          if (request.status === "verifying") {
+            const paidRows = await tx
+              .select({ amountCents: invoices.amountCents })
+              .from(invoices)
+              .where(and(eq(invoices.purchaseRequestId, request.id), eq(invoices.status, "paid")));
+            if (paidRows.length === 0) {
+              await tx
+                .update(purchaseRequests)
+                .set({ status: "approved", statusChangedAt: now })
+                .where(eq(purchaseRequests.id, request.id));
+            }
+          }
+          return true;
         });
 
-        return { ok: true as const, invoiceStatus: "void" as const };
+        if (didReject) {
+          after(async () => {
+            try {
+              await sendProofRejectedEmail(request.artistEmail, {
+                artistName: request.artistName,
+                producerName: loaded.producerName ?? "Your producer",
+                productName: request.productNameSnapshot,
+                refNumber: request.refNumber,
+                note: input.note,
+              });
+            } catch (err) {
+              console.error("[email] proof-rejected failed", err);
+            }
+          });
+        }
+
+        return { ok: true as const, proofStatus: "rejected" as const };
       }),
   }),
   session: router({
     confirm: producerProcedure
       .input(z.object({ bookingId: z.string().uuid() }))
-      .mutation(
-        (): { ok: true; status: "confirmed"; projectId: string } =>
-          notImplemented("BE-3 producer.purchase.session.confirm"),
+      .mutation((): { ok: true; status: "confirmed"; projectId: string } =>
+        notImplemented("BE-3 producer.purchase.session.confirm"),
       ),
   }),
 });

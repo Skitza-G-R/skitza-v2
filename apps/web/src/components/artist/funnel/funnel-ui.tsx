@@ -29,9 +29,7 @@ export function RippleEmblem({
   className?: string;
 }) {
   const success = tone === "success";
-  const ring = success
-    ? "rgb(var(--fg-success) / 0.30)"
-    : "rgb(var(--brand-primary) / 0.30)";
+  const ring = success ? "rgb(var(--fg-success) / 0.30)" : "rgb(var(--brand-primary) / 0.30)";
   return (
     <div className={`relative inline-flex ${className}`}>
       <span
@@ -81,10 +79,8 @@ export function Eyebrow({
 }) {
   return (
     <div
-      className={`inline-flex items-center gap-[9px] whitespace-nowrap font-mono text-[10px] font-bold uppercase tracking-[0.16em] ${
-        gold
-          ? "text-[rgb(var(--brand-primary-dark))]"
-          : "text-[rgb(var(--fg-muted))]"
+      className={`inline-flex items-center gap-[9px] font-mono text-[10px] font-bold tracking-[0.16em] whitespace-nowrap uppercase ${
+        gold ? "text-[rgb(var(--brand-primary-dark))]" : "text-[rgb(var(--fg-muted))]"
       } ${className}`}
     >
       {children}
@@ -92,9 +88,8 @@ export function Eyebrow({
   );
 }
 
-// Solid, blurred top bar for funnel screens with no cover image. Sticks to
-// the top of the scroll container; `sk-safe-top` keeps the title clear of
-// the device notch.
+// Solid top bar for funnel screens with no cover image. An opaque surface is
+// intentional: narrow embedded browsers can render backdrop blur as black.
 export function FunnelTopBar({
   title,
   sub,
@@ -108,36 +103,33 @@ export function FunnelTopBar({
     <header
       className="sk-safe-top sticky top-0 z-20"
       style={{
-        background: "rgb(var(--bg-background) / 0.9)",
-        backdropFilter: "blur(16px) saturate(160%)",
-        WebkitBackdropFilter: "blur(16px) saturate(160%)",
+        background: "rgb(var(--bg-background))",
         borderBottom: "1px solid rgb(var(--fg-default) / 0.07)",
       }}
     >
-      <div className="relative flex h-[52px] items-center justify-center px-[14px]">
+      <div className="relative flex h-[56px] items-center justify-center px-[14px]">
         {onBack ? (
           <button
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="sk-press absolute left-[14px] inline-flex h-[38px] w-[38px] items-center justify-center rounded-full"
+            className="sk-press absolute left-[14px] inline-flex h-11 w-11 items-center justify-center rounded-full"
             style={{
               background: "rgb(var(--bg-elevated))",
               color: "rgb(var(--fg-default))",
               border: "1px solid rgb(var(--fg-default) / 0.08)",
-              boxShadow:
-                "0 1px 2px 0 rgb(17 16 9 / 0.06), 0 4px 12px -4px rgb(17 16 9 / 0.10)",
+              boxShadow: "0 1px 2px 0 rgb(17 16 9 / 0.06), 0 4px 12px -4px rgb(17 16 9 / 0.10)",
             }}
           >
             <ChevronLeft />
           </button>
         ) : null}
-        <div className="px-12 text-center">
-          <div className="font-syne text-[15px] font-extrabold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+        <div className="min-w-0 px-14 text-center">
+          <div className="font-syne truncate text-[clamp(13px,4vw,15px)] font-extrabold tracking-[-0.01em] whitespace-nowrap text-[rgb(var(--fg-default))]">
             {title}
           </div>
           {sub ? (
-            <div className="mt-px font-mono text-[9px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            <div className="mt-px font-mono text-[9px] tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
               {sub}
             </div>
           ) : null}
@@ -162,7 +154,7 @@ export function GlassRound({
       type="button"
       onClick={onClick}
       aria-label={ariaLabel}
-      className="sk-press inline-flex h-[38px] w-[38px] items-center justify-center rounded-full"
+      className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full"
       style={{
         background: "rgba(255, 255, 255, 0.86)",
         color: "rgb(var(--fg-default))",
@@ -232,13 +224,7 @@ export function PrimaryCta({
 }
 
 // White secondary action with a strong hairline border.
-export function SecondaryCta({
-  children,
-  onClick,
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-}) {
+export function SecondaryCta({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
   return (
     <button
       type="button"
@@ -248,8 +234,7 @@ export function SecondaryCta({
         background: "rgb(var(--bg-elevated))",
         color: "rgb(var(--fg-default))",
         border: "1px solid rgb(var(--border-strong))",
-        boxShadow:
-          "0 1px 2px 0 rgb(17 16 9 / 0.05), 0 6px 16px -10px rgb(17 16 9 / 0.18)",
+        boxShadow: "0 1px 2px 0 rgb(17 16 9 / 0.05), 0 6px 16px -10px rgb(17 16 9 / 0.18)",
       }}
     >
       {children}
@@ -298,7 +283,7 @@ export function AgreeCheck({
       >
         {checked ? <Check /> : null}
       </span>
-      <span className="text-[14px] font-medium leading-snug text-[rgb(var(--fg-default))]">
+      <span className="text-[14px] leading-snug font-medium text-[rgb(var(--fg-default))]">
         {children}
       </span>
     </button>

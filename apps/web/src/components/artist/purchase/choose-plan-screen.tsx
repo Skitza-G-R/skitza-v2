@@ -9,44 +9,86 @@
 // instructions (S8). Funnel chrome: full-screen overlay, back arrow, no tab
 // bar, the primary action pinned low and thumb-reachable.
 //
-// Data-only props (serializable from the server page). Navigation lives here
-// so the mock options can be swapped for BE-2's per-product plans without
-// touching the route.
+// Data-only props come from the request's frozen server snapshot. The choice
+// is persisted before navigation, so refresh/back never silently changes it.
 
-import { useState } from "react";
+import { useRef, useState, useTransition, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
-import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
-import {
-  formatShekels,
-  type PaymentPlan,
-  type PlanOption,
-  type Producer,
-  type PurchaseProduct,
-} from "./pay-data";
+import { FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import { choosePaymentPlanAction } from "./actions";
+import { formatShekels, nextPlanIndex, type LivePlanOption } from "./pay-data";
 
 export function ChoosePlanScreen({
-  product,
-  producer,
+  productId,
+  productName,
+  producerName,
+  purchaseRequestId,
   options,
+  previewNextHref,
 }: {
-  product: PurchaseProduct;
-  producer: Producer;
-  options: PlanOption[];
+  productId: string;
+  productName: string;
+  producerName: string;
+  purchaseRequestId: string;
+  options: LivePlanOption[];
+  /** Dev-gallery navigation only; real routes always persist through the action. */
+  previewNextHref?: string | undefined;
 }) {
   const router = useRouter();
-  const productId = product.id;
+  const [isSaving, startSaving] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   // Pre-select when the product allows only one plan — there's nothing to
   // choose, so the artist can go straight to Continue.
-  const [selected, setSelected] = useState<PaymentPlan | null>(
-    options.length === 1 ? (options[0]?.plan ?? null) : null,
+  const [selected, setSelected] = useState<string | null>(
+    options.length === 1 ? (options[0]?.id ?? null) : null,
   );
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectedIndex = options.findIndex((option) => option.id === selected);
+  const tabStopIndex = selectedIndex >= 0 ? selectedIndex : 0;
+
+  function selectPlan(index: number) {
+    const option = options[index];
+    if (!option) return;
+    setSelected(option.id);
+    setError(null);
+  }
+
+  function handlePlanKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      selectPlan(index);
+      return;
+    }
+
+    const nextIndex = nextPlanIndex(index, options.length, event.key);
+    if (nextIndex === null) return;
+    event.preventDefault();
+    selectPlan(nextIndex);
+    optionRefs.current[nextIndex]?.focus();
+  }
 
   function go() {
-    if (!selected) return;
-    router.push(`/artist/purchase/${productId}/pay/instructions?plan=${selected}`);
+    const option = options.find((item) => item.id === selected);
+    if (!option || isSaving) return;
+    if (previewNextHref) {
+      router.push(previewNextHref);
+      return;
+    }
+    setError(null);
+    startSaving(async () => {
+      const result = await choosePaymentPlanAction({
+        purchaseRequestId,
+        paymentPlan: option.choice,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      router.push(`/artist/purchase/${productId}/pay/instructions?req=${purchaseRequestId}`);
+    });
   }
 
   return (
@@ -57,52 +99,57 @@ export function ChoosePlanScreen({
       <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
         <FunnelTopBar
           title="Choose a plan"
-          sub={producer.name}
+          sub={producerName}
           onBack={() => {
-            router.push(`/artist/purchase/${productId}`);
+            router.push("/artist");
           }}
         />
 
-        <div className="flex-1 px-5 pb-[152px] pt-3.5">
+        <div className="flex-1 px-5 pt-3.5 pb-[152px]">
           {/* heading */}
-          <h1 className="reveal-up font-syne text-[26px] font-extrabold leading-[1.1] tracking-[-0.035em] text-[rgb(var(--fg-default))]">
+          <h1 className="reveal-up font-syne text-[26px] leading-[1.1] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
             How would you like to pay?
           </h1>
-          <p className="reveal-up reveal-up-delay-1 mt-2 text-pretty text-[14px] leading-relaxed text-[rgb(var(--fg-muted))]">
-            {`${producer.name} accepts ${
+          <p className="reveal-up reveal-up-delay-1 mt-2 text-[14px] leading-relaxed text-pretty text-[rgb(var(--fg-muted))]">
+            {`${producerName} accepts ${
               options.length === 1 ? "this plan" : "these plans"
-            } for ${product.name}. Pick one — you'll pay the first part off-app, then upload your proof.`}
+            } for ${productName}. Pick one — you'll pay the first part off-app, then upload your proof.`}
           </p>
 
           {/* plan cards */}
-          <div className="mt-5 flex flex-col gap-3">
+          <div className="mt-5 flex flex-col gap-3" role="radiogroup" aria-label="Payment plan">
             {options.map((opt, i) => {
-              const isSelected = opt.plan === selected;
+              const isSelected = opt.id === selected;
               return (
                 <button
-                  key={opt.plan}
+                  key={opt.id}
+                  ref={(node) => {
+                    optionRefs.current[i] = node;
+                  }}
                   type="button"
                   role="radio"
                   aria-checked={isSelected}
+                  tabIndex={tabStopIndex === i ? 0 : -1}
                   onClick={() => {
-                    setSelected(opt.plan);
+                    selectPlan(i);
                   }}
-                  className="sk-press sk-rise rounded-card relative w-full px-[18px] pb-4 pt-4 text-left transition-colors"
+                  onKeyDown={(event) => {
+                    handlePlanKeyDown(event, i);
+                  }}
+                  className="sk-press sk-rise rounded-card relative w-full px-[18px] pt-4 pb-4 text-left transition-colors"
                   style={{
                     animationDelay: `${String(140 + i * 60)}ms`,
                     background: isSelected
                       ? "rgb(var(--brand-primary) / 0.06)"
                       : "rgb(var(--bg-elevated))",
                     border: `1.5px solid ${
-                      isSelected
-                        ? "rgb(var(--brand-primary))"
-                        : "rgb(var(--border-subtle))"
+                      isSelected ? "rgb(var(--brand-primary))" : "rgb(var(--border-subtle))"
                     }`,
                     boxShadow: isSelected ? "var(--shadow-glow)" : "var(--shadow-sm)",
                   }}
                 >
                   {/* title row + selection dot */}
-                  <div className="flex items-start gap-3">
+                  <div className="grid grid-cols-[22px_minmax(0,1fr)] items-start gap-x-3 gap-y-2 min-[350px]:grid-cols-[22px_minmax(0,1fr)_auto]">
                     <span
                       className="mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full transition-all"
                       style={{
@@ -110,9 +157,7 @@ export function ChoosePlanScreen({
                           ? "rgb(var(--brand-primary))"
                           : "rgb(var(--bg-elevated))",
                         border: `2px solid ${
-                          isSelected
-                            ? "rgb(var(--brand-primary))"
-                            : "rgb(var(--border-strong))"
+                          isSelected ? "rgb(var(--brand-primary))" : "rgb(var(--border-strong))"
                         }`,
                         color: "rgb(var(--bg-sidebar))",
                       }}
@@ -123,18 +168,18 @@ export function ChoosePlanScreen({
                       <div className="font-syne text-[16px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
                         {opt.title}
                       </div>
-                      <p className="mt-[3px] text-pretty text-[12.5px] leading-snug text-[rgb(var(--fg-muted))]">
+                      <p className="mt-[3px] text-[12.5px] leading-snug text-pretty text-[rgb(var(--fg-muted))]">
                         {opt.blurb}
                       </p>
                     </div>
                     {/* mono eyebrow ABOVE the price; amber price only on the
                         selected card — unselected stays neutral (proto-s7) */}
-                    <div className="shrink-0 text-right">
+                    <div className="col-start-2 row-start-2 text-left min-[350px]:col-start-3 min-[350px]:row-start-1 min-[350px]:text-right">
                       <div className="font-mono text-[8.5px] tracking-[0.08em] text-[rgb(var(--fg-muted))]">
                         DUE TODAY
                       </div>
                       <div
-                        className="mt-px font-amount text-[19px] font-bold tracking-[-0.03em]"
+                        className="font-amount mt-px text-[19px] font-bold tracking-[-0.03em]"
                         style={{
                           color: isSelected
                             ? "rgb(var(--brand-primary-dark))"
@@ -161,10 +206,7 @@ export function ChoosePlanScreen({
                         key={row.label}
                         className="flex items-center justify-between py-[5px]"
                         style={{
-                          borderTop:
-                            i === 0
-                              ? "none"
-                              : "1px solid rgb(var(--border-subtle))",
+                          borderTop: i === 0 ? "none" : "1px solid rgb(var(--border-subtle))",
                         }}
                       >
                         <span className="flex items-center gap-2 text-[12.5px] text-[rgb(var(--fg-secondary))]">
@@ -201,7 +243,7 @@ export function ChoosePlanScreen({
               <ShieldIcon />
             </span>
             <span>
-              The deposit secures your slot and is usually final once {producer.name} begins.
+              The deposit secures your slot and is usually final once {producerName} begins.
               Sessions can run on a deposit — downloads unlock at full payment.
             </span>
           </div>
@@ -210,13 +252,24 @@ export function ChoosePlanScreen({
             className="sk-rise mt-3"
             style={{ animationDelay: `${String(200 + options.length * 60)}ms` }}
           >
-            <Eyebrow>Money is handled off-app — Skitza keeps the record.</Eyebrow>
+            <div className="max-w-full font-mono text-[9.5px] leading-relaxed font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+              Money is handled off-app — Skitza keeps the record.
+            </div>
           </div>
+
+          {error ? (
+            <p
+              role="alert"
+              className="mt-3 rounded-[12px] border border-[rgb(var(--fg-danger)/0.24)] bg-[rgb(var(--fg-danger)/0.08)] px-3.5 py-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger))]"
+            >
+              {error}
+            </p>
+          ) : null}
         </div>
 
         {/* pinned action */}
         <div
-          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pb-3.5 pt-3.5"
+          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5"
           style={{
             background:
               "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
@@ -224,11 +277,17 @@ export function ChoosePlanScreen({
         >
           <PrimaryCta
             onClick={go}
-            disabled={!selected}
-            glow={!!selected}
-            sub={selected ? "Next: how to pay" : "Pick a plan to continue"}
+            disabled={!selected || isSaving}
+            glow={!!selected && !isSaving}
+            sub={
+              isSaving
+                ? "Saving your plan"
+                : selected
+                  ? "Next: how to pay"
+                  : "Pick a plan to continue"
+            }
           >
-            Continue <ArrowRight />
+            {isSaving ? "Saving…" : "Continue"} <ArrowRight />
           </PrimaryCta>
         </div>
       </div>

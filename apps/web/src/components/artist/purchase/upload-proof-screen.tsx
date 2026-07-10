@@ -7,9 +7,8 @@
 // The producer then verifies it (Gate 2). Installments are allowed, so this
 // screen lists every previous proof and a running "Paid so far" total.
 //
-// The send is a STUB — there is NO real file upload here. BE-2 (SK-38)
-// provides the proof-upload + Gate-2 procedures; swap the timed stub in
-// `send()` for that mutation and the screen props don't change.
+// Files go directly to private object storage through a short-lived signed
+// URL. Only after that succeeds does the app record the proof for review.
 //
 // Funnel chrome: full-screen overlay, back arrow top-left, no tab bar, the
 // primary action pinned low and thumb-reachable.
@@ -17,25 +16,14 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { ArrowRight, Check, ClockIcon, DocIcon } from "~/components/artist/funnel/funnel-icons";
+import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import {
-  ArrowRight,
-  Check,
-  ClockIcon,
-  DocIcon,
-} from "~/components/artist/funnel/funnel-icons";
-import {
-  Eyebrow,
-  FunnelTopBar,
-  PrimaryCta,
-} from "~/components/artist/funnel/funnel-ui";
-import {
-  formatShekels,
-  paidProgress,
-  type Producer,
-  type ProofStatus,
-  proofStatusCopy,
-  type PurchaseProduct,
-} from "./pay-data";
+  presignProofUploadAction,
+  submitPaymentProofAction,
+  type ProofContentType,
+} from "./actions";
+import { formatShekels, paidProgress, type ProofStatus, proofStatusCopy } from "./pay-data";
 
 type PriorProof = { id: string; amountCents: number; status: ProofStatus };
 
@@ -87,8 +75,9 @@ function UploadGlyph() {
 }
 
 export function UploadProofScreen({
-  product,
-  producer,
+  productName,
+  producerName,
+  purchaseRequestId,
   proofs,
   paidCents,
   totalCents,
@@ -96,8 +85,9 @@ export function UploadProofScreen({
   status: initialStatus = "empty",
   rejectionNote,
 }: {
-  product: PurchaseProduct;
-  producer: Producer;
+  productName: string;
+  producerName: string;
+  purchaseRequestId: string;
   /** Previously sent proofs (installments) — newest last. */
   proofs: PriorProof[];
   /** Sum of all verified proofs so far, in agorot. */
@@ -109,13 +99,14 @@ export function UploadProofScreen({
   /** Server-side starting state — drives the rejected / paid banners. */
   status?: ProofStatus;
   /** Producer's optional note shown when a prior proof was rejected. */
-  rejectionNote?: string;
+  rejectionNote?: string | undefined;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<ProofStatus>(initialStatus);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const progress = paidProgress(paidCents, totalCents);
   const isUploading = status === "uploading";
@@ -132,28 +123,85 @@ export function UploadProofScreen({
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = e.target.files?.[0] ?? null;
+    setUploadError(null);
     setFile(picked);
     if (picked) setStatus("attached");
   }
 
-  function send() {
-    if (!canSend) return;
+  function proofContentType(picked: File): ProofContentType | null {
+    const type = picked.type.toLowerCase();
+    if (type === "image/jpg") return "image/jpeg";
+    if (
+      type === "image/jpeg" ||
+      type === "image/png" ||
+      type === "image/webp" ||
+      type === "image/heic" ||
+      type === "application/pdf"
+    ) {
+      return type;
+    }
+    if (/\.heic$/i.test(picked.name)) return "image/heic";
+    return null;
+  }
+
+  async function send() {
+    if (!file || isUploading || isAwaiting || isPaidInFull) return;
+    const contentType = proofContentType(file);
+    if (!contentType) {
+      setUploadError("Choose a JPG, PNG, WebP, HEIC, or PDF file.");
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setUploadError("That file is over 15 MB. Choose a smaller one.");
+      return;
+    }
+    setUploadError(null);
     setStatus("uploading");
-    // STUB: BE-2's proof upload + Gate-2 submit lands here. We fake the
-    // round-trip with a timer, then settle on "awaiting verification".
-    setTimeout(() => {
+    try {
+      const presigned = await presignProofUploadAction({
+        purchaseRequestId,
+        fileName: file.name,
+        contentType,
+        sizeBytes: file.size,
+      });
+      if (!presigned.ok) throw new Error(presigned.error);
+
+      const uploaded = await fetch(presigned.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: file,
+      });
+      if (!uploaded.ok) {
+        throw new Error("The file upload didn't finish. Check your connection and try again.");
+      }
+
+      const submitted = await submitPaymentProofAction({
+        purchaseRequestId,
+        amountCents: thisProofCents,
+        storageKey: presigned.storageKey,
+        originalFileName: file.name,
+      });
+      if (!submitted.ok) throw new Error(submitted.error);
+
       setStatus("awaiting");
-    }, 1100);
+      router.refresh();
+    } catch (error) {
+      setStatus("attached");
+      setUploadError(
+        error instanceof Error ? error.message : "Couldn't upload the proof. Try again.",
+      );
+    }
   }
 
   function reUpload() {
     setFile(null);
     setStatus("empty");
+    setUploadError(null);
     // open the picker so re-uploading is one tap from the rejected banner
     fileRef.current?.click();
   }
 
-  const headline = proofStatusCopy(status, producer.name);
+  const headline = proofStatusCopy(status, producerName);
 
   return (
     <div
@@ -169,15 +217,15 @@ export function UploadProofScreen({
           }}
         />
 
-        <div className="flex-1 px-5 pb-[184px] pt-3.5">
+        <div className="flex-1 px-5 pt-3.5 pb-[184px]">
           {/* heading — sized to hold one line at 390px */}
-          <h1 className="reveal-up font-syne text-[23px] font-extrabold leading-[1.1] tracking-[-0.035em] text-[rgb(var(--fg-default))]">
+          <h1 className="reveal-up font-syne text-[23px] leading-[1.1] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
             {isPaidInFull ? "All paid up" : "Upload your proof"}
           </h1>
-          <p className="reveal-up reveal-up-delay-1 mt-2 text-pretty text-[14px] leading-relaxed text-[rgb(var(--fg-muted))]">
+          <p className="reveal-up reveal-up-delay-1 mt-2 text-[14px] leading-relaxed text-pretty text-[rgb(var(--fg-muted))]">
             {isPaidInFull
-              ? `${producer.name} confirmed every payment — your sessions are unlocked.`
-              : `Add a screenshot or PDF of your transfer. ${producer.name} checks it and unlocks your sessions.`}
+              ? `${producerName} confirmed every payment — your sessions are unlocked.`
+              : `Add a screenshot or PDF of your transfer. ${producerName} checks it and unlocks your sessions.`}
           </p>
 
           {/* paid-in-full banner (green) — the happy end of the Pay step */}
@@ -219,13 +267,13 @@ export function UploadProofScreen({
               </div>
               <p className="mt-1 text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))]">
                 {rejectionNote
-                  ? `${producer.name}: “${rejectionNote}”`
-                  : `${producer.name} couldn't confirm the last screenshot. Send a clearer one — there's no limit on tries.`}
+                  ? `${producerName}: “${rejectionNote}”`
+                  : `${producerName} couldn't confirm the last screenshot. Send a clearer one — there's no limit on tries.`}
               </p>
               <button
                 type="button"
                 onClick={reUpload}
-                className="sk-press mt-3 inline-flex items-center gap-2 rounded-[12px] px-3.5 py-2 text-[13px] font-semibold"
+                className="sk-press mt-3 inline-flex min-h-11 items-center gap-2 rounded-[12px] px-3.5 text-[13px] font-semibold"
                 style={{
                   background: "rgb(var(--fg-danger))",
                   color: "rgb(var(--bg-elevated))",
@@ -243,8 +291,8 @@ export function UploadProofScreen({
               style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-inverse))" }}
             >
               <div className="min-w-0">
-                <div className="text-[12.5px] text-white/70">{product.name}</div>
-                <div className="mt-px font-mono text-[9px] uppercase tracking-[0.12em] text-white/50">
+                <div className="text-[12.5px] text-white/70">{productName}</div>
+                <div className="mt-px font-mono text-[9px] tracking-[0.12em] text-white/50 uppercase">
                   This proof covers
                 </div>
               </div>
@@ -260,11 +308,10 @@ export function UploadProofScreen({
               <input
                 ref={fileRef}
                 type="file"
-                accept="image/*,.heic,.pdf"
+                accept="image/jpeg,image/png,image/webp,image/heic,.heic,application/pdf"
                 capture="environment"
                 onChange={onFileChange}
-                className="sr-only"
-                aria-label="Choose a screenshot or PDF of your transfer"
+                hidden
               />
               <button
                 type="button"
@@ -309,9 +356,7 @@ export function UploadProofScreen({
                     >
                       <UploadGlyph />
                     </span>
-                    <span className="text-[15px] font-semibold">
-                      Take a photo or choose a file
-                    </span>
+                    <span className="text-[15px] font-semibold">Take a photo or choose a file</span>
                     <span className="font-mono text-[10.5px] tracking-[0.04em] text-[rgb(var(--fg-muted))]">
                       JPG · PNG · HEIC · PDF
                     </span>
@@ -322,15 +367,17 @@ export function UploadProofScreen({
               {/* live status line under the tile */}
               <div
                 className="mt-2.5 flex items-center justify-center gap-1.5 text-[12px] font-medium"
-                style={{ color: `rgb(var(--${
-                  headline.tone === "danger"
-                    ? "fg-danger"
-                    : headline.tone === "success"
-                      ? "fg-success"
-                      : headline.tone === "pending"
-                        ? "brand-primary-dark"
-                        : "fg-muted"
-                }))` }}
+                style={{
+                  color: `rgb(var(--${
+                    headline.tone === "danger"
+                      ? "fg-danger"
+                      : headline.tone === "success"
+                        ? "fg-success"
+                        : headline.tone === "pending"
+                          ? "brand-primary-dark"
+                          : "fg-muted"
+                  }))`,
+                }}
               >
                 {isUploading ? (
                   <span
@@ -345,6 +392,20 @@ export function UploadProofScreen({
                 ) : null}
                 <span>{headline.headline}</span>
               </div>
+
+              {uploadError ? (
+                <p
+                  role="alert"
+                  className="mt-2.5 rounded-[12px] px-3.5 py-3 text-center text-[12px] font-medium"
+                  style={{
+                    background: "rgb(var(--fg-danger) / 0.08)",
+                    border: "1px solid rgb(var(--fg-danger) / 0.24)",
+                    color: "rgb(var(--fg-danger))",
+                  }}
+                >
+                  {uploadError}
+                </p>
+              ) : null}
 
               {/* installments hint (proto-s9) */}
               <p className="mt-1.5 text-center text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
@@ -362,7 +423,7 @@ export function UploadProofScreen({
               </Eyebrow>
               <div className="flex flex-col gap-2">
                 {proofs.map((proof, i) => {
-                  const copy = proofStatusCopy(proof.status, producer.name);
+                  const copy = proofStatusCopy(proof.status, producerName);
                   return (
                     <div
                       key={proof.id}
@@ -392,7 +453,7 @@ export function UploadProofScreen({
                         </div>
                       </div>
                       <span
-                        className="shrink-0 rounded-full px-2.5 py-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.08em]"
+                        className="shrink-0 rounded-full px-2.5 py-1 font-mono text-[9.5px] font-bold tracking-[0.08em] uppercase"
                         style={chipStyle(copy.tone)}
                       >
                         {proof.status === "awaiting"
@@ -420,7 +481,7 @@ export function UploadProofScreen({
             }}
           >
             <div className="flex items-baseline justify-between">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+              <span className="font-mono text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
                 Paid so far
               </span>
               <span className="font-amount text-[14px] font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
@@ -432,6 +493,7 @@ export function UploadProofScreen({
               className="mt-2.5 h-2 w-full overflow-hidden rounded-full"
               style={{ background: "rgb(var(--bg-sunken))" }}
               role="progressbar"
+              aria-label="Payment progress"
               aria-valuenow={progress.pct}
               aria-valuemin={0}
               aria-valuemax={100}
@@ -447,7 +509,7 @@ export function UploadProofScreen({
               />
             </div>
             {!progress.isPaidInFull ? (
-              <div className="mt-2 font-amount text-[10.5px] tracking-[0.02em] text-[rgb(var(--fg-muted))]">
+              <div className="font-amount mt-2 text-[10.5px] tracking-[0.02em] text-[rgb(var(--fg-muted))]">
                 {formatShekels(progress.remainingCents)} left · downloads unlock at 100%
               </div>
             ) : null}
@@ -457,21 +519,23 @@ export function UploadProofScreen({
         {/* pinned action */}
         {!isPaidInFull ? (
           <div
-            className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pb-3.5 pt-3.5"
+            className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5"
             style={{
               background:
                 "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
             }}
           >
             <PrimaryCta
-              onClick={send}
+              onClick={() => {
+                void send();
+              }}
               disabled={!file || !canSend}
               glow={canSend}
               sub={
                 isAwaiting
-                  ? "We'll ping you when " + producer.name + " confirms"
+                  ? "We'll ping you when " + producerName + " confirms"
                   : file
-                    ? "Sends to " + producer.name + " to verify"
+                    ? "Sends to " + producerName + " to verify"
                     : "Attach a file to continue"
               }
             >
@@ -498,7 +562,7 @@ export function UploadProofScreen({
             </PrimaryCta>
           </div>
         ) : (
-          <div className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pb-3.5 pt-3.5">
+          <div className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5">
             <PrimaryCta
               glow={false}
               onClick={() => {
