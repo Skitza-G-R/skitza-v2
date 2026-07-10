@@ -60,6 +60,7 @@ const databaseUrl = process.env.DATABASE_URL_TEST;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 describeWithDatabase("artist purchase flow — real Postgres integration", () => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
   const suffix = randomUUID();
   const artistUserId = `artist_e2e_${suffix}`;
   const strangerArtistUserId = `artist_stranger_${suffix}`;
@@ -91,6 +92,9 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
         },
       })
       .returning();
+    if (!producer) throw new Error("Failed to seed E2E producer");
+    producerId = producer.id;
+
     const [attacker] = await db
       .insert(producers)
       .values({
@@ -100,8 +104,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
         slug: `e2e-other-studio-${suffix}`,
       })
       .returning();
-    if (!producer || !attacker) throw new Error("Failed to seed E2E producers");
-    producerId = producer.id;
+    if (!attacker) throw new Error("Failed to seed E2E attacker producer");
     attackerProducerId = attacker.id;
 
     await db.insert(clientContacts).values({
@@ -131,9 +134,41 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
   });
 
   afterAll(async () => {
-    delete process.env.DATABASE_URL;
-    if (!producerId || !attackerProducerId) return;
-    await db.delete(producers).where(inArray(producers.id, [producerId, attackerProducerId]));
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+
+    const seededProducerIds = [producerId, attackerProducerId].filter(Boolean);
+    if (seededProducerIds.length > 0) {
+      await db.delete(producers).where(inArray(producers.id, seededProducerIds));
+    }
+  });
+
+  it("rolls back a failed interactive transaction", async () => {
+    const rollbackUserId = `producer_rollback_${suffix}`;
+
+    try {
+      await expect(
+        db.transaction(async (tx) => {
+          await tx.insert(producers).values({
+            clerkUserId: rollbackUserId,
+            email: `${rollbackUserId}@example.com`,
+            displayName: "Rollback Studio",
+            slug: `rollback-studio-${suffix}`,
+          });
+          throw new Error("force transaction rollback");
+        }),
+      ).rejects.toThrow("force transaction rollback");
+
+      const rolledBackRows = await db
+        .select()
+        .from(producers)
+        .where(eq(producers.clerkUserId, rollbackUserId));
+      expect(rolledBackRows).toHaveLength(0);
+    } finally {
+      // Keep the disposable test branch clean even if a future adapter
+      // regression accidentally commits before this assertion runs.
+      await db.delete(producers).where(eq(producers.clerkUserId, rollbackUserId));
+    }
   });
 
   it("persists request → approval → split proofs → paid-in-full and enforces tenant boundaries", async () => {
