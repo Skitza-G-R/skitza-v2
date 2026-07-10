@@ -55,6 +55,16 @@ const config: NextConfig = {
   // Hide the X-Powered-By banner — one less fingerprinting bit.
   poweredByHeader: false,
 
+  // Interactive Neon transactions use the Node `ws` package. If Next bundles
+  // it, Webpack replaces ws's optional `bufferutil` dependency with an empty
+  // module; ws then calls a missing `.mask()` function and the request hangs
+  // until Vercel kills it. Keep ws external where Next can, and compile the
+  // official ws opt-out into any workspace bundle that Next still inlines.
+  serverExternalPackages: ["ws"],
+  env: {
+    WS_NO_BUFFER_UTIL: "1",
+  },
+
   // Next 15 auto-optimises images from remote hosts only when listed here.
   // Producers paste external artwork URLs for now (R2 comes in weeks 6-8);
   // the remotePatterns below cover the common MP3 / artwork sources we
