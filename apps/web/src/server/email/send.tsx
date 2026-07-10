@@ -34,6 +34,14 @@ import {
   type ProducerRepliedToCommentProps,
 } from "./templates/producer-replied-to-comment";
 import {
+  ProofRejectedToArtist,
+  type ProofRejectedToArtistProps,
+} from "./templates/proof-rejected-to-artist";
+import {
+  ProofVerifiedToArtist,
+  type ProofVerifiedToArtistProps,
+} from "./templates/proof-verified-to-artist";
+import {
   PurchaseApprovedToArtist,
   type PurchaseApprovedToArtistProps,
 } from "./templates/purchase-approved-to-artist";
@@ -241,6 +249,34 @@ export async function sendPurchaseApprovedEmail(
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} approved your request`,
+    html,
+  });
+}
+
+export async function sendProofVerifiedEmail(
+  to: string,
+  props: ProofVerifiedToArtistProps,
+): Promise<void> {
+  const html = await render(<ProofVerifiedToArtist {...props} />);
+  await getResend().emails.send({
+    from: FROM_ADDRESS,
+    to,
+    subject: props.paidInFull
+      ? `Paid in full — ${props.productName}`
+      : `Payment confirmed — ${props.productName}`,
+    html,
+  });
+}
+
+export async function sendProofRejectedEmail(
+  to: string,
+  props: ProofRejectedToArtistProps,
+): Promise<void> {
+  const html = await render(<ProofRejectedToArtist {...props} />);
+  await getResend().emails.send({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Action needed on your payment — ${props.productName}`,
     html,
   });
 }

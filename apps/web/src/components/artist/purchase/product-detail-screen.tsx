@@ -2,27 +2,30 @@
 
 // S3 — Product detail + "Request to book" (artist purchase funnel · ENTRY).
 //
-// The funnel's front door. The artist lands here from the store, reads what
-// the offer covers, sees the price (which LOCKS the moment they request), and
-// kicks off the purchase. The primary action routes to S4 (Review & agree),
-// where the request actually fires Gate 1. No payment happens here — this is
-// just the considered "yes, this is the offer I want" beat.
+// Handoff-4 TICKET layout (docs/design/handoff-4/skitza-screens.jsx,
+// S3HeadTicket — the chosen default): a slim 138px producer-hued cover band
+// (SKU/producer eyebrow only), then on cream — Syne title + tagline, the
+// receipt-ticket price card ("LOCKS AT REQUEST" mono eyebrow, 36px Syne
+// price, sessions/deposit column), producer mini row, bare-row includes
+// with a duration/revisions meta line, the payment-plan hint card with
+// per-plan chips, and the dark price-lock note. A collapsing StickyNav
+// catches the status bar; the amber CTA is pinned low and thumb-reachable.
 //
-// Editorial layout (matches proto-s3): a warm producer-hued cover band tops
-// the screen with the "Featured" eyebrow + Syne title + blurb sitting on it;
-// the cream canvas below carries the big ₪ price (JetBrains Mono), the
-// producer card with a "Booked" badge, and the amber-check WHAT'S INCLUDED
-// list on an 18px card. The amber action is pinned low and thumb-reachable.
-//
-// Data-only props (serializable from the server page). Navigation lives here
-// so the mock can be swapped for the BE-1 product snapshot without touching
-// the route. When the artist already has a request in review, the CTA is
-// disabled — they can browse, but can't start a second purchase (Gate 1).
+// Data-only props (serializable from the server page). When the artist
+// already has a request in review, the CTA is disabled — one open purchase
+// per studio (Gate 1).
 
+import { useRef } from "react";
 import { useRouter } from "next/navigation";
 
-import { ArrowRight, Check, LockIcon } from "~/components/artist/funnel/funnel-icons";
-import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import {
+  ArrowRight,
+  Check,
+  ClockIcon,
+  LockIcon,
+} from "~/components/artist/funnel/funnel-icons";
+import { Eyebrow, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import { StickyNav } from "~/components/artist/sticky-nav";
 import {
   coverGradient,
   formatShekels,
@@ -30,6 +33,28 @@ import {
   type PurchaseProduct,
   swatchGradient,
 } from "./purchase-data";
+
+const PLAN_CHIP_LABELS: Record<string, (priceCents: number) => string> = {
+  full: (p) => `Full · ${formatShekels(p)}`,
+  split_50_50: (p) => `50–50 · ${formatShekels(Math.ceil(p / 2 / 100) * 100)} now`,
+  monthly: () => "Monthly",
+  milestones: () => "Milestones",
+};
+
+function PlanChip({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="inline-flex items-center rounded-[var(--radius-sm)] border px-2.5 py-[5px] font-mono text-[10px] font-semibold tracking-[0.06em]"
+      style={{
+        background: "rgb(var(--bg-elevated))",
+        borderColor: "rgb(var(--border-strong))",
+        color: "rgb(var(--fg-secondary))",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
 
 export function ProductDetailScreen({
   product,
@@ -43,137 +68,151 @@ export function ProductDetailScreen({
   pendingRequest?: boolean;
 }) {
   const router = useRouter();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   return (
     <div
+      ref={scrollRef}
       className="fixed inset-0 z-[60] overflow-y-auto"
       style={{ background: "rgb(var(--bg-background))" }}
     >
-      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
-        <FunnelTopBar
-          title={producer.name || "Book a session"}
-          sub="THE OFFER"
-          onBack={() => {
-            router.push("/artist/store");
-          }}
-        />
+      <StickyNav
+        title={product.name}
+        sub={producer.name || undefined}
+        onBack={() => {
+          router.push("/artist/store");
+        }}
+        scrollContainerRef={scrollRef}
+        className="max-w-[440px]"
+      />
 
-        {/* warm producer-hued cover band — "Featured" eyebrow + Syne title sit on it */}
+      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
+        {/* slim cover band — producer-hued sleeve fading into the canvas */}
         <div
-          className="relative px-5 pb-[26px] pt-5"
+          className="relative h-[138px] overflow-hidden"
           style={{ background: coverGradient(producer.hue) }}
         >
-          <span
-            className="sk-rise inline-flex items-center rounded-full px-2.5 py-[5px] font-mono text-[9.5px] font-bold uppercase tracking-[0.16em]"
+          <div
+            aria-hidden
+            className="absolute inset-0"
             style={{
-              background: "rgb(255 255 255 / 0.82)",
-              color: "rgb(var(--brand-primary-dark))",
-              boxShadow: "0 2px 8px rgb(17 16 9 / 0.12)",
+              background:
+                "linear-gradient(180deg, rgb(17 16 9 / 0.18), transparent 50%, rgb(var(--bg-background)) 100%)",
             }}
-          >
-            Featured
+          />
+          <span className="label-eyebrow absolute bottom-3 left-[18px] text-white/80">
+            {(producer.name || "Producer").toUpperCase()}
           </span>
-          <h1
-            className="sk-rise mt-3 font-syne text-[30px] font-extrabold leading-[1.06] tracking-[-0.04em] text-white"
-            style={{ animationDelay: "40ms", textShadow: "0 1px 14px rgb(17 16 9 / 0.22)" }}
-          >
-            {product.name}
-          </h1>
-          <p
-            className="sk-rise mt-2 max-w-[300px] text-[13.5px] leading-snug text-white/85"
-            style={{ animationDelay: "70ms" }}
-          >
-            What this booking covers, start to finish — set with {producer.name}.
-          </p>
         </div>
 
-        <div className="flex-1 px-5 pb-[200px] pt-5">
-          {/* locked price — bordered white card (proto-s3): mono eyebrow +
-              big JetBrains Mono amount + the session meta, right-aligned */}
+        {/* pending banner — a request is already in review with this studio */}
+        {pendingRequest ? (
           <div
-            className="sk-rise rounded-card px-[18px] pb-4 pt-3.5"
+            className="sk-rise mx-5 mt-3.5 flex items-start gap-2.5 rounded-[14px] border px-3.5 py-3"
             style={{
-              animationDelay: "100ms",
-              background: "rgb(var(--bg-elevated))",
-              border: "1px solid rgb(var(--border-subtle))",
-              boxShadow: "var(--shadow-sm)",
+              background: "rgb(var(--brand-primary) / 0.1)",
+              borderColor: "rgb(var(--brand-primary) / 0.26)",
             }}
           >
-            <span className="inline-flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--brand-primary-dark))]">
-              <LockIcon />
-              LOCKS AT REQUEST
+            <span className="mt-px text-[rgb(var(--brand-primary-dark))]">
+              <ClockIcon />
             </span>
-            <div className="mt-1.5 flex items-end justify-between gap-3">
-              <span className="font-amount text-[42px] font-extrabold leading-none tracking-[-0.04em] text-[rgb(var(--fg-default))]">
+            <span className="text-[12.5px] leading-normal text-[rgb(var(--brand-primary-dark))]">
+              A request is already in review with {producer.name || "this studio"}.
+              You can pick this up once that one&apos;s settled.
+            </span>
+          </div>
+        ) : null}
+
+        {/* ticket head — title + tagline + receipt price card */}
+        <div className="px-5 pt-[18px]">
+          <h1 className="sk-rise font-syne text-[26px] font-extrabold leading-[1.1] tracking-[-0.035em] text-[rgb(var(--fg-default))] [text-wrap:pretty]">
+            {product.name}
+          </h1>
+          {product.tagline ? (
+            <p
+              className="sk-rise mt-2.5 text-[14px] leading-normal text-[rgb(var(--fg-secondary))]"
+              style={{ animationDelay: "40ms" }}
+            >
+              {product.tagline}
+            </p>
+          ) : null}
+          <div
+            className="sk-rise mt-4 flex items-center justify-between rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] px-[18px] py-4"
+            style={{
+              animationDelay: "70ms",
+              borderColor: "rgb(var(--border-subtle))",
+              boxShadow: "0 10px 28px -18px rgb(17 16 9 / 0.25)",
+            }}
+          >
+            <div>
+              <span className="inline-flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+                <LockIcon />
+                Locks at request
+              </span>
+              <div className="mt-1.5 font-syne text-[36px] font-extrabold leading-none tracking-[-0.04em] text-[rgb(var(--fg-default))]">
                 {formatShekels(product.priceCents)}
-              </span>
-              <span className="mb-1 text-right text-[12.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                {product.durationLabel}
-              </span>
+              </div>
+            </div>
+            <div className="text-right font-mono text-[10px] leading-[1.7] text-[rgb(var(--fg-muted))]">
+              <div>
+                {product.sessions > 1
+                  ? `${String(product.sessions)} sessions`
+                  : "1 project"}
+              </div>
+              {product.depositPct > 0 ? (
+                <div>{String(product.depositPct)}% deposit</div>
+              ) : (
+                <div>{product.durationLabel}</div>
+              )}
             </div>
           </div>
+        </div>
 
-          {/* producer card with "Booked" badge */}
+        {/* producer mini row */}
+        <div className="px-5 pt-[18px]">
           <div
-            className="sk-rise mt-6 flex items-center gap-[13px] rounded-card px-4 py-3.5"
+            className="sk-rise flex items-center gap-3 rounded-[14px] border bg-[rgb(var(--bg-elevated))] px-3.5 py-3"
             style={{
-              animationDelay: "140ms",
-              background: "rgb(var(--bg-elevated))",
-              border: "1px solid rgb(var(--border-subtle))",
-              boxShadow: "var(--shadow-sm)",
+              animationDelay: "100ms",
+              borderColor: "rgb(var(--border-subtle))",
             }}
           >
             <span
-              className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full font-syne text-[14px] font-extrabold text-white"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] font-syne text-[13px] font-extrabold text-white"
               style={{ background: swatchGradient(producer.hue) }}
             >
               {producer.initials}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="font-syne text-[15.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+              <div className="text-[14px] font-semibold text-[rgb(var(--fg-default))]">
                 {producer.name}
               </div>
-              <div className="mt-px text-[12.5px] text-[rgb(var(--fg-muted))]">
+              <div className="mt-0.5 font-mono text-[10.5px] text-[rgb(var(--fg-muted))]">
                 Reviews every request personally
               </div>
             </div>
-            <span
-              className="shrink-0 rounded-full px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em]"
-              style={{
-                background: "rgb(var(--brand-primary) / 0.14)",
-                color: "rgb(var(--brand-primary-dark))",
+            <button
+              type="button"
+              onClick={() => {
+                router.push("/artist/store");
               }}
+              className="sk-press-row shrink-0 text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))]"
             >
-              Booked
-            </span>
+              Store
+            </button>
           </div>
+        </div>
 
-          {/* what's included — amber-check list on an 18px card. Hidden when
-              the producer hasn't filled deliverables (real BE-1 data). */}
-          {product.includes.length > 0 ? (
-          <div className="sk-rise mt-6" style={{ animationDelay: "180ms" }}>
-            <Eyebrow className="mb-[11px]">What&apos;s included</Eyebrow>
-            <div
-              className="rounded-card px-[18px] py-[7px]"
-              style={{
-                background: "rgb(var(--bg-elevated))",
-                border: "1px solid rgb(var(--border-subtle))",
-                boxShadow: "var(--shadow-sm)",
-              }}
-            >
-              {product.includes.map((item, i) => (
-                <div
-                  key={item}
-                  className="flex items-start gap-[11px] py-3"
-                  style={{
-                    borderBottom:
-                      i === product.includes.length - 1
-                        ? "none"
-                        : "1px solid rgb(var(--border-subtle))",
-                  }}
-                >
+        {/* what's included — bare amber-check rows + meta line */}
+        {product.includes.length > 0 ? (
+          <div className="sk-rise px-5 pt-5" style={{ animationDelay: "140ms" }}>
+            <Eyebrow className="mb-3">What&apos;s included</Eyebrow>
+            <div className="flex flex-col gap-[11px]">
+              {product.includes.map((line) => (
+                <div key={line} className="flex items-start gap-[11px]">
                   <span
-                    className="mt-px flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full"
+                    className="mt-px flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
                     style={{
                       background: "rgb(var(--brand-primary) / 0.14)",
                       color: "rgb(var(--brand-primary-dark))",
@@ -181,27 +220,80 @@ export function ProductDetailScreen({
                   >
                     <Check width={12} height={12} />
                   </span>
-                  <span className="text-[14px] leading-snug text-[rgb(var(--fg-secondary))]">
-                    {item}
+                  <span className="text-[14px] leading-normal text-[rgb(var(--fg-secondary))]">
+                    {line}
                   </span>
                 </div>
               ))}
             </div>
+            <div className="mt-4 flex flex-wrap gap-[18px] text-[12.5px] text-[rgb(var(--fg-muted))]">
+              <span className="inline-flex items-center gap-1.5">
+                <ClockIcon />
+                {product.durationLabel}
+              </span>
+              {product.revisions > 0 ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Check width={13} height={13} />
+                  {String(product.revisions)} revisions
+                </span>
+              ) : null}
+            </div>
           </div>
-          ) : null}
+        ) : null}
 
-          {/* payment-plan hint */}
+        {/* payment-plan hint card with chips */}
+        <div className="sk-rise px-5 pt-5" style={{ animationDelay: "180ms" }}>
           <div
-            className="sk-rise mt-[18px] flex items-center gap-2 text-[12.5px] text-[rgb(var(--fg-muted))]"
-            style={{ animationDelay: "220ms" }}
+            className="rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] p-4"
+            style={{ borderColor: "rgb(var(--border-subtle))" }}
           >
-            <LockIcon />
-            <span>Full, or a plan — set after approval.</span>
+            <div className="flex items-center justify-between">
+              <Eyebrow>Payment</Eyebrow>
+              <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+                Set after approval
+              </span>
+            </div>
+            <p className="mt-2.5 text-[13.5px] leading-normal text-[rgb(var(--fg-secondary))]">
+              Pay in <b className="font-bold">full</b>, or on a{" "}
+              <b className="font-bold">plan</b> — {producer.name || "the producer"}{" "}
+              sets which options this offer allows once they approve your request.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-[7px]">
+              {product.planKinds.map((kind) => (
+                <PlanChip key={kind}>
+                  {(PLAN_CHIP_LABELS[kind] ?? (() => kind))(product.priceCents)}
+                </PlanChip>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* pinned action — a short cream fade on top of a SOLID backdrop so
-            the scrolling content never shows through the footer rows */}
+        {/* dark price-lock note */}
+        <div className="sk-rise px-5 pt-3.5" style={{ animationDelay: "220ms" }}>
+          <div
+            className="flex items-start gap-[11px] rounded-[var(--radius-lg)] px-[15px] py-[13px]"
+            style={{
+              background: "rgb(var(--bg-sidebar))",
+              color: "rgb(var(--fg-inverse))",
+            }}
+          >
+            <span className="mt-px text-[rgb(var(--brand-primary))]">
+              <LockIcon />
+            </span>
+            <span className="text-[12.5px] leading-[1.55]">
+              Your price locks now —{" "}
+              <b className="font-bold text-white">
+                {formatShekels(product.priceCents)}
+              </b>{" "}
+              stays fixed once you request. No money moves yet; this just sends
+              a request to {producer.name || "the producer"}.
+            </span>
+          </div>
+        </div>
+
+        <div className="flex-1 pb-[170px]" />
+
+        {/* pinned action — cream fade over a solid backdrop */}
         <div className="sticky bottom-0 z-10">
           <div
             aria-hidden
@@ -215,24 +307,20 @@ export function ProductDetailScreen({
             className="sk-safe-bottom px-[18px] pb-3.5"
             style={{ background: "rgb(var(--bg-background))" }}
           >
-          <div className="mb-2.5 flex items-center justify-between px-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-            <span>Payment</span>
-            <span>Set after approval</span>
-          </div>
-          <PrimaryCta
-            onClick={() => {
-              router.push(`/artist/purchase/${productId}/agree`);
-            }}
-            disabled={pendingRequest}
-            glow={!pendingRequest}
-            sub={
-              pendingRequest
-                ? "You have a request in review — finish that first."
-                : "Price locks — no payment yet."
-            }
-          >
-            Request to book <ArrowRight />
-          </PrimaryCta>
+            <PrimaryCta
+              onClick={() => {
+                router.push(`/artist/purchase/${productId}/agree`);
+              }}
+              disabled={pendingRequest}
+              glow={!pendingRequest}
+              sub={
+                pendingRequest
+                  ? "You have a request in review — finish that first."
+                  : "Price locks now · no payment yet"
+              }
+            >
+              Request to book <ArrowRight />
+            </PrimaryCta>
           </div>
         </div>
       </div>

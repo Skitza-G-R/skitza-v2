@@ -15,7 +15,8 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // BAD_REQUEST) without having to parse the exception type.
 export async function startStoreCheckoutAction(input: {
   productId: string;
-  paymentPlan: PaymentPlan;
+  // Stripe checkout never offers the BE-2 milestones plan (off-app only).
+  paymentPlan: Exclude<PaymentPlan, { kind: "milestones" }>;
   // Per-song pricing — populated by the SongCountStepper on per_song
   // products. The mutation uses these to compute the locked-in total
   // (songQty × unitPriceCents) and ignores them for flat products.

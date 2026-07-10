@@ -1,6 +1,7 @@
 import { Fragment } from "react";
+import Link from "next/link";
 
-import { Check, ClockIcon, LockIcon } from "~/components/artist/funnel/funnel-icons";
+import { ArrowRight, Check, ClockIcon, LockIcon } from "~/components/artist/funnel/funnel-icons";
 import { formatShekels } from "~/components/artist/purchase/purchase-data";
 
 import { ProducerArt } from "./producer-art";
@@ -17,10 +18,11 @@ import { ProducerArt } from "./producer-art";
 // The rest are extension points for later backend slices.
 
 export type PurchaseStage =
-  | "pending_review" // Gate 1 — live today (BE-1)
-  | "awaiting_payment" // BE-2 (SK-38)
-  | "verifying" // BE-2 (SK-38)
-  | "paid" // BE-3
+  | "pending_review" // Gate 1 — BE-1
+  | "awaiting_payment" // BE-2 — status 'approved'
+  | "verifying" // BE-2 — proof under Gate-2 review
+  | "paid" // BE-2 — first payment confirmed, sessions unlocked
+  | "declined" // Gate 1 declined — generic copy, never the reason
   | "delivered"; // BE-4
 
 export type PurchaseStatusCardProps = {
@@ -29,6 +31,10 @@ export type PurchaseStatusCardProps = {
   /** Price-locked snapshot, in agorot (₪1 = 100). */
   priceCents: number;
   producerName: string;
+  /** Context CTA target (handoff S6): awaiting_payment → S7 plan chooser,
+      paid → S10 booking. Omitted for stages without an action. */
+  actionHref?: string | undefined;
+  actionLabel?: string | undefined;
 };
 
 export type StepState = "done" | "active" | "upcoming";
@@ -47,6 +53,10 @@ export function stepStatesForStage(
       return ["done", "active", "upcoming", "upcoming"];
     case "paid":
       return ["done", "done", "active", "upcoming"];
+    case "declined":
+      // journey never started — the first node renders the red "!" via
+      // the declined flag in the component.
+      return ["active", "upcoming", "upcoming", "upcoming"];
     case "delivered":
       return ["done", "done", "done", "done"];
   }
@@ -55,7 +65,7 @@ export function stepStatesForStage(
 // stage → status pill copy + tone (amber while waiting, green once settled).
 export function pillForStage(stage: PurchaseStage): {
   label: string;
-  tone: "amber" | "success";
+  tone: "amber" | "success" | "neutral";
 } {
   switch (stage) {
     case "pending_review":
@@ -65,7 +75,9 @@ export function pillForStage(stage: PurchaseStage): {
     case "verifying":
       return { label: "Verifying payment", tone: "amber" };
     case "paid":
-      return { label: "Paid", tone: "success" };
+      return { label: "Paid · sessions unlocked", tone: "success" };
+    case "declined":
+      return { label: "Couldn't be confirmed", tone: "neutral" };
     case "delivered":
       return { label: "Delivered", tone: "success" };
   }
@@ -97,6 +109,11 @@ export function whatsNextForStage(
         line: "You're booked — time to schedule your sessions.",
         sub: "Pick times that work for you",
       };
+    case "declined":
+      return {
+        line: "This request couldn't be confirmed. You're free to explore other offers.",
+        sub: "Browse the store any time",
+      };
     case "delivered":
       return {
         line: "All wrapped — your songs are delivered.",
@@ -110,10 +127,13 @@ export function PurchaseStatusCard({
   productName,
   priceCents,
   producerName,
+  actionHref,
+  actionLabel,
 }: PurchaseStatusCardProps) {
   const pill = pillForStage(stage);
   const steps = stepStatesForStage(stage);
   const next = whatsNextForStage(stage, producerName);
+  const declined = stage === "declined";
   const pillColors =
     pill.tone === "amber"
       ? {
@@ -121,11 +141,17 @@ export function PurchaseStatusCard({
           color: "rgb(var(--brand-primary-dark))",
           dot: "rgb(var(--fg-warning))",
         }
-      : {
-          background: "rgb(var(--fg-success) / 0.12)",
-          color: "rgb(var(--fg-success))",
-          dot: "rgb(var(--fg-success))",
-        };
+      : pill.tone === "success"
+        ? {
+            background: "rgb(var(--fg-success) / 0.12)",
+            color: "rgb(var(--fg-success))",
+            dot: "rgb(var(--fg-success))",
+          }
+        : {
+            background: "rgb(var(--bg-sunken))",
+            color: "rgb(var(--fg-muted))",
+            dot: "rgb(var(--fg-faint))",
+          };
 
   return (
     <section aria-label="Your booking">
@@ -176,7 +202,11 @@ export function PurchaseStatusCard({
           >
             <span
               aria-hidden
-              className="sk-breathe h-[6px] w-[6px] shrink-0 rounded-full"
+              className={
+                pill.tone === "amber"
+                  ? "sk-breathe h-[6px] w-[6px] shrink-0 rounded-full"
+                  : "h-[6px] w-[6px] shrink-0 rounded-full"
+              }
               style={{ background: pillColors.dot }}
             />
             {pill.label}
@@ -206,7 +236,7 @@ export function PurchaseStatusCard({
                     />
                   ) : null}
                   <li className="flex shrink-0 flex-col items-center gap-1.5">
-                    <StepNode state={state} />
+                    <StepNode state={state} declined={declined && i === 0} />
                     <span
                       className="font-mono text-[9px] uppercase tracking-[0.1em]"
                       style={{
@@ -238,21 +268,53 @@ export function PurchaseStatusCard({
             <ClockIcon />
             <span>{next.sub}</span>
           </div>
+          {actionHref && actionLabel ? (
+            <Link
+              href={actionHref}
+              className="sk-cta-press mt-3 flex w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 py-3 text-[14.5px] font-bold"
+              style={{
+                background: "rgb(var(--brand-primary))",
+                color: "rgb(var(--fg-on-brand))",
+                boxShadow:
+                  "0 0 0 4px rgb(var(--brand-primary) / 0.16), 0 14px 30px -10px rgb(var(--brand-primary) / 0.7)",
+              }}
+            >
+              {actionLabel} <ArrowRight />
+            </Link>
+          ) : null}
         </div>
       </article>
 
-      {/* business rule: no second purchase while one is open */}
-      <p className="mt-2.5 flex items-center justify-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
-        <LockIcon />
-        <span>One booking at a time — yours is in review.</span>
-      </p>
+      {/* business rule: no second purchase while one is open. Terminal
+          states (paid/declined) free the slot — no lock line. */}
+      {stage !== "paid" && stage !== "declined" && stage !== "delivered" ? (
+        <p className="mt-2.5 flex items-center justify-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
+          <LockIcon />
+          <span>One booking at a time — yours is in review.</span>
+        </p>
+      ) : null}
     </section>
   );
 }
 
 // One stepper node. done = solid green check, active = amber ring +
-// breathing-pulse halo, upcoming = hollow circle with a faint dot.
-function StepNode({ state }: { state: StepState }) {
+// breathing-pulse halo, upcoming = hollow circle with a faint dot,
+// declined (first node only) = red "!" badge.
+function StepNode({ state, declined = false }: { state: StepState; declined?: boolean }) {
+  if (declined) {
+    return (
+      <span
+        className="flex h-5 w-5 items-center justify-center rounded-full text-[12px] font-bold leading-none"
+        style={{
+          background: "rgb(var(--fg-danger) / 0.12)",
+          color: "rgb(var(--fg-danger))",
+          border: "1.5px solid rgb(var(--fg-danger) / 0.4)",
+        }}
+      >
+        !
+      </span>
+    );
+  }
   if (state === "done") {
     return (
       <span

@@ -138,3 +138,29 @@ describe("advancePlanState", () => {
     expect(next.chargesCompleted).toBe(1);
   });
 });
+
+describe("calculateCharges — milestones (BE-2)", () => {
+  it("splits by pct and sums exactly to the total", () => {
+    const charges = calculateCharges(
+      {
+        kind: "milestones",
+        milestones: [
+          { label: "Booking", pct: 30 },
+          { label: "Mix", pct: 40 },
+          { label: "Delivery", pct: 30 },
+        ],
+      },
+      100_001,
+    );
+    expect(charges).toHaveLength(3);
+    expect(charges.reduce((a, b) => a + b, 0)).toBe(100_001);
+    // remainder lands on the FIRST charge (file convention)
+    expect(charges[0]).toBeGreaterThanOrEqual(30_000);
+  });
+
+  it("throws on an empty milestone schedule", () => {
+    expect(() =>
+      calculateCharges({ kind: "milestones", milestones: [] }, 1000),
+    ).toThrow(/at least one milestone/);
+  });
+});

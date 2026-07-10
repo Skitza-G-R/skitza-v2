@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Skitza · Artist Purchase Flow — Sections 1–5</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        overflow: hidden;
+        font-family: "Outfit", system-ui, sans-serif;
+        color: rgb(17 16 9);
+        font-variant-numeric: tabular-nums lining-nums;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+        background:
+          radial-gradient(1100px 700px at 78% -8%, rgb(212 150 10 / 0.1), transparent 60%),
+          radial-gradient(900px 600px at 8% 110%, rgb(17 16 9 / 0.05), transparent 55%),
+          rgb(237 231 222);
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.067 0 0 0 0 0.063 0 0 0 0 0.035 0 0 0 0.035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+        mix-blend-mode: multiply;
+        opacity: 0.5;
+      }
+
+      #stage {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1;
+      }
+
+      /* shimmer skeleton */
+      .sk-shimmer {
+        background: linear-gradient(
+          90deg,
+          rgb(17 16 9 / 0.055) 25%,
+          rgb(17 16 9 / 0.11) 37%,
+          rgb(17 16 9 / 0.055) 63%
+        );
+        background-size: 400% 100%;
+        animation: sk-sh 1.4s ease infinite;
+      }
+      @keyframes sk-sh {
+        0% {
+          background-position: 100% 0;
+        }
+        100% {
+          background-position: -100% 0;
+        }
+      }
+
+      /* ===== Control panel ===== */
+      #panel {
+        position: fixed;
+        top: 22px;
+        left: 22px;
+        z-index: 40;
+        width: 268px;
+        background: rgb(255 255 255 / 0.82);
+        backdrop-filter: blur(16px) saturate(150%);
+        border: 1px solid rgb(17 16 9 / 0.09);
+        border-radius: 20px;
+        box-shadow:
+          0 1px 2px rgb(17 16 9 / 0.04),
+          0 24px 50px -24px rgb(17 16 9 / 0.3);
+        padding: 16px 16px 17px;
+        user-select: none;
+      }
+      #panel .wm {
+        font-family: "Syne";
+        font-weight: 800;
+        font-size: 17px;
+        letter-spacing: -0.035em;
+        display: flex;
+        align-items: baseline;
+        gap: 1px;
+      }
+      #panel .wm .dot {
+        color: rgb(var(--brand-primary));
+      }
+      #panel .tagline {
+        font-family: "JetBrains Mono";
+        font-size: 9px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgb(var(--fg-muted));
+        margin-top: 3px;
+      }
+      .ctl-sec {
+        margin-top: 15px;
+      }
+      .ctl-lbl {
+        font-family: "JetBrains Mono";
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: rgb(var(--fg-muted));
+        margin-bottom: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .seg {
+        display: flex;
+        gap: 5px;
+        background: rgb(17 16 9 / 0.045);
+        border-radius: 12px;
+        padding: 4px;
+      }
+      .seg.col {
+        flex-direction: column;
+      }
+      .seg button {
+        all: unset;
+        cursor: pointer;
+        flex: 1;
+        text-align: center;
+        padding: 8px 6px;
+        border-radius: 9px;
+        font-family: "Outfit";
+        font-size: 12px;
+        font-weight: 600;
+        color: rgb(var(--fg-muted));
+        transition:
+          background 0.18s,
+          color 0.18s,
+          box-shadow 0.18s;
+        white-space: nowrap;
+      }
+      .seg button .sub {
+        display: block;
+        font-family: "JetBrains Mono";
+        font-size: 8.5px;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+        opacity: 0.7;
+        margin-top: 2px;
+      }
+      .seg button:hover {
+        color: rgb(17 16 9);
+      }
+      .seg button.on {
+        background: #fff;
+        color: rgb(17 16 9);
+        box-shadow:
+          0 1px 2px rgb(17 16 9 / 0.12),
+          0 2px 8px -4px rgb(17 16 9 / 0.2);
+      }
+      .seg button.on.amber {
+        background: rgb(var(--brand-primary));
+        color: #1a1407;
+      }
+      .seg button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .ctl-hint {
+        font-family: "Outfit";
+        font-size: 11px;
+        color: rgb(var(--fg-muted));
+        line-height: 1.45;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid rgb(17 16 9 / 0.08);
+      }
+      .ctl-hint b {
+        color: rgb(17 16 9);
+        font-weight: 600;
+      }
+      .flow-dots {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      .flow-dots .d {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: rgb(17 16 9 / 0.14);
+        transition:
+          background 0.2s,
+          transform 0.2s;
+      }
+      .flow-dots .d.on {
+        background: rgb(var(--brand-primary));
+        transform: scale(1.25);
+      }
+      .flow-dots .ln {
+        flex: 1;
+        height: 1px;
+        background: rgb(17 16 9 / 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <template id="__bundler_thumbnail">
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100" height="100" rx="22" fill="#111009" />
+        <text
+          x="50"
+          y="50"
+          font-family="Syne, sans-serif"
+          font-weight="800"
+          font-size="46"
+          fill="#D4960A"
+          text-anchor="middle"
+          dominant-baseline="central"
+          letter-spacing="-2"
+        >
+          S
+        </text>
+        <circle cx="69" cy="62" r="4.5" fill="#D4960A" />
+      </svg>
+    </template>
+    <div id="panel"></div>
+    <div id="stage"><div id="root"></div></div>
+
+    <script
+      src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+      integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+      integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+      integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+      crossorigin="anonymous"
+    ></script>
+
+    <script type="text/babel" src="ios-frame.jsx" data-presets="env,react"></script>
+    <script type="text/babel" src="skitza-mobile-data.jsx" data-presets="env,react"></script>
+    <script type="text/babel" src="skitza-mobile-ui.jsx" data-presets="env,react"></script>
+    <script type="text/babel" src="skitza-screens.jsx" data-presets="env,react"></script>
+    <script type="text/babel" src="skitza-screens-2.jsx" data-presets="env,react"></script>
+    <script type="text/babel" src="skitza-screens-3.jsx" data-presets="env,react"></script>
+    <script type="text/babel" src="skitza-screens-4.jsx" data-presets="env,react"></script>
+    <script type="text/babel" src="skitza-screens-5.jsx" data-presets="env,react"></script>
+    <script type="text/babel" src="skitza-store.jsx" data-presets="env,react"></script>
+
+    <script type="text/babel" data-presets="env,react">
+      const { useState, useEffect, useRef } = React;
+
+      const DEVICE_W = 402,
+        DEVICE_H = 874;
+
+      /* persisted view state so refreshes keep our place */
+      function loadState() {
+        try {
+          return JSON.parse(localStorage.getItem("sk_flow_v1") || "{}");
+        } catch {
+          return {};
+        }
+      }
+
+      function ControlPanel({ s, set }) {
+        const sections = [
+          {
+            label: "1 · Get in",
+            opts: [
+              { id: "s1", label: "Invite", sub: "S1" },
+              { id: "s2", label: "Store", sub: "S2" },
+              { id: "s3", label: "Detail", sub: "S3" },
+            ],
+          },
+          {
+            label: "2 · Commit",
+            opts: [
+              { id: "s4", label: "Sign", sub: "S4" },
+              { id: "s5", label: "Sent", sub: "S5" },
+              { id: "s6", label: "Home", sub: "S6" },
+            ],
+          },
+          {
+            label: "3 · Pay",
+            opts: [
+              { id: "s7", label: "Plan", sub: "S7" },
+              { id: "s8", label: "Pay", sub: "S8" },
+              { id: "s9", label: "Proof", sub: "S9" },
+            ],
+          },
+          {
+            label: "4 · Book",
+            opts: [
+              { id: "s10", label: "Time", sub: "S10" },
+              { id: "s11", label: "Booked", sub: "S11" },
+              { id: "s12", label: "Manage", sub: "S12" },
+            ],
+          },
+          {
+            label: "5 · Receive",
+            opts: [
+              { id: "s13", label: "Locked", sub: "S13" },
+              { id: "s14", label: "Unlocked", sub: "S14" },
+            ],
+          },
+        ];
+        const allScreens = [
+          "s1",
+          "s2",
+          "s3",
+          "s4",
+          "s5",
+          "s6",
+          "s7",
+          "s8",
+          "s9",
+          "s10",
+          "s11",
+          "s12",
+          "s13",
+          "s14",
+        ];
+        const stateOpts = {
+          s1: [
+            { id: "ready", label: "Ready" },
+            { id: "loading", label: "Loading" },
+          ],
+          s2: [
+            { id: "ready", label: "Ready" },
+            { id: "loading", label: "Loading" },
+          ],
+          s3: [
+            { id: "default", label: "Default" },
+            { id: "pending", label: "In review" },
+          ],
+          s4: null,
+          s5: null,
+          s6: [
+            { id: "pending", label: "Pending" },
+            { id: "approved", label: "Approved" },
+            { id: "verifying", label: "Verifying" },
+            { id: "paid", label: "Paid" },
+            { id: "declined", label: "Declined" },
+          ],
+          s7: null,
+          s8: [
+            { id: "details", label: "Details shown" },
+            { id: "nodetails", label: "Producer sends" },
+          ],
+          s9: [
+            { id: "empty", label: "Empty" },
+            { id: "attached", label: "Attached" },
+            { id: "uploading", label: "Uploading" },
+            { id: "awaiting", label: "In review" },
+            { id: "rejected", label: "Rejected" },
+            { id: "paid", label: "Paid in full" },
+          ],
+          s10: [
+            { id: "pick", label: "Pick" },
+            { id: "loading", label: "Loading" },
+            { id: "noslots", label: "No slots" },
+            { id: "held", label: "Held" },
+          ],
+          s11: [
+            { id: "confirmed", label: "Confirmed" },
+            { id: "held", label: "Held" },
+            { id: "empty", label: "Empty" },
+          ],
+          s12: [
+            { id: "within", label: "In policy" },
+            { id: "outside", label: "Locked" },
+          ],
+          s13: [
+            { id: "locked", label: "Locked" },
+            { id: "overdue", label: "Overdue" },
+          ],
+          s14: [
+            { id: "unlocked", label: "Unlocked" },
+            { id: "downloading", label: "Downloading" },
+          ],
+        };
+        const layoutOpts = {
+          s1: [
+            { id: "cover", label: "Cover" },
+            { id: "editorial", label: "Editorial" },
+            { id: "minimal", label: "Minimal" },
+          ],
+          s2: [
+            { id: "ladder", label: "Ladder" },
+            { id: "shelf", label: "Shelf" },
+            { id: "compare", label: "Compare" },
+          ],
+          s3: [
+            { id: "inline", label: "Inline" },
+            { id: "ticket", label: "Ticket" },
+            { id: "hero", label: "Big price" },
+          ],
+          s10: [
+            { id: "request", label: "Approval on" },
+            { id: "instant", label: "Auto-book" },
+          ],
+        };
+        const curState = {
+          s1: s.s1state,
+          s2: s.s2state,
+          s3: s.s3state,
+          s6: s.s6state,
+          s8: s.s8state,
+          s9: s.s9state,
+          s10: s.s10state,
+          s11: s.s11state,
+          s12: s.s12policy,
+          s13: s.s13state,
+          s14: s.s14state,
+        }[s.screen];
+        const setState = (v) =>
+          set(
+            {
+              s1: { s1state: v },
+              s2: { s2state: v },
+              s3: { s3state: v },
+              s6: { s6state: v },
+              s8: { s8state: v },
+              s9: { s9state: v },
+              s10: { s10state: v },
+              s11: { s11state: v },
+              s12: { s12policy: v },
+              s13: { s13state: v },
+              s14: { s14state: v },
+            }[s.screen],
+          );
+        const layoutKey = { s1: "s1variant", s2: "s2variant", s3: "s3variant", s10: "s10gate" }[
+          s.screen
+        ];
+        const curLayout = layoutKey ? s[layoutKey] : null;
+        const setLayout = (v) => layoutKey && set({ [layoutKey]: v });
+        const layouts = layoutOpts[s.screen];
+        const states = stateOpts[s.screen];
+        const idx = allScreens.indexOf(s.screen);
+
+        const hints = {
+          s1: (
+            <>
+              Private invite landing. Tap a track to play; <b>Book a session</b> → Store.
+            </>
+          ),
+          s2: (
+            <>
+              Standing Store screen. <b>Layout</b> toggles Ladder / Shelf / Compare directions.
+            </>
+          ),
+          s3: (
+            <>
+              Funnel screen. <b>Request to book</b> locks the price, then → Review &amp; agree.
+            </>
+          ),
+          s4: (
+            <>
+              Tap the checkbox to enable <b>Send request</b>. Sending → Request sent.
+            </>
+          ),
+          s5: (
+            <>
+              Calm confirmation (Gate 1). <b>Go to Home</b> to see your status card.
+            </>
+          ),
+          s6: (
+            <>
+              The heartbeat. Flip <b>State</b> to see all 5 stages of the booking.
+            </>
+          ),
+          s7: <>Per-product plans. Pick one → Continue. (Try a product with one plan too.)</>,
+          s8: (
+            <>
+              Off-app pay (v1). <b>Copy</b> the details, then → upload proof.
+            </>
+          ),
+          s9: (
+            <>
+              Gate 2. Flip <b>State</b> through empty → attached → in review → paid.
+            </>
+          ),
+          s10: (
+            <>
+              Gate 3. Pick a day &amp; time. <b>Layout</b> toggles approval vs auto-book.
+            </>
+          ),
+          s11: (
+            <>
+              Standing screen. Confirmed / held / empty. <b>Book another session</b> for
+              multi-session products.
+            </>
+          ),
+          s12: (
+            <>
+              Per-product time policy. <b>State</b> flips self-serve vs locked (message Gili).
+            </>
+          ),
+          s13: (
+            <>
+              Safety guard. Stream freely, but <b>downloads locked</b> until paid in full. Try
+              Overdue.
+            </>
+          ),
+          s14: (
+            <>
+              Paid in full — downloads open. Flip to <b>Downloading</b> for progress.
+            </>
+          ),
+        };
+
+        return (
+          <>
+            <div className="wm">
+              Skitza<span className="dot">.</span>
+            </div>
+            <div className="tagline">Purchase flow · Sec 1–5</div>
+
+            <div className="ctl-sec">
+              <div className="ctl-lbl">Screen</div>
+              {sections.map((sec) => (
+                <div key={sec.label} style={{ marginBottom: 7 }}>
+                  <div
+                    style={{
+                      fontFamily: "JetBrains Mono",
+                      fontSize: 8,
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                      color: "rgb(var(--fg-muted))",
+                      opacity: 0.7,
+                      margin: "0 2px 5px",
+                    }}
+                  >
+                    {sec.label}
+                  </div>
+                  <div className="seg">
+                    {sec.opts.map((o) => (
+                      <button
+                        key={o.id}
+                        className={s.screen === o.id ? "on" : ""}
+                        onClick={() => set({ screen: o.id })}
+                      >
+                        {o.label}
+                        <span className="sub">{o.sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <div className="flow-dots">
+                {allScreens.map((id, i) => (
+                  <React.Fragment key={id}>
+                    {i > 0 && <span className="ln" />}
+                    <span className={`d ${idx >= i ? "on" : ""}`} />
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+
+            {states && (
+              <div className="ctl-sec">
+                <div className="ctl-lbl">
+                  State{" "}
+                  {s.screen === "s6" && (
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        letterSpacing: 0,
+                        textTransform: "none",
+                        opacity: 0.8,
+                      }}
+                    >
+                      5 stages
+                    </span>
+                  )}
+                </div>
+                <div className={`seg ${states.length > 3 ? "col" : ""}`}>
+                  {states.map((o) => (
+                    <button
+                      key={o.id}
+                      className={curState === o.id ? (s.screen === "s6" ? "on" : "on") : ""}
+                      onClick={() => setState(o.id)}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {layouts && (
+              <div className="ctl-sec">
+                <div className="ctl-lbl">
+                  Layout{" "}
+                  <span
+                    style={{
+                      fontWeight: 500,
+                      letterSpacing: 0,
+                      textTransform: "none",
+                      opacity: 0.8,
+                    }}
+                  >
+                    explore
+                  </span>
+                </div>
+                <div className="seg">
+                  {layouts.map((o) => (
+                    <button
+                      key={o.id}
+                      className={curLayout === o.id ? "on amber" : ""}
+                      onClick={() => setLayout(o.id)}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="ctl-hint">{hints[s.screen]}</div>
+          </>
+        );
+      }
+
+      function App() {
+        const saved = loadState();
+        const [s, setS] = useState({
+          screen: "s1",
+          s1state: "ready",
+          s1variant: saved.s1variant || "editorial",
+          s2state: "ready",
+          s2variant: saved.s2variant || "shelf",
+          s3state: "default",
+          s3variant: saved.s3variant || "ticket",
+          s6state: "pending",
+          plan: null,
+          s8state: "details",
+          s9state: "empty",
+          s10state: "pick",
+          s10gate: "request",
+          s11state: "confirmed",
+          s12policy: "within",
+          s13state: "locked",
+          s14state: "unlocked",
+          productId: saved.productId || "g1",
+          toast: null,
+        });
+        const set = (patch) => setS((prev) => ({ ...prev, ...patch }));
+
+        useEffect(() => {
+          localStorage.setItem(
+            "sk_flow_v1",
+            JSON.stringify({
+              s1variant: s.s1variant,
+              s2variant: s.s2variant,
+              s3variant: s.s3variant,
+              productId: s.productId,
+            }),
+          );
+        }, [s.s1variant, s.s2variant, s.s3variant, s.productId]);
+
+        /* scale to fit */
+        const [scale, setScale] = useState(1);
+        useEffect(() => {
+          const fit = () => {
+            const vh = window.innerHeight,
+              vw = window.innerWidth;
+            const sH = (vh - 44) / DEVICE_H;
+            const sW = (vw - 340) / DEVICE_W; /* leave room for the panel */
+            setScale(Math.max(0.4, Math.min(1, sH, sW)));
+          };
+          fit();
+          window.addEventListener("resize", fit);
+          return () => window.removeEventListener("resize", fit);
+        }, []);
+
+        const toast = (msg) => {
+          set({ toast: msg });
+          clearTimeout(window.__skT);
+          window.__skT = setTimeout(() => set({ toast: null }), 3000);
+        };
+
+        const openProduct = (id) => set({ productId: id, screen: "s3", s3state: "default" });
+        const requestBook = () => set({ screen: "s4" });
+
+        let screenEl = null;
+        if (s.screen === "s1") {
+          screenEl = (
+            <S1Invite
+              variant={s.s1variant}
+              loading={s.s1state === "loading"}
+              go={(d) => set({ screen: d === "store" ? "s2" : s.screen })}
+            />
+          );
+        } else if (s.screen === "s2") {
+          screenEl = (
+            <S2Store
+              loading={s.s2state === "loading"}
+              openProduct={openProduct}
+              go={set}
+              variant={s.s2variant}
+            />
+          );
+        } else if (s.screen === "s3") {
+          screenEl = (
+            <S3Detail
+              productId={s.productId}
+              variant={s.s3variant}
+              pending={s.s3state === "pending"}
+              back={() => set({ screen: "s2" })}
+              requestBook={requestBook}
+            />
+          );
+        } else if (s.screen === "s4") {
+          screenEl = (
+            <S4Contract
+              productId={s.productId}
+              onBack={() => set({ screen: "s3" })}
+              onSend={() => set({ screen: "s5" })}
+              toast={toast}
+            />
+          );
+        } else if (s.screen === "s5") {
+          screenEl = (
+            <S5Sent
+              productId={s.productId}
+              onHome={() => set({ screen: "s6", s6state: "pending" })}
+              onStore={() => set({ screen: "s2" })}
+            />
+          );
+        } else if (s.screen === "s6") {
+          screenEl = <S6Home productId={s.productId} state={s.s6state} go={set} toast={toast} />;
+        } else {
+          const fallbackPlan = s.plan || buildPlans(productById(s.productId))[0].id;
+          if (s.screen === "s7") {
+            screenEl = (
+              <S7Plan
+                productId={s.productId}
+                back={() => set({ screen: "s6", s6state: "approved" })}
+                onContinue={(plan) => set({ plan, screen: "s8" })}
+              />
+            );
+          } else if (s.screen === "s8") {
+            screenEl = (
+              <S8Pay
+                productId={s.productId}
+                planId={fallbackPlan}
+                hasDetails={s.s8state !== "nodetails"}
+                back={() => set({ screen: "s7" })}
+                onUpload={() => set({ screen: "s9", s9state: "empty" })}
+                toast={toast}
+              />
+            );
+          } else if (s.screen === "s9") {
+            screenEl = (
+              <S9Proof
+                productId={s.productId}
+                planId={fallbackPlan}
+                state={s.s9state}
+                back={() => set({ screen: "s8" })}
+                onAttach={() => set({ s9state: "attached" })}
+                onRemove={() => set({ s9state: "empty" })}
+                onSend={() => {
+                  set({ s9state: "uploading" });
+                  setTimeout(() => set({ s9state: "awaiting" }), 1000);
+                }}
+                onHome={() => set({ screen: "s6", s6state: "verifying" })}
+                toast={toast}
+              />
+            );
+          } else if (s.screen === "s10") {
+            screenEl = (
+              <S10Book
+                key={s.s10state + s.s10gate}
+                productId={s.productId}
+                gate={s.s10gate}
+                state={s.s10state}
+                back={() => set({ screen: "s6", s6state: "paid" })}
+                onConfirm={(held) => set({ screen: "s11", s11state: held ? "held" : "confirmed" })}
+              />
+            );
+          } else if (s.screen === "s11") {
+            screenEl = (
+              <S11Sessions
+                productId={s.productId}
+                state={s.s11state}
+                go={set}
+                openSession={() => set({ screen: "s12" })}
+                toast={toast}
+              />
+            );
+          } else if (s.screen === "s12") {
+            screenEl = (
+              <S12Manage
+                productId={s.productId}
+                policy={s.s12policy}
+                back={() => set({ screen: "s11" })}
+                onReschedule={() => set({ screen: "s10" })}
+                toast={toast}
+              />
+            );
+          } else if (s.screen === "s13") {
+            screenEl = (
+              <MusicLibrary
+                key={s.s13state}
+                productId={s.productId}
+                state={s.s13state}
+                go={set}
+                toast={toast}
+              />
+            );
+          } else {
+            screenEl = (
+              <MusicLibrary
+                key={s.s14state}
+                productId={s.productId}
+                state={s.s14state}
+                go={set}
+                toast={toast}
+              />
+            );
+          }
+        }
+
+        return (
+          <>
+            <div style={{ transform: `scale(${scale})`, transformOrigin: "center center" }}>
+              <div style={{ position: "relative" }}>
+                <IOSDevice width={DEVICE_W} height={DEVICE_H}>
+                  {screenEl}
+                </IOSDevice>
+                {/* toast inside the device */}
+                {s.toast && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 18,
+                      right: 18,
+                      bottom: 150,
+                      zIndex: 80,
+                      background: "rgb(17 16 9)",
+                      color: "rgb(247 243 236)",
+                      borderRadius: 14,
+                      padding: "13px 16px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 11,
+                      boxShadow: "0 18px 40px -12px rgba(17,16,9,.6)",
+                      fontFamily: "Outfit",
+                      fontSize: 13,
+                      lineHeight: 1.4,
+                      animation: "sk-toast .35s cubic-bezier(.16,1,.3,1) both",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: 999,
+                        flexShrink: 0,
+                        background: "rgb(34 197 94 / .2)",
+                        color: "rgb(74 222 128)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Ic.check />
+                    </span>
+                    <span>{s.toast}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <PanelMount s={s} set={set} />
+          </>
+        );
+      }
+
+      /* render the control panel into the fixed #panel node */
+      function PanelMount({ s, set }) {
+        const node = document.getElementById("panel");
+        return ReactDOM.createPortal(<ControlPanel s={s} set={set} />, node);
+      }
+
+      const style = document.createElement("style");
+      style.textContent = `
+@keyframes sk-toast { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes sk-pulse { 0% { box-shadow: 0 0 0 0 currentColor; opacity: .9; } 70% { opacity: .3; } 100% { transform: scale(1.6); opacity: 0; } }
+@keyframes sk-ripple { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(1.7); opacity: 0; } }
+@keyframes sk-spin { to { transform: rotate(360deg); } }
+.sk-spin { animation: sk-spin .7s linear infinite; }
+@keyframes sk-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* staggered screen entrance */
+@keyframes sk-rise { from { opacity: 0; transform: translateY(11px); } to { opacity: 1; transform: none; } }
+.sk-screen-enter > * { animation: sk-rise .55s cubic-bezier(.16,1,.3,1) both; }
+.sk-screen-enter > *:nth-child(1) { animation-delay: 0s; }
+.sk-screen-enter > *:nth-child(2) { animation-delay: .05s; }
+.sk-screen-enter > *:nth-child(3) { animation-delay: .1s; }
+.sk-screen-enter > *:nth-child(4) { animation-delay: .15s; }
+.sk-screen-enter > *:nth-child(5) { animation-delay: .2s; }
+.sk-screen-enter > *:nth-child(6) { animation-delay: .25s; }
+.sk-screen-enter > *:nth-child(7) { animation-delay: .3s; }
+.sk-screen-enter > *:nth-child(n+8) { animation-delay: .34s; }
+
+/* gentle sheen sweep on the primary CTA */
+.sk-sheen { position: absolute; top: 0; bottom: 0; left: -60%; width: 38%; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.42), transparent);
+  transform: skewX(-18deg); animation: sk-sheen 5.5s cubic-bezier(.5,0,.2,1) 1.2s infinite; }
+@keyframes sk-sheen { 0% { left: -60%; } 24% { left: 130%; } 100% { left: 130%; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-screen-enter > *, .sk-sheen { animation: none !important; }
+}
+
+/* tactile liveness base transition (press effect is driven by JS below) */
+.sk-pop, .sk-lift, .sk-row, .seg button {
+  transition: transform .42s cubic-bezier(.34,1.56,.64,1), filter .18s ease, background .18s ease, color .18s ease, box-shadow .24s ease !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.sk-pop:active   { transition: transform .08s ease-out, filter .08s ease !important; transform: scale(.93) !important; filter: brightness(.99); }
+.sk-row:active   { transition: transform .08s ease-out, background .08s ease !important; transform: scale(.975) !important; }
+.sk-lift:active  { transition: transform .08s ease-out, box-shadow .12s ease !important; transform: scale(.965) !important; }
+.seg button:active { transition: transform .08s ease-out !important; transform: scale(.94) !important; }
+.sk-lift:hover   { transform: translateY(-2px) !important; }
+@media (prefers-reduced-motion: reduce) {
+  .sk-pop, .sk-lift, .sk-row, .seg button { transition: filter .15s ease, background .15s ease !important; }
+  .sk-pop:active, .sk-row:active, .sk-lift:active, .seg button:active { transform: none !important; }
+}
+`;
+      document.head.appendChild(style);
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+      /* tactile liveness: inline press transform (beats the buttons inline all:unset) */
+      (function () {
+        const reduce =
+          window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (reduce) return;
+        const SEL = ".sk-pop,.sk-lift,.sk-row,.seg button";
+        const SPRING = "transform .42s cubic-bezier(.34,1.56,.64,1)";
+        let pressed = null;
+        const scaleFor = (el) =>
+          el.matches(".sk-row")
+            ? 0.975
+            : el.matches(".sk-lift")
+              ? 0.965
+              : el.closest(".seg")
+                ? 0.94
+                : 0.93;
+        const down = (e) => {
+          const el = e.target.closest(SEL);
+          if (!el) return;
+          if (pressed && pressed !== el) up();
+          pressed = el;
+          el.style.transition = "transform .08s cubic-bezier(.3,0,.4,1)";
+          el.style.transform = "scale(" + scaleFor(el) + ")";
+        };
+        const up = () => {
+          if (!pressed) return;
+          const el = pressed;
+          pressed = null;
+          el.style.transition = SPRING;
+          el.style.transform = "scale(1)";
+        };
+        document.addEventListener("pointerdown", down, true);
+        document.addEventListener("pointerup", up, true);
+        document.addEventListener("pointercancel", up, true);
+        document.addEventListener("dragstart", up, true);
+        window.addEventListener("blur", up);
+      })();
+    </script>
+  </body>
+</html>

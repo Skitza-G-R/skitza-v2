@@ -17,6 +17,15 @@ const ROW = {
   deliverables: ["Full mix + master", "WAV stems"],
   producerName: "Gili Studio",
   contractUrl: "https://r2.example.com/contracts/Booking%20Agreement.pdf",
+  description: "Track, comp, mix & master one song.",
+  revisions: 2,
+  depositPct: 50,
+  depositModel: "flat",
+  milestones: null,
+  paymentPlans: [
+    { kind: "full" as const },
+    { kind: "split_50_50" as const },
+  ],
 };
 
 describe("durationLabel", () => {
@@ -62,7 +71,24 @@ describe("toPurchaseProduct", () => {
       currency: "ILS",
       durationLabel: "3 sessions · 2h each",
       includes: ["Full mix + master", "WAV stems"],
+      tagline: "Track, comp, mix & master one song.",
+      sessions: 3,
+      depositPct: 50,
+      revisions: 2,
+      planKinds: ["full", "split_50_50"],
     });
+  });
+
+  it("surfaces a milestones plan kind when the deposit model is milestone-based", () => {
+    const product = toPurchaseProduct({
+      ...ROW,
+      depositModel: "milestones",
+      milestones: [
+        { label: "Booking", pct: 50 },
+        { label: "Delivery", pct: 50 },
+      ],
+    });
+    expect(product.planKinds).toEqual(["full", "split_50_50", "milestones"]);
   });
 
   it("renders an empty includes list when deliverables are unset", () => {

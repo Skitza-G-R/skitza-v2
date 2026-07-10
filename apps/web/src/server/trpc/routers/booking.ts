@@ -79,6 +79,22 @@ const PaymentPlanInput = z.array(
       kind: z.literal("monthly"),
       installments: z.number().int().min(2).max(12),
     }),
+    // BE-2 widened the PaymentPlan union with a milestones kind. The
+    // product editor never authors it here (it's derived from
+    // depositModel='milestones'), but accepting it keeps the tRPC input
+    // type aligned with PaymentPlan[]; offeredPlans() ignores in-array
+    // milestones entries on the artist side.
+    z.object({
+      kind: z.literal("milestones"),
+      milestones: z
+        .array(
+          z.object({
+            label: z.string().min(1).max(80),
+            pct: z.number().int().min(1).max(100),
+          }),
+        )
+        .min(1),
+    }),
   ]),
 );
 

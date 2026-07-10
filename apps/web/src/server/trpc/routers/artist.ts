@@ -1367,6 +1367,10 @@ const storeSubrouter = router({
           pricingModel: products.pricingModel,
           volumeTiers: products.volumeTiers,
           paymentPlans: products.paymentPlans,
+          // Handoff-4 S3 ticket card (W2.1) — deposit column + plan chips.
+          depositPct: products.depositPct,
+          depositModel: products.depositModel,
+          milestones: products.milestones,
           position: products.position,
           // Funnel S3/S4 surfaces (SK-46) — the what's-included list and
           // the producer's uploaded agreement PDF.
@@ -1416,6 +1420,10 @@ const storeSubrouter = router({
         name: row.name,
         // Tagline only — see SK-49 note on the list read above.
         description: decodeDescription(row.description).tagline || null,
+        revisions: decodeDescription(row.description).revisions,
+        depositPct: row.depositPct,
+        depositModel: row.depositModel,
+        milestones: row.milestones,
         priceCents: row.priceCents,
         currency: row.currency,
         durationMin: row.durationMin,

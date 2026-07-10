@@ -15,6 +15,16 @@ export type PurchaseProduct = {
   durationLabel: string;
   /** What the booking covers — the agreement's "What's included" list. */
   includes: string[];
+  /** Wizard tagline (decoded from description) — null when unset. */
+  tagline: string | null;
+  /** Session count — the ticket card's right column. */
+  sessions: number;
+  /** Upfront deposit % (0 = none) — ticket card's right column. */
+  depositPct: number;
+  /** Revision rounds from the wizard encoding (0 = not specified). */
+  revisions: number;
+  /** Offered plan kinds (handoff-4 S3 plan-hint chips). */
+  planKinds: ("full" | "split_50_50" | "monthly" | "milestones")[];
 };
 
 export type Producer = {

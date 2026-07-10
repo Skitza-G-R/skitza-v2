@@ -35,6 +35,20 @@ export function calculateCharges(plan: PaymentPlan, totalCents: number): number[
       );
     }
 
+    case "milestones": {
+      if (plan.milestones.length === 0) {
+        throw new Error("milestones plan needs at least one milestone");
+      }
+      const raw = plan.milestones.map((m) =>
+        Math.floor((totalCents * m.pct) / 100),
+      );
+      // Any cent (or mis-summed pct) remainder goes on the FIRST charge —
+      // same convention as split/monthly above.
+      const sum = raw.reduce((a, b) => a + b, 0);
+      raw[0] = (raw[0] ?? 0) + (totalCents - sum);
+      return raw;
+    }
+
     default: {
       const _exhaustive: never = plan;
       throw new Error(`unhandled payment plan: ${JSON.stringify(_exhaustive)}`);

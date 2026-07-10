@@ -25,7 +25,11 @@ import { sql } from "drizzle-orm";
 export type PaymentPlan =
   | { kind: "full" }
   | { kind: "split_50_50" }
-  | { kind: "monthly"; installments: number };
+  | { kind: "monthly"; installments: number }
+  // BE-2 (2026-07-05): named-% schedule. The schedule rows are embedded
+  // in the plan value itself (snapshot-safe) — sourced from
+  // products.milestones when the product's depositModel is 'milestones'.
+  | { kind: "milestones"; milestones: { label: string; pct: number }[] };
 
 export const producers = pgTable("producers", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -92,6 +96,14 @@ export const producers = pgTable("producers", {
   // Provisioned manually by Skitza admin after the producer submits the
   // connection-request form on Settings → Integrations → Payments.
   tranzilaTerminalName: text("tranzila_terminal_name"),
+  // BE-2 off-app payments (v1): free-text bank-transfer details + Bit
+  // phone number the artist sees on the payment-instructions screen.
+  // Empty object → the screen shows the "producer will send details"
+  // variant. Migration 0022.
+  paymentDetails: jsonb("payment_details")
+    .$type<{ bankTransfer?: string; bitPhone?: string; note?: string }>()
+    .notNull()
+    .default({}),
   // Settings redesign — plan tier for the Plan & billing section.
   // UI-only for v1 (no Stripe subscription wiring yet): the section
   // renders a hard-coded 'free' / 'pro' hero + usage meters but does
@@ -690,6 +702,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "purchase_approved",   // producer approved the request
   "purchase_declined",   // producer declined the request
   "agreement_accepted",  // artist accepted the producer's agreement
+  "proof_submitted",     // artist uploaded a proof of payment (Gate 2 in)
 ]);
 
 export const notifications = pgTable("notifications", {
@@ -779,8 +792,20 @@ export const invoices = pgTable("invoices", {
   // never sent. Idempotency key for the cron. Migration 0033 (audit
   // Task 12).
   reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+  // ─── BE-2 off-app proof-of-payment (migration 0022) ──────────────
+  // Each submitted proof is ONE invoice row: status 'sent' = awaiting
+  // Gate-2 verification, 'paid' = confirmed, 'void' = rejected (note in
+  // rejectionNote). Running total paid for a purchase = SUM(amountCents)
+  // of its 'paid' rows. SET NULL keeps the ledger if the request goes.
+  purchaseRequestId: uuid("purchase_request_id")
+    .references(() => purchaseRequests.id, { onDelete: "set null" }),
+  proofFileUrl: text("proof_file_url"),
+  proofNote: text("proof_note"),
+  rejectionNote: text("rejection_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
+  // Gate-2 queue + running-total reads.
+  purchaseRequestIdx: index("invoices_purchase_request_idx").on(t.purchaseRequestId),
   // Covers the dashboard list query: producer-scoped, ordered desc.
   producerCreatedIdx: index("invoices_producer_created_idx").on(t.producerId, t.createdAt),
   // Partial unique index — Stripe fires invoice.paid +
@@ -931,7 +956,12 @@ export type NewProducerNote = typeof producerNotes.$inferInsert;
 // SAME project/booking rows the store + calendar flows use.
 export const purchaseRequestStatus = pgEnum("purchase_request_status", [
   "pending",   // submitted, awaiting producer's Gate-1 decision
-  "approved",  // producer approved (5-min undo window starts at approvedAt)
+  "approved",  // producer approved — doubles as AWAITING PAYMENT (BE-2):
+               // the artist is choosing a plan / paying off-app
+  "verifying", // first proof of payment submitted, awaiting Gate 2
+  "paid",      // first payment confirmed — sessions unlocked. Later
+               // installments live on `invoices` rows and never regress
+               // this status; "paid in full" = SUM(paid invoices) ≥ priceCents
   "declined",  // producer declined (artist sees a generic message)
 ]);
 

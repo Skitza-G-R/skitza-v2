@@ -40,12 +40,14 @@ describe("product-detail-screen.tsx (S3) wiring", () => {
     expect(s3Src).toMatch(/producer\.name/);
   });
 
-  it("shows the quiet payment-plan hint", () => {
-    expect(s3Src).toMatch(/Full, or a plan — set after approval/);
+  it("shows the payment-plan hint card with per-plan chips (handoff-4 ticket)", () => {
+    expect(s3Src).toMatch(/Set after approval/);
+    expect(s3Src).toMatch(/PLAN_CHIP_LABELS/);
+    expect(s3Src).toMatch(/product\.planKinds\.map/);
   });
 
-  it("backs out to the producer's store from the top bar", () => {
-    expect(s3Src).toMatch(/<FunnelTopBar/);
+  it("backs out to the producer's store from the collapsing StickyNav", () => {
+    expect(s3Src).toMatch(/<StickyNav/);
     expect(s3Src).toMatch(/router\.push\("\/artist\/store"\)/);
   });
 

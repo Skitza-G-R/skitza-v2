@@ -15,7 +15,7 @@ import "./globals.css";
 //   `--font-display`, `--font-head`, and the Tailwind `font-syne` utility.
 // - Outfit 300-800: body, labels, descriptions. Surfaces `--font-outfit`
 //   which globals.css aliases as `--font-body`.
-// - JetBrains Mono 400/500/600/700: timestamps, prices, durations, IDs.
+// - JetBrains Mono 400/500/600/700/800: timestamps, prices, durations, IDs.
 //   Always tabular-nums (the `font-mono` @utility in globals.css enables
 //   `tnum` + `ss02` features).
 //
@@ -38,7 +38,7 @@ const syne = Syne({
 });
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700", "800"],
   variable: "--font-jetbrains-mono",
   display: "swap",
 });
