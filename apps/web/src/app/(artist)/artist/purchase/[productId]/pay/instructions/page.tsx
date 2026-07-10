@@ -55,6 +55,7 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
         paymentDetails={paymentDetails}
         productName={data.productName}
         planLabel={paymentPlanLabel(data.planKind, data.planInstallments)}
+        proofUploadsAvailable={data.proofUploadsAvailable}
       />
     );
   } catch (error) {

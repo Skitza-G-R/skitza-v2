@@ -188,6 +188,7 @@ export function PaymentInstructionsScreen({
   paymentDetails,
   productName,
   planLabel,
+  proofUploadsAvailable = true,
   previewProofHref,
 }: {
   productId: string;
@@ -200,6 +201,8 @@ export function PaymentInstructionsScreen({
   productName?: string | undefined;
   /** Human label of the chosen plan (e.g. "Split 50 / 50"). */
   planLabel?: string | undefined;
+  /** False on a pre-0023 database, where the private proof ledger does not exist yet. */
+  proofUploadsAvailable?: boolean | undefined;
   /** Dev-gallery navigation only; production routes derive S9 from the request id. */
   previewProofHref?: string | undefined;
 }) {
@@ -255,7 +258,9 @@ export function PaymentInstructionsScreen({
               </div>
             ) : null}
             <p className="mt-2 text-[12.5px] leading-snug text-white/55">
-              Pay using your bank or Bit, then upload your proof.
+              {proofUploadsAvailable
+                ? "Pay using your bank or Bit, then upload your proof."
+                : "Pay using your bank or Bit and keep your transfer receipt."}
             </p>
           </div>
 
@@ -339,8 +344,9 @@ export function PaymentInstructionsScreen({
                   {producerName} will send payment details
                 </div>
                 <p className="mt-1 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-                  They&apos;ll share their bank or Bit details with you directly. Once you&apos;ve
-                  paid, come back and upload your proof.
+                  {proofUploadsAvailable
+                    ? "They'll share their bank or Bit details with you directly. Once you've paid, come back and upload your proof."
+                    : "They'll share their bank or Bit details with you directly. Keep your receipt until private proof upload is enabled."}
                 </p>
               </div>
             </div>
@@ -385,8 +391,22 @@ export function PaymentInstructionsScreen({
               "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
           }}
         >
-          <PrimaryCta onClick={goToProof} sub="Upload a screenshot of your transfer">
-            I&apos;ve paid — upload proof <ArrowRight />
+          <PrimaryCta
+            onClick={goToProof}
+            disabled={!proofUploadsAvailable}
+            sub={
+              proofUploadsAvailable
+                ? "Upload a screenshot of your transfer"
+                : `Keep your receipt and send it directly to ${producerName}`
+            }
+          >
+            {proofUploadsAvailable ? (
+              <>
+                I&apos;ve paid — upload proof <ArrowRight />
+              </>
+            ) : (
+              "Proof upload temporarily unavailable"
+            )}
           </PrimaryCta>
         </div>
       </div>

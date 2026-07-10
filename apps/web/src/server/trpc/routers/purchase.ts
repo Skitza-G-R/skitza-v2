@@ -312,6 +312,24 @@ async function purchasePlanColumnsAvailable(db: Pick<Db, "execute">): Promise<bo
   return (result.rows[0]?.columnCount ?? 0) === 2;
 }
 
+async function paymentProofsTableAvailable(db: Pick<Db, "execute">): Promise<boolean> {
+  const result = await db.execute<{ tableCount: number }>(sql`
+    select count(*)::int as "tableCount"
+    from information_schema.tables
+    where table_schema = current_schema()
+      and table_name = 'payment_proofs'
+  `);
+  return (result.rows[0]?.tableCount ?? 0) === 1;
+}
+
+async function assertPaymentProofsTableAvailable(db: Pick<Db, "execute">): Promise<void> {
+  if (await paymentProofsTableAvailable(db)) return;
+  throw new TRPCError({
+    code: "BAD_REQUEST",
+    message: "Payment proof upload isn't available in this environment yet.",
+  });
+}
+
 function withLegacyPlanFields(request: LegacyPurchaseRequest): PurchaseRequest {
   return {
     ...request,
@@ -853,8 +871,8 @@ export const artistPurchaseRouter = router({
         (row.status === "paid" && (!paidInFull || ageMs <= 30 * DAY)) ||
         (row.status === "declined" && ageMs <= 7 * DAY);
       if (!visible) return { current: null };
-      const hasPlanColumns = await purchasePlanColumnsAvailable(ctx.db);
-      const pendingProofCents = hasPlanColumns
+      const hasProofTable = await paymentProofsTableAvailable(ctx.db);
+      const pendingProofCents = hasProofTable
         ? await pendingProofTotalCents(ctx.db, row.id)
         : 0;
       return {
@@ -979,7 +997,8 @@ export const artistPurchaseRouter = router({
               ),
             )
             .limit(1);
-          const inFlightProof = hasPlanColumns
+          const hasProofTable = await paymentProofsTableAvailable(tx);
+          const inFlightProof = hasProofTable
             ? (
                 await tx
                   .select({ id: paymentProofs.id })
@@ -1031,6 +1050,7 @@ export const artistPurchaseRouter = router({
         });
       }
       const hasPlanColumns = await purchasePlanColumnsAvailable(ctx.db);
+      const hasProofTable = await paymentProofsTableAvailable(ctx.db);
       if (hasPlanColumns && !request.paymentPlanChosenAt) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -1048,7 +1068,7 @@ export const artistPurchaseRouter = router({
       const details = producer?.paymentDetails ?? {};
       const charges = calculateCharges(request.paymentPlanSnapshot, request.priceCents);
       const paid = await paidTotalCents(ctx.db, request.id);
-      const reserved = hasPlanColumns
+      const reserved = hasProofTable
         ? await pendingProofTotalCents(ctx.db, request.id)
         : 0;
       const progress = chargesProgress(charges, paid, reserved);
@@ -1070,6 +1090,7 @@ export const artistPurchaseRouter = router({
         amountDueNowCents: progress.availableToSubmitCents > 0 ? progress.nextDueCents : null,
         availableToSubmitCents: progress.availableToSubmitCents,
         producerName: producer?.displayName ?? null,
+        proofUploadsAvailable: hasProofTable,
         hasDetails,
         bankTransfer: details.bankTransfer ?? null,
         bitPhone: details.bitPhone ?? null,
@@ -1090,17 +1111,20 @@ export const artistPurchaseRouter = router({
           .from(producers)
           .where(eq(producers.id, request.producerId))
           .limit(1);
-        const proofs = await ctx.db
-          .select({
-            id: paymentProofs.id,
-            amountCents: paymentProofs.amountCents,
-            status: paymentProofs.status,
-            rejectionNote: paymentProofs.rejectionNote,
-            createdAt: paymentProofs.createdAt,
-          })
-          .from(paymentProofs)
-          .where(eq(paymentProofs.purchaseRequestId, request.id))
-          .orderBy(paymentProofs.createdAt);
+        const hasProofTable = await paymentProofsTableAvailable(ctx.db);
+        const proofs = hasProofTable
+          ? await ctx.db
+              .select({
+                id: paymentProofs.id,
+                amountCents: paymentProofs.amountCents,
+                status: paymentProofs.status,
+                rejectionNote: paymentProofs.rejectionNote,
+                createdAt: paymentProofs.createdAt,
+              })
+              .from(paymentProofs)
+              .where(eq(paymentProofs.purchaseRequestId, request.id))
+              .orderBy(paymentProofs.createdAt)
+          : [];
         const charges = calculateCharges(request.paymentPlanSnapshot, request.priceCents);
         const paid = await paidTotalCents(ctx.db, request.id);
         const reserved = proofs
@@ -1112,6 +1136,7 @@ export const artistPurchaseRouter = router({
           productId: request.productId,
           productName: request.productNameSnapshot,
           producerName: producer?.displayName ?? "Your producer",
+          proofUploadsAvailable: hasProofTable,
           requestStatus: request.status,
           planChosenAt: request.paymentPlanChosenAt,
           currency: request.currency,
@@ -1139,6 +1164,7 @@ export const artistPurchaseRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
+        await assertPaymentProofsTableAvailable(ctx.db);
         await assertAcceptsProof(ctx.db, request);
         const rate = checkRateLimit(
           `proof-presign:${ctx.clerkUserId}:${request.id}`,
@@ -1183,6 +1209,7 @@ export const artistPurchaseRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
+        await assertPaymentProofsTableAvailable(ctx.db);
         if (
           !isProofStagingKeyForPurchase(input.storageKey, {
             producerId: request.producerId,
@@ -1412,6 +1439,7 @@ export const artistPurchaseRouter = router({
     view: artistProcedure
       .input(z.object({ proofId: z.string().uuid() }))
       .query(async ({ ctx, input }) => {
+        await assertPaymentProofsTableAvailable(ctx.db);
         const [proof] = await ctx.db
           .select()
           .from(paymentProofs)
@@ -1623,8 +1651,8 @@ export const producerPurchaseRouter = router({
           });
         }
 
-        const hasPlanColumns = await purchasePlanColumnsAvailable(tx);
-        const proofActivity = hasPlanColumns
+        const hasProofTable = await paymentProofsTableAvailable(tx);
+        const proofActivity = hasProofTable
           ? (
               await tx
                 .select({ id: paymentProofs.id })

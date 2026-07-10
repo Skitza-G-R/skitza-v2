@@ -146,6 +146,11 @@ describe("upload-proof-screen.tsx (S9) wiring", () => {
     expect(pageSrc).not.toMatch(/MOCK_/);
   });
 
+  it("returns safely to payment instructions when the private proof ledger is unavailable", () => {
+    expect(pageSrc).toMatch(/!data\.proofUploadsAvailable/);
+    expect(pageSrc).toMatch(/\/pay\/instructions\?req=\$\{req\}/);
+  });
+
   it("rejects non-paying states before sending an unchosen plan back to S7", () => {
     expect(pageSrc.indexOf("data.requestStatus")).toBeLessThan(
       pageSrc.indexOf("!data.planChosenAt"),

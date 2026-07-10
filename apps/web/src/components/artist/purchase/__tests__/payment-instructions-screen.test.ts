@@ -66,6 +66,13 @@ describe("payment-instructions-screen.tsx (S8) wiring", () => {
     expect(s8Src).toMatch(/req=\$\{purchaseRequestId\}/);
   });
 
+  it("disables proof upload when migration 0023 is not available", () => {
+    expect(s8Src).toMatch(/proofUploadsAvailable\s*=\s*true/);
+    expect(s8Src).toMatch(/disabled=\{!proofUploadsAvailable\}/);
+    expect(s8Src).toMatch(/Proof upload temporarily unavailable/);
+    expect(pageSrc).toMatch(/proofUploadsAvailable=\{data\.proofUploadsAvailable\}/);
+  });
+
   it("supports the 'producer will send details' fallback when bank details are absent", () => {
     expect(s8Src).toMatch(/will send/i);
     expect(s8Src).toMatch(/paymentDetails/);

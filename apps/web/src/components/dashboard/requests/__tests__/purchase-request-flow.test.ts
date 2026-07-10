@@ -64,19 +64,22 @@ describe("producer purchase request hub", () => {
   it("keeps Gate 1 usable before migration 0023 is applied", () => {
     expect(purchaseRouterSrc).toMatch(/legacyPurchaseRequestColumns/);
     expect(purchaseRouterSrc).toMatch(/purchasePlanColumnsAvailable/);
+    expect(purchaseRouterSrc).toMatch(/paymentProofsTableAvailable/);
     expect(purchaseRouterSrc).toMatch(/information_schema\.columns/);
+    expect(purchaseRouterSrc).toMatch(/information_schema\.tables/);
     expect(purchaseRouterSrc).not.toMatch(/select\(\{ request: purchaseRequests/);
     expect(purchaseRouterSrc).toMatch(/delete legacyValues\.paymentPlanOptionsSnapshot/);
     expect(purchaseRouterSrc).toMatch(/delete legacyValues\.paymentPlanChosenAt/);
     expect(purchaseRouterSrc).toMatch(/hasPlanColumns\s*\?\s*\{/);
     expect(purchaseRouterSrc).toMatch(
-      /const pendingProofCents = hasPlanColumns[\s\S]*pendingProofTotalCents/,
+      /const pendingProofCents = hasProofTable[\s\S]*pendingProofTotalCents/,
     );
-    expect(purchaseRouterSrc).toMatch(/const inFlightProof = hasPlanColumns/);
+    expect(purchaseRouterSrc).toMatch(/const inFlightProof = hasProofTable/);
     expect(purchaseRouterSrc).toMatch(
-      /const reserved = hasPlanColumns[\s\S]*pendingProofTotalCents/,
+      /const reserved = hasProofTable[\s\S]*pendingProofTotalCents/,
     );
-    expect(purchaseRouterSrc).toMatch(/const proofActivity = hasPlanColumns/);
+    expect(purchaseRouterSrc).toMatch(/const proofActivity = hasProofTable/);
+    expect(purchaseRouterSrc).toMatch(/proofUploadsAvailable:\s*hasProofTable/);
   });
 
   it("renders the artist, locked product, agreement, and frozen payment options", () => {

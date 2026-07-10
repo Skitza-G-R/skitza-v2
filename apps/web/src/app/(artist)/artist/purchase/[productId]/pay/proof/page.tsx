@@ -33,6 +33,9 @@ export default async function PurchaseProofPage({ params, searchParams }: PagePr
     if (!(["approved", "verifying", "paid"] as string[]).includes(data.requestStatus)) {
       redirect("/artist");
     }
+    if (!data.proofUploadsAvailable) {
+      redirect(`/artist/purchase/${productId}/pay/instructions?req=${req}`);
+    }
     if (!data.planChosenAt) {
       redirect(`/artist/purchase/${productId}/pay?req=${req}`);
     }
