@@ -1,0 +1,4 @@
+interface:
+  display_name: "Migrate Skitza Database"
+  short_description: "Apply Skitza SQL migrations safely"
+  default_prompt: "Use $skitza-migrate to apply pending Skitza SQL migrations to the selected Neon database."

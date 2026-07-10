@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Skitza"
+  short_description: "Run Skitza’s full quality gate"
+  default_prompt: "Use $skitza-verify to run the full Skitza verification gate and report the first failure."
