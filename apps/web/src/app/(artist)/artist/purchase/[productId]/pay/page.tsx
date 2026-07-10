@@ -1,22 +1,53 @@
+import { auth } from "@clerk/nextjs/server";
+import { TRPCError } from "@trpc/server";
+import { notFound, redirect } from "next/navigation";
+
 import { ChoosePlanScreen } from "~/components/artist/purchase/choose-plan-screen";
-import {
-  MOCK_PLAN_OPTIONS,
-  MOCK_PRODUCER,
-  MOCK_PRODUCT,
-} from "~/components/artist/purchase/pay-data";
+import { livePlanOptions } from "~/components/artist/purchase/pay-data";
+import { appRouter } from "~/server/trpc/routers/_app";
 
-type PageProps = { params: Promise<{ productId: string }> };
+type PageProps = {
+  params: Promise<{ productId: string }>;
+  searchParams: Promise<{ req?: string }>;
+};
 
-// S7 — Choose a payment plan (Pay). The (artist) layout already guards the
-// role; here we just build the screen props. Mock plans while BE-2 (SK-38)
-// is in flight — when it lands, swap MOCK_PLAN_OPTIONS for the tRPC caller's
-// per-product allowed plans + price-locked product. The screen props don't
-// change.
-export default async function ChoosePlanPage({ params }: PageProps) {
+// S7 — the approved artist chooses from the plans frozen when the request
+// was sent. The live product is deliberately not read here: producer edits
+// must never change an agreement already in progress.
+export default async function ChoosePlanPage({ params, searchParams }: PageProps) {
+  const { userId } = await auth();
+  if (!userId) return null;
+
   const { productId } = await params;
-  const product = { ...MOCK_PRODUCT, id: productId };
-  const producer = MOCK_PRODUCER;
-  const options = MOCK_PLAN_OPTIONS;
+  const { req } = await searchParams;
+  if (!req) redirect(`/artist/purchase/${productId}`);
 
-  return <ChoosePlanScreen product={product} producer={producer} options={options} />;
+  const caller = appRouter.createCaller({ userId });
+  try {
+    const data = await caller.artist.purchase.paymentPlan.options({
+      purchaseRequestId: req,
+    });
+    if (data.productId && data.productId !== productId) notFound();
+    if (data.status !== "approved") {
+      if (data.status === "verifying" || data.status === "paid") {
+        redirect(`/artist/purchase/${productId}/pay/proof?req=${req}`);
+      }
+      redirect("/artist");
+    }
+    if (data.chosenAt) {
+      redirect(`/artist/purchase/${productId}/pay/instructions?req=${req}`);
+    }
+    return (
+      <ChoosePlanScreen
+        productId={productId}
+        productName={data.productName}
+        producerName={data.producerName}
+        purchaseRequestId={req}
+        options={livePlanOptions(data.options)}
+      />
+    );
+  } catch (error) {
+    if (error instanceof TRPCError && error.code === "NOT_FOUND") notFound();
+    throw error;
+  }
 }

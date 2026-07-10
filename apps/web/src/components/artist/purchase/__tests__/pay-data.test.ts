@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   amountDueNowCents,
   formatShekels,
+  livePlanOptions,
+  nextPlanIndex,
   paidProgress,
+  paymentPlanLabel,
   planOptions,
   proofStatusCopy,
   type PlanOption,
@@ -46,11 +49,7 @@ describe("planOptions", () => {
     const m = opts[0] as PlanOption;
     expect(m.plan).toBe("milestones");
     expect(m.schedule).toHaveLength(3);
-    expect(m.schedule.map((s) => s.label)).toEqual([
-      "Today",
-      "Mid-project",
-      "On delivery",
-    ]);
+    expect(m.schedule.map((s) => s.label)).toEqual(["Today", "Mid-project", "On delivery"]);
     expect(m.schedule[0]?.amountCents).toBe(80001);
     expect(m.schedule[1]?.amountCents).toBe(80000);
     expect(m.schedule[2]?.amountCents).toBe(80000);
@@ -68,6 +67,45 @@ describe("amountDueNowCents", () => {
   it("returns the option's dueNowCents", () => {
     const [split] = planOptions(240000, ["split"]);
     expect(amountDueNowCents(split as PlanOption)).toBe(120000);
+  });
+});
+
+describe("livePlanOptions", () => {
+  it("maps frozen server plans, including monthly, without changing amounts", () => {
+    const options = livePlanOptions([
+      {
+        kind: "monthly",
+        installments: 3,
+        charges: [80001, 80000, 80000],
+        dueNowCents: 80001,
+        labels: ["Due today", "Month 2", "Month 3"],
+      },
+    ]);
+    expect(options[0]).toMatchObject({
+      id: "monthly-3",
+      choice: { kind: "monthly", installments: 3 },
+      title: "3 monthly payments",
+      dueNowCents: 80001,
+    });
+    expect(options[0]?.schedule.reduce((sum, row) => sum + row.amountCents, 0)).toBe(240001);
+  });
+
+  it("uses clear labels for every server plan kind", () => {
+    expect(paymentPlanLabel("full")).toBe("Pay in full");
+    expect(paymentPlanLabel("split_50_50")).toBe("Split 50 / 50");
+    expect(paymentPlanLabel("milestones")).toBe("Milestone payments");
+  });
+});
+
+describe("nextPlanIndex", () => {
+  it("wraps arrow navigation and supports Home and End", () => {
+    expect(nextPlanIndex(2, 3, "ArrowRight")).toBe(0);
+    expect(nextPlanIndex(0, 3, "ArrowDown")).toBe(1);
+    expect(nextPlanIndex(0, 3, "ArrowLeft")).toBe(2);
+    expect(nextPlanIndex(2, 3, "ArrowUp")).toBe(1);
+    expect(nextPlanIndex(2, 3, "Home")).toBe(0);
+    expect(nextPlanIndex(0, 3, "End")).toBe(2);
+    expect(nextPlanIndex(1, 3, "Enter")).toBeNull();
   });
 });
 
@@ -114,15 +152,11 @@ describe("proofStatusCopy", () => {
   });
 
   it("weaves the producer name into the awaiting headline", () => {
-    expect(proofStatusCopy("awaiting", "Gili Studio").headline).toContain(
-      "Gili Studio",
-    );
+    expect(proofStatusCopy("awaiting", "Gili Studio").headline).toContain("Gili Studio");
   });
 
   it("paid headline confirms sessions unlocked", () => {
-    expect(proofStatusCopy("paid").headline.toLowerCase()).toContain(
-      "unlocked",
-    );
+    expect(proofStatusCopy("paid").headline.toLowerCase()).toContain("unlocked");
   });
 });
 

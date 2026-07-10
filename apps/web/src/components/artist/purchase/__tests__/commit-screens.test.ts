@@ -4,11 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  buildAgreementTerms,
-  formatShekels,
-  includesOrFallback,
-} from "../purchase-data";
+import { buildAgreementTerms, formatShekels, includesOrFallback } from "../purchase-data";
 
 // Real unit tests for the pure data helpers (no rendering needed), plus
 // source-grep on the screens for the wiring that matters — matching the
@@ -41,8 +37,10 @@ describe("purchase-data helpers", () => {
 const here = dirname(fileURLToPath(import.meta.url));
 const S4_PATH = join(here, "..", "review-agree-screen.tsx");
 const S5_PATH = join(here, "..", "request-sent-screen.tsx");
+const FUNNEL_UI_PATH = join(here, "..", "..", "funnel", "funnel-ui.tsx");
 const s4Src = readFileSync(S4_PATH, "utf8");
 const s5Src = readFileSync(S5_PATH, "utf8");
+const funnelUiSrc = readFileSync(FUNNEL_UI_PATH, "utf8");
 
 describe("review-agree-screen.tsx (S4) wiring", () => {
   it("gates the primary action on the agree checkbox + sending state", () => {
@@ -70,6 +68,15 @@ describe("review-agree-screen.tsx (S4) wiring", () => {
     expect(s4Src).toMatch(/role="alert"/);
     expect(s4Src).toMatch(/setError/);
   });
+
+  it("uses one natural page scroll so the agreement cannot trap mobile users", () => {
+    expect(s4Src).not.toMatch(/max-h-\[256px\] overflow-y-auto/);
+    expect(s4Src.match(/overflow-y-auto/g)?.length ?? 0).toBe(1);
+  });
+
+  it("keeps back and document actions at least 44px tall", () => {
+    expect(s4Src).toMatch(/min-h-11/);
+  });
 });
 
 describe("request-sent-screen.tsx (S5) wiring", () => {
@@ -81,5 +88,21 @@ describe("request-sent-screen.tsx (S5) wiring", () => {
   it("offers Home + back-to-store exits", () => {
     expect(s5Src).toMatch(/router\.push\("\/artist"\)/);
     expect(s5Src).toMatch(/router\.push\("\/artist\/store"\)/);
+  });
+
+  it("keeps the close control aligned to the centered 440px app panel", () => {
+    expect(s5Src).toMatch(/mx-auto w-full max-w-\[440px\]/);
+    expect(s5Src).not.toMatch(/absolute left-4 top-0/);
+  });
+});
+
+describe("funnel mobile chrome", () => {
+  it("uses a solid top bar that stays stable in narrow embedded browsers", () => {
+    const topBar = funnelUiSrc.slice(
+      funnelUiSrc.indexOf("export function FunnelTopBar"),
+      funnelUiSrc.indexOf("export function GlassRound"),
+    );
+    expect(topBar).toMatch(/background: "rgb\(var\(--bg-background\)\)"/);
+    expect(topBar).not.toMatch(/backdropFilter/);
   });
 });

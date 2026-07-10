@@ -30,6 +30,8 @@ export type PurchaseStatusCardProps = {
   productName: string;
   /** Price-locked snapshot, in agorot (₪1 = 100). */
   priceCents: number;
+  /** Confirmed balance still owed. Zero releases the purchase slot. */
+  remainingCents: number;
   producerName: string;
   /** Context CTA target (handoff S6): awaiting_payment → S7 plan chooser,
       paid → S10 booking. Omitted for stages without an action. */
@@ -63,7 +65,10 @@ export function stepStatesForStage(
 }
 
 // stage → status pill copy + tone (amber while waiting, green once settled).
-export function pillForStage(stage: PurchaseStage): {
+export function pillForStage(
+  stage: PurchaseStage,
+  paidInFull = false,
+): {
   label: string;
   tone: "amber" | "success" | "neutral";
 } {
@@ -75,7 +80,12 @@ export function pillForStage(stage: PurchaseStage): {
     case "verifying":
       return { label: "Verifying payment", tone: "amber" };
     case "paid":
-      return { label: "Paid · sessions unlocked", tone: "success" };
+      return {
+        label: paidInFull
+          ? "Paid in full · sessions unlocked"
+          : "Deposit confirmed · sessions unlocked",
+        tone: "success",
+      };
     case "declined":
       return { label: "Couldn't be confirmed", tone: "neutral" };
     case "delivered":
@@ -126,13 +136,21 @@ export function PurchaseStatusCard({
   stage,
   productName,
   priceCents,
+  remainingCents,
   producerName,
   actionHref,
   actionLabel,
 }: PurchaseStatusCardProps) {
-  const pill = pillForStage(stage);
+  const paidInFull = remainingCents <= 0;
+  const pill = pillForStage(stage, paidInFull);
   const steps = stepStatesForStage(stage);
-  const next = whatsNextForStage(stage, producerName);
+  const next =
+    stage === "paid" && !paidInFull
+      ? {
+          line: "Your sessions are open. Keep your payment record up to date.",
+          sub: `${formatShekels(remainingCents)} remains on this booking`,
+        }
+      : whatsNextForStage(stage, producerName);
   const declined = stage === "declined";
   const pillColors =
     pill.tone === "amber"
@@ -162,25 +180,21 @@ export function PurchaseStatusCard({
           className="h-px w-[18px]"
           style={{ background: "rgb(var(--brand-primary-dark) / 0.55)" }}
         />
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--brand-primary-dark))]">
+        <span className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
           Your booking
         </span>
       </div>
 
       <article
-        className="overflow-hidden rounded-card border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+        className="rounded-card overflow-hidden border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
         style={{ boxShadow: "var(--shadow-sm), 0 14px 34px -22px rgb(17 16 9 / 0.25)" }}
       >
         {/* booking row */}
         <div className="flex items-center gap-[13px] px-[18px] pt-[17px]">
-          <ProducerArt
-            producerName={producerName}
-            size={46}
-            initialsFontSize={13}
-          />
+          <ProducerArt producerName={producerName} size={46} initialsFontSize={13} />
           <div className="min-w-0 flex-1">
             <h3
-              className="line-clamp-2 text-[17px] font-extrabold leading-tight text-[rgb(var(--fg-default))]"
+              className="line-clamp-2 text-[17px] leading-tight font-extrabold text-[rgb(var(--fg-default))]"
               style={{ fontFamily: "var(--font-syne)", letterSpacing: "-0.025em" }}
             >
               {productName}
@@ -214,11 +228,8 @@ export function PurchaseStatusCard({
         </div>
 
         {/* 4-node stepper */}
-        <div className="px-[18px] pb-4 pt-4">
-          <ol
-            aria-label="Booking progress"
-            className="flex items-start"
-          >
+        <div className="px-[18px] pt-4 pb-4">
+          <ol aria-label="Booking progress" className="flex items-start">
             {STEP_LABELS.map((label, i) => {
               const state = steps[i] ?? "upcoming";
               return (
@@ -238,12 +249,10 @@ export function PurchaseStatusCard({
                   <li className="flex shrink-0 flex-col items-center gap-1.5">
                     <StepNode state={state} declined={declined && i === 0} />
                     <span
-                      className="font-mono text-[9px] uppercase tracking-[0.1em]"
+                      className="font-mono text-[9px] tracking-[0.1em] uppercase"
                       style={{
                         color:
-                          state === "upcoming"
-                            ? "rgb(var(--fg-muted))"
-                            : "rgb(var(--fg-default))",
+                          state === "upcoming" ? "rgb(var(--fg-muted))" : "rgb(var(--fg-default))",
                         fontWeight: state === "active" ? 700 : 500,
                       }}
                     >
@@ -257,11 +266,11 @@ export function PurchaseStatusCard({
         </div>
 
         {/* what's next */}
-        <div className="border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-[18px] pb-4 pt-3.5">
-          <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+        <div className="border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-[18px] pt-3.5 pb-4">
+          <div className="font-mono text-[9.5px] tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
             {"What's next"}
           </div>
-          <p className="mt-1.5 text-pretty text-[14.5px] font-semibold leading-snug text-[rgb(var(--fg-default))]">
+          <p className="mt-1.5 text-[14.5px] leading-snug font-semibold text-pretty text-[rgb(var(--fg-default))]">
             {next.line}
           </p>
           <div className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.02em] text-[rgb(var(--brand-primary-dark))]">
@@ -285,12 +294,14 @@ export function PurchaseStatusCard({
         </div>
       </article>
 
-      {/* business rule: no second purchase while one is open. Terminal
-          states (paid/declined) free the slot — no lock line. */}
-      {stage !== "paid" && stage !== "declined" && stage !== "delivered" ? (
+      {/* A deposit unlocks sessions, but only a zero balance frees the slot. */}
+      {stage !== "declined" && stage !== "delivered" && !paidInFull ? (
         <p className="mt-2.5 flex items-center justify-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
           <LockIcon />
-          <span>One booking at a time — yours is in review.</span>
+          <span>
+            {stage === "paid" ? `${formatShekels(remainingCents)} remaining · ` : ""}
+            One booking at a time — this stays active until fully paid.
+          </span>
         </p>
       ) : null}
     </section>
@@ -304,7 +315,7 @@ function StepNode({ state, declined = false }: { state: StepState; declined?: bo
   if (declined) {
     return (
       <span
-        className="flex h-5 w-5 items-center justify-center rounded-full text-[12px] font-bold leading-none"
+        className="flex h-5 w-5 items-center justify-center rounded-full text-[12px] leading-none font-bold"
         style={{
           background: "rgb(var(--fg-danger) / 0.12)",
           color: "rgb(var(--fg-danger))",
@@ -359,10 +370,7 @@ function StepNode({ state, declined = false }: { state: StepState; declined?: bo
         border: "1.5px solid rgb(17 16 9 / 0.16)",
       }}
     >
-      <span
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ background: "rgb(17 16 9 / 0.18)" }}
-      />
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "rgb(17 16 9 / 0.18)" }} />
     </span>
   );
 }

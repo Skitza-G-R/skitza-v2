@@ -244,10 +244,13 @@
     top: 0.5rem;
     inset-inline-start: 0.5rem;
     z-index: 100;
+    display: flex;
+    min-height: 44px;
+    align-items: center;
     padding: 0.5rem 0.75rem;
     border-radius: var(--radius-md);
     background: rgb(var(--brand-primary));
-    color: rgb(var(--fg-inverse));
+    color: rgb(var(--fg-default));
     font-size: 0.875rem;
     font-weight: 600;
     text-decoration: none;
