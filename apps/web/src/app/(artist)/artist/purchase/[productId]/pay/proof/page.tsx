@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { TRPCError } from "@trpc/server";
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import type { ProofStatus } from "~/components/artist/purchase/pay-data";
@@ -10,6 +11,8 @@ type PageProps = {
   params: Promise<{ productId: string }>;
   searchParams: Promise<{ req?: string }>;
 };
+
+export const metadata: Metadata = { title: "Upload payment proof" };
 
 // S9 — the real private proof ledger for this owned purchase. Storage keys
 // remain server-only; the client receives only safe status/amount metadata.

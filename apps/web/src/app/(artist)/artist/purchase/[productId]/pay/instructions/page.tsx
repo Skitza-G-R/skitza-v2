@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { TRPCError } from "@trpc/server";
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import { PaymentInstructionsScreen } from "~/components/artist/purchase/payment-instructions-screen";
@@ -10,6 +11,8 @@ type PageProps = {
   params: Promise<{ productId: string }>;
   searchParams: Promise<{ req?: string }>;
 };
+
+export const metadata: Metadata = { title: "Payment instructions" };
 
 // S8 — real off-app instructions for the owned, price-locked request.
 // A proof already under review (or a completed balance) goes straight to S9,

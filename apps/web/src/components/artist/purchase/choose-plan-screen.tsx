@@ -45,7 +45,7 @@ export function ChoosePlanScreen({
   const [selected, setSelected] = useState<string | null>(
     options.length === 1 ? (options[0]?.id ?? null) : null,
   );
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
   const selectedIndex = options.findIndex((option) => option.id === selected);
   const tabStopIndex = selectedIndex >= 0 ? selectedIndex : 0;
 
@@ -56,7 +56,7 @@ export function ChoosePlanScreen({
     setError(null);
   }
 
-  function handlePlanKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+  function handlePlanKeyDown(event: KeyboardEvent<HTMLDivElement>, index: number) {
     if (event.key === " " || event.key === "Enter") {
       event.preventDefault();
       selectPlan(index);
@@ -121,12 +121,11 @@ export function ChoosePlanScreen({
             {options.map((opt, i) => {
               const isSelected = opt.id === selected;
               return (
-                <button
+                <div
                   key={opt.id}
                   ref={(node) => {
                     optionRefs.current[i] = node;
                   }}
-                  type="button"
                   role="radio"
                   aria-checked={isSelected}
                   tabIndex={tabStopIndex === i ? 0 : -1}
@@ -136,14 +135,14 @@ export function ChoosePlanScreen({
                   onKeyDown={(event) => {
                     handlePlanKeyDown(event, i);
                   }}
-                  className="sk-press sk-rise rounded-card relative w-full px-[18px] pt-4 pb-4 text-left transition-colors"
+                  className="sk-press sk-rise rounded-card relative w-full cursor-pointer px-[18px] pt-4 pb-4 text-left transition-colors"
                   style={{
                     animationDelay: `${String(140 + i * 60)}ms`,
                     background: isSelected
                       ? "rgb(var(--brand-primary) / 0.06)"
                       : "rgb(var(--bg-elevated))",
                     border: `1.5px solid ${
-                      isSelected ? "rgb(var(--brand-primary))" : "rgb(var(--border-subtle))"
+                      isSelected ? "rgb(var(--focus-ring))" : "rgb(var(--border-control))"
                     }`,
                     boxShadow: isSelected ? "var(--shadow-glow)" : "var(--shadow-sm)",
                   }}
@@ -157,7 +156,7 @@ export function ChoosePlanScreen({
                           ? "rgb(var(--brand-primary))"
                           : "rgb(var(--bg-elevated))",
                         border: `2px solid ${
-                          isSelected ? "rgb(var(--brand-primary))" : "rgb(var(--border-strong))"
+                          isSelected ? "rgb(var(--focus-ring))" : "rgb(var(--border-control))"
                         }`,
                         color: "rgb(var(--bg-sidebar))",
                       }}
@@ -182,7 +181,7 @@ export function ChoosePlanScreen({
                         className="font-amount mt-px text-[19px] font-bold tracking-[-0.03em]"
                         style={{
                           color: isSelected
-                            ? "rgb(var(--brand-primary-dark))"
+                            ? "rgb(var(--brand-primary-text))"
                             : "rgb(var(--fg-default))",
                         }}
                       >
@@ -192,8 +191,8 @@ export function ChoosePlanScreen({
                   </div>
 
                   {/* schedule */}
-                  <div
-                    className="mt-3 rounded-[12px] px-3.5 py-2"
+                  <ol
+                    className="mt-3 list-none rounded-[12px] px-3.5 py-2"
                     style={{
                       background: isSelected
                         ? "rgb(var(--bg-elevated))"
@@ -202,7 +201,7 @@ export function ChoosePlanScreen({
                     }}
                   >
                     {opt.schedule.map((row, i) => (
-                      <div
+                      <li
                         key={row.label}
                         className="flex items-center justify-between py-[5px]"
                         style={{
@@ -226,10 +225,10 @@ export function ChoosePlanScreen({
                         <span className="font-amount text-[12.5px] font-medium text-[rgb(var(--fg-default))]">
                           {formatShekels(row.amountCents)}
                         </span>
-                      </div>
+                      </li>
                     ))}
-                  </div>
-                </button>
+                  </ol>
+                </div>
               );
             })}
           </div>
@@ -260,7 +259,7 @@ export function ChoosePlanScreen({
           {error ? (
             <p
               role="alert"
-              className="mt-3 rounded-[12px] border border-[rgb(var(--fg-danger)/0.24)] bg-[rgb(var(--fg-danger)/0.08)] px-3.5 py-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger))]"
+              className="mt-3 rounded-[12px] border border-[rgb(var(--fg-danger)/0.24)] bg-[rgb(var(--fg-danger)/0.08)] px-3.5 py-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger-text))]"
             >
               {error}
             </p>
@@ -279,6 +278,7 @@ export function ChoosePlanScreen({
             onClick={go}
             disabled={!selected || isSaving}
             glow={!!selected && !isSaving}
+            ariaBusy={isSaving}
             sub={
               isSaving
                 ? "Saving your plan"

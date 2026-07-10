@@ -15,10 +15,10 @@ describe("global accessibility contract", () => {
     expect(skipLinkRule).toMatch(/min-height:\s*44px/);
   });
 
-  it("uses high-contrast dark text on the amber skip link", () => {
+  it("uses high-contrast on-brand text on the amber skip link", () => {
     const skipLinkRule = globalsSrc.match(/\.skip-to-content\s*\{([\s\S]*?)\}/)?.[1];
 
     expect(skipLinkRule).toBeDefined();
-    expect(skipLinkRule).toMatch(/color:\s*rgb\(var\(--fg-default\)\)/);
+    expect(skipLinkRule).toMatch(/color:\s*rgb\(var\(--fg-on-brand\)\)/);
   });
 });

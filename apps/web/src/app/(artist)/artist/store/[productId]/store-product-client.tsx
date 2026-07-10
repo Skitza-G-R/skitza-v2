@@ -122,7 +122,7 @@ export function StoreProductClient({
       ) : null}
 
       {error ? (
-        <p role="alert" className="text-sm text-[rgb(var(--fg-danger))]">
+        <p role="alert" className="text-sm text-[rgb(var(--fg-danger-text))]">
           {error}
         </p>
       ) : null}

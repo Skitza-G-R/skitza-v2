@@ -35,8 +35,6 @@ const files = readdirSync(dir)
   .filter((f) => f.endsWith(".sql"))
   .sort();
 
-let hadError = false;
-
 // Dollar-quote-aware SQL splitter. Migrations can contain DO $$ ... $$
 // blocks (idempotent constraint adds with EXCEPTION handlers) whose bodies
 // contain internal semicolons that must NOT be treated as statement boundaries.
@@ -104,21 +102,19 @@ for (const f of files) {
       await sql(raw);
       console.log("  ✓", stmt.replace(/\s+/g, " ").slice(0, 90));
     } catch (e) {
-      // Tolerate errors that indicate "this migration step was already
-      // applied." Re-running on a persistent (partially-migrated) DB will
-      // hit these; the downstream tests catch any genuine missing-schema
-      // issue by failing on actual use.
-      const benign = /already exists|duplicate_object|duplicate key|does not exist|cannot be (renamed|dropped)|referenced in foreign key|violates foreign key/i.test(e.message);
+      // Tolerate only errors that unambiguously mean an idempotent DDL object
+      // already exists. Data uniqueness, missing-object, and foreign-key
+      // failures must stop the migration; continuing can turn a failed copy
+      // into silent data loss in a later statement.
+      const benign = /already exists|duplicate_object/i.test(e.message);
       const tag = benign ? "•" : "✗";
       console.log("  " + tag, stmt.replace(/\s+/g, " ").slice(0, 70), "→", e.message);
-      if (!benign) hadError = true;
+      if (!benign) {
+        console.error("\nMigration stopped at the first non-idempotent error.");
+        process.exit(1);
+      }
     }
   }
-}
-
-if (hadError) {
-  console.error("\nOne or more statements failed. Review output above.");
-  process.exit(1);
 }
 
 console.log("\nAll migrations applied successfully.");

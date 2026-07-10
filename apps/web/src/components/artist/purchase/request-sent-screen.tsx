@@ -64,7 +64,7 @@ export function RequestSentScreen({
               <CheckLarge />
             </RippleEmblem>
 
-            <div className="reveal-up mb-3.5 font-mono text-[10px] tracking-[0.2em] text-[rgb(var(--brand-primary-dark))] uppercase">
+            <div className="reveal-up mb-3.5 font-mono text-[10px] tracking-[0.2em] text-[rgb(var(--brand-primary-text))] uppercase">
               Request sent · #{requestRef}
             </div>
             <h1 className="reveal-up reveal-up-delay-1 font-syne text-[clamp(24px,7.2vw,28px)] leading-[1.06] font-extrabold tracking-[-0.04em] text-balance text-[rgb(var(--fg-default))]">
@@ -98,6 +98,7 @@ export function RequestSentScreen({
               {/* booking row */}
               <div className="grid grid-cols-[46px_minmax(0,1fr)] items-center gap-x-[13px] px-[18px] pt-[17px] pb-4 min-[350px]:grid-cols-[46px_minmax(0,1fr)_auto]">
                 <span
+                  aria-hidden="true"
                   className="font-syne flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[12px] text-[14px] font-extrabold text-white"
                   style={{ background: coverGradient(producer.hue) }}
                 >
@@ -115,7 +116,7 @@ export function RequestSentScreen({
                   <div className="font-amount text-[19px] font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))]">
                     {formatShekels(product.priceCents)}
                   </div>
-                  <div className="font-mono text-[8.5px] tracking-[0.08em] text-[rgb(var(--brand-primary-dark))]">
+                  <div className="font-mono text-[8.5px] tracking-[0.08em] text-[rgb(var(--brand-primary-text))]">
                     PRICE LOCKED
                   </div>
                 </div>
@@ -147,10 +148,11 @@ export function RequestSentScreen({
                 <div className="mb-3.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
                   What happens next
                 </div>
-                <div className="relative">
+                <ol className="relative list-none">
                   {steps.map((step, i) => (
-                    <div
+                    <li
                       key={step.title}
+                      aria-current={i === 1 ? "step" : undefined}
                       className="sk-rise relative flex gap-[13px]"
                       style={{
                         animationDelay: `${String(40 + i * 70)}ms`,
@@ -194,21 +196,24 @@ export function RequestSentScreen({
                           }}
                         >
                           {step.title}
+                          <span className="sr-only">
+                            {step.done ? " — completed" : i === 1 ? " — current step" : " — upcoming"}
+                          </span>
                         </div>
                         <div
                           className="mt-0.5 font-mono text-[10px] tracking-[0.02em]"
                           style={{
                             color: step.done
-                              ? "rgb(var(--brand-primary-dark))"
+                              ? "rgb(var(--brand-primary-text))"
                               : "rgb(var(--fg-muted))",
                           }}
                         >
                           {step.when}
                         </div>
                       </div>
-                    </div>
+                    </li>
                   ))}
-                </div>
+                </ol>
               </div>
             </div>
 

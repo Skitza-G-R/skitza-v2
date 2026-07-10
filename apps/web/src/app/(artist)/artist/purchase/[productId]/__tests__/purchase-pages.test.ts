@@ -96,7 +96,10 @@ describe("requestToBookAction (server action)", () => {
       routerSrc.indexOf("options: artistProcedure"),
       routerSrc.indexOf("choose: artistProcedure"),
     );
-    expect(optionsSection).toMatch(/request\.paymentPlanOptionsSnapshot/);
+    expect(optionsSection).toMatch(/frozenPlanOptions\(request\)/);
+    expect(routerSrc).toMatch(
+      /function frozenPlanOptions[\s\S]*request\.paymentPlanOptionsSnapshot[\s\S]*request\.paymentPlanSnapshot/,
+    );
     expect(optionsSection).not.toMatch(/from\(products\)/);
   });
 

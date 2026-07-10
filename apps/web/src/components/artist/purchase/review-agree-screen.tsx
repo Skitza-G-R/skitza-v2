@@ -106,7 +106,7 @@ export function ReviewAgreeScreen({
           {/* what you're agreeing to — dark price-locked summary */}
           <div
             className="reveal-up reveal-up-delay-1 rounded-card mt-4 flex items-center gap-[13px] px-4 py-3.5"
-            style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-inverse))" }}
+            style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-onsidebar))" }}
           >
             <span
               className="font-syne flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[12px] text-[14px] font-extrabold text-white"
@@ -133,10 +133,12 @@ export function ReviewAgreeScreen({
           {/* producer-uploaded binding PDF — hidden when none is uploaded */}
           {producer.agreement ? (
             <div className="reveal-up reveal-up-delay-2 mt-4">
-              <Eyebrow className="mb-[9px]">
-                <DocIcon />
-                {producer.name}&apos;s full agreement
-              </Eyebrow>
+              <h2 className="mb-[9px]">
+                <Eyebrow>
+                  <DocIcon aria-hidden="true" />
+                  {producer.name}&apos;s full agreement
+                </Eyebrow>
+              </h2>
               <div
                 className="rounded-card flex w-full items-center gap-3.5 px-4 py-3.5"
                 style={{
@@ -149,7 +151,7 @@ export function ReviewAgreeScreen({
                   className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[12px]"
                   style={{
                     background: "rgb(var(--brand-primary) / 0.14)",
-                    color: "rgb(var(--brand-primary-dark))",
+                    color: "rgb(var(--brand-primary-text))",
                   }}
                 >
                   <DocIcon width={22} height={22} />
@@ -189,7 +191,9 @@ export function ReviewAgreeScreen({
 
           {/* plain-language terms — one natural page scroll on mobile */}
           <div className="reveal-up reveal-up-delay-3 mt-[18px]">
-            <Eyebrow className="mb-[9px]">Plain-language summary</Eyebrow>
+            <h2 className="mb-[9px]">
+              <Eyebrow>Plain-language summary</Eyebrow>
+            </h2>
             <div
               className="rounded-card relative"
               style={{
@@ -198,9 +202,9 @@ export function ReviewAgreeScreen({
                 boxShadow: "var(--shadow-sm)",
               }}
             >
-              <div className="px-[18px] pt-1 pb-2">
+              <ol className="list-none px-[18px] pt-1 pb-2">
                 {terms.map((term, i) => (
-                  <div
+                  <li
                     key={term.heading}
                     className="sk-rise py-3.5"
                     style={{
@@ -210,25 +214,25 @@ export function ReviewAgreeScreen({
                     }}
                   >
                     <div className="flex items-center gap-[9px]">
-                      <span className="font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))]">
+                      <span className="font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-text))]">
                         {String(i + 1).padStart(2, "0")}
                       </span>
-                      <span className="font-syne text-[14.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+                      <h3 className="font-syne text-[14.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
                         {term.heading}
-                      </span>
+                      </h3>
                     </div>
                     <p className="mt-[7px] text-[13px] leading-relaxed text-pretty text-[rgb(var(--fg-secondary))]">
                       {term.body}
                     </p>
                     {term.points ? (
-                      <div className="mt-[9px] flex flex-col gap-1.5">
+                      <ul className="mt-[9px] flex list-none flex-col gap-1.5">
                         {term.points.map((point) => (
-                          <div key={point} className="flex items-start gap-2">
+                          <li key={point} className="flex items-start gap-2">
                             <span
                               className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
                               style={{
                                 background: "rgb(var(--brand-primary) / 0.14)",
-                                color: "rgb(var(--brand-primary-dark))",
+                                color: "rgb(var(--brand-primary-text))",
                               }}
                             >
                               <Check width={11} height={11} />
@@ -236,13 +240,13 @@ export function ReviewAgreeScreen({
                             <span className="text-[12.5px] leading-snug text-[rgb(var(--fg-secondary))]">
                               {point}
                             </span>
-                          </div>
+                          </li>
                         ))}
-                      </div>
+                      </ul>
                     ) : null}
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ol>
             </div>
             <div className="mt-[9px] flex items-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
               <LockIcon />
@@ -278,7 +282,7 @@ export function ReviewAgreeScreen({
               className="mb-2.5 rounded-[12px] px-3.5 py-2.5 text-center text-[12.5px] font-medium"
               style={{
                 background: "rgb(var(--fg-danger) / 0.1)",
-                color: "rgb(var(--fg-danger))",
+                color: "rgb(var(--fg-danger-text))",
               }}
               role="alert"
             >
@@ -291,6 +295,7 @@ export function ReviewAgreeScreen({
             }}
             disabled={!agreed || sending}
             glow={agreed && !sending}
+            ariaBusy={sending}
             sub={
               agreed ? "Locks your price · sends to " + producer.name : "Agree above to continue"
             }
@@ -298,7 +303,8 @@ export function ReviewAgreeScreen({
             {sending ? (
               <>
                 <span
-                  className="inline-block h-4 w-4 animate-spin rounded-full border-2"
+                  aria-hidden="true"
+                  className="inline-block h-4 w-4 animate-spin rounded-full border-2 motion-reduce:animate-none"
                   style={{
                     borderColor: "rgb(var(--bg-sidebar) / 0.3)",
                     borderTopColor: "rgb(var(--bg-sidebar))",

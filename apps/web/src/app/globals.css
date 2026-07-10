@@ -102,9 +102,18 @@
     --fg-danger: 220 38 38;
     --fg-warning: 245 158 11;
 
+    /* Readable semantic foregrounds. The brighter base colors above remain
+       available for fills, dots, and decorative graphics; these text tokens
+       meet WCAG AA on the matching pale status surfaces. */
+    --fg-success-text: 15 105 50;
+    --fg-danger-text: 174 25 25;
+    --fg-warning-text: 128 76 0;
+    --fg-on-success: 255 255 255;
+
     --brand-primary: 212 150 10;
     --brand-primary-soft: 212 150 10;
     --brand-primary-dark: 161 113 6;
+    --brand-primary-text: 120 80 0;
     --brand-copper: 176 104 48;
     --fg-on-brand: 26 20 7;   /* #1a1407 — text on amber CTAs */
 
@@ -121,7 +130,9 @@
 
     --border-subtle: 232 225 212;
     --border-strong: 200 192 178;
+    --border-control: 107 99 89;
     --border-sidebar: 40 38 35;
+    --focus-ring: 150 104 0;
 
     /* Backward-compat aliases — Phase D + zip-prototype names. CSS
        `var()` is recursive, so `rgb(var(--bg-base))` resolves through
@@ -133,13 +144,9 @@
     --brand-accent-soft: var(--brand-copper);
     --border-default: var(--border-strong);
     --accent: var(--brand-primary);
-    /* Phase 2 shell-port — semantic alias for "foreground on dark
-       sidebar surfaces". Maps to --fg-inverse so consumers can write
-       `rgb(var(--fg-onsidebar) / 0.55)` for muted-on-dark text without
-       hard-coding white. The alias keeps the chrome JSX semantically
-       readable: `--fg-default` = "default text on warm canvas",
-       `--fg-onsidebar` = "default text on dark sidebar". */
-    --fg-onsidebar: var(--fg-inverse);
+    /* Phase 2 shell-port — semantic foreground for dark sidebar surfaces.
+       It remains light in both themes because --bg-sidebar remains dark. */
+    --fg-onsidebar: 242 237 230;
 
     /* Radius scale (mirrors @theme) */
     --radius-sm: 8px;
@@ -194,14 +201,22 @@
     --fg-success: 120 200 140;
     --fg-danger: 230 110 90;
     --fg-warning: 245 180 60;
+    --fg-success-text: 134 227 161;
+    --fg-danger-text: 255 154 136;
+    --fg-warning-text: 255 208 128;
+    --fg-on-success: 17 16 9;
 
     --brand-primary: 229 163 36;     /* amber brightens on dark */
     --brand-primary-soft: 229 163 36;
+    --brand-primary-text: 240 184 78;
     --brand-copper: 201 122 66;
 
     --border-subtle: 40 38 32;
     --border-strong: 60 56 48;
+    --border-control: 168 154 139;
     --border-sidebar: 28 26 20;
+    --focus-ring: 240 184 78;
+    --fg-onsidebar: 242 237 230;
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
     --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
@@ -250,7 +265,7 @@
     padding: 0.5rem 0.75rem;
     border-radius: var(--radius-md);
     background: rgb(var(--brand-primary));
-    color: rgb(var(--fg-default));
+    color: rgb(var(--fg-on-brand));
     font-size: 0.875rem;
     font-weight: 600;
     text-decoration: none;
@@ -300,7 +315,7 @@
 
   /* Focus ring — amber, crisp. Keyboard-only via :focus-visible. */
   :focus-visible {
-    outline: 2px solid rgb(var(--brand-primary));
+    outline: 2px solid rgb(var(--focus-ring));
     outline-offset: 2px;
     border-radius: var(--radius-sm);
   }
@@ -1292,6 +1307,7 @@
    * each primitive name appears at least once.
    * ---------------------------------------------------------------- */
   @media (prefers-reduced-motion: reduce) {
+    .skip-to-content { transition: none !important; }
     .reveal-up,
     .reveal-up-delay-1,
     .reveal-up-delay-2,
@@ -1361,6 +1377,8 @@
     .sk-press-row { transition-duration: 0ms !important; }
     .sk-press-pop:active,
     .sk-press-row:active { transform: none !important; filter: none !important; }
+    .sk-sticky-nav-backing { transition: none !important; }
+    .sk-sticky-nav-title { transform: none !important; }
     .sk-sidebar-shell { transition-duration: 0ms !important; }
     .sk-sidebar-chevron { transition-duration: 0ms !important; }
     .sk-sidebar-active-bar { transition-duration: 0ms !important; }

@@ -46,10 +46,9 @@ export function buildPlanOptions(offered: PaymentPlan[], totalCents: number): Pl
   return offered.map((p) => planOption(p, totalCents));
 }
 
-// Progress of an off-app payment against a charge schedule. Proof
-// amounts don't have to align 1:1 with charges — we walk the schedule
-// cumulatively, so a ₪1,500 payment against [1200, 1200] completes the
-// first charge and part-covers the second.
+// Progress of confirmed money against a charge schedule. The math tolerates
+// historical partial/over payments, while the current proof-submit endpoint
+// requires the exact `nextDueCents` before it accepts new evidence.
 export function chargesProgress(
   charges: number[],
   paidCents: number,

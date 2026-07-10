@@ -12,7 +12,7 @@
 // Data-only props come from the locked request and the producer's real
 // payment settings. Navigation + clipboard copy live here.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
@@ -31,6 +31,7 @@ export type PaymentDetails = {
 function CopyGlyph() {
   return (
     <svg
+      aria-hidden="true"
       width="11"
       height="11"
       viewBox="0 0 24 24"
@@ -49,6 +50,7 @@ function CopyGlyph() {
 // Small inline copy control — writes one value to the clipboard and flips to a
 // brief "Copied" confirmation. Kept inline (not a shared atom) per the brief.
 function CopyButton({ value, label }: { value: string; label: string }) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   function copyWithSelection(): boolean {
@@ -64,6 +66,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     const copied = document.execCommand("copy");
     field.remove();
+    buttonRef.current?.focus();
     return copied;
   }
 
@@ -91,45 +94,64 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        void copy();
-      }}
-      aria-label={`Copy ${label}`}
-      className="sk-press inline-flex min-h-11 shrink-0 items-center gap-[5px] rounded-full px-3 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase transition-colors"
-      style={
-        copyState === "copied"
-          ? {
-              background: "rgb(var(--fg-success) / 0.14)",
-              color: "rgb(var(--fg-success))",
-            }
-          : copyState === "failed"
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => {
+          void copy();
+        }}
+        aria-label={
+          copyState === "copied"
+            ? `Copied: ${label}`
+            : copyState === "failed"
+              ? `Copy manually: ${label}`
+              : `Copy ${label}`
+        }
+        className="sk-press inline-flex min-h-11 shrink-0 items-center gap-[5px] rounded-full border px-3 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase transition-colors"
+        style={
+          copyState === "copied"
             ? {
-                background: "rgb(var(--fg-danger) / 0.1)",
-                color: "rgb(var(--fg-danger))",
+                background: "rgb(var(--fg-success) / 0.14)",
+                borderColor: "rgb(var(--fg-success-text) / 0.65)",
+                color: "rgb(var(--fg-success-text))",
               }
-            : {
-                /* amber-tinted pill (proto-s8) */
-                background: "rgb(var(--brand-primary) / 0.14)",
-                color: "rgb(var(--brand-primary-dark))",
-              }
-      }
-    >
-      {copyState === "copied" ? (
-        <>
-          <Check width={11} height={11} />
-          Copied
-        </>
-      ) : copyState === "failed" ? (
-        <>Copy manually</>
-      ) : (
-        <>
-          <CopyGlyph />
-          Copy
-        </>
-      )}
-    </button>
+            : copyState === "failed"
+              ? {
+                  background: "rgb(var(--fg-danger) / 0.1)",
+                  borderColor: "rgb(var(--fg-danger-text) / 0.65)",
+                  color: "rgb(var(--fg-danger-text))",
+                }
+              : {
+                  /* amber-tinted pill (proto-s8) */
+                  background: "rgb(var(--brand-primary) / 0.14)",
+                  borderColor: "rgb(var(--brand-primary-text) / 0.65)",
+                  color: "rgb(var(--brand-primary-text))",
+                }
+        }
+      >
+        {copyState === "copied" ? (
+          <>
+            <Check aria-hidden="true" width={11} height={11} />
+            Copied
+          </>
+        ) : copyState === "failed" ? (
+          <>Copy manually</>
+        ) : (
+          <>
+            <CopyGlyph />
+            Copy
+          </>
+        )}
+      </button>
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {copyState === "copied"
+          ? `${label} copied to the clipboard.`
+          : copyState === "failed"
+            ? `Copy failed for ${label}. Select and copy it manually.`
+            : ""}
+      </span>
+    </>
   );
 }
 
@@ -216,7 +238,7 @@ export function PaymentInstructionsScreen({
             className="sk-rise rounded-card px-[18px] pt-[15px] pb-[18px]"
             style={{
               background: "rgb(var(--bg-sidebar))",
-              color: "rgb(var(--fg-inverse))",
+              color: "rgb(var(--fg-onsidebar))",
               boxShadow: "0 18px 40px -16px rgb(17 16 9 / 0.45)",
             }}
           >
@@ -240,7 +262,9 @@ export function PaymentInstructionsScreen({
           {hasPaymentDetails && paymentDetails ? (
             /* method — bank transfer + Bit, each value copyable */
             <div className="sk-rise mt-[18px]" style={{ animationDelay: "80ms" }}>
-              <Eyebrow className="mb-[9px]">Bank transfer</Eyebrow>
+              <h2 className="mb-[9px]">
+                <Eyebrow>Bank transfer</Eyebrow>
+              </h2>
               <div
                 className="rounded-card px-[18px]"
                 style={{
@@ -264,7 +288,9 @@ export function PaymentInstructionsScreen({
 
               {paymentDetails.bitPhone ? (
                 <>
-                  <Eyebrow className="mt-[18px] mb-[9px]">Bit</Eyebrow>
+                  <h2 className="mt-[18px] mb-[9px]">
+                    <Eyebrow>Bit</Eyebrow>
+                  </h2>
                   <div
                     className="rounded-card px-[18px]"
                     style={{
@@ -303,7 +329,7 @@ export function PaymentInstructionsScreen({
                 className="mt-px flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]"
                 style={{
                   background: "rgb(var(--brand-primary) / 0.14)",
-                  color: "rgb(var(--brand-primary-dark))",
+                  color: "rgb(var(--brand-primary-text))",
                 }}
               >
                 <ShieldIcon width={16} height={16} />
@@ -324,11 +350,12 @@ export function PaymentInstructionsScreen({
               never reads as tappable. */}
           <div
             className="sk-rise rounded-card mt-3 flex items-center justify-between gap-3 px-4 py-3.5"
-            aria-disabled="true"
+            role="note"
+            aria-label="Pay by card, coming soon"
             style={{
               animationDelay: "140ms",
               background: "rgb(var(--bg-background))",
-              border: "1px dashed rgb(var(--border-strong))",
+              border: "1px dashed rgb(var(--border-control))",
               opacity: 0.45,
             }}
           >

@@ -42,7 +42,7 @@ function PlanChip({ children }: { children: React.ReactNode }) {
       className="inline-flex items-center rounded-[var(--radius-sm)] border px-2.5 py-[5px] font-mono text-[10px] font-semibold tracking-[0.06em]"
       style={{
         background: "rgb(var(--bg-elevated))",
-        borderColor: "rgb(var(--border-strong))",
+        borderColor: "rgb(var(--border-control))",
         color: "rgb(var(--fg-secondary))",
       }}
     >
@@ -112,10 +112,10 @@ export function ProductDetailScreen({
               borderColor: "rgb(var(--brand-primary) / 0.26)",
             }}
           >
-            <span className="mt-px text-[rgb(var(--brand-primary-dark))]">
+            <span className="mt-px text-[rgb(var(--brand-primary-text))]">
               <ClockIcon />
             </span>
-            <span className="text-[12.5px] leading-normal text-[rgb(var(--brand-primary-dark))]">
+            <span className="text-[12.5px] leading-normal text-[rgb(var(--brand-primary-text))]">
               You already have an active purchase with {producer.name || "this studio"}. You can
               start another once it is fully paid.
             </span>
@@ -193,7 +193,7 @@ export function ProductDetailScreen({
               onClick={() => {
                 router.push("/artist/store");
               }}
-              className="sk-press-row -my-3 inline-flex min-h-11 shrink-0 items-center px-2 text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))]"
+              className="sk-press-row -my-3 inline-flex min-h-11 shrink-0 items-center px-2 text-[12.5px] font-semibold text-[rgb(var(--brand-primary-text))]"
             >
               Store
             </button>
@@ -203,15 +203,17 @@ export function ProductDetailScreen({
         {/* what's included — bare amber-check rows + meta line */}
         {product.includes.length > 0 ? (
           <div className="sk-rise px-5 pt-5" style={{ animationDelay: "140ms" }}>
-            <Eyebrow className="mb-3">What&apos;s included</Eyebrow>
-            <div className="flex flex-col gap-[11px]">
+            <h2 className="mb-3">
+              <Eyebrow>What&apos;s included</Eyebrow>
+            </h2>
+            <ul className="flex list-none flex-col gap-[11px]">
               {product.includes.map((line) => (
-                <div key={line} className="flex items-start gap-[11px]">
+                <li key={line} className="flex items-start gap-[11px]">
                   <span
                     className="mt-px flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
                     style={{
                       background: "rgb(var(--brand-primary) / 0.14)",
-                      color: "rgb(var(--brand-primary-dark))",
+                      color: "rgb(var(--brand-primary-text))",
                     }}
                   >
                     <Check width={12} height={12} />
@@ -219,9 +221,9 @@ export function ProductDetailScreen({
                   <span className="text-[14px] leading-normal text-[rgb(var(--fg-secondary))]">
                     {line}
                   </span>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
             <div className="mt-4 flex flex-wrap gap-[18px] text-[12.5px] text-[rgb(var(--fg-muted))]">
               <span className="inline-flex items-center gap-1.5">
                 <ClockIcon />
@@ -244,7 +246,9 @@ export function ProductDetailScreen({
             style={{ borderColor: "rgb(var(--border-subtle))" }}
           >
             <div className="flex items-center justify-between">
-              <Eyebrow>Payment</Eyebrow>
+              <h2>
+                <Eyebrow>Payment</Eyebrow>
+              </h2>
               <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[9px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
                 Set after approval
               </span>
@@ -254,13 +258,15 @@ export function ProductDetailScreen({
               {producer.name || "the producer"} sets which options this offer allows once they
               approve your request.
             </p>
-            <div className="mt-3 flex flex-wrap gap-[7px]">
+            <ul className="mt-3 flex list-none flex-wrap gap-[7px]">
               {product.planKinds.map((kind) => (
-                <PlanChip key={kind}>
-                  {(PLAN_CHIP_LABELS[kind] ?? (() => kind))(product.priceCents)}
-                </PlanChip>
+                <li key={kind}>
+                  <PlanChip>
+                    {(PLAN_CHIP_LABELS[kind] ?? (() => kind))(product.priceCents)}
+                  </PlanChip>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         </div>
 
@@ -270,7 +276,7 @@ export function ProductDetailScreen({
             className="flex items-start gap-[11px] rounded-[var(--radius-lg)] px-[15px] py-[13px]"
             style={{
               background: "rgb(var(--bg-sidebar))",
-              color: "rgb(var(--fg-inverse))",
+              color: "rgb(var(--fg-onsidebar))",
             }}
           >
             <span className="mt-px text-[rgb(var(--brand-primary))]">

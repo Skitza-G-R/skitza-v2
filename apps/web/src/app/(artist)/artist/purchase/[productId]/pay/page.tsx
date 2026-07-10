@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { TRPCError } from "@trpc/server";
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import { ChoosePlanScreen } from "~/components/artist/purchase/choose-plan-screen";
@@ -10,6 +11,8 @@ type PageProps = {
   params: Promise<{ productId: string }>;
   searchParams: Promise<{ req?: string }>;
 };
+
+export const metadata: Metadata = { title: "Choose a payment plan" };
 
 // S7 — the approved artist chooses from the plans frozen when the request
 // was sent. The live product is deliberately not read here: producer edits

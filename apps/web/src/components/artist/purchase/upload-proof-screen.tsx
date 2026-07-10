@@ -35,17 +35,17 @@ function chipStyle(tone: "neutral" | "pending" | "danger" | "success") {
     case "success":
       return {
         background: "rgb(var(--fg-success) / 0.14)",
-        color: "rgb(var(--fg-success))",
+        color: "rgb(var(--fg-success-text))",
       };
     case "danger":
       return {
         background: "rgb(var(--fg-danger) / 0.12)",
-        color: "rgb(var(--fg-danger))",
+        color: "rgb(var(--fg-danger-text))",
       };
     case "pending":
       return {
         background: "rgb(var(--brand-primary) / 0.16)",
-        color: "rgb(var(--brand-primary-dark))",
+        color: "rgb(var(--brand-primary-text))",
       };
     default:
       return {
@@ -59,6 +59,7 @@ function chipStyle(tone: "neutral" | "pending" | "danger" | "success") {
 function UploadGlyph() {
   return (
     <svg
+      aria-hidden="true"
       width="26"
       height="26"
       viewBox="0 0 24 24"
@@ -231,6 +232,7 @@ export function UploadProofScreen({
           {/* paid-in-full banner (green) — the happy end of the Pay step */}
           {isPaidInFull ? (
             <div
+              role="status"
               className="reveal-up reveal-up-delay-1 rounded-card mt-4 flex items-center gap-3 px-4 py-3.5"
               style={{
                 background: "rgb(var(--fg-success) / 0.12)",
@@ -240,13 +242,13 @@ export function UploadProofScreen({
               <span
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
                 style={{
-                  background: "rgb(var(--fg-success))",
-                  color: "rgb(var(--bg-elevated))",
+                  background: "rgb(var(--fg-success-text))",
+                  color: "rgb(var(--fg-on-success))",
                 }}
               >
                 <Check width={16} height={16} />
               </span>
-              <span className="text-[14px] font-semibold text-[rgb(var(--fg-success))]">
+              <span className="text-[14px] font-semibold text-[rgb(var(--fg-success-text))]">
                 Payment complete — sessions unlocked
               </span>
             </div>
@@ -262,7 +264,7 @@ export function UploadProofScreen({
                 border: "1px solid rgb(var(--fg-danger) / 0.28)",
               }}
             >
-              <div className="text-[14px] font-semibold text-[rgb(var(--fg-danger))]">
+              <div className="text-[14px] font-semibold text-[rgb(var(--fg-danger-text))]">
                 Proof needs re-uploading
               </div>
               <p className="mt-1 text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))]">
@@ -288,7 +290,7 @@ export function UploadProofScreen({
           {!isPaidInFull ? (
             <div
               className="reveal-up reveal-up-delay-2 rounded-card mt-4 flex items-center justify-between px-4 py-3.5"
-              style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-inverse))" }}
+              style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-onsidebar))" }}
             >
               <div className="min-w-0">
                 <div className="text-[12.5px] text-white/70">{productName}</div>
@@ -321,8 +323,8 @@ export function UploadProofScreen({
                 style={{
                   background: "rgb(var(--bg-elevated))",
                   border: file
-                    ? "1.5px solid rgb(var(--brand-primary))"
-                    : "1.5px dashed rgb(var(--border-strong))",
+                    ? "1.5px solid rgb(var(--focus-ring))"
+                    : "1.5px dashed rgb(var(--border-control))",
                   color: "rgb(var(--fg-default))",
                   boxShadow: "var(--shadow-sm)",
                 }}
@@ -333,7 +335,7 @@ export function UploadProofScreen({
                       className="flex h-11 w-11 items-center justify-center rounded-[12px]"
                       style={{
                         background: "rgb(var(--brand-primary) / 0.14)",
-                        color: "rgb(var(--brand-primary-dark))",
+                        color: "rgb(var(--brand-primary-text))",
                       }}
                     >
                       <DocIcon width={22} height={22} />
@@ -351,7 +353,7 @@ export function UploadProofScreen({
                       className="flex h-12 w-12 items-center justify-center rounded-full"
                       style={{
                         background: "rgb(var(--brand-primary) / 0.14)",
-                        color: "rgb(var(--brand-primary-dark))",
+                        color: "rgb(var(--brand-primary-text))",
                       }}
                     >
                       <UploadGlyph />
@@ -366,25 +368,29 @@ export function UploadProofScreen({
 
               {/* live status line under the tile */}
               <div
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
                 className="mt-2.5 flex items-center justify-center gap-1.5 text-[12px] font-medium"
                 style={{
                   color: `rgb(var(--${
                     headline.tone === "danger"
-                      ? "fg-danger"
+                      ? "fg-danger-text"
                       : headline.tone === "success"
-                        ? "fg-success"
+                        ? "fg-success-text"
                         : headline.tone === "pending"
-                          ? "brand-primary-dark"
+                          ? "brand-primary-text"
                           : "fg-muted"
                   }))`,
                 }}
               >
                 {isUploading ? (
                   <span
-                    className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2"
+                    aria-hidden="true"
+                    className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 motion-reduce:animate-none"
                     style={{
-                      borderColor: "rgb(var(--brand-primary-dark) / 0.3)",
-                      borderTopColor: "rgb(var(--brand-primary-dark))",
+                      borderColor: "rgb(var(--brand-primary-text) / 0.3)",
+                      borderTopColor: "rgb(var(--brand-primary-text))",
                     }}
                   />
                 ) : isAwaiting ? (
@@ -400,7 +406,7 @@ export function UploadProofScreen({
                   style={{
                     background: "rgb(var(--fg-danger) / 0.08)",
                     border: "1px solid rgb(var(--fg-danger) / 0.24)",
-                    color: "rgb(var(--fg-danger))",
+                    color: "rgb(var(--fg-danger-text))",
                   }}
                 >
                   {uploadError}
@@ -417,15 +423,17 @@ export function UploadProofScreen({
           {/* previous proofs (installments) */}
           {proofs.length > 0 ? (
             <div className="reveal-up reveal-up-delay-3 mt-[18px]">
-              <Eyebrow className="mb-[9px]">
-                <DocIcon />
-                Proofs you&apos;ve sent
-              </Eyebrow>
-              <div className="flex flex-col gap-2">
+              <h2 className="mb-[9px]">
+                <Eyebrow>
+                  <DocIcon aria-hidden="true" />
+                  Proofs you&apos;ve sent
+                </Eyebrow>
+              </h2>
+              <ul className="flex list-none flex-col gap-2">
                 {proofs.map((proof, i) => {
                   const copy = proofStatusCopy(proof.status, producerName);
                   return (
-                    <div
+                    <li
                       key={proof.id}
                       className="sk-rise rounded-card flex items-center gap-3 px-4 py-3"
                       style={{
@@ -464,10 +472,10 @@ export function UploadProofScreen({
                               ? "Rejected"
                               : proof.status}
                       </span>
-                    </div>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             </div>
           ) : null}
 
@@ -497,14 +505,15 @@ export function UploadProofScreen({
               aria-valuenow={progress.pct}
               aria-valuemin={0}
               aria-valuemax={100}
+              aria-valuetext={`${progress.paidLabel} paid of ${progress.totalLabel}`}
             >
               <div
-                className="h-full rounded-full transition-[width] duration-500"
+                className="h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none"
                 style={{
                   width: `${String(progress.pct)}%`,
                   background: progress.isPaidInFull
-                    ? "rgb(var(--fg-success))"
-                    : "linear-gradient(90deg, rgb(var(--brand-primary)), rgb(var(--brand-copper)))",
+                    ? "rgb(var(--fg-success-text))"
+                    : "linear-gradient(90deg, rgb(var(--brand-primary-text)), rgb(var(--brand-copper)))",
                 }}
               />
             </div>
@@ -531,6 +540,7 @@ export function UploadProofScreen({
               }}
               disabled={!file || !canSend}
               glow={canSend}
+              ariaBusy={isUploading}
               sub={
                 isAwaiting
                   ? "We'll ping you when " + producerName + " confirms"
@@ -542,7 +552,8 @@ export function UploadProofScreen({
               {isUploading ? (
                 <>
                   <span
-                    className="inline-block h-4 w-4 animate-spin rounded-full border-2"
+                    aria-hidden="true"
+                    className="inline-block h-4 w-4 animate-spin rounded-full border-2 motion-reduce:animate-none"
                     style={{
                       borderColor: "rgb(var(--bg-sidebar) / 0.3)",
                       borderTopColor: "rgb(var(--bg-sidebar))",

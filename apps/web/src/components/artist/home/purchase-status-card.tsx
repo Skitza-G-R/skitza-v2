@@ -156,13 +156,13 @@ export function PurchaseStatusCard({
     pill.tone === "amber"
       ? {
           background: "rgb(var(--brand-primary) / 0.14)",
-          color: "rgb(var(--brand-primary-dark))",
+          color: "rgb(var(--brand-primary-text))",
           dot: "rgb(var(--fg-warning))",
         }
       : pill.tone === "success"
         ? {
             background: "rgb(var(--fg-success) / 0.12)",
-            color: "rgb(var(--fg-success))",
+            color: "rgb(var(--fg-success-text))",
             dot: "rgb(var(--fg-success))",
           }
         : {
@@ -178,9 +178,9 @@ export function PurchaseStatusCard({
         <span
           aria-hidden
           className="h-px w-[18px]"
-          style={{ background: "rgb(var(--brand-primary-dark) / 0.55)" }}
+          style={{ background: "rgb(var(--brand-primary-text) / 0.55)" }}
         />
-        <span className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
+        <span className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-text))] uppercase">
           Your booking
         </span>
       </div>
@@ -232,6 +232,14 @@ export function PurchaseStatusCard({
           <ol aria-label="Booking progress" className="flex items-start">
             {STEP_LABELS.map((label, i) => {
               const state = steps[i] ?? "upcoming";
+              const isDeclinedStep = declined && i === 0;
+              const accessibleState = isDeclinedStep
+                ? "declined"
+                : state === "done"
+                  ? "completed"
+                  : state === "active"
+                    ? "current step"
+                    : "upcoming";
               return (
                 <Fragment key={label}>
                   {i > 0 ? (
@@ -246,8 +254,11 @@ export function PurchaseStatusCard({
                       }}
                     />
                   ) : null}
-                  <li className="flex shrink-0 flex-col items-center gap-1.5">
-                    <StepNode state={state} declined={declined && i === 0} />
+                  <li
+                    className="flex shrink-0 flex-col items-center gap-1.5"
+                    aria-current={state === "active" && !isDeclinedStep ? "step" : undefined}
+                  >
+                    <StepNode state={state} declined={isDeclinedStep} />
                     <span
                       className="font-mono text-[9px] tracking-[0.1em] uppercase"
                       style={{
@@ -257,6 +268,7 @@ export function PurchaseStatusCard({
                       }}
                     >
                       {label}
+                      <span className="sr-only"> — {accessibleState}</span>
                     </span>
                   </li>
                 </Fragment>
@@ -273,14 +285,14 @@ export function PurchaseStatusCard({
           <p className="mt-1.5 text-[14.5px] leading-snug font-semibold text-pretty text-[rgb(var(--fg-default))]">
             {next.line}
           </p>
-          <div className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.02em] text-[rgb(var(--brand-primary-dark))]">
+          <div className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.02em] text-[rgb(var(--brand-primary-text))]">
             <ClockIcon />
             <span>{next.sub}</span>
           </div>
           {actionHref && actionLabel ? (
             <Link
               href={actionHref}
-              className="sk-cta-press mt-3 flex w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 py-3 text-[14.5px] font-bold"
+              className="sk-cta-press mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 py-3 text-[14.5px] font-bold"
               style={{
                 background: "rgb(var(--brand-primary))",
                 color: "rgb(var(--fg-on-brand))",
@@ -315,10 +327,11 @@ function StepNode({ state, declined = false }: { state: StepState; declined?: bo
   if (declined) {
     return (
       <span
+        aria-hidden="true"
         className="flex h-5 w-5 items-center justify-center rounded-full text-[12px] leading-none font-bold"
         style={{
           background: "rgb(var(--fg-danger) / 0.12)",
-          color: "rgb(var(--fg-danger))",
+          color: "rgb(var(--fg-danger-text))",
           border: "1.5px solid rgb(var(--fg-danger) / 0.4)",
         }}
       >
@@ -329,10 +342,11 @@ function StepNode({ state, declined = false }: { state: StepState; declined?: bo
   if (state === "done") {
     return (
       <span
+        aria-hidden="true"
         className="flex h-5 w-5 items-center justify-center rounded-full"
         style={{
-          background: "rgb(var(--fg-success))",
-          color: "rgb(255 255 255)",
+          background: "rgb(var(--fg-success-text))",
+          color: "rgb(var(--fg-on-success))",
         }}
       >
         <Check width={11} height={11} />
@@ -341,7 +355,7 @@ function StepNode({ state, declined = false }: { state: StepState; declined?: bo
   }
   if (state === "active") {
     return (
-      <span className="relative flex h-5 w-5 items-center justify-center">
+      <span aria-hidden="true" className="relative flex h-5 w-5 items-center justify-center">
         <span
           aria-hidden
           className="sk-pulse absolute inset-0 rounded-full"
@@ -351,7 +365,7 @@ function StepNode({ state, declined = false }: { state: StepState; declined?: bo
           className="relative flex h-5 w-5 items-center justify-center rounded-full"
           style={{
             background: "rgb(var(--bg-elevated))",
-            border: "2px solid rgb(var(--brand-primary))",
+            border: "2px solid rgb(var(--focus-ring))",
           }}
         >
           <span
@@ -364,13 +378,14 @@ function StepNode({ state, declined = false }: { state: StepState; declined?: bo
   }
   return (
     <span
+      aria-hidden="true"
       className="flex h-5 w-5 items-center justify-center rounded-full"
       style={{
         background: "rgb(var(--bg-elevated))",
-        border: "1.5px solid rgb(17 16 9 / 0.16)",
+        border: "1.5px solid rgb(var(--border-control))",
       }}
     >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "rgb(17 16 9 / 0.18)" }} />
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "rgb(var(--fg-muted))" }} />
     </span>
   );
 }

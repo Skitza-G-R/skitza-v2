@@ -62,29 +62,76 @@ export function buildDocKey(args: { producerId: string; contractId: string; file
   return `producers/${args.producerId}/contracts/${args.contractId}/${sanitize(args.filename)}`;
 }
 
-// Proof-of-payment screenshots/PDFs (BE-2). Stored in the PRIVATE docs
-// bucket. Callers receive short-lived signed PUT/GET URLs; no public URL is
-// persisted or returned.
-export function buildProofKey(args: {
+type ProofPurchaseKeyArgs = {
   producerId: string;
   purchaseRequestId: string;
-  filename: string;
-}) {
-  const rand = randomBytes(4).toString("hex");
-  return `producers/${args.producerId}/proofs/${args.purchaseRequestId}/${rand}-${sanitize(args.filename)}`;
+};
+
+// Artist uploads use one deterministic staging object per purchase. Repeated
+// presigns therefore replace the same staging object instead of creating an
+// unbounded number of orphaned objects.
+export function buildProofStagingKey(args: ProofPurchaseKeyArgs): string {
+  return `proof-staging/producers/${args.producerId}/requests/${args.purchaseRequestId}/upload`;
 }
 
-export function isProofKeyForPurchase(
-  key: string,
-  args: { producerId: string; purchaseRequestId: string },
-): boolean {
-  const prefix = `producers/${args.producerId}/proofs/${args.purchaseRequestId}/`;
-  return (
-    key.startsWith(prefix) &&
-    key.length > prefix.length &&
-    !key.includes("..") &&
-    !/^https?:/i.test(key)
+// Final proof objects are created by the server after it has validated the
+// staged upload. The 16-byte random prefix provides 128 bits of entropy.
+export function buildFinalProofKey(
+  args: ProofPurchaseKeyArgs & {
+    filename: string;
+  },
+): string {
+  const rand = randomBytes(16).toString("hex");
+  return `producers/${args.producerId}/proofs/${args.purchaseRequestId}/final/${rand}-${sanitize(args.filename)}`;
+}
+
+// Staging ownership is exact: neither a sibling object nor a key with an
+// attacker-controlled suffix is accepted for the purchase.
+export function isProofStagingKeyForPurchase(key: string, args: ProofPurchaseKeyArgs): boolean {
+  return key === buildProofStagingKey(args);
+}
+
+function encodeR2PathSegment(segment: string): string {
+  return encodeURIComponent(segment).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
   );
+}
+
+// CopySource is an HTTP header, so encode each bucket/key path segment while
+// preserving the separators that identify the object path.
+export function encodeR2CopySource(bucket: string, key: string): string {
+  return [bucket, ...key.split("/")].map(encodeR2PathSegment).join("/");
+}
+
+function startsWithBytes(bytes: Uint8Array, signature: readonly number[]): boolean {
+  return signature.every((value, index) => bytes[index] === value);
+}
+
+function ascii(bytes: Uint8Array, start: number, length: number): string {
+  return String.fromCharCode(...bytes.slice(start, start + length));
+}
+
+// Content-Type is supplied by the browser and therefore is not evidence of
+// the actual file format. Validate a small leading-byte sample before a proof
+// is copied to its immutable final key.
+export function hasValidProofFileSignature(contentType: string, bytes: Uint8Array): boolean {
+  switch (contentType.toLowerCase()) {
+    case "image/jpeg":
+      return startsWithBytes(bytes, [0xff, 0xd8, 0xff]);
+    case "image/png":
+      return startsWithBytes(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    case "image/webp":
+      return ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 4) === "WEBP";
+    case "image/heic": {
+      if (ascii(bytes, 4, 4) !== "ftyp") return false;
+      return new Set(["heic", "heix", "hevc", "hevx", "mif1", "msf1"]).has(ascii(bytes, 8, 4));
+    }
+    case "application/pdf":
+      return ascii(bytes, 0, 5) === "%PDF-";
+    default:
+      return false;
+  }
 }
 
 // R2 Public Development URLs are bucket-scoped (e.g. https://pub-<id>.r2.dev

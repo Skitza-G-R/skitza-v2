@@ -103,7 +103,7 @@ export function StickyNav({
       {/* solid backing fades in */}
       <div
         aria-hidden
-        className="absolute inset-0 border-b"
+        className="sk-sticky-nav-backing absolute inset-0 border-b"
         style={{
           background: "rgb(var(--bg-background) / 0.88)",
           backdropFilter: "blur(16px) saturate(160%)",
@@ -137,7 +137,7 @@ export function StickyNav({
         )}
         {/* collapsing centered title */}
         <div
-          className="pointer-events-none absolute inset-x-14 text-center"
+          className="sk-sticky-nav-title pointer-events-none absolute inset-x-14 text-center"
           style={{ opacity: ease, transform: `translateY(${String(lerp(7, 0, ease))}px)` }}
         >
           <div className="font-syne text-fg-default truncate text-[15px] font-extrabold tracking-[-0.02em]">

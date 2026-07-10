@@ -1083,9 +1083,7 @@ export const purchaseRequests = pgTable(
     paymentPlanSnapshot: jsonb("payment_plan_snapshot").$type<PaymentPlan>().notNull(),
     // Every plan offered at request time. S7 reads only this frozen list,
     // so later product edits cannot change the artist's agreement.
-    paymentPlanOptionsSnapshot: jsonb("payment_plan_options_snapshot")
-      .$type<PaymentPlan[]>()
-      .notNull(),
+    paymentPlanOptionsSnapshot: jsonb("payment_plan_options_snapshot").$type<PaymentPlan[]>(),
     // Null while the request carries only its provisional default. S7 stamps
     // this when the artist explicitly chooses, before any proof is accepted.
     paymentPlanChosenAt: timestamp("payment_plan_chosen_at", {
@@ -1134,10 +1132,14 @@ export const paymentProofs = pgTable(
     amountCents: integer("amount_cents").notNull(),
     currency: text("currency").notNull(),
     kind: text("kind").notNull(),
-    // New proofs are private in docs. Migrated invoice-era proofs remain in
-    // audio, so bucket ownership must travel with the key.
-    storageBucket: text("storage_bucket").$type<"audio" | "docs">().notNull().default("docs"),
+    // Proof evidence is accepted only from the private docs bucket. Migration
+    // 0023 fails closed instead of importing a legacy public-audio object.
+    storageBucket: text("storage_bucket").$type<"docs">().notNull().default("docs"),
     storageKey: text("storage_key").notNull().unique(),
+    // ETag of the server-finalized object. Nullable only so an interrupted
+    // preview deployment can be diagnosed safely; every new proof writes it
+    // and review refuses a missing/mismatched value.
+    objectEtag: text("object_etag"),
     originalFileName: text("original_file_name"),
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),

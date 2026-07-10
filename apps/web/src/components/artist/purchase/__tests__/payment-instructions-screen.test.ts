@@ -57,7 +57,8 @@ describe("payment-instructions-screen.tsx (S8) wiring", () => {
   it("shows a greyed 'Pay by card — coming soon' row that is NOT a link/button action", () => {
     expect(s8Src).toMatch(/coming soon/i);
     // the coming-soon card must be inert: no onClick / href / <a> / role=button on it
-    expect(s8Src).toMatch(/aria-disabled/);
+    expect(s8Src).toMatch(/role="note"/);
+    expect(s8Src).toMatch(/aria-label="Pay by card, coming soon"/);
   });
 
   it("routes the primary action to the proof-upload screen", () => {

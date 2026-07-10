@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { TRPCError } from "@trpc/server";
 
@@ -8,6 +9,8 @@ import { toProducer, toPurchaseProduct } from "~/lib/purchase/product-mapping";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ productId: string }> };
+
+export const metadata: Metadata = { title: "Review and agree" };
 
 // S4 — Review & agree (Commit). Real BE-1 data (SK-46): price-locked
 // product snapshot + producer + uploaded agreement from
