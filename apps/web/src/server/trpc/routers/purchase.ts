@@ -265,20 +265,113 @@ async function loadProducerProof(db: Db, producerId: string, proofId: string) {
   return row;
 }
 
+// Migration 0023 adds the explicit post-approval plan-choice fields. Preview
+// deployments intentionally run against the still-pre-0023 database during
+// the production cutover, so every Gate-1 read must avoid naming those
+// columns until they exist. The explicit base selection works on both schemas;
+// migrated databases still load the two new fields through the full selection.
+type LegacyPurchaseRequest = Omit<
+  PurchaseRequest,
+  "paymentPlanOptionsSnapshot" | "paymentPlanChosenAt"
+>;
+
+function legacyPurchaseRequestColumns() {
+  return {
+    id: purchaseRequests.id,
+    producerId: purchaseRequests.producerId,
+    clientContactId: purchaseRequests.clientContactId,
+    productId: purchaseRequests.productId,
+    projectId: purchaseRequests.projectId,
+    bookingId: purchaseRequests.bookingId,
+    refNumber: purchaseRequests.refNumber,
+    status: purchaseRequests.status,
+    statusChangedAt: purchaseRequests.statusChangedAt,
+    approvedAt: purchaseRequests.approvedAt,
+    declinedAt: purchaseRequests.declinedAt,
+    artistName: purchaseRequests.artistName,
+    artistEmail: purchaseRequests.artistEmail,
+    productNameSnapshot: purchaseRequests.productNameSnapshot,
+    priceCents: purchaseRequests.priceCents,
+    currency: purchaseRequests.currency,
+    paymentPlanSnapshot: purchaseRequests.paymentPlanSnapshot,
+    songQty: purchaseRequests.songQty,
+    unitPriceCents: purchaseRequests.unitPriceCents,
+    contractUrlSnapshot: purchaseRequests.contractUrlSnapshot,
+    createdAt: purchaseRequests.createdAt,
+  } as const;
+}
+
+async function purchasePlanColumnsAvailable(db: Pick<Db, "execute">): Promise<boolean> {
+  const result = await db.execute<{ columnCount: number }>(sql`
+    select count(*)::int as "columnCount"
+    from information_schema.columns
+    where table_schema = current_schema()
+      and table_name = 'purchase_requests'
+      and column_name in ('payment_plan_options_snapshot', 'payment_plan_chosen_at')
+  `);
+  return (result.rows[0]?.columnCount ?? 0) === 2;
+}
+
+function withLegacyPlanFields(request: LegacyPurchaseRequest): PurchaseRequest {
+  return {
+    ...request,
+    paymentPlanOptionsSnapshot: null,
+    paymentPlanChosenAt: null,
+  };
+}
+
+async function loadPurchaseRequestRow(
+  db: Pick<Db, "execute" | "select">,
+  id: string,
+  knownPlanColumnsAvailable?: boolean,
+): Promise<PurchaseRequest | undefined> {
+  const hasPlanColumns =
+    knownPlanColumnsAvailable ?? (await purchasePlanColumnsAvailable(db));
+  if (hasPlanColumns) {
+    const [request] = await db
+      .select()
+      .from(purchaseRequests)
+      .where(eq(purchaseRequests.id, id))
+      .limit(1);
+    return request;
+  }
+
+  const [request] = await db
+    .select(legacyPurchaseRequestColumns())
+    .from(purchaseRequests)
+    .where(eq(purchaseRequests.id, id))
+    .limit(1);
+  return request ? withLegacyPlanFields(request) : undefined;
+}
+
 // Insert a purchase request, retrying with a fresh ref_number on the
 // (astronomically unlikely) UNIQUE clash. ON CONFLICT avoids aborting the
 // surrounding PostgreSQL transaction, which a caught 23505 would do.
 async function insertPurchaseRequest(
-  db: Pick<Db, "insert">,
+  db: Pick<Db, "execute" | "insert">,
   values: Omit<typeof purchaseRequests.$inferInsert, "refNumber">,
 ): Promise<PurchaseRequest> {
+  const hasPlanColumns = await purchasePlanColumnsAvailable(db);
   for (let attempt = 0; attempt < 5; attempt++) {
-    const [row] = await db
-      .insert(purchaseRequests)
-      .values({ ...values, refNumber: generateRefNumber() })
-      .onConflictDoNothing({ target: purchaseRequests.refNumber })
-      .returning();
-    if (row) return row;
+    const refNumber = generateRefNumber();
+    if (hasPlanColumns) {
+      const [row] = await db
+        .insert(purchaseRequests)
+        .values({ ...values, refNumber })
+        .onConflictDoNothing({ target: purchaseRequests.refNumber })
+        .returning();
+      if (row) return row;
+    } else {
+      const legacyValues = { ...values };
+      delete legacyValues.paymentPlanOptionsSnapshot;
+      delete legacyValues.paymentPlanChosenAt;
+      const [row] = await db
+        .insert(purchaseRequests)
+        .values({ ...legacyValues, refNumber })
+        .onConflictDoNothing({ target: purchaseRequests.refNumber })
+        .returning(legacyPurchaseRequestColumns());
+      if (row) return withLegacyPlanFields(row);
+    }
   }
   throw new TRPCError({
     code: "INTERNAL_SERVER_ERROR",
@@ -293,11 +386,7 @@ async function resolveOwnedRequest(
   clerkUserId: string,
   purchaseRequestId: string,
 ): Promise<PurchaseRequest> {
-  const [request] = await db
-    .select()
-    .from(purchaseRequests)
-    .where(eq(purchaseRequests.id, purchaseRequestId))
-    .limit(1);
+  const request = await loadPurchaseRequestRow(db, purchaseRequestId);
   if (!request) throw new TRPCError({ code: "NOT_FOUND" });
 
   const [contact] = await db
@@ -319,21 +408,21 @@ async function resolveOwnedRequest(
 // for outgoing emails. NOT_FOUND if absent, FORBIDDEN if it belongs to
 // another producer (booking.confirm pattern).
 async function loadProducerRequest(
-  db: Pick<Db, "select">,
+  db: Pick<Db, "execute" | "select">,
   producerId: string,
   id: string,
 ): Promise<PurchaseRequest & { producerName: string | null }> {
-  const [row] = await db
-    .select({ request: purchaseRequests, producerName: producers.displayName })
-    .from(purchaseRequests)
-    .innerJoin(producers, eq(producers.id, purchaseRequests.producerId))
-    .where(eq(purchaseRequests.id, id))
-    .limit(1);
-  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-  if (row.request.producerId !== producerId) {
+  const request = await loadPurchaseRequestRow(db, id);
+  if (!request) throw new TRPCError({ code: "NOT_FOUND" });
+  if (request.producerId !== producerId) {
     throw new TRPCError({ code: "FORBIDDEN" });
   }
-  return { ...row.request, producerName: row.producerName };
+  const [producer] = await db
+    .select({ producerName: producers.displayName })
+    .from(producers)
+    .where(eq(producers.id, request.producerId))
+    .limit(1);
+  return { ...request, producerName: producer?.producerName ?? null };
 }
 
 // Frozen-contract stub. BE-2/3/4 replace the body; the typed input +
@@ -764,7 +853,10 @@ export const artistPurchaseRouter = router({
         (row.status === "paid" && (!paidInFull || ageMs <= 30 * DAY)) ||
         (row.status === "declined" && ageMs <= 7 * DAY);
       if (!visible) return { current: null };
-      const pendingProofCents = await pendingProofTotalCents(ctx.db, row.id);
+      const hasPlanColumns = await purchasePlanColumnsAvailable(ctx.db);
+      const pendingProofCents = hasPlanColumns
+        ? await pendingProofTotalCents(ctx.db, row.id)
+        : 0;
       return {
         current: {
           ...row,
@@ -837,11 +929,12 @@ export const artistPurchaseRouter = router({
         const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
         const snapshotPlan = await ctx.db.transaction(async (tx) => {
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${request.id}, 0))`);
-          const [lockedRequest] = await tx
-            .select()
-            .from(purchaseRequests)
-            .where(eq(purchaseRequests.id, request.id))
-            .limit(1);
+          const hasPlanColumns = await purchasePlanColumnsAvailable(tx);
+          const lockedRequest = await loadPurchaseRequestRow(
+            tx,
+            request.id,
+            hasPlanColumns,
+          );
           if (!lockedRequest) throw new TRPCError({ code: "NOT_FOUND" });
           if (lockedRequest.status !== "approved") {
             throw new TRPCError({
@@ -886,16 +979,20 @@ export const artistPurchaseRouter = router({
               ),
             )
             .limit(1);
-          const [inFlightProof] = await tx
-            .select({ id: paymentProofs.id })
-            .from(paymentProofs)
-            .where(
-              and(
-                eq(paymentProofs.purchaseRequestId, lockedRequest.id),
-                eq(paymentProofs.status, "pending"),
-              ),
-            )
-            .limit(1);
+          const inFlightProof = hasPlanColumns
+            ? (
+                await tx
+                  .select({ id: paymentProofs.id })
+                  .from(paymentProofs)
+                  .where(
+                    and(
+                      eq(paymentProofs.purchaseRequestId, lockedRequest.id),
+                      eq(paymentProofs.status, "pending"),
+                    ),
+                  )
+                  .limit(1)
+              )[0]
+            : undefined;
           if (inFlightInvoice || inFlightProof) {
             throw new TRPCError({
               code: "BAD_REQUEST",
@@ -904,10 +1001,14 @@ export const artistPurchaseRouter = router({
           }
           await tx
             .update(purchaseRequests)
-            .set({
-              paymentPlanSnapshot: selectedPlan,
-              paymentPlanChosenAt: new Date(),
-            })
+            .set(
+              hasPlanColumns
+                ? {
+                    paymentPlanSnapshot: selectedPlan,
+                    paymentPlanChosenAt: new Date(),
+                  }
+                : { paymentPlanSnapshot: selectedPlan },
+            )
             .where(eq(purchaseRequests.id, lockedRequest.id));
           return selectedPlan;
         });
@@ -929,7 +1030,8 @@ export const artistPurchaseRouter = router({
           message: "This purchase isn't awaiting payment.",
         });
       }
-      if (!request.paymentPlanChosenAt) {
+      const hasPlanColumns = await purchasePlanColumnsAvailable(ctx.db);
+      if (hasPlanColumns && !request.paymentPlanChosenAt) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Choose a payment plan first.",
@@ -946,7 +1048,9 @@ export const artistPurchaseRouter = router({
       const details = producer?.paymentDetails ?? {};
       const charges = calculateCharges(request.paymentPlanSnapshot, request.priceCents);
       const paid = await paidTotalCents(ctx.db, request.id);
-      const reserved = await pendingProofTotalCents(ctx.db, request.id);
+      const reserved = hasPlanColumns
+        ? await pendingProofTotalCents(ctx.db, request.id)
+        : 0;
       const progress = chargesProgress(charges, paid, reserved);
       const hasDetails = [details.bankTransfer, details.bitPhone].some((v) => Boolean(v?.trim()));
       return {
@@ -1519,11 +1623,16 @@ export const producerPurchaseRouter = router({
           });
         }
 
-        const [proofActivity] = await tx
-          .select({ id: paymentProofs.id })
-          .from(paymentProofs)
-          .where(eq(paymentProofs.purchaseRequestId, req.id))
-          .limit(1);
+        const hasPlanColumns = await purchasePlanColumnsAvailable(tx);
+        const proofActivity = hasPlanColumns
+          ? (
+              await tx
+                .select({ id: paymentProofs.id })
+                .from(paymentProofs)
+                .where(eq(paymentProofs.purchaseRequestId, req.id))
+                .limit(1)
+            )[0]
+          : undefined;
         const [invoiceActivity] = await tx
           .select({ id: invoices.id })
           .from(invoices)

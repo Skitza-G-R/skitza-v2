@@ -61,6 +61,24 @@ describe("producer purchase request hub", () => {
     expect(purchaseRouterSrc).toMatch(/loadProducerRequest\(ctx\.db, ctx\.producerId, input\.id\)/);
   });
 
+  it("keeps Gate 1 usable before migration 0023 is applied", () => {
+    expect(purchaseRouterSrc).toMatch(/legacyPurchaseRequestColumns/);
+    expect(purchaseRouterSrc).toMatch(/purchasePlanColumnsAvailable/);
+    expect(purchaseRouterSrc).toMatch(/information_schema\.columns/);
+    expect(purchaseRouterSrc).not.toMatch(/select\(\{ request: purchaseRequests/);
+    expect(purchaseRouterSrc).toMatch(/delete legacyValues\.paymentPlanOptionsSnapshot/);
+    expect(purchaseRouterSrc).toMatch(/delete legacyValues\.paymentPlanChosenAt/);
+    expect(purchaseRouterSrc).toMatch(/hasPlanColumns\s*\?\s*\{/);
+    expect(purchaseRouterSrc).toMatch(
+      /const pendingProofCents = hasPlanColumns[\s\S]*pendingProofTotalCents/,
+    );
+    expect(purchaseRouterSrc).toMatch(/const inFlightProof = hasPlanColumns/);
+    expect(purchaseRouterSrc).toMatch(
+      /const reserved = hasPlanColumns[\s\S]*pendingProofTotalCents/,
+    );
+    expect(purchaseRouterSrc).toMatch(/const proofActivity = hasPlanColumns/);
+  });
+
   it("renders the artist, locked product, agreement, and frozen payment options", () => {
     expect(detailSrc).toContain("Artist");
     expect(detailSrc).toContain("Locked purchase");
