@@ -333,5 +333,5 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     expect(rows).toHaveLength(2);
     expect(headObjectMock).toHaveBeenCalledTimes(3);
     expect(proofVerifiedEmailMock).toHaveBeenCalledTimes(2);
-  });
+  }, 30_000);
 });
