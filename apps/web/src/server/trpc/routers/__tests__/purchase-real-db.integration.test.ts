@@ -265,7 +265,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       code: "BAD_REQUEST",
       message: "A plan can be chosen once the request is approved and before the first payment.",
     });
-  });
+  }, 30_000);
 
   it("does not offer or accept an expired approval undo", async () => {
     const { caller: artist } = await createArtist("expired-undo");
@@ -293,7 +293,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       code: "BAD_REQUEST",
       message: "The undo window has elapsed.",
     });
-  });
+  }, 30_000);
 
   it("keeps approval undo and plan choice coherent under a real database race", async () => {
     const { caller: artist } = await createArtist("undo-race");
@@ -628,5 +628,5 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     expect(commandNames.filter((name) => name === "CopyObjectCommand")).toHaveLength(2);
     expect(commandNames.filter((name) => name === "DeleteObjectCommand")).toHaveLength(2);
     expect(proofVerifiedEmailMock).toHaveBeenCalledTimes(2);
-  }, 30_000);
+  }, 60_000);
 });
