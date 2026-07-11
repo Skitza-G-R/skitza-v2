@@ -35,7 +35,7 @@ import {
 } from "~/server/email/send";
 import { artistProcedure } from "../artist-procedure";
 import { producerProcedure } from "../producer-procedure";
-import { router } from "../init";
+import { publicProcedure, router } from "../init";
 
 // 5-minute Gate-1 undo window. There is no scheduler in the app, so the
 // window is enforced purely at undo-time (now − approvedAt < UNDO_MS).
@@ -131,6 +131,22 @@ function notImplemented(slice: string): never {
   throw new TRPCError({
     code: "NOT_IMPLEMENTED",
     message: `${slice} — frozen contract stub, lands in a later backend slice`,
+  });
+}
+
+// SK-71 production safety bridge. Unlike artistProcedure, this guard checks
+// authentication without constructing a database client. Both legacy proof
+// entry points must stop before any database or public-storage work.
+const proofBridgeProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+  return next();
+});
+
+function proofUploadsPaused(): never {
+  throw new TRPCError({
+    code: "SERVICE_UNAVAILABLE",
+    message:
+      "Payment-proof uploads are briefly paused while we secure them. Please try again in a few minutes.",
   });
 }
 
@@ -456,7 +472,33 @@ export const artistPurchaseRouter = router({
       ),
   }),
   proofOfPayment: router({
-    submit: artistProcedure
+    // Explicitly recognize the legacy public-audio presign contract so stale
+    // clients receive a fail-closed maintenance response rather than reaching
+    // any signer or storage code.
+    presign: proofBridgeProcedure
+      .input(
+        z.object({
+          purchaseRequestId: z.string().uuid(),
+          fileName: z.string().min(1).max(200),
+          contentType: z.enum([
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/heic",
+            "application/pdf",
+          ]),
+          sizeBytes: z
+            .number()
+            .int()
+            .positive()
+            .max(15 * 1024 * 1024),
+        }),
+      )
+      .mutation(() => proofUploadsPaused()),
+
+    // Block direct legacy submit too. Otherwise a stale client could bypass
+    // presign and record an existing or attacker-controlled public URL.
+    submit: proofBridgeProcedure
       .input(
         z.object({
           purchaseRequestId: z.string().uuid(),
@@ -465,10 +507,7 @@ export const artistPurchaseRouter = router({
           note: z.string().max(2000).optional(),
         }),
       )
-      .mutation(
-        (): { ok: true; invoiceId: string } =>
-          notImplemented("BE-2 artist.purchase.proofOfPayment.submit"),
-      ),
+      .mutation(() => proofUploadsPaused()),
   }),
   session: router({
     schedule: artistProcedure
