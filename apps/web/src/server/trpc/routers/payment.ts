@@ -5,37 +5,12 @@ import {
   producers,
   products,
 } from "@skitza/db";
-import type { PaymentPlan } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { artistProcedure } from "../artist-procedure";
 import { router } from "../init";
-
-// Compute what the artist owes right now, given the product's payment
-// plan list. We use the FIRST plan in `paymentPlans` because the booking
-// row doesn't carry a plan selection — the artist Book flow doesn't
-// surface a plan picker today (PRD: store does, calendar does not). If
-// the producer published only `full`, this charges in full. If they
-// published `split_50_50`, this charges 50% upfront and the remainder
-// is due on delivery (handled later, out of scope here).
-function computeAmountCents(
-  priceCents: number,
-  paymentPlans: PaymentPlan[] | null,
-): { amountCents: number; planKind: "full" | "split_50_50" | "monthly" } {
-  const plan = paymentPlans?.[0];
-  if (!plan) return { amountCents: priceCents, planKind: "full" };
-  if (plan.kind === "split_50_50") {
-    return { amountCents: Math.round(priceCents / 2), planKind: "split_50_50" };
-  }
-  if (plan.kind === "monthly") {
-    return {
-      amountCents: Math.round(priceCents / plan.installments),
-      planKind: "monthly",
-    };
-  }
-  return { amountCents: priceCents, planKind: "full" };
-}
+import { calendarPaymentSummary } from "~/lib/payment-plans";
 
 export const paymentRouter = router({
   getPaymentDetails: artistProcedure
@@ -108,7 +83,7 @@ export const paymentRouter = router({
         .limit(1);
       if (!product) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const { amountCents, planKind } = computeAmountCents(
+      const { amountCents, planKind, planLabel } = calendarPaymentSummary(
         product.priceCents,
         product.paymentPlans,
       );
@@ -132,6 +107,7 @@ export const paymentRouter = router({
         producerName: row.producerName ?? "Producer",
         producerTranzilaTerminalName: row.producerTranzilaTerminalName,
         planKind,
+        planLabel,
       };
     }),
 });

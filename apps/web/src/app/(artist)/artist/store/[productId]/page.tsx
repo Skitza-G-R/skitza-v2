@@ -5,6 +5,8 @@ import { TRPCError } from "@trpc/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 import { coerceTaxMode, taxModeFootnote } from "~/lib/tax-mode";
+import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
+import { safeAgreementUrl } from "~/lib/agreement-url";
 import { StoreProductClient } from "./store-product-client";
 
 type PageProps = { params: Promise<{ productId: string }> };
@@ -37,6 +39,8 @@ export default async function StoreProductPage({ params }: PageProps) {
   const taxMode = coerceTaxMode(product.producerTaxMode);
   const taxRatePct = product.producerTaxRatePct;
   const taxFootnote = taxModeFootnote(taxMode, taxRatePct);
+  const royalty = royaltyTermsDisplay(product.royaltyTerms);
+  const agreementUrl = safeAgreementUrl(product.contractUrl);
 
   return (
     <div className="space-y-5">
@@ -52,7 +56,7 @@ export default async function StoreProductPage({ params }: PageProps) {
           {product.producerName}
         </p>
         <h1
-          className="mt-2 font-display text-2xl leading-tight"
+          className="mt-2 break-words font-display text-2xl leading-tight [overflow-wrap:anywhere]"
           style={{ fontWeight: 700 }}
         >
           {product.name}
@@ -81,6 +85,44 @@ export default async function StoreProductPage({ params }: PageProps) {
           </div>
         ) : null}
       </div>
+
+      <section className="rounded-[var(--radius-lg)] bg-[rgb(var(--bg-elevated))] p-5 ring-1 ring-[rgb(var(--border-subtle))]">
+        <h2 className="font-display text-base font-bold text-[rgb(var(--fg-default))]">
+          Rights & agreement
+        </h2>
+        <dl className="mt-3 grid gap-2.5 text-sm">
+          <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3">
+            <dt className="font-medium text-[rgb(var(--fg-muted))]">Master</dt>
+            <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">{royalty.master}</dd>
+          </div>
+          <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3">
+            <dt className="font-medium text-[rgb(var(--fg-muted))]">Composition</dt>
+            <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+              {royalty.composition}
+            </dd>
+          </div>
+        </dl>
+        {product.royaltyTerms?.notes ? (
+          <p className="mt-4 whitespace-pre-wrap break-words border-t border-[rgb(var(--border-subtle))] pt-4 text-sm leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+            {product.royaltyTerms.notes}
+          </p>
+        ) : null}
+        {product.agreementText ? (
+          <p className="mt-4 whitespace-pre-wrap break-words border-t border-[rgb(var(--border-subtle))] pt-4 text-sm leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+            {product.agreementText}
+          </p>
+        ) : null}
+        {agreementUrl ? (
+          <a
+            href={agreementUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-4 text-sm font-semibold text-[rgb(var(--brand-primary))]"
+          >
+            Open agreement link
+          </a>
+        ) : null}
+      </section>
 
       <StoreProductClient
         product={{

@@ -29,11 +29,15 @@ export function StoreProductClient({
     volumeTiers: VolumeTier[] | null;
   };
 }) {
-  const first = product.paymentPlans[0];
+  const supportedPlans = product.paymentPlans.filter(
+    (candidate): candidate is Exclude<PaymentPlan, { kind: "milestones" }> =>
+      candidate.kind !== "milestones",
+  );
+  const singlePlan = supportedPlans.length === 1 ? supportedPlans[0] ?? null : null;
   const [plan, setPlan] = useState<Exclude<
     PaymentPlan,
     { kind: "milestones" }
-  > | null>(first?.kind === "milestones" ? null : (first ?? null));
+  > | null>(singlePlan);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -55,7 +59,7 @@ export function StoreProductClient({
     [],
   );
 
-  if (!first) {
+  if (supportedPlans.length === 0) {
     // Defensive — every product's default is [{kind:"full"}], so this
     // only fires if a row got persisted with an empty array. Surface a
     // legible error rather than a silent dead button.
@@ -106,16 +110,14 @@ export function StoreProductClient({
           totalCents we show reflects the *current* qty selection for
           per-song products so the producer's split / installments
           math reads the locked-in price. */}
-      {product.paymentPlans.length > 1 ? (
+      {supportedPlans.length > 1 ? (
         <div className="rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
           <PlanPicker
-            plans={product.paymentPlans}
+            plans={supportedPlans}
             totalCents={isPerSong ? songQty * unitPriceCents : product.priceCents}
             currency={product.currency}
             onChoose={(p) => {
-              // Milestone plans are off-app only (BE-2) — the Stripe
-              // picker never charges them.
-              if (p.kind !== "milestones") setPlan(p);
+              setPlan(p as Exclude<PaymentPlan, { kind: "milestones" }>);
             }}
           />
         </div>

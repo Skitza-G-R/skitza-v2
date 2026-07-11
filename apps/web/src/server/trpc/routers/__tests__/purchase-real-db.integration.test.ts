@@ -13,6 +13,7 @@ import {
   purchaseRequests,
 } from "@skitza/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { commercialTermsFingerprint } from "~/lib/purchase/commercial-terms-fingerprint";
 import { buildProofStagingKey } from "~/server/storage/r2";
 
 const { r2SendMock, proofVerifiedEmailMock, purchaseApprovedEmailMock, purchaseDeclinedEmailMock } =
@@ -79,6 +80,21 @@ const databaseUrl = process.env.DATABASE_URL_TEST;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 describeWithDatabase("artist purchase flow — real Postgres integration", () => {
+  const initialPaymentPlans = [
+    { kind: "full" as const },
+    { kind: "split_50_50" as const },
+  ];
+  const initialRoyaltyTerms = {
+    master: { mode: "percentage" as const, bps: 250 },
+    composition: {
+      mode: "percentage" as const,
+      bps: 1250,
+      role: "composer" as const,
+      collectingSociety: "ACUM",
+    },
+  };
+  const initialAgreementText = "Producer keeps 2.5% master and 12.5% composition.";
+  const initialContractUrl = "https://example.com/e2e-agreement.pdf";
   const previousDatabaseUrl = process.env.DATABASE_URL;
   const suffix = randomUUID();
   const artistUserId = `artist_e2e_${suffix}`;
@@ -93,6 +109,18 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
   let producerId = "";
   let attackerProducerId = "";
   let productId = "";
+
+  function requestFingerprint(): string {
+    return commercialTermsFingerprint({
+      productName: "E2E Premium Single",
+      priceCents: 240_000,
+      currency: "ILS",
+      paymentPlans: initialPaymentPlans,
+      royaltyTerms: initialRoyaltyTerms,
+      agreementText: initialAgreementText,
+      contractUrl: initialContractUrl,
+    });
+  }
 
   async function createArtist(label: string) {
     const userId = `artist_${label}_${suffix}`;
@@ -159,8 +187,10 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
         priceCents: 240_000,
         currency: "ILS",
         depositModel: "flat",
-        paymentPlans: [{ kind: "full" }, { kind: "split_50_50" }],
-        contractUrl: "https://example.com/e2e-agreement.pdf",
+        paymentPlans: initialPaymentPlans,
+        royaltyTerms: initialRoyaltyTerms,
+        agreementText: initialAgreementText,
+        contractUrl: initialContractUrl,
       })
       .returning();
     if (!product) throw new Error("Failed to seed E2E product");
@@ -205,6 +235,71 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     }
   });
 
+  it("keeps royalty and inline-agreement snapshots unchanged after product edits", async () => {
+    const { caller: artist } = await createArtist("commercial-snapshot");
+    const producer = appRouter.createCaller({ userId: producerUserId });
+    const created = await artist.artist.purchase.request({
+      productId,
+      paymentPlan: { kind: "full" },
+      agreementAccepted: true,
+      commercialTermsFingerprint: requestFingerprint(),
+    });
+
+    const editedRoyaltyTerms = {
+      master: { mode: "none" as const },
+      composition: { mode: "agreement" as const },
+    };
+    await db
+      .update(products)
+      .set({
+        paymentPlans: [{ kind: "monthly", installments: 4 }],
+        royaltyTerms: editedRoyaltyTerms,
+        agreementText: "New terms for future requests only.",
+        contractUrl: "https://example.com/new-agreement.pdf",
+      })
+      .where(eq(products.id, productId));
+
+    try {
+      const [persisted] = await db
+        .select()
+        .from(purchaseRequests)
+        .where(eq(purchaseRequests.id, created.purchaseRequestId));
+      expect(persisted?.paymentPlanOptionsSnapshot).toEqual(initialPaymentPlans);
+      expect(persisted?.royaltyTermsSnapshot).toEqual(initialRoyaltyTerms);
+      expect(persisted?.agreementTextSnapshot).toBe(initialAgreementText);
+      expect(persisted?.contractUrlSnapshot).toBe(initialContractUrl);
+
+      const detail = await producer.producer.purchase.get({ id: created.purchaseRequestId });
+      expect(detail.request.paymentPlanOptionsSnapshot).toEqual(initialPaymentPlans);
+      expect(detail.request.royaltyTermsSnapshot).toEqual(initialRoyaltyTerms);
+      expect(detail.request.agreementTextSnapshot).toBe(initialAgreementText);
+      expect(detail.request.contractUrlSnapshot).toBe(initialContractUrl);
+      expect(detail.agreement.acceptedAt).toBeInstanceOf(Date);
+    } finally {
+      await db
+        .update(products)
+        .set({
+          paymentPlans: initialPaymentPlans,
+          royaltyTerms: initialRoyaltyTerms,
+          agreementText: initialAgreementText,
+          contractUrl: initialContractUrl,
+        })
+        .where(eq(products.id, productId));
+    }
+  });
+
+  it("rejects a request when the reviewed commercial terms changed", async () => {
+    const { caller: artist } = await createArtist("commercial-drift");
+    await expect(
+      artist.artist.purchase.request({
+        productId,
+        paymentPlan: { kind: "full" },
+        agreementAccepted: true,
+        commercialTermsFingerprint: "0".repeat(64),
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("allows exactly one concurrent approve-or-decline transition and one email", async () => {
     const { caller: artist } = await createArtist("gate-race");
     const producer = appRouter.createCaller({ userId: producerUserId });
@@ -212,6 +307,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       productId,
       paymentPlan: { kind: "full" },
       agreementAccepted: true,
+      commercialTermsFingerprint: requestFingerprint(),
     });
 
     purchaseApprovedEmailMock.mockClear();
@@ -244,6 +340,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       productId,
       paymentPlan: { kind: "full" },
       agreementAccepted: true,
+      commercialTermsFingerprint: requestFingerprint(),
     });
 
     await producer.producer.purchase.decline({
@@ -274,6 +371,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       productId,
       paymentPlan: { kind: "full" },
       agreementAccepted: true,
+      commercialTermsFingerprint: requestFingerprint(),
     });
     await producer.producer.purchase.approve({ id: created.purchaseRequestId });
 
@@ -302,6 +400,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       productId,
       paymentPlan: { kind: "full" },
       agreementAccepted: true,
+      commercialTermsFingerprint: requestFingerprint(),
     });
     await producer.producer.purchase.approve({ id: created.purchaseRequestId });
 
@@ -337,6 +436,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       productId,
       paymentPlan: { kind: "full" },
       agreementAccepted: true,
+      commercialTermsFingerprint: requestFingerprint(),
     });
     await producer.producer.purchase.approve({ id: created.purchaseRequestId });
     await artist.artist.purchase.paymentPlan.choose({
@@ -413,6 +513,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
         productId,
         paymentPlan: { kind: "full" },
         agreementAccepted: true,
+        commercialTermsFingerprint: requestFingerprint(),
       }),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 
@@ -420,6 +521,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       productId,
       paymentPlan: { kind: "full" },
       agreementAccepted: true,
+      commercialTermsFingerprint: requestFingerprint(),
     });
     expect(created.status).toBe("pending");
     expect(created.priceCents).toBe(240_000);
@@ -469,7 +571,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     );
     await expect(
       attackerProducer.producer.purchase.get({ id: created.purchaseRequestId }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     await expect(
       strangerArtist.artist.purchase.proofOfPayment.state({
@@ -478,7 +580,10 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
       attackerProducer.producer.purchase.approve({ id: created.purchaseRequestId }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      attackerProducer.producer.purchase.get({ id: created.purchaseRequestId }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     const approved = await producer.producer.purchase.approve({ id: created.purchaseRequestId });
     expect(approved.status).toBe("approved");
@@ -547,7 +652,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     ).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(
       attackerProducer.producer.purchase.proofOfPayment.confirm({ proofId: firstProof.proofId }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     const confirmations = await Promise.all([
       producer.producer.purchase.proofOfPayment.confirm({ proofId: firstProof.proofId }),
@@ -616,6 +721,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       productId,
       paymentPlan: { kind: "full" },
       agreementAccepted: true,
+      commercialTermsFingerprint: requestFingerprint(),
     });
     expect(nextPurchase.purchaseRequestId).not.toBe(created.purchaseRequestId);
 

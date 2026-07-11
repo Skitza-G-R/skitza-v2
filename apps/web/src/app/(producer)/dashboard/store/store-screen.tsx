@@ -42,7 +42,11 @@ export interface StoreProduct extends ProductCardData {
   bufferMinutes: number;
   minLeadHours: number;
   contractUrl: string | null;
+  royaltyTerms: import("@skitza/db").ProductRoyaltyTerms | null;
+  agreementText: string | null;
   deliverables: string[];
+  depositModel: string;
+  milestones: { label: string; pct: number }[] | null;
   // Per-song pricing — pricingModel='per_song' opens the calculator
   // panel in the wizard's Pricing step and the song-count stepper on
   // the artist's product page. volumeTiers is the ascending ladder

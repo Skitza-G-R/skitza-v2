@@ -39,4 +39,15 @@ describe("EditorShell shell", () => {
   it("uses popIn animation per the design brief", () => {
     expect(SRC).toMatch(/popIn|scale\(0\.97\)|translateY\(12/);
   });
+
+  it("uses the 640px desktop width and dynamic mobile viewport units", () => {
+    expect(SRC).toContain("max-w-[640px]");
+    expect(SRC).toMatch(/dvh/);
+  });
+
+  it("keeps only the body scrollable and allows instructions to wrap", () => {
+    expect(SRC.match(/overflow-y-auto/g)).toHaveLength(1);
+    expect(SRC).toMatch(/whitespace-normal/);
+    expect(SRC).not.toMatch(/DialogPrimitive\.Description[^>]*truncate/);
+  });
 });

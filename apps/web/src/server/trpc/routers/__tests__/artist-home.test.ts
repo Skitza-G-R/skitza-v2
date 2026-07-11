@@ -669,11 +669,13 @@ describe("artist.home() — latestMix.unread (SK-33)", () => {
 // and the field we added is a pure projection over data already in
 // scope. Two greps: one for the "50-50" literal that normalizes
 // split_50_50, one for `plan` being part of the returned object.
-describe("artist.book.myPendingPayments() — plan label (SK-33)", () => {
+describe("artist.book.myPendingPayments() — calendar plan fallback", () => {
   const SRC = readFileSync(join(__dirname, "../artist.ts"), "utf-8");
 
-  it("normalizes firstPlan.kind to a UI-friendly plan string", () => {
-    expect(SRC).toMatch(/plan:\s*["']50-50["']/);
-    expect(SRC).toMatch(/plan,\s*\n?\s*\}/);
+  it("uses the shared fallback and returns clear summary copy", () => {
+    expect(SRC).toMatch(/calendarPaymentSummary\(/);
+    expect(SRC).toMatch(/plan,/);
+    expect(SRC).toMatch(/planLabel/);
+    expect(SRC).not.toMatch(/paymentPlans\?\.\[0\]/);
   });
 });

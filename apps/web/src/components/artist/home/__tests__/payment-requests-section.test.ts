@@ -24,7 +24,7 @@ describe("PaymentRequestsSection", () => {
   });
 
   it("shows the plan label on each row", () => {
-    expect(SRC).toMatch(/booking\.plan|row\.plan/);
+    expect(SRC).toMatch(/booking\.planLabel|row\.planLabel/);
   });
 
   it("renders nothing when there are no open invoices", () => {

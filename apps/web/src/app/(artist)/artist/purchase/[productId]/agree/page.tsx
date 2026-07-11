@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { buildAgreementTerms } from "~/components/artist/purchase/purchase-data";
 import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
 import { toProducer, toPurchaseProduct } from "~/lib/purchase/product-mapping";
+import { commercialTermsFingerprint } from "~/lib/purchase/commercial-terms-fingerprint";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ productId: string }> };
@@ -39,6 +40,22 @@ export default async function PurchaseAgreePage({ params }: PageProps) {
   const product = toPurchaseProduct(row);
   const producer = toProducer(row);
   const terms = buildAgreementTerms(producer.name, product.includes);
+  const fingerprint = commercialTermsFingerprint({
+    productName: product.name,
+    priceCents: product.priceCents,
+    currency: product.currency,
+    paymentPlans: product.paymentPlans,
+    royaltyTerms: product.royaltyTerms,
+    agreementText: product.agreementText,
+    contractUrl: producer.agreement?.url ?? null,
+  });
 
-  return <ReviewAgreeScreen product={product} producer={producer} terms={terms} />;
+  return (
+    <ReviewAgreeScreen
+      product={product}
+      producer={producer}
+      terms={terms}
+      commercialTermsFingerprint={fingerprint}
+    />
+  );
 }

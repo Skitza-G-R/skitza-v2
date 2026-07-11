@@ -26,15 +26,17 @@ function presetToTile(id: PresetId): TileType {
 
 export function TypeStep({ picked, onPick }: TypeStepProps) {
   return (
-    // No own padding below sm — the editor-shell body already pads the
-    // step (px-5/py-4); doubling up squeezed the tiles into ~160px
-    // columns. sm+ keeps the original inset.
-    <div className="sm:p-6">
+    // The editor shell owns the only body inset at every breakpoint.
+    <div>
       {/* SK-57: phones stack the offer types as full-width rows — in a
           2-up grid each tile's description column was ~72px wide and
           wrapped one word per line (the "chopped text" from Gili's
           audit). sm+ keeps the original 2×2. */}
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
+      <div
+        className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3"
+        role="group"
+        aria-label="Product type"
+      >
         {TYPE_PRESETS.map((p) => {
           const tile = presetToTile(p.id);
           const theme = TILE_THEME[tile];
@@ -44,11 +46,12 @@ export function TypeStep({ picked, onPick }: TypeStepProps) {
             <button
               key={p.id}
               type="button"
+              aria-pressed={isPicked}
               onClick={() => {
                 onPick(p.id);
               }}
               className={[
-                "sk-press flex items-start gap-3 rounded-[12px] border bg-[rgb(var(--bg-elevated))] p-4 text-left transition-colors",
+                "sk-press flex min-h-14 items-start gap-3 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] p-4 text-left transition-colors",
                 p.id === "blank" ? "border-dashed" : "",
                 isPicked
                   ? "sk-pick-pulse border-[rgb(var(--brand-primary))] shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)]"

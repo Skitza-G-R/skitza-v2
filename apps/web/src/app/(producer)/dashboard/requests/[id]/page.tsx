@@ -23,9 +23,8 @@ export default async function PurchaseRequestDetailPage({
   try {
     detail = await caller.producer.purchase.get({ id });
   } catch (error) {
-    // The API still returns FORBIDDEN to direct callers for a foreign
-    // request. The route itself renders a 404 so a guessed URL cannot
-    // reveal whether another producer's request exists.
+    // Treat every missing or foreign request as a 404 so a guessed URL
+    // cannot reveal whether another producer's request exists.
     if (
       error instanceof TRPCError &&
       (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")

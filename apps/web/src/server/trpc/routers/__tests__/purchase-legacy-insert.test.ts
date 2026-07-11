@@ -85,10 +85,14 @@ describe("pre-0023 purchase request insert", () => {
     expect(rendered).toContain('insert into "public"."purchase_requests"');
     expect(rendered).not.toContain("payment_plan_options_snapshot");
     expect(rendered).not.toContain("payment_plan_chosen_at");
+    expect(rendered).not.toContain("royalty_terms_snapshot");
+    expect(rendered).not.toContain("agreement_text_snapshot");
     expect(created).toEqual({
       ...legacyRow,
       paymentPlanOptionsSnapshot: null,
       paymentPlanChosenAt: null,
+      royaltyTermsSnapshot: null,
+      agreementTextSnapshot: null,
     });
   });
 });

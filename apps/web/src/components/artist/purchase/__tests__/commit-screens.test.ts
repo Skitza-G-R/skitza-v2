@@ -4,7 +4,12 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { buildAgreementTerms, formatShekels, includesOrFallback } from "../purchase-data";
+import {
+  buildAgreementTerms,
+  formatPurchaseMoney,
+  formatShekels,
+  includesOrFallback,
+} from "../purchase-data";
 
 // Real unit tests for the pure data helpers (no rendering needed), plus
 // source-grep on the screens for the wiring that matters — matching the
@@ -14,6 +19,11 @@ describe("purchase-data helpers", () => {
   it("formats agorot as whole grouped shekels", () => {
     expect(formatShekels(240000)).toBe("₪2,400");
     expect(formatShekels(90000)).toBe("₪900");
+  });
+
+  it("formats the exact product currency for agreement surfaces", () => {
+    expect(formatPurchaseMoney(240000, "USD")).toBe("$2,400");
+    expect(formatPurchaseMoney(90050, "EUR")).toBe("€900.50");
   });
 
   it("builds the agreement summary with the producer name woven in", () => {
@@ -49,7 +59,8 @@ describe("review-agree-screen.tsx (S4) wiring", () => {
   });
 
   it("fires the real BE-1 request action, then routes to S5 with the request id", () => {
-    expect(s4Src).toMatch(/requestToBookAction\(\{ productId: product\.id \}\)/);
+    expect(s4Src).toMatch(/commercialTermsFingerprint/);
+    expect(s4Src).toMatch(/requestToBookAction\(\{[\s\S]*?productId: product\.id/);
     expect(s4Src).toMatch(
       /router\.push\(`\/artist\/purchase\/\$\{product\.id\}\/sent\?req=\$\{res\.purchaseRequestId\}`\)/,
     );
@@ -62,6 +73,15 @@ describe("review-agree-screen.tsx (S4) wiring", () => {
 
   it("hides the PDF card when the producer has no uploaded agreement", () => {
     expect(s4Src).toMatch(/\{producer\.agreement \? \(/);
+  });
+
+  it("renders the exact royalty and inline agreement terms being accepted", () => {
+    expect(s4Src).toMatch(/Rights & royalties/);
+    expect(s4Src).toMatch(/royaltyTermsDisplay/);
+    expect(s4Src).toMatch(/formatPurchaseMoney\(product\.priceCents, product\.currency\)/);
+    expect(s4Src).toMatch(/product\.royaltyTerms\?\.notes/);
+    expect(s4Src).toMatch(/product\.agreementText/);
+    expect(s4Src).toMatch(/whitespace-pre-wrap/);
   });
 
   it("designs an inline error state (not a scary wall)", () => {

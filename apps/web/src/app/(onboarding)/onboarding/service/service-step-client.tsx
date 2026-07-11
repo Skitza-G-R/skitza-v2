@@ -2,21 +2,31 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import type { PaymentPlan } from "@skitza/db";
 
-import {
-  createPackage,
-  type PackageKind,
-} from "~/app/(producer)/dashboard/booking/actions";
-import {
-  ContractStep,
-  type ContractMode,
-} from "~/app/(producer)/dashboard/store/editor-steps/contract-step";
+import { createPackage } from "~/app/(producer)/dashboard/booking/actions";
+import { buildPackagePayload } from "~/app/(producer)/dashboard/store/build-package-payload";
 import { IncludesStep } from "~/app/(producer)/dashboard/store/editor-steps/includes-step";
 import { LogisticsStep } from "~/app/(producer)/dashboard/store/editor-steps/logistics-step";
+import { PaymentStep } from "~/app/(producer)/dashboard/store/editor-steps/payment-step";
 import { PricingStep } from "~/app/(producer)/dashboard/store/editor-steps/pricing-step";
+import {
+  ReviewStep,
+  type ReviewEditStep,
+} from "~/app/(producer)/dashboard/store/editor-steps/review-step";
+import { RightsAgreementStep } from "~/app/(producer)/dashboard/store/editor-steps/rights-agreement-step";
 import { TypeStep } from "~/app/(producer)/dashboard/store/editor-steps/type-step";
-import { encodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
+import {
+  buildPaymentPlans,
+  hasPaymentOption,
+  royaltyDraftToTerms,
+  royaltyTermsToDraft,
+  seedPaymentSelection,
+  validateAgreementDraft,
+  validateRoyaltyDraft,
+  type AgreementMode,
+  type PaymentSelectionDraft,
+  type ProductRoyaltyDraft,
+} from "~/app/(producer)/dashboard/store/product-editor-draft";
 import { StepBar } from "~/app/(producer)/dashboard/store/step-bar";
 import {
   getPreset,
@@ -24,9 +34,10 @@ import {
   type PresetId,
   type PresetType,
 } from "~/app/(producer)/dashboard/store/type-presets";
-import { useToast } from "~/components/ui/toast";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
+import { useToast } from "~/components/ui/toast";
+import type { VolumeTier } from "~/lib/pricing";
 
 import {
   SERVICE_STEP_INDEX,
@@ -34,49 +45,51 @@ import {
   routeOnBackFromService,
 } from "./constants";
 
-// Step 2 — First service. Path B (May 2026 redesign, take 2): the
-// producer goes through the same 5 inner sub-steps that
-// /dashboard/store's ProductEditor uses (Type / Includes / Pricing /
-// Logistics / Agreement), but rendered inline inside WizardChrome
-// instead of in a Radix Dialog. Same step components, same Draft
-// shape, same createPackage save path — so the producer learns the
-// flow once and meets it again when they add product #2 later.
-//
-// What's different from the store's ProductEditor:
-//   - No modal chrome (EditorShell). The wizard's WizardChrome
-//     already owns the page, so a modal-on-page nested feel is
-//     avoided.
-//   - The wizard's sticky WizardFooter owns Back / Continue / Save.
-//     Inner-step routing happens here; outer-step routing happens
-//     on first-step Back and last-step Save.
-//   - No `onCreated` shimmer-glow callback. There's no card to
-//     animate on — the next screen is /onboarding/availability.
+// Onboarding uses the same seven-part product authoring flow as the Store
+// editor, rendered inline inside WizardChrome instead of in a dialog. The
+// first-service version intentionally stays flat-price-only and does not
+// expose producer-level tax controls, but its saved product contract is the
+// same: multiple payment options, structured rights, dedicated agreement
+// fields, deliverables, and a final Review gate.
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
-type StepId = "type" | "includes" | "pricing" | "logistics" | "agreement";
+type StepId =
+  | "type"
+  | "details"
+  | "price"
+  | "payment"
+  | "delivery"
+  | "rights"
+  | "review";
 
 const STEPS: readonly StepId[] = [
   "type",
-  "includes",
-  "pricing",
-  "logistics",
-  "agreement",
+  "details",
+  "price",
+  "payment",
+  "delivery",
+  "rights",
+  "review",
 ] as const;
 
 const STEP_TITLES: Record<StepId, string> = {
   type: "What are you offering?",
-  includes: "What's included",
-  pricing: "Pricing and terms",
-  logistics: "Logistics",
-  agreement: "Agreement",
+  details: "Product details",
+  price: "Price",
+  payment: "Payment options",
+  delivery: "Delivery",
+  rights: "Rights & agreement",
+  review: "Review",
 };
 
 const STEP_SUBTITLES: Record<StepId, string> = {
   type: "Pick the closest match. We'll prefill the rest.",
-  includes: "Tap to add. Artists see this list before they book.",
-  pricing: "Price, how many sessions, and how they pay.",
-  logistics: "Session length and how many revisions are included.",
-  agreement: "Optional. Attach a contract or write your terms.",
+  details: "Name the offer and choose what's included.",
+  price: "Set the price and session scope.",
+  payment: "Choose one or more. The artist picks after approval.",
+  delivery: "Set the session length and included revisions.",
+  rights: "Define the headline rights and optional agreement.",
+  review: "Check every term before creating the product.",
 };
 
 interface Draft {
@@ -88,15 +101,29 @@ interface Draft {
   currency: Currency;
   sessions: number;
   unlimitedSessions: boolean;
-  paymentPlan: PaymentPlanChoice;
-  installmentsCount: number;
+  payment: PaymentSelectionDraft;
   includes: string[];
   duration: string;
   revisions: number;
   unlimitedRevisions: boolean;
-  contractMode: ContractMode;
+  agreementMode: AgreementMode;
   contractUrl: string;
-  contractText: string;
+  agreementText: string;
+  royalty: ProductRoyaltyDraft;
+  pricingModel: "flat" | "per_song";
+  volumeTiers: VolumeTier[];
+}
+
+function paymentSelectionForPreset(
+  choice: PaymentPlanChoice,
+): PaymentSelectionDraft {
+  if (choice === "split") {
+    return seedPaymentSelection([{ kind: "split_50_50" }]);
+  }
+  if (choice === "installments") {
+    return seedPaymentSelection([{ kind: "monthly", installments: 4 }]);
+  }
+  return seedPaymentSelection([{ kind: "full" }]);
 }
 
 function emptyDraft(currency: Currency): Draft {
@@ -109,26 +136,25 @@ function emptyDraft(currency: Currency): Draft {
     currency,
     sessions: 1,
     unlimitedSessions: false,
-    paymentPlan: "full",
-    installmentsCount: 3,
+    payment: seedPaymentSelection([{ kind: "full" }]),
     includes: [],
     duration: "60 min",
     revisions: 0,
     unlimitedRevisions: false,
-    contractMode: "link",
+    agreementMode: "none",
     contractUrl: "",
-    contractText: "",
+    agreementText: "",
+    royalty: royaltyTermsToDraft(null),
+    pricingModel: "flat",
+    volumeTiers: [],
   };
 }
 
-// Currency-narrowed default — onboarding's page reads
-// producers.default_currency and forwards it. Anything outside the
-// 4-enum slips back to USD via this guard.
 const VALID_CURRENCIES: readonly Currency[] = ["USD", "EUR", "GBP", "ILS"];
 
-function narrowCurrency(c: string): Currency {
-  return (VALID_CURRENCIES as readonly string[]).includes(c)
-    ? (c as Currency)
+function narrowCurrency(currency: string): Currency {
+  return (VALID_CURRENCIES as readonly string[]).includes(currency)
+    ? (currency as Currency)
     : "USD";
 }
 
@@ -140,62 +166,112 @@ export function ServiceStepClient({
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
-
   const [draft, setDraft] = useState<Draft>(() =>
     emptyDraft(narrowCurrency(defaultCurrency)),
   );
   const [currentStep, setCurrentStep] = useState<StepId>("type");
+  const [returnToReview, setReturnToReview] = useState(false);
 
   const currentIdx = Math.max(0, STEPS.indexOf(currentStep));
   const isFirstInner = currentIdx === 0;
   const isLastInner = currentIdx === STEPS.length - 1;
 
+  const paymentError = (() => {
+    if (!hasPaymentOption(draft.payment, "flat", null)) {
+      return "Choose at least one payment option.";
+    }
+    try {
+      buildPaymentPlans(draft.payment);
+      return null;
+    } catch (error) {
+      return error instanceof Error
+        ? error.message
+        : "Check the payment options.";
+    }
+  })();
+  const royaltyErrors = validateRoyaltyDraft(draft.royalty, true);
+  const agreementError = validateAgreementDraft(
+    draft.agreementMode,
+    draft.contractUrl,
+    draft.agreementText,
+  );
+  const royaltyIsValid =
+    royaltyErrors.master === undefined &&
+    royaltyErrors.composition === undefined &&
+    agreementError === null;
+  const reviewPaymentPlans = paymentError
+    ? []
+    : buildPaymentPlans(draft.payment);
+  const reviewRoyaltyTerms = royaltyDraftToTerms(draft.royalty);
+  const pickedPreset = draft._picked ? getPreset(draft._picked) : undefined;
+  const typeLabel =
+    draft._picked === "blank" ? "Custom" : (pickedPreset?.label ?? "Custom");
+
   function onPickPreset(id: PresetId) {
     const preset = getPreset(id);
     if (!preset) return;
-    setDraft((d) => ({
-      ...d,
+    setDraft((current) => ({
+      ...current,
       _picked: id,
       type: preset.preset.type,
-      name: d.name.trim().length > 0 ? d.name : preset.defaultName,
+      name:
+        current.name.trim().length > 0
+          ? current.name
+          : preset.defaultName,
       price: preset.preset.price,
       sessions: preset.preset.sessions,
       unlimitedSessions: preset.preset.unlimitedSessions,
-      paymentPlan: preset.preset.paymentPlan,
+      payment: paymentSelectionForPreset(preset.preset.paymentPlan),
       includes: [...preset.baseline],
-      duration: preset.preset.duration === "multi-session" ? "60 min" : preset.preset.duration,
+      duration:
+        preset.preset.duration === "multi-session"
+          ? "60 min"
+          : preset.preset.duration,
       revisions: preset.preset.revisions,
-      contractMode: "link",
+      pricingModel: "flat",
+      volumeTiers: [],
     }));
-    // Auto-advance like the store wizard does — picking a preset is
-    // the answer to step 1, so the producer shouldn't have to hit
-    // Continue separately.
-    setCurrentStep("includes");
+    setCurrentStep("details");
   }
 
-  // Gating mirrors ProductEditor.canContinue exactly so onboarding
-  // and the store agree on what "ready to advance" means.
   const canContinue: boolean = (() => {
-    if (currentStep === "type") return draft._picked != null;
-    if (currentStep === "includes") return draft.name.trim() !== "";
-    if (currentStep === "pricing") return draft.price >= 0;
-    if (currentStep === "logistics") {
+    if (currentStep === "type") return draft._picked !== null;
+    if (currentStep === "details") {
+      return (
+        draft.name.trim().length > 0 &&
+        draft.name.trim().length <= 200 &&
+        draft.includes.length <= 10 &&
+        draft.includes.every(
+          (item) => item.trim().length > 0 && item.trim().length <= 100,
+        )
+      );
+    }
+    if (currentStep === "price") return draft.price >= 0;
+    if (currentStep === "payment") return paymentError === null;
+    if (currentStep === "delivery") {
       return /^\d+\s*min$/i.test(draft.duration);
     }
-    return true; // agreement is skippable
+    if (currentStep === "rights") return royaltyIsValid;
+    return paymentError === null && royaltyIsValid;
   })();
 
   function goBack() {
+    setReturnToReview(false);
     if (isFirstInner) {
-      // First inner step: exit outwards to the previous outer step.
       router.push(routeOnBackFromService());
       return;
     }
-    const prev = STEPS[currentIdx - 1];
-    if (prev) setCurrentStep(prev);
+    const previous = STEPS[currentIdx - 1];
+    if (previous) setCurrentStep(previous);
   }
 
   function goNext() {
+    if (!canContinue) return;
+    if (returnToReview) {
+      setReturnToReview(false);
+      setCurrentStep("review");
+      return;
+    }
     if (isLastInner) {
       save();
       return;
@@ -205,75 +281,26 @@ export function ServiceStepClient({
   }
 
   function save() {
-    const description = encodeDescription({
-      tagline: draft.tagline,
-      revisions: draft.revisions,
-      unlimitedRevisions: draft.unlimitedRevisions,
-      contractText: draft.contractMode === "text" ? draft.contractText : "",
-    });
-    const durationMatch = draft.duration.match(/(\d+)\s*min/i);
-    const durationMin = durationMatch
-      ? parseInt(durationMatch[1] ?? "0", 10)
-      : 0;
-    const sessionCount = draft.unlimitedSessions
-      ? 0
-      : Math.max(1, draft.sessions);
-    const paymentPlans: PaymentPlan[] = (() => {
-      if (draft.paymentPlan === "full") return [{ kind: "full" }];
-      if (draft.paymentPlan === "split") return [{ kind: "split_50_50" }];
-      return [
-        {
-          kind: "monthly",
-          installments: Math.max(2, draft.installmentsCount),
-        },
-      ];
-    })();
-    const priceCents = Math.round(draft.price * 100);
-    const trimmedUrl = draft.contractUrl.trim();
-    const contractUrlOut: string | null =
-      draft.contractMode === "text"
-        ? null
-        : trimmedUrl.length > 0
-          ? trimmedUrl
-          : null;
+    if (currentStep !== "review") return;
+    if (paymentError || !royaltyIsValid) return;
 
-    const payload = {
-      name: draft.name.trim(),
-      description,
-      // "consult" is the wizard's blank-preset internal type; the DB
-      // PackageKind enum has no "consult" variant, so it routes to
-      // "other" the same way the store wizard does for new products.
-      kind:
-        draft.type === "consult"
-          ? ("other" as PackageKind)
-          : (draft.type as PackageKind),
-      priceCents,
-      currency: draft.currency,
-      durationMin,
-      sessionCount,
-      paymentPlans,
-      depositPct: 0,
-      contractUrl: contractUrlOut,
-    };
+    // The shared pure mapper keeps onboarding and Store persistence in
+    // lockstep. It writes inclusions to deliverables, structures rights,
+    // stores link/text separately, and encodes only tagline + revisions in
+    // description (never inline agreement text).
+    const payload = buildPackagePayload(draft);
 
     startTransition(async () => {
-      const res = await createPackage(payload);
-      if (res.ok) {
-        toast(
-          `${draft.name.trim() || "Service"} saved.`,
-          "success",
-        );
+      const result = await createPackage(payload);
+      if (result.ok) {
+        toast(`${draft.name.trim() || "Service"} saved.`, "success");
         router.push(nextRouteAfterService());
       } else {
-        toast(res.error, "error");
+        toast(result.error, "error");
       }
     });
   }
 
-  // Continue copy:
-  //   - Last inner step + pending → "Saving…"
-  //   - Last inner step → "Save and continue"
-  //   - Earlier inner step → "Continue"
   const continueLabel = isLastInner ? "Save and continue" : "Continue";
 
   return (
@@ -291,14 +318,6 @@ export function ServiceStepClient({
       }
     >
       <div className="ob-stagger">
-        {/* "NEW SERVICE" eyebrow + dashed StepBar. The outer step
-            rail (left sidebar) + WizardChrome header already render
-            the outer "Step 2 of 5" position; adding a second numeric
-            step indicator here would compete with it. The eyebrow
-            stays purely thematic, and the dashed StepBar carries the
-            inner sub-step progress on its own. Same StepBar component
-            the store wizard uses so the affordance is identical
-            across surfaces. */}
         <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
           New service
         </p>
@@ -315,74 +334,114 @@ export function ServiceStepClient({
           <StepBar steps={STEPS} current={currentStep} />
         </div>
 
-        {/* Active sub-step body. Keyed on currentStep so each sub-step
-            replays the ob-stagger entrance — small motion cue that the
-            page is fresh, never jarring. */}
         <div key={currentStep} className="mt-5 sk-step-enter">
-          {currentStep === "type" && (
+          {currentStep === "type" ? (
             <TypeStep picked={draft._picked} onPick={onPickPreset} />
-          )}
-          {currentStep === "includes" && (
+          ) : null}
+
+          {currentStep === "details" ? (
             <IncludesStep
               pickedId={draft._picked}
               name={draft.name}
               onNameChange={(name) => {
-                setDraft((d) => ({ ...d, name }));
+                setDraft((current) => ({ ...current, name }));
               }}
               includes={draft.includes}
               onIncludesChange={(includes) => {
-                setDraft((d) => ({ ...d, includes }));
+                setDraft((current) => ({ ...current, includes }));
               }}
             />
-          )}
-          {currentStep === "pricing" && (
+          ) : null}
+
+          {currentStep === "price" ? (
             <PricingStep
               price={draft.price}
               currency={draft.currency}
               sessions={draft.sessions}
               unlimitedSessions={draft.unlimitedSessions}
-              paymentPlan={draft.paymentPlan}
-              installmentsCount={draft.installmentsCount}
+              showPaymentPlans={false}
               pricingModel="flat"
               volumeTiers={[]}
               allowPerSong={false}
               onChange={(patch) => {
-                setDraft((d) => ({ ...d, ...patch }));
+                setDraft((current) => ({
+                  ...current,
+                  ...patch,
+                  pricingModel: "flat",
+                  volumeTiers: [],
+                }));
               }}
             />
-          )}
-          {currentStep === "logistics" && (
+          ) : null}
+
+          {currentStep === "payment" ? (
+            <PaymentStep
+              selection={draft.payment}
+              previewTotalCents={Math.round(draft.price * 100)}
+              currency={draft.currency}
+              pricingModel="flat"
+              depositModel="flat"
+              milestones={null}
+              {...(paymentError ? { error: paymentError } : {})}
+              onChange={(payment) => {
+                setDraft((current) => ({ ...current, payment }));
+              }}
+            />
+          ) : null}
+
+          {currentStep === "delivery" ? (
             <LogisticsStep
               duration={draft.duration}
               revisions={draft.revisions}
               unlimitedRevisions={draft.unlimitedRevisions}
               onChange={(patch) => {
-                setDraft((d) => ({ ...d, ...patch }));
+                setDraft((current) => ({ ...current, ...patch }));
               }}
             />
-          )}
-          {currentStep === "agreement" && (
-            <ContractStep
-              mode={draft.contractMode}
+          ) : null}
+
+          {currentStep === "rights" ? (
+            <RightsAgreementStep
+              royalty={draft.royalty}
+              agreementMode={draft.agreementMode}
               contractUrl={draft.contractUrl}
-              contractText={draft.contractText}
-              onChange={(patch) => {
-                // ContractStep emits its panel-selector field as
-                // `mode`; the Draft stores it as `contractMode` to
-                // disambiguate from PaymentPlanChoice (paymentPlan).
-                // Translate explicitly so a Text-tab click actually
-                // swaps panels instead of silently growing a dead
-                // `mode` key on Draft. Same fix is applied in
-                // dashboard/store/product-editor.tsx.
-                const { mode, ...rest } = patch;
-                setDraft((d) => ({
-                  ...d,
-                  ...rest,
-                  ...(mode !== undefined ? { contractMode: mode } : {}),
-                }));
+              agreementText={draft.agreementText}
+              errors={royaltyErrors}
+              {...(agreementError ? { agreementError } : {})}
+              onRoyaltyChange={(royalty) => {
+                setDraft((current) => ({ ...current, royalty }));
+              }}
+              onAgreementChange={(patch) => {
+                setDraft((current) => ({ ...current, ...patch }));
               }}
             />
-          )}
+          ) : null}
+
+          {currentStep === "review" ? (
+            <ReviewStep
+              name={draft.name.trim()}
+              typeLabel={typeLabel}
+              showTypeEdit={true}
+              includes={draft.includes}
+              pricingModel="flat"
+              priceCents={Math.round(draft.price * 100)}
+              currency={draft.currency}
+              sessions={draft.sessions}
+              unlimitedSessions={draft.unlimitedSessions}
+              paymentPlans={reviewPaymentPlans}
+              duration={draft.duration}
+              revisions={draft.revisions}
+              unlimitedRevisions={draft.unlimitedRevisions}
+              royaltyTerms={reviewRoyaltyTerms}
+              agreementMode={draft.agreementMode}
+              contractUrl={draft.contractUrl}
+              agreementText={draft.agreementText}
+              onEdit={(step: ReviewEditStep) => {
+                setReturnToReview(true);
+                setCurrentStep(step);
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </WizardChrome>

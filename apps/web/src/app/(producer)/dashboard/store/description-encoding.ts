@@ -1,10 +1,11 @@
 // description-encoding.ts
 //
 // Round-trips four logical fields (tagline / revisions /
-// unlimitedRevisions / contract text) through the single
-// `products.description` column. The schema does not yet have
-// dedicated columns for `revisions` or for inline contract terms, so
-// the wizard encodes them as a clearly-marked suffix block:
+// unlimitedRevisions / legacy contract text) through the single
+// `products.description` column. The schema still has no dedicated
+// `revisions` column. Older products also encoded inline contract terms here,
+// so the decoder retains that compatibility read while new saves move
+// contract text into `products.agreementText`:
 //
 //     <tagline body, can be multiple lines>
 //     ---
@@ -14,9 +15,9 @@
 // The card-side `deriveTagline` already takes `description.split('\n')[0]`,
 // so the meta block never leaks onto the public profile card.
 //
-// When a future migration adds real columns, the wizard reads/writes
-// them directly and this helper goes away. Until then: changes here
-// must keep the round-trip lossless.
+// New writes keep the contract_text slot empty and preserve only tagline plus
+// revisions metadata. Changes here must keep old reads and edited round-trips
+// lossless.
 
 const SEPARATOR = "\n---\n";
 

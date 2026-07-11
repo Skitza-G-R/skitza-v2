@@ -1,11 +1,14 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import type { PaymentPlan } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 
-import type { PaymentPlanChoice } from "~/lib/purchase/request-helpers";
+import {
+  offeredPlans,
+  type PaymentPlanChoice,
+} from "~/lib/purchase/request-helpers";
+import { selectProvisionalRequestPaymentPlan } from "~/lib/payment-plans";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 export type ProofContentType =
@@ -24,19 +27,13 @@ function errorResult(error: unknown, fallback: string): ActionError {
   };
 }
 
-// The request carries a provisional default until the approved artist makes
-// the explicit, one-time S7 choice. The backend will not accept money against
-// this provisional value.
-function defaultPlan(plans: PaymentPlan[]): PaymentPlan {
-  return plans.find((p) => p.kind === "full") ?? plans[0] ?? { kind: "full" };
-}
-
 // Server action wrapping `artist.purchase.request` (BE-1, Gate 1). Fired by
 // the S4 "Send request" CTA. Locks the price server-side, creates the
 // pending request, and returns the ref shown on S5. Tagged union so the
 // client can branch without parsing exceptions (store-checkout pattern).
 export async function requestToBookAction(input: {
   productId: string;
+  commercialTermsFingerprint: string;
 }): Promise<
   { ok: true; purchaseRequestId: string; refNumber: string } | { ok: false; error: string }
 > {
@@ -48,10 +45,15 @@ export async function requestToBookAction(input: {
     const product = await caller.artist.store.product({
       productId: input.productId,
     });
+    const provisionalPlan = selectProvisionalRequestPaymentPlan(offeredPlans(product));
+    if (!provisionalPlan) {
+      return { ok: false, error: "This product has no payment option." };
+    }
     const result = await caller.artist.purchase.request({
       productId: input.productId,
-      paymentPlan: defaultPlan(product.paymentPlans),
+      paymentPlan: provisionalPlan,
       agreementAccepted: true,
+      commercialTermsFingerprint: input.commercialTermsFingerprint,
     });
     return {
       ok: true,

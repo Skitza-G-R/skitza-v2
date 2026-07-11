@@ -39,6 +39,7 @@ const CURRENCY_SYMBOL: Record<Currency, string> = {
 // 4-row "Live preview" card is no longer shipped; the constant is
 // kept for math-regression tests in pricing-step.test.ts.
 export const PREVIEW_QTYS = [1, 3, 5, 10] as const;
+export const MAX_VOLUME_TIERS = 10;
 
 // First-toggle-on seed: base tier at the producer's current flat price
 // + one discount tier at 5 songs / 15% off. Producer can keep, edit, or
@@ -50,13 +51,33 @@ export function seedPerSongTiers(basePriceCents: number): VolumeTier[] {
   ];
 }
 
+export function appendDiscountTier(
+  volumeTiers: readonly VolumeTier[],
+  fallbackPriceCents: number,
+): VolumeTier[] {
+  if (volumeTiers.length >= MAX_VOLUME_TIERS) return [...volumeTiers];
+  const last = volumeTiers.at(-1) ?? {
+    minQty: 1,
+    pricePerUnitCents: fallbackPriceCents,
+  };
+  return [
+    ...volumeTiers,
+    {
+      minQty: last.minQty + 5,
+      pricePerUnitCents: Math.round(last.pricePerUnitCents * 0.85),
+    },
+  ];
+}
+
 interface PricingStepProps {
   price: number;
   currency: Currency;
   sessions: number;
   unlimitedSessions: boolean;
-  paymentPlan: PaymentPlan;
-  installmentsCount: number;
+  /** Legacy onboarding-only plan controls. The Store wizard has a dedicated Payment step. */
+  paymentPlan?: PaymentPlan;
+  installmentsCount?: number;
+  showPaymentPlans?: boolean;
   pricingModel: PricingModel;
   volumeTiers: VolumeTier[];
   // Producer's business-level tax mode + rate (migration 0019). Drives
@@ -115,7 +136,7 @@ function Stepper({
   // pattern from .s-select. active:scale-[0.94] gives the instant
   // "interface heard you" feedback Emil prescribes for press states.
   const btnClass = [
-    "inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))]",
+    "inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] sm:h-8 sm:w-8 sm:rounded-[var(--radius-sm)]",
     "transition-[background-color,transform] duration-150",
     "hover:bg-[rgb(17_16_9/0.06)]",
     "active:scale-[0.94]",
@@ -125,7 +146,7 @@ function Stepper({
   return (
     <div
       className={[
-        "inline-flex h-11 items-center gap-1 rounded-[10px] border bg-[rgb(var(--bg-elevated))] p-1",
+        "inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] sm:h-11 sm:rounded-[var(--radius-md)] sm:p-1",
         "transition-[opacity,border-color] duration-200",
         disabled
           ? "border-[rgb(var(--border-subtle))] opacity-50"
@@ -187,7 +208,87 @@ const PLAN_OPTIONS: { id: PaymentPlan; title: string; subtitle: string }[] = [
 ];
 
 function formatCurrency(symbol: string, amount: number): string {
-  return `${symbol}${Math.round(amount).toLocaleString()}`;
+  return `${symbol}${amount.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function ProductTaxSection({
+  taxMode,
+  taxRatePct,
+  price,
+  pricingNote,
+  error,
+  onChange,
+}: {
+  taxMode: TaxMode;
+  taxRatePct: number;
+  price: number;
+  pricingNote: string;
+  error: string | null;
+  onChange: (patch: { taxMode?: TaxMode; taxRatePct?: number }) => void;
+}) {
+  return (
+    <section className="border-t border-[rgb(var(--border-subtle))] pt-4" aria-label="Tax settings">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <Eyebrow>Tax</Eyebrow>
+          <p className="text-[11.5px] text-[rgb(var(--fg-faint))]">
+            Applies to all products
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <TaxModeSegmented
+            value={taxMode}
+            onChange={(next) => {
+              onChange({ taxMode: next });
+            }}
+            size="lg"
+            inline
+            className="!h-[52px] [&>button]:min-h-11 sm:!h-11 sm:[&>button]:min-h-0"
+            ariaLabel="Tax disclosure mode"
+          />
+          {taxMode !== "tax_free" ? (
+            <div className="flex h-11 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-1 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)] sm:h-9 sm:rounded-[var(--radius-md)]">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                inputMode="numeric"
+                value={taxRatePct}
+                onChange={(event) => {
+                  const next = Number(event.target.value);
+                  if (!Number.isFinite(next)) return;
+                  onChange({
+                    taxRatePct: Math.max(0, Math.min(100, Math.round(next))),
+                  });
+                }}
+                aria-label="Tax rate percentage"
+                className="h-full w-10 border-none bg-transparent text-right font-display text-base font-bold tabular-nums leading-none text-[rgb(var(--fg-default))] outline-none sm:text-[14px]"
+              />
+              <span aria-hidden className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]">
+                %
+              </span>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div
+        key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
+        className="reveal-up mt-2 text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]"
+        aria-live="polite"
+      >
+        {pricingNote}
+      </div>
+      {error ? (
+        <div className="mt-1.5 text-[11.5px] text-[rgb(var(--fg-danger))]" role="alert">
+          Couldn&apos;t save: {error}
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 export function PricingStep({
@@ -195,8 +296,9 @@ export function PricingStep({
   currency,
   sessions,
   unlimitedSessions,
-  paymentPlan,
-  installmentsCount,
+  paymentPlan = "full",
+  installmentsCount = 4,
+  showPaymentPlans = true,
   pricingModel,
   volumeTiers,
   taxMode = "tax_free",
@@ -257,15 +359,9 @@ export function PricingStep({
   }
 
   function addDiscountTier() {
-    const last = volumeTiers.at(-1) ?? {
-      minQty: 1,
-      pricePerUnitCents: Math.round(price * 100),
-    };
-    const next: VolumeTier = {
-      minQty: last.minQty + 5,
-      pricePerUnitCents: Math.round(last.pricePerUnitCents * 0.85),
-    };
-    onChange({ volumeTiers: [...volumeTiers, next] });
+    const next = appendDiscountTier(volumeTiers, Math.round(price * 100));
+    if (next.length === volumeTiers.length) return;
+    onChange({ volumeTiers: next });
   }
 
   function removeDiscountTier(index: number) {
@@ -285,38 +381,39 @@ export function PricingStep({
           active state filled with brand-primary. Standard binary
           mode-switch pattern (Linear / Figma / Apple Settings). */}
       {allowPerSong ? (
-        <div>
-          <Eyebrow>How do you want to charge?</Eyebrow>
-          <div
-            role="radiogroup"
-            aria-label="Pricing mode"
-            className="inline-flex w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 sm:w-auto"
-          >
+        <fieldset className="min-w-0 border-0 p-0">
+          <legend className="mb-1.5 font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+            How do you want to charge?
+          </legend>
+          <div className="inline-flex w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 sm:w-auto">
             {PRICING_MODELS.map((m) => {
               const picked = pricingModel === m.id;
               return (
-                <button
+                <label
                   key={m.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={picked}
-                  aria-label={m.label}
-                  onClick={() => {
-                    handleModelChange(m.id);
-                  }}
                   className={[
-                    "sk-press flex-1 rounded-[6px] px-4 py-1.5 text-[13px] font-semibold transition-colors sm:flex-initial",
+                    "sk-press min-h-11 flex-1 cursor-pointer rounded-[var(--radius-lg)] px-3 py-2 text-center text-[13px] font-semibold leading-snug transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.45)] focus-within:ring-offset-1 focus-within:ring-offset-[rgb(var(--bg-elevated))] sm:min-h-0 sm:flex-initial sm:rounded-[var(--radius-sm)] sm:px-4 sm:py-1.5",
                     picked
                       ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
                       : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
                   ].join(" ")}
                 >
+                  <input
+                    type="radio"
+                    name="product-pricing-model"
+                    value={m.id}
+                    checked={picked}
+                    onChange={() => {
+                      handleModelChange(m.id);
+                    }}
+                    className="sr-only"
+                  />
                   {m.label}
-                </button>
+                </label>
               );
             })}
           </div>
-        </div>
+        </fieldset>
       ) : null}
 
       {pricingModel === "flat" || !allowPerSong ? (
@@ -341,7 +438,7 @@ export function PricingStep({
                     onChange({ price: Number(e.target.value) || 0 });
                   }}
                   aria-label="Price"
-                  className="min-w-0 flex-1 border-none bg-transparent py-1 font-display text-[20px] font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))]"
+                  className="h-full min-w-0 flex-1 border-none bg-transparent py-1 font-display text-[20px] font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))]"
                 />
                 <select
                   value={currency}
@@ -349,7 +446,7 @@ export function PricingStep({
                     onChange({ currency: e.target.value as Currency });
                   }}
                   aria-label="Currency"
-                  className="h-8 w-[70px] rounded-[8px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 text-[11.5px] font-semibold text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+                  className="h-11 w-[78px] rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 text-base font-semibold text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none sm:h-8 sm:w-[70px] sm:rounded-[var(--radius-sm)] sm:text-[11.5px]"
                 >
                   <option value="USD">USD</option>
                   <option value="EUR">EUR</option>
@@ -370,7 +467,7 @@ export function PricingStep({
                   not as two stacked bordered widgets with a gap. */}
               <div
                 className={[
-                  "flex h-11 items-center gap-1 rounded-[12px] border bg-[rgb(var(--bg-elevated))] px-1 shadow-[0_1px_2px_rgba(17,16,9,0.03)]",
+                  "flex min-h-[52px] items-center gap-1 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] px-1 shadow-[0_1px_2px_rgba(17,16,9,0.03)] sm:min-h-0 sm:h-11 sm:rounded-[var(--radius-md)]",
                   unlimitedSessions
                     ? "border-[rgb(var(--border-subtle))] opacity-100"
                     : "border-[rgb(var(--border-subtle))]",
@@ -387,7 +484,7 @@ export function PricingStep({
                   }}
                   disabled={unlimitedSessions || sessions <= 1}
                   aria-label="Decrease sessions"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 sm:h-8 sm:w-8 sm:rounded-[var(--radius-sm)]"
                   style={{ transitionTimingFunction: "var(--ease-press)" }}
                 >
                   <Minus size={14} strokeWidth={2.4} aria-hidden />
@@ -417,7 +514,7 @@ export function PricingStep({
                   }}
                   disabled={unlimitedSessions || sessions >= 99}
                   aria-label="Increase sessions"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 sm:h-8 sm:w-8 sm:rounded-[var(--radius-sm)]"
                   style={{ transitionTimingFunction: "var(--ease-press)" }}
                 >
                   <Plus size={14} strokeWidth={2.4} aria-hidden />
@@ -434,7 +531,7 @@ export function PricingStep({
                   aria-pressed={unlimitedSessions}
                   aria-label="Unlimited sessions"
                   className={[
-                    "sk-press inline-flex h-8 items-center justify-center rounded-[6px] px-3 text-[12.5px] font-semibold transition-colors duration-150",
+                    "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold transition-colors duration-150 sm:h-8 sm:rounded-[var(--radius-sm)]",
                     unlimitedSessions
                       ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
                       : "text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]",
@@ -446,103 +543,18 @@ export function PricingStep({
             </div>
           </div>
 
-          {/* Migration 0019 — tax disclosure toggle. Lives only here
-              (not Settings, not Storefront header) so the producer
-              feels the impact of the toggle in the same eye-line as
-              the price it modifies. The toggle saves to producer-level
-              (one fact across all products) — we surface that with
-              the "Applies to all products" hint under the preview, so
-              a producer editing one product isn't surprised when their
-              other products inherit the change.
-
-              Visual treatment is deliberately QUIETER than the
-              "How do you want to charge?" pill above:
-                • Wrapped in a soft cream-tint card so the section is
-                  visually contained, not a floating widget.
-                • Toggle is auto-width (inline=true), matching the
-                  How-you-charge pill's footprint and stopping the
-                  two pills from competing as co-primary decisions.
-                • Eyebrow stands alone at the top; the "Applies to all
-                  products" hint moves under the live preview as a
-                  dot-separated suffix. */}
           {taxChange ? (
-            <div className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.025)] px-3 py-2.5">
-              {/* Row 1 — TAX eyebrow inline LEFT of the toggle. Tighter
-                  than the previous stacked "label above, toggle below"
-                  layout. Pulse animation is composed onto the
-                  TaxModeSegmented's own container (className prop) so
-                  the brand-color outline traces the pill exactly — not
-                  the text below it. */}
-              <div className="flex flex-wrap items-center gap-2.5">
-                <Eyebrow>Tax</Eyebrow>
-                <TaxModeSegmented
-                  value={taxMode}
-                  onChange={(next) => {
-                    taxChange({ taxMode: next });
-                  }}
-                  size="lg"
-                  inline
-                  ariaLabel="Tax disclosure mode"
-                />
-                {taxMode !== "tax_free" ? (
-                  <div className="flex items-center gap-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-1 py-1 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)]">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={1}
-                      inputMode="numeric"
-                      value={taxRatePct}
-                      onChange={(e) => {
-                        const n = Number(e.target.value);
-                        if (!Number.isFinite(n)) return;
-                        taxChange({
-                          taxRatePct: Math.max(
-                            0,
-                            Math.min(100, Math.round(n)),
-                          ),
-                        });
-                      }}
-                      aria-label="Tax rate percentage"
-                      className="w-10 border-none bg-transparent text-right font-display text-[14px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))] outline-none"
-                    />
-                    <span
-                      aria-hidden
-                      className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
-                    >
-                      %
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-              {/* Row 2 — live preview + "Applies to all products" hint
-                  as a dot-separated subtitle. Smaller mt-1.5 keeps the
-                  whole block compact. */}
-              <div
-                key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
-                className="reveal-up mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px] text-[rgb(var(--fg-muted))]"
-                aria-live="polite"
-              >
-                <span>{taxPricingNote}</span>
-                <span aria-hidden className="text-[rgb(var(--fg-faint))]">
-                  ·
-                </span>
-                <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
-                  Applies to all products
-                </span>
-              </div>
-              {taxError ? (
-                <div
-                  className="mt-1.5 text-[11.5px] text-[rgb(var(--fg-danger))]"
-                  role="alert"
-                >
-                  Couldn&apos;t save: {taxError}
-                </div>
-              ) : null}
-            </div>
+            <ProductTaxSection
+              taxMode={taxMode}
+              taxRatePct={taxRatePct}
+              price={price}
+              pricingNote={taxPricingNote}
+              error={taxError}
+              onChange={taxChange}
+            />
           ) : null}
 
-          <div>
+          {showPaymentPlans ? <div>
             <Eyebrow>How artists pay</Eyebrow>
             <div className="flex flex-col gap-2">
               {PLAN_OPTIONS.map((opt) => {
@@ -629,7 +641,7 @@ export function PricingStep({
                 );
               })}
             </div>
-          </div>
+          </div> : null}
         </>
       ) : (
         // ── Per-song rate card ────────────────────────────────────────
@@ -672,7 +684,7 @@ export function PricingStep({
                 aria-pressed={unlimitedSessions}
                 aria-label="Unlimited sessions"
                 className={[
-                  "sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold",
+                  "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] border px-4 text-[13px] font-semibold sm:h-10 sm:rounded-[var(--radius-md)]",
                   "transition-[background-color,border-color,color] duration-200",
                   unlimitedSessions
                     ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
@@ -699,7 +711,7 @@ export function PricingStep({
                     onChange({ currency: e.target.value as Currency });
                   }}
                   aria-label="Currency"
-                  className="h-7 rounded-[6px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 text-[11.5px] font-semibold text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none"
+                  className="h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base font-semibold text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none sm:h-8 sm:rounded-[var(--radius-sm)] sm:px-2 sm:text-[11.5px]"
                 >
                   <option value="USD">USD</option>
                   <option value="EUR">EUR</option>
@@ -709,11 +721,14 @@ export function PricingStep({
               </div>
 
               {/* Base row */}
-              <div className="grid grid-cols-[1fr_auto_auto_24px] items-center gap-3 px-3 py-2.5">
-                <span className="text-[14px] text-[rgb(var(--fg-default))]">
-                  1 song
+              <div className="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center sm:gap-3 sm:py-2.5">
+                <span className="flex items-center justify-between gap-3 text-[14px] text-[rgb(var(--fg-default))] sm:block">
+                  <span>1 song</span>
+                  <span className="font-display text-[14px] font-bold tabular-nums sm:hidden">
+                    {formatCurrency(curSym, baseCents / 100)}
+                  </span>
                 </span>
-                <div className="flex items-center gap-1 rounded-[8px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-1 focus-within:border-[rgb(var(--brand-primary))]">
+                <div className="flex min-h-11 w-full min-w-0 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 focus-within:border-[rgb(var(--brand-primary))] sm:min-h-0 sm:w-auto sm:rounded-[var(--radius-sm)] sm:py-1">
                   <span aria-hidden className="text-[13px] font-semibold text-[rgb(var(--fg-muted))]">
                     {curSym}
                   </span>
@@ -726,16 +741,15 @@ export function PricingStep({
                       updateBaseTier(Number(e.target.value) || 0);
                     }}
                     aria-label="Base price per song"
-                    className="w-16 border-none bg-transparent text-right font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none"
+                    className="h-11 min-w-0 flex-1 border-none bg-transparent text-right font-display text-base font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none sm:h-full sm:w-16 sm:flex-none sm:text-[14px]"
                   />
                   <span className="text-[12px] text-[rgb(var(--fg-muted))]">
                     /song
                   </span>
                 </div>
-                <span className="w-20 text-right font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
+                <span className="hidden w-20 text-right font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))] sm:block">
                   {formatCurrency(curSym, baseCents / 100)}
                 </span>
-                <span aria-hidden />
               </div>
 
               {/* Discount rows */}
@@ -744,25 +758,38 @@ export function PricingStep({
                 return (
                   <div
                     key={i}
-                    className="grid grid-cols-[1fr_auto_auto_24px] items-center gap-3 border-t border-[rgb(var(--border-subtle))] px-3 py-2.5"
+                    className="grid grid-cols-1 gap-2 border-t border-[rgb(var(--border-subtle))] px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_36px] sm:items-center sm:gap-3 sm:py-2.5"
                   >
-                    <span className="flex items-center gap-1.5 text-[14px] text-[rgb(var(--fg-default))]">
-                      <input
-                        type="number"
-                        min={2}
-                        value={tier.minQty}
-                        onChange={(e) => {
-                          const next = Math.max(2, Number(e.target.value) || 2);
-                          updateDiscountTier(i, { minQty: next });
-                        }}
-                        aria-label={`Discount tier ${String(i + 1)} minimum songs`}
-                        className="w-12 rounded-[6px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-1.5 py-0.5 text-center font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))]"
-                      />
-                      <span className="text-[14px] text-[rgb(var(--fg-muted))]">
-                        or more songs
+                    <div className="flex min-w-0 items-center justify-between gap-2 sm:contents">
+                      <span className="flex min-w-0 items-center gap-1.5 text-[14px] text-[rgb(var(--fg-default))]">
+                        <input
+                          type="number"
+                          min={2}
+                          value={tier.minQty}
+                          onChange={(e) => {
+                            const next = Math.max(2, Number(e.target.value) || 2);
+                            updateDiscountTier(i, { minQty: next });
+                          }}
+                          aria-label={`Discount tier ${String(i + 1)} minimum songs`}
+                          className="h-11 w-14 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-1.5 text-center font-display text-base font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))] sm:h-8 sm:w-12 sm:rounded-[var(--radius-sm)] sm:text-[14px]"
+                        />
+                        <span className="min-w-0 text-[13px] leading-tight text-[rgb(var(--fg-muted))] sm:text-[14px]">
+                          or more songs
+                        </span>
                       </span>
-                    </span>
-                    <div className="flex items-center gap-1 rounded-[8px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 py-1 focus-within:border-[rgb(var(--brand-primary))]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          removeDiscountTier(i);
+                        }}
+                        aria-label={`Remove discount tier ${String(i + 1)}`}
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:col-start-4 sm:h-9 sm:w-9"
+                      >
+                        <X size={13} strokeWidth={2.4} aria-hidden />
+                      </button>
+                    </div>
+                    <div className="flex min-w-0 items-center justify-between gap-2 sm:contents">
+                    <div className="flex min-h-11 min-w-0 max-w-[190px] flex-1 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 focus-within:border-[rgb(var(--brand-primary))] sm:min-h-0 sm:w-auto sm:flex-none sm:rounded-[var(--radius-sm)] sm:py-1">
                       <span aria-hidden className="text-[13px] font-semibold text-[rgb(var(--fg-muted))]">
                         {curSym}
                       </span>
@@ -775,26 +802,17 @@ export function PricingStep({
                           updateDiscountTier(i, { pricePerUnitCents: cents });
                         }}
                         aria-label={`Discount tier ${String(i + 1)} price per song`}
-                        className="w-16 border-none bg-transparent text-right font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none"
+                        className="h-11 min-w-0 flex-1 border-none bg-transparent text-right font-display text-base font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none sm:h-full sm:w-16 sm:flex-none sm:text-[14px]"
                       />
                       <span className="text-[12px] text-[rgb(var(--fg-muted))]">
                         /song
                       </span>
                     </div>
-                    <span className="w-20 text-right font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
+                    <span className="shrink-0 text-right font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))] sm:w-20">
                       {formatCurrency(curSym, total)}
                       <span className="ml-0.5 text-[rgb(var(--fg-muted))]">+</span>
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        removeDiscountTier(i);
-                      }}
-                      aria-label={`Remove discount tier ${String(i + 1)}`}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded-[6px] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
-                    >
-                      <X size={13} strokeWidth={2.4} aria-hidden />
-                    </button>
+                    </div>
                   </div>
                 );
               })}
@@ -804,12 +822,19 @@ export function PricingStep({
               <button
                 type="button"
                 onClick={addDiscountTier}
-                className="sk-press flex w-full items-center gap-2 border-t border-[rgb(var(--border-subtle))] px-3 py-2 text-left text-[13px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.04)] hover:text-[rgb(var(--fg-default))]"
+                disabled={volumeTiers.length >= MAX_VOLUME_TIERS}
+                aria-describedby="volume-tier-limit-help"
+                className="sk-press flex min-h-11 w-full items-center gap-2 border-t border-[rgb(var(--border-subtle))] px-3 py-2 text-left text-[13px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.04)] hover:text-[rgb(var(--fg-default))] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Plus size={14} strokeWidth={2.4} aria-hidden />
-                Add another tier
+                {volumeTiers.length >= MAX_VOLUME_TIERS
+                  ? "Maximum of 10 tiers reached"
+                  : "Add another tier"}
               </button>
             </div>
+            <p id="volume-tier-limit-help" className="sr-only">
+              Per-song pricing supports up to 10 tiers.
+            </p>
           </div>
 
           {/* Artists will see — exact preview of the store-card copy.
@@ -828,6 +853,17 @@ export function PricingStep({
               ) : null}
             </div>
           </div>
+
+          {taxChange ? (
+            <ProductTaxSection
+              taxMode={taxMode}
+              taxRatePct={taxRatePct}
+              price={price}
+              pricingNote={taxPricingNote}
+              error={taxError}
+              onChange={taxChange}
+            />
+          ) : null}
         </>
       )}
     </div>

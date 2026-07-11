@@ -61,26 +61,31 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 
 interface DurationChipProps {
   label: string;
+  value: string;
   active: boolean;
-  onClick: () => void;
+  onChange: () => void;
 }
 
-function DurationChip({ label, active, onClick }: DurationChipProps) {
+function DurationChip({ label, value, active, onChange }: DurationChipProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      role="radio"
-      aria-checked={active}
+    <label
       className={[
-        "sk-press inline-flex h-9 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold transition-colors",
+        "sk-press inline-flex h-11 cursor-pointer items-center justify-center rounded-[var(--radius-lg)] border px-4 text-[13px] font-semibold transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.45)] focus-within:ring-offset-1 focus-within:ring-offset-[rgb(var(--bg-base))] sm:h-9 sm:rounded-[var(--radius-md)]",
         active
           ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
           : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
       ].join(" ")}
     >
+      <input
+        type="radio"
+        name="session-duration"
+        value={value}
+        checked={active}
+        onChange={onChange}
+        className="sr-only"
+      />
       {label}
-    </button>
+    </label>
   );
 }
 
@@ -106,7 +111,7 @@ function Stepper({
   return (
     <div
       className={[
-        "inline-flex h-10 items-center gap-1 rounded-[10px] border bg-[rgb(var(--bg-elevated))] p-1",
+        "inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] sm:rounded-[var(--radius-md)]",
         disabled
           ? "border-[rgb(var(--border-subtle))] opacity-50"
           : "border-[rgb(var(--border-subtle))]",
@@ -120,7 +125,7 @@ function Stepper({
         }}
         disabled={!canDec}
         aria-label="Decrease"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30 sm:h-9 sm:w-9 sm:rounded-[var(--radius-md)]"
       >
         <Minus size={14} strokeWidth={2.4} aria-hidden />
       </button>
@@ -134,7 +139,7 @@ function Stepper({
         }}
         disabled={!canInc}
         aria-label="Increase"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(17_16_9/0.06)] disabled:cursor-not-allowed disabled:opacity-30 sm:h-9 sm:w-9 sm:rounded-[var(--radius-md)]"
       >
         <Plus size={14} strokeWidth={2.4} aria-hidden />
       </button>
@@ -152,36 +157,42 @@ export function LogisticsStep({
   const customMinutes = customMinutesFromDuration(duration);
 
   return (
-    <div className="flex flex-col gap-4 p-[20px]">
+    <div className="flex flex-col gap-5">
       {/* Duration */}
-      <div className="flex flex-col gap-2">
-        <Eyebrow>Duration</Eyebrow>
-        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Session duration">
+      <fieldset className="flex min-w-0 flex-col gap-2 border-0 p-0">
+        <legend className="mb-1.5 font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+          Duration
+        </legend>
+        <div className="flex flex-wrap gap-2">
           <DurationChip
             label="1 hr"
+            value="60 min"
             active={preset === "1hr"}
-            onClick={() => {
+            onChange={() => {
               onChange({ duration: "60 min" });
             }}
           />
           <DurationChip
             label="2 hr"
+            value="120 min"
             active={preset === "2hr"}
-            onClick={() => {
+            onChange={() => {
               onChange({ duration: "120 min" });
             }}
           />
           <DurationChip
             label="3 hr"
+            value="180 min"
             active={preset === "3hr"}
-            onClick={() => {
+            onChange={() => {
               onChange({ duration: "180 min" });
             }}
           />
           <DurationChip
             label="Custom"
+            value="custom"
             active={preset === "custom"}
-            onClick={() => {
+            onChange={() => {
               // Drop into Custom mode with an empty input; canContinue
               // stays false until the producer types a number.
               onChange({ duration: "" });
@@ -212,14 +223,14 @@ export function LogisticsStep({
               }}
               placeholder="e.g. 45"
               aria-label="Custom session length in minutes"
-              className="h-10 w-32 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)]"
+              className="h-11 w-32 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
             />
             <div className="text-[11.5px] text-[rgb(var(--fg-faint))]">
               Custom session length in minutes.
             </div>
           </div>
         ) : null}
-      </div>
+      </fieldset>
 
       {/* Revisions */}
       <div className="flex flex-col gap-2">
@@ -244,7 +255,7 @@ export function LogisticsStep({
             aria-pressed={unlimitedRevisions}
             aria-label="Unlimited revisions"
             className={[
-              "sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border px-4 text-[13px] font-semibold transition-colors",
+              "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] border px-4 text-[13px] font-semibold transition-colors sm:h-10 sm:rounded-[var(--radius-md)]",
               unlimitedRevisions
                 ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
                 : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",

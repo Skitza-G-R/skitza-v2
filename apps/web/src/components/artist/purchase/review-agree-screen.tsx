@@ -2,8 +2,8 @@
 
 // S4 — Review & agree (artist purchase funnel · Commit).
 //
-// The artist reads the plain-language booking terms (the binding PDF is
-// linked above the summary), ticks a single "I've read & agree" box, and
+// The artist reads the exact commercial terms and optional agreement link,
+// ticks a single "I've read & agree" box, and
 // sends the request. Sending fires Gate 1 (the producer reviews) and routes
 // to S5. Funnel chrome: full-screen overlay, back arrow, no tab bar, the
 // primary action pinned low and thumb-reachable.
@@ -30,8 +30,13 @@ import {
 } from "~/components/artist/funnel/funnel-ui";
 import { requestToBookAction } from "./actions";
 import {
+  planKey,
+  requestPlanLabel,
+} from "~/components/checkout/plan-picker-helpers";
+import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
+import {
   type AgreementTerm,
-  formatShekels,
+  formatPurchaseMoney,
   type Producer,
   type PurchaseProduct,
   swatchGradient,
@@ -41,11 +46,14 @@ export function ReviewAgreeScreen({
   product,
   producer,
   terms,
+  commercialTermsFingerprint,
   previewSentHref,
 }: {
   product: PurchaseProduct;
   producer: Producer;
   terms: AgreementTerm[];
+  /** Hash of the exact commercial terms rendered by the server. */
+  commercialTermsFingerprint: string;
   /** Dev-gallery navigation only; production always creates the request first. */
   previewSentHref?: string | undefined;
 }) {
@@ -53,6 +61,7 @@ export function ReviewAgreeScreen({
   const [agreed, setAgreed] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const royalty = royaltyTermsDisplay(product.royaltyTerms);
 
   async function send() {
     if (!agreed || sending) return;
@@ -65,7 +74,10 @@ export function ReviewAgreeScreen({
     try {
       // BE-1's `artist.purchase.request` (via server action). Locks the
       // price, creates the pending request, returns the ref shown on S5.
-      const res = await requestToBookAction({ productId: product.id });
+      const res = await requestToBookAction({
+        productId: product.id,
+        commercialTermsFingerprint,
+      });
       if (res.ok) {
         router.push(`/artist/purchase/${product.id}/sent?req=${res.purchaseRequestId}`);
         return;
@@ -99,7 +111,7 @@ export function ReviewAgreeScreen({
           </h1>
           <p className="reveal-up reveal-up-delay-1 mt-2 text-[14px] leading-relaxed text-pretty text-[rgb(var(--fg-muted))]">
             {producer.agreement
-              ? `Here's the plain-language version of your booking terms. ${producer.name}'s full signed agreement is attached as a PDF below.`
+              ? `Review the exact commercial terms below, including ${producer.name}'s agreement link.`
               : `Here's the plain-language version of your booking terms with ${producer.name}.`}
           </p>
 
@@ -115,14 +127,14 @@ export function ReviewAgreeScreen({
               {producer.initials}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-[14.5px] font-semibold text-white">{product.name}</div>
+              <div className="break-words text-[14.5px] font-semibold text-white [overflow-wrap:anywhere]">{product.name}</div>
               <div className="mt-px text-[12px] text-white/70">
                 with {producer.name} · {product.durationLabel}
               </div>
             </div>
             <div className="text-right">
               <div className="font-amount text-[19px] font-extrabold tracking-[-0.03em] text-[rgb(var(--brand-primary))]">
-                {formatShekels(product.priceCents)}
+                {formatPurchaseMoney(product.priceCents, product.currency)}
               </div>
               <div className="font-mono text-[8.5px] tracking-[0.08em] text-white/55">
                 LOCKS NOW
@@ -130,13 +142,72 @@ export function ReviewAgreeScreen({
             </div>
           </div>
 
-          {/* producer-uploaded binding PDF — hidden when none is uploaded */}
+          {/* exact frozen-at-request payment and royalty terms */}
+          <section className="reveal-up reveal-up-delay-2 mt-4" aria-labelledby="commercial-terms-heading">
+            <h2 id="commercial-terms-heading" className="mb-[9px]">
+              <Eyebrow>Rights & royalties</Eyebrow>
+            </h2>
+            <dl className="rounded-card bg-[rgb(var(--bg-elevated))] px-4 py-1 shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))]">
+              <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3 border-b border-[rgb(var(--border-subtle))] py-3">
+                <dt className="text-[12px] font-semibold text-[rgb(var(--fg-muted))]">Master</dt>
+                <dd className="min-w-0 break-words text-pretty text-[13px] text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                  {royalty.master}
+                </dd>
+              </div>
+              <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3 py-3">
+                <dt className="text-[12px] font-semibold text-[rgb(var(--fg-muted))]">
+                  Composition
+                </dt>
+                <dd className="min-w-0 break-words text-pretty text-[13px] text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                  {royalty.composition}
+                </dd>
+              </div>
+            </dl>
+            {product.royaltyTerms?.notes ? (
+              <p className="mt-2 whitespace-pre-wrap break-words rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-4 py-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                {product.royaltyTerms.notes}
+              </p>
+            ) : null}
+          </section>
+
+          <section className="reveal-up reveal-up-delay-2 mt-4" aria-labelledby="payment-options-heading">
+            <h2 id="payment-options-heading" className="mb-[9px]">
+              <Eyebrow>Payment choices</Eyebrow>
+            </h2>
+            <ul className="rounded-card list-none divide-y divide-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))]">
+              {product.paymentPlans.map((plan) => (
+                <li key={planKey(plan)} className="py-3 text-[13px] leading-snug text-[rgb(var(--fg-secondary))]">
+                  {requestPlanLabel(plan, product.priceCents, (cents) =>
+                    formatPurchaseMoney(cents, product.currency),
+                  )}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+              You choose one after the producer approves this request.
+            </p>
+          </section>
+
+          {product.agreementText ? (
+            <section className="reveal-up reveal-up-delay-2 mt-4" aria-labelledby="inline-agreement-heading">
+              <h2 id="inline-agreement-heading" className="mb-[9px]">
+                <Eyebrow>Producer agreement</Eyebrow>
+              </h2>
+              <div className="rounded-card bg-[rgb(var(--bg-elevated))] px-4 py-3.5 shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))]">
+                <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                  {product.agreementText}
+                </p>
+              </div>
+            </section>
+          ) : null}
+
+          {/* Producer-authored agreement link — may be a PDF or web page. */}
           {producer.agreement ? (
             <div className="reveal-up reveal-up-delay-2 mt-4">
               <h2 className="mb-[9px]">
                 <Eyebrow>
                   <DocIcon aria-hidden="true" />
-                  {producer.name}&apos;s full agreement
+                  {producer.name}&apos;s agreement link
                 </Eyebrow>
               </h2>
               <div
@@ -161,7 +232,7 @@ export function ReviewAgreeScreen({
                     {producer.agreement.filename}
                   </div>
                   <div className="mt-[3px] font-mono text-[10.5px] tracking-[0.02em] text-[rgb(var(--fg-muted))]">
-                    PDF · uploaded by {producer.name}
+                    {producer.agreement.kind === "pdf" ? "PDF" : "LINK"} · provided by {producer.name}
                   </div>
                 </div>
                 {producer.agreement.url ? (
@@ -170,7 +241,7 @@ export function ReviewAgreeScreen({
                     href={producer.agreement.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="sk-press inline-flex min-h-11 shrink-0 items-center rounded-full px-[18px] py-2 text-[13.5px] font-bold"
+                    className="sk-press inline-flex min-h-11 shrink-0 items-center rounded-[var(--radius-lg)] px-[18px] py-2 text-[13.5px] font-bold"
                     style={{
                       background: "rgb(var(--bg-sidebar))",
                       color: "rgb(var(--brand-primary))",
@@ -184,7 +255,7 @@ export function ReviewAgreeScreen({
                 <span className="mt-px">
                   <ShieldIcon />
                 </span>
-                <span>The PDF is the binding document. The summary below is for easy reading.</span>
+                <span>Open this reference and review it together with the exact terms on this page.</span>
               </div>
             </div>
           ) : null}
@@ -262,9 +333,7 @@ export function ReviewAgreeScreen({
                 setAgreed((v) => !v);
               }}
             >
-              {producer.agreement
-                ? "I've read the agreement (PDF) and agree to these terms."
-                : "I've read and agree to these terms."}
+              I&apos;ve reviewed and agree to the price, payment choices, rights, and agreement terms.
             </AgreeCheck>
           </div>
         </div>

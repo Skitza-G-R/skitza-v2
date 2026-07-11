@@ -1,12 +1,17 @@
 "use client";
 
-import type { PaymentPlan } from "@skitza/db";
+import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type SyntheticEvent, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
+import {
+  planKey,
+  requestPlanLabel,
+} from "~/components/checkout/plan-picker-helpers";
 import { formatMoney } from "~/lib/format/money";
+import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 
 import {
   approvePurchaseRequest,
@@ -34,6 +39,8 @@ export type PurchaseRequestDetailData = {
     paymentPlanSnapshot: PaymentPlan;
     paymentPlanOptionsSnapshot: PaymentPlan[];
     paymentPlanChosenAt: Date | null;
+    royaltyTermsSnapshot: ProductRoyaltyTerms | null;
+    agreementTextSnapshot: string | null;
     undoableUntil: Date | null;
     contractUrlSnapshot: string | null;
   };
@@ -45,6 +52,7 @@ export type PurchaseRequestDetailData = {
 
 export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetailData }) {
   const { request, agreement } = detail;
+  const royalty = royaltyTermsDisplay(request.royaltyTermsSnapshot);
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -156,7 +164,35 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
           </section>
 
           <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5">
+            <SectionLabel>Rights &amp; royalties</SectionLabel>
+            <dl className="mt-3 grid gap-3 text-sm">
+              <div className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] gap-3">
+                <dt className="font-medium text-[rgb(var(--fg-muted))]">Master</dt>
+                <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                  {royalty.master}
+                </dd>
+              </div>
+              <div className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] gap-3">
+                <dt className="font-medium text-[rgb(var(--fg-muted))]">Composition</dt>
+                <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                  {royalty.composition}
+                </dd>
+              </div>
+            </dl>
+            {request.royaltyTermsSnapshot?.notes ? (
+              <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                {request.royaltyTermsSnapshot.notes}
+              </p>
+            ) : null}
+          </section>
+
+          <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5">
             <SectionLabel>Agreement</SectionLabel>
+            {request.agreementTextSnapshot ? (
+              <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                {request.agreementTextSnapshot}
+              </p>
+            ) : null}
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-base font-bold text-[rgb(var(--fg-default))]">
@@ -194,13 +230,19 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
                   key={planKey(plan)}
                   className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] px-3 py-2.5 text-sm font-medium text-[rgb(var(--fg-default))]"
                 >
-                  {formatPlan(plan)}
+                  {requestPlanLabel(plan, request.priceCents, (cents) =>
+                    formatMoney(cents, request.currency),
+                  )}
                 </li>
               ))}
             </ul>
             {request.paymentPlanChosenAt ? (
               <p className="mt-3 text-xs text-[rgb(var(--fg-muted))]">
-                Artist selected a plan {formatDate(request.paymentPlanChosenAt)}.
+                Artist selection: {requestPlanLabel(
+                  request.paymentPlanSnapshot,
+                  request.priceCents,
+                  (cents) => formatMoney(cents, request.currency),
+                )} · {formatDate(request.paymentPlanChosenAt)}
               </p>
             ) : null}
           </section>
@@ -334,17 +376,6 @@ function decisionDescription(status: PurchaseRequestStatus, declinedAt: Date | n
   if (status === "verifying") return "The artist submitted payment proof. Review it in the payment verification queue.";
   if (status === "paid") return "A payment has been received for this request.";
   return "This request cannot be changed from its current state.";
-}
-
-function formatPlan(plan: PaymentPlan): string {
-  if (plan.kind === "full") return "Pay in full";
-  if (plan.kind === "split_50_50") return "50% now · 50% later";
-  if (plan.kind === "monthly") return `${String(plan.installments)} monthly installments`;
-  return "Milestone payments";
-}
-
-function planKey(plan: PaymentPlan): string {
-  return plan.kind === "monthly" ? `${plan.kind}-${String(plan.installments)}` : plan.kind;
 }
 
 function formatDate(value: Date | null): string {
