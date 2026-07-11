@@ -23,4 +23,18 @@ describe("producer purchase request detail", () => {
     expect(page).toMatch(/contractUrlSnapshot/);
     expect(page).toMatch(/acceptedAt/);
   });
+
+  it("adds the Gate 1 review controls while preserving the detail route", () => {
+    expect(page).toMatch(/PurchaseRequestReview/);
+    expect(page).toMatch(/initialStatus=\{request\.status\}/);
+    expect(page).toMatch(
+      /initialUndoableUntilIso=\{request\.undoableUntil\?\.toISOString\(\) \?\? null\}/,
+    );
+    expect(page).toMatch(/href="\/dashboard\/requests"/);
+  });
+
+  it("maps malformed ids to the same 404 surface as missing requests", () => {
+    expect(page).toMatch(/PURCHASE_REQUEST_ID\.safeParse\(id\)/);
+    expect(page).toMatch(/notFound\(\)/);
+  });
 });

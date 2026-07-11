@@ -1,13 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
-import { notificationHref } from "../notification-bell";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
-// Pure helper test only. The bell component itself renders DOM +
-// wires Server Actions, which vitest's node environment doesn't
-// support — mirroring sidebar.test.tsx, we exercise just the data-
-// shape → route mapping so every notification kind has a known
-// deep-link target.
+import {
+  filterNotifications,
+  notificationHref,
+  notificationIsUnread,
+  notificationTabForKey,
+} from "../notification-bell";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const SRC = readFileSync(join(here, "..", "notification-bell.tsx"), "utf-8");
 
 function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotificationItem {
   return {
@@ -20,48 +26,123 @@ function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotifica
     trackVersionId: null,
     commentId: null,
     bookingId: null,
+    purchaseRequestId: null,
+    readAtIso: null,
     ...overrides,
   };
 }
 
 describe("notificationHref", () => {
-  it("routes comment notifications into their project room", () => {
+  it("routes purchase notifications to the dedicated request detail", () => {
     expect(
       notificationHref(
         makeItem({
-          kind: "comment_created",
-          projectId: "proj-1",
-          commentId: "c-1",
-          trackVersionId: "tv-1",
+          kind: "purchase_requested",
+          purchaseRequestId: "request-1",
+          projectId: "project-ignored",
         }),
       ),
-    ).toBe("/dashboard/clients-projects/proj-1");
+    ).toBe("/dashboard/requests/request-1");
   });
 
-  it("routes booking notifications to the booking detail", () => {
-    expect(
-      notificationHref(
-        makeItem({
-          kind: "booking_requested",
-          bookingId: "b-1",
-        }),
-      ),
-    ).toBe("/dashboard/booking?id=b-1");
-  });
-
-  it("prefers projectId over bookingId when both are present", () => {
+  it("routes bookings to Calendar with that booking selected", () => {
     expect(
       notificationHref(
         makeItem({
           kind: "booking_requested",
-          projectId: "proj-2",
-          bookingId: "b-2",
+          bookingId: "booking-1",
+          projectId: "project-ignored",
         }),
       ),
-    ).toBe("/dashboard/clients-projects/proj-2");
+    ).toBe("/dashboard/calendar?booking=booking-1");
   });
 
-  it("falls back to the projects list when no ref is populated", () => {
+  it("routes project-backed notifications into their project room", () => {
+    expect(
+      notificationHref(
+        makeItem({
+          projectId: "project-1",
+          commentId: "comment-1",
+          trackVersionId: "version-1",
+        }),
+      ),
+    ).toBe("/dashboard/clients-projects/project-1");
+  });
+
+  it("falls back to the projects list when no source ref is populated", () => {
     expect(notificationHref(makeItem())).toBe("/dashboard/clients-projects");
+  });
+});
+
+describe("notification read state and tabs", () => {
+  const unread = makeItem({ id: "unread" });
+  const read = makeItem({
+    id: "read",
+    readAtIso: "2026-07-11T08:00:00.000Z",
+  });
+
+  it("derives unread state from readAtIso", () => {
+    expect(notificationIsUnread(unread)).toBe(true);
+    expect(notificationIsUnread(read)).toBe(false);
+  });
+
+  it("keeps both states in All and filters read rows from Unread", () => {
+    expect(filterNotifications([unread, read], "all").map((item) => item.id)).toEqual([
+      "unread",
+      "read",
+    ]);
+    expect(filterNotifications([unread, read], "unread").map((item) => item.id)).toEqual([
+      "unread",
+    ]);
+  });
+
+  it("removes a locally marked row from Unread without deleting it from All", () => {
+    const override = new Set(["unread"]);
+    expect(filterNotifications([unread, read], "unread", override)).toEqual([]);
+    expect(filterNotifications([unread, read], "all", override)).toHaveLength(2);
+  });
+});
+
+describe("NotificationBell interaction contract", () => {
+  it("renders an anchored desktop popover and a full-width mobile Sheet", () => {
+    expect(SRC).toContain('data-testid="notification-popover"');
+    expect(SRC).toContain('data-testid="notification-sheet"');
+    expect(SRC).toMatch(/<SheetContent[\s\S]*?side="bottom"/);
+    expect(SRC).toMatch(/<SheetContent[\s\S]*?aria-labelledby=\{titleId\}/);
+    expect(SRC).toContain("w-full");
+    expect(SRC).toContain("DESKTOP_MEDIA_QUERY");
+  });
+
+  it("supports All / Unread tabs with explicit tab semantics", () => {
+    expect(SRC).toContain('role="tablist"');
+    expect(SRC).toContain('role="tab"');
+    expect(SRC).toContain('role="tabpanel"');
+    expect(SRC).toContain("aria-selected");
+    expect(notificationTabForKey("ArrowRight")).toBe("unread");
+    expect(notificationTabForKey("End")).toBe("unread");
+    expect(notificationTabForKey("ArrowLeft")).toBe("all");
+    expect(notificationTabForKey("Home")).toBe("all");
+    expect(notificationTabForKey("Enter")).toBeNull();
+  });
+
+  it("closes desktop on Escape/outside press and returns focus", () => {
+    expect(SRC).toContain('event.key === "Escape"');
+    expect(SRC).toContain('addEventListener("pointerdown"');
+    expect(SRC).toContain("buttonRef.current?.focus()");
+    expect(SRC).toContain("onCloseAutoFocus");
+    expect(SRC).toContain('aria-haspopup="dialog"');
+  });
+
+  it("keeps failures visible in the open panel", () => {
+    expect(SRC).toContain('role="alert"');
+    expect(SRC).toContain('data-testid="notification-error"');
+    expect(SRC).toMatch(/if \(!result\.ok\)[\s\S]*?setError/);
+    expect(SRC).toMatch(/catch \{[\s\S]*?setError\(FALLBACK_ERROR\)/);
+  });
+
+  it("uses a numeric amber badge rather than an unread-only dot", () => {
+    expect(SRC).toContain("badgeLabel");
+    expect(SRC).toContain("99+");
+    expect(SRC).toContain("{badgeLabel}");
   });
 });

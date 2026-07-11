@@ -6,7 +6,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 import { AvailabilityPanel } from "./availability-panel";
 
 import { CalendarTabs } from "./calendar-tabs";
-import { resolveCalendarTab } from "./calendar-tab-key";
+import { resolveCalendarTabForBooking } from "./calendar-tab-key";
 import { weekEyebrow } from "./calendar-week";
 import { SchedulePanel } from "./schedule-panel";
 import type { ScheduleSession } from "./schedule-week-grid";
@@ -21,15 +21,36 @@ import type { SessionListItem } from "./session-row";
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string | string[] }>;
+  searchParams: Promise<{
+    tab?: string | string[];
+    booking?: string | string[];
+  }>;
 }) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const resolved = await searchParams;
-  const active = resolveCalendarTab(resolved.tab);
+  const selectedBookingId = Array.isArray(resolved.booking)
+    ? resolved.booking[0] ?? null
+    : resolved.booking ?? null;
 
   const caller = appRouter.createCaller({ userId });
+  // A retained booking notification may be opened after its request was
+  // approved, rejected, cancelled, or completed. Resolve against the current
+  // tenant-scoped row so the bare ?booking= link chooses a surface that can
+  // actually select it. Reuse the list below if Sessions is selected.
+  const selectedBookingRows = selectedBookingId
+    ? await caller.booking.list()
+    : null;
+  const selectedBooking =
+    selectedBookingRows?.find((booking) => booking.id === selectedBookingId) ??
+    null;
+  const selectedBookingIsPending =
+    selectedBooking?.status === "pending_approval";
+  const active = resolveCalendarTabForBooking(
+    resolved.tab,
+    selectedBooking?.status ?? null,
+  );
 
   // -------- Schedule tab data --------
   let scheduleSessions: ScheduleSession[] = [];
@@ -127,7 +148,7 @@ export default async function CalendarPage({
     // the sessions list — on phones the Schedule tab is hidden and
     // Sessions absorbs pending approvals.
     const [list, settings] = await Promise.all([
-      caller.booking.list(),
+      selectedBookingRows ?? caller.booking.list(),
       caller.booking.availability.getSettings(),
     ]);
     scheduleAutoConfirm = settings.autoConfirmBookings;
@@ -239,19 +260,15 @@ export default async function CalendarPage({
 
   return (
     // lg+: viewport-locked layout — the page is sized to exactly the
-    // visible viewport (minus the 40px sticky topbar) and every
+    // visible viewport below the 64px producer topbar and every
     // descendant is flex-locked, so the page itself never scrolls.
     // <lg: natural page scroll — phones get a normal scrolling column
     // (AppShell's `pb-20` already reserves the bottom-nav space), and
     // the Schedule grid falls back to its intrinsic 44px hour rows.
-    // `mt-10` cancels AppShell's `-mt-[40px]` children wrapper — that
-    // wrapper exists so hero gradients bleed behind the topbar's
-    // frosted glass, but the Calendar has no hero gradient at the top
-    // (the H1 sits flush), so it must drop back into normal flow to
-    // keep its title visible. The Schedule grid measures its own
-    // height via ResizeObserver and sets `--hour-px` from that — no
-    // brittle viewport-math fallback needed at the page level.
-    <div className="mx-auto mt-10 flex max-w-[1180px] flex-col px-4 py-2 sm:py-3 lg:h-[calc(100dvh-40px)] lg:py-4">
+    // AppShell now keeps the opaque topbar in normal flow, so no legacy
+    // 40px compensation margin is needed. The Schedule grid measures its
+    // own height via ResizeObserver and sets `--hour-px` from that.
+    <div className="mx-auto flex max-w-[1180px] flex-col px-4 py-2 sm:py-3 lg:h-[calc(100dvh-64px)] lg:py-4">
       {/* sm+ surfaces an elevated card; mobile drops the chrome to
           maximise usable width. */}
       <div className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-2xl)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-4 sm:py-3 lg:px-5 lg:py-4">
@@ -301,6 +318,9 @@ export default async function CalendarPage({
                   pending={pendingRequests}
                   autoConfirm={scheduleAutoConfirm}
                   initialNow={initialNow.toISOString()}
+                  selectedBookingId={
+                    selectedBookingIsPending ? selectedBookingId : null
+                  }
                 />
               </div>
               {/* SK-56 — phones never show the week grid. Direct hits
@@ -313,11 +333,17 @@ export default async function CalendarPage({
                   <SchedulePendingCard
                     initial={pendingRequests}
                     autoConfirm={scheduleAutoConfirm}
+                    selectedBookingId={
+                      selectedBookingIsPending ? selectedBookingId : null
+                    }
                   />
                 </div>
                 <SessionsPanel
                   sessions={scheduleMobileSessions}
                   initialNow={initialNow.toISOString()}
+                  selectedBookingId={
+                    selectedBookingIsPending ? null : selectedBookingId
+                  }
                 />
               </div>
             </>
@@ -330,11 +356,17 @@ export default async function CalendarPage({
                 <SchedulePendingCard
                   initial={pendingRequests}
                   autoConfirm={scheduleAutoConfirm}
+                  selectedBookingId={
+                    selectedBookingIsPending ? selectedBookingId : null
+                  }
                 />
               </div>
               <SessionsPanel
                 sessions={allSessions}
                 initialNow={initialNow.toISOString()}
+                selectedBookingId={
+                  selectedBookingIsPending ? null : selectedBookingId
+                }
               />
             </>
           )}

@@ -1,22 +1,15 @@
 import { auth } from "@clerk/nextjs/server";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { MobileTodayFeed } from "~/components/dashboard/overview/mobile-today-feed";
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
-import { PaymentReceivedBanner } from "~/components/dashboard/payment-received-banner";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
 
-// Overview page — always renders <OverviewScreen>. Each section owns
-// its own empty state (PublicLinkStrip when slug set, "Nothing urgent"
-// row, "All quiet" activity message, $0 financial pulse), so a fresh
-// producer who just finished onboarding sees the full dashboard
-// scaffold with their public link front-and-centre.
-//
-// FinishSetupNudge (skipper-specific) and the post-session follow-up
-// banner render above the layout when applicable.
+// Overview page — always renders the single responsive Calm Control
+// screen. Its Needs You queue owns unresolved work; the other compact
+// sections own their own empty states so a new producer still sees a
+// useful dashboard scaffold.
 
 type PageProps = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -26,6 +19,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   const sp = await searchParams;
   const skipOnboarding = sp.skip === "1" || sp.skip === "true";
+  const showAllNeedsYou = sp.view === "all";
 
   // Why no auto-redirect to /dashboard/onboarding here:
   // requireRole("producer") in (producer)/layout.tsx already routes
@@ -40,28 +34,26 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   const caller = appRouter.createCaller({ userId });
 
-  // Fan-out: today payload, profile, follow-up sessions (post-session
-  // banner), pending approvals, project-level urgent rows (the
-  // Overview's Urgent card — replaces the old today.items-derived
-  // urgency strip), and SK-20's recent-paid-unacknowledged bookings
-  // (drives the payment-received banner above OverviewScreen). All
-  // independent reads run in parallel.
-  const [today, me, followUpRaw, pendingBookings, urgent, recentPaid] =
+  // Fan-out across the independent sources that feed the dashboard's
+  // Needs You queue, project/upload shelves, and compact studio pulse.
+  const [
+    today,
+    me,
+    followUpRaw,
+    pendingBookings,
+    pendingPurchaseRequests,
+    urgent,
+    recentPaid,
+  ] =
     await Promise.all([
       caller.producer.today(),
       caller.producer.me(),
       caller.booking.needsFollowUp(),
       caller.booking.list({ status: "pending_approval" }),
-      caller.producer.overview.urgent(),
+      caller.producer.purchase.list({ status: "pending" }),
+      caller.producer.overview.urgent({ limit: 50 }),
       caller.booking.recentPaidUnacknowledged(),
     ]);
-
-  // Drop sessions that aren't yet linked to a project — without a
-  // projectId we have nowhere to send the producer when they click
-  // through, so the banner would be a dead-end.
-  const followUpSessions = followUpRaw.filter(
-    (s): s is typeof s & { projectId: string } => s.projectId !== null,
-  );
 
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
@@ -105,8 +97,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     message: b.notes,
   }));
 
-  // Shared by the desktop banner and the mobile feed so the two
-  // surfaces can never drift on which bookings they show.
+  // Preserve the verified SK-20 payment signal in the same Needs You
+  // queue. Acknowledging its row still stamps producerAcknowledgedAt.
   const paidBookings = recentPaid.map((p) => ({
     id: p.id,
     artistName: p.artistName,
@@ -118,167 +110,52 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   }));
 
   return (
-    <>
-      {/* Hero gradient + page chrome — preserved from Story 06. */}
-      <div className="relative isolate">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[320px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.12)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))] lg:h-[520px]"
+    <div className="relative isolate">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[260px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.08)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
+      />
+      <div className="sk-page-enter mx-auto max-w-[1920px]">
+        <OverviewScreen
+          displayName={me.displayName}
+          slug={me.slug}
+          pulseStats={today.pulseStats}
+          purchaseRequests={pendingPurchaseRequests.requests}
+          pendingApprovals={pendingApprovals}
+          followUps={followUpRaw.map((session) => ({
+            id: session.id,
+            artistName: session.artistName,
+            projectTitle: session.projectTitle,
+            projectId: session.projectId,
+            count: session.count,
+          }))}
+          payments={paidBookings}
+          todaySession={todaySession}
+          urgentProjects={urgent.items}
+          recentUploads={today.recentUploads.map((upload) => ({
+            versionId: upload.versionId,
+            trackId: upload.trackId,
+            title: upload.title,
+            versionLabel: upload.versionLabel,
+            uploadedAt: upload.uploadedAt,
+            durationMs: upload.durationMs,
+            projectId: upload.projectId,
+            projectClientName: upload.projectClientName,
+          }))}
+          unresolvedItems={today.needsYouUnresolvedItems.map((item) => ({
+            id: item.id,
+            kind: item.kind,
+            title: item.title,
+            subtitle: item.subtitle,
+            occurredAt: item.occurredAt,
+            href: item.href,
+            unread: item.unread,
+          }))}
+          showSetupNudge={showSetupNudge}
+          showAllNeedsYou={showAllNeedsYou}
+          now={now}
         />
-        <div className="sk-page-enter mx-auto max-w-[1920px]">
-          <h1 className="sr-only">Today</h1>
-
-          {/* MOBILE (<lg) — the phone home is a dedicated activity +
-              notifications feed (Gili's 2026-06-11 audit). The desktop
-              banners + OverviewScreen below are all wrapped
-              `hidden lg:block`; this feed owns the small screen. */}
-          <MobileTodayFeed
-            displayName={me.displayName}
-            pendingApprovals={pendingApprovals}
-            followUps={followUpSessions.map((s) => ({
-              id: s.id,
-              artistName: s.artistName,
-              projectTitle: s.projectTitle,
-              projectId: s.projectId,
-            }))}
-            payments={paidBookings}
-            todaySession={todaySession}
-            urgentProjects={urgent.items}
-            activity={today.items.map((it) => ({
-              id: it.id,
-              kind: it.kind,
-              title: it.title,
-              subtitle: it.subtitle,
-              occurredAt: it.occurredAt,
-              href: it.href,
-              unread: it.unread,
-            }))}
-            showSetupNudge={showSetupNudge}
-            now={now}
-          />
-
-          {/* FinishSetupNudge fires for producers who used `?skip=1`
-              from onboarding and haven't added packages yet. Top of
-              the page so it stays the highest-priority CTA.
-              Desktop-only — the mobile feed renders its own compact
-              setup card. */}
-          {showSetupNudge ? (
-            <div className="hidden lg:block">
-              <FinishSetupNudge />
-            </div>
-          ) : null}
-
-          {/* Post-session follow-up nudges. Confirmed sessions whose
-              end time has passed while the project still sits in
-              `booked` or `in_production`. Renders above the
-              populated layout so it's the first thing a producer
-              sees when there's stale work to close out. */}
-          {followUpSessions.length > 0 ? (
-            <div className="mx-4 mb-5 mt-5 hidden space-y-2 sm:mx-6 lg:block">
-              {followUpSessions.map((session) => (
-                <div
-                  key={session.id}
-                  className="rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.06)] p-4"
-                >
-                  <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
-                    Session with {session.artistName} is done — how did it go?
-                  </p>
-                  <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
-                    {session.projectTitle}
-                  </p>
-                  <div className="mt-3 flex gap-3">
-                    <Link
-                      href={`/dashboard/clients-projects/${session.projectId}?tab=music`}
-                      className="inline-flex min-h-[44px] items-center font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--brand-primary))] hover:underline lg:min-h-0"
-                    >
-                      Upload files →
-                    </Link>
-                    <Link
-                      href={`/dashboard/clients-projects/${session.projectId}`}
-                      className="inline-flex min-h-[44px] items-center font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-secondary))] hover:underline lg:min-h-0"
-                    >
-                      Update project →
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {/* SK-20 — payment-received banner. Stacks below the
-              followUpSessions block and above OverviewScreen so all
-              "above-layout system banners" share one vertical lane.
-              Per-row dismiss runs through the payment-banner server
-              action which revalidates this page. */}
-          <div className="hidden lg:block">
-            <PaymentReceivedBanner bookings={paidBookings} />
-          </div>
-
-          {/* Overview — always renders. Each section handles its own
-              empty state. The PublicLinkStrip inside OverviewScreen
-              gives a fresh producer the same share-your-link CTA the
-              old day-1 takeover card was built for, but inline with
-              the full dashboard scaffold around it. */}
-          <div className="hidden lg:block">
-            <OverviewScreen
-              displayName={me.displayName}
-              slug={me.slug}
-              pulseStats={today.pulseStats}
-              pendingApprovals={pendingApprovals}
-              todaySession={todaySession}
-              urgentProjects={urgent.items}
-              recentUploads={today.recentUploads.map((u) => ({
-                versionId: u.versionId,
-                trackId: u.trackId,
-                title: u.title,
-                versionLabel: u.versionLabel,
-                uploadedAt: u.uploadedAt,
-                durationMs: u.durationMs,
-                projectId: u.projectId,
-                projectClientName: u.projectClientName,
-              }))}
-              activity={today.items.map((it) => ({
-                id: it.id,
-                kind: it.kind,
-                title: it.title,
-                subtitle: it.subtitle,
-                occurredAt: it.occurredAt,
-                href: it.href,
-                unread: it.unread,
-              }))}
-              now={now}
-            />
-          </div>
-        </div>
       </div>
-    </>
-  );
-}
-
-// Soft onboarding banner for producers who skipped the wizard and
-// haven't set up packages yet. Not a hard redirect — we just give
-// them one prominent next step so an empty dashboard doesn't feel
-// like a dead end.
-function FinishSetupNudge() {
-  return (
-    <div
-      role="status"
-      className="mx-4 mt-5 mb-5 flex flex-col gap-3 rounded-[var(--radius-md)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.06)] p-4 sm:mx-6 sm:flex-row sm:items-center sm:justify-between"
-    >
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-[rgb(var(--fg-primary))]">
-          Two minutes to your first bookable link
-        </p>
-        <p className="mt-1 text-sm text-[rgb(var(--fg-secondary))]">
-          Add a service and your hours so clients can actually book you.
-        </p>
-      </div>
-      <a
-        href="/dashboard/onboarding"
-        className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] hover:brightness-110 lg:min-h-10"
-      >
-        Finish setup
-      </a>
     </div>
   );
 }

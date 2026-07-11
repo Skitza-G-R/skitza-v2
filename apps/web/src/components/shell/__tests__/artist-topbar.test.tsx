@@ -27,6 +27,10 @@ describe("ArtistTopBar (artist wrapper)", () => {
     expect(SRC).toMatch(/<AppTopBar/);
   });
 
+  it("selects the compact glass artist topbar variant", () => {
+    expect(SRC).toContain('variant="artist"');
+  });
+
   it("maps each artist route to its label", () => {
     expect(SRC).toMatch(/"\/artist":\s*"Home"/);
     expect(SRC).toMatch(/"\/artist\/music":\s*"Music"/);

@@ -34,4 +34,16 @@ describe("AppShell + DashboardTopBar wiring", () => {
   it("threads unreadCount into the topbar (matches the bell dot guard)", () => {
     expect(SRC).toMatch(/<DashboardTopBar[\s\S]{0,80}unreadCount=\{unreadCount\}/);
   });
+
+  it("threads recent active notifications into the topbar centre", () => {
+    expect(SRC).toMatch(/<DashboardTopBar[\s\S]{0,160}recentNotifications=\{recentNotifications\}/);
+  });
+
+  it("does not duplicate notification state into ProducerSidebar", () => {
+    const sidebarStart = SRC.indexOf("<ProducerSidebar");
+    const sidebarEnd = SRC.indexOf("/>", sidebarStart);
+    const sidebarOpening = SRC.slice(sidebarStart, sidebarEnd);
+    expect(sidebarOpening).not.toContain("unreadCount");
+    expect(sidebarOpening).not.toContain("recentNotifications");
+  });
 });

@@ -294,6 +294,13 @@ const ProductUpdateInput = z
     agreementText: z.string().max(20_000).nullable().optional(),
   });
 
+// Dashboard safety bounds. Follow-ups are grouped in SQL before the cap, so
+// one project with many old sessions cannot starve other projects. Payment
+// signals match producer.today's existing 30-day history window so removing
+// the old Activity card does not make an unacknowledged payment disappear.
+const FOLLOW_UP_PROJECT_CAP = 50;
+const PAYMENT_SIGNAL_RETENTION_DAYS = 30;
+
 // Weekly availability replaces the entire week atomically — easier UX
 // than per-row editing + means we don't need to expose internal block
 // IDs to the producer's form.
@@ -1069,25 +1076,22 @@ export const bookingRouter = router({
     return { mtdCents, outstandingCents, next7DaysCents, currency };
   }),
 
-  // Producer dashboard banner — confirmed sessions whose end time has
+  // Producer dashboard follow-ups — confirmed sessions whose end time has
   // passed while the linked project is still `booked` or `in_production`.
   // The producer hasn't moved the project forward (uploaded files, marked
-  // delivered) so we surface a nudge to follow up. Capped at 5 to keep
-  // the dashboard from turning into a stale-session graveyard.
+  // delivered) so we surface a nudge to follow up. Group before applying
+  // the safety cap: a project with many sessions must still occupy one row.
   needsFollowUp: producerProcedure.query(async ({ ctx }) => {
     const now = new Date();
     const rows = await ctx.db
       .select({
-        id: bookings.id,
-        artistName: bookings.artistName,
-        startsAt: bookings.startsAt,
-        durationMin: bookings.durationMin,
-        projectId: bookings.projectId,
-        projectStage: projects.stage,
+        projectId: projects.id,
+        artistName: projects.artistName,
         projectTitle: projects.title,
+        count: sql<number>`count(${bookings.id})::int`,
       })
       .from(bookings)
-      .leftJoin(projects, eq(projects.id, bookings.projectId))
+      .innerJoin(projects, eq(projects.id, bookings.projectId))
       .where(
         and(
           eq(bookings.producerId, ctx.producerId),
@@ -1099,24 +1103,25 @@ export const bookingRouter = router({
           inArray(projects.stage, ["booked", "in_production"]),
         ),
       )
-      .orderBy(desc(bookings.startsAt))
-      .limit(5);
+      .groupBy(projects.id)
+      .orderBy(desc(sql`max(${bookings.startsAt})`))
+      .limit(FOLLOW_UP_PROJECT_CAP);
     return rows.map((r) => ({
-      id: r.id,
+      id: r.projectId,
       artistName: r.artistName,
-      startsAt: r.startsAt,
-      durationMin: r.durationMin,
       projectId: r.projectId,
-      projectTitle: r.projectTitle ?? r.artistName,
+      projectTitle: r.projectTitle,
+      count: r.count,
     }));
   }),
 
-  // SK-20 — payments the producer hasn't dismissed yet. Drives the
-  // /dashboard banner. Capped to last 7 days so an inbox-zero
-  // producer who hasn't opened the app in a month doesn't get
-  // ambushed by a wall of confirmations.
+  // SK-20 — payments the producer hasn't dismissed yet. The old Activity
+  // feed retained 30 days; Needs You keeps the same verified window so the
+  // redesign cannot silently drop an 8–30 day unacknowledged payment.
   recentPaidUnacknowledged: producerProcedure.query(async ({ ctx }) => {
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const retentionStart = new Date(
+      Date.now() - PAYMENT_SIGNAL_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+    );
     const rows = await ctx.db
       .select({
         id: bookings.id,
@@ -1135,7 +1140,7 @@ export const bookingRouter = router({
           eq(bookings.producerId, ctx.producerId),
           eq(bookings.status, "confirmed"),
           isNull(bookings.producerAcknowledgedAt),
-          gte(bookings.statusChangedAt, sevenDaysAgo),
+          gte(bookings.statusChangedAt, retentionStart),
         ),
       )
       .orderBy(desc(bookings.statusChangedAt));

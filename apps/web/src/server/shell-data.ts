@@ -1,6 +1,16 @@
 import { cache } from "react";
 import { auth } from "@clerk/nextjs/server";
-import { and, createDb, desc, eq, isNull, notifications, producers } from "@skitza/db";
+import {
+  and,
+  createDb,
+  desc,
+  eq,
+  isNotNull,
+  isNull,
+  notifications,
+  producers,
+  sql,
+} from "@skitza/db";
 
 // Request-scoped shell state used by AppShell and any server component
 // that wants the producer slug / unread count without re-querying.
@@ -11,14 +21,11 @@ import { and, createDb, desc, eq, isNull, notifications, producers } from "@skit
 // components had no cheap way to read the same data. Per-request
 // memoisation only; a fresh request always re-fetches.
 //
-// Task 13 extended the state with `unreadItems` — the top 10 most
-// recent unread notifications used by the AppShell notification bell.
-// Fetched in the same request so the bell can render with real
-// initial data (no client-side fetch needed for first paint) and the
-// header badge stays authoritative. Capped at 10 because that's what
-// the dropdown shows; scrolling through more is an anti-pattern for a
-// header bell — producers who want the full list should open the
-// Projects screen.
+// SK-76 extends the state with `recentNotifications`: the latest active
+// (not archived) notifications, including both read and unread rows. The
+// notification centre needs both states for its All / Unread tabs; unresolved
+// dashboard work is deliberately supplied by the dashboard data layer instead
+// of being inferred from this read-state feed.
 export interface ShellNotificationItem {
   id: string;
   kind: string;
@@ -32,6 +39,22 @@ export interface ShellNotificationItem {
   trackVersionId: string | null;
   commentId: string | null;
   bookingId: string | null;
+  purchaseRequestId: string | null;
+  readAtIso: string | null;
+}
+
+export interface ShellNotificationCandidate {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  createdAt: Date;
+  projectId: string | null;
+  trackVersionId: string | null;
+  commentId: string | null;
+  bookingId: string | null;
+  purchaseRequestId: string | null;
+  readAt: Date | null;
 }
 
 export interface ShellState {
@@ -48,17 +71,74 @@ export interface ShellState {
    *  type churn. */
   plan: string;
   unreadCount: number;
-  unreadItems: ShellNotificationItem[];
+  recentNotifications: ShellNotificationItem[];
 }
 
-const UNREAD_ITEMS_LIMIT = 10;
+export const NOTIFICATION_FEED_LIMIT = 20;
+
+function compareNewestFirst(
+  left: ShellNotificationCandidate,
+  right: ShellNotificationCandidate,
+): number {
+  const timeDifference = right.createdAt.getTime() - left.createdAt.getTime();
+  return timeDifference !== 0 ? timeDifference : left.id.localeCompare(right.id);
+}
+
+function toShellNotificationItem(row: ShellNotificationCandidate): ShellNotificationItem {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    body: row.body,
+    createdAtIso: row.createdAt.toISOString(),
+    projectId: row.projectId,
+    trackVersionId: row.trackVersionId,
+    commentId: row.commentId,
+    bookingId: row.bookingId,
+    purchaseRequestId: row.purchaseRequestId,
+    readAtIso: row.readAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * Build the bounded centre feed without allowing recent read activity to
+ * displace surfaced unread rows. Unread candidates consume the cap first;
+ * newest read rows fill the remaining context slots. The final feed is sorted
+ * chronologically with an id tie-breaker so server renders are deterministic.
+ */
+export function mergeShellNotificationRows(
+  unreadRows: readonly ShellNotificationCandidate[],
+  recentReadRows: readonly ShellNotificationCandidate[],
+  limit = NOTIFICATION_FEED_LIMIT,
+): ShellNotificationItem[] {
+  const boundedLimit = Math.max(0, Math.floor(limit));
+  const unreadById = new Map<string, ShellNotificationCandidate>();
+  for (const row of [...unreadRows].sort(compareNewestFirst)) {
+    if (unreadById.size >= boundedLimit) break;
+    if (row.readAt === null && !unreadById.has(row.id)) {
+      unreadById.set(row.id, row);
+    }
+  }
+
+  const mergedRows = [...unreadById.values()];
+  const includedIds = new Set(unreadById.keys());
+  for (const row of [...recentReadRows].sort(compareNewestFirst)) {
+    if (mergedRows.length >= boundedLimit) break;
+    if (row.readAt !== null && !includedIds.has(row.id)) {
+      includedIds.add(row.id);
+      mergedRows.push(row);
+    }
+  }
+
+  return mergedRows.sort(compareNewestFirst).map(toShellNotificationItem);
+}
 
 const DEFAULT_STATE: ShellState = {
   slug: null,
   displayName: null,
   plan: "free",
   unreadCount: 0,
-  unreadItems: [],
+  recentNotifications: [],
 };
 
 export const getShellState = cache(async (): Promise<ShellState> => {
@@ -78,45 +158,61 @@ export const getShellState = cache(async (): Promise<ShellState> => {
     .where(eq(producers.clerkUserId, userId))
     .limit(1);
   if (!row) return DEFAULT_STATE;
-  const unreadRows = await db
-    .select({
-      id: notifications.id,
-      kind: notifications.kind,
-      title: notifications.title,
-      body: notifications.body,
-      createdAt: notifications.createdAt,
-      projectId: notifications.projectId,
-      trackVersionId: notifications.trackVersionId,
-      commentId: notifications.commentId,
-      bookingId: notifications.bookingId,
-    })
-    .from(notifications)
-    .where(
-      and(
-        eq(notifications.producerId, row.id),
-        isNull(notifications.readAt),
-        isNull(notifications.archivedAt),
+  const notificationSelection = {
+    id: notifications.id,
+    kind: notifications.kind,
+    title: notifications.title,
+    body: notifications.body,
+    createdAt: notifications.createdAt,
+    projectId: notifications.projectId,
+    trackVersionId: notifications.trackVersionId,
+    commentId: notifications.commentId,
+    bookingId: notifications.bookingId,
+    purchaseRequestId: notifications.purchaseRequestId,
+    readAt: notifications.readAt,
+  };
+  const [unreadCountRows, unreadRows, recentReadRows] = await Promise.all([
+    db
+      .select({ value: sql<number>`count(*)`.mapWith(Number) })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.producerId, row.id),
+          isNull(notifications.readAt),
+          isNull(notifications.archivedAt),
+        ),
       ),
-    )
-    .orderBy(desc(notifications.createdAt));
-  const unreadItems: ShellNotificationItem[] = unreadRows
-    .slice(0, UNREAD_ITEMS_LIMIT)
-    .map((r) => ({
-      id: r.id,
-      kind: r.kind,
-      title: r.title,
-      body: r.body,
-      createdAtIso: r.createdAt.toISOString(),
-      projectId: r.projectId,
-      trackVersionId: r.trackVersionId,
-      commentId: r.commentId,
-      bookingId: r.bookingId,
-    }));
+    db
+      .select(notificationSelection)
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.producerId, row.id),
+          isNull(notifications.readAt),
+          isNull(notifications.archivedAt),
+        ),
+      )
+      .orderBy(desc(notifications.createdAt))
+      .limit(NOTIFICATION_FEED_LIMIT),
+    db
+      .select(notificationSelection)
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.producerId, row.id),
+          isNotNull(notifications.readAt),
+          isNull(notifications.archivedAt),
+        ),
+      )
+      .orderBy(desc(notifications.createdAt))
+      .limit(NOTIFICATION_FEED_LIMIT),
+  ]);
+  const recentNotifications = mergeShellNotificationRows(unreadRows, recentReadRows);
   return {
     slug: row.slug,
     displayName: row.displayName,
     plan: row.plan,
-    unreadCount: unreadRows.length,
-    unreadItems,
+    unreadCount: unreadCountRows[0]?.value ?? 0,
+    recentNotifications,
   };
 });

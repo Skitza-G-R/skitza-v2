@@ -46,9 +46,7 @@ describe("AppTopBar (shared)", () => {
     // return to the list). Since SK-53 (mobile audit) the label slot
     // is visible at EVERY width — on phones the search pill is gone,
     // so the label is what anchors the slim chrome strip.
-    expect(SRC).toMatch(
-      /data-testid="topbar-section-label"\s*\n?\s*className="min-w-0/,
-    );
+    expect(SRC).toMatch(/data-testid="topbar-section-label"\s*\n?\s*className="min-w-0/);
     expect(SRC).toContain("Breadcrumb");
     expect(SRC).toContain("useTopBarBreadcrumb");
     expect(SRC).toMatch(/<Breadcrumb\s+items=\{items\}/);
@@ -61,7 +59,7 @@ describe("AppTopBar (shared)", () => {
     // artist side mounts this bar desktop-only, so the change is
     // producer-mobile by construction.
     expect(SRC).toMatch(
-      /data-testid="topbar-search-trigger"[\s\S]{0,500}className="hidden[\s\S]{0,500}lg:inline-flex/,
+      /data-testid="topbar-search-trigger"[\s\S]{0,800}className=\{[\s\S]{0,800}lg:inline-flex/,
     );
   });
 
@@ -91,9 +89,26 @@ describe("AppTopBar (shared)", () => {
     expect(SRC).toMatch(/aria-label=[^>]*unread/);
   });
 
-  it("uses sticky positioning with a backdrop blur (premium frosted bar)", () => {
+  it("requires an explicit producer or artist chrome variant", () => {
+    expect(SRC).toContain('export type AppTopBarVariant = "producer" | "artist"');
+    expect(SRC).toMatch(/variant:\s*AppTopBarVariant/);
+    expect(SRC).toContain('variant === "producer"');
+    expect(SRC).toContain("data-variant={variant}");
+  });
+
+  it("uses an opaque sticky 64px control strip for producers", () => {
     expect(SRC).toMatch(/sticky[\s\S]{0,40}top-0/);
-    expect(SRC).toMatch(/backdrop-blur/);
+    expect(SRC).toContain("bg-[rgb(var(--bg-elevated))]");
+    expect(SRC).toContain("h-16");
+    expect(SRC).toContain('variant === "producer"');
+  });
+
+  it("preserves the compact translucent pre-SK-76 artist geometry", () => {
+    expect(SRC).toContain("backdrop-blur-[60px]");
+    expect(SRC).toContain('WebkitBackdropFilter: "blur(60px)"');
+    expect(SRC).toContain("px-3 py-1 sm:gap-4 sm:px-4");
+    expect(SRC).toContain("h-8 w-8");
+    expect(SRC).toContain("rounded-full border py-1.5");
   });
 
   it("fades in a soft separation shadow only once the page has scrolled (Emil-pass)", () => {
@@ -117,5 +132,15 @@ describe("AppTopBar (shared)", () => {
 
   it("provides press feedback (active:scale) on interactive elements", () => {
     expect(SRC).toMatch(/active:scale-\[/);
+  });
+
+  it("accepts a producer notification control while preserving the artist fallback", () => {
+    expect(SRC).toMatch(/notificationControl\?:\s*ReactNode/);
+    expect(SRC).toContain("notificationControl ??");
+  });
+
+  it("follows the no-pill rule for the producer search control", () => {
+    expect(SRC).toContain("rounded-[var(--radius-md)]");
+    expect(SRC).toContain("isProducer");
   });
 });

@@ -2,16 +2,19 @@ import { auth } from "@clerk/nextjs/server";
 import { TRPCError } from "@trpc/server";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { z } from "zod";
 
 import {
   planKey,
   requestPlanLabel,
 } from "~/components/checkout/plan-picker-helpers";
+import { PurchaseRequestReview } from "~/components/dashboard/requests/purchase-request-review";
 import { safeAgreementUrl } from "~/lib/agreement-url";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ id: string }> };
+const PURCHASE_REQUEST_ID = z.string().uuid();
 
 function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat("en-US", {
@@ -27,12 +30,19 @@ export default async function ProducerPurchaseRequestPage({ params }: PageProps)
   if (!userId) redirect("/sign-in");
 
   const { id } = await params;
+  if (!PURCHASE_REQUEST_ID.safeParse(id).success) notFound();
+
   const caller = appRouter.createCaller({ userId });
   let request: Awaited<ReturnType<typeof caller.producer.purchase.get>>;
   try {
     request = await caller.producer.purchase.get({ id });
   } catch (error) {
-    if (error instanceof TRPCError && error.code === "NOT_FOUND") notFound();
+    if (
+      error instanceof TRPCError &&
+      (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")
+    ) {
+      notFound();
+    }
     throw error;
   }
 
@@ -43,10 +53,10 @@ export default async function ProducerPurchaseRequestPage({ params }: PageProps)
   return (
     <main className="mx-auto w-full max-w-[720px] px-4 py-6 sm:px-6 sm:py-10">
       <Link
-        href="/dashboard"
+        href="/dashboard/requests"
         className="inline-flex min-h-11 items-center text-sm font-medium text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
       >
-        ← Back to dashboard
+        ← Back to requests
       </Link>
 
       <header className="mt-4 border-b border-[rgb(var(--border-subtle))] pb-6">
@@ -68,6 +78,13 @@ export default async function ProducerPurchaseRequestPage({ params }: PageProps)
           {formatMoney(request.priceCents, request.currency)}
         </p>
       </header>
+
+      <PurchaseRequestReview
+        key={request.id}
+        id={request.id}
+        initialStatus={request.status}
+        initialUndoableUntilIso={request.undoableUntil?.toISOString() ?? null}
+      />
 
       <div className="divide-y divide-[rgb(var(--border-subtle))]">
         <section className="py-6" aria-labelledby="request-payment-heading">

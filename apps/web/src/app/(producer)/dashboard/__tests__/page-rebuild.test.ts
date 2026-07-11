@@ -125,6 +125,17 @@ describe("Today page — Phase 4 populated layout", () => {
       'caller.booking.list({ status: "pending_approval" })',
     );
   });
+
+  it("requests enough urgent projects for the queue-level View all cap", () => {
+    expect(pageSource).toContain("caller.producer.overview.urgent({ limit: 50 })");
+  });
+
+  it("uses the dedicated unresolved source instead of the mixed Today feed", () => {
+    expect(pageSource).toContain(
+      "unresolvedItems={today.needsYouUnresolvedItems.map(",
+    );
+    expect(pageSource).not.toContain("unresolvedItems={today.items.map(");
+  });
 });
 
 // ─── Source-grep — retired Story 06 components ─────────────────────
@@ -167,9 +178,9 @@ describe("Today page — preserved page chrome (auth-fix territory)", () => {
     expect(pageSource).toContain("sk-page-enter");
   });
 
-  it("keeps the FinishSetupNudge trigger (skipper + empty inbox)", () => {
+  it("threads the skipper setup nudge into the unified Needs You queue", () => {
     expect(pageSource).toContain("showSetupNudge");
-    expect(pageSource).toContain("FinishSetupNudge");
+    expect(pageSource).toContain("showSetupNudge={showSetupNudge}");
   });
 });
 

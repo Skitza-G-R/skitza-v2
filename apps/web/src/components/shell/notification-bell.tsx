@@ -1,247 +1,550 @@
 "use client";
 
-import Link from "next/link";
+import {
+  Bell,
+  CalendarDays,
+  CheckCircle2,
+  MessageSquare,
+  ShoppingBag,
+  WalletCards,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { formatRelativeTime } from "~/lib/time/relative";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
-import {
-  markAllNotificationsRead,
-  markNotificationRead,
-} from "./notification-bell-actions";
+import { markAllNotificationsRead, markNotificationRead } from "./notification-bell-actions";
 
-// AppShell notification bell. Replaces the killed `/dashboard/inbox`
-// page (Task 2): unread notifications now live in the shell footer
-// next to the user menu, Linear/Notion-style. The bell owns nothing
-// heavy — the list arrives server-side from getShellState() so first
-// paint has real data, and each interaction (markRead, markAllRead)
-// is a Server Action that revalidates the shell so the count + list
-// stay authoritative without a client-side tRPC pipeline.
-//
-// The dropdown is a plain absolutely-positioned panel. We close on
-// Escape + outside-click + route change. Items deep-link into the
-// Project Room (or the Booking detail for session notifications) via
-// notificationHref() below; clicking an item marks it read and
-// navigates in a single transition so the badge updates on return.
-//
-// Accessibility:
-// - Bell button: aria-haspopup="menu", aria-expanded, aria-live on count
-// - Dropdown: role="menu" with role="menuitem" rows
-// - Esc closes, focus returns to the bell button
-// - "Mark all read" + Settings link anchor the bottom of the dropdown
+export type NotificationTab = "all" | "unread";
 
-// Derive a deep-link href from the notification's related refs.
-// Exported for unit testing — the ordering mirrors the schema FK
-// priority: a comment/track belongs to a project; a booking has its
-// own detail surface. Kept pure so tests can exhaust every kind branch.
-export function notificationHref(n: ShellNotificationItem): string {
-  if (n.projectId) return `/dashboard/clients-projects/${n.projectId}`;
-  if (n.bookingId) return `/dashboard/booking?id=${n.bookingId}`;
+/** Arrow/Home/End behavior for the two-tab notification filter. */
+export function notificationTabForKey(key: string): NotificationTab | null {
+  if (key === "ArrowRight" || key === "End") return "unread";
+  if (key === "ArrowLeft" || key === "Home") return "all";
+  return null;
+}
+
+/** Pure read-state helper kept exported for focused regression tests. */
+export function notificationIsUnread(
+  notification: ShellNotificationItem,
+  readOverrides: ReadonlySet<string> = new Set<string>(),
+): boolean {
+  return notification.readAtIso === null && !readOverrides.has(notification.id);
+}
+
+/** Pure tab filter: the All tab retains read rows; Unread removes them. */
+export function filterNotifications(
+  notifications: readonly ShellNotificationItem[],
+  tab: NotificationTab,
+  readOverrides: ReadonlySet<string> = new Set<string>(),
+): ShellNotificationItem[] {
+  if (tab === "all") return [...notifications];
+  return notifications.filter((item) => notificationIsUnread(item, readOverrides));
+}
+
+/**
+ * Notification deep links are source-specific. Purchase requests own their
+ * dedicated SK-72 detail surface; bookings open Calendar with that booking
+ * selected; project-backed events go to the project room.
+ */
+export function notificationHref(notification: ShellNotificationItem): string {
+  if (notification.purchaseRequestId) {
+    return `/dashboard/requests/${encodeURIComponent(notification.purchaseRequestId)}`;
+  }
+  if (notification.bookingId) {
+    return `/dashboard/calendar?booking=${encodeURIComponent(notification.bookingId)}`;
+  }
+  if (notification.projectId) {
+    return `/dashboard/clients-projects/${encodeURIComponent(notification.projectId)}`;
+  }
   return "/dashboard/clients-projects";
 }
 
+const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)";
+const FALLBACK_ERROR = "Notifications couldn't be updated. Try again.";
+
 export function NotificationBell({
   unreadCount,
-  unreadItems,
+  notifications,
 }: {
   unreadCount: number;
-  unreadItems: readonly ShellNotificationItem[];
+  notifications: readonly ShellNotificationItem[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [tab, setTab] = useState<NotificationTab>("all");
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [markingAll, setMarkingAll] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [readOverrides, setReadOverrides] = useState<Set<string>>(() => new Set<string>());
+  const [allReadOverride, setAllReadOverride] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  const panelId = useId();
+  const tabPanelId = useId();
 
-  const close = useCallback(() => {
-    setOpen(false);
+  useEffect(() => {
+    const media = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const update = () => {
+      setIsDesktop(media.matches);
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => {
+      media.removeEventListener("change", update);
+    };
   }, []);
 
-  // Close on outside-click. Mirrors the studio-switcher pattern so
-  // behaviour is consistent across the shell.
+  // Server refreshes replace the authoritative feed. Drop local optimistic
+  // read markers then so a newly arrived notification is never hidden.
   useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-    };
-  }, [open]);
+    setReadOverrides(new Set<string>());
+    setAllReadOverride(false);
+  }, [notifications, unreadCount]);
 
-  // Escape closes the dropdown and returns focus to the bell. The
-  // focus return is important for keyboard users — otherwise focus
-  // vanishes when the dropdown's items unmount.
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setOpen(false);
-        buttonRef.current?.focus();
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => {
-      document.removeEventListener("keydown", handler);
-    };
-  }, [open]);
-
-  const handleItemClick = useCallback(
-    (item: ShellNotificationItem) => {
-      const href = notificationHref(item);
-      setOpen(false);
-      startTransition(async () => {
-        await markNotificationRead(item.id);
-        router.push(href);
-      });
-    },
-    [router],
-  );
-
-  const handleMarkAll = useCallback(() => {
-    startTransition(async () => {
-      await markAllNotificationsRead();
+  const closeWithFocusReturn = useCallback(() => {
+    setOpen(false);
+    window.requestAnimationFrame(() => {
+      buttonRef.current?.focus();
     });
   }, []);
 
-  const hasUnread = unreadCount > 0;
-  const badgeLabel = unreadCount > 99 ? "99+" : unreadCount.toString();
+  // Desktop popover dismissal. The mobile sheet delegates Escape, backdrop
+  // dismissal, focus trapping and focus return to Radix.
+  useEffect(() => {
+    if (!open || !isDesktop) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeWithFocusReturn();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeWithFocusReturn, isDesktop, open]);
+
+  const isUnread = useCallback(
+    (item: ShellNotificationItem) => !allReadOverride && notificationIsUnread(item, readOverrides),
+    [allReadOverride, readOverrides],
+  );
+
+  const visibleNotifications = useMemo(
+    () =>
+      allReadOverride && tab === "unread"
+        ? []
+        : filterNotifications(notifications, tab, readOverrides),
+    [allReadOverride, notifications, readOverrides, tab],
+  );
+
+  const overriddenUnreadCount = useMemo(
+    () =>
+      notifications.reduce(
+        (count, item) =>
+          item.readAtIso === null && readOverrides.has(item.id) ? count + 1 : count,
+        0,
+      ),
+    [notifications, readOverrides],
+  );
+  const currentUnreadCount = allReadOverride ? 0 : Math.max(0, unreadCount - overriddenUnreadCount);
+  const badgeLabel = currentUnreadCount > 99 ? "99+" : String(currentUnreadCount);
+
+  const handleItemClick = useCallback(
+    async (item: ShellNotificationItem) => {
+      if (pendingId !== null || markingAll) return;
+      setError(null);
+      setPendingId(item.id);
+
+      try {
+        if (isUnread(item)) {
+          const result = await markNotificationRead(item.id);
+          if (!result.ok) {
+            setError(result.error || FALLBACK_ERROR);
+            return;
+          }
+          setReadOverrides((current) => {
+            const next = new Set(current);
+            next.add(item.id);
+            return next;
+          });
+        }
+
+        setOpen(false);
+        router.push(notificationHref(item));
+      } catch {
+        setError(FALLBACK_ERROR);
+      } finally {
+        setPendingId(null);
+      }
+    },
+    [isUnread, markingAll, pendingId, router],
+  );
+
+  const handleMarkAll = useCallback(async () => {
+    if (markingAll || pendingId !== null || currentUnreadCount === 0) return;
+    setError(null);
+    setMarkingAll(true);
+    try {
+      const result = await markAllNotificationsRead();
+      if (!result.ok) {
+        setError(result.error || FALLBACK_ERROR);
+        return;
+      }
+      setAllReadOverride(true);
+      setReadOverrides(
+        new Set(notifications.filter((item) => item.readAtIso === null).map((item) => item.id)),
+      );
+      router.refresh();
+    } catch {
+      setError(FALLBACK_ERROR);
+    } finally {
+      setMarkingAll(false);
+    }
+  }, [currentUnreadCount, markingAll, notifications, pendingId, router]);
+
+  const panelProps = {
+    tab,
+    setTab,
+    notifications: visibleNotifications,
+    isUnread,
+    currentUnreadCount,
+    pendingId,
+    markingAll,
+    error,
+    tabPanelId,
+    onItemClick: handleItemClick,
+    onMarkAll: handleMarkAll,
+  } as const;
 
   return (
     <div ref={rootRef} className="relative">
       <button
         ref={buttonRef}
         type="button"
-        aria-label={hasUnread ? `Notifications (${badgeLabel} unread)` : "Notifications"}
-        aria-haspopup="menu"
+        data-testid="notification-bell-trigger"
+        aria-label={
+          currentUnreadCount > 0 ? `Notifications (${badgeLabel} unread)` : "Notifications"
+        }
+        aria-haspopup="dialog"
         aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         onClick={() => {
-          setOpen((v) => !v);
+          setError(null);
+          setOpen((value) => !value);
         }}
-        // h-9 w-9 (36px) on mobile for drawer ergonomics, tightens
-        // back to h-7 w-7 (28px) on desktop where the sidebar footer
-        // is compact. focus-visible ring makes the bell reachable via
-        // keyboard from the nav above.
-        className="relative flex h-9 w-9 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] md:h-7 md:w-7"
+        className="relative inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none active:scale-[0.94]"
       >
-        <BellIcon />
-        {hasUnread ? (
+        <Bell size={19} strokeWidth={2} aria-hidden />
+        {currentUnreadCount > 0 ? (
           <span
-            aria-live="polite"
-            className="absolute -right-0.5 -top-0.5 flex min-w-[14px] items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary))] px-1 font-mono text-[0.55rem] font-semibold leading-[14px] text-[rgb(var(--fg-inverse))] ring-2 ring-[rgb(var(--bg-elevated))]"
+            aria-hidden
+            className="absolute -top-1 -right-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary))] px-1 font-mono text-[9px] leading-none font-bold text-[rgb(var(--fg-on-brand))] ring-2 ring-[rgb(var(--bg-elevated))]"
           >
             {badgeLabel}
           </span>
         ) : null}
       </button>
-      {open ? (
+
+      {open && isDesktop ? (
         <div
-          role="menu"
-          aria-label="Notifications"
-          // Anchored to the bell: sidebar lives at the left edge, so
-          // align the dropdown to the button's left and push it above
-          // (the bell is near the sidebar footer, so below would be
-          // clipped by the bottom of the rail). max-w keeps it on
-          // screen at 360px viewports.
-          // `sk-pop` + inline `origin-bottom-left` overrides the
-          // default top-left origin so the scale-in visually springs
-          // from the bell icon sitting below the popover.
-          style={{ transformOrigin: "bottom left" }}
-          className="sk-pop absolute bottom-full left-0 z-50 mb-2 w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-lg"
+          role="dialog"
+          aria-modal="false"
+          id={panelId}
+          aria-labelledby={titleId}
+          aria-describedby={descriptionId}
+          data-testid="notification-popover"
+          className="sk-pop absolute top-[calc(100%+0.65rem)] right-0 z-50 flex max-h-[calc(100vh-5.5rem)] w-[25rem] origin-top-right flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-lg)]"
         >
-          <div className="flex items-center justify-between border-b border-[rgb(var(--border-subtle))] px-3 py-2">
-            <span className="font-display text-sm tracking-tight text-[rgb(var(--fg-primary))]">
-              Notifications
-            </span>
-            {hasUnread ? (
-              <button
-                type="button"
-                onClick={handleMarkAll}
-                disabled={isPending}
-                className="font-mono text-[0.625rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--brand-primary))] disabled:opacity-50"
+          <p id={descriptionId} className="sr-only">
+            Recent producer notifications.
+          </p>
+          <NotificationPanel
+            {...panelProps}
+            title={
+              <h2
+                id={titleId}
+                className="font-display text-lg font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
               >
-                Mark all read
-              </button>
-            ) : null}
-          </div>
-          <ul aria-live="polite" className="max-h-[60vh] overflow-y-auto">
-            {unreadItems.length === 0 ? (
-              <li className="px-3 py-6 text-center text-sm text-[rgb(var(--fg-muted))]">
-                You're all caught up.
-              </li>
-            ) : (
-              unreadItems.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      handleItemClick(item);
-                    }}
-                    disabled={isPending}
-                    // min-h-[52px] keeps each notification row reliably
-                    // tappable even when it's a single-line item. Inset
-                    // focus-visible clips the ring to the row rect so
-                    // it doesn't overflow the dropdown edges.
-                    className="flex min-h-[52px] w-full flex-col items-start justify-center gap-0.5 border-b border-[rgb(var(--border-subtle))] px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] disabled:opacity-50"
-                  >
-                    <span className="flex w-full items-center justify-between gap-2">
-                      <span className="truncate text-sm text-[rgb(var(--fg-primary))]">
-                        {item.title}
-                      </span>
-                      <span className="shrink-0 font-mono text-[0.625rem] text-[rgb(var(--fg-muted))]">
-                        {formatRelativeTime(new Date(item.createdAtIso))}
-                      </span>
-                    </span>
-                    {item.body ? (
-                      <span className="line-clamp-1 text-xs text-[rgb(var(--fg-muted))]">
-                        {item.body}
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              ))
-            )}
-          </ul>
-          <div className="border-t border-[rgb(var(--border-subtle))] px-3 py-2">
-            <Link
-              href="/dashboard/settings"
-              onClick={close}
-              className="font-mono text-[0.625rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--brand-primary))]"
-            >
-              Notification settings →
-            </Link>
-          </div>
+                Notifications
+              </h2>
+            }
+          />
         </div>
       ) : null}
+
+      <Sheet
+        open={open && !isDesktop}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setOpen(false);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          id={panelId}
+          data-testid="notification-sheet"
+          aria-labelledby={titleId}
+          aria-describedby={descriptionId}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            buttonRef.current?.focus();
+          }}
+          className="max-h-[88dvh] w-full gap-0 overflow-hidden p-0 pt-3 pb-[env(safe-area-inset-bottom)] sm:p-0 sm:pt-3"
+        >
+          <SheetDescription id={descriptionId} className="sr-only">
+            Recent producer notifications.
+          </SheetDescription>
+          <NotificationPanel
+            {...panelProps}
+            title={
+              <SheetTitle id={titleId} className="text-xl font-bold tracking-[-0.025em]">
+                Notifications
+              </SheetTitle>
+            }
+          />
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
 
-// Bell glyph — outlined style to match the other sidebar icons (home,
-// library, folder, cog). 16x16, stroke=currentColor so hover states
-// flow through parent text colour.
-function BellIcon() {
+interface NotificationPanelProps {
+  title: ReactNode;
+  tab: NotificationTab;
+  setTab: (tab: NotificationTab) => void;
+  notifications: readonly ShellNotificationItem[];
+  isUnread: (item: ShellNotificationItem) => boolean;
+  currentUnreadCount: number;
+  pendingId: string | null;
+  markingAll: boolean;
+  error: string | null;
+  tabPanelId: string;
+  onItemClick: (item: ShellNotificationItem) => Promise<void>;
+  onMarkAll: () => Promise<void>;
+}
+
+function NotificationPanel({
+  title,
+  tab,
+  setTab,
+  notifications,
+  isUnread,
+  currentUnreadCount,
+  pendingId,
+  markingAll,
+  error,
+  tabPanelId,
+  onItemClick,
+  onMarkAll,
+}: NotificationPanelProps) {
+  const allTabId = `${tabPanelId}-all`;
+  const unreadTabId = `${tabPanelId}-unread`;
+
   return (
-    <svg
-      aria-hidden
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-between gap-4 px-4 pt-4 pb-3 sm:px-5">
+        {title}
+        <button
+          type="button"
+          onClick={() => {
+            void onMarkAll();
+          }}
+          disabled={markingAll || pendingId !== null || currentUnreadCount === 0}
+          className="min-h-8 rounded-[var(--radius-sm)] px-2.5 text-xs font-semibold text-[rgb(var(--brand-primary-text))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.09)] disabled:cursor-not-allowed disabled:text-[rgb(var(--fg-faint))]"
+        >
+          {markingAll ? "Marking…" : "Mark all read"}
+        </button>
+      </div>
+
+      <div
+        role="tablist"
+        aria-label="Notification filters"
+        onKeyDown={(event) => {
+          const nextTab = notificationTabForKey(event.key);
+          if (nextTab === null) return;
+          event.preventDefault();
+          setTab(nextTab);
+          const nextId = nextTab === "all" ? allTabId : unreadTabId;
+          window.requestAnimationFrame(() => {
+            document.getElementById(nextId)?.focus();
+          });
+        }}
+        className="flex gap-1 border-b border-[rgb(var(--border-subtle))] px-4 sm:px-5"
+      >
+        <NotificationTabButton
+          id={allTabId}
+          selected={tab === "all"}
+          controls={tabPanelId}
+          onClick={() => {
+            setTab("all");
+          }}
+        >
+          All
+        </NotificationTabButton>
+        <NotificationTabButton
+          id={unreadTabId}
+          selected={tab === "unread"}
+          controls={tabPanelId}
+          onClick={() => {
+            setTab("unread");
+          }}
+        >
+          Unread{currentUnreadCount > 0 ? ` ${String(currentUnreadCount)}` : ""}
+        </NotificationTabButton>
+      </div>
+
+      {error ? (
+        <p
+          role="alert"
+          data-testid="notification-error"
+          className="mx-4 mt-3 rounded-[var(--radius-sm)] border border-[rgb(var(--fg-danger)/0.2)] bg-[rgb(var(--fg-danger)/0.08)] px-3 py-2 text-xs font-medium text-[rgb(var(--fg-danger-text))] sm:mx-5"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      <div
+        id={tabPanelId}
+        role="tabpanel"
+        aria-labelledby={tab === "all" ? allTabId : unreadTabId}
+        tabIndex={0}
+        data-testid="notification-list"
+        className="custom-scrollbar min-h-0 flex-1 overflow-y-auto focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
+      >
+        {notifications.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <CheckCircle2
+              size={24}
+              strokeWidth={1.7}
+              aria-hidden
+              className="mx-auto mb-2 text-[rgb(var(--brand-primary))]"
+            />
+            <p className="text-sm font-medium text-[rgb(var(--fg-default))]">
+              {tab === "unread" ? "You're all caught up." : "No notifications yet."}
+            </p>
+          </div>
+        ) : (
+          <ul>
+            {notifications.map((item) => {
+              const unread = isUnread(item);
+              const pending = pendingId === item.id;
+              return (
+                <li
+                  key={item.id}
+                  className="border-b border-[rgb(var(--border-subtle))] last:border-b-0"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onItemClick(item);
+                    }}
+                    disabled={pendingId !== null || markingAll}
+                    aria-label={`${item.title}${unread ? ", unread" : ""}`}
+                    className="group flex min-h-[72px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset disabled:cursor-wait disabled:opacity-60 sm:px-5"
+                  >
+                    <NotificationKindIcon kind={item.kind} />
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className={`line-clamp-1 text-sm text-[rgb(var(--fg-default))] ${
+                          unread ? "font-semibold" : "font-medium"
+                        }`}
+                      >
+                        {item.title}
+                      </span>
+                      {item.body ? (
+                        <span className="mt-0.5 line-clamp-1 text-xs text-[rgb(var(--fg-muted))]">
+                          {item.body}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
+                        {pending ? "Updating…" : formatRelativeTime(new Date(item.createdAtIso))}
+                      </span>
+                      {unread ? (
+                        <span
+                          aria-hidden
+                          className="h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))]"
+                        />
+                      ) : (
+                        <span aria-hidden className="h-2 w-2" />
+                      )}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NotificationTabButton({
+  id,
+  selected,
+  controls,
+  onClick,
+  children,
+}: {
+  id: string;
+  selected: boolean;
+  controls: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      id={id}
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      aria-controls={controls}
+      tabIndex={selected ? 0 : -1}
+      onClick={onClick}
+      className={`relative min-h-10 rounded-t-[var(--radius-sm)] px-2.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset ${
+        selected
+          ? "text-[rgb(var(--fg-default))] after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-[rgb(var(--brand-primary))]"
+          : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+      }`}
     >
-      <path d="M3.5 6.5a4.5 4.5 0 0 1 9 0v2.2l1 2.3H2.5l1-2.3V6.5Z" />
-      <path d="M6.5 13a1.5 1.5 0 0 0 3 0" />
-    </svg>
+      {children}
+    </button>
+  );
+}
+
+function NotificationKindIcon({ kind }: { kind: string }) {
+  let icon: ReactNode;
+  if (kind === "booking_requested") {
+    icon = <CalendarDays size={17} strokeWidth={1.9} aria-hidden />;
+  } else if (kind === "comment_created") {
+    icon = <MessageSquare size={17} strokeWidth={1.9} aria-hidden />;
+  } else if (kind === "proof_submitted") {
+    icon = <WalletCards size={17} strokeWidth={1.9} aria-hidden />;
+  } else if (kind.startsWith("purchase_") || kind === "agreement_accepted") {
+    icon = <ShoppingBag size={17} strokeWidth={1.9} aria-hidden />;
+  } else {
+    icon = <CheckCircle2 size={17} strokeWidth={1.9} aria-hidden />;
+  }
+
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--brand-primary)/0.08)] text-[rgb(var(--brand-primary-text))]">
+      {icon}
+    </span>
   );
 }

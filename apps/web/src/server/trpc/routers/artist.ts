@@ -35,6 +35,7 @@ import { getSiteUrl } from "~/server/stripe/client";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { calendarPaymentSummary } from "~/lib/payment-plans";
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
+import { emitBookingRequested } from "~/server/notifications/emit";
 
 // ─── Ownership guard ─────────────────────────────────────────────────
 // Resolves the signed-in artist's ownership of a given project. Both
@@ -1124,6 +1125,21 @@ const bookSubrouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // The top-right bell is the producer's single notification entry
+      // point. Emit the verified booking event after the primary insert;
+      // a notification failure must never roll back the artist's booking.
+      try {
+        await emitBookingRequested(ctx.db, {
+          producerId: input.producerId,
+          bookingId: row.id,
+          artistName: contact.name,
+          artistEmail: contact.email,
+          when: startsAt,
+        });
+      } catch (error) {
+        console.warn("[notify] booking-requested failed", error);
+      }
 
       return { id: row.id };
     }),

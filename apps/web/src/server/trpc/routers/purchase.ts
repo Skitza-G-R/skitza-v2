@@ -29,6 +29,10 @@ import { z } from "zod";
 import { snapshotProductPrice, validatePerSongUnit } from "~/lib/purchase/price-snapshot";
 import { commercialTermsFingerprint } from "~/lib/purchase/commercial-terms-fingerprint";
 import { safeAgreementUrl } from "~/lib/agreement-url";
+import {
+  isApprovalUndoAvailable,
+  purchaseApprovalUndoDeadline,
+} from "~/lib/purchase/approval-undo";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 import {
   generateRefNumber,
@@ -71,11 +75,9 @@ import { artistProcedure } from "../artist-procedure";
 import { producerProcedure } from "../producer-procedure";
 import { router } from "../init";
 
-// 5-minute Gate-1 undo window. There is no scheduler in the app, so the
-// window is enforced purely at undo-time (now − approvedAt < UNDO_MS).
+// The Gate-1 undo window has no scheduler, so it is enforced at undo-time.
 // Per Raz's call, the engagement project is NOT created on approve — it's
 // deferred until the window elapses — so undo has nothing to reverse.
-const UNDO_MS = 5 * 60 * 1000;
 
 const PAYMENT_PLAN_INPUT = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("full") }),
@@ -1405,6 +1407,10 @@ export const producerPurchaseRouter = router({
         .from(agreementAcceptances)
         .where(eq(agreementAcceptances.purchaseRequestId, request.id))
         .limit(1);
+      const approvedAt =
+        request.status === "approved"
+          ? (request.approvedAt ?? request.statusChangedAt ?? request.createdAt)
+          : null;
       return {
         id: request.id,
         refNumber: request.refNumber,
@@ -1422,6 +1428,10 @@ export const producerPurchaseRouter = router({
         contractUrlSnapshot: request.contractUrlSnapshot,
         createdAt: request.createdAt,
         acceptedAt: acceptance?.acceptedAt ?? null,
+        undoableUntil:
+          approvedAt && !request.paymentPlanChosenAt
+            ? purchaseApprovalUndoDeadline(approvedAt)
+            : null,
       };
     }),
 
@@ -1496,7 +1506,7 @@ export const producerPurchaseRouter = router({
         ok: true as const,
         status: "approved" as const,
         approvedAt,
-        undoableUntil: new Date(approvedAt.getTime() + UNDO_MS),
+        undoableUntil: purchaseApprovalUndoDeadline(approvedAt),
         projectId: req.projectId,
       };
     }),
@@ -1585,7 +1595,7 @@ export const producerPurchaseRouter = router({
             message: "There's no approval to undo.",
           });
         }
-        if (Date.now() - req.approvedAt.getTime() >= UNDO_MS) {
+        if (!isApprovalUndoAvailable(purchaseApprovalUndoDeadline(req.approvedAt))) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "The undo window has elapsed.",

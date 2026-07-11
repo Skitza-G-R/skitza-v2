@@ -196,8 +196,21 @@ const {
   };
 });
 
+const { emitBookingRequestedMock } = vi.hoisted(() => ({
+  emitBookingRequestedMock: vi.fn<() => Promise<void>>(),
+}));
+
 vi.mock("@clerk/nextjs/server", () => ({
   auth: () => Promise.resolve({ userId: "user_test_artist_1" }),
+}));
+
+vi.mock("~/server/notifications/emit", () => ({
+  emitBookingRequested: emitBookingRequestedMock,
+  emitAgreementAccepted: vi.fn(),
+  emitProofSubmitted: vi.fn(),
+  emitPurchaseApproved: vi.fn(),
+  emitPurchaseDeclined: vi.fn(),
+  emitPurchaseRequested: vi.fn(),
 }));
 
 vi.mock("@skitza/db", () => ({
@@ -248,6 +261,7 @@ beforeEach(() => {
   projectsWhereSpy.mockReset();
   insertValuesSpy.mockReset();
   insertReturningMock.mockReset().mockResolvedValue([]);
+  emitBookingRequestedMock.mockReset().mockResolvedValue();
   process.env.DATABASE_URL = "postgresql://test/test";
   // Freeze time for deterministic 14-day window assertions. 2026-04-19
   // is a Sunday (weekday 0 in JS) — picked to line up with the first
@@ -510,6 +524,40 @@ describe("artist.book.confirm (mutation)", () => {
     expect(payload.startsAt).toBeInstanceOf(Date);
 
     expect(result.id).toBe("bk-new");
+    expect(emitBookingRequestedMock).toHaveBeenCalledWith(
+      dbMock,
+      expect.objectContaining({
+        producerId: PRODUCER_ID,
+        bookingId: "bk-new",
+        artistName: "Dan The Artist",
+        artistEmail: "dan@x.com",
+      }),
+    );
+  });
+
+  it("keeps a successful booking when notification delivery fails", async () => {
+    seedValidContact();
+    bookingsSelectQueue.push([]);
+    insertReturningMock.mockResolvedValue([
+      {
+        id: "bk-new",
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        artistName: "Dan The Artist",
+        startsAt: new Date("2026-04-19T09:00:00Z"),
+        durationMin: 120,
+        status: "pending_approval",
+      },
+    ]);
+    emitBookingRequestedMock.mockRejectedValueOnce(
+      new Error("notification insert failed"),
+    );
+
+    const caller = await buildCaller();
+
+    await expect(caller.artist.book.confirm(validInput)).resolves.toEqual({
+      id: "bk-new",
+    });
   });
 
   it("links booking to projectId when provided", async () => {

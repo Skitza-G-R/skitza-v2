@@ -6,7 +6,8 @@ import { dirname, join } from "node:path";
 // Safety-net symmetry tests for the producer + artist top bar
 // wrappers (SK-31). Pins that both wrappers stay structurally the
 // same — i.e. both delegate to the shared `AppTopBar`, both pass the
-// same set of props, both keep their own section maps. If a future
+// same prop contract (including an explicit visual variant), and both keep
+// their own section maps. If a future
 // PR takes one side off the shared component or adds a feature to
 // only one side, this file fails the build before merge.
 //
@@ -21,10 +22,7 @@ import { dirname, join } from "node:path";
 //     code.
 
 const here = dirname(fileURLToPath(import.meta.url));
-const PRODUCER = readFileSync(
-  join(here, "..", "dashboard-topbar.tsx"),
-  "utf-8",
-);
+const PRODUCER = readFileSync(join(here, "..", "dashboard-topbar.tsx"), "utf-8");
 const ARTIST = readFileSync(join(here, "..", "artist-topbar.tsx"), "utf-8");
 
 const wrappers: { name: string; src: string }[] = [
@@ -32,54 +30,55 @@ const wrappers: { name: string; src: string }[] = [
   { name: "artist-topbar (artist)", src: ARTIST },
 ];
 
-describe.each(wrappers)(
-  "$name stays on the shared AppTopBar contract",
-  ({ src }) => {
-    it("imports the shared AppTopBar", () => {
-      expect(src).toMatch(/from\s+["']\.\/app-topbar["']/);
-    });
+describe.each(wrappers)("$name stays on the shared AppTopBar contract", ({ src }) => {
+  it("imports the shared AppTopBar", () => {
+    expect(src).toMatch(/from\s+["']\.\/app-topbar["']/);
+  });
 
-    it("renders <AppTopBar /> (no parallel hand-rolled topbar)", () => {
-      expect(src).toMatch(/<AppTopBar/);
-    });
+  it("renders <AppTopBar /> (no parallel hand-rolled topbar)", () => {
+    expect(src).toMatch(/<AppTopBar/);
+  });
 
-    it("passes a sections map", () => {
-      expect(src).toMatch(/sections=\{[A-Z_]+_SECTIONS\}/);
-    });
+  it("passes a sections map", () => {
+    expect(src).toMatch(/sections=\{[A-Z_]+_SECTIONS\}/);
+  });
 
-    it("passes a fallback section", () => {
-      expect(src).toMatch(/fallback=\{[A-Z_]+_FALLBACK\}/);
-    });
+  it("passes an explicit chrome variant", () => {
+    expect(src).toMatch(/variant=["'](?:producer|artist)["']/);
+  });
 
-    it("passes the search placeholder", () => {
-      expect(src).toMatch(/searchPlaceholder=/);
-    });
+  it("passes a fallback section", () => {
+    expect(src).toMatch(/fallback=\{[A-Z_]+_FALLBACK\}/);
+  });
 
-    it("threads unreadCount through to the shared bar", () => {
-      expect(src).toMatch(/unreadCount=\{unreadCount\}/);
-    });
+  it("passes the search placeholder", () => {
+    expect(src).toMatch(/searchPlaceholder=/);
+  });
 
-    it("defines its own *_SECTIONS const at the top of the file", () => {
-      expect(src).toMatch(/const\s+[A-Z_]+_SECTIONS\s*=\s*\{/);
-    });
+  it("threads unreadCount through to the shared bar", () => {
+    expect(src).toMatch(/unreadCount=\{unreadCount\}/);
+  });
 
-    it("defines its own *_FALLBACK constant", () => {
-      expect(src).toMatch(/const\s+[A-Z_]+_FALLBACK\s*=\s*\{/);
-    });
+  it("defines its own *_SECTIONS const at the top of the file", () => {
+    expect(src).toMatch(/const\s+[A-Z_]+_SECTIONS\s*=\s*\{/);
+  });
 
-    it("is a client component (needed for the AppTopBar's hooks)", () => {
-      expect(src).toMatch(/^"use client";/);
-    });
+  it("defines its own *_FALLBACK constant", () => {
+    expect(src).toMatch(/const\s+[A-Z_]+_FALLBACK\s*=\s*\{/);
+  });
 
-    it("uses no forbidden Skitza CSS tokens (regression guard)", () => {
-      expect(src).not.toContain("--surface-card");
-      expect(src).not.toContain("--surface-hover");
-      expect(src).not.toContain("--text-muted");
-      expect(src).not.toContain("--text-strong");
-      expect(src).not.toContain("--brand-primary-on");
-    });
-  },
-);
+  it("is a client component (needed for the AppTopBar's hooks)", () => {
+    expect(src).toMatch(/^"use client";/);
+  });
+
+  it("uses no forbidden Skitza CSS tokens (regression guard)", () => {
+    expect(src).not.toContain("--surface-card");
+    expect(src).not.toContain("--surface-hover");
+    expect(src).not.toContain("--text-muted");
+    expect(src).not.toContain("--text-strong");
+    expect(src).not.toContain("--brand-primary-on");
+  });
+});
 
 describe("producer + artist wrappers share the same prop shape", () => {
   // Final hard pin: the set of props each side hands to <AppTopBar>
