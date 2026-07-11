@@ -68,8 +68,8 @@ describe("producer purchase request hub", () => {
     expect(purchaseRouterSrc).toMatch(/information_schema\.columns/);
     expect(purchaseRouterSrc).toMatch(/information_schema\.tables/);
     expect(purchaseRouterSrc).not.toMatch(/select\(\{ request: purchaseRequests/);
-    expect(purchaseRouterSrc).toMatch(/delete legacyValues\.paymentPlanOptionsSnapshot/);
-    expect(purchaseRouterSrc).toMatch(/delete legacyValues\.paymentPlanChosenAt/);
+    expect(purchaseRouterSrc).toMatch(/insert into "public"\."purchase_requests"/);
+    expect(purchaseRouterSrc).toMatch(/const result = await db\.execute<LegacyPurchaseRequest>/);
     expect(purchaseRouterSrc).toMatch(/hasPlanColumns\s*\?\s*\{/);
     expect(purchaseRouterSrc).toMatch(
       /const pendingProofCents = hasProofTable[\s\S]*pendingProofTotalCents/,

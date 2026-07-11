@@ -365,7 +365,7 @@ async function loadPurchaseRequestRow(
 // Insert a purchase request, retrying with a fresh ref_number on the
 // (astronomically unlikely) UNIQUE clash. ON CONFLICT avoids aborting the
 // surrounding PostgreSQL transaction, which a caught 23505 would do.
-async function insertPurchaseRequest(
+export async function insertPurchaseRequest(
   db: Pick<Db, "execute" | "insert">,
   values: Omit<typeof purchaseRequests.$inferInsert, "refNumber">,
 ): Promise<PurchaseRequest> {
@@ -380,14 +380,79 @@ async function insertPurchaseRequest(
         .returning();
       if (row) return row;
     } else {
-      const legacyValues = { ...values };
-      delete legacyValues.paymentPlanOptionsSnapshot;
-      delete legacyValues.paymentPlanChosenAt;
-      const [row] = await db
-        .insert(purchaseRequests)
-        .values({ ...legacyValues, refNumber })
-        .onConflictDoNothing({ target: purchaseRequests.refNumber })
-        .returning(legacyPurchaseRequestColumns());
+      // Drizzle's INSERT builder enumerates every column in the current
+      // TypeScript schema even when a value key is omitted (the missing value
+      // becomes DEFAULT). That still names migration-0023 columns and makes a
+      // pre-0023 database reject a brand-new request. Use the exact 0021 table
+      // shape here so the fallback is a real compatibility path, not only a
+      // legacy RETURNING projection.
+      const result = await db.execute<LegacyPurchaseRequest>(sql`
+        insert into "public"."purchase_requests" (
+          "producer_id",
+          "client_contact_id",
+          "product_id",
+          "project_id",
+          "booking_id",
+          "ref_number",
+          "status",
+          "status_changed_at",
+          "approved_at",
+          "declined_at",
+          "artist_name",
+          "artist_email",
+          "product_name_snapshot",
+          "price_cents",
+          "currency",
+          "payment_plan_snapshot",
+          "song_qty",
+          "unit_price_cents",
+          "contract_url_snapshot"
+        ) values (
+          ${values.producerId},
+          ${values.clientContactId},
+          ${values.productId ?? null},
+          ${values.projectId ?? null},
+          ${values.bookingId ?? null},
+          ${refNumber},
+          ${values.status ?? "pending"}::"public"."purchase_request_status",
+          ${values.statusChangedAt ?? null},
+          ${values.approvedAt ?? null},
+          ${values.declinedAt ?? null},
+          ${values.artistName},
+          ${values.artistEmail},
+          ${values.productNameSnapshot},
+          ${values.priceCents},
+          ${values.currency},
+          ${JSON.stringify(values.paymentPlanSnapshot)}::jsonb,
+          ${values.songQty ?? null},
+          ${values.unitPriceCents ?? null},
+          ${values.contractUrlSnapshot ?? null}
+        )
+        on conflict ("ref_number") do nothing
+        returning
+          "id" as "id",
+          "producer_id" as "producerId",
+          "client_contact_id" as "clientContactId",
+          "product_id" as "productId",
+          "project_id" as "projectId",
+          "booking_id" as "bookingId",
+          "ref_number" as "refNumber",
+          "status" as "status",
+          "status_changed_at" as "statusChangedAt",
+          "approved_at" as "approvedAt",
+          "declined_at" as "declinedAt",
+          "artist_name" as "artistName",
+          "artist_email" as "artistEmail",
+          "product_name_snapshot" as "productNameSnapshot",
+          "price_cents" as "priceCents",
+          "currency" as "currency",
+          "payment_plan_snapshot" as "paymentPlanSnapshot",
+          "song_qty" as "songQty",
+          "unit_price_cents" as "unitPriceCents",
+          "contract_url_snapshot" as "contractUrlSnapshot",
+          "created_at" as "createdAt"
+      `);
+      const row = result.rows[0];
       if (row) return withLegacyPlanFields(row);
     }
   }
