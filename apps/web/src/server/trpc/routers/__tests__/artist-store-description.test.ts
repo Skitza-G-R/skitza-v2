@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { decodeDescription, encodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
 
-// SK-49 — the producer wizard encodes revisions/contract terms into
+// SK-49 — legacy producer drafts encode revisions/contract terms into
 // products.description after a "---" marker. Artist-facing reads must
 // return only the human tagline, never the encoded block (it leaked
 // onto the store cards).
@@ -16,10 +16,16 @@ const artistSrc = readFileSync(join(here, "..", "artist.ts"), "utf8");
 
 describe("artist.store description decoding (SK-49)", () => {
   it("both store reads return the decoded tagline, not the raw column", () => {
-    const matches = artistSrc.match(
+    const directListReads = artistSrc.match(
       /description: decodeDescription\((?:r|row)\.description\)\.tagline \|\| null/g,
     );
-    expect(matches).toHaveLength(2);
+    expect(directListReads).toHaveLength(1);
+    expect(artistSrc).toMatch(
+      /const decodedDescription = decodeDescription\(row\.description\)/,
+    );
+    expect(artistSrc).toMatch(
+      /description: decodedDescription\.tagline \|\| null/,
+    );
     expect(artistSrc).toMatch(
       /from "~\/app\/\(producer\)\/dashboard\/store\/description-encoding"/,
     );

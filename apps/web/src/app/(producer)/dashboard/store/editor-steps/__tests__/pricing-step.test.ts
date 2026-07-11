@@ -5,7 +5,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { totalFor } from "~/lib/pricing";
-import { PREVIEW_QTYS, seedPerSongTiers } from "../pricing-step";
+import {
+  appendDiscountTier,
+  MAX_VOLUME_TIERS,
+  PREVIEW_QTYS,
+  seedPerSongTiers,
+} from "../pricing-step";
 
 // Repo convention: vitest runs in `node` env, no jsdom, no
 // @testing-library/react. Pure helpers + source-grep on the JSX
@@ -58,12 +63,30 @@ describe("PREVIEW_QTYS", () => {
   });
 });
 
+describe("per-song tier limit", () => {
+  it("adds tiers until the ten-tier server limit and then stops", () => {
+    const nine = Array.from({ length: MAX_VOLUME_TIERS - 1 }, (_, index) => ({
+      minQty: index * 5 + 1,
+      pricePerUnitCents: 20_000 - index * 500,
+    }));
+    const ten = appendDiscountTier(nine, 20_000);
+    expect(ten).toHaveLength(MAX_VOLUME_TIERS);
+    expect(appendDiscountTier(ten, 20_000)).toEqual(ten);
+  });
+});
+
 // ─── Source-grep — toggle, rate card, artist-facing footer ──────────
 
 describe("pricing-step.tsx source", () => {
   it("renders both toggle options (flat / per song with discounts)", () => {
     expect(source).toMatch(/one flat price/i);
     expect(source).toMatch(/per song with discounts/i);
+  });
+
+  it("uses native radios for keyboard-accessible pricing-model selection", () => {
+    expect(source).toMatch(/<fieldset/);
+    expect(source).toMatch(/name="product-pricing-model"/);
+    expect(source).toMatch(/type="radio"/);
   });
 
   it("renders the pricing-ladder eyebrow on the per-song panel", () => {
@@ -77,6 +100,7 @@ describe("pricing-step.tsx source", () => {
 
   it("renders the 'add another tier' affordance inside the rate card", () => {
     expect(source).toMatch(/add another tier/i);
+    expect(source).toMatch(/Maximum of 10 tiers reached/);
   });
 
   it("renders the artist-facing 'From $X/song' preview line", () => {
@@ -100,5 +124,30 @@ describe("pricing-step.tsx source", () => {
     // Both panels share the same control labels, so we expect ≥2 hits.
     const matches = source.match(/Unlimited/g) ?? [];
     expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders the shared global-tax section in both pricing branches", () => {
+    const matches = source.match(/<ProductTaxSection/g) ?? [];
+    expect(matches).toHaveLength(2);
+    expect(source).toMatch(/Applies to all products/);
+  });
+
+  it("stacks per-song ladder rows on mobile instead of forcing four columns", () => {
+    expect(source).not.toContain("grid-cols-[1fr_auto_auto_24px]");
+    expect(source).toMatch(/grid-cols-1[\s\S]*?sm:grid-cols-/);
+  });
+
+  it("keeps per-song price and tax controls at least 44px tall on mobile", () => {
+    expect(source).toMatch(
+      /aria-label="Base price per song"[\s\S]*?className="h-11[^"]*sm:h-full/,
+    );
+    expect(source).toMatch(
+      /aria-label=\{`Discount tier[\s\S]*?price per song`\}[\s\S]*?className="h-11[^"]*sm:h-full/,
+    );
+    expect(source).toContain("[&>button]:min-h-11");
+  });
+
+  it("supports hiding the legacy payment block for the Store Payment step", () => {
+    expect(source).toMatch(/showPaymentPlans/);
   });
 });

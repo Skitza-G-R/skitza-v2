@@ -18,7 +18,9 @@ import {
   producers,
   projects,
   sql,
+  type PaymentPlan,
   type Product,
+  type ProductRoyaltyTerms,
 } from "@skitza/db";
 import { createDb } from "@skitza/db";
 import { z } from "zod";
@@ -33,6 +35,11 @@ import {
   SITE_URL,
 } from "~/server/email/send";
 import { computeProjectSessionCount } from "~/lib/pricing";
+import {
+  mergePreservedPaymentPlans,
+  normalizeProductPaymentPlans,
+} from "~/lib/payment-plans";
+import { isSafeAgreementUrl } from "~/lib/agreement-url";
 
 // ─── Product schemas ─────────────────────────────────────────────────
 // Phase H.3 rebuild — producers don't sell time, they sell deliverables.
@@ -71,8 +78,7 @@ const Milestone = z.object({
 // `PaymentPlan` union on the schema side. Optional on input so legacy
 // callers (onboarding wizard, tests) don't have to thread a value; when
 // absent, the DB default of `[{kind:"full"}]` applies.
-const PaymentPlanInput = z.array(
-  z.discriminatedUnion("kind", [
+const PaymentPlanValue = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("full") }),
     z.object({ kind: z.literal("split_50_50") }),
     z.object({
@@ -95,8 +101,60 @@ const PaymentPlanInput = z.array(
         )
         .min(1),
     }),
+  ]);
+
+const PaymentPlanInput = z
+  .array(PaymentPlanValue)
+  .superRefine((plans, ctx) => {
+    const standardKinds = plans
+      .filter((plan) => plan.kind !== "milestones")
+      .map((plan) => plan.kind);
+    for (const kind of ["full", "split_50_50", "monthly"] as const) {
+      const count = standardKinds.filter((candidate) => candidate === kind).length;
+      if (count > 1) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            kind === "monthly"
+              ? "Choose only one monthly payment schedule"
+              : `${kind} may be selected only once`,
+        });
+      }
+    }
+  })
+  .transform((plans) => normalizeProductPaymentPlans(plans as PaymentPlan[]));
+
+const PercentageRoyalty = z.object({
+  mode: z.literal("percentage"),
+  bps: z.number().int().min(1).max(10_000),
+});
+
+const ProductRoyaltyTermsInput = z.object({
+  master: z.discriminatedUnion("mode", [
+    z.object({ mode: z.literal("none") }),
+    PercentageRoyalty,
+    z.object({ mode: z.literal("agreement") }),
   ]),
-);
+  composition: z.discriminatedUnion("mode", [
+    z.object({ mode: z.literal("none") }),
+    z.object({
+      mode: z.literal("percentage"),
+      bps: z.number().int().min(1).max(10_000),
+      role: z
+        .enum(["composer", "lyricist", "arranger", "publisher", "other"])
+        .optional(),
+      collectingSociety: z.string().max(200).optional(),
+    }),
+    z.object({ mode: z.literal("agreement") }),
+  ]),
+  notes: z.string().max(4_000).optional(),
+}).transform((terms) => terms as ProductRoyaltyTerms);
+
+const AgreementUrlInput = z
+  .string()
+  .url()
+  .max(2048)
+  .refine(isSafeAgreementUrl, "Agreement links must use http:// or https://");
 
 // Input for create/update. Several fields are conditional on the
 // pricing/deposit model — we validate the cross-field rules in a
@@ -130,13 +188,22 @@ const ProductInputShape = {
   bufferMinutes: z.number().int().min(0).max(240).default(0),
   minLeadHours: z.number().int().min(0).max(30 * 24).default(12),
   paymentPlans: PaymentPlanInput.optional(),
+  royaltyTerms: ProductRoyaltyTermsInput.nullable().optional(),
   // B7 — optional URL to a contract PDF the producer hosts elsewhere
   // (Dropbox, Drive, their own site). Same paste-a-link pattern as
   // brand.logoUrl. Nullable so producers can clear an existing link.
-  contractUrl: z.string().url().max(2048).nullable().optional(),
+  contractUrl: AgreementUrlInput.nullable().optional(),
+  agreementText: z.string().max(20_000).nullable().optional(),
 };
 
 const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
+  if (val.paymentPlans?.length === 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["paymentPlans"],
+      message: "Choose at least one payment option",
+    });
+  }
   // Pricing-model-specific requirements.
   if (val.pricingModel === "flat" || val.pricingModel === "bundle") {
     if (val.priceCents == null) {
@@ -221,8 +288,10 @@ const ProductUpdateInput = z
     bufferMinutes: z.number().int().min(0).max(240).optional(),
     minLeadHours: z.number().int().min(0).max(30 * 24).optional(),
     paymentPlans: PaymentPlanInput.optional(),
+    royaltyTerms: ProductRoyaltyTermsInput.nullable().optional(),
     // B7 — see ProductInputShape comment.
-    contractUrl: z.string().url().max(2048).nullable().optional(),
+    contractUrl: AgreementUrlInput.nullable().optional(),
+    agreementText: z.string().max(20_000).nullable().optional(),
   });
 
 // Weekly availability replaces the entire week atomically — easier UX
@@ -512,7 +581,12 @@ const productsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...patch } = input;
       const [existing] = await ctx.db
-        .select({ producerId: products.producerId })
+        .select({
+          producerId: products.producerId,
+          paymentPlans: products.paymentPlans,
+          depositModel: products.depositModel,
+          milestones: products.milestones,
+        })
         .from(products)
         .where(eq(products.id, id))
         .limit(1);
@@ -520,9 +594,33 @@ const productsRouter = router({
       if (existing.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
+      if (patch.paymentPlans?.length === 0) {
+        const effectiveDepositModel = patch.depositModel ?? existing.depositModel;
+        const effectiveMilestones = patch.milestones ?? existing.milestones;
+        if (
+          effectiveDepositModel !== "milestones" ||
+          !effectiveMilestones?.length
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Choose at least one payment option",
+          });
+        }
+      }
+      const persistedPatch = {
+        ...stripUndefined(patch),
+        ...(patch.paymentPlans
+          ? {
+              paymentPlans: mergePreservedPaymentPlans(
+                patch.paymentPlans,
+                existing.paymentPlans,
+              ),
+            }
+          : {}),
+      };
       const [row] = await ctx.db
         .update(products)
-        .set(stripUndefined(patch))
+        .set(persistedPatch)
         .where(eq(products.id, id))
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -709,7 +807,9 @@ const productsRouter = router({
           depositModel: existing.depositModel,
           milestones: existing.milestones,
           paymentPlans: existing.paymentPlans,
+          royaltyTerms: existing.royaltyTerms,
           contractUrl: existing.contractUrl,
+          agreementText: existing.agreementText,
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });

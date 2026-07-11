@@ -23,17 +23,29 @@ import { Eyebrow, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { StickyNav } from "~/components/artist/sticky-nav";
 import {
   coverGradient,
-  formatShekels,
+  formatPurchaseMoney,
   type Producer,
   type PurchaseProduct,
   swatchGradient,
 } from "./purchase-data";
+import { planKey } from "~/components/checkout/plan-picker-helpers";
+import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
+import type { PaymentPlan } from "@skitza/db";
 
-const PLAN_CHIP_LABELS: Record<string, (priceCents: number) => string> = {
-  full: (p) => `Full · ${formatShekels(p)}`,
-  split_50_50: (p) => `50–50 · ${formatShekels(Math.ceil(p / 2 / 100) * 100)} now`,
-  monthly: () => "Monthly",
-  milestones: () => "Milestones",
+const PLAN_CHIP_LABELS: Record<
+  PaymentPlan["kind"],
+  (plan: PaymentPlan, priceCents: number, currency: string) => string
+> = {
+  full: (_plan, price, currency) =>
+    `Full · ${formatPurchaseMoney(price, currency)}`,
+  split_50_50: (_plan, price, currency) =>
+    `50/50 · ${formatPurchaseMoney(Math.ceil(price / 2), currency)} first`,
+  monthly: (plan) =>
+    plan.kind === "monthly" ? `${String(plan.installments)} monthly payments` : "Monthly",
+  milestones: (plan) =>
+    plan.kind === "milestones"
+      ? `${String(plan.milestones.length)} milestones`
+      : "Milestones",
 };
 
 function PlanChip({ children }: { children: React.ReactNode }) {
@@ -67,6 +79,7 @@ export function ProductDetailScreen({
 }) {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const royalty = royaltyTermsDisplay(product.royaltyTerms);
 
   return (
     <div
@@ -124,7 +137,7 @@ export function ProductDetailScreen({
 
         {/* ticket head — title + tagline + receipt price card */}
         <div className="px-5 pt-[18px]">
-          <h1 className="sk-rise font-syne text-[26px] leading-[1.1] font-extrabold tracking-[-0.035em] [text-wrap:pretty] text-[rgb(var(--fg-default))]">
+          <h1 className="sk-rise break-words font-syne text-[26px] leading-[1.1] font-extrabold tracking-[-0.035em] [overflow-wrap:anywhere] [text-wrap:pretty] text-[rgb(var(--fg-default))]">
             {product.name}
           </h1>
           {product.tagline ? (
@@ -149,7 +162,7 @@ export function ProductDetailScreen({
                 Locks at request
               </span>
               <div className="font-syne mt-1.5 text-[36px] leading-none font-extrabold tracking-[-0.04em] text-[rgb(var(--fg-default))]">
-                {formatShekels(product.priceCents)}
+                {formatPurchaseMoney(product.priceCents, product.currency)}
               </div>
             </div>
             <div className="text-right font-mono text-[10px] leading-[1.7] text-[rgb(var(--fg-muted))]">
@@ -239,6 +252,32 @@ export function ProductDetailScreen({
           </div>
         ) : null}
 
+        {/* concise product-level headline terms, visible before request */}
+        <section className="sk-rise px-5 pt-5" style={{ animationDelay: "165ms" }}>
+          <h2>
+            <Eyebrow>Rights & royalties</Eyebrow>
+          </h2>
+          <dl className="mt-2.5 grid gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-4 py-3.5 text-[13px]">
+            <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3">
+              <dt className="font-semibold text-[rgb(var(--fg-muted))]">Master</dt>
+              <dd className="min-w-0 break-words text-pretty text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                {royalty.master}
+              </dd>
+            </div>
+            <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3">
+              <dt className="font-semibold text-[rgb(var(--fg-muted))]">Composition</dt>
+              <dd className="min-w-0 break-words text-pretty text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                {royalty.composition}
+              </dd>
+            </div>
+          </dl>
+          {product.royaltyTerms?.notes ? (
+            <p className="mt-2 whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))] [overflow-wrap:anywhere]">
+              {product.royaltyTerms.notes}
+            </p>
+          ) : null}
+        </section>
+
         {/* payment-plan hint card with chips */}
         <div className="sk-rise px-5 pt-5" style={{ animationDelay: "180ms" }}>
           <div
@@ -250,19 +289,22 @@ export function ProductDetailScreen({
                 <Eyebrow>Payment</Eyebrow>
               </h2>
               <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[9px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-                Set after approval
+                Pick after approval
               </span>
             </div>
             <p className="mt-2.5 text-[13.5px] leading-normal text-[rgb(var(--fg-secondary))]">
-              Pay in <b className="font-bold">full</b>, or on a <b className="font-bold">plan</b> —{" "}
-              {producer.name || "the producer"} sets which options this offer allows once they
-              approve your request.
+              These are the payment choices offered with this product. The artist picks after
+              approval; Skitza freezes this list when the request is sent.
             </p>
             <ul className="mt-3 flex list-none flex-wrap gap-[7px]">
-              {product.planKinds.map((kind) => (
-                <li key={kind}>
+              {product.paymentPlans.map((plan) => (
+                <li key={planKey(plan)}>
                   <PlanChip>
-                    {(PLAN_CHIP_LABELS[kind] ?? (() => kind))(product.priceCents)}
+                    {PLAN_CHIP_LABELS[plan.kind](
+                      plan,
+                      product.priceCents,
+                      product.currency,
+                    )}
                   </PlanChip>
                 </li>
               ))}
@@ -284,7 +326,10 @@ export function ProductDetailScreen({
             </span>
             <span className="text-[12.5px] leading-[1.55]">
               Your price locks now —{" "}
-              <b className="font-bold text-white">{formatShekels(product.priceCents)}</b> stays
+              <b className="font-bold text-white">
+                {formatPurchaseMoney(product.priceCents, product.currency)}
+              </b>{" "}
+              stays
               fixed once you request. No money moves yet; this just sends a request to{" "}
               {producer.name || "the producer"}.
             </span>

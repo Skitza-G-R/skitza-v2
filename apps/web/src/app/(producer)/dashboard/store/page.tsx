@@ -40,7 +40,11 @@ export default async function StorePage() {
     bufferMinutes: p.bufferMinutes,
     minLeadHours: p.minLeadHours,
     contractUrl: p.contractUrl,
+    royaltyTerms: p.royaltyTerms,
+    agreementText: p.agreementText,
     deliverables: p.deliverables ?? [],
+    depositModel: p.depositModel,
+    milestones: p.milestones,
     pricingModel: p.pricingModel,
     volumeTiers: p.volumeTiers,
   }));

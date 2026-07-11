@@ -18,15 +18,17 @@ describe("product-detail-screen.tsx (S3) wiring", () => {
     expect(s3Src).toMatch(/^"use client";/);
   });
 
-  it("reuses the price + avatar helpers from purchase-data", () => {
-    expect(s3Src).toMatch(/formatShekels/);
+  it("reuses the currency-aware price + avatar helpers from purchase-data", () => {
+    expect(s3Src).toMatch(/formatPurchaseMoney/);
     expect(s3Src).toMatch(/swatchGradient/);
     expect(s3Src).toMatch(/from "\.\/purchase-data"/);
   });
 
   it("renders the product name and locked price", () => {
     expect(s3Src).toMatch(/product\.name/);
-    expect(s3Src).toMatch(/formatShekels\(product\.priceCents\)/);
+    expect(s3Src).toMatch(
+      /formatPurchaseMoney\(product\.priceCents, product\.currency\)/,
+    );
     expect(s3Src).toMatch(/LOCKS AT REQUEST/);
   });
 
@@ -41,9 +43,15 @@ describe("product-detail-screen.tsx (S3) wiring", () => {
   });
 
   it("shows the payment-plan hint card with per-plan chips (handoff-4 ticket)", () => {
-    expect(s3Src).toMatch(/Set after approval/);
+    expect(s3Src).toMatch(/The artist picks after\s+approval/);
     expect(s3Src).toMatch(/PLAN_CHIP_LABELS/);
-    expect(s3Src).toMatch(/product\.planKinds\.map/);
+    expect(s3Src).toMatch(/product\.paymentPlans\.map/);
+  });
+
+  it("shows concise product-level royalty terms before the request action", () => {
+    expect(s3Src).toMatch(/Rights & royalties/);
+    expect(s3Src).toMatch(/royaltyTermsDisplay/);
+    expect(s3Src).toMatch(/product\.royaltyTerms\?\.notes/);
   });
 
   it("backs out to the producer's store from the collapsing StickyNav", () => {

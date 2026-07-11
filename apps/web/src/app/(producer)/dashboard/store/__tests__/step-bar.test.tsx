@@ -19,4 +19,9 @@ describe("StepBar shell", () => {
   it("uses an aria progressbar role for assistive tech", () => {
     expect(SRC).toMatch(/role="progressbar"|role={"progressbar"}/);
   });
+
+  it("lets expanded step segments flex to the available width", () => {
+    expect(SRC).toMatch(/flex-1/);
+    expect(SRC).toMatch(/min-w-0/);
+  });
 });

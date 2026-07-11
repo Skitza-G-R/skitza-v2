@@ -2,9 +2,10 @@
 // funnel's screen props (`PurchaseProduct` / `Producer`). Pure functions —
 // the S3/S4/S5 route pages call these so the screens stay data-only.
 
-import type { PaymentPlan } from "@skitza/db";
+import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
 
 import type { Producer, PurchaseProduct } from "~/components/artist/purchase/purchase-data";
+import { safeAgreementUrl } from "~/lib/agreement-url";
 import { offeredPlans } from "~/lib/purchase/request-helpers";
 import {
   producerHue,
@@ -25,24 +26,26 @@ export function durationLabel(sessionCount: number, durationMin: number): string
   return `${String(sessionCount)} sessions · ${formatMinutes(durationMin)} each`;
 }
 
-/**
- * The producer's uploaded agreement PDF, derived from `products.contractUrl`.
- * Null when the producer hasn't uploaded one — the S4 screen then shows only
- * the plain-language summary.
- */
+/** Optional producer-authored agreement link (PDF or normal web page). */
 export function agreementFor(
   contractUrl: string | null | undefined,
-): { filename: string; url: string } | null {
-  if (!contractUrl) return null;
-  let filename = "Booking_Agreement.pdf";
+): { filename: string; url: string; kind: "pdf" | "link" } | null {
+  const safeUrl = safeAgreementUrl(contractUrl);
+  if (!safeUrl) return null;
+  let filename = "Agreement link";
+  let kind: "pdf" | "link" = "link";
   try {
-    const path = new URL(contractUrl).pathname;
+    const path = new URL(safeUrl).pathname;
     const last = path.split("/").filter(Boolean).pop();
-    if (last) filename = decodeURIComponent(last);
+    if (last) {
+      filename = decodeURIComponent(last);
+      kind = filename.toLowerCase().endsWith(".pdf") ? "pdf" : "link";
+    }
   } catch {
-    // Not a parseable URL — keep the default label rather than crash.
+    // Not a parseable URL — keep a truthful generic label rather than
+    // claiming the producer supplied a PDF.
   }
-  return { filename, url: contractUrl };
+  return { filename, url: safeUrl, kind };
 }
 
 type StoreProductRow = {
@@ -55,6 +58,8 @@ type StoreProductRow = {
   deliverables: string[] | null;
   producerName: string | null;
   contractUrl: string | null;
+  agreementText: string | null;
+  royaltyTerms: ProductRoyaltyTerms | null;
   description: string | null;
   revisions: number;
   depositPct: number;
@@ -76,7 +81,9 @@ export function toPurchaseProduct(row: StoreProductRow): PurchaseProduct {
     sessions: row.sessionCount,
     depositPct: row.depositPct,
     revisions: row.revisions,
-    planKinds: offeredPlans(row).map((p) => p.kind),
+    paymentPlans: offeredPlans(row),
+    royaltyTerms: row.royaltyTerms ?? null,
+    agreementText: row.agreementText ?? null,
   };
 }
 

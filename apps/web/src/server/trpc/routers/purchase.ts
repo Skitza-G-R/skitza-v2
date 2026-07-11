@@ -27,6 +27,8 @@ import { after } from "next/server";
 import { z } from "zod";
 
 import { snapshotProductPrice, validatePerSongUnit } from "~/lib/purchase/price-snapshot";
+import { commercialTermsFingerprint } from "~/lib/purchase/commercial-terms-fingerprint";
+import { safeAgreementUrl } from "~/lib/agreement-url";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 import {
   generateRefNumber,
@@ -35,6 +37,7 @@ import {
   planIsOffered,
 } from "~/lib/purchase/request-helpers";
 import type { PaymentPlanChoice } from "~/lib/purchase/request-helpers";
+import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
 import { calculateCharges } from "~/server/payments/plan";
 import {
   buildPlanOptions,
@@ -244,6 +247,18 @@ function frozenPlanOptions(request: PurchaseRequest): PaymentPlan[] {
     : [request.paymentPlanSnapshot];
 }
 
+function effectiveAgreementText(product: {
+  agreementText: string | null;
+  description: string | null;
+}): string | null {
+  // An explicit empty string is a deliberate clear and must not resurrect
+  // encoded legacy text. Null means the row has not migrated yet.
+  if (product.agreementText !== null) {
+    return product.agreementText.trim().length > 0 ? product.agreementText : null;
+  }
+  return decodeDescription(product.description).contractText || null;
+}
+
 // Load a private proof the signed-in producer owns, joined to its purchase
 // for status transitions + artist identity.
 async function loadProducerProof(db: Db, producerId: string, proofId: string) {
@@ -316,8 +331,7 @@ async function resolveOwnedRequest(
 }
 
 // Load a request the signed-in PRODUCER owns, plus their display name
-// for outgoing emails. NOT_FOUND if absent, FORBIDDEN if it belongs to
-// another producer (booking.confirm pattern).
+// for outgoing emails. Scope in SQL so cross-tenant ids are never exposed.
 async function loadProducerRequest(
   db: Pick<Db, "select">,
   producerId: string,
@@ -327,12 +341,14 @@ async function loadProducerRequest(
     .select({ request: purchaseRequests, producerName: producers.displayName })
     .from(purchaseRequests)
     .innerJoin(producers, eq(producers.id, purchaseRequests.producerId))
-    .where(eq(purchaseRequests.id, id))
+    .where(
+      and(
+        eq(purchaseRequests.id, id),
+        eq(purchaseRequests.producerId, producerId),
+      ),
+    )
     .limit(1);
   if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-  if (row.request.producerId !== producerId) {
-    throw new TRPCError({ code: "FORBIDDEN" });
-  }
   return { ...row.request, producerName: row.producerName };
 }
 
@@ -357,6 +373,7 @@ export const artistPurchaseRouter = router({
         productId: z.string().uuid(),
         paymentPlan: PAYMENT_PLAN_INPUT,
         agreementAccepted: z.literal(true),
+        commercialTermsFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
         // Required for per_song products; ignored otherwise. The unit
         // price is re-validated against the volume-tier ladder so a
         // tampered payload can't lock an unauthorised rate.
@@ -378,6 +395,28 @@ export const artistPurchaseRouter = router({
         )
         .limit(1);
       if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const agreementTextSnapshot = effectiveAgreementText(prod);
+      const paymentPlanOptionsSnapshot = offeredPlans(prod);
+      // Legacy rows may contain a non-web scheme from before agreement URL
+      // validation existed. Only freeze the same HTTP(S) reference the artist
+      // was actually shown on the review screen.
+      const contractUrlSnapshot = safeAgreementUrl(prod.contractUrl);
+      const currentTermsFingerprint = commercialTermsFingerprint({
+        productName: prod.name,
+        priceCents: prod.priceCents,
+        currency: prod.currency,
+        paymentPlans: paymentPlanOptionsSnapshot,
+        royaltyTerms: prod.royaltyTerms ?? null,
+        agreementText: agreementTextSnapshot,
+        contractUrl: contractUrlSnapshot,
+      });
+      if (input.commercialTermsFingerprint !== currentTermsFingerprint) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "These product terms changed. Refresh and review them again before sending.",
+        });
+      }
 
       // 2. Resolve the artist's contact under this producer (identity
       //    snapshot + the "my studio" access gate). NOT_FOUND on miss.
@@ -402,7 +441,6 @@ export const artistPurchaseRouter = router({
       //    embeds the product's milestone schedule for that plan kind —
       //    this is PROVISIONAL: decision 3 (2026-07-05) moves the real
       //    choice to S7 post-approval via paymentPlan.choose.
-      const paymentPlanOptionsSnapshot = offeredPlans(prod);
       if (!planIsOffered(input.paymentPlan, paymentPlanOptionsSnapshot)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -528,7 +566,9 @@ export const artistPurchaseRouter = router({
           paymentPlanOptionsSnapshot,
           songQty,
           unitPriceCents,
-          contractUrlSnapshot: prod.contractUrl ?? null,
+          contractUrlSnapshot,
+          royaltyTermsSnapshot: prod.royaltyTerms ?? null,
+          agreementTextSnapshot,
         });
         await tx.insert(agreementAcceptances).values({
           purchaseRequestId: request.id,
@@ -663,6 +703,8 @@ export const artistPurchaseRouter = router({
         songQty: request.songQty,
         unitPriceCents: request.unitPriceCents,
         contractUrlSnapshot: request.contractUrlSnapshot,
+        royaltyTermsSnapshot: request.royaltyTermsSnapshot,
+        agreementTextSnapshot: request.agreementTextSnapshot,
         agreementAccepted: Boolean(accept),
         createdAt: request.createdAt,
       };
@@ -1352,6 +1394,37 @@ export const artistPurchaseRouter = router({
 
 // ─── producer.purchase ──────────────────────────────────────────────
 export const producerPurchaseRouter = router({
+  // Tenant-scoped request detail. Every commercial term comes from the
+  // immutable request row, never from the live product.
+  get: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const request = await loadProducerRequest(ctx.db, ctx.producerId, input.id);
+      const [acceptance] = await ctx.db
+        .select({ acceptedAt: agreementAcceptances.acceptedAt })
+        .from(agreementAcceptances)
+        .where(eq(agreementAcceptances.purchaseRequestId, request.id))
+        .limit(1);
+      return {
+        id: request.id,
+        refNumber: request.refNumber,
+        status: request.status,
+        artistName: request.artistName,
+        artistEmail: request.artistEmail,
+        productNameSnapshot: request.productNameSnapshot,
+        priceCents: request.priceCents,
+        currency: request.currency,
+        paymentPlanSnapshot: request.paymentPlanSnapshot,
+        paymentPlanChosenAt: request.paymentPlanChosenAt,
+        paymentPlanOptionsSnapshot: frozenPlanOptions(request),
+        royaltyTermsSnapshot: request.royaltyTermsSnapshot,
+        agreementTextSnapshot: request.agreementTextSnapshot,
+        contractUrlSnapshot: request.contractUrlSnapshot,
+        createdAt: request.createdAt,
+        acceptedAt: acceptance?.acceptedAt ?? null,
+      };
+    }),
+
   // Gate 1 — approve. Defers project creation (decision: created once the
   // 5-min undo window elapses). Idempotent on an already-approved row.
   approve: producerProcedure

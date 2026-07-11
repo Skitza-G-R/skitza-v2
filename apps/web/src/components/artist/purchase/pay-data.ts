@@ -24,6 +24,7 @@ export const MOCK_PRODUCER: Producer = {
   agreement: {
     filename: "Booking_Agreement.pdf",
     url: "https://example.com/Booking_Agreement.pdf",
+    kind: "pdf",
   },
 };
 
@@ -37,7 +38,18 @@ export const MOCK_PRODUCT: PurchaseProduct = {
   sessions: 3,
   depositPct: 50,
   revisions: 2,
-  planKinds: ["full", "split_50_50"],
+  paymentPlans: [{ kind: "full" }, { kind: "split_50_50" }],
+  royaltyTerms: {
+    master: { mode: "percentage", bps: 250 },
+    composition: {
+      mode: "percentage",
+      bps: 1250,
+      role: "composer",
+      collectingSociety: "ACUM",
+    },
+  },
+  agreementText:
+    "Producer credit must appear in release metadata. Final files unlock after full payment.",
   includes: [
     "Up to 4 song parts tracked",
     "Comped & tuned lead vocal",

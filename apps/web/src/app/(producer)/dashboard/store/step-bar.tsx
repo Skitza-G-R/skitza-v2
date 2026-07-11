@@ -16,10 +16,12 @@ export function StepBar({ steps, current }: StepBarProps) {
   return (
     <div
       role="progressbar"
+      aria-label="Product setup progress"
       aria-valuemin={1}
       aria-valuemax={steps.length}
       aria-valuenow={currentIdx + 1}
-      className="flex items-center gap-1.5"
+      aria-valuetext={`Step ${String(currentIdx + 1)} of ${String(steps.length)}`}
+      className="flex w-full items-center gap-1.5"
     >
       {steps.map((id, idx) => {
         const reached = idx <= currentIdx;
@@ -27,7 +29,7 @@ export function StepBar({ steps, current }: StepBarProps) {
           <span
             key={id}
             aria-hidden
-            className="h-[3px] w-8 rounded-full transition-colors"
+            className="h-[3px] min-w-0 max-w-8 flex-1 rounded-full transition-colors"
             style={{
               background: reached
                 ? "rgb(var(--brand-primary))"

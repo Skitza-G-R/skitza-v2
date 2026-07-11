@@ -5,10 +5,12 @@
 // `~/lib/purchase/product-mapping`, and pass these shapes down — the screens
 // stay data-only.
 
+import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
+
 export type PurchaseProduct = {
   id: string;
   name: string;
-  /** Price-locked snapshot, in agorot (₪1 = 100). */
+  /** Price-locked snapshot in the currency's minor unit. */
   priceCents: number;
   currency: string;
   /** Human duration label, e.g. "3 sessions · 2h each". */
@@ -23,8 +25,12 @@ export type PurchaseProduct = {
   depositPct: number;
   /** Revision rounds from the wizard encoding (0 = not specified). */
   revisions: number;
-  /** Offered plan kinds (handoff-4 S3 plan-hint chips). */
-  planKinds: ("full" | "split_50_50" | "monthly" | "milestones")[];
+  /** Every offered plan, including its exact monthly/milestone schedule. */
+  paymentPlans: PaymentPlan[];
+  /** Product-level headline master/composition terms. Null for legacy products. */
+  royaltyTerms: ProductRoyaltyTerms | null;
+  /** Producer-authored inline agreement. Null when absent. */
+  agreementText: string | null;
 };
 
 export type Producer = {
@@ -32,9 +38,12 @@ export type Producer = {
   initials: string;
   /** Cover-gradient hue so the booking thumbnail matches the store. */
   hue: number;
-  /** The uploaded Booking_Agreement.pdf — null when none is uploaded.
-      `url` opens the PDF itself (S4's View pill); optional for mocks. */
-  agreement: { filename: string; url?: string } | null;
+  /** Optional producer agreement link. It may be a PDF or a normal web page. */
+  agreement: {
+    filename: string;
+    url?: string;
+    kind: "pdf" | "link";
+  } | null;
 };
 
 export type AgreementTerm = {
@@ -43,9 +52,21 @@ export type AgreementTerm = {
   points?: string[];
 };
 
-// ₪ formatting — whole-shekel display, grouped thousands.
+export function formatPurchaseMoney(
+  priceCents: number,
+  currency: string,
+): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: priceCents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(priceCents / 100);
+}
+
+// Compatibility helper used by older ILS-only artist surfaces.
 export function formatShekels(priceCents: number): string {
-  return "₪" + Math.round(priceCents / 100).toLocaleString("en-US");
+  return formatPurchaseMoney(priceCents, "ILS");
 }
 
 // Cover-art gradients (match the store's oklch covers) so the booking
@@ -96,7 +117,7 @@ export function buildAgreementTerms(producerName: string, includes: string[]): A
     },
     {
       heading: "Delivery & ownership",
-      body: `Stream your delivered songs any time. Downloads unlock at full payment. Usage rights, credits and splits are as written in ${producerName}'s full document below.`,
+      body: `Stream your delivered songs any time. Downloads unlock at full payment. The exact headline royalty terms and any producer-authored agreement are listed above.`,
     },
     {
       heading: "Records & notifications",

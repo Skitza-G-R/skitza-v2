@@ -18,6 +18,16 @@ const ROW = {
   producerName: "Gili Studio",
   contractUrl: "https://r2.example.com/contracts/Booking%20Agreement.pdf",
   description: "Track, comp, mix & master one song.",
+  agreementText: "Credit the producer in release metadata.",
+  royaltyTerms: {
+    master: { mode: "percentage" as const, bps: 250 },
+    composition: {
+      mode: "percentage" as const,
+      bps: 1250,
+      role: "composer" as const,
+      collectingSociety: "ACUM",
+    },
+  },
   revisions: 2,
   depositPct: 50,
   depositModel: "flat",
@@ -44,6 +54,7 @@ describe("agreementFor", () => {
     expect(agreementFor(ROW.contractUrl)).toEqual({
       filename: "Booking Agreement.pdf",
       url: ROW.contractUrl,
+      kind: "pdf",
     });
   });
 
@@ -53,11 +64,9 @@ describe("agreementFor", () => {
     expect(agreementFor("")).toBeNull();
   });
 
-  it("falls back to a sane label on an unparseable URL", () => {
-    expect(agreementFor("not-a-url")).toEqual({
-      filename: "Booking_Agreement.pdf",
-      url: "not-a-url",
-    });
+  it("does not expose an unparseable URL as a clickable agreement", () => {
+    expect(agreementFor("not-a-url")).toBeNull();
+    expect(agreementFor("javascript:alert(1)")).toBeNull();
   });
 });
 
@@ -75,7 +84,12 @@ describe("toPurchaseProduct", () => {
       sessions: 3,
       depositPct: 50,
       revisions: 2,
-      planKinds: ["full", "split_50_50"],
+      paymentPlans: [
+        { kind: "full" },
+        { kind: "split_50_50" },
+      ],
+      agreementText: "Credit the producer in release metadata.",
+      royaltyTerms: ROW.royaltyTerms,
     });
   });
 
@@ -88,11 +102,31 @@ describe("toPurchaseProduct", () => {
         { label: "Delivery", pct: 50 },
       ],
     });
-    expect(product.planKinds).toEqual(["full", "split_50_50", "milestones"]);
+    expect(product.paymentPlans).toEqual([
+      { kind: "full" },
+      { kind: "split_50_50" },
+      {
+        kind: "milestones",
+        milestones: [
+          { label: "Booking", pct: 50 },
+          { label: "Delivery", pct: 50 },
+        ],
+      },
+    ]);
   });
 
   it("renders an empty includes list when deliverables are unset", () => {
     expect(toPurchaseProduct({ ...ROW, deliverables: null }).includes).toEqual([]);
+  });
+
+  it("keeps legacy null royalty and agreement terms safe", () => {
+    const product = toPurchaseProduct({
+      ...ROW,
+      royaltyTerms: null,
+      agreementText: null,
+    });
+    expect(product.royaltyTerms).toBeNull();
+    expect(product.agreementText).toBeNull();
   });
 });
 

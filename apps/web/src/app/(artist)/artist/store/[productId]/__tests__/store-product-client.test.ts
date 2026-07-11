@@ -42,6 +42,17 @@ describe("store-product-client.tsx wiring", () => {
     expect(clientSrc).toMatch(/startStoreCheckoutAction\(\s*\{[\s\S]{0,200}songQty/);
     expect(clientSrc).toMatch(/startStoreCheckoutAction\(\s*\{[\s\S]{0,200}unitPriceCents/);
   });
+
+  it("passes every offered plan to the picker for per-song products", () => {
+    expect(clientSrc).toMatch(/plans=\{supportedPlans\}/);
+    expect(clientSrc).toMatch(/product\.paymentPlans\.filter/);
+    expect(clientSrc).not.toMatch(/const first = product\.paymentPlans\[0\]/);
+  });
+
+  it("requires an explicit choice when multiple plans are offered", () => {
+    expect(clientSrc).toMatch(/supportedPlans\.length === 1/);
+    expect(clientSrc).toMatch(/\| null>\(singlePlan\)/);
+  });
 });
 
 describe("store/[productId]/actions.ts wiring", () => {
