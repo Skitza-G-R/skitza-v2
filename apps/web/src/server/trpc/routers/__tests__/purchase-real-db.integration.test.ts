@@ -7,6 +7,7 @@ import {
   eq,
   inArray,
   invoices,
+  notifications,
   paymentProofs,
   producers,
   products,
@@ -14,7 +15,6 @@ import {
 } from "@skitza/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { commercialTermsFingerprint } from "~/lib/purchase/commercial-terms-fingerprint";
-import { buildProofStagingKey } from "~/server/storage/r2";
 
 const { r2SendMock, proofVerifiedEmailMock, purchaseApprovedEmailMock, purchaseDeclinedEmailMock } =
   vi.hoisted(() => ({
@@ -80,10 +80,7 @@ const databaseUrl = process.env.DATABASE_URL_TEST;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 describeWithDatabase("artist purchase flow — real Postgres integration", () => {
-  const initialPaymentPlans = [
-    { kind: "full" as const },
-    { kind: "split_50_50" as const },
-  ];
+  const initialPaymentPlans = [{ kind: "full" as const }, { kind: "split_50_50" as const }];
   const initialRoyaltyTerms = {
     master: { mode: "percentage" as const, bps: 250 },
     composition: {
@@ -446,10 +443,6 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     const proof = await artist.artist.purchase.proofOfPayment.submit({
       purchaseRequestId: created.purchaseRequestId,
       amountCents: 240_000,
-      storageKey: buildProofStagingKey({
-        producerId,
-        purchaseRequestId: created.purchaseRequestId,
-      }),
       originalFileName: "race-proof.png",
     });
 
@@ -610,16 +603,11 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     expect(instructions.amountDueNowCents).toBe(120_000);
     expect(instructions.bankTransfer).toContain("Test Bank");
 
-    const stagingKey = buildProofStagingKey({
-      producerId,
-      purchaseRequestId: created.purchaseRequestId,
-    });
     const callsBeforeInvalidAmount = r2SendMock.mock.calls.length;
     await expect(
       artist.artist.purchase.proofOfPayment.submit({
         purchaseRequestId: created.purchaseRequestId,
         amountCents: 1,
-        storageKey: stagingKey,
         originalFileName: "one-cent.png",
       }),
     ).rejects.toMatchObject({
@@ -631,10 +619,11 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     const firstProof = await artist.artist.purchase.proofOfPayment.submit({
       purchaseRequestId: created.purchaseRequestId,
       amountCents: 120_000,
-      storageKey: stagingKey,
       originalFileName: "first-proof.png",
       note: "E2E deposit",
     });
+    expect(firstProof.ok).toBe(true);
+    expect(firstProof.proofId).toMatch(/^[0-9a-f-]{36}$/);
 
     const invoicesBeforeConfirmation = await db
       .select()
@@ -642,21 +631,106 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       .where(eq(invoices.purchaseRequestId, created.purchaseRequestId));
     expect(invoicesBeforeConfirmation).toHaveLength(0);
 
+    const ownerProofQueue = await producer.producer.purchase.proofOfPayment.pending();
+    expect(ownerProofQueue.available).toBe(true);
+    expect(ownerProofQueue.proofs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          proofId: firstProof.proofId,
+          purchaseRequestId: created.purchaseRequestId,
+          artistName: "E2E Artist",
+        }),
+      ]),
+    );
+    const exactRequestQueue = await producer.producer.purchase.proofOfPayment.pending({
+      purchaseRequestId: created.purchaseRequestId,
+    });
+    expect(exactRequestQueue.available).toBe(true);
+    expect(exactRequestQueue.proofs).toHaveLength(1);
+    expect(exactRequestQueue.proofs[0]?.proofId).toBe(firstProof.proofId);
+    await expect(
+      producer.producer.purchase.proofOfPayment.pending({
+        purchaseRequestId: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      attackerProducer.producer.purchase.proofOfPayment.pending({
+        purchaseRequestId: created.purchaseRequestId,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    const callsBeforeForeignProofReads = r2SendMock.mock.calls.length;
+    await expect(
+      strangerArtist.artist.purchase.proofOfPayment.state({
+        purchaseRequestId: created.purchaseRequestId,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      strangerArtist.artist.purchase.proofOfPayment.presign({
+        purchaseRequestId: created.purchaseRequestId,
+        fileName: "foreign.png",
+        contentType: "image/png",
+        sizeBytes: 128,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      strangerArtist.artist.purchase.proofOfPayment.submit({
+        purchaseRequestId: created.purchaseRequestId,
+        amountCents: 120_000,
+        originalFileName: "foreign.png",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      attackerProducer.producer.purchase.proofOfPayment.view({ proofId: firstProof.proofId }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      attackerProducer.producer.purchase.proofOfPayment.confirm({ proofId: firstProof.proofId }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      attackerProducer.producer.purchase.proofOfPayment.reject({
+        proofId: firstProof.proofId,
+        note: "Should never be visible",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(r2SendMock).toHaveBeenCalledTimes(callsBeforeForeignProofReads);
+
+    await producer.producer.purchase.proofOfPayment.reject({
+      proofId: firstProof.proofId,
+      note: "The account number is cropped. Please upload the full receipt.",
+    });
+    const rejectedState = await artist.artist.purchase.proofOfPayment.state({
+      purchaseRequestId: created.purchaseRequestId,
+    });
+    expect(rejectedState.requestStatus).toBe("approved");
+    expect(rejectedState.availableToSubmitCents).toBe(120_000);
+    expect(rejectedState.proofs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: firstProof.proofId,
+          status: "rejected",
+          rejectionNote: "The account number is cropped. Please upload the full receipt.",
+        }),
+      ]),
+    );
+
+    const acceptedFirstProof = await artist.artist.purchase.proofOfPayment.submit({
+      purchaseRequestId: created.purchaseRequestId,
+      amountCents: 120_000,
+      originalFileName: "first-proof-reupload.png",
+      note: "E2E deposit re-upload",
+    });
+
     await expect(
       artist.artist.purchase.proofOfPayment.submit({
         purchaseRequestId: created.purchaseRequestId,
         amountCents: 120_000,
-        storageKey: stagingKey,
         originalFileName: "duplicate.png",
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(
-      attackerProducer.producer.purchase.proofOfPayment.confirm({ proofId: firstProof.proofId }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     const confirmations = await Promise.all([
-      producer.producer.purchase.proofOfPayment.confirm({ proofId: firstProof.proofId }),
-      producer.producer.purchase.proofOfPayment.confirm({ proofId: firstProof.proofId }),
+      producer.producer.purchase.proofOfPayment.confirm({ proofId: acceptedFirstProof.proofId }),
+      producer.producer.purchase.proofOfPayment.confirm({ proofId: acceptedFirstProof.proofId }),
     ]);
     expect(confirmations.every((result) => result.depositPaid)).toBe(true);
     expect(confirmations.every((result) => !result.finalPaid)).toBe(true);
@@ -664,7 +738,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     const firstProofInvoices = await db
       .select()
       .from(invoices)
-      .where(eq(invoices.paymentProofId, firstProof.proofId));
+      .where(eq(invoices.paymentProofId, acceptedFirstProof.proofId));
     expect(firstProofInvoices).toHaveLength(1);
     expect(firstProofInvoices[0]?.status).toBe("paid");
 
@@ -679,10 +753,20 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     const secondProof = await artist.artist.purchase.proofOfPayment.submit({
       purchaseRequestId: created.purchaseRequestId,
       amountCents: 120_000,
-      storageKey: stagingKey,
       originalFileName: "final-proof.png",
       note: "E2E final payment",
     });
+    await producer.producer.purchase.proofOfPayment.reject({
+      proofId: firstProof.proofId,
+      note: "Idempotent retry for the already rejected proof",
+    });
+    const [secondProofNotification] = await db
+      .select({ id: notifications.id, readAt: notifications.readAt })
+      .from(notifications)
+      .where(eq(notifications.id, secondProof.proofId))
+      .limit(1);
+    expect(secondProofNotification).toEqual({ id: secondProof.proofId, readAt: null });
+
     const finalConfirmation = await producer.producer.purchase.proofOfPayment.confirm({
       proofId: secondProof.proofId,
     });
@@ -703,8 +787,9 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       .select()
       .from(invoices)
       .where(eq(invoices.purchaseRequestId, created.purchaseRequestId));
-    expect(persistedProofs).toHaveLength(2);
-    expect(persistedProofs.every((proof) => proof.status === "confirmed")).toBe(true);
+    expect(persistedProofs).toHaveLength(3);
+    expect(persistedProofs.filter((proof) => proof.status === "confirmed")).toHaveLength(2);
+    expect(persistedProofs.filter((proof) => proof.status === "rejected")).toHaveLength(1);
     expect(persistedProofs.every((proof) => proof.objectEtag === '"proof-etag"')).toBe(true);
     expect(
       persistedProofs.every((proof) =>
@@ -731,8 +816,8 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       .where(eq(purchaseRequests.clientContactId, acceptance.clientContactId));
     expect(rows).toHaveLength(2);
     const commandNames = r2SendMock.mock.calls.map(([command]) => command.constructor.name);
-    expect(commandNames.filter((name) => name === "CopyObjectCommand")).toHaveLength(2);
-    expect(commandNames.filter((name) => name === "DeleteObjectCommand")).toHaveLength(2);
+    expect(commandNames.filter((name) => name === "CopyObjectCommand")).toHaveLength(3);
+    expect(commandNames.filter((name) => name === "DeleteObjectCommand")).toHaveLength(3);
     expect(proofVerifiedEmailMock).toHaveBeenCalledTimes(2);
   }, 60_000);
 });

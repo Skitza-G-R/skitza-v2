@@ -15,6 +15,7 @@ import {
   inArray,
   invoices,
   isNull,
+  notifications,
   paymentProofs,
   producers,
   products,
@@ -54,7 +55,6 @@ import {
   encodeR2CopySource,
   getR2,
   hasValidProofFileSignature,
-  isProofStagingKeyForPurchase,
 } from "~/server/storage/r2";
 import {
   emitAgreementAccepted,
@@ -128,9 +128,34 @@ async function pendingProofTotalCents(db: Db, purchaseRequestId: string): Promis
   return rows.reduce((sum, row) => sum + row.amountCents, 0);
 }
 
-async function deleteProofObjectQuietly(bucket: keyof typeof BUCKETS, key: string): Promise<void> {
+async function markProofNotificationsReadQuietly(
+  db: Db,
+  producerId: string,
+  proofId: string,
+  purchaseRequestId: string,
+): Promise<void> {
   try {
-    await getR2().send(new DeleteObjectCommand({ Bucket: BUCKETS[bucket], Key: key }));
+    await db
+      .update(notifications)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notifications.producerId, producerId),
+          eq(notifications.id, proofId),
+          eq(notifications.purchaseRequestId, purchaseRequestId),
+          eq(notifications.kind, "proof_submitted"),
+          isNull(notifications.readAt),
+        ),
+      );
+  } catch {
+    // A stale bell item must never roll back a proof decision or invoice.
+    console.error("[notify] proof notification refresh failed");
+  }
+}
+
+async function deleteProofObjectQuietly(key: string): Promise<void> {
+  try {
+    await getR2().send(new DeleteObjectCommand({ Bucket: BUCKETS.docs, Key: key }));
   } catch {
     // Lifecycle rules are the final safety net for staging/orphan cleanup.
     // Never include an object key or storage error (which can contain request
@@ -140,12 +165,13 @@ async function deleteProofObjectQuietly(bucket: keyof typeof BUCKETS, key: strin
 }
 
 async function assertProofObjectIntegrity(
-  proof: Pick<
-    PaymentProof,
-    "storageBucket" | "storageKey" | "objectEtag" | "contentType" | "sizeBytes"
-  >,
+  proof: Pick<PaymentProof, "storageKey" | "objectEtag" | "contentType" | "sizeBytes"> & {
+    // Keep this runtime boundary wider than the Drizzle literal type: a
+    // malformed or legacy row must still be rejected before any R2 call.
+    storageBucket: string;
+  },
 ): Promise<void> {
-  if (!proof.objectEtag) {
+  if (proof.storageBucket !== "docs" || !proof.objectEtag) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "This proof file needs to be uploaded again before it can be reviewed.",
@@ -155,7 +181,7 @@ async function assertProofObjectIntegrity(
   try {
     const object = await getR2().send(
       new HeadObjectCommand({
-        Bucket: BUCKETS[proof.storageBucket],
+        Bucket: BUCKETS.docs,
         Key: proof.storageKey,
         IfMatch: proof.objectEtag,
       }),
@@ -259,9 +285,7 @@ function effectiveAgreementText(product: {
   return decodeDescription(product.description).contractText || null;
 }
 
-async function productCommercialTermsColumnsAvailable(
-  db: Pick<Db, "execute">,
-): Promise<boolean> {
+async function productCommercialTermsColumnsAvailable(db: Pick<Db, "execute">): Promise<boolean> {
   const result = await db.execute<{ columnCount: number }>(sql`
     select count(*)::int as "columnCount"
     from information_schema.columns
@@ -330,14 +354,64 @@ async function loadProducerProof(db: Db, producerId: string, proofId: string) {
     )
     .limit(1);
   if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-  const request = await loadPurchaseRequestRow(
-    db,
-    row.proof.purchaseRequestId,
-    true,
-    producerId,
-  );
+  const request = await loadPurchaseRequestRow(db, row.proof.purchaseRequestId, true, producerId);
   if (!request) throw new TRPCError({ code: "NOT_FOUND" });
   return { ...row, request };
+}
+
+export async function listPendingProducerProofs(
+  db: Db,
+  producerId: string,
+  purchaseRequestId?: string,
+) {
+  if (!(await paymentProofsTableAvailable(db))) {
+    return { available: false as const, proofs: [] };
+  }
+
+  if (purchaseRequestId) {
+    const [ownedRequest] = await db
+      .select({ id: purchaseRequests.id })
+      .from(purchaseRequests)
+      .where(
+        and(
+          eq(purchaseRequests.id, purchaseRequestId),
+          eq(purchaseRequests.producerId, producerId),
+        ),
+      )
+      .limit(1);
+    if (!ownedRequest) throw new TRPCError({ code: "NOT_FOUND" });
+  }
+
+  const filters = [
+    eq(paymentProofs.producerId, producerId),
+    eq(purchaseRequests.producerId, producerId),
+    eq(paymentProofs.status, "pending"),
+  ];
+  if (purchaseRequestId) {
+    filters.push(eq(paymentProofs.purchaseRequestId, purchaseRequestId));
+    filters.push(eq(purchaseRequests.id, purchaseRequestId));
+  }
+  const rows = await db
+    .select({
+      proofId: paymentProofs.id,
+      amountCents: paymentProofs.amountCents,
+      currency: paymentProofs.currency,
+      originalFileName: paymentProofs.originalFileName,
+      contentType: paymentProofs.contentType,
+      sizeBytes: paymentProofs.sizeBytes,
+      proofNote: paymentProofs.note,
+      createdAt: paymentProofs.createdAt,
+      purchaseRequestId: purchaseRequests.id,
+      refNumber: purchaseRequests.refNumber,
+      artistName: purchaseRequests.artistName,
+      productNameSnapshot: purchaseRequests.productNameSnapshot,
+      totalCents: purchaseRequests.priceCents,
+    })
+    .from(paymentProofs)
+    .innerJoin(purchaseRequests, eq(purchaseRequests.id, paymentProofs.purchaseRequestId))
+    .where(and(...filters))
+    .orderBy(desc(paymentProofs.createdAt));
+  return { available: true as const, proofs: rows };
 }
 
 // Migration 0023 adds the explicit post-approval plan-choice fields. Preview
@@ -403,9 +477,7 @@ async function purchasePlanColumnsAvailable(db: Pick<Db, "execute">): Promise<bo
   return (result.rows[0]?.columnCount ?? 0) === 2;
 }
 
-async function purchaseCommercialTermsColumnsAvailable(
-  db: Pick<Db, "execute">,
-): Promise<boolean> {
+async function purchaseCommercialTermsColumnsAvailable(db: Pick<Db, "execute">): Promise<boolean> {
   const result = await db.execute<{ columnCount: number }>(sql`
     select count(*)::int as "columnCount"
     from information_schema.columns
@@ -460,19 +532,14 @@ async function loadPurchaseRequestRow(
   knownPlanColumnsAvailable?: boolean,
   producerId?: string,
 ): Promise<PurchaseRequest | undefined> {
-  const hasPlanColumns =
-    knownPlanColumnsAvailable ?? (await purchasePlanColumnsAvailable(db));
+  const hasPlanColumns = knownPlanColumnsAvailable ?? (await purchasePlanColumnsAvailable(db));
   const hasCommercialTermsColumns =
     hasPlanColumns && (await purchaseCommercialTermsColumnsAvailable(db));
   const ownerFilter = producerId
     ? and(eq(purchaseRequests.id, id), eq(purchaseRequests.producerId, producerId))
     : eq(purchaseRequests.id, id);
   if (hasPlanColumns && hasCommercialTermsColumns) {
-    const [request] = await db
-      .select()
-      .from(purchaseRequests)
-      .where(ownerFilter)
-      .limit(1);
+    const [request] = await db.select().from(purchaseRequests).where(ownerFilter).limit(1);
     return request;
   }
 
@@ -690,6 +757,7 @@ async function resolveOwnedRequest(
       and(
         eq(clientContacts.id, request.clientContactId),
         eq(clientContacts.clerkUserId, clerkUserId),
+        eq(clientContacts.producerId, request.producerId),
         isNull(clientContacts.archivedAt),
       ),
     )
@@ -761,10 +829,8 @@ export const artistPurchaseRouter = router({
       if (!productRow) throw new TRPCError({ code: "NOT_FOUND" });
       const prod: Product = {
         ...productRow,
-        royaltyTerms:
-          "royaltyTerms" in productRow ? (productRow.royaltyTerms ?? null) : null,
-        agreementText:
-          "agreementText" in productRow ? (productRow.agreementText ?? null) : null,
+        royaltyTerms: "royaltyTerms" in productRow ? (productRow.royaltyTerms ?? null) : null,
+        agreementText: "agreementText" in productRow ? (productRow.agreementText ?? null) : null,
       };
 
       const agreementTextSnapshot = effectiveAgreementText(prod);
@@ -1178,9 +1244,7 @@ export const artistPurchaseRouter = router({
         (row.status === "declined" && ageMs <= 7 * DAY);
       if (!visible) return { current: null };
       const hasProofTable = await paymentProofsTableAvailable(ctx.db);
-      const pendingProofCents = hasProofTable
-        ? await pendingProofTotalCents(ctx.db, row.id)
-        : 0;
+      const pendingProofCents = hasProofTable ? await pendingProofTotalCents(ctx.db, row.id) : 0;
       return {
         current: {
           ...row,
@@ -1254,11 +1318,7 @@ export const artistPurchaseRouter = router({
         const snapshotPlan = await ctx.db.transaction(async (tx) => {
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${request.id}, 0))`);
           const hasPlanColumns = await purchasePlanColumnsAvailable(tx);
-          const lockedRequest = await loadPurchaseRequestRow(
-            tx,
-            request.id,
-            hasPlanColumns,
-          );
+          const lockedRequest = await loadPurchaseRequestRow(tx, request.id, hasPlanColumns);
           if (!lockedRequest) throw new TRPCError({ code: "NOT_FOUND" });
           if (lockedRequest.status !== "approved") {
             throw new TRPCError({
@@ -1374,9 +1434,7 @@ export const artistPurchaseRouter = router({
       const details = producer?.paymentDetails ?? {};
       const charges = calculateCharges(request.paymentPlanSnapshot, request.priceCents);
       const paid = await paidTotalCents(ctx.db, request.id);
-      const reserved = hasProofTable
-        ? await pendingProofTotalCents(ctx.db, request.id)
-        : 0;
+      const reserved = hasProofTable ? await pendingProofTotalCents(ctx.db, request.id) : 0;
       const progress = chargesProgress(charges, paid, reserved);
       const hasDetails = [details.bankTransfer, details.bitPhone].some((v) => Boolean(v?.trim()));
       return {
@@ -1497,7 +1555,7 @@ export const artistPurchaseRouter = router({
           }),
           { expiresIn: 300 },
         );
-        return { uploadUrl, storageKey: key };
+        return { uploadUrl };
       }),
 
     // Finalizes and records a private proof. The client can overwrite its one
@@ -1508,7 +1566,6 @@ export const artistPurchaseRouter = router({
         z.object({
           purchaseRequestId: z.string().uuid(),
           amountCents: z.number().int().positive(),
-          storageKey: z.string().min(1).max(1024),
           originalFileName: z.string().trim().min(1).max(200),
           note: z.string().max(2000).optional(),
         }),
@@ -1516,17 +1573,10 @@ export const artistPurchaseRouter = router({
       .mutation(async ({ ctx, input }) => {
         const request = await resolveOwnedRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
         await assertPaymentProofsTableAvailable(ctx.db);
-        if (
-          !isProofStagingKeyForPurchase(input.storageKey, {
-            producerId: request.producerId,
-            purchaseRequestId: request.id,
-          })
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "That proof upload doesn't belong to this purchase.",
-          });
-        }
+        const stagingKey = buildProofStagingKey({
+          producerId: request.producerId,
+          purchaseRequestId: request.id,
+        });
 
         const preflight = await assertAcceptsProof(ctx.db, request);
         if (
@@ -1546,7 +1596,7 @@ export const artistPurchaseRouter = router({
           const object = await getR2().send(
             new HeadObjectCommand({
               Bucket: BUCKETS.docs,
-              Key: input.storageKey,
+              Key: stagingKey,
             }),
           );
           sizeBytes = object.ContentLength ?? 0;
@@ -1574,7 +1624,7 @@ export const artistPurchaseRouter = router({
           const sample = await getR2().send(
             new GetObjectCommand({
               Bucket: BUCKETS.docs,
-              Key: input.storageKey,
+              Key: stagingKey,
               Range: "bytes=0-31",
               IfMatch: stagingEtag,
             }),
@@ -1596,29 +1646,37 @@ export const artistPurchaseRouter = router({
           filename: input.originalFileName,
         });
         let finalEtag = "";
+        let copyEtag = "";
         try {
-          await getR2().send(
+          const copied = await getR2().send(
             new CopyObjectCommand({
               Bucket: BUCKETS.docs,
               Key: finalKey,
-              CopySource: encodeR2CopySource(BUCKETS.docs, input.storageKey),
+              CopySource: encodeR2CopySource(BUCKETS.docs, stagingKey),
               CopySourceIfMatch: stagingEtag,
               MetadataDirective: "COPY",
             }),
           );
+          copyEtag = copied.CopyObjectResult?.ETag ?? "";
+          if (!copyEtag) throw new Error("copy did not return an ETag");
           const finalized = await getR2().send(
-            new HeadObjectCommand({ Bucket: BUCKETS.docs, Key: finalKey }),
+            new HeadObjectCommand({
+              Bucket: BUCKETS.docs,
+              Key: finalKey,
+              IfMatch: copyEtag,
+            }),
           );
           finalEtag = finalized.ETag ?? "";
           if (
             !finalEtag ||
+            finalEtag !== copyEtag ||
             finalized.ContentLength !== sizeBytes ||
             (finalized.ContentType ?? "").toLowerCase() !== contentType
           ) {
             throw new Error("final proof metadata mismatch");
           }
         } catch {
-          await deleteProofObjectQuietly("docs", finalKey);
+          await deleteProofObjectQuietly(finalKey);
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "The proof changed while it was being submitted. Upload it again.",
@@ -1713,6 +1771,7 @@ export const artistPurchaseRouter = router({
                 .where(
                   and(
                     eq(purchaseRequests.id, lockedRequest.id),
+                    eq(purchaseRequests.producerId, lockedRequest.producerId),
                     eq(purchaseRequests.status, "approved"),
                   ),
                 );
@@ -1720,14 +1779,15 @@ export const artistPurchaseRouter = router({
             return proof;
           });
         } catch (error) {
-          await deleteProofObjectQuietly("docs", finalKey);
+          await deleteProofObjectQuietly(finalKey);
           throw error;
         }
 
-        await deleteProofObjectQuietly("docs", input.storageKey);
+        await deleteProofObjectQuietly(stagingKey);
 
         try {
           await emitProofSubmitted(ctx.db, {
+            proofId: row.id,
             producerId: request.producerId,
             purchaseRequestId: request.id,
             artistName: request.artistName,
@@ -1740,31 +1800,14 @@ export const artistPurchaseRouter = router({
           console.error("[notify] proof-submitted failed", err);
         }
 
-        return { ok: true as const, proofId: row.id };
+        return {
+          ok: true as const,
+          proofId: row.id,
+          purchaseRequestId: request.id,
+          productId: request.productId,
+        };
       }),
 
-    view: artistProcedure
-      .input(z.object({ proofId: z.string().uuid() }))
-      .query(async ({ ctx, input }) => {
-        await assertPaymentProofsTableAvailable(ctx.db);
-        const [proof] = await ctx.db
-          .select()
-          .from(paymentProofs)
-          .where(eq(paymentProofs.id, input.proofId))
-          .limit(1);
-        if (!proof) throw new TRPCError({ code: "NOT_FOUND" });
-        await resolveOwnedRequest(ctx.db, ctx.clerkUserId, proof.purchaseRequestId);
-        await assertProofObjectIntegrity(proof);
-        const url = await getSignedUrl(
-          getR2(),
-          new GetObjectCommand({
-            Bucket: BUCKETS[proof.storageBucket],
-            Key: proof.storageKey,
-          }),
-          { expiresIn: 300 },
-        );
-        return { url, expiresInSeconds: 300 };
-      }),
   }),
   session: router({
     schedule: artistProcedure
@@ -2081,9 +2124,7 @@ export const producerPurchaseRouter = router({
         },
         agreement: {
           acceptedAt: acceptance?.acceptedAt ?? null,
-          agreementUrl: safeAgreementUrl(
-            acceptance?.agreementUrl ?? request.contractUrlSnapshot,
-          ),
+          agreementUrl: safeAgreementUrl(acceptance?.agreementUrl ?? request.contractUrlSnapshot),
         },
       };
     }),
@@ -2091,45 +2132,22 @@ export const producerPurchaseRouter = router({
   // ── BE-2 — Gate 2: verify / reject proofs ──────────────────────────
   proofOfPayment: router({
     // The hub's verification queue: every awaiting proof, newest first.
-    pending: producerProcedure.query(async ({ ctx }) => {
-      const rows = await ctx.db
-        .select({
-          proofId: paymentProofs.id,
-          amountCents: paymentProofs.amountCents,
-          currency: paymentProofs.currency,
-          originalFileName: paymentProofs.originalFileName,
-          contentType: paymentProofs.contentType,
-          sizeBytes: paymentProofs.sizeBytes,
-          proofNote: paymentProofs.note,
-          createdAt: paymentProofs.createdAt,
-          purchaseRequestId: purchaseRequests.id,
-          refNumber: purchaseRequests.refNumber,
-          artistName: purchaseRequests.artistName,
-          productNameSnapshot: purchaseRequests.productNameSnapshot,
-          totalCents: purchaseRequests.priceCents,
-        })
-        .from(paymentProofs)
-        .innerJoin(purchaseRequests, eq(purchaseRequests.id, paymentProofs.purchaseRequestId))
-        .where(
-          and(
-            eq(paymentProofs.producerId, ctx.producerId),
-            eq(purchaseRequests.producerId, ctx.producerId),
-            eq(paymentProofs.status, "pending"),
-          ),
-        )
-        .orderBy(desc(paymentProofs.createdAt));
-      return { proofs: rows };
-    }),
+    pending: producerProcedure
+      .input(z.object({ purchaseRequestId: z.string().uuid().optional() }).optional())
+      .query(({ ctx, input }) =>
+        listPendingProducerProofs(ctx.db, ctx.producerId, input?.purchaseRequestId),
+      ),
 
     view: producerProcedure
       .input(z.object({ proofId: z.string().uuid() }))
       .query(async ({ ctx, input }) => {
+        await assertPaymentProofsTableAvailable(ctx.db);
         const { proof } = await loadProducerProof(ctx.db, ctx.producerId, input.proofId);
         await assertProofObjectIntegrity(proof);
         const url = await getSignedUrl(
           getR2(),
           new GetObjectCommand({
-            Bucket: BUCKETS[proof.storageBucket],
+            Bucket: BUCKETS.docs,
             Key: proof.storageKey,
           }),
           { expiresIn: 300 },
@@ -2142,9 +2160,16 @@ export const producerPurchaseRouter = router({
     confirm: producerProcedure
       .input(z.object({ proofId: z.string().uuid() }))
       .mutation(async ({ ctx, input }) => {
+        await assertPaymentProofsTableAvailable(ctx.db);
         const loaded = await loadProducerProof(ctx.db, ctx.producerId, input.proofId);
         const { proof, request } = loaded;
         if (proof.status === "confirmed") {
+          await markProofNotificationsReadQuietly(
+            ctx.db,
+            ctx.producerId,
+            proof.id,
+            request.id,
+          );
           const paid = await paidTotalCents(ctx.db, request.id);
           const [depositDue = request.priceCents] = calculateCharges(
             request.paymentPlanSnapshot,
@@ -2152,6 +2177,7 @@ export const producerPurchaseRouter = router({
           );
           return {
             ok: true as const,
+            purchaseRequestId: request.id,
             proofStatus: "confirmed" as const,
             invoiceStatus: "paid" as const,
             depositPaid: paid >= depositDue,
@@ -2167,12 +2193,7 @@ export const producerPurchaseRouter = router({
         await assertProofObjectIntegrity(proof);
         const result = await ctx.db.transaction(async (tx) => {
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${request.id}, 0))`);
-          const lockedRequest = await loadPurchaseRequestRow(
-            tx,
-            request.id,
-            true,
-            ctx.producerId,
-          );
+          const lockedRequest = await loadPurchaseRequestRow(tx, request.id, true, ctx.producerId);
           if (!lockedRequest) throw new TRPCError({ code: "NOT_FOUND" });
           const [lockedProof] = await tx
             .select()
@@ -2214,10 +2235,24 @@ export const producerPurchaseRouter = router({
                   "This proof no longer matches the amount due. Reject it and ask for a new proof.",
               });
             }
-            await tx
+            const [confirmedProof] = await tx
               .update(paymentProofs)
               .set({ status: "confirmed", confirmedAt: now })
-              .where(eq(paymentProofs.id, lockedProof.id));
+              .where(
+                and(
+                  eq(paymentProofs.id, lockedProof.id),
+                  eq(paymentProofs.producerId, ctx.producerId),
+                  eq(paymentProofs.purchaseRequestId, lockedRequest.id),
+                  eq(paymentProofs.status, "pending"),
+                ),
+              )
+              .returning({ id: paymentProofs.id });
+            if (!confirmedProof) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: "This proof was updated in another tab. Refresh and try again.",
+              });
+            }
             await tx.insert(invoices).values({
               producerId: lockedRequest.producerId,
               projectId: lockedRequest.projectId,
@@ -2249,7 +2284,12 @@ export const producerPurchaseRouter = router({
             await tx
               .update(purchaseRequests)
               .set({ status: "paid", statusChangedAt: now })
-              .where(eq(purchaseRequests.id, lockedRequest.id));
+              .where(
+                and(
+                  eq(purchaseRequests.id, lockedRequest.id),
+                  eq(purchaseRequests.producerId, ctx.producerId),
+                ),
+              );
           }
           return {
             paid,
@@ -2258,6 +2298,13 @@ export const producerPurchaseRouter = router({
             didConfirm,
           };
         });
+
+        await markProofNotificationsReadQuietly(
+          ctx.db,
+          ctx.producerId,
+          proof.id,
+          request.id,
+        );
 
         if (result.didConfirm) {
           after(async () => {
@@ -2281,6 +2328,7 @@ export const producerPurchaseRouter = router({
 
         return {
           ok: true as const,
+          purchaseRequestId: request.id,
           proofStatus: "confirmed" as const,
           invoiceStatus: "paid" as const,
           depositPaid: result.depositPaid,
@@ -2299,10 +2347,21 @@ export const producerPurchaseRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        await assertPaymentProofsTableAvailable(ctx.db);
         const loaded = await loadProducerProof(ctx.db, ctx.producerId, input.proofId);
         const { proof, request } = loaded;
         if (proof.status === "rejected") {
-          return { ok: true as const, proofStatus: "rejected" as const };
+          await markProofNotificationsReadQuietly(
+            ctx.db,
+            ctx.producerId,
+            proof.id,
+            request.id,
+          );
+          return {
+            ok: true as const,
+            purchaseRequestId: request.id,
+            proofStatus: "rejected" as const,
+          };
         }
         if (proof.status !== "pending") {
           throw new TRPCError({
@@ -2312,12 +2371,7 @@ export const producerPurchaseRouter = router({
         }
         const didReject = await ctx.db.transaction(async (tx) => {
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${request.id}, 0))`);
-          const lockedRequest = await loadPurchaseRequestRow(
-            tx,
-            request.id,
-            true,
-            ctx.producerId,
-          );
+          const lockedRequest = await loadPurchaseRequestRow(tx, request.id, true, ctx.producerId);
           if (!lockedRequest) throw new TRPCError({ code: "NOT_FOUND" });
           const [lockedProof] = await tx
             .select()
@@ -2340,14 +2394,28 @@ export const producerPurchaseRouter = router({
           if (lockedProof.status === "rejected") return false;
 
           const now = new Date();
-          await tx
+          const [rejectedProof] = await tx
             .update(paymentProofs)
             .set({
               status: "rejected",
               rejectionNote: input.note,
               rejectedAt: now,
             })
-            .where(eq(paymentProofs.id, lockedProof.id));
+            .where(
+              and(
+                eq(paymentProofs.id, lockedProof.id),
+                eq(paymentProofs.producerId, ctx.producerId),
+                eq(paymentProofs.purchaseRequestId, lockedRequest.id),
+                eq(paymentProofs.status, "pending"),
+              ),
+            )
+            .returning({ id: paymentProofs.id });
+          if (!rejectedProof) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "This proof was updated in another tab. Refresh and try again.",
+            });
+          }
 
           // Before the first confirmed payment, rejection returns the request
           // to awaiting-payment. After a deposit it stays paid/sessions-open.
@@ -2365,6 +2433,7 @@ export const producerPurchaseRouter = router({
                 .where(
                   and(
                     eq(purchaseRequests.id, lockedRequest.id),
+                    eq(purchaseRequests.producerId, ctx.producerId),
                     eq(purchaseRequests.status, "verifying"),
                   ),
                 );
@@ -2372,6 +2441,13 @@ export const producerPurchaseRouter = router({
           }
           return true;
         });
+
+        await markProofNotificationsReadQuietly(
+          ctx.db,
+          ctx.producerId,
+          proof.id,
+          request.id,
+        );
 
         if (didReject) {
           after(async () => {
@@ -2389,7 +2465,11 @@ export const producerPurchaseRouter = router({
           });
         }
 
-        return { ok: true as const, proofStatus: "rejected" as const };
+        return {
+          ok: true as const,
+          purchaseRequestId: request.id,
+          proofStatus: "rejected" as const,
+        };
       }),
   }),
   session: router({

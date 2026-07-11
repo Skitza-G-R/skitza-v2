@@ -124,7 +124,8 @@ describe("requestToBookAction (server action)", () => {
       routerSrc.indexOf("proofOfPayment: router({"),
       routerSrc.indexOf("session: router({"),
     );
-    expect(proofSection).toMatch(/storageKey: z\.string/);
+    expect(proofSection).not.toMatch(/storageKey: z\.string/);
+    expect(proofSection).toMatch(/const stagingKey = buildProofStagingKey/);
     expect(proofSection).toMatch(/storageBucket: "docs"/);
     expect(proofSection).toMatch(/insert\(paymentProofs\)/);
     expect(proofSection).not.toMatch(/status: "sent"/);

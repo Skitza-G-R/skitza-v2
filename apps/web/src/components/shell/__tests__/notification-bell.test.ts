@@ -21,6 +21,7 @@ function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotifica
     commentId: null,
     bookingId: null,
     purchaseRequestId: null,
+    paymentProofId: null,
     ...overrides,
   };
 }
@@ -59,6 +60,18 @@ describe("notificationHref", () => {
         }),
       ),
     ).toBe("/dashboard/requests/request-1");
+  });
+
+  it("routes a submitted proof to the exact request's private-evidence anchor", () => {
+    expect(
+      notificationHref(
+        makeItem({
+          kind: "proof_submitted",
+          purchaseRequestId: "request-proof-1",
+          paymentProofId: "proof-1",
+        }),
+      ),
+    ).toBe("/dashboard/requests/request-proof-1?proof=proof-1#payment-proof");
   });
 
   it("prefers projectId over bookingId when both are present", () => {

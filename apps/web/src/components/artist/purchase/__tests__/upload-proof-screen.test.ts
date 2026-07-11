@@ -58,6 +58,37 @@ const PAGE_PATH = join(
   "page.tsx",
 );
 const pageSrc = readFileSync(PAGE_PATH, "utf8");
+const PAY_PAGE_PATH = join(
+  here,
+  "..",
+  "..",
+  "..",
+  "..",
+  "app",
+  "(artist)",
+  "artist",
+  "purchase",
+  "[productId]",
+  "pay",
+  "page.tsx",
+);
+const payPageSrc = readFileSync(PAY_PAGE_PATH, "utf8");
+const INSTRUCTIONS_PAGE_PATH = join(
+  here,
+  "..",
+  "..",
+  "..",
+  "..",
+  "app",
+  "(artist)",
+  "artist",
+  "purchase",
+  "[productId]",
+  "pay",
+  "instructions",
+  "page.tsx",
+);
+const instructionsPageSrc = readFileSync(INSTRUCTIONS_PAGE_PATH, "utf8");
 const ACTIONS_PATH = join(here, "..", "actions.ts");
 const actionsSrc = readFileSync(ACTIONS_PATH, "utf8");
 
@@ -125,6 +156,18 @@ describe("upload-proof-screen.tsx (S9) wiring", () => {
     expect(reuploadControl).toMatch(/min-h-11/);
   });
 
+  it("clears the native picker before re-upload so the same file can be selected again", () => {
+    const reUpload = s9Src.slice(
+      s9Src.indexOf("function reUpload()"),
+      s9Src.indexOf("const headline", s9Src.indexOf("function reUpload()")),
+    );
+
+    expect(reUpload).toMatch(/fileRef\.current\.value = ""/);
+    expect(reUpload.indexOf('fileRef.current.value = ""')).toBeLessThan(
+      reUpload.indexOf("fileRef.current?.click()"),
+    );
+  });
+
   it("uploads to the private presigned URL and then records the proof", () => {
     expect(s9Src).toMatch(/presignProofUploadAction/);
     expect(s9Src).toMatch(/fetch\(presigned\.uploadUrl/);
@@ -132,6 +175,51 @@ describe("upload-proof-screen.tsx (S9) wiring", () => {
     expect(actionsSrc).toMatch(/proofOfPayment\.presign/);
     expect(actionsSrc).toMatch(/proofOfPayment\.submit/);
     expect(s9Src).not.toMatch(/setTimeout\(\(\) => \{\s*setStatus\("awaiting"\)/);
+  });
+
+  it("keeps the deterministic staging key server-only across both client actions", () => {
+    const presignAction = actionsSrc.slice(
+      actionsSrc.indexOf("export async function presignProofUploadAction"),
+      actionsSrc.indexOf("export async function submitPaymentProofAction"),
+    );
+    const submitAction = actionsSrc.slice(
+      actionsSrc.indexOf("export async function submitPaymentProofAction"),
+    );
+
+    expect(presignAction).not.toMatch(/storageKey/);
+    expect(submitAction).not.toMatch(/storageKey/);
+    expect(s9Src).not.toMatch(/presigned\.storageKey|storageKey:/);
+  });
+
+  it("revalidates artist pay state and every producer proof surface after submit", () => {
+    const submitAction = actionsSrc.slice(
+      actionsSrc.indexOf("export async function submitPaymentProofAction"),
+    );
+
+    expect(submitAction).not.toMatch(/productId: string/);
+    expect(submitAction).toMatch(/result\.productId/);
+    expect(submitAction).toMatch(/result\.purchaseRequestId/);
+    expect(submitAction).toMatch(/revalidatePath\("\/artist", "layout"\)/);
+    expect(submitAction).toMatch(/revalidatePath\(`\/artist\/purchase\/\$\{result\.productId\}\/pay`\)/);
+    expect(submitAction).toMatch(
+      /revalidatePath\(`\/artist\/purchase\/\$\{result\.productId\}\/pay\/instructions`\)/,
+    );
+    expect(submitAction).toMatch(
+      /revalidatePath\(`\/artist\/purchase\/\$\{result\.productId\}\/pay\/proof`\)/,
+    );
+    expect(submitAction).toMatch(/revalidatePath\("\/dashboard", "layout"\)/);
+    expect(submitAction).toMatch(/revalidatePath\("\/dashboard\/requests", "layout"\)/);
+    expect(submitAction).toMatch(
+      /revalidatePath\(`\/dashboard\/requests\/\$\{result\.purchaseRequestId\}`\)/,
+    );
+  });
+
+  it("adopts refreshed server state and polls only while a proof is awaiting review", () => {
+    expect(s9Src).toMatch(/useEffect/);
+    expect(s9Src).toMatch(/setStatus\(initialStatus\)/);
+    expect(s9Src).toMatch(/if \(status !== "awaiting"\) return/);
+    expect(s9Src).toMatch(/setInterval\(\(\) => \{\s*router\.refresh\(\)/);
+    expect(s9Src).toMatch(/clearInterval/);
   });
 
   it("shows upload failures and keeps the user able to retry", () => {
@@ -149,6 +237,27 @@ describe("upload-proof-screen.tsx (S9) wiring", () => {
   it("returns safely to payment instructions when the private proof ledger is unavailable", () => {
     expect(pageSrc).toMatch(/!data\.proofUploadsAvailable/);
     expect(pageSrc).toMatch(/\/pay\/instructions\?req=\$\{req\}/);
+  });
+
+  it("cannot bounce between instructions and proof on a pre-0023 database", () => {
+    const proofRedirects = instructionsPageSrc.slice(
+      instructionsPageSrc.indexOf("if (!data.amountDueNowCents)"),
+      instructionsPageSrc.indexOf("const paymentDetails"),
+    );
+
+    expect(proofRedirects).toMatch(
+      /if \(data\.proofUploadsAvailable\)[\s\S]*redirect\(`\/artist\/purchase\/\$\{productId\}\/pay\/proof/,
+    );
+    expect(proofRedirects).toMatch(/redirect\("\/artist"\)/);
+    expect(proofRedirects).toMatch(
+      /data\.proofUploadsAvailable &&[\s\S]*data\.pendingProofCents[\s\S]*redirect\(`\/artist\/purchase\/\$\{productId\}\/pay\/proof/,
+    );
+  });
+
+  it("checks proof availability before S7 redirects a verifying or paid request to S9", () => {
+    expect(payPageSrc).toMatch(/proofOfPayment\.state/);
+    expect(payPageSrc).toMatch(/proofState\.proofUploadsAvailable/);
+    expect(payPageSrc).toMatch(/\/pay\/instructions\?req=\$\{req\}/);
   });
 
   it("rejects non-paying states before sending an unchosen plan back to S7", () => {

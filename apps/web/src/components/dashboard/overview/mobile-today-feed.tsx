@@ -13,6 +13,7 @@ import type { Stage } from "~/lib/projects/stages";
 import { STAGE_LABEL } from "~/lib/projects/stages";
 import { formatRelativeTime } from "~/lib/time/relative";
 import { formatMoney } from "~/lib/format/money";
+import type { PendingPaymentProof } from "~/components/dashboard/requests/pending-payment-proofs";
 
 import { MobilePaymentRow } from "./mobile-payment-row";
 
@@ -52,6 +53,7 @@ export interface MobileTodayFeedProps {
     priceCents: number;
     currency: string;
   }>;
+  pendingPaymentProofs: PendingPaymentProof[];
   /** Raw follow-up sessions; the feed groups them per project. */
   followUps: Array<{
     id: string;
@@ -101,6 +103,7 @@ export function MobileTodayFeed({
   displayName,
   pendingApprovals,
   pendingPurchaseRequests,
+  pendingPaymentProofs,
   followUps,
   payments,
   todaySession,
@@ -119,16 +122,16 @@ export function MobileTodayFeed({
   const needsYouCount =
     pendingApprovals.length +
     pendingPurchaseRequests.length +
+    pendingPaymentProofs.length +
     followUpGroups.length +
     payments.length +
     urgentProjects.length +
     (showSetupNudge ? 1 : 0);
 
-  const allClear =
-    needsYouCount === 0 && todaySession === null && activity.length === 0;
+  const allClear = needsYouCount === 0 && todaySession === null && activity.length === 0;
 
   return (
-    <div className="sk-page-enter mx-auto flex w-full flex-col gap-6 px-4 pb-12 pt-5 lg:hidden">
+    <div className="sk-page-enter mx-auto flex w-full flex-col gap-6 px-4 pt-5 pb-12 lg:hidden">
       {/* Greeting — compact on purpose; the feed is the hero here. */}
       <header className="reveal-up min-w-0">
         <span className="pill pill-success inline-flex items-center gap-1.5">
@@ -139,7 +142,7 @@ export function MobileTodayFeed({
           />
           Accepting Sessions
         </span>
-        <h1 className="font-syne mt-2.5 text-[27px] font-extrabold leading-[1.04] tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+        <h1 className="font-syne mt-2.5 text-[27px] leading-[1.04] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
           {greetingFor(now)}, {greetingName}.
         </h1>
         <p className="mt-1 text-[13px] text-[rgb(var(--fg-muted))]">
@@ -169,6 +172,10 @@ export function MobileTodayFeed({
           <div className="flex flex-col gap-2.5">
             {showSetupNudge ? <SetupNudgeCard /> : null}
 
+            {pendingPaymentProofs.map((proof) => (
+              <PaymentProofCard key={proof.proofId} proof={proof} />
+            ))}
+
             {pendingPurchaseRequests.map((request) => (
               <PurchaseRequestCard key={request.id} request={request} />
             ))}
@@ -185,9 +192,7 @@ export function MobileTodayFeed({
               <MobilePaymentRow key={p.id} booking={p} />
             ))}
 
-            {urgentProjects.length > 0 ? (
-              <UrgentList projects={urgentProjects} />
-            ) : null}
+            {urgentProjects.length > 0 ? <UrgentList projects={urgentProjects} /> : null}
           </div>
         </section>
       ) : null}
@@ -201,10 +206,10 @@ export function MobileTodayFeed({
             className="sk-press flex items-center gap-3.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4"
           >
             <div className="w-14 shrink-0">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-[rgb(var(--brand-primary))]">
+              <p className="font-mono text-[10px] font-bold tracking-[0.06em] text-[rgb(var(--brand-primary))] uppercase">
                 {formatDayLabel(todaySession.occurredAt)}
               </p>
-              <p className="font-display mt-0.5 text-[26px] font-extrabold leading-none tracking-[-0.03em] text-[rgb(var(--fg-default))] tabular-nums">
+              <p className="font-display mt-0.5 text-[26px] leading-none font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))] tabular-nums">
                 {formatHourMain(todaySession.occurredAt)}
                 <span className="text-[14px] opacity-50">
                   :{formatMinuteSuffix(todaySession.occurredAt)}
@@ -212,18 +217,14 @@ export function MobileTodayFeed({
               </p>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+              <p className="truncate text-[15px] leading-tight font-bold text-[rgb(var(--fg-default))]">
                 {todaySession.title}
               </p>
               <p className="mt-0.5 truncate text-xs text-[rgb(var(--fg-muted))]">
                 {todaySession.subtitle}
               </p>
             </div>
-            <ChevronRight
-              size={16}
-              aria-hidden
-              className="shrink-0 text-[rgb(var(--fg-muted))]"
-            />
+            <ChevronRight size={16} aria-hidden className="shrink-0 text-[rgb(var(--fg-muted))]" />
           </Link>
         </section>
       ) : null}
@@ -236,11 +237,7 @@ export function MobileTodayFeed({
             {activity.slice(0, 8).map((item, i, arr) => (
               <li
                 key={item.id}
-                className={
-                  i < arr.length - 1
-                    ? "border-b border-[rgb(var(--border-subtle))]"
-                    : ""
-                }
+                className={i < arr.length - 1 ? "border-b border-[rgb(var(--border-subtle))]" : ""}
               >
                 <Link
                   href={item.href}
@@ -304,7 +301,7 @@ function ApprovalCard({
     >
       <FeedAvatar name={approval.artistName} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+        <p className="truncate text-[15px] leading-tight font-bold text-[rgb(var(--fg-default))]">
           {approval.artistName}
         </p>
         <p className="mt-0.5 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
@@ -316,7 +313,7 @@ function ApprovalCard({
           {formatDateTime(approval.startsAt)}
         </p>
       </div>
-      <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--brand-primary))]">
+      <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] font-bold tracking-widest text-[rgb(var(--brand-primary))] uppercase">
         Review
         <ChevronRight size={12} aria-hidden />
       </span>
@@ -336,17 +333,64 @@ function PurchaseRequestCard({
     >
       <FeedAvatar name={request.artistName} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-bold leading-tight text-[rgb(var(--fg-default))]">
+        <p className="truncate text-[15px] leading-tight font-bold text-[rgb(var(--fg-default))]">
           {request.artistName}
         </p>
         <p className="mt-0.5 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
           {request.productNameSnapshot}
         </p>
-        <p className="mt-1 font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[rgb(var(--brand-primary))]">
+        <p className="mt-1 font-mono text-[10.5px] font-semibold tracking-[0.06em] text-[rgb(var(--brand-primary))] uppercase">
           Purchase request · {formatMoney(request.priceCents, request.currency)}
         </p>
       </div>
       <ChevronRight size={16} aria-hidden className="shrink-0 text-[rgb(var(--brand-primary))]" />
+    </Link>
+  );
+}
+
+function PaymentProofCard({ proof }: { proof: PendingPaymentProof }) {
+  return (
+    <Link
+      href={`/dashboard/requests/${proof.purchaseRequestId}?proof=${proof.proofId}#payment-proof`}
+      className="sk-press rounded-[var(--radius-lg)] border-[1.5px] border-[rgb(var(--brand-primary)/0.5)] bg-[rgb(var(--brand-primary)/0.06)] p-3.5 shadow-[0_4px_24px_rgb(var(--brand-primary)/0.1)]"
+    >
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))]"
+        >
+          <ReceiptText size={17} strokeWidth={2.2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-[9.5px] font-bold tracking-widest text-[rgb(var(--brand-primary))] uppercase">
+            Payment proof · review now
+          </p>
+          <p className="mt-1 truncate text-[15px] leading-tight font-bold text-[rgb(var(--fg-default))]">
+            {proof.artistName}
+          </p>
+          <p className="mt-0.5 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+            {proof.productNameSnapshot} · {proof.refNumber}
+          </p>
+        </div>
+        <ChevronRight
+          size={16}
+          aria-hidden
+          className="mt-1 shrink-0 text-[rgb(var(--brand-primary))]"
+        />
+      </div>
+      <div className="mt-3 flex min-w-0 items-center justify-between gap-3 border-t border-[rgb(var(--brand-primary)/0.2)] pt-2.5">
+        <p className="min-w-0 truncate font-mono text-[10px] text-[rgb(var(--fg-muted))]">
+          {proof.originalFileName ?? "Payment proof"}
+        </p>
+        <p className="shrink-0 font-mono text-[11px] font-bold text-[rgb(var(--fg-default))]">
+          {formatMoney(proof.amountCents, proof.currency)}
+        </p>
+      </div>
+      {proof.proofNote ? (
+        <p className="mt-2 line-clamp-2 text-xs leading-relaxed break-words whitespace-pre-wrap text-[rgb(var(--fg-muted))]">
+          “{proof.proofNote}”
+        </p>
+      ) : null}
     </Link>
   );
 }
@@ -358,9 +402,7 @@ interface FollowUpGroup {
   count: number;
 }
 
-function groupFollowUps(
-  followUps: MobileTodayFeedProps["followUps"],
-): FollowUpGroup[] {
+function groupFollowUps(followUps: MobileTodayFeedProps["followUps"]): FollowUpGroup[] {
   const groups = new Map<string, FollowUpGroup>();
   for (const s of followUps) {
     const existing = groups.get(s.projectId);
@@ -393,7 +435,7 @@ function FollowUpCard({ group }: { group: FollowUpGroup }) {
           <Mic size={16} strokeWidth={2.2} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold leading-snug text-[rgb(var(--fg-default))]">
+          <p className="text-sm leading-snug font-bold text-[rgb(var(--fg-default))]">
             {headline} — how did it go?
           </p>
           <p className="mt-0.5 truncate text-xs text-[rgb(var(--fg-muted))]">
@@ -404,13 +446,13 @@ function FollowUpCard({ group }: { group: FollowUpGroup }) {
       <div className="mt-1.5 flex items-center gap-5 pl-12">
         <Link
           href={`/dashboard/clients-projects/${group.projectId}?tab=music`}
-          className="inline-flex min-h-[44px] items-center font-mono text-[10.5px] font-bold uppercase tracking-widest text-[rgb(var(--brand-primary))]"
+          className="inline-flex min-h-[44px] items-center font-mono text-[10.5px] font-bold tracking-widest text-[rgb(var(--brand-primary))] uppercase"
         >
           Upload files →
         </Link>
         <Link
           href={`/dashboard/clients-projects/${group.projectId}`}
-          className="inline-flex min-h-[44px] items-center font-mono text-[10.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-secondary))]"
+          className="inline-flex min-h-[44px] items-center font-mono text-[10.5px] font-bold tracking-widest text-[rgb(var(--fg-secondary))] uppercase"
         >
           Update project →
         </Link>
@@ -419,11 +461,7 @@ function FollowUpCard({ group }: { group: FollowUpGroup }) {
   );
 }
 
-function UrgentList({
-  projects,
-}: {
-  projects: MobileTodayFeedProps["urgentProjects"];
-}) {
+function UrgentList({ projects }: { projects: MobileTodayFeedProps["urgentProjects"] }) {
   return (
     <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
       {projects.map((p, i) => (
@@ -432,9 +470,7 @@ function UrgentList({
           href={`/dashboard/clients-projects/${p.id}`}
           className={[
             "flex min-h-[60px] items-center gap-3 px-3.5 py-2.5",
-            i < projects.length - 1
-              ? "border-b border-[rgb(var(--border-subtle))]"
-              : "",
+            i < projects.length - 1 ? "border-b border-[rgb(var(--border-subtle))]" : "",
           ].join(" ")}
         >
           <span
@@ -455,11 +491,7 @@ function UrgentList({
               {STAGE_LABEL[p.stage]}
             </p>
           </div>
-          <ChevronRight
-            size={16}
-            aria-hidden
-            className="shrink-0 text-[rgb(var(--fg-muted))]"
-          />
+          <ChevronRight size={16} aria-hidden className="shrink-0 text-[rgb(var(--fg-muted))]" />
         </Link>
       ))}
     </div>
@@ -481,7 +513,7 @@ function FeedLabel({
     <h2
       id={id}
       className={[
-        "mb-2 px-1 font-mono text-[10px] font-bold uppercase tracking-widest",
+        "mb-2 px-1 font-mono text-[10px] font-bold tracking-widest uppercase",
         accent ? "text-[rgb(var(--brand-primary))]" : "text-[rgb(var(--fg-muted))]",
       ].join(" ")}
     >
@@ -511,20 +543,20 @@ function UrgencyPill({
 }) {
   if (urgency === "overdue") {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-danger))]">
+      <span className="inline-flex shrink-0 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-widest text-[rgb(var(--fg-danger))] uppercase">
         Overdue
       </span>
     );
   }
   if (urgency === "deposit_due") {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--fg-warning)/0.3)] bg-[rgb(var(--fg-warning)/0.10)] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-warning))]">
+      <span className="inline-flex shrink-0 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--fg-warning)/0.3)] bg-[rgb(var(--fg-warning)/0.10)] px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-widest text-[rgb(var(--fg-warning))] uppercase">
         Deposit due
       </span>
     );
   }
   return (
-    <span className="inline-flex shrink-0 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-overlay))] px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+    <span className="inline-flex shrink-0 items-center rounded-[var(--radius-sm)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-overlay))] px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-widest text-[rgb(var(--fg-muted))] uppercase">
       Stuck
     </span>
   );
@@ -540,11 +572,7 @@ const ACTIVITY_GLYPH: Record<
   invoice: ReceiptText,
 };
 
-function ActivityGlyph({
-  kind,
-}: {
-  kind: MobileTodayFeedProps["activity"][number]["kind"];
-}) {
+function ActivityGlyph({ kind }: { kind: MobileTodayFeedProps["activity"][number]["kind"] }) {
   const Icon = ACTIVITY_GLYPH[kind];
   return (
     <span

@@ -6,10 +6,7 @@ import { useRouter } from "next/navigation";
 import { type SyntheticEvent, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
-import {
-  planKey,
-  requestPlanLabel,
-} from "~/components/checkout/plan-picker-helpers";
+import { planKey, requestPlanLabel } from "~/components/checkout/plan-picker-helpers";
 import { formatMoney } from "~/lib/format/money";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 
@@ -18,6 +15,8 @@ import {
   declinePurchaseRequest,
   undoPurchaseApproval,
 } from "~/app/(producer)/dashboard/requests/actions";
+
+import { PaymentProofReview, type PaymentProofReviewData } from "./payment-proof-review";
 
 type PurchaseRequestStatus = "pending" | "approved" | "verifying" | "paid" | "declined";
 
@@ -50,7 +49,13 @@ export type PurchaseRequestDetailData = {
   };
 };
 
-export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetailData }) {
+export function PurchaseRequestDetail({
+  detail,
+  paymentProof = null,
+}: {
+  detail: PurchaseRequestDetailData;
+  paymentProof?: PaymentProofReviewData | null;
+}) {
   const { request, agreement } = detail;
   const royalty = royaltyTermsDisplay(request.royaltyTermsSnapshot);
   const { toast } = useToast();
@@ -103,20 +108,20 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
   const canUndo = request.undoableUntil !== null;
 
   return (
-    <div className="sk-page-enter mx-auto w-full max-w-[1040px] px-4 pb-12 pt-6 sm:px-6 lg:px-8 lg:pt-10">
+    <div className="sk-page-enter mx-auto w-full max-w-[1040px] px-4 pt-6 pb-12 sm:px-6 lg:px-8 lg:pt-10">
       <Link
         href="/dashboard/requests"
-        className="inline-flex min-h-[44px] items-center font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--brand-primary))] lg:min-h-0"
+        className="inline-flex min-h-[44px] items-center font-mono text-[10px] font-bold tracking-widest text-[rgb(var(--fg-muted))] uppercase transition-colors hover:text-[rgb(var(--brand-primary))] lg:min-h-0"
       >
         ← Back to requests
       </Link>
 
       <header className="mt-4 flex flex-col gap-4 border-b border-[rgb(var(--border-subtle))] pb-6 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--brand-primary))]">
+          <p className="font-mono text-[10px] font-bold tracking-widest text-[rgb(var(--brand-primary))] uppercase">
             Gate 1 · {request.refNumber}
           </p>
-          <h1 className="mt-2 truncate font-display text-3xl font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))] sm:text-4xl">
+          <h1 className="font-display mt-2 truncate text-3xl font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))] sm:text-4xl">
             {request.artistName}
           </h1>
           <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
@@ -125,6 +130,12 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
         </div>
         <StatusPill status={request.status} />
       </header>
+
+      {paymentProof ? (
+        <div className="mt-6">
+          <PaymentProofReview proof={paymentProof} />
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.72fr)]">
         <div className="space-y-5">
@@ -135,7 +146,7 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
             </h2>
             <a
               href={`mailto:${request.artistEmail}`}
-              className="mt-1 inline-block break-all text-sm text-[rgb(var(--brand-primary))] hover:underline"
+              className="mt-1 inline-block text-sm break-all text-[rgb(var(--brand-primary))] hover:underline"
             >
               {request.artistEmail}
             </a>
@@ -145,12 +156,13 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
             <SectionLabel>Locked purchase</SectionLabel>
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1">
-                <h2 className="break-words text-lg font-bold text-[rgb(var(--fg-default))]">
+                <h2 className="text-lg font-bold break-words text-[rgb(var(--fg-default))]">
                   {request.productNameSnapshot}
                 </h2>
                 {request.songQty !== null && request.unitPriceCents !== null ? (
                   <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
-                    {request.songQty} {request.songQty === 1 ? "song" : "songs"} × {formatMoney(request.unitPriceCents, request.currency)}
+                    {request.songQty} {request.songQty === 1 ? "song" : "songs"} ×{" "}
+                    {formatMoney(request.unitPriceCents, request.currency)}
                   </p>
                 ) : null}
               </div>
@@ -168,19 +180,19 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
             <dl className="mt-3 grid gap-3 text-sm">
               <div className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] gap-3">
                 <dt className="font-medium text-[rgb(var(--fg-muted))]">Master</dt>
-                <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                <dd className="min-w-0 [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
                   {royalty.master}
                 </dd>
               </div>
               <div className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] gap-3">
                 <dt className="font-medium text-[rgb(var(--fg-muted))]">Composition</dt>
-                <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                <dd className="min-w-0 [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
                   {royalty.composition}
                 </dd>
               </div>
             </dl>
             {request.royaltyTermsSnapshot?.notes ? (
-              <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+              <p className="mt-4 text-sm leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
                 {request.royaltyTermsSnapshot.notes}
               </p>
             ) : null}
@@ -189,14 +201,16 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
           <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5">
             <SectionLabel>Agreement</SectionLabel>
             {request.agreementTextSnapshot ? (
-              <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+              <p className="mt-3 text-sm leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
                 {request.agreementTextSnapshot}
               </p>
             ) : null}
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-base font-bold text-[rgb(var(--fg-default))]">
-                  {agreement.acceptedAt ? "Accepted by the artist" : "Acceptance record unavailable"}
+                  {agreement.acceptedAt
+                    ? "Accepted by the artist"
+                    : "Acceptance record unavailable"}
                 </h2>
                 <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
                   {agreement.acceptedAt
@@ -238,11 +252,11 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
             </ul>
             {request.paymentPlanChosenAt ? (
               <p className="mt-3 text-xs text-[rgb(var(--fg-muted))]">
-                Artist selection: {requestPlanLabel(
-                  request.paymentPlanSnapshot,
-                  request.priceCents,
-                  (cents) => formatMoney(cents, request.currency),
-                )} · {formatDate(request.paymentPlanChosenAt)}
+                Artist selection:{" "}
+                {requestPlanLabel(request.paymentPlanSnapshot, request.priceCents, (cents) =>
+                  formatMoney(cents, request.currency),
+                )}{" "}
+                · {formatDate(request.paymentPlanChosenAt)}
               </p>
             ) : null}
           </section>
@@ -274,8 +288,14 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
                     Decline request
                   </button>
                 ) : (
-                  <form onSubmit={runDecline} className="space-y-3 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.05)] p-3">
-                    <label htmlFor="decline-reason" className="block text-xs font-semibold text-[rgb(var(--fg-default))]">
+                  <form
+                    onSubmit={runDecline}
+                    className="space-y-3 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.05)] p-3"
+                  >
+                    <label
+                      htmlFor="decline-reason"
+                      className="block text-xs font-semibold text-[rgb(var(--fg-default))]"
+                    >
                       Private note (optional)
                     </label>
                     <textarea
@@ -287,7 +307,7 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
                       maxLength={2000}
                       rows={3}
                       placeholder="Only you see this. The artist receives a generic update."
-                      className="w-full resize-y rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.55)] sm:text-sm"
+                      className="w-full resize-y rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.55)] focus:outline-none sm:text-sm"
                     />
                     <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                       <button
@@ -315,7 +335,8 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
             ) : canUndo ? (
               <div className="mt-3 space-y-3">
                 <p className="text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
-                  Approved {formatDate(request.approvedAt)}. You can undo this while the five-minute window remains open.
+                  Approved {formatDate(request.approvedAt)}. You can undo this while the five-minute
+                  window remains open.
                 </p>
                 <button
                   type="button"
@@ -340,7 +361,7 @@ export function PurchaseRequestDetail({ detail }: { detail: PurchaseRequestDetai
 
 function SectionLabel({ children }: { children: string }) {
   return (
-    <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
+    <p className="font-mono text-[10px] font-bold tracking-widest text-[rgb(var(--fg-muted))] uppercase">
       {children}
     </p>
   );
@@ -348,14 +369,20 @@ function SectionLabel({ children }: { children: string }) {
 
 function StatusPill({ status }: { status: PurchaseRequestStatus }) {
   const classes: Record<PurchaseRequestStatus, string> = {
-    pending: "border-[rgb(var(--brand-primary)/0.45)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]",
-    approved: "border-[rgb(var(--fg-success)/0.4)] bg-[rgb(var(--fg-success)/0.1)] text-[rgb(var(--fg-success))]",
-    verifying: "border-[rgb(var(--brand-primary)/0.45)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]",
+    pending:
+      "border-[rgb(var(--brand-primary)/0.45)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]",
+    approved:
+      "border-[rgb(var(--fg-success)/0.4)] bg-[rgb(var(--fg-success)/0.1)] text-[rgb(var(--fg-success))]",
+    verifying:
+      "border-[rgb(var(--brand-primary)/0.45)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary))]",
     paid: "border-[rgb(var(--fg-success)/0.4)] bg-[rgb(var(--fg-success)/0.1)] text-[rgb(var(--fg-success))]",
-    declined: "border-[rgb(var(--fg-danger)/0.35)] bg-[rgb(var(--fg-danger)/0.08)] text-[rgb(var(--fg-danger))]",
+    declined:
+      "border-[rgb(var(--fg-danger)/0.35)] bg-[rgb(var(--fg-danger)/0.08)] text-[rgb(var(--fg-danger))]",
   };
   return (
-    <span className={`inline-flex w-fit rounded-[var(--radius-lg)] border px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-widest ${classes[status]}`}>
+    <span
+      className={`inline-flex w-fit rounded-[var(--radius-lg)] border px-3 py-1.5 font-mono text-[10px] font-bold tracking-widest uppercase ${classes[status]}`}
+    >
       {statusLabel(status)}
     </span>
   );
@@ -373,7 +400,8 @@ function decisionDescription(status: PurchaseRequestStatus, declinedAt: Date | n
   if (status === "declined") {
     return `Declined${declinedAt ? ` ${formatDate(declinedAt)}` : ""}. The artist sees only a generic update.`;
   }
-  if (status === "verifying") return "The artist submitted payment proof. Review it in the payment verification queue.";
+  if (status === "verifying")
+    return "The artist submitted payment proof. Review it in the payment verification queue.";
   if (status === "paid") return "A payment has been received for this request.";
   return "This request cannot be changed from its current state.";
 }

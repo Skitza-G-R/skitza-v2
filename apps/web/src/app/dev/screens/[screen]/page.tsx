@@ -12,6 +12,11 @@ import { RequestSentScreen } from "~/components/artist/purchase/request-sent-scr
 import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
 import { buildAgreementTerms } from "~/components/artist/purchase/purchase-data";
+import { PaymentProofReview } from "~/components/dashboard/requests/payment-proof-review";
+import {
+  PendingPaymentProofs,
+  type PendingPaymentProof,
+} from "~/components/dashboard/requests/pending-payment-proofs";
 import {
   livePlanOptions,
   MOCK_PRODUCER,
@@ -19,6 +24,22 @@ import {
 } from "~/components/artist/purchase/pay-data";
 
 const DEV_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
+const DEV_PROOF_ID = "00000000-0000-4000-8000-000000000002";
+const DEV_PENDING_PROOF: PendingPaymentProof = {
+  proofId: DEV_PROOF_ID,
+  purchaseRequestId: DEV_REQUEST_ID,
+  refNumber: "SK-7F3QK2",
+  artistName: "Maya Cohen",
+  productNameSnapshot: "Premium Single Production",
+  amountCents: 120_000,
+  totalCents: 240_000,
+  currency: "ILS",
+  originalFileName: "bit-receipt-full.png",
+  contentType: "image/png",
+  sizeBytes: 248_320,
+  proofNote: "Deposit sent by Bit. The transfer reference is visible at the bottom.",
+  createdAt: new Date("2026-07-11T16:30:00.000Z"),
+};
 const DEV_PLAN_OPTIONS = livePlanOptions([
   {
     kind: "full",
@@ -142,6 +163,24 @@ export default async function DevScreenPage({ params }: Params) {
         />
       );
     }
+    case "gate2-queue":
+      return (
+        <main className="mx-auto w-full max-w-[1040px] px-4 py-8 sm:px-6 lg:px-8">
+          <PendingPaymentProofs proofs={[DEV_PENDING_PROOF]} />
+        </main>
+      );
+    case "gate2-review":
+      return (
+        <main className="mx-auto w-full max-w-[1040px] px-4 py-8 sm:px-6 lg:px-8">
+          <PaymentProofReview
+            proof={{
+              ...DEV_PENDING_PROOF,
+              signedUrl: "/icon",
+              expiresInSeconds: 300,
+            }}
+          />
+        </main>
+      );
     default: {
       if (screen.startsWith("s6-")) {
         const stage = screen.slice(3) as PurchaseStage;

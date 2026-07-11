@@ -13,7 +13,7 @@
 // Funnel chrome: full-screen overlay, back arrow top-left, no tab bar, the
 // primary action pinned low and thumb-reachable.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ClockIcon, DocIcon } from "~/components/artist/funnel/funnel-icons";
@@ -109,6 +109,27 @@ export function UploadProofScreen({
   const [status, setStatus] = useState<ProofStatus>(initialStatus);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // A router refresh preserves this client instance, so local optimistic state
+  // must explicitly adopt the server's authoritative proof result.
+  useEffect(() => {
+    setStatus(initialStatus);
+    if (initialStatus === "empty" || initialStatus === "rejected" || initialStatus === "paid") {
+      setFile(null);
+    }
+  }, [initialStatus]);
+
+  // Gate-2 happens in another account. Refresh at a modest cadence while the
+  // producer is reviewing, and stop as soon as refreshed props change state.
+  useEffect(() => {
+    if (status !== "awaiting") return;
+    const intervalId = window.setInterval(() => {
+      router.refresh();
+    }, 8_000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [router, status]);
+
   const progress = paidProgress(paidCents, totalCents);
   const isUploading = status === "uploading";
   const isAwaiting = status === "awaiting";
@@ -119,6 +140,7 @@ export function UploadProofScreen({
   const canSend = !!file && !isUploading && !isAwaiting && !isPaidInFull;
 
   function pickFile() {
+    if (fileRef.current) fileRef.current.value = "";
     fileRef.current?.click();
   }
 
@@ -179,7 +201,6 @@ export function UploadProofScreen({
       const submitted = await submitPaymentProofAction({
         purchaseRequestId,
         amountCents: thisProofCents,
-        storageKey: presigned.storageKey,
         originalFileName: file.name,
       });
       if (!submitted.ok) throw new Error(submitted.error);
@@ -199,6 +220,7 @@ export function UploadProofScreen({
     setStatus("empty");
     setUploadError(null);
     // open the picker so re-uploading is one tap from the rejected banner
+    if (fileRef.current) fileRef.current.value = "";
     fileRef.current?.click();
   }
 

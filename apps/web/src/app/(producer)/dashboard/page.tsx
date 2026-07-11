@@ -6,6 +6,8 @@ import { MobileTodayFeed } from "~/components/dashboard/overview/mobile-today-fe
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
 import { PaymentReceivedBanner } from "~/components/dashboard/payment-received-banner";
 import { PurchaseRequestsBanner } from "~/components/dashboard/purchase-requests-banner";
+import { PendingPaymentProofs } from "~/components/dashboard/requests/pending-payment-proofs";
+import { ProofQueueRefresh } from "~/components/dashboard/requests/proof-queue-refresh";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
@@ -47,16 +49,25 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // urgency strip), and SK-20's recent-paid-unacknowledged bookings
   // (drives the payment-received banner above OverviewScreen). All
   // independent reads run in parallel.
-  const [today, me, followUpRaw, pendingBookings, pendingPurchaseRequests, urgent, recentPaid] =
-    await Promise.all([
-      caller.producer.today(),
-      caller.producer.me(),
-      caller.booking.needsFollowUp(),
-      caller.booking.list({ status: "pending_approval" }),
-      caller.producer.purchase.list({ status: "pending" }),
-      caller.producer.overview.urgent(),
-      caller.booking.recentPaidUnacknowledged(),
-    ]);
+  const [
+    today,
+    me,
+    followUpRaw,
+    pendingBookings,
+    pendingPurchaseRequests,
+    pendingPaymentProofs,
+    urgent,
+    recentPaid,
+  ] = await Promise.all([
+    caller.producer.today(),
+    caller.producer.me(),
+    caller.booking.needsFollowUp(),
+    caller.booking.list({ status: "pending_approval" }),
+    caller.producer.purchase.list({ status: "pending" }),
+    caller.producer.purchase.proofOfPayment.pending(),
+    caller.producer.overview.urgent(),
+    caller.booking.recentPaidUnacknowledged(),
+  ]);
 
   // Drop sessions that aren't yet linked to a project — without a
   // projectId we have nowhere to send the producer when they click
@@ -68,8 +79,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
   // is completely empty with no next step to take.
-  const showSetupNudge =
-    skipOnboarding && !onboarding.hasPackages && today.items.length === 0;
+  const showSetupNudge = skipOnboarding && !onboarding.hasPackages && today.items.length === 0;
 
   // Today's session = first session item whose occurredAt is today.
   // Producer.today fans the items list across sessions/comments/
@@ -128,10 +138,17 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[320px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.12)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))] lg:h-[520px]"
         />
         <div className="sk-page-enter mx-auto max-w-[1920px]">
+          <ProofQueueRefresh />
           <h1 className="sr-only">Today</h1>
 
+          {pendingPaymentProofs.available && pendingPaymentProofs.proofs.length > 0 ? (
+            <div className="mx-4 mt-5 mb-5 hidden sm:mx-6 lg:mx-8 lg:mt-8 lg:mb-0 lg:block">
+              <PendingPaymentProofs proofs={pendingPaymentProofs.proofs} />
+            </div>
+          ) : null}
+
           {pendingPurchaseRequests.requests.length > 0 ? (
-            <div className="mx-4 mb-5 mt-5 hidden sm:mx-6 lg:mx-8 lg:mb-0 lg:mt-8 lg:block">
+            <div className="mx-4 mt-5 mb-5 hidden sm:mx-6 lg:mx-8 lg:mt-8 lg:mb-0 lg:block">
               <PurchaseRequestsBanner requests={pendingPurchaseRequests.requests} />
             </div>
           ) : null}
@@ -144,6 +161,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             displayName={me.displayName}
             pendingApprovals={pendingApprovals}
             pendingPurchaseRequests={pendingPurchaseRequests.requests}
+            pendingPaymentProofs={pendingPaymentProofs.available ? pendingPaymentProofs.proofs : []}
             followUps={followUpSessions.map((s) => ({
               id: s.id,
               artistName: s.artistName,
@@ -183,7 +201,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               populated layout so it's the first thing a producer
               sees when there's stale work to close out. */}
           {followUpSessions.length > 0 ? (
-            <div className="mx-4 mb-5 mt-5 hidden space-y-2 sm:mx-6 lg:block">
+            <div className="mx-4 mt-5 mb-5 hidden space-y-2 sm:mx-6 lg:block">
               {followUpSessions.map((session) => (
                 <div
                   key={session.id}
@@ -198,13 +216,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                   <div className="mt-3 flex gap-3">
                     <Link
                       href={`/dashboard/clients-projects/${session.projectId}?tab=music`}
-                      className="inline-flex min-h-[44px] items-center font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--brand-primary))] hover:underline lg:min-h-0"
+                      className="inline-flex min-h-[44px] items-center font-mono text-[0.66rem] tracking-wider text-[rgb(var(--brand-primary))] uppercase hover:underline lg:min-h-0"
                     >
                       Upload files →
                     </Link>
                     <Link
                       href={`/dashboard/clients-projects/${session.projectId}`}
-                      className="inline-flex min-h-[44px] items-center font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-secondary))] hover:underline lg:min-h-0"
+                      className="inline-flex min-h-[44px] items-center font-mono text-[0.66rem] tracking-wider text-[rgb(var(--fg-secondary))] uppercase hover:underline lg:min-h-0"
                     >
                       Update project →
                     </Link>

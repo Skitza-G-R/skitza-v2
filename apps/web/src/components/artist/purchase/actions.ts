@@ -87,14 +87,14 @@ export async function presignProofUploadAction(input: {
   fileName: string;
   contentType: ProofContentType;
   sizeBytes: number;
-}): Promise<{ ok: true; uploadUrl: string; storageKey: string } | ActionError> {
+}): Promise<{ ok: true; uploadUrl: string } | ActionError> {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Not signed in" };
 
   try {
     const caller = appRouter.createCaller({ userId });
     const result = await caller.artist.purchase.proofOfPayment.presign(input);
-    return { ok: true, ...result };
+    return { ok: true, uploadUrl: result.uploadUrl };
   } catch (error) {
     return errorResult(error, "Couldn't prepare the upload. Try again.");
   }
@@ -103,7 +103,6 @@ export async function presignProofUploadAction(input: {
 export async function submitPaymentProofAction(input: {
   purchaseRequestId: string;
   amountCents: number;
-  storageKey: string;
   originalFileName: string;
 }): Promise<{ ok: true; proofId: string } | ActionError> {
   const { userId } = await auth();
@@ -111,8 +110,20 @@ export async function submitPaymentProofAction(input: {
 
   try {
     const caller = appRouter.createCaller({ userId });
-    const result = await caller.artist.purchase.proofOfPayment.submit(input);
-    revalidatePath("/artist");
+    const result = await caller.artist.purchase.proofOfPayment.submit({
+      purchaseRequestId: input.purchaseRequestId,
+      amountCents: input.amountCents,
+      originalFileName: input.originalFileName,
+    });
+    revalidatePath("/artist", "layout");
+    if (result.productId) {
+      revalidatePath(`/artist/purchase/${result.productId}/pay`);
+      revalidatePath(`/artist/purchase/${result.productId}/pay/instructions`);
+      revalidatePath(`/artist/purchase/${result.productId}/pay/proof`);
+    }
+    revalidatePath("/dashboard", "layout");
+    revalidatePath("/dashboard/requests", "layout");
+    revalidatePath(`/dashboard/requests/${result.purchaseRequestId}`);
     return { ok: true, proofId: result.proofId };
   } catch (error) {
     return errorResult(error, "Couldn't send the proof. Try again.");

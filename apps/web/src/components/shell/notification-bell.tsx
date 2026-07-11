@@ -7,10 +7,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { formatRelativeTime } from "~/lib/time/relative";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
-import {
-  markAllNotificationsRead,
-  markNotificationRead,
-} from "./notification-bell-actions";
+import { markAllNotificationsRead, markNotificationRead } from "./notification-bell-actions";
 
 // AppShell notification bell. Replaces the killed `/dashboard/inbox`
 // page (Task 2): unread notifications now live in the shell footer
@@ -37,6 +34,12 @@ import {
 // priority: a comment/track belongs to a project; a booking has its
 // own detail surface. Kept pure so tests can exhaust every kind branch.
 export function notificationHref(n: ShellNotificationItem): string {
+  if (n.kind === "proof_submitted" && n.purchaseRequestId) {
+    if (n.paymentProofId) {
+      return `/dashboard/requests/${n.purchaseRequestId}?proof=${n.paymentProofId}#payment-proof`;
+    }
+    return `/dashboard/requests/${n.purchaseRequestId}#payment-proof`;
+  }
   if (n.purchaseRequestId) return `/dashboard/requests/${n.purchaseRequestId}`;
   if (n.projectId) return `/dashboard/clients-projects/${n.projectId}`;
   if (n.bookingId) return `/dashboard/booking?id=${n.bookingId}`;
@@ -100,6 +103,7 @@ export function NotificationBell({
       startTransition(async () => {
         await markNotificationRead(item.id);
         router.push(href);
+        router.refresh();
       });
     },
     [router],
@@ -129,13 +133,13 @@ export function NotificationBell({
         // back to h-7 w-7 (28px) on desktop where the sidebar footer
         // is compact. focus-visible ring makes the bell reachable via
         // keyboard from the nav above.
-        className="relative flex h-9 w-9 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] md:h-7 md:w-7"
+        className="relative flex h-9 w-9 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none md:h-7 md:w-7"
       >
         <BellIcon />
         {hasUnread ? (
           <span
             aria-live="polite"
-            className="absolute -right-0.5 -top-0.5 flex min-w-[14px] items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary))] px-1 font-mono text-[0.55rem] font-semibold leading-[14px] text-[rgb(var(--fg-inverse))] ring-2 ring-[rgb(var(--bg-elevated))]"
+            className="absolute -top-0.5 -right-0.5 flex min-w-[14px] items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary))] px-1 font-mono text-[0.55rem] leading-[14px] font-semibold text-[rgb(var(--fg-inverse))] ring-2 ring-[rgb(var(--bg-elevated))]"
           >
             {badgeLabel}
           </span>
@@ -165,7 +169,7 @@ export function NotificationBell({
                 type="button"
                 onClick={handleMarkAll}
                 disabled={isPending}
-                className="font-mono text-[0.625rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--brand-primary))] disabled:opacity-50"
+                className="font-mono text-[0.625rem] tracking-wider text-[rgb(var(--fg-muted))] uppercase transition-colors hover:text-[rgb(var(--brand-primary))] disabled:opacity-50"
               >
                 Mark all read
               </button>
@@ -190,7 +194,7 @@ export function NotificationBell({
                     // tappable even when it's a single-line item. Inset
                     // focus-visible clips the ring to the row rect so
                     // it doesn't overflow the dropdown edges.
-                    className="flex min-h-[52px] w-full flex-col items-start justify-center gap-0.5 border-b border-[rgb(var(--border-subtle))] px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))] disabled:opacity-50"
+                    className="flex min-h-[52px] w-full flex-col items-start justify-center gap-0.5 border-b border-[rgb(var(--border-subtle))] px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset disabled:opacity-50"
                   >
                     <span className="flex w-full items-center justify-between gap-2">
                       <span className="truncate text-sm text-[rgb(var(--fg-primary))]">
@@ -214,7 +218,7 @@ export function NotificationBell({
             <Link
               href="/dashboard/settings"
               onClick={close}
-              className="font-mono text-[0.625rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--brand-primary))]"
+              className="font-mono text-[0.625rem] tracking-wider text-[rgb(var(--fg-muted))] uppercase transition-colors hover:text-[rgb(var(--brand-primary))]"
             >
               Notification settings →
             </Link>

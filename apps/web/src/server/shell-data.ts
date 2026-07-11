@@ -1,6 +1,17 @@
 import { cache } from "react";
 import { auth } from "@clerk/nextjs/server";
-import { and, createDb, desc, eq, isNull, notifications, producers } from "@skitza/db";
+import {
+  and,
+  createDb,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  notifications,
+  paymentProofs,
+  producers,
+  sql,
+} from "@skitza/db";
 
 // Request-scoped shell state used by AppShell and any server component
 // that wants the producer slug / unread count without re-querying.
@@ -33,6 +44,7 @@ export interface ShellNotificationItem {
   commentId: string | null;
   bookingId: string | null;
   purchaseRequestId: string | null;
+  paymentProofId: string | null;
 }
 
 export interface ShellState {
@@ -101,6 +113,49 @@ export const getShellState = cache(async (): Promise<ShellState> => {
       ),
     )
     .orderBy(desc(notifications.createdAt));
+
+  // Notifications predate the private-proof table, so there is no proof FK on
+  // the notification row. New Gate-2 notifications deliberately reuse the
+  // proof UUID as their notification UUID. Validate that identity only when
+  // migration 0023 is available; old notifications fall back to the owned
+  // request page instead of guessing a proof from timestamps.
+  const proofNotifications = unreadRows.filter(
+    (item) => item.kind === "proof_submitted" && item.purchaseRequestId,
+  );
+  const paymentProofIdByNotification = new Map<string, string>();
+  if (proofNotifications.length > 0) {
+    const availability = await db.execute<{ tableCount: number }>(sql`
+      select count(*)::int as "tableCount"
+      from information_schema.tables
+      where table_schema = current_schema()
+        and table_name = 'payment_proofs'
+    `);
+    if ((availability.rows[0]?.tableCount ?? 0) === 1) {
+      const proofNotificationIds = proofNotifications.map((item) => item.id);
+      const proofRows = await db
+        .select({
+          id: paymentProofs.id,
+          purchaseRequestId: paymentProofs.purchaseRequestId,
+        })
+        .from(paymentProofs)
+        .where(
+          and(
+            eq(paymentProofs.producerId, row.id),
+            inArray(paymentProofs.id, proofNotificationIds),
+          ),
+        );
+
+      for (const notification of proofNotifications) {
+        const exactProof = proofRows.find(
+          (proof) =>
+            proof.id === notification.id &&
+            proof.purchaseRequestId === notification.purchaseRequestId,
+        );
+        if (exactProof) paymentProofIdByNotification.set(notification.id, exactProof.id);
+      }
+    }
+  }
+
   const unreadItems: ShellNotificationItem[] = unreadRows
     .slice(0, UNREAD_ITEMS_LIMIT)
     .map((r) => ({
@@ -114,6 +169,7 @@ export const getShellState = cache(async (): Promise<ShellState> => {
       commentId: r.commentId,
       bookingId: r.bookingId,
       purchaseRequestId: r.purchaseRequestId,
+      paymentProofId: paymentProofIdByNotification.get(r.id) ?? null,
     }));
   return {
     slug: row.slug,
