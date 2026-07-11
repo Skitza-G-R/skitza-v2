@@ -1,24 +1,6 @@
-// product-editor.tsx
-//
-// Phase 2 wizard orchestrator. Owns the draft state for a single product
-// and wires the 5 step components (Type, Includes, Pricing, Logistics,
-// Agreement) into <EditorShell>, saving via the existing
-// `createPackage` / `updatePackage` server actions. The step list is
-// 5 in NEW mode and 4 in EDIT mode (Type step is for new products only —
-// editing preserves the original kind exactly).
-//
-// description column encoding:
-//   * the visible tagline is plain text (first line)
-//   * revisions (int) and inline contract text live in an encoded suffix
-//     block — see description-encoding.ts. This is a temporary bridge
-//     until the schema gains dedicated columns.
-//
-// contractUrl column:
-//   * "link" mode writes the trimmed URL (or null if empty)
-//   * "text" mode writes null — the terms live in the description meta
-
 "use client";
 
+import type { PaymentPlan } from "@skitza/db";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
@@ -26,19 +8,36 @@ import {
   createPackage,
   updatePackage,
 } from "~/app/(producer)/dashboard/booking/actions";
-import type { PaymentPlan } from "@skitza/db";
 import { useToast } from "~/components/ui/toast";
-import type { VolumeTier } from "~/lib/pricing";
+import { applyTaxToCents, taxModeFootnote } from "~/lib/tax-mode";
 
-import { buildPackagePayload } from "./build-package-payload";
+import {
+  buildPackagePayload,
+  buildPackageUpdatePayload,
+  type PackageDraft,
+} from "./build-package-payload";
 import { decodeDescription } from "./description-encoding";
-import { ContractStep, type ContractMode } from "./editor-steps/contract-step";
 import { IncludesStep } from "./editor-steps/includes-step";
 import { LogisticsStep } from "./editor-steps/logistics-step";
+import { PaymentStep } from "./editor-steps/payment-step";
 import { PricingStep } from "./editor-steps/pricing-step";
+import {
+  ReviewStep,
+  type ReviewEditStep,
+} from "./editor-steps/review-step";
+import { RightsAgreementStep } from "./editor-steps/rights-agreement-step";
 import { TypeStep } from "./editor-steps/type-step";
 import { EditorShell } from "./editor-shell";
 import { kindToTile } from "./kind-to-tile";
+import {
+  buildPaymentPlans,
+  hasPaymentOption,
+  royaltyDraftToTerms,
+  royaltyTermsToDraft,
+  seedPaymentSelection,
+  validateAgreementDraft,
+  validateRoyaltyDraft,
+} from "./product-editor-draft";
 import type { StoreProduct } from "./store-screen";
 import {
   getPreset,
@@ -48,77 +47,76 @@ import {
 } from "./type-presets";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
-type StepId = "type" | "includes" | "pricing" | "logistics" | "agreement";
+type StepId =
+  | "type"
+  | "details"
+  | "price"
+  | "payment"
+  | "delivery"
+  | "rights"
+  | "review";
 
-const NEW_STEPS = ["type", "includes", "pricing", "logistics", "agreement"] as const;
-const EDIT_STEPS = ["includes", "pricing", "logistics", "agreement"] as const;
+const NEW_STEPS: readonly StepId[] = [
+  "type",
+  "details",
+  "price",
+  "payment",
+  "delivery",
+  "rights",
+  "review",
+];
+const EDIT_STEPS: readonly StepId[] = [
+  "details",
+  "price",
+  "payment",
+  "delivery",
+  "rights",
+  "review",
+];
 
-// Copy uses periods (no em dashes) per the impeccable copy rule.
 const STEP_TITLES: Record<StepId, string> = {
   type: "What are you offering?",
-  includes: "What's included",
-  pricing: "Pricing and terms",
-  logistics: "Logistics",
-  agreement: "Agreement",
+  details: "Product details",
+  price: "Price",
+  payment: "Payment options",
+  delivery: "Delivery",
+  rights: "Rights & agreement",
+  review: "Review your product",
 };
 
 const STEP_SUBTITLES: Record<StepId, string> = {
-  type: "Pick the closest match. We'll prefill the rest.",
-  includes: "Tap to add, drag to reorder. Artists see this list.",
-  pricing: "Price, how many sessions, and how they pay.",
-  logistics: "Session length and how many revisions are included.",
-  agreement: "Optional. Attach a contract or write your terms.",
+  type: "Pick the closest match. We'll prefill the practical details.",
+  details: "Name the product and list exactly what the artist receives.",
+  price: "Set the pricing model, rate, sessions, and global tax disclosure.",
+  payment: "Choose one or more. The artist picks after approval.",
+  delivery: "Set the session duration and included revision rounds.",
+  rights: "Define headline master and composition terms, then add an optional agreement.",
+  review: "Check every term before this product is created or updated.",
 };
 
-interface Draft {
+interface Draft extends PackageDraft {
   _picked: PresetId | null;
-  name: string;
-  tagline: string;
-  type: PresetType;
-  price: number;
-  currency: Currency;
-  sessions: number;
-  unlimitedSessions: boolean;
-  paymentPlan: PaymentPlanChoice;
-  installmentsCount: number;
-  includes: string[];
-  duration: string;
-  revisions: number;
-  unlimitedRevisions: boolean;
-  contractMode: ContractMode;
-  contractUrl: string;
-  contractText: string;
-  // Per-song pricing — pricingModel='per_song' flips the Pricing step
-  // into the calculator panel. volumeTiers is the ascending discount
-  // ladder; the first tier (minQty=1) is the base per-song price.
-  // Empty array when pricingModel='flat'.
-  pricingModel: "flat" | "per_song";
-  volumeTiers: VolumeTier[];
+  depositModel: string;
+  milestones: { label: string; pct: number }[] | null;
 }
 
 interface ProductEditorProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** When provided, the editor opens in edit mode pre-filled. When null, opens in new mode. */
   product: StoreProduct | null;
-  /** Producer's default currency, used to seed new products. */
   defaultCurrency: Currency;
-  /**
-   * Producer's business-level tax mode + rate (migration 0019). Threaded
-   * into <PricingStep> so the price input shows a live "Artists pay $X"
-   * preview that reflects the producer's current tax setup.
-   */
   taxMode: import("~/lib/tax-mode").TaxMode;
   taxRatePct: number;
-  /**
-   * Fires only on the CREATE path, with the newly-created product's id,
-   * BEFORE the modal closes / toast / router.refresh. Used by the parent
-   * to trigger a shimmer-glow on the new card for ~4s.
-   */
   onCreated?: (id: string) => void;
 }
 
 const VALID_CURRENCIES: readonly Currency[] = ["USD", "EUR", "GBP", "ILS"];
+
+function plansForPreset(choice: PaymentPlanChoice): PaymentPlan[] {
+  if (choice === "full") return [{ kind: "full" }];
+  if (choice === "split") return [{ kind: "split_50_50" }];
+  return [{ kind: "monthly", installments: 4 }];
+}
 
 function emptyDraft(currency: Currency): Draft {
   return {
@@ -130,100 +128,82 @@ function emptyDraft(currency: Currency): Draft {
     currency,
     sessions: 1,
     unlimitedSessions: false,
-    paymentPlan: "full",
-    installmentsCount: 3,
+    payment: seedPaymentSelection([{ kind: "full" }]),
     includes: [],
     duration: "60 min",
     revisions: 0,
     unlimitedRevisions: false,
-    contractMode: "link",
+    agreementMode: "none",
     contractUrl: "",
-    contractText: "",
+    agreementText: "",
+    royalty: royaltyTermsToDraft(null),
     pricingModel: "flat",
     volumeTiers: [],
+    depositModel: "flat",
+    milestones: null,
   };
 }
 
-// Map a DB row's `kind` back to the wizard's PresetType. Anything not in
-// the recognised four becomes "consult" (mirrors kindToTile's fallback).
 function kindToPresetType(kind: string): PresetType {
-  const tile = kindToTile(kind);
-  return tile;
+  return kindToTile(kind);
 }
 
-// Map a DB row's `paymentPlans[0]` to the wizard's three-option choice.
-function paymentPlanFromDb(plans: PaymentPlan[] | undefined): {
-  paymentPlan: PaymentPlanChoice;
-  installmentsCount: number;
-} {
-  const first = plans?.[0];
-  if (!first) return { paymentPlan: "full", installmentsCount: 3 };
-  if (first.kind === "full") return { paymentPlan: "full", installmentsCount: 3 };
-  if (first.kind === "split_50_50") {
-    return { paymentPlan: "split", installmentsCount: 3 };
-  }
-  if (first.kind === "monthly") {
-    return { paymentPlan: "installments", installmentsCount: first.installments };
-  }
-  // milestones (BE-2) — the editor authors it via depositModel, not the
-  // paymentPlans array; seed the picker with its default.
-  return { paymentPlan: "full", installmentsCount: 3 };
-}
-
-function seedDraftFromProduct(p: StoreProduct, defaultCurrency: Currency): Draft {
-  const decoded = decodeDescription(p.description);
-  const currency = (VALID_CURRENCIES as readonly string[]).includes(p.currency)
-    ? (p.currency as Currency)
+function seedDraftFromProduct(
+  product: StoreProduct,
+  defaultCurrency: Currency,
+): Draft {
+  const decoded = decodeDescription(product.description);
+  const currency = (VALID_CURRENCIES as readonly string[]).includes(
+    product.currency,
+  )
+    ? (product.currency as Currency)
     : defaultCurrency;
-  const { paymentPlan, installmentsCount } = paymentPlanFromDb(p.paymentPlans);
-  // Pick the initial contract mode: prefer "text" if inline terms exist
-  // (round-tripping an edit shouldn't clobber them), otherwise default
-  // to "link" — File mode is gone until the upload pipeline lands.
-  const contractMode: ContractMode =
-    decoded.contractText.length > 0
-      ? "text"
-      : "link";
-  // duration: derive a readable string from durationMin. 0 minutes means
-  // the legacy product never set a duration (or was the dropped
-  // multi-session option) — open the wizard in Custom mode with an
-  // empty minutes input so the producer must pick a chip or type a
-  // number before saving.
-  const duration =
-    typeof p.durationMin === "number" && p.durationMin > 0
-      ? `${String(p.durationMin)} min`
-      : "";
-  const deliverables = ((): string[] => {
-    // ProductCardData carries no deliverables field; StoreProduct adds
-    // it via the page.tsx loader. Fall back to [] when missing.
-    const maybe = (p as unknown as { deliverables?: string[] }).deliverables;
-    return Array.isArray(maybe) ? maybe : [];
-  })();
-  // pricingModel comes back from the DB as plain text — narrow to the
-  // two values the wizard understands. Unknown values (legacy 'hourly',
-  // 'bundle') fall back to 'flat' so the editor doesn't crash on edit.
-  const pricingModel: "flat" | "per_song" =
-    p.pricingModel === "per_song" ? "per_song" : "flat";
+  const dedicatedAgreement = product.agreementText ?? decoded.contractText;
+  const agreementMode = dedicatedAgreement.trim()
+    ? "text"
+    : product.contractUrl
+      ? "link"
+      : "none";
+  const pricingModel =
+    product.pricingModel === "per_song" ? "per_song" : "flat";
+  const firstTier = product.volumeTiers?.[0];
+
   return {
-    _picked: null, // edit mode skips the type picker
-    name: p.name,
+    _picked: null,
+    name: product.name,
     tagline: decoded.tagline,
-    type: kindToPresetType(p.kind),
-    price: p.priceCents / 100,
+    type: kindToPresetType(product.kind),
+    price:
+      pricingModel === "per_song" && firstTier
+        ? firstTier.pricePerUnitCents / 100
+        : product.priceCents / 100,
     currency,
-    sessions: p.sessionCount === 0 ? 1 : p.sessionCount,
-    unlimitedSessions: p.sessionCount === 0,
-    paymentPlan,
-    installmentsCount,
-    includes: deliverables,
-    duration,
+    sessions: product.sessionCount === 0 ? 1 : product.sessionCount,
+    unlimitedSessions: product.sessionCount === 0,
+    payment: seedPaymentSelection(product.paymentPlans),
+    includes: [...product.deliverables],
+    duration:
+      typeof product.durationMin === "number" && product.durationMin > 0
+        ? `${String(product.durationMin)} min`
+        : "",
     revisions: decoded.revisions,
     unlimitedRevisions: decoded.unlimitedRevisions,
-    contractMode,
-    contractUrl: p.contractUrl ?? "",
-    contractText: decoded.contractText,
+    agreementMode,
+    contractUrl: product.contractUrl ?? "",
+    agreementText: dedicatedAgreement,
+    royalty: royaltyTermsToDraft(product.royaltyTerms),
     pricingModel,
-    volumeTiers: p.volumeTiers ?? [],
+    volumeTiers: product.volumeTiers ?? [],
+    depositModel: product.depositModel,
+    milestones: product.milestones,
   };
+}
+
+function typeLabel(type: PresetType): string {
+  if (type === "production") return "Production";
+  if (type === "mix") return "Mix";
+  if (type === "master") return "Master";
+  return "Custom";
 }
 
 export function ProductEditor({
@@ -238,186 +218,234 @@ export function ProductEditor({
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
+  const mode = product ? "edit" : "new";
+  const steps = mode === "edit" ? EDIT_STEPS : NEW_STEPS;
 
-  // Migration 0019 — inline tax state. The toggle is rendered inside
-  // the Pricing step; we own the optimistic local state + the
-  // server save here so the step can stay a pure presentation
-  // component. Saves are fire-and-forget through the same
-  // updateProducer server action Settings used to use.
   const [taxModeLocal, setTaxModeLocal] = useState(taxMode);
   const [taxRateLocal, setTaxRateLocal] = useState(taxRatePct);
   const [taxError, setTaxError] = useState<string | null>(null);
-  // Re-sync when the modal reopens with a fresh producer state
-  // (e.g. another session updated the tax mode while this one was
-  // closed). Keyed off the prop values so an external change wins.
+  const [draft, setDraft] = useState<Draft>(() =>
+    product
+      ? seedDraftFromProduct(product, defaultCurrency)
+      : emptyDraft(defaultCurrency),
+  );
+  const [currentStep, setCurrentStep] = useState<StepId>(
+    product ? "details" : "type",
+  );
+  const [returnToReview, setReturnToReview] = useState(false);
+
   useEffect(() => {
     setTaxModeLocal(taxMode);
     setTaxRateLocal(taxRatePct);
   }, [taxMode, taxRatePct]);
-  // Tax saves are fully optimistic + silent. The toggle's slide
-  // animation is the only visible feedback the producer gets — no
-  // pulse, no spinner, no "Saving…" copy — because the server save
-  // takes ~300-500ms and router.refresh() adds another ~1s of
-  // server re-render. Showing a loading state for the full ~1.5s
-  // makes the toggle FEEL slow even though the visual already
-  // moved instantly. Trade-off: if a save fails, we silently roll
-  // back local state + surface a toast.
+
+  useEffect(() => {
+    if (!open) return;
+    setDraft(
+      product
+        ? seedDraftFromProduct(product, defaultCurrency)
+        : emptyDraft(defaultCurrency),
+    );
+    setCurrentStep(product ? "details" : "type");
+    setReturnToReview(false);
+  }, [open, product, defaultCurrency]);
+
   function onTaxChange(patch: {
     taxMode?: import("~/lib/tax-mode").TaxMode;
     taxRatePct?: number;
   }) {
-    const prevMode = taxModeLocal;
-    const prevRate = taxRateLocal;
+    const previousMode = taxModeLocal;
+    const previousRate = taxRateLocal;
     if (patch.taxMode !== undefined) setTaxModeLocal(patch.taxMode);
     if (patch.taxRatePct !== undefined) setTaxRateLocal(patch.taxRatePct);
     setTaxError(null);
-    // Fire-and-forget. `void` keeps the function signature
-    // synchronous so the caller doesn't await; the rollback +
-    // toast handlers below take over only if the save fails.
+
     void (async () => {
       try {
         const { updateProducer } = await import(
           "~/app/(producer)/dashboard/settings/actions"
         );
-        const res = await updateProducer(patch);
-        if (res.ok) {
-          // Refresh server-rendered surfaces (storefront cards,
-          // artist store) so the new tax line propagates. Happens
-          // in the background — no visible "pending" state.
+        const result = await updateProducer(patch);
+        if (result.ok) {
           router.refresh();
-        } else {
-          setTaxModeLocal(prevMode);
-          setTaxRateLocal(prevRate);
-          setTaxError(res.error);
-          toast(res.error, "error");
+          return;
         }
-      } catch (e) {
-        setTaxModeLocal(prevMode);
-        setTaxRateLocal(prevRate);
-        const msg = e instanceof Error ? e.message : "Couldn't save.";
-        setTaxError(msg);
-        toast(msg, "error");
+        setTaxModeLocal(previousMode);
+        setTaxRateLocal(previousRate);
+        setTaxError(result.error);
+        toast(result.error, "error");
+      } catch (error) {
+        setTaxModeLocal(previousMode);
+        setTaxRateLocal(previousRate);
+        const message =
+          error instanceof Error ? error.message : "Couldn't save tax settings.";
+        setTaxError(message);
+        toast(message, "error");
       }
     })();
   }
 
-  const mode: "new" | "edit" = product != null ? "edit" : "new";
-  const steps = mode === "edit" ? EDIT_STEPS : NEW_STEPS;
-
-  const [draft, setDraft] = useState<Draft>(() =>
-    product != null
-      ? seedDraftFromProduct(product, defaultCurrency)
-      : emptyDraft(defaultCurrency),
-  );
-  const [currentStep, setCurrentStep] = useState<StepId>(
-    mode === "edit" ? "includes" : "type",
-  );
-
-  // Reseed draft + reset step whenever the editor opens with a (possibly
-  // different) product. We key off `open` and `product?.id` so closing
-  // and reopening on a new product wipes any half-edited state.
-  useEffect(() => {
-    if (!open) return;
-    setDraft(
-      product != null
-        ? seedDraftFromProduct(product, defaultCurrency)
-        : emptyDraft(defaultCurrency),
-    );
-    setCurrentStep(product != null ? "includes" : "type");
-  }, [open, product, defaultCurrency]);
-
-  const currentStepIdx = Math.max(0, (steps as readonly StepId[]).indexOf(currentStep));
-  const isFirstStep = currentStepIdx === 0;
-  const isLastStep = currentStepIdx === steps.length - 1;
-
   function onPickPreset(id: PresetId) {
     const preset = getPreset(id);
     if (!preset) return;
-    setDraft((d) => ({
-      ...d,
+    setDraft((current) => ({
+      ...current,
       _picked: id,
       type: preset.preset.type,
-      name: d.name.trim().length > 0 ? d.name : preset.defaultName,
+      name: current.name.trim() ? current.name : preset.defaultName,
       price: preset.preset.price,
       sessions: preset.preset.sessions,
       unlimitedSessions: preset.preset.unlimitedSessions,
-      paymentPlan: preset.preset.paymentPlan,
+      payment: seedPaymentSelection(
+        plansForPreset(preset.preset.paymentPlan),
+      ),
       includes: [...preset.baseline],
-      duration: preset.preset.duration,
+      duration:
+        preset.preset.duration === "multi-session"
+          ? "60 min"
+          : preset.preset.duration,
       revisions: preset.preset.revisions,
-      contractMode: "link",
     }));
-    setCurrentStep("includes");
+    setCurrentStep("details");
   }
 
-  const canContinue: boolean = (() => {
-    if (currentStep === "type") return draft._picked != null;
-    if (currentStep === "includes") return draft.name.trim() !== "";
-    if (currentStep === "pricing") return draft.price >= 0;
-    if (currentStep === "logistics") {
-      // Duration must resolve to "{N} min" (any chip click or a typed
-      // custom value). Empty Custom (in transit) blocks Continue.
-      return /^\d+\s*min$/i.test(draft.duration);
-    }
-    return true; // agreement is skippable
+  const currentStepIndex = Math.max(0, steps.indexOf(currentStep));
+  const isFirstStep = currentStepIndex === 0;
+  const isLastStep = currentStepIndex === steps.length - 1;
+  const validPrice =
+    draft.price >= 0 &&
+    (draft.pricingModel !== "per_song" ||
+      (draft.volumeTiers.length > 0 &&
+        draft.volumeTiers.some((tier) => tier.minQty === 1)));
+  const validMonthly =
+    !draft.payment.monthly ||
+    (Number.isInteger(draft.payment.monthlyInstallments) &&
+      draft.payment.monthlyInstallments >= 2 &&
+      draft.payment.monthlyInstallments <= 12);
+  const validPayment =
+    validMonthly &&
+    hasPaymentOption(
+      draft.payment,
+      draft.depositModel,
+      draft.milestones,
+    );
+  const paymentError = !hasPaymentOption(
+    draft.payment,
+    draft.depositModel,
+    draft.milestones,
+  )
+    ? "Choose at least one payment option."
+    : !validMonthly
+      ? "Monthly payments must be between 2 and 12."
+      : null;
+  const royaltyErrors = validateRoyaltyDraft(draft.royalty, mode === "new");
+  const agreementError = validateAgreementDraft(
+    draft.agreementMode,
+    draft.contractUrl,
+    draft.agreementText,
+  );
+  const validRights =
+    Object.keys(royaltyErrors).length === 0 && agreementError === null;
+  const validDelivery = /^\d+\s*min$/i.test(draft.duration);
+  const validDetails =
+    draft.name.trim().length > 0 &&
+    draft.name.trim().length <= 200 &&
+    draft.includes.length <= 10 &&
+    draft.includes.every(
+      (item) => item.trim().length > 0 && item.trim().length <= 100,
+    );
+  const validType = mode === "edit" || draft._picked !== null;
+  const allValid =
+    validType &&
+    validDetails &&
+    validPrice &&
+    validPayment &&
+    validDelivery &&
+    validRights;
+
+  const canContinue = (() => {
+    if (currentStep === "type") return validType;
+    if (currentStep === "details") return validDetails;
+    if (currentStep === "price") return validPrice;
+    if (currentStep === "payment") return validPayment;
+    if (currentStep === "delivery") return validDelivery;
+    if (currentStep === "rights") return validRights;
+    return allValid;
   })();
 
   function goBack() {
     if (isFirstStep) return;
-    setCurrentStep((steps as readonly StepId[])[currentStepIdx - 1] ?? currentStep);
+    setReturnToReview(false);
+    setCurrentStep(steps[currentStepIndex - 1] ?? currentStep);
   }
 
   function goNext() {
-    if (isLastStep) return;
-    setCurrentStep((steps as readonly StepId[])[currentStepIdx + 1] ?? currentStep);
+    if (isLastStep || !canContinue) return;
+    if (returnToReview) {
+      setReturnToReview(false);
+      setCurrentStep("review");
+      return;
+    }
+    setCurrentStep(steps[currentStepIndex + 1] ?? currentStep);
+  }
+
+  function editFromReview(step: ReviewEditStep) {
+    setReturnToReview(true);
+    setCurrentStep(step);
   }
 
   function save() {
-    // Wire shape lives in build-package-payload.ts as a pure mapping
-    // so it can be unit-tested without rendering the modal. On edit,
-    // we thread the existing product's kind to preserve legacy DB
-    // values ("session"/"mixing"/etc.) that the wizard's presets
-    // don't map back to.
-    const basePayload = buildPackagePayload(
-      draft,
-      product != null ? product.kind : undefined,
-    );
+    if (!allValid || currentStep !== "review") {
+      if (!validDetails) setCurrentStep("details");
+      else if (!validPrice) setCurrentStep("price");
+      else if (!validPayment) setCurrentStep("payment");
+      else if (!validDelivery) setCurrentStep("delivery");
+      else if (!validRights) setCurrentStep("rights");
+      return;
+    }
 
     startTransition(async () => {
-      if (product != null) {
-        const res = await updatePackage({ id: product.id, ...basePayload });
-        if (res.ok) {
-          toast(`${draft.name.trim() || "Product"} saved.`, "success");
-          onOpenChange(false);
-          router.refresh();
-        } else {
-          toast(res.error, "error");
+      if (product) {
+        const payload = buildPackageUpdatePayload(draft, product.kind);
+        const result = await updatePackage({ id: product.id, ...payload });
+        if (!result.ok) {
+          toast(result.error, "error");
+          return;
         }
+        toast(`${draft.name.trim()} saved.`, "success");
       } else {
-        // CREATE path: fire onCreated BEFORE the modal closes so the
-        // parent can flag the new card for the shimmer-glow. The
-        // server action returns { ok: true, data: { id } } in create
-        // mode; edit mode returns just { ok: true } and skips this.
-        const res = await createPackage(basePayload);
-        if (res.ok) {
-          onCreated?.(res.data.id);
-          toast(`${draft.name.trim() || "Product"} saved.`, "success");
-          onOpenChange(false);
-          router.refresh();
-        } else {
-          toast(res.error, "error");
+        const payload = buildPackagePayload(draft);
+        const result = await createPackage(payload);
+        if (!result.ok) {
+          toast(result.error, "error");
+          return;
         }
+        onCreated?.(result.data.id);
+        toast(`${draft.name.trim()} created.`, "success");
       }
+      onOpenChange(false);
+      router.refresh();
     });
   }
+
+  const basePriceCents = Math.round(draft.price * 100);
+  const previewPriceCents = applyTaxToCents(
+    basePriceCents,
+    taxModeLocal,
+    taxRateLocal,
+  );
+  const reviewPlans = validMonthly
+    ? buildPaymentPlans(draft.payment)
+    : draft.payment.preservedPlans;
+  const reviewRoyaltyTerms = royaltyDraftToTerms(draft.royalty);
 
   return (
     <EditorShell
       open={open}
       onOpenChange={onOpenChange}
       mode={mode}
-      {...(product != null ? { productName: product.name } : {})}
-      steps={steps as readonly string[]}
+      {...(product ? { productName: product.name } : {})}
+      steps={steps}
       current={currentStep}
       title={STEP_TITLES[currentStep]}
       subtitle={STEP_SUBTITLES[currentStep]}
@@ -430,72 +458,116 @@ export function ProductEditor({
       pending={pending}
     >
       <div key={currentStep} className="sk-step-enter">
-        {currentStep === "type" && (
+        {currentStep === "type" ? (
           <TypeStep picked={draft._picked} onPick={onPickPreset} />
-        )}
-        {currentStep === "includes" && (
+        ) : null}
+
+        {currentStep === "details" ? (
           <IncludesStep
             pickedId={draft._picked}
             name={draft.name}
             onNameChange={(name) => {
-              setDraft((d) => ({ ...d, name }));
+              setDraft((current) => ({ ...current, name }));
             }}
             includes={draft.includes}
             onIncludesChange={(includes) => {
-              setDraft((d) => ({ ...d, includes }));
+              setDraft((current) => ({ ...current, includes }));
             }}
           />
-        )}
-        {currentStep === "pricing" && (
+        ) : null}
+
+        {currentStep === "price" ? (
           <PricingStep
             price={draft.price}
             currency={draft.currency}
             sessions={draft.sessions}
             unlimitedSessions={draft.unlimitedSessions}
-            paymentPlan={draft.paymentPlan}
-            installmentsCount={draft.installmentsCount}
             pricingModel={draft.pricingModel}
             volumeTiers={draft.volumeTiers}
             taxMode={taxModeLocal}
             taxRatePct={taxRateLocal}
             onTaxChange={onTaxChange}
             taxError={taxError}
+            showPaymentPlans={false}
             onChange={(patch) => {
-              setDraft((d) => ({ ...d, ...patch }));
+              setDraft((current) => ({ ...current, ...patch }));
             }}
           />
-        )}
-        {currentStep === "logistics" && (
+        ) : null}
+
+        {currentStep === "payment" ? (
+          <PaymentStep
+            selection={draft.payment}
+            previewTotalCents={previewPriceCents}
+            currency={draft.currency}
+            pricingModel={draft.pricingModel}
+            depositModel={draft.depositModel}
+            milestones={draft.milestones}
+            {...(paymentError ? { error: paymentError } : {})}
+            onChange={(payment) => {
+              setDraft((current) => ({ ...current, payment }));
+            }}
+          />
+        ) : null}
+
+        {currentStep === "delivery" ? (
           <LogisticsStep
             duration={draft.duration}
             revisions={draft.revisions}
             unlimitedRevisions={draft.unlimitedRevisions}
             onChange={(patch) => {
-              setDraft((d) => ({ ...d, ...patch }));
+              setDraft((current) => ({ ...current, ...patch }));
             }}
           />
-        )}
-        {currentStep === "agreement" && (
-          <ContractStep
-            mode={draft.contractMode}
+        ) : null}
+
+        {currentStep === "rights" ? (
+          <RightsAgreementStep
+            royalty={draft.royalty}
+            agreementMode={draft.agreementMode}
             contractUrl={draft.contractUrl}
-            contractText={draft.contractText}
-            onChange={(patch) => {
-              // ContractStep emits its panel-selector field as `mode`;
-              // the Draft stores it as `contractMode` to disambiguate
-              // from PaymentPlanChoice (paymentPlan) and any future
-              // *Mode fields. Translate explicitly so a Text-tab click
-              // actually swaps panels instead of silently growing a
-              // dead `mode` key on Draft.
-              const { mode, ...rest } = patch;
-              setDraft((d) => ({
-                ...d,
-                ...rest,
-                ...(mode !== undefined ? { contractMode: mode } : {}),
-              }));
+            agreementText={draft.agreementText}
+            errors={royaltyErrors}
+            {...(agreementError ? { agreementError } : {})}
+            legacyUnspecified={
+              mode === "edit" && product?.royaltyTerms == null
+            }
+            onRoyaltyChange={(royalty) => {
+              setDraft((current) => ({ ...current, royalty }));
+            }}
+            onAgreementChange={(patch) => {
+              setDraft((current) => ({ ...current, ...patch }));
             }}
           />
-        )}
+        ) : null}
+
+        {currentStep === "review" ? (
+          <ReviewStep
+            name={draft.name.trim()}
+            typeLabel={typeLabel(draft.type)}
+            showTypeEdit={mode === "new"}
+            includes={draft.includes}
+            pricingModel={draft.pricingModel}
+            volumeTiers={draft.volumeTiers}
+            priceCents={basePriceCents}
+            artistPaysCents={previewPriceCents}
+            taxNote={taxModeFootnote(taxModeLocal, taxRateLocal)}
+            currency={draft.currency}
+            sessions={draft.sessions}
+            unlimitedSessions={draft.unlimitedSessions}
+            paymentPlans={reviewPlans}
+            duration={draft.duration}
+            revisions={draft.revisions}
+            unlimitedRevisions={draft.unlimitedRevisions}
+            royaltyTerms={reviewRoyaltyTerms}
+            agreementMode={draft.agreementMode}
+            contractUrl={draft.contractUrl}
+            agreementText={draft.agreementText}
+            depositModel={draft.depositModel}
+            milestones={draft.milestones}
+            onEdit={editFromReview}
+          />
+        ) : null}
       </div>
     </EditorShell>
   );

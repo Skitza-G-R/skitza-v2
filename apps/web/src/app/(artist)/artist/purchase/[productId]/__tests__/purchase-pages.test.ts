@@ -151,8 +151,8 @@ describe("requestToBookAction (server action)", () => {
     expect(confirmSection).toMatch(/if \(result\.didConfirm\)/);
   });
 
-  it("locks the product's default plan (full when offered) until BE-2 plan choice", () => {
-    expect(actionsSrc).toMatch(/plans\.find\(\(p\) => p\.kind === "full"\) \?\? plans\[0\]/);
+  it("uses the offered-plan fallback (including milestone-only products) until BE-2 choice", () => {
+    expect(actionsSrc).toMatch(/selectProvisionalRequestPaymentPlan\(offeredPlans\(product\)\)/);
   });
 
   it("returns a tagged union instead of throwing at the client", () => {

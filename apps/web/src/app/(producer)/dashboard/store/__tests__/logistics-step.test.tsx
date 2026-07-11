@@ -35,6 +35,12 @@ describe("LogisticsStep shell", () => {
     expect(SRC).toMatch(/"Custom"/);
   });
 
+  it("uses native radios for keyboard-accessible duration selection", () => {
+    expect(SRC).toMatch(/<fieldset/);
+    expect(SRC).toMatch(/name="session-duration"/);
+    expect(SRC).toMatch(/type="radio"/);
+  });
+
   it("each duration chip emits a '{N} min' string up the onChange", () => {
     expect(SRC).toMatch(/duration:\s*"60 min"/);
     expect(SRC).toMatch(/duration:\s*"120 min"/);

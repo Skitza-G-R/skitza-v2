@@ -13,26 +13,26 @@ const PAYLOAD_SRC = readFileSync(
 
 describe("ProductEditor orchestrator", () => {
   it("declares both NEW_STEPS and EDIT_STEPS arrays", () => {
-    expect(SRC).toMatch(/NEW_STEPS\s*=\s*\[/);
-    expect(SRC).toMatch(/EDIT_STEPS\s*=\s*\[/);
+    expect(SRC).toMatch(/NEW_STEPS[^=]*=\s*\[/);
+    expect(SRC).toMatch(/EDIT_STEPS[^=]*=\s*\[/);
   });
 
-  it("NEW_STEPS includes the new Logistics + Agreement steps", () => {
-    // We pin only the meaningful contents, not the literal string,
-    // so reordering inside the array can't sneak a regression past.
-    expect(SRC).toMatch(/NEW_STEPS[\s\S]*?"type"[\s\S]*?"includes"[\s\S]*?"pricing"[\s\S]*?"logistics"[\s\S]*?"agreement"/);
+  it("NEW_STEPS follows Type through required Review", () => {
+    expect(SRC).toMatch(/NEW_STEPS[\s\S]*?"type"[\s\S]*?"details"[\s\S]*?"price"[\s\S]*?"payment"[\s\S]*?"delivery"[\s\S]*?"rights"[\s\S]*?"review"/);
   });
 
-  it("EDIT_STEPS includes logistics + agreement (no type)", () => {
-    expect(SRC).toMatch(/EDIT_STEPS[\s\S]*?"includes"[\s\S]*?"pricing"[\s\S]*?"logistics"[\s\S]*?"agreement"/);
+  it("EDIT_STEPS uses the same flow without Type", () => {
+    expect(SRC).toMatch(/EDIT_STEPS[\s\S]*?"details"[\s\S]*?"price"[\s\S]*?"payment"[\s\S]*?"delivery"[\s\S]*?"rights"[\s\S]*?"review"/);
   });
 
-  it("renders all five step components", () => {
+  it("renders all seven step components", () => {
     expect(SRC).toMatch(/<TypeStep/);
     expect(SRC).toMatch(/<IncludesStep/);
     expect(SRC).toMatch(/<PricingStep/);
+    expect(SRC).toMatch(/<PaymentStep/);
     expect(SRC).toMatch(/<LogisticsStep/);
-    expect(SRC).toMatch(/<ContractStep/);
+    expect(SRC).toMatch(/<RightsAgreementStep/);
+    expect(SRC).toMatch(/<ReviewStep/);
   });
 
   it("imports decodeDescription for edit-mode round-trip (encode lives in build-package-payload)", () => {
@@ -65,5 +65,13 @@ describe("ProductEditor orchestrator", () => {
 
   it("invokes onCreated on the create-mode save success path", () => {
     expect(SRC).toMatch(/onCreated\?\.\(/);
+  });
+
+  it("hides the legacy payment panel from Price", () => {
+    expect(SRC).toMatch(/showPaymentPlans=\{false\}/);
+  });
+
+  it("allows save only from the Review step", () => {
+    expect(SRC).toMatch(/currentStep\s*!==\s*"review"/);
   });
 });

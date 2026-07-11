@@ -174,4 +174,144 @@ describe("booking.packages.update", () => {
     });
     expect(row).toEqual({ id: PRODUCT_ID, name: "Renamed" });
   });
+
+  it("rejects an explicitly empty payment-plan selection", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([
+      {
+        producerId: PRODUCER_ID,
+        paymentPlans: [{ kind: "full" }],
+        depositModel: "flat",
+        milestones: null,
+      },
+    ]);
+    const caller = await buildCaller();
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        paymentPlans: [],
+      }),
+    ).rejects.toThrow(/at least one payment option/i);
+    expect(updateReturningSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicitly empty payment-plan selection on create", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    const caller = await buildCaller();
+    await expect(
+      caller.booking.packages.create({
+        name: "No payment options",
+        priceCents: 20_000,
+        depositPct: 0,
+        paymentPlans: [],
+      }),
+    ).rejects.toThrow(/at least one payment option/i);
+  });
+
+  it("rejects duplicate standard plans and multiple monthly schedules", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    const caller = await buildCaller();
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        paymentPlans: [
+          { kind: "full" },
+          { kind: "full" },
+          { kind: "monthly", installments: 3 },
+          { kind: "monthly", installments: 6 },
+        ],
+      }),
+    ).rejects.toThrow(/only once|one monthly/i);
+    expect(updateReturningSpy).not.toHaveBeenCalled();
+  });
+
+  it("orders standards and preserves an existing milestone compatibility value", async () => {
+    const milestone = {
+      kind: "milestones" as const,
+      milestones: [{ label: "Delivery", pct: 100 }],
+    };
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([{ producerId: PRODUCER_ID, paymentPlans: [milestone] }]);
+    const caller = await buildCaller();
+    await caller.booking.packages.update({
+      id: PRODUCT_ID,
+      paymentPlans: [
+        { kind: "monthly", installments: 4 },
+        { kind: "split_50_50" },
+        { kind: "full" },
+      ],
+    });
+
+    expect(updateSetSpy).toHaveBeenCalledWith({
+      paymentPlans: [
+        { kind: "full" },
+        { kind: "split_50_50" },
+        { kind: "monthly", installments: 4 },
+        milestone,
+      ],
+    });
+  });
+
+  it("accepts a legacy milestone-only configuration without inventing a standard plan", async () => {
+    const milestone = {
+      kind: "milestones" as const,
+      milestones: [{ label: "Delivery", pct: 100 }],
+    };
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([{ producerId: PRODUCER_ID, paymentPlans: [milestone] }]);
+    const caller = await buildCaller();
+    await caller.booking.packages.update({
+      id: PRODUCT_ID,
+      paymentPlans: [milestone],
+    });
+
+    expect(updateSetSpy).toHaveBeenCalledWith({ paymentPlans: [milestone] });
+  });
+
+  it("allows a virtual milestone-only edit to remove the last standard plan", async () => {
+    const milestones = [{ label: "Delivery", pct: 100 }];
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([
+      {
+        producerId: PRODUCER_ID,
+        paymentPlans: [{ kind: "full" }],
+        depositModel: "milestones",
+        milestones,
+      },
+    ]);
+    const caller = await buildCaller();
+    await caller.booking.packages.update({
+      id: PRODUCT_ID,
+      paymentPlans: [],
+    });
+
+    expect(updateSetSpy).toHaveBeenCalledWith({ paymentPlans: [] });
+  });
+
+  it("validates royalty basis points at the router boundary", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    const caller = await buildCaller();
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        royaltyTerms: {
+          master: { mode: "percentage", bps: 0 },
+          composition: { mode: "none" },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(updateReturningSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects executable agreement URL schemes", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    const caller = await buildCaller();
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        contractUrl: "javascript:alert(1)",
+      }),
+    ).rejects.toThrow(/http:\/\/ or https:\/\//i);
+    expect(updateReturningSpy).not.toHaveBeenCalled();
+  });
 });

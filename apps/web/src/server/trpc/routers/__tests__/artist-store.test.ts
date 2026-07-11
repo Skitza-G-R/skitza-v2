@@ -80,6 +80,8 @@ const {
     kind: { __column: "products.kind" },
     pricingModel: { __column: "products.pricing_model" },
     paymentPlans: { __column: "products.payment_plans" },
+    royaltyTerms: { __column: "products.royalty_terms" },
+    agreementText: { __column: "products.agreement_text" },
     position: { __column: "products.position" },
     active: { __column: "products.active" },
     archivedAt: { __column: "products.archived_at" },
@@ -635,6 +637,11 @@ describe("artist.store.product (query)", () => {
           { kind: "split_50_50" },
           { kind: "monthly", installments: 4 },
         ],
+        royaltyTerms: {
+          master: { mode: "percentage", bps: 250 },
+          composition: { mode: "agreement" },
+        },
+        agreementText: "Inline agreement terms",
         position: 0,
         producerId: PRODUCER_ID,
         producerName: "Alpha Studio",
@@ -653,6 +660,43 @@ describe("artist.store.product (query)", () => {
     expect(result.producerId).toBe(PRODUCER_ID);
     expect(result.producerName).toBe("Alpha Studio");
     expect(result.paymentPlans).toHaveLength(3);
+    expect(result.royaltyTerms).toEqual({
+      master: { mode: "percentage", bps: 250 },
+      composition: { mode: "agreement" },
+    });
+    expect(result.agreementText).toBe("Inline agreement terms");
+  });
+
+  it("returns legacy encoded agreement text and null royalty terms safely", async () => {
+    productsSelectQueue.push([
+      {
+        id: PRODUCT_ID,
+        name: "Legacy Mix",
+        description: "Legacy tagline\n---\nrevisions: 2\ncontract_text: Legacy inline terms",
+        priceCents: 10000,
+        currency: "USD",
+        durationMin: 60,
+        sessionCount: 1,
+        kind: "mix",
+        pricingModel: "flat",
+        paymentPlans: [{ kind: "full" }],
+        royaltyTerms: null,
+        agreementText: null,
+        position: 0,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha Studio",
+        producerSlug: "alpha",
+      },
+    ]);
+    seedValidContact();
+
+    const caller = await buildCaller();
+    const result = await caller.artist.store.product({ productId: PRODUCT_ID });
+
+    expect(result.description).toBe("Legacy tagline");
+    expect(result.revisions).toBe(2);
+    expect(result.royaltyTerms).toBeNull();
+    expect(result.agreementText).toBe("Legacy inline terms");
   });
 
   // Test 8
@@ -1039,4 +1083,3 @@ describe("artist.store.checkout (mutation)", () => {
     expect(projectInsert?.[0]?.totalAmountCents).toBe(75000);
   });
 });
-

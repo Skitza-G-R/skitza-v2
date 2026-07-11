@@ -31,6 +31,26 @@ export type PaymentPlan =
   // products.milestones when the product's depositModel is 'milestones'.
   | { kind: "milestones"; milestones: { label: string; pct: number }[] };
 
+// Headline commercial-rights terms for one product. Percentages are
+// stored as integer basis points (250 = 2.5%) so producer edits and
+// purchase snapshots round-trip without floating-point drift.
+export type ProductRoyaltyTerms = {
+  master:
+    | { mode: "none" }
+    | { mode: "percentage"; bps: number }
+    | { mode: "agreement" };
+  composition:
+    | { mode: "none" }
+    | {
+        mode: "percentage";
+        bps: number;
+        role?: "composer" | "lyricist" | "arranger" | "publisher" | "other";
+        collectingSociety?: string;
+      }
+    | { mode: "agreement" };
+  notes?: string;
+};
+
 export const producers = pgTable("producers", {
   id: uuid("id").defaultRandom().primaryKey(),
   clerkUserId: text("clerk_user_id").notNull().unique(),
@@ -263,10 +283,17 @@ export const products = pgTable("products", {
     .$type<PaymentPlan[]>()
     .notNull()
     .default([{ kind: "full" }]),
+  // Nullable for products created before structured rights terms shipped.
+  // New product authoring requires an explicit choice for both branches.
+  royaltyTerms: jsonb("royalty_terms").$type<ProductRoyaltyTerms>(),
   // Optional URL to a contract PDF the producer hosts elsewhere
   // (Dropbox, Drive, their own site). Mirrors the brand.logoUrl
   // pattern — producers paste a link, no file upload.
   contractUrl: text("contract_url"),
+  // Optional inline agreement. Legacy rows may still carry contract_text
+  // inside description; reads retain a compatibility fallback until each
+  // row is edited into this dedicated field.
+  agreementText: text("agreement_text"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Product = typeof products.$inferSelect;
@@ -1071,8 +1098,8 @@ export const purchaseRequests = pgTable(
     artistEmail: text("artist_email").notNull(),
     // ─── Price lock (taken at request time) ───────────────────────────
     // All downstream amount math reads THESE, not the live product —
-    // closing the gap where payment.getPaymentDetails recomputes from
-    // the live products.paymentPlans[0].
+    // closing the gap where payment details could be recomputed from a
+    // mutable product configuration.
     productNameSnapshot: text("product_name_snapshot").notNull(),
     // Locked headline amount in minor units. flat/bundle → priceCents;
     // per_song → songQty × unitPriceCents; hourly → the locked rate.
@@ -1097,6 +1124,10 @@ export const purchaseRequests = pgTable(
     // change the agreement the artist is asked to accept. Nullable — the
     // agreement is an inline checkbox; the URL is the optional reference.
     contractUrlSnapshot: text("contract_url_snapshot"),
+    // Immutable headline rights + inline agreement accepted for this
+    // request. Both remain nullable for pre-commercial-terms requests.
+    royaltyTermsSnapshot: jsonb("royalty_terms_snapshot").$type<ProductRoyaltyTerms>(),
+    agreementTextSnapshot: text("agreement_text_snapshot"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

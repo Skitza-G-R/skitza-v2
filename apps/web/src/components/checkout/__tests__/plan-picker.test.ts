@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { planKey, planLabel } from "../plan-picker-helpers";
+import {
+  planKey,
+  planLabel,
+  requestPlanLabel,
+} from "../plan-picker-helpers";
 
 // Pure string formatter — cents in, USD dollars out. Mirrors the
 // production formatter in plan-picker.tsx so tests lock in the same
@@ -95,5 +99,42 @@ describe("planLabel", () => {
       }).format(c / 100);
     const label = planLabel({ kind: "monthly", installments: 3 }, 10_003, fmt);
     expect(label).toMatch(/\$33\.35 today.*\$33\.34\/month for 2 months/);
+  });
+
+  it("shows the complete frozen milestone schedule", () => {
+    expect(
+      planLabel(
+        {
+          kind: "milestones",
+          milestones: [
+            { label: "Booking", pct: 30 },
+            { label: "Rough mix", pct: 30 },
+            { label: "Delivery", pct: 40 },
+          ],
+        },
+        100_000,
+        fmt,
+      ),
+    ).toBe("Milestones — Booking 30% · Rough mix 30% · Delivery 40%");
+  });
+});
+
+describe("requestPlanLabel", () => {
+  it("uses after-approval timing instead of checkout timing", () => {
+    expect(requestPlanLabel({ kind: "full" }, 10_000, fmt)).toBe(
+      "Pay in full — $100 after approval",
+    );
+    expect(
+      requestPlanLabel({ kind: "split_50_50" }, 10_001, fmt),
+    ).toBe("50/50 — $50.01 first after approval, $50 on delivery");
+    expect(
+      requestPlanLabel(
+        { kind: "monthly", installments: 3 },
+        10_003,
+        fmt,
+      ),
+    ).toBe(
+      "Monthly — 3 payments; $33.35 first after approval, then $33.34 monthly",
+    );
   });
 });

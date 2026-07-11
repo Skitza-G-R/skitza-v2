@@ -33,6 +33,7 @@ import {
 } from "~/server/email/send";
 import { getSiteUrl } from "~/server/stripe/client";
 import { coerceTaxMode } from "~/lib/tax-mode";
+import { calendarPaymentSummary } from "~/lib/payment-plans";
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
 
 // ─── Ownership guard ─────────────────────────────────────────────────
@@ -1132,8 +1133,8 @@ const bookSubrouter = router({
   // the artist home. Joined to producers + products so the banner can
   // render the full sentence in one round-trip.
   //
-  // Amount calc mirrors payment.getPaymentDetails: first paymentPlan
-  // wins, split_50_50 → half, monthly → 1/N, otherwise full price.
+  // Amount + copy share the calendar flow's one explicit fallback:
+  // pay in full when offered, otherwise the first supported plan.
   myPendingPayments: artistProcedure.query(async ({ ctx }) => {
     const myContacts = await ctx.db
       .select({ email: clientContacts.email })
@@ -1173,24 +1174,10 @@ const bookSubrouter = router({
 
     const out = rows.map((r) => {
       const price = r.priceCents ?? 0;
-      const firstPlan = r.paymentPlans?.[0];
-      let amountCents = price;
-      if (firstPlan?.kind === "split_50_50") amountCents = Math.round(price / 2);
-      else if (firstPlan?.kind === "monthly")
-        amountCents = Math.round(price / firstPlan.installments);
-      // Plan label for the artist home payment row. Normalize the
-      // schema's `split_50_50` kind to the display string "50-50" so
-      // the UI matches the SK-33 handoff copy. The "upfront" default
-      // covers BOTH a missing plan (no products row / empty
-      // paymentPlans[]) AND the schema's `full` kind — both
-      // semantically mean "one payment, full amount" and the artist
-      // home renders them identically.
-      const plan: "50-50" | "monthly" | "upfront" =
-        firstPlan?.kind === "split_50_50"
-          ? "50-50"
-          : firstPlan?.kind === "monthly"
-            ? "monthly"
-            : "upfront";
+      const { amountCents, plan, planLabel } = calendarPaymentSummary(
+        price,
+        r.paymentPlans,
+      );
       return {
         id: r.id,
         startsAt: r.startsAt,
@@ -1199,6 +1186,7 @@ const bookSubrouter = router({
         amountCents,
         currency: r.currency ?? "ILS",
         plan,
+        planLabel,
       };
     });
     return { bookings: out };
@@ -1376,6 +1364,8 @@ const storeSubrouter = router({
           // the producer's uploaded agreement PDF.
           deliverables: products.deliverables,
           contractUrl: products.contractUrl,
+          royaltyTerms: products.royaltyTerms,
+          agreementText: products.agreementText,
           producerId: products.producerId,
           producerName: producers.displayName,
           producerSlug: producers.slug,
@@ -1415,12 +1405,21 @@ const storeSubrouter = router({
         .limit(1);
       if (contacts.length === 0) throw new TRPCError({ code: "NOT_FOUND" });
 
+      const decodedDescription = decodeDescription(row.description);
+      const savedAgreementText = (row as { agreementText?: string | null }).agreementText;
+      const agreementText =
+        savedAgreementText !== null && savedAgreementText !== undefined
+          ? savedAgreementText.trim().length > 0
+            ? savedAgreementText
+            : null
+          : decodedDescription.contractText || null;
+
       return {
         id: row.id,
         name: row.name,
         // Tagline only — see SK-49 note on the list read above.
-        description: decodeDescription(row.description).tagline || null,
-        revisions: decodeDescription(row.description).revisions,
+        description: decodedDescription.tagline || null,
+        revisions: decodedDescription.revisions,
         depositPct: row.depositPct,
         depositModel: row.depositModel,
         milestones: row.milestones,
@@ -1438,6 +1437,8 @@ const storeSubrouter = router({
         paymentPlans: row.paymentPlans,
         deliverables: row.deliverables ?? null,
         contractUrl: row.contractUrl ?? null,
+        royaltyTerms: row.royaltyTerms ?? null,
+        agreementText,
         producerId: row.producerId,
         producerName: row.producerName ?? "Untitled Studio",
         producerSlug: row.producerSlug,
@@ -2258,4 +2259,3 @@ function currencySymbol(currency: string): string {
       return `${currency} `;
   }
 }
-

@@ -86,29 +86,29 @@ export function EditorShell({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
         <DialogPrimitive.Content
-          onOpenAutoFocus={(e) => {
-            e.preventDefault();
-          }}
           aria-label={mode === "new" ? "New product" : `Edit ${productName ?? "product"}`}
-          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 max-h-[calc(100vh-3rem)] w-[calc(100vw-3rem)] max-w-[520px] rounded-[18px] bg-[rgb(var(--bg-background))] shadow-2xl
-            max-sm:left-0 max-sm:right-0 max-sm:top-auto max-sm:bottom-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-h-[90vh] max-sm:w-full max-sm:rounded-t-[var(--radius-xl)] max-sm:rounded-b-none max-sm:max-w-none"
+          className="fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[640px] -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] shadow-2xl
+            max-sm:bottom-0 max-sm:left-0 max-sm:right-0 max-sm:top-auto max-sm:h-[92dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-[var(--radius-xl)]"
         >
           {/* Inline keyframe — see file-level comment for rationale. The
               animation runs on this inner div so its transform stays
               isolated from Dialog.Content's centering transform. */}
           <div
-            className="flex max-h-[inherit] flex-col overflow-hidden"
+            className="sk-editor-shell-motion flex h-full min-h-0 max-h-[inherit] flex-col overflow-hidden"
             style={{ animation: "popIn 240ms cubic-bezier(.16,1,.3,1)" }}
           >
             <style>{`@keyframes popIn {
               from { opacity: 0; transform: scale(0.97) translateY(8px); }
               to   { opacity: 1; transform: scale(1) translateY(0); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .sk-editor-shell-motion { animation: none !important; }
             }`}</style>
 
             {/* Header — X on LEFT, title block to its right (vertically
                 centered with X). SK-57: tighter insets below sm so the
                 bottom sheet reads phone-native, not scaled desktop. */}
-            <div className="border-b border-[rgb(var(--border-subtle))] px-5 pb-3.5 pt-4 sm:px-6 sm:pb-[18px] sm:pt-[20px]">
+            <div className="shrink-0 border-b border-[rgb(var(--border-subtle))] px-5 pb-3.5 pt-4 sm:px-6 sm:pb-[18px] sm:pt-[20px]">
               <div className="flex items-center gap-3">
                 <DialogPrimitive.Close
                   aria-label="Close"
@@ -121,7 +121,7 @@ export function EditorShell({
                     // truncate — edit mode appends the product name
                     // ("· EDITING · Full production day") which
                     // overflows a 390px sheet header otherwise.
-                    className="block truncate font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
+                    className="block whitespace-normal break-words font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
                   >
                     {stepLabel}
                   </span>
@@ -132,7 +132,7 @@ export function EditorShell({
                     {title}
                   </DialogPrimitive.Title>
                   {subtitle ? (
-                    <DialogPrimitive.Description className="mt-1.5 truncate text-[13px] leading-snug text-[rgb(var(--fg-muted))]">
+                    <DialogPrimitive.Description className="mt-1.5 whitespace-normal text-pretty text-[13px] leading-snug text-[rgb(var(--fg-muted))]">
                       {subtitle}
                     </DialogPrimitive.Description>
                   ) : null}
@@ -144,18 +144,18 @@ export function EditorShell({
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-6 sm:py-5">{children}</div>
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">{children}</div>
 
             {/* Footer — Back on left, Continue/Save on right. Cancel
                 removed: Close X handles it. Bottom padding clears the
                 iOS home indicator when the sheet is bottom-anchored. */}
-            <div className="flex items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] px-5 py-3 max-sm:pb-[max(12px,env(safe-area-inset-bottom))] sm:px-6 sm:py-4">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] px-5 py-3 max-sm:pb-[calc(12px+env(safe-area-inset-bottom,0px))] sm:px-6 sm:py-4">
               <div>
                 {isFirstStep ? null : (
                   <button
                     type="button"
                     onClick={onBack}
-                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-md)] px-3 text-[13px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:h-9"
+                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] px-3 text-[13px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:h-9 sm:rounded-[var(--radius-md)]"
                   >
                     ← Back
                   </button>
@@ -167,7 +167,7 @@ export function EditorShell({
                     type="button"
                     onClick={onSave}
                     disabled={!canContinue || pending}
-                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9"
+                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:rounded-[var(--radius-md)]"
                   >
                     {pending ? "Saving…" : mode === "new" ? "Create product" : "Save changes"}
                   </button>
@@ -176,7 +176,7 @@ export function EditorShell({
                     type="button"
                     onClick={onContinue}
                     disabled={!canContinue}
-                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-md)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9"
+                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:rounded-[var(--radius-md)]"
                   >
                     Continue →
                   </button>

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { TRPCError } from "@trpc/server";
 import { ZodError } from "zod";
 import { auth } from "@clerk/nextjs/server";
-import type { PaymentPlan } from "@skitza/db";
+import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -70,8 +70,11 @@ export async function createPackage(input: {
   locationType?: PackageLocationType;
   bufferMinutes?: number;
   minLeadHours?: number;
+  deliverables?: string[];
   paymentPlans?: PaymentPlan[];
+  royaltyTerms?: ProductRoyaltyTerms | null;
   contractUrl?: string | null;
+  agreementText?: string | null;
   // Per-song pricing. pricingModel='per_song' requires volumeTiers to
   // include a base tier at minQty=1 (server-side zod superRefine
   // enforces this). Both fields default to flat / [] when omitted.
@@ -104,8 +107,11 @@ export async function updatePackage(input: {
   locationType?: PackageLocationType;
   bufferMinutes?: number;
   minLeadHours?: number;
+  deliverables?: string[];
   paymentPlans?: PaymentPlan[];
+  royaltyTerms?: ProductRoyaltyTerms | null;
   contractUrl?: string | null;
+  agreementText?: string | null;
   // Per-song pricing — see createPackage's input comment.
   pricingModel?: "flat" | "per_song";
   volumeTiers?: { minQty: number; pricePerUnitCents: number }[];

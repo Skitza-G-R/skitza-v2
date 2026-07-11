@@ -19,7 +19,11 @@ export function PlanPicker({
   onChoose: (plan: PaymentPlan) => void;
 }) {
   const first = plans[0];
-  const [selected, setSelected] = useState<string>(first ? planKey(first) : "");
+  // A single option is informational and can be selected automatically.
+  // Multiple options start empty so the artist makes an explicit choice.
+  const [selected, setSelected] = useState<string>(
+    plans.length === 1 && first ? planKey(first) : "",
+  );
   if (!first) return null;
 
   // min 0 / max 2 lets round totals render cleanly ($25) while
@@ -42,7 +46,7 @@ export function PlanPicker({
         return (
           <label
             key={key}
-            className={`flex cursor-pointer items-center gap-3 rounded-md border p-3 text-sm transition-colors ${
+            className={`flex cursor-pointer items-center gap-3 rounded-[var(--radius-lg)] border p-3 text-sm transition-colors ${
               selected === key
                 ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.06)]"
                 : "border-[rgb(var(--border-subtle))]"

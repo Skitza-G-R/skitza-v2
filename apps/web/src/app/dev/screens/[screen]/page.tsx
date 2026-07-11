@@ -76,6 +76,7 @@ export default async function DevScreenPage({ params }: Params) {
           product={MOCK_PRODUCT}
           producer={MOCK_PRODUCER}
           terms={buildAgreementTerms(MOCK_PRODUCER.name, MOCK_PRODUCT.includes)}
+          commercialTermsFingerprint="development-preview"
           previewSentHref="/dev/screens/s5"
         />
       );

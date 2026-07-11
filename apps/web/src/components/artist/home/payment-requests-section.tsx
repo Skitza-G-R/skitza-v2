@@ -11,6 +11,7 @@ export type PaymentRequestsProps = {
     amountCents: number;
     currency: string;
     plan: "50-50" | "monthly" | "upfront";
+    planLabel: string;
   }>;
 };
 
@@ -81,7 +82,7 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
             <span className="col-start-2 row-start-2 min-w-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
               {booking.producerName} ·{" "}
               <span style={{ fontFamily: "var(--font-jetbrains-mono)" }}>
-                {booking.plan}
+                {booking.planLabel}
               </span>
             </span>
             <span
@@ -92,7 +93,7 @@ export function PaymentRequestsSection({ bookings }: PaymentRequestsProps) {
             </span>
             <Link
               href={`/artist/payment/${booking.id}`}
-              className="col-start-4 row-start-2 inline-flex items-center rounded-full bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[11.5px] font-bold text-[rgb(var(--brand-primary))] transition-transform hover:brightness-110 active:scale-[0.97] sm:row-span-2 sm:row-start-1"
+              className="col-start-4 row-start-2 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-3 text-[11.5px] font-bold text-[rgb(var(--brand-primary))] transition-transform hover:brightness-110 active:scale-[0.97] sm:row-span-2 sm:row-start-1"
             >
               Pay
             </Link>
