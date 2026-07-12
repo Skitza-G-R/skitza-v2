@@ -702,7 +702,8 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       purchaseRequestId: created.purchaseRequestId,
     });
     expect(rejectedState.requestStatus).toBe("approved");
-    expect(rejectedState.availableToSubmitCents).toBe(120_000);
+    expect(rejectedState.amountDueNowCents).toBe(120_000);
+    expect(rejectedState.availableToSubmitCents).toBe(240_000);
     expect(rejectedState.proofs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
