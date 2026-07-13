@@ -669,8 +669,14 @@ export function assertProductionTargetSnapshot({
   if (snapshot.expires_at !== undefined && snapshot.expires_at !== null) {
     throw new Error("The production target manual snapshot must not expire.");
   }
-  if (!snapshot.timestamp && !snapshot.lsn) {
-    throw new Error("The production target manual snapshot must report a timestamp or LSN.");
+  // Neon's list-snapshots response can omit the optional capture timestamp/LSN
+  // even when snapshot creation was requested with an explicit timestamp. The
+  // required created_at value is still checked against the attested freeze and
+  // fixed production snapshot time below.
+  if (!snapshot.timestamp && !snapshot.lsn && !snapshot.created_at) {
+    throw new Error(
+      "The production target manual snapshot must report a timestamp, LSN, or creation time.",
+    );
   }
 
   const createdAt = Date.parse(snapshot.created_at);

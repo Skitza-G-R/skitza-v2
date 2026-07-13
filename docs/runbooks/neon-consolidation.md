@@ -271,7 +271,10 @@ production manifest. Use this structure, with the real run ID and UTC time:
    preview must report `current_state=ready`, `restore_status=restored`, the
    exact snapshot in `restored_from`, and the canonical default in
    `restored_as`. Create an enabled endpoint and obtain its unpooled `neondb`
-   URL. Do not set an expiry or TTL.
+   URL. Do not set an expiry or TTL. Neon snapshot listings may omit the
+   optional capture timestamp and LSN even when snapshot creation specified a
+   timestamp; in that case, bind and freshness-check the required snapshot
+   `created_at` value against the attested freeze instead.
 7. Set the fixed snapshot time only after both safety branches, the manual
    snapshot, and its preview are ready. Every artifact must have been created
    after the attested freeze and within 30 minutes of that time.

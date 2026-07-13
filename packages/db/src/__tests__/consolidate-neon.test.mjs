@@ -353,6 +353,20 @@ describe("production branch guards", () => {
     expect(() => assertProductionTargetSnapshot(targetSnapshot)).not.toThrow();
   });
 
+  it("accepts Neon's fresh creation time when snapshot listings omit capture time and LSN", () => {
+    const snapshotWithoutOptionalCaptureFields = Object.fromEntries(
+      Object.entries(targetSnapshot.snapshot).filter(
+        ([key]) => key !== "timestamp" && key !== "lsn",
+      ),
+    );
+    expect(() =>
+      assertProductionTargetSnapshot({
+        ...targetSnapshot,
+        snapshot: snapshotWithoutOptionalCaptureFields,
+      }),
+    ).not.toThrow();
+  });
+
   it("refuses a stale or indirect source snapshot", () => {
     expect(() =>
       assertProductionSourceBranches({
