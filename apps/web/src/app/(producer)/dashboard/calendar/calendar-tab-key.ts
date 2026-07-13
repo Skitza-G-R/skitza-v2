@@ -29,3 +29,25 @@ export function resolveCalendarTab(
   if (first === "meetings") return "schedule";
   return isCalendarTab(first) ? first : "schedule";
 }
+
+/**
+ * A notification deep link does not know whether its booking is still an
+ * actionable request or has since moved into session history. With no
+ * explicit tab, choose the surface that can actually select that row.
+ */
+export function resolveCalendarTabForBooking(
+  rawTab: string | string[] | undefined,
+  bookingStatus:
+    | "pending_approval"
+    | "pending_payment"
+    | "confirmed"
+    | "rejected"
+    | "cancelled"
+    | null,
+): CalendarTabKey {
+  if (rawTab !== undefined) return resolveCalendarTab(rawTab);
+  if (bookingStatus === null || bookingStatus === "pending_approval") {
+    return "schedule";
+  }
+  return "sessions";
+}

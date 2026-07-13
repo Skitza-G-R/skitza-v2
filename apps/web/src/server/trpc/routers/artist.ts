@@ -36,6 +36,10 @@ import { getSiteUrl } from "~/server/stripe/client";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { calendarPaymentSummary } from "~/lib/payment-plans";
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
+import {
+  emitBookingRequested,
+  emitCommentCreated,
+} from "~/server/notifications/emit";
 
 async function productCommercialTermsColumnsAvailable(
   db: Pick<Db, "execute">,
@@ -574,6 +578,22 @@ const musicSubrouter = router({
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      // The bell is the producer's event-notification surface. Keep this
+      // side effect outside the primary insert contract: a notification
+      // failure must not discard the artist's saved comment.
+      try {
+        await emitCommentCreated(ctx.db, {
+          producerId: project.producerId,
+          commentId: row.id,
+          trackVersionId: input.trackVersionId,
+          projectId: project.id,
+          authorName: contact.name,
+          preview: input.body,
+        });
+      } catch (error) {
+        console.warn("[notify] comment-created failed", error);
+      }
+
       const [producerRow] = await ctx.db
         .select({ email: producers.email, displayName: producers.displayName })
         .from(producers)
@@ -781,7 +801,17 @@ async function resolveClientContact(
   clerkUserId: string,
   producerId: string,
 ): Promise<typeof clientContacts.$inferSelect> {
-  const [contact] = await db
+  const [contact] = await resolveClientContacts(db, clerkUserId, producerId);
+  if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
+  return contact;
+}
+
+async function resolveClientContacts(
+  db: Db,
+  clerkUserId: string,
+  producerId: string,
+): Promise<(typeof clientContacts.$inferSelect)[]> {
+  const contacts = await db
     .select()
     .from(clientContacts)
     .where(
@@ -790,10 +820,9 @@ async function resolveClientContact(
         eq(clientContacts.producerId, producerId),
         isNull(clientContacts.archivedAt),
       ),
-    )
-    .limit(1);
-  if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
-  return contact;
+    );
+  if (contacts.length === 0) throw new TRPCError({ code: "NOT_FOUND" });
+  return contacts;
 }
 
 // ─── artist.book sub-router ──────────────────────────────────────────
@@ -1056,8 +1085,11 @@ const bookSubrouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // 1. Access guard — same as availability.
-      const contact = await resolveClientContact(ctx.db, ctx.clerkUserId, input.producerId);
+      // 1. Access guard — same as availability. Keep every active contact so
+      // a paid package can resolve the exact email/contact that owns it.
+      const contacts = await resolveClientContacts(ctx.db, ctx.clerkUserId, input.producerId);
+      const contactIds = contacts.map((contact) => contact.id);
+      const contactEmails = [...new Set(contacts.map((contact) => contact.email.toLowerCase()))];
 
       // 2. Compute startsAt from date + startMin. Treating the date as
       //    UTC midnight matches the availability query's day math so
@@ -1075,11 +1107,14 @@ const bookSubrouter = router({
       // producer lock closes the slot race between two artist tabs; the
       // project lock independently closes the final-credit race.
       const endsAt = new Date(startsAt.getTime() + input.durationMin * 60 * 1000);
-      return ctx.db.transaction(async (tx) => {
+      const booking = await ctx.db.transaction(async (tx) => {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${input.producerId}, 0))`,
         );
 
+        const defaultContact = contacts[0];
+        if (!defaultContact) throw new TRPCError({ code: "NOT_FOUND" });
+        let bookingContact = defaultContact;
         let creditProject: {
           id: string;
           title: string;
@@ -1104,6 +1139,7 @@ const bookSubrouter = router({
               depositPaid: projects.depositPaid,
               sessionCount: projects.sessionCount,
               purchaseRequestId: purchaseRequests.id,
+              purchaseRequestClientContactId: purchaseRequests.clientContactId,
               packageNameSnapshot: purchaseRequests.productNameSnapshot,
             })
             .from(projects)
@@ -1112,7 +1148,7 @@ const bookSubrouter = router({
               and(
                 eq(purchaseRequests.projectId, projects.id),
                 eq(purchaseRequests.producerId, input.producerId),
-                eq(purchaseRequests.clientContactId, contact.id),
+                inArray(purchaseRequests.clientContactId, contactIds),
                 eq(purchaseRequests.status, "paid"),
               ),
             )
@@ -1121,7 +1157,7 @@ const bookSubrouter = router({
                 eq(projects.id, input.existingProjectId),
                 eq(projects.producerId, input.producerId),
                 eq(projects.depositPaid, true),
-                eq(sql<string>`lower(${projects.artistEmail})`, contact.email.toLowerCase()),
+                inArray(sql<string>`lower(${projects.artistEmail})`, contactEmails),
               ),
             )
             .limit(1);
@@ -1131,11 +1167,22 @@ const bookSubrouter = router({
           if (
             !ownedProject ||
             ownedProject.producerId !== input.producerId ||
-            ownedProject.artistEmail.toLowerCase() !== contact.email.toLowerCase() ||
+            !contactEmails.includes(ownedProject.artistEmail.toLowerCase()) ||
             !ownedProject.depositPaid
           ) {
             throw new TRPCError({ code: "NOT_FOUND" });
           }
+
+          const exactContact = contacts.find(
+            (contact) =>
+              contact.email.toLowerCase() === ownedProject.artistEmail.toLowerCase() &&
+              (ownedProject.purchaseRequestId === null ||
+                ownedProject.purchaseRequestClientContactId === contact.id),
+          );
+          if (!exactContact) {
+            throw new TRPCError({ code: "NOT_FOUND" });
+          }
+          bookingContact = exactContact;
 
           let packageNameSnapshot = ownedProject.packageNameSnapshot;
           if (!ownedProject.purchaseRequestId) {
@@ -1216,8 +1263,8 @@ const bookSubrouter = router({
           .insert(bookings)
           .values({
             producerId: input.producerId,
-            artistEmail: contact.email,
-            artistName: contact.name,
+            artistEmail: bookingContact.email,
+            artistName: bookingContact.name,
             packageNameSnapshot: creditProject?.packageNameSnapshot ?? null,
             startsAt,
             durationMin: input.durationMin,
@@ -1240,15 +1287,36 @@ const bookSubrouter = router({
                 eq(purchaseRequests.id, creditProject.purchaseRequestId),
                 eq(purchaseRequests.projectId, creditProject.id),
                 eq(purchaseRequests.producerId, input.producerId),
-                eq(purchaseRequests.clientContactId, contact.id),
+                eq(purchaseRequests.clientContactId, bookingContact.id),
                 eq(purchaseRequests.status, "paid"),
                 isNull(purchaseRequests.bookingId),
               ),
             );
         }
 
-        return { id: row.id };
+        return {
+          id: row.id,
+          artistName: bookingContact.name,
+          artistEmail: bookingContact.email,
+        };
       });
+
+      // The top-right bell is the producer's single notification entry
+      // point. Emit the verified booking event after the primary insert;
+      // a notification failure must never roll back the artist's booking.
+      try {
+        await emitBookingRequested(ctx.db, {
+          producerId: input.producerId,
+          bookingId: booking.id,
+          artistName: booking.artistName,
+          artistEmail: booking.artistEmail,
+          when: startsAt,
+        });
+      } catch (error) {
+        console.warn("[notify] booking-requested failed", error);
+      }
+
+      return { id: booking.id };
     }),
 
   // Bookings the producer has approved but the artist hasn't paid for

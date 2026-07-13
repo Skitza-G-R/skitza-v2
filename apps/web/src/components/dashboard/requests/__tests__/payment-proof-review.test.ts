@@ -32,19 +32,16 @@ const dashboardPage = readFileSync(join(appRequestsDir, "..", "page.tsx"), "utf8
 const requestsPage = readFileSync(join(appRequestsDir, "page.tsx"), "utf8");
 const detailPage = readFileSync(join(appRequestsDir, "[id]", "page.tsx"), "utf8");
 const detailComponent = readFileSync(join(requestsDir, "purchase-request-detail.tsx"), "utf8");
-const mobileFeed = readFileSync(
-  join(requestsDir, "..", "overview", "mobile-today-feed.tsx"),
-  "utf8",
-);
-
 describe("producer Gate-2 proof review wiring", () => {
-  it("ships a reusable, unmistakable pending-proof queue on the dashboard and Requests hub", () => {
+  it("puts proofs in the dashboard Needs You queue and keeps the detailed Requests queue", () => {
     expect(existsSync(queuePath)).toBe(true);
     expect(dashboardPage).toMatch(/proofOfPayment\.pending\(\)/);
     expect(requestsPage).toMatch(/proofOfPayment\.pending\(\)/);
-    expect(dashboardPage).toMatch(/<PendingPaymentProofs/);
+    expect(dashboardPage).toMatch(
+      /paymentProofs=\{pendingPaymentProofs\.available \? pendingPaymentProofs\.proofs : \[\]\}/,
+    );
+    expect(dashboardPage).not.toMatch(/<PendingPaymentProofs/);
     expect(requestsPage).toMatch(/<PendingPaymentProofs/);
-    expect(mobileFeed).toMatch(/pendingPaymentProofs/);
   });
 
   it("shows all decision-critical metadata and links the exact owned proof", () => {
@@ -80,6 +77,20 @@ describe("producer Gate-2 proof review wiring", () => {
     expect(review).toMatch(/Message shown to the artist/);
     expect(review).toMatch(/router\.refresh/);
     expect(review).not.toMatch(/storageKey|storageBucket|publicUrl/);
+  });
+
+  it("moves focus into each decision panel and restores it when cancelled", () => {
+    expect(existsSync(reviewPath)).toBe(true);
+    if (!existsSync(reviewPath)) return;
+    const review = readFileSync(reviewPath, "utf8");
+    expect(review).toContain("confirmTriggerRef");
+    expect(review).toContain("rejectTriggerRef");
+    expect(review).toContain('aria-controls="confirm-payment-proof-panel"');
+    expect(review).toContain('aria-controls="reject-payment-proof-form"');
+    expect(review).toMatch(/onClick=\{runConfirm\}[\s\S]*?autoFocus/);
+    expect(review).toMatch(/id="proof-rejection-note"[\s\S]*?autoFocus/);
+    expect(review).toMatch(/closeConfirm[\s\S]*?requestAnimationFrame/);
+    expect(review).toMatch(/closeReject[\s\S]*?requestAnimationFrame/);
   });
 
   it("revalidates producer, request, notification, and artist surfaces after each decision", () => {

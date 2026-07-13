@@ -5,20 +5,16 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { UserButton } from "@clerk/nextjs";
-import { BarChart3 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
-import type { ShellNotificationItem } from "~/server/shell-data";
 
 // LanguageSwitcher intentionally NOT imported in the rail — Skitza is
 // EN-only at v1 per CLAUDE.md §"Language". Re-add when he.json is
 // populated. (Removed 2026-05-15 — sidebar polish PR.)
 import { LogoMark } from "~/components/brand/logo-mark";
-import { NotificationBell } from "~/components/shell/notification-bell";
 import { SidebarShareChip } from "~/components/shell/sidebar-share-chip";
 import { ThemeToggle } from "~/components/shell/theme-toggle";
-import { useToast } from "~/components/ui/toast";
 
 import { Icon, type IconName } from "./icons";
 import { Wordmark } from "./wordmark";
@@ -98,37 +94,78 @@ function formatPlanLabel(plan: string): string {
 //     surface count is now stale and should be refreshed when the
 //     portfolio redesign promotes to prod.
 export const NAV_ITEMS: readonly NavItem[] = [
-  { id: "today", label: "Overview", labelKey: "today", href: "/dashboard", icon: "home", shortcut: "G H" },
-  { id: "clients-projects", label: "Clients & Projects", labelKey: "clients-projects", href: "/dashboard/clients-projects", icon: "users", shortcut: "G P" },
-  { id: "music", label: "Music", labelKey: "music", href: "/dashboard/music", icon: "music", shortcut: "G M" },
-  { id: "calendar", label: "Calendar", labelKey: "calendar", href: "/dashboard/calendar", icon: "calendar", shortcut: "G C" },
-  { id: "profile", label: "Storefront", labelKey: "profile", href: "/dashboard/store", icon: "store", shortcut: "G S" },
-  { id: "portfolio", label: "Portfolio", labelKey: "portfolio", href: "/dashboard/portfolio", icon: "star", shortcut: "G F" },
-  { id: "setup", label: "Settings", labelKey: "setup", href: "/dashboard/settings", icon: "settings", shortcut: "G T" },
+  {
+    id: "today",
+    label: "Overview",
+    labelKey: "today",
+    href: "/dashboard",
+    icon: "home",
+    shortcut: "G H",
+  },
+  {
+    id: "clients-projects",
+    label: "Clients & Projects",
+    labelKey: "clients-projects",
+    href: "/dashboard/clients-projects",
+    icon: "users",
+    shortcut: "G P",
+  },
+  {
+    id: "music",
+    label: "Music",
+    labelKey: "music",
+    href: "/dashboard/music",
+    icon: "music",
+    shortcut: "G M",
+  },
+  {
+    id: "calendar",
+    label: "Calendar",
+    labelKey: "calendar",
+    href: "/dashboard/calendar",
+    icon: "calendar",
+    shortcut: "G C",
+  },
+  {
+    id: "profile",
+    label: "Storefront",
+    labelKey: "profile",
+    href: "/dashboard/store",
+    icon: "store",
+    shortcut: "G S",
+  },
+  {
+    id: "portfolio",
+    label: "Portfolio",
+    labelKey: "portfolio",
+    href: "/dashboard/portfolio",
+    icon: "star",
+    shortcut: "G F",
+  },
+  {
+    id: "setup",
+    label: "Settings",
+    labelKey: "setup",
+    href: "/dashboard/settings",
+    icon: "settings",
+    shortcut: "G T",
+  },
 ] as const;
 
 // Visual grouping — section dividers render after these item ids.
 // Groups: [Overview] / [Clients & Projects, Music, Calendar] /
 // [Storefront, Portfolio] / [Settings]. Pure layout concern;
 // doesn't change route behaviour or active-state derivation.
-const SECTION_BOUNDARY_AFTER: ReadonlySet<ActiveKey> = new Set([
-  "today",
-  "calendar",
-  "portfolio",
-]);
+const SECTION_BOUNDARY_AFTER: ReadonlySet<ActiveKey> = new Set(["today", "calendar", "portfolio"]);
 
 export function ProducerSidebar({
   producerSlug,
   publicBaseUrl,
-  unreadCount = 0,
-  unreadItems = [],
   displayName = null,
   plan = "free",
 }: {
   producerSlug: string | null;
   publicBaseUrl: string;
-  unreadCount?: number;
-  unreadItems?: readonly ShellNotificationItem[];
   /** Producer's display name (from producer.displayName). Surfaced
    *  on the sidebar footer chip; falls back to the Clerk avatar
    *  alone when null. */
@@ -203,8 +240,6 @@ export function ProducerSidebar({
         collapsed={effectiveCollapsed}
         producerSlug={producerSlug}
         publicBaseUrl={publicBaseUrl}
-        unreadCount={unreadCount}
-        unreadItems={unreadItems}
         displayName={displayName}
         plan={plan}
         onToggle={toggle}
@@ -218,8 +253,6 @@ function SidebarBody({
   collapsed,
   producerSlug,
   publicBaseUrl,
-  unreadCount,
-  unreadItems,
   displayName,
   plan,
   onToggle,
@@ -228,8 +261,6 @@ function SidebarBody({
   collapsed: boolean;
   producerSlug: string | null;
   publicBaseUrl: string;
-  unreadCount: number;
-  unreadItems: readonly ShellNotificationItem[];
   displayName: string | null;
   plan: string;
   onToggle: () => void;
@@ -267,7 +298,7 @@ function SidebarBody({
           aria-label={collapsed ? t("expand") : t("collapse")}
           aria-expanded={!collapsed}
           onClick={onToggle}
-          className="sk-press flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--fg-onsidebar)/0.55)] hover:bg-[rgb(var(--fg-onsidebar)/0.08)] hover:text-[rgb(var(--fg-onsidebar)/0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+          className="sk-press flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--fg-onsidebar)/0.55)] hover:bg-[rgb(var(--fg-onsidebar)/0.08)] hover:text-[rgb(var(--fg-onsidebar)/0.9)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
           {/* Single chevron rotating 180° between states — same arrow,
               reversed direction. Reads as continuity instead of a swap. */}
@@ -280,13 +311,8 @@ function SidebarBody({
         </button>
       </div>
 
-      {/* Nav rail.
-          Unread-count is intentionally NOT mirrored onto the Overview
-          row — the bottom-cluster NotificationBell already owns that
-          number. Showing the same count in two places was confusing
-          (see sidebar polish PR, 2026-05-15). Per-route badges (e.g.
-          pending bookings on Calendar) can re-introduce `badgeCount`
-          via the NavItem prop when their data sources exist. */}
+      {/* Nav rail. Per-route badges (for example pending bookings on
+          Calendar) can be introduced when their data sources exist. */}
       <nav
         aria-label="Primary"
         data-tour-id="sidebar-nav"
@@ -302,33 +328,13 @@ function SidebarBody({
               badgeCount={0}
               label={t(item.labelKey)}
             />
-            {SECTION_BOUNDARY_AFTER.has(item.id) && (
-              <SectionDivider collapsed={collapsed} />
-            )}
-            {/* Mockup-match: Insights sits between the Storefront /
-                Portfolio group and Settings. No route exists yet —
-                it's rendered as a click-to-toast placeholder so the
-                rail visually matches the mockup without 404-ing
-                anyone. The toast lands inside ClickToast which lazily
-                imports the existing useToast hook. Anchored to
-                `portfolio` after the 2026-05-18 re-introduction so
-                Storefront → Portfolio reads as a contiguous group. */}
-            {item.id === "portfolio" ? (
-              <InsightsPlaceholder collapsed={collapsed} label={t("insights")} />
-            ) : null}
+            {SECTION_BOUNDARY_AFTER.has(item.id) && <SectionDivider collapsed={collapsed} />}
           </Fragment>
         ))}
       </nav>
 
-      {/* Bottom block — widgets cluster + Clerk UserButton.
-          Phase 2: NotificationBell + ThemeToggle + SidebarShareChip
-          stay mounted so producers can still toggle theme + see
-          notifications + share their link. They were styled for the
-          prior light-surface sidebar — some visual mismatch is
-          expected and intentional per the Phase 2 brief ("Pages
-          inside will visually mismatch the new shells"). Phase 3
-          will redesign each widget to fit the dark rail.
-          LanguageSwitcher was removed 2026-05-15 (EN-only at v1). */}
+      {/* Bottom block — share chip, theme control, and Clerk UserButton.
+          SK-76 moves notifications to the single top-right bell. */}
       <div
         className="flex flex-col gap-2"
         style={{
@@ -346,10 +352,7 @@ function SidebarBody({
         <div
           className={`flex items-center ${collapsed ? "flex-col gap-2" : "justify-between"} px-1`}
         >
-          <div className={`flex items-center ${collapsed ? "flex-col" : ""} gap-1`}>
-            <ThemeToggle />
-            <NotificationBell unreadCount={unreadCount} unreadItems={unreadItems} />
-          </div>
+          <ThemeToggle />
           {/* Mockup-match: the producer footer chip shows the Clerk
               avatar + display name + plan label (e.g. "Gili Studio /
               Pro plan"). Collapsed rail keeps just the avatar so the
@@ -357,15 +360,11 @@ function SidebarBody({
               the dropdown trigger; the label sits next to it as
               presentation-only context — no extra menu wired up. */}
           {!collapsed && displayName ? (
-            <div
-              className="flex min-w-0 items-center gap-2"
-              data-testid="sidebar-footer-chip"
-            >
+            <div className="flex min-w-0 items-center gap-2" data-testid="sidebar-footer-chip">
               <UserButton
                 appearance={{
                   elements: {
-                    avatarBox:
-                      "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
+                    avatarBox: "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
                   },
                 }}
               />
@@ -377,7 +376,7 @@ function SidebarBody({
                   {displayName}
                 </p>
                 <p
-                  className="truncate text-[9.5px] font-medium uppercase tracking-[0.08em]"
+                  className="truncate text-[9.5px] font-medium tracking-[0.08em] uppercase"
                   style={{ color: "rgb(var(--fg-onsidebar) / 0.55)" }}
                 >
                   {formatPlanLabel(plan)}
@@ -388,8 +387,7 @@ function SidebarBody({
             <UserButton
               appearance={{
                 elements: {
-                  avatarBox:
-                    "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
+                  avatarBox: "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
                 },
               }}
             />
@@ -435,16 +433,12 @@ function NavItem({
       aria-keyshortcuts={item.shortcut}
       {...(isActive ? { "aria-current": "page" as const } : {})}
       {...(collapsed ? { title: label } : {})}
-      className="sk-press relative flex items-center rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+      className="sk-press relative flex items-center rounded-[10px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
       style={{
         gap: collapsed ? 0 : 12,
         padding: collapsed ? "11px 10px" : "10px 12px",
-        color: isActive
-          ? "rgb(var(--fg-onsidebar))"
-          : "rgb(var(--fg-onsidebar) / 0.65)",
-        background: isActive
-          ? "rgb(var(--fg-onsidebar) / 0.10)"
-          : "transparent",
+        color: isActive ? "rgb(var(--fg-onsidebar))" : "rgb(var(--fg-onsidebar) / 0.65)",
+        background: isActive ? "rgb(var(--fg-onsidebar) / 0.10)" : "transparent",
         fontSize: 13.5,
         fontWeight: isActive ? 700 : 500,
         letterSpacing: "-0.005em",
@@ -469,7 +463,7 @@ function NavItem({
           opacity: isActive ? 1 : 0,
         }}
       />
-      <span className="relative shrink-0 flex items-center">
+      <span className="relative flex shrink-0 items-center">
         <Icon name={item.icon} size={16} strokeWidth={2.3} />
         {collapsed && badgeCount > 0 && (
           <span
@@ -535,58 +529,5 @@ function SectionDivider({ collapsed }: { collapsed: boolean }) {
         background: "rgb(var(--border-sidebar) / 0.6)",
       }}
     />
-  );
-}
-
-// ─── InsightsPlaceholder ────────────────────────────────────────────
-//
-// Mockup-match placeholder for the Insights nav row. The locked
-// design (HTML mockup) carries an Insights entry between Storefront
-// and Settings — but there's no /dashboard/insights route yet, so a
-// real `<Link>` would 404 on click. Rendered as a button instead:
-// looks identical to a NavItem but emits a toast saying "Insights
-// coming soon" so producers know it's intentional, not broken.
-//
-// Visually mirrors NavItem (same gap/padding/font-size/min-height) so
-// the rail's vertical rhythm stays consistent across the real rows
-// and the placeholder. Icon = BarChart3 from lucide-react (the icon
-// set in icons.tsx doesn't have a chart variant; importing one
-// directly is the lightest touch). When a real route lands, this
-// component can be deleted and Insights promoted into NAV_ITEMS.
-function InsightsPlaceholder({
-  collapsed,
-  label,
-}: {
-  collapsed: boolean;
-  label: string;
-}) {
-  const { toast } = useToast();
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        toast(`${label} coming soon`, "info");
-      }}
-      aria-label={collapsed ? label : undefined}
-      {...(collapsed ? { title: label } : {})}
-      className="sk-press relative flex items-center rounded-[10px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
-      data-testid="sidebar-insights-placeholder"
-      style={{
-        gap: collapsed ? 0 : 12,
-        padding: collapsed ? "11px 10px" : "10px 12px",
-        color: "rgb(var(--fg-onsidebar) / 0.65)",
-        background: "transparent",
-        fontSize: 13.5,
-        fontWeight: 500,
-        letterSpacing: "-0.005em",
-        justifyContent: collapsed ? "center" : "flex-start",
-        minHeight: 36,
-      }}
-    >
-      <span className="relative shrink-0 flex items-center">
-        <BarChart3 size={16} strokeWidth={2.3} aria-hidden />
-      </span>
-      {!collapsed ? <span className="truncate">{label}</span> : null}
-    </button>
   );
 }

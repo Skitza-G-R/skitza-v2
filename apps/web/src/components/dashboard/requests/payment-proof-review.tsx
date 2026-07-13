@@ -2,7 +2,7 @@
 
 import { ExternalLink, FileCheck2, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type SyntheticEvent, useState, useTransition } from "react";
+import { type SyntheticEvent, useRef, useState, useTransition } from "react";
 
 import {
   confirmPaymentProof,
@@ -25,6 +25,23 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
   const [showConfirm, setShowConfirm] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const [rejectionNote, setRejectionNote] = useState("");
+  const confirmTriggerRef = useRef<HTMLButtonElement>(null);
+  const rejectTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const closeConfirm = () => {
+    setShowConfirm(false);
+    window.requestAnimationFrame(() => {
+      confirmTriggerRef.current?.focus();
+    });
+  };
+
+  const closeReject = () => {
+    setShowReject(false);
+    setRejectionNote("");
+    window.requestAnimationFrame(() => {
+      rejectTriggerRef.current?.focus();
+    });
+  };
 
   const returnToRequest = () => {
     router.replace(`/dashboard/requests/${proof.purchaseRequestId}#payment-proof`);
@@ -222,21 +239,27 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
           {!showConfirm && !showReject ? (
             <div className="space-y-2.5">
               <button
+                ref={confirmTriggerRef}
                 type="button"
                 onClick={() => {
                   setShowConfirm(true);
                 }}
                 disabled={isPending}
+                aria-expanded={showConfirm}
+                aria-controls="confirm-payment-proof-panel"
                 className="sk-press flex min-h-[48px] w-full items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-success))] px-4 text-sm font-bold text-white disabled:opacity-60"
               >
                 Confirm payment
               </button>
               <button
+                ref={rejectTriggerRef}
                 type="button"
                 onClick={() => {
                   setShowReject(true);
                 }}
                 disabled={isPending}
+                aria-expanded={showReject}
+                aria-controls="reject-payment-proof-form"
                 className="sk-press flex min-h-[46px] w-full items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.38)] px-4 text-sm font-bold text-[rgb(var(--fg-danger))] disabled:opacity-60"
               >
                 Reject proof
@@ -245,7 +268,10 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
           ) : null}
 
           {showConfirm ? (
-            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-success)/0.35)] bg-[rgb(var(--fg-success)/0.07)] p-4">
+            <div
+              id="confirm-payment-proof-panel"
+              className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-success)/0.35)] bg-[rgb(var(--fg-success)/0.07)] p-4"
+            >
               <p className="text-sm font-bold text-[rgb(var(--fg-default))]">
                 Create the paid invoice?
               </p>
@@ -256,9 +282,7 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
               <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end lg:flex-col-reverse xl:flex-row">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowConfirm(false);
-                  }}
+                  onClick={closeConfirm}
                   disabled={isPending}
                   className="sk-press min-h-[44px] rounded-[var(--radius-lg)] px-3 text-sm font-semibold text-[rgb(var(--fg-muted))] disabled:opacity-60"
                 >
@@ -268,6 +292,7 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
                   type="button"
                   onClick={runConfirm}
                   disabled={isPending}
+                  autoFocus
                   className="sk-press min-h-[44px] rounded-[var(--radius-lg)] bg-[rgb(var(--fg-success))] px-3 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-60"
                 >
                   {isPending ? "Confirming…" : "Confirm payment"}
@@ -278,6 +303,7 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
 
           {showReject ? (
             <form
+              id="reject-payment-proof-form"
               onSubmit={runReject}
               className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.32)] bg-[rgb(var(--fg-danger)/0.05)] p-4"
             >
@@ -287,17 +313,22 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
               >
                 Message shown to the artist
               </label>
-              <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
+              <p
+                id="proof-rejection-help"
+                className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]"
+              >
                 Explain what needs fixing. The artist sees this message on their payment screen and
                 can upload again.
               </p>
               <textarea
                 id="proof-rejection-note"
+                aria-describedby="proof-rejection-help"
                 required
                 minLength={1}
                 maxLength={2000}
                 rows={4}
                 value={rejectionNote}
+                autoFocus
                 onChange={(event) => {
                   setRejectionNote(event.target.value);
                 }}
@@ -307,10 +338,7 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
               <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end lg:flex-col-reverse xl:flex-row">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowReject(false);
-                    setRejectionNote("");
-                  }}
+                  onClick={closeReject}
                   disabled={isPending}
                   className="sk-press min-h-[44px] rounded-[var(--radius-lg)] px-3 text-sm font-semibold text-[rgb(var(--fg-muted))] disabled:opacity-60"
                 >

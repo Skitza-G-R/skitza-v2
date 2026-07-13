@@ -1,4 +1,3 @@
-import { cache } from "react";
 import { auth } from "@clerk/nextjs/server";
 import {
   and,
@@ -6,72 +5,117 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   notifications,
   paymentProofs,
   producers,
   sql,
 } from "@skitza/db";
+import { cache } from "react";
 
 // Request-scoped shell state used by AppShell and any server component
 // that wants the producer slug / unread count without re-querying.
-//
-// Wrapping the fetch in `React.cache()` makes multiple calls within
-// one render tree share a single SELECT + COUNT pair — previously the
-// shell re-ran the query on every layout render, and child server
-// components had no cheap way to read the same data. Per-request
-// memoisation only; a fresh request always re-fetches.
-//
-// Task 13 extended the state with `unreadItems` — the top 10 most
-// recent unread notifications used by the AppShell notification bell.
-// Fetched in the same request so the bell can render with real
-// initial data (no client-side fetch needed for first paint) and the
-// header badge stays authoritative. Capped at 10 because that's what
-// the dropdown shows; scrolling through more is an anti-pattern for a
-// header bell — producers who want the full list should open the
-// Projects screen.
+// React.cache keeps these reads shared only inside one render request.
 export interface ShellNotificationItem {
   id: string;
   kind: string;
   title: string;
   body: string;
   createdAtIso: string;
-  // One of these is always populated — see notifications schema comment.
-  // Kept as a shallow record so the client can pick a deep-link target
-  // without re-querying.
   projectId: string | null;
   trackVersionId: string | null;
   commentId: string | null;
   bookingId: string | null;
   purchaseRequestId: string | null;
   paymentProofId: string | null;
+  readAtIso: string | null;
+}
+
+export interface ShellNotificationCandidate {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  createdAt: Date;
+  projectId: string | null;
+  trackVersionId: string | null;
+  commentId: string | null;
+  bookingId: string | null;
+  purchaseRequestId: string | null;
+  readAt: Date | null;
 }
 
 export interface ShellState {
   slug: string | null;
-  /** Producer's display name (Studio name) — used by the sidebar
-   *  footer chip ("GS · Gili Studio · Pro plan"). Falls back to null
-   *  when the producer hasn't filled it in; the chip then renders
-   *  just the Clerk avatar with no label. */
   displayName: string | null;
-  /** Producer's plan tier — surfaced on the sidebar footer chip
-   *  ("Pro plan"). Settings redesign added the column (migration
-   *  0012); defaults to 'free' on rows from before the migration.
-   *  Stored as text so we can introduce additional tiers without a
-   *  type churn. */
   plan: string;
   unreadCount: number;
-  unreadItems: ShellNotificationItem[];
+  recentNotifications: ShellNotificationItem[];
 }
 
-const UNREAD_ITEMS_LIMIT = 10;
+export const NOTIFICATION_FEED_LIMIT = 20;
+
+function compareNewestFirst(
+  left: ShellNotificationCandidate,
+  right: ShellNotificationCandidate,
+): number {
+  const timeDifference = right.createdAt.getTime() - left.createdAt.getTime();
+  return timeDifference !== 0 ? timeDifference : left.id.localeCompare(right.id);
+}
+
+function toShellNotificationItem(row: ShellNotificationCandidate): ShellNotificationItem {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    body: row.body,
+    createdAtIso: row.createdAt.toISOString(),
+    projectId: row.projectId,
+    trackVersionId: row.trackVersionId,
+    commentId: row.commentId,
+    bookingId: row.bookingId,
+    purchaseRequestId: row.purchaseRequestId,
+    paymentProofId: null,
+    readAtIso: row.readAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * Keep every unread row in the bounded centre before filling the remaining
+ * slots with recently read context. The result stays newest-first.
+ */
+export function mergeShellNotificationRows(
+  unreadRows: readonly ShellNotificationCandidate[],
+  recentReadRows: readonly ShellNotificationCandidate[],
+  limit = NOTIFICATION_FEED_LIMIT,
+): ShellNotificationItem[] {
+  const boundedLimit = Math.max(0, Math.floor(limit));
+  const unreadById = new Map<string, ShellNotificationCandidate>();
+  for (const row of [...unreadRows].sort(compareNewestFirst)) {
+    if (unreadById.size >= boundedLimit) break;
+    if (row.readAt === null && !unreadById.has(row.id)) unreadById.set(row.id, row);
+  }
+
+  const mergedRows = [...unreadById.values()];
+  const includedIds = new Set(unreadById.keys());
+  for (const row of [...recentReadRows].sort(compareNewestFirst)) {
+    if (mergedRows.length >= boundedLimit) break;
+    if (row.readAt !== null && !includedIds.has(row.id)) {
+      includedIds.add(row.id);
+      mergedRows.push(row);
+    }
+  }
+
+  return mergedRows.sort(compareNewestFirst).map(toShellNotificationItem);
+}
 
 const DEFAULT_STATE: ShellState = {
   slug: null,
   displayName: null,
   plan: "free",
   unreadCount: 0,
-  unreadItems: [],
+  recentNotifications: [],
 };
 
 export const getShellState = cache(async (): Promise<ShellState> => {
@@ -79,6 +123,7 @@ export const getShellState = cache(async (): Promise<ShellState> => {
   if (!userId) return DEFAULT_STATE;
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) return DEFAULT_STATE;
+
   const db = createDb(dbUrl);
   const [row] = await db
     .select({
@@ -91,35 +136,63 @@ export const getShellState = cache(async (): Promise<ShellState> => {
     .where(eq(producers.clerkUserId, userId))
     .limit(1);
   if (!row) return DEFAULT_STATE;
-  const unreadRows = await db
-    .select({
-      id: notifications.id,
-      kind: notifications.kind,
-      title: notifications.title,
-      body: notifications.body,
-      createdAt: notifications.createdAt,
-      projectId: notifications.projectId,
-      trackVersionId: notifications.trackVersionId,
-      commentId: notifications.commentId,
-      bookingId: notifications.bookingId,
-      purchaseRequestId: notifications.purchaseRequestId,
-    })
-    .from(notifications)
-    .where(
-      and(
-        eq(notifications.producerId, row.id),
-        isNull(notifications.readAt),
-        isNull(notifications.archivedAt),
-      ),
-    )
-    .orderBy(desc(notifications.createdAt));
 
-  // Notifications predate the private-proof table, so there is no proof FK on
-  // the notification row. New Gate-2 notifications deliberately reuse the
-  // proof UUID as their notification UUID. Validate that identity only when
-  // migration 0023 is available; old notifications fall back to the owned
-  // request page instead of guessing a proof from timestamps.
-  const proofNotifications = unreadRows.filter(
+  const notificationSelection = {
+    id: notifications.id,
+    kind: notifications.kind,
+    title: notifications.title,
+    body: notifications.body,
+    createdAt: notifications.createdAt,
+    projectId: notifications.projectId,
+    trackVersionId: notifications.trackVersionId,
+    commentId: notifications.commentId,
+    bookingId: notifications.bookingId,
+    purchaseRequestId: notifications.purchaseRequestId,
+    readAt: notifications.readAt,
+  };
+  const [unreadCountRows, unreadRows, recentReadRows] = await Promise.all([
+    db
+      .select({ value: sql<number>`count(*)`.mapWith(Number) })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.producerId, row.id),
+          isNull(notifications.readAt),
+          isNull(notifications.archivedAt),
+        ),
+      ),
+    db
+      .select(notificationSelection)
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.producerId, row.id),
+          isNull(notifications.readAt),
+          isNull(notifications.archivedAt),
+        ),
+      )
+      .orderBy(desc(notifications.createdAt))
+      .limit(NOTIFICATION_FEED_LIMIT),
+    db
+      .select(notificationSelection)
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.producerId, row.id),
+          isNotNull(notifications.readAt),
+          isNull(notifications.archivedAt),
+        ),
+      )
+      .orderBy(desc(notifications.createdAt))
+      .limit(NOTIFICATION_FEED_LIMIT),
+  ]);
+
+  const recentNotifications = mergeShellNotificationRows(unreadRows, recentReadRows);
+
+  // Gate-2 notifications reuse the proof UUID as their notification UUID.
+  // Validate that identity against the producer-owned table before adding the
+  // exact proof deep link. Before migration 0023, keep the request-level link.
+  const proofNotifications = recentNotifications.filter(
     (item) => item.kind === "proof_submitted" && item.purchaseRequestId,
   );
   const paymentProofIdByNotification = new Map<string, string>();
@@ -131,11 +204,12 @@ export const getShellState = cache(async (): Promise<ShellState> => {
         and table_name = 'payment_proofs'
     `);
     if ((availability.rows[0]?.tableCount ?? 0) === 1) {
-      const proofNotificationIds = proofNotifications.map((item) => item.id);
+      const proofNotificationIds = proofNotifications.map((notification) => notification.id);
       const proofRows = await db
         .select({
           id: paymentProofs.id,
           purchaseRequestId: paymentProofs.purchaseRequestId,
+          status: paymentProofs.status,
         })
         .from(paymentProofs)
         .where(
@@ -145,37 +219,27 @@ export const getShellState = cache(async (): Promise<ShellState> => {
           ),
         );
 
+      const proofById = new Map(proofRows.map((proof) => [proof.id, proof]));
       for (const notification of proofNotifications) {
-        const exactProof = proofRows.find(
-          (proof) =>
-            proof.id === notification.id &&
-            proof.purchaseRequestId === notification.purchaseRequestId,
-        );
-        if (exactProof) paymentProofIdByNotification.set(notification.id, exactProof.id);
+        const proof = proofById.get(notification.id);
+        if (
+          proof?.purchaseRequestId === notification.purchaseRequestId &&
+          proof.status === "pending"
+        ) {
+          paymentProofIdByNotification.set(notification.id, proof.id);
+        }
       }
     }
   }
 
-  const unreadItems: ShellNotificationItem[] = unreadRows
-    .slice(0, UNREAD_ITEMS_LIMIT)
-    .map((r) => ({
-      id: r.id,
-      kind: r.kind,
-      title: r.title,
-      body: r.body,
-      createdAtIso: r.createdAt.toISOString(),
-      projectId: r.projectId,
-      trackVersionId: r.trackVersionId,
-      commentId: r.commentId,
-      bookingId: r.bookingId,
-      purchaseRequestId: r.purchaseRequestId,
-      paymentProofId: paymentProofIdByNotification.get(r.id) ?? null,
-    }));
   return {
     slug: row.slug,
     displayName: row.displayName,
     plan: row.plan,
-    unreadCount: unreadRows.length,
-    unreadItems,
+    unreadCount: unreadCountRows[0]?.value ?? 0,
+    recentNotifications: recentNotifications.map((notification) => ({
+      ...notification,
+      paymentProofId: paymentProofIdByNotification.get(notification.id) ?? null,
+    })),
   };
 });

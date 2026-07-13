@@ -342,6 +342,7 @@ describe("producer.today pulseStats", () => {
     expect(result.pulseStats).toBeDefined();
     expect(result.pulseStats.thisMonthCents).toBe(0);
     expect(result.pulseStats.lastMonthCents).toBe(0);
+    expect(result.pulseStats.outstandingCents).toBe(0);
     expect(result.pulseStats.deltaPct).toBeNull();
     expect(result.pulseStats.sparkline).toHaveLength(30);
     expect(result.pulseStats.sparkline.every((v) => v === 0)).toBe(true);
@@ -494,6 +495,20 @@ describe("producer.today pulseStats", () => {
     expect(result.pulseStats.thisMonthCents).toBe(100_000);
     expect(result.pulseStats.lastMonthCents).toBe(200_000);
     expect(result.pulseStats.currency).toBe("USD");
+  });
+
+  it("sums outstanding invoices in the producer's default currency", async () => {
+    unpaidCountMock.mockResolvedValueOnce([
+      { id: "i1", amountCents: 150_000, currency: "USD" },
+      { id: "i2", amountCents: 50_000, currency: "USD" },
+      { id: "i3", amountCents: 999_999, currency: "EUR" },
+    ]);
+
+    const caller = await buildCaller();
+    const result = await caller.producer.today();
+
+    expect(result.pulseStats.outstandingCents).toBe(200_000);
+    expect(result.pulseStats.unresolvedItems).toBe(3);
   });
 });
 

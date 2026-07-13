@@ -18,7 +18,7 @@
 // The 3 action modals are owned here so they share the bridge between
 // the row click and the modal state without prop-drilling.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CancelSessionModal } from "./cancel-session-modal";
 import { ChangeTimeModal } from "./change-time-modal";
@@ -30,13 +30,16 @@ type Filter = "upcoming" | "past" | "all";
 export function SessionsPanel({
   sessions,
   initialNow,
+  selectedBookingId = null,
 }: {
   sessions: readonly SessionListItem[];
   initialNow: string;
+  selectedBookingId?: string | null;
 }) {
   const now = useMemo(() => new Date(initialNow), [initialNow]);
   const [filter, setFilter] = useState<Filter>("upcoming");
   const [search, setSearch] = useState("");
+  const selectedRef = useRef<HTMLLIElement>(null);
 
   const [activeModal, setActiveModal] = useState<{
     kind: "change" | "remind" | "cancel";
@@ -44,6 +47,20 @@ export function SessionsPanel({
   } | null>(null);
 
   const buckets = useMemo(() => bucket(sessions, now), [sessions, now]);
+
+  useEffect(() => {
+    if (!selectedBookingId) return;
+    const selectedIsPast = buckets.past.some(
+      (session) => session.id === selectedBookingId,
+    );
+    setFilter(selectedIsPast ? "past" : "upcoming");
+  }, [buckets, selectedBookingId]);
+
+  useEffect(() => {
+    if (!selectedBookingId) return;
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+    selectedRef.current?.focus({ preventScroll: true });
+  }, [filter, selectedBookingId]);
   const filtered = useMemo(() => {
     const base = buckets[filter];
     if (search.trim().length === 0) return base;
@@ -77,7 +94,17 @@ export function SessionsPanel({
       ) : (
         <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
           {filtered.map((s) => (
-            <li key={s.id}>
+            <li
+              key={s.id}
+              ref={s.id === selectedBookingId ? selectedRef : undefined}
+              tabIndex={s.id === selectedBookingId ? -1 : undefined}
+              data-selected={s.id === selectedBookingId ? "true" : "false"}
+              className={
+                s.id === selectedBookingId
+                  ? "rounded-[var(--radius-md)] outline-none ring-2 ring-[rgb(var(--brand-primary)/0.35)]"
+                  : undefined
+              }
+            >
               <SessionRow
                 session={s}
                 now={now}

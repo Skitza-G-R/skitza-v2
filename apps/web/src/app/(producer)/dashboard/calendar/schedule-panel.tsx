@@ -35,6 +35,7 @@ export type ScheduleData = {
   todaySessions: readonly TodaySession[];
   pending: readonly PendingRequest[];
   autoConfirm: boolean;
+  selectedBookingId?: string | null;
 };
 
 export function SchedulePanel({
@@ -42,6 +43,7 @@ export function SchedulePanel({
   todaySessions,
   pending,
   autoConfirm,
+  selectedBookingId = null,
   // Server-rendered "now" so first-paint is consistent. Hydration
   // re-derives from the client clock — slight drift is fine.
   initialNow,
@@ -107,7 +109,11 @@ export function SchedulePanel({
             sessions={todaySessions}
             weekOffset={weekOffset}
           />
-          <SchedulePendingCard initial={pending} autoConfirm={autoConfirm} />
+          <SchedulePendingCard
+            initial={pending}
+            autoConfirm={autoConfirm}
+            selectedBookingId={selectedBookingId}
+          />
         </div>
       </div>
     </div>

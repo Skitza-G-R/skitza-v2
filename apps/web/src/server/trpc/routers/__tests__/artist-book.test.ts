@@ -244,8 +244,21 @@ const {
   };
 });
 
+const { emitBookingRequestedMock } = vi.hoisted(() => ({
+  emitBookingRequestedMock: vi.fn<() => Promise<void>>(),
+}));
+
 vi.mock("@clerk/nextjs/server", () => ({
   auth: () => Promise.resolve({ userId: "user_test_artist_1" }),
+}));
+
+vi.mock("~/server/notifications/emit", () => ({
+  emitBookingRequested: emitBookingRequestedMock,
+  emitAgreementAccepted: vi.fn(),
+  emitProofSubmitted: vi.fn(),
+  emitPurchaseApproved: vi.fn(),
+  emitPurchaseDeclined: vi.fn(),
+  emitPurchaseRequested: vi.fn(),
 }));
 
 vi.mock("@skitza/db", () => ({
@@ -301,6 +314,7 @@ beforeEach(() => {
   executeSpy.mockReset().mockResolvedValue({ rows: [] });
   updateValuesSpy.mockReset();
   updateWhereSpy.mockReset();
+  emitBookingRequestedMock.mockReset().mockResolvedValue();
   process.env.DATABASE_URL = "postgresql://test/test";
   // Freeze time for deterministic 14-day window assertions. 2026-04-19
   // is a Sunday (weekday 0 in JS) — picked to line up with the first
@@ -652,6 +666,40 @@ describe("artist.book.confirm (mutation)", () => {
     expect(payload.startsAt).toBeInstanceOf(Date);
 
     expect(result.id).toBe("bk-new");
+    expect(emitBookingRequestedMock).toHaveBeenCalledWith(
+      dbMock,
+      expect.objectContaining({
+        producerId: PRODUCER_ID,
+        bookingId: "bk-new",
+        artistName: "Dan The Artist",
+        artistEmail: "dan@x.com",
+      }),
+    );
+  });
+
+  it("keeps a successful booking when notification delivery fails", async () => {
+    seedValidContact();
+    bookingsSelectQueue.push([]);
+    insertReturningMock.mockResolvedValue([
+      {
+        id: "bk-new",
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        artistName: "Dan The Artist",
+        startsAt: new Date("2026-04-19T09:00:00Z"),
+        durationMin: 120,
+        status: "pending_approval",
+      },
+    ]);
+    emitBookingRequestedMock.mockRejectedValueOnce(
+      new Error("notification insert failed"),
+    );
+
+    const caller = await buildCaller();
+
+    await expect(caller.artist.book.confirm(validInput)).resolves.toEqual({
+      id: "bk-new",
+    });
   });
 
   it("links booking to projectId when provided", async () => {
@@ -689,6 +737,7 @@ describe("artist.book.confirm (mutation)", () => {
         sessionCount: 2,
         autoConfirmBookings: false,
         purchaseRequestId: PURCHASE_REQUEST_ID,
+        purchaseRequestClientContactId: "c1",
         packageNameSnapshot: "Two-session mix",
       },
     ]);
@@ -718,6 +767,70 @@ describe("artist.book.confirm (mutation)", () => {
     expect(findPredicate(updateWhere, "eq", purchaseRequests.projectId)?.[1]).toBe(PROJECT_ID);
     expect(findPredicate(updateWhere, "eq", purchaseRequests.producerId)?.[1]).toBe(PRODUCER_ID);
     expect(findPredicate(updateWhere, "eq", purchaseRequests.clientContactId)?.[1]).toBe("c1");
+  });
+
+  it("books a paid package through the exact matching active contact", async () => {
+    contactsSelectQueue.push([
+      {
+        id: "c1",
+        producerId: PRODUCER_ID,
+        email: "old@x.com",
+        name: "Old Contact",
+        clerkUserId: "user_test_artist_1",
+      },
+      {
+        id: "c2",
+        producerId: PRODUCER_ID,
+        email: "current@x.com",
+        name: "Current Artist",
+        clerkUserId: "user_test_artist_1",
+      },
+    ]);
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        title: "Current mix project",
+        producerId: PRODUCER_ID,
+        artistEmail: "current@x.com",
+        depositPaid: true,
+        sessionCount: 2,
+        purchaseRequestId: PURCHASE_REQUEST_ID,
+        purchaseRequestClientContactId: "c2",
+        packageNameSnapshot: "Current two-session mix",
+      },
+    ]);
+    bookingsSelectQueue.push([{ count: 0 }], []);
+    insertReturningMock.mockResolvedValue([{ id: "bk-current-contact" }]);
+
+    const caller = await buildCaller();
+    await expect(
+      caller.artist.book.confirm({
+        ...validInput,
+        existingProjectId: PROJECT_ID,
+      }),
+    ).resolves.toEqual({ id: "bk-current-contact" });
+
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artistEmail: "current@x.com",
+        artistName: "Current Artist",
+        projectId: PROJECT_ID,
+      }),
+    );
+    expect(emitBookingRequestedMock).toHaveBeenCalledWith(
+      dbMock,
+      expect.objectContaining({
+        artistEmail: "current@x.com",
+        artistName: "Current Artist",
+      }),
+    );
+    const purchaseJoin = projectsLeftJoinSpy.mock.calls[0]?.[1];
+    expect(findPredicate(purchaseJoin, "inArray", purchaseRequests.clientContactId)?.[1]).toEqual([
+      "c1",
+      "c2",
+    ]);
+    const updateWhere = updateWhereSpy.mock.calls[0]?.[0];
+    expect(findPredicate(updateWhere, "eq", purchaseRequests.clientContactId)?.[1]).toBe("c2");
   });
 
   it("preserves confirmed legacy package credits without stamping a purchase", async () => {
@@ -771,6 +884,7 @@ describe("artist.book.confirm (mutation)", () => {
         sessionCount: 0,
         autoConfirmBookings: true,
         purchaseRequestId: PURCHASE_REQUEST_ID,
+        purchaseRequestClientContactId: "c1",
         packageNameSnapshot: "Ongoing production",
       },
     ]);
@@ -869,6 +983,7 @@ describe("artist.book.confirm (mutation)", () => {
         sessionCount: 2,
         autoConfirmBookings: false,
         purchaseRequestId: PURCHASE_REQUEST_ID,
+        purchaseRequestClientContactId: "c1",
         packageNameSnapshot: "Two sessions",
       },
     ]);

@@ -253,6 +253,7 @@ export type RecentUpload = {
 export type PulseStats = {
   thisMonthCents: number;
   lastMonthCents: number;
+  outstandingCents: number;
   currency: string;
   deltaPct: number | null;
   sparkline: number[];
@@ -632,9 +633,15 @@ export const producerRouter = router({
           ),
         ),
 
-      // (3) Unpaid-invoices count (feeds unresolvedItems KPI piece #1).
+      // (3) Unpaid invoices feed both the unresolved count and the
+      // outstanding-money pulse. Mixed currencies are filtered against
+      // the producer's default currency below, just like revenue.
       ctx.db
-        .select({ id: invoices.id })
+        .select({
+          id: invoices.id,
+          amountCents: invoices.amountCents,
+          currency: invoices.currency,
+        })
         .from(invoices)
         .where(
           and(
@@ -854,6 +861,9 @@ export const producerRouter = router({
     const revenueMonthCents = revenueRows.reduce((acc, r) => {
       return r.currency === revenueCurrency ? acc + r.amountCents : acc;
     }, 0);
+    const outstandingCents = unpaidCountRows.reduce((acc, row) => {
+      return row.currency === revenueCurrency ? acc + row.amountCents : acc;
+    }, 0);
 
     const kpis = {
       activeProjects: activeProjectRows.length,
@@ -913,6 +923,17 @@ export const producerRouter = router({
         : "/dashboard/clients-projects",
       unread: false,
     }));
+
+    // Keep the unresolved-work sources outside the mixed 50-row Today feed.
+    // That feed intentionally prioritizes sessions and payments, which means
+    // a very busy week could otherwise starve every comment/invoice from the
+    // dashboard's explicit View-all queue.
+    const needsYouUnresolvedItems = [...commentItems, ...invoiceItems].filter(
+      (
+        item,
+      ): item is TodayItem & { kind: "comment" | "invoice" } =>
+        item.kind === "comment" || item.kind === "invoice",
+    );
 
     // SK-20 — confirmed bookings in the last 30 days. Amount =
     // unitPriceCents × songQty for per-song products; flat products
@@ -1062,6 +1083,7 @@ export const producerRouter = router({
     const pulseStats: PulseStats = {
       thisMonthCents: revenueMonthCents,
       lastMonthCents,
+      outstandingCents,
       currency: revenueCurrency,
       deltaPct,
       sparkline,
@@ -1073,7 +1095,14 @@ export const producerRouter = router({
       unresolvedItems: kpis.unresolvedItems,
     };
 
-    return { kpis, items, savedViews, recentUploads, pulseStats };
+    return {
+      kpis,
+      items,
+      needsYouUnresolvedItems,
+      savedViews,
+      recentUploads,
+      pulseStats,
+    };
   }),
 
   // ─── Overview sub-router ────────────────────────────────────────────
@@ -1097,7 +1126,7 @@ export const producerRouter = router({
   // urgency rules in priority order. No new tables, no new columns.
   overview: router({
     urgent: producerProcedure
-      .input(z.object({ limit: z.number().int().min(1).max(10).optional() }).optional())
+      .input(z.object({ limit: z.number().int().min(1).max(50).optional() }).optional())
       .query(async ({ ctx, input }) => {
         const limit = input?.limit ?? URGENT_DEFAULT_LIMIT;
         const now = new Date();

@@ -42,7 +42,9 @@ describe("Sidebar NAV_ITEMS", () => {
 
   it("maps each item to its route", () => {
     expect(NAV_ITEMS.find((i) => i.id === "today")?.href).toBe("/dashboard");
-    expect(NAV_ITEMS.find((i) => i.id === "clients-projects")?.href).toBe("/dashboard/clients-projects");
+    expect(NAV_ITEMS.find((i) => i.id === "clients-projects")?.href).toBe(
+      "/dashboard/clients-projects",
+    );
     expect(NAV_ITEMS.find((i) => i.id === "music")?.href).toBe("/dashboard/music");
     expect(NAV_ITEMS.find((i) => i.id === "calendar")?.href).toBe("/dashboard/calendar");
     expect(NAV_ITEMS.find((i) => i.id === "profile")?.href).toBe("/dashboard/store");
@@ -68,7 +70,7 @@ describe("Sidebar NAV_ITEMS", () => {
   });
 });
 
-// ─── Insights placeholder + sidebar footer chip (mockup-match) ───
+// ─── Single notification entry + sidebar footer chip ──────────────
 import { readFileSync as readSrc } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -78,28 +80,17 @@ const SIDEBAR_SRC = readSrc(
   "utf-8",
 );
 
-describe("ProducerSidebar — Insights placeholder + footer chip", () => {
-  it("renders an InsightsPlaceholder between Portfolio and Settings", () => {
-    // The placeholder is rendered conditionally inside the NAV_ITEMS
-    // loop after the "portfolio" item — no /dashboard/insights route
-    // exists yet, so it has to be a button (not a Link). Toast on
-    // click signals "Coming soon" to the producer.
-    // Moved from after "profile" → after "portfolio" on 2026-05-18 so
-    // Storefront → Portfolio reads as a contiguous group.
-    expect(SIDEBAR_SRC).toContain("InsightsPlaceholder");
-    expect(SIDEBAR_SRC).toMatch(/item\.id\s*===\s*["']portfolio["'][\s\S]{0,200}InsightsPlaceholder/);
+describe("ProducerSidebar — compact footer chip", () => {
+  it("removes the nonfunctional Insights placeholder and import", () => {
+    expect(SIDEBAR_SRC).not.toContain("InsightsPlaceholder");
+    expect(SIDEBAR_SRC).not.toContain("BarChart3");
+    expect(SIDEBAR_SRC).not.toContain("sidebar-insights-placeholder");
   });
 
-  it("Insights placeholder is a button (not a Link) so it can't 404", () => {
-    // Pin that the placeholder doesn't render as a <Link href=...> —
-    // every Link would need a real route, which we don't have.
-    expect(SIDEBAR_SRC).toMatch(/function InsightsPlaceholder[\s\S]{0,200}<button/);
-    expect(SIDEBAR_SRC).not.toMatch(/function InsightsPlaceholder[\s\S]{0,200}<Link/);
-  });
-
-  it("Insights placeholder toasts 'coming soon' on click (no silent failure)", () => {
-    expect(SIDEBAR_SRC).toMatch(/coming\s+soon/i);
-    expect(SIDEBAR_SRC).toMatch(/useToast/);
+  it("does not render a duplicate notification bell", () => {
+    expect(SIDEBAR_SRC).not.toContain("NotificationBell");
+    expect(SIDEBAR_SRC).not.toContain("unreadItems");
+    expect(SIDEBAR_SRC).not.toContain("recentNotifications");
   });
 
   it("accepts displayName + plan props on ProducerSidebar (footer chip data)", () => {

@@ -32,13 +32,16 @@ import { snapshotProductPrice, validatePerSongUnit } from "~/lib/purchase/price-
 import { commercialTermsFingerprint } from "~/lib/purchase/commercial-terms-fingerprint";
 import { safeAgreementUrl } from "~/lib/agreement-url";
 import { computeProjectSessionCount } from "~/lib/pricing";
+import {
+  isApprovalUndoAvailable,
+  purchaseApprovalUndoDeadline,
+} from "~/lib/purchase/approval-undo";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 import {
   generateRefNumber,
   isUniqueViolation,
   offeredPlans,
   planIsOffered,
-  PURCHASE_APPROVAL_UNDO_MS,
   purchaseApprovalUndoableUntil,
 } from "~/lib/purchase/request-helpers";
 import type { PaymentPlanChoice } from "~/lib/purchase/request-helpers";
@@ -75,9 +78,9 @@ import { artistProcedure } from "../artist-procedure";
 import { producerProcedure } from "../producer-procedure";
 import { router } from "../init";
 
+// The Gate-1 undo window has no scheduler, so it is enforced at undo-time.
 // Per Raz's call, the engagement project is NOT created on approve — it's
-// deferred until the Gate-1 undo window elapses — so undo has nothing to
-// reverse.
+// deferred until the window elapses — so undo has nothing to reverse.
 
 const PAYMENT_PLAN_INPUT = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("full") }),
@@ -2169,7 +2172,7 @@ export const producerPurchaseRouter = router({
         ok: true as const,
         status: "approved" as const,
         approvedAt,
-        undoableUntil: new Date(approvedAt.getTime() + PURCHASE_APPROVAL_UNDO_MS),
+        undoableUntil: purchaseApprovalUndoDeadline(approvedAt),
         projectId: req.projectId,
       };
     }),
@@ -2258,7 +2261,7 @@ export const producerPurchaseRouter = router({
             message: "There's no approval to undo.",
           });
         }
-        if (!purchaseApprovalUndoableUntil(req.approvedAt)) {
+        if (!isApprovalUndoAvailable(purchaseApprovalUndoDeadline(req.approvedAt))) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "The undo window has elapsed.",

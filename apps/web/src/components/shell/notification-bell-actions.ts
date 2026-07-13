@@ -16,14 +16,16 @@ export type NotificationActionResult =
   | { ok: true }
   | { ok: false; error: string };
 
+const UPDATE_ERROR = "Notifications couldn't be updated. Try again.";
+
 function toMessage(err: unknown): string {
   if (err instanceof TRPCError) {
     if (err.code === "UNAUTHORIZED") return "Please sign in to continue.";
     if (err.code === "FORBIDDEN") return "You don't have access to that notification.";
     if (err.code === "NOT_FOUND") return "Notification not found.";
-    return err.message || "Notification update failed.";
+    return UPDATE_ERROR;
   }
-  return err instanceof Error ? err.message : "Something went wrong.";
+  return UPDATE_ERROR;
 }
 
 export async function markNotificationRead(

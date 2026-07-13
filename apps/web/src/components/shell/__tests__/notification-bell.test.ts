@@ -1,13 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
-import { notificationHref } from "../notification-bell";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
-// Pure helper test only. The bell component itself renders DOM +
-// wires Server Actions, which vitest's node environment doesn't
-// support — mirroring sidebar.test.tsx, we exercise just the data-
-// shape → route mapping so every notification kind has a known
-// deep-link target.
+import {
+  filterNotifications,
+  notificationHref,
+  notificationIsUnread,
+  notificationTabForKey,
+} from "../notification-bell";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const SRC = readFileSync(join(here, "..", "notification-bell.tsx"), "utf-8");
 
 function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotificationItem {
   return {
@@ -22,44 +28,46 @@ function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotifica
     bookingId: null,
     purchaseRequestId: null,
     paymentProofId: null,
+    readAtIso: null,
     ...overrides,
   };
 }
 
 describe("notificationHref", () => {
-  it("routes comment notifications into their project room", () => {
+  it("routes proof notifications to the real request detail until proof review lands", () => {
     expect(
       notificationHref(
         makeItem({
-          kind: "comment_created",
-          projectId: "proj-1",
-          commentId: "c-1",
-          trackVersionId: "tv-1",
+          id: "proof-1",
+          kind: "proof_submitted",
+          purchaseRequestId: "request-1",
         }),
       ),
-    ).toBe("/dashboard/clients-projects/proj-1");
+    ).toBe("/dashboard/requests/request-1#payment-proof");
   });
 
-  it("routes booking notifications to the booking detail", () => {
-    expect(
-      notificationHref(
-        makeItem({
-          kind: "booking_requested",
-          bookingId: "b-1",
-        }),
-      ),
-    ).toBe("/dashboard/booking?id=b-1");
-  });
-
-  it("routes a purchase request notification to the producer request detail", () => {
+  it("routes purchase notifications to the dedicated request detail", () => {
     expect(
       notificationHref(
         makeItem({
           kind: "purchase_requested",
           purchaseRequestId: "request-1",
+          projectId: "project-ignored",
         }),
       ),
     ).toBe("/dashboard/requests/request-1");
+  });
+
+  it("routes bookings to Calendar with that booking selected", () => {
+    expect(
+      notificationHref(
+        makeItem({
+          kind: "booking_requested",
+          bookingId: "booking-1",
+          projectId: "project-ignored",
+        }),
+      ),
+    ).toBe("/dashboard/calendar?booking=booking-1");
   });
 
   it("routes a submitted proof to the exact request's private-evidence anchor", () => {
@@ -74,19 +82,110 @@ describe("notificationHref", () => {
     ).toBe("/dashboard/requests/request-proof-1?proof=proof-1#payment-proof");
   });
 
-  it("prefers projectId over bookingId when both are present", () => {
+  it("routes comment notifications to the real track conversation", () => {
     expect(
       notificationHref(
         makeItem({
-          kind: "booking_requested",
-          projectId: "proj-2",
-          bookingId: "b-2",
+          projectId: "project-1",
+          commentId: "comment-1",
+          trackVersionId: "version-1",
         }),
       ),
-    ).toBe("/dashboard/clients-projects/proj-2");
+    ).toBe("/dashboard/music/version-1");
   });
 
-  it("falls back to the projects list when no ref is populated", () => {
+  it("routes other project-backed notifications into their project room", () => {
+    expect(
+      notificationHref(
+        makeItem({
+          kind: "project_updated",
+          projectId: "project-1",
+        }),
+      ),
+    ).toBe("/dashboard/clients-projects/project-1");
+  });
+
+  it("falls back to the projects list when no source ref is populated", () => {
     expect(notificationHref(makeItem())).toBe("/dashboard/clients-projects");
+  });
+});
+
+describe("notification read state and tabs", () => {
+  const unread = makeItem({ id: "unread" });
+  const read = makeItem({
+    id: "read",
+    readAtIso: "2026-07-11T08:00:00.000Z",
+  });
+
+  it("derives unread state from readAtIso", () => {
+    expect(notificationIsUnread(unread)).toBe(true);
+    expect(notificationIsUnread(read)).toBe(false);
+  });
+
+  it("keeps both states in All and filters read rows from Unread", () => {
+    expect(filterNotifications([unread, read], "all").map((item) => item.id)).toEqual([
+      "unread",
+      "read",
+    ]);
+    expect(filterNotifications([unread, read], "unread").map((item) => item.id)).toEqual([
+      "unread",
+    ]);
+  });
+
+  it("removes a locally marked row from Unread without deleting it from All", () => {
+    const override = new Set(["unread"]);
+    expect(filterNotifications([unread, read], "unread", override)).toEqual([]);
+    expect(filterNotifications([unread, read], "all", override)).toHaveLength(2);
+  });
+});
+
+describe("NotificationBell interaction contract", () => {
+  it("renders an anchored desktop popover and a full-width mobile Sheet", () => {
+    expect(SRC).toContain('data-testid="notification-popover"');
+    expect(SRC).toContain('data-testid="notification-sheet"');
+    expect(SRC).toMatch(/<SheetContent[\s\S]*?side="bottom"/);
+    expect(SRC).toMatch(/<SheetContent[\s\S]*?aria-labelledby=\{titleId\}/);
+    expect(SRC).toContain("w-full");
+    expect(SRC).toContain("DESKTOP_MEDIA_QUERY");
+  });
+
+  it("supports All / Unread tabs with explicit tab semantics", () => {
+    expect(SRC).toContain('role="tablist"');
+    expect(SRC).toContain('role="tab"');
+    expect(SRC).toContain('role="tabpanel"');
+    expect(SRC).toContain("aria-selected");
+    expect(notificationTabForKey("ArrowRight")).toBe("unread");
+    expect(notificationTabForKey("End")).toBe("unread");
+    expect(notificationTabForKey("ArrowLeft")).toBe("all");
+    expect(notificationTabForKey("Home")).toBe("all");
+    expect(notificationTabForKey("Enter")).toBeNull();
+  });
+
+  it("returns focus on Escape without stealing focus from an outside click", () => {
+    expect(SRC).toContain('event.key === "Escape"');
+    expect(SRC).toContain('addEventListener("pointerdown"');
+    expect(SRC).toContain("buttonRef.current?.focus()");
+    expect(SRC).toMatch(/handlePointerDown[\s\S]*?setOpen\(false\)/);
+    expect(SRC).toMatch(/handleKeyDown[\s\S]*?closeWithFocusReturn\(\)/);
+    expect(SRC).toContain("onCloseAutoFocus");
+    expect(SRC).toContain('aria-haspopup="dialog"');
+  });
+
+  it("keeps mark-all failures visible and lets item navigation proceed", () => {
+    expect(SRC).toContain('role="alert"');
+    expect(SRC).toContain('data-testid="notification-error"');
+    expect(SRC).toMatch(/catch \{[\s\S]*?setError\(FALLBACK_ERROR\)/);
+    expect(SRC).toMatch(/handleItemClick[\s\S]*?finally \{[\s\S]*?router\.push/);
+  });
+
+  it("uses a numeric amber badge rather than an unread-only dot", () => {
+    expect(SRC).toContain("badgeLabel");
+    expect(SRC).toContain("99+");
+    expect(SRC).toContain("{badgeLabel}");
+  });
+
+  it("disables transform motion when reduced motion is requested", () => {
+    expect(SRC).toContain("motion-reduce:transition-none");
+    expect(SRC).toContain("motion-reduce:active:scale-100");
   });
 });

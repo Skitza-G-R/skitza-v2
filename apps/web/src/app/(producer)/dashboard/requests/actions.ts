@@ -9,44 +9,46 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 const REQUESTS_PATH = "/dashboard/requests";
 
-export type PurchaseRequestActionResult = { ok: true } | { ok: false; error: string };
+export type PurchaseRequestActionResult =
+  | { ok: true; status: "pending" | "declined" }
+  | { ok: true; status: "approved"; undoableUntilIso: string }
+  | { ok: false; error: string };
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
+
   return { ok: true, caller: appRouter.createCaller({ userId }) };
 }
 
-function toMessage(error: unknown): string {
-  if (error instanceof ZodError) return error.issues[0]?.message ?? "Invalid input.";
+function actionErrorMessage(error: unknown): string {
+  if (error instanceof ZodError) {
+    return error.issues[0]?.message ?? "Check the request and try again.";
+  }
+
   if (error instanceof TRPCError) {
-    switch (error.code) {
-      case "UNAUTHORIZED":
-        return "Please sign in to continue.";
-      case "FORBIDDEN":
-      case "NOT_FOUND":
-        return "This purchase request is no longer available.";
-      case "CONFLICT":
-      case "BAD_REQUEST":
-        return error.message || "This request changed. Refresh and try again.";
-      default:
-        return "Something went wrong. Please try again.";
+    if (error.cause instanceof ZodError) {
+      return error.cause.issues[0]?.message ?? "Check the request and try again.";
+    }
+    if (error.code === "UNAUTHORIZED") return "Please sign in to continue.";
+    if (error.code === "FORBIDDEN" || error.code === "NOT_FOUND") {
+      return "This purchase request is no longer available.";
+    }
+    if (error.code === "CONFLICT" || error.code === "BAD_REQUEST") {
+      return error.message || "This request changed. Refresh and try again.";
     }
   }
+
   return "Something went wrong. Please try again.";
 }
 
 function revalidateRequestSurfaces(id: string) {
-  // The dashboard banner, hub, and open detail must all re-read after
-  // Gate 1 changes. Artist pages are dynamic, but invalidating their
-  // home route also makes an already-visited artist view refresh to S7.
   revalidatePath("/dashboard");
-  revalidatePath(REQUESTS_PATH, "layout");
+  revalidatePath(REQUESTS_PATH);
   revalidatePath(`${REQUESTS_PATH}/${id}`);
-  revalidatePath("/artist");
+  revalidatePath("/artist", "layout");
 }
 
 export async function approvePurchaseRequest(input: {
@@ -54,12 +56,17 @@ export async function approvePurchaseRequest(input: {
 }): Promise<PurchaseRequestActionResult> {
   const result = await callerOrError();
   if (!result.ok) return result;
+
   try {
-    await result.caller.producer.purchase.approve({ id: input.id });
+    const transition = await result.caller.producer.purchase.approve({ id: input.id });
     revalidateRequestSurfaces(input.id);
-    return { ok: true };
+    return {
+      ok: true,
+      status: "approved",
+      undoableUntilIso: transition.undoableUntil.toISOString(),
+    };
   } catch (error) {
-    return { ok: false, error: toMessage(error) };
+    return { ok: false, error: actionErrorMessage(error) };
   }
 }
 
@@ -69,6 +76,7 @@ export async function declinePurchaseRequest(input: {
 }): Promise<PurchaseRequestActionResult> {
   const result = await callerOrError();
   if (!result.ok) return result;
+
   try {
     const reason = input.reason?.trim();
     await result.caller.producer.purchase.decline({
@@ -76,9 +84,9 @@ export async function declinePurchaseRequest(input: {
       ...(reason ? { reason } : {}),
     });
     revalidateRequestSurfaces(input.id);
-    return { ok: true };
+    return { ok: true, status: "declined" };
   } catch (error) {
-    return { ok: false, error: toMessage(error) };
+    return { ok: false, error: actionErrorMessage(error) };
   }
 }
 
@@ -87,11 +95,12 @@ export async function undoPurchaseApproval(input: {
 }): Promise<PurchaseRequestActionResult> {
   const result = await callerOrError();
   if (!result.ok) return result;
+
   try {
     await result.caller.producer.purchase.undoApproval({ id: input.id });
     revalidateRequestSurfaces(input.id);
-    return { ok: true };
+    return { ok: true, status: "pending" };
   } catch (error) {
-    return { ok: false, error: toMessage(error) };
+    return { ok: false, error: actionErrorMessage(error) };
   }
 }

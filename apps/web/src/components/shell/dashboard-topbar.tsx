@@ -1,6 +1,9 @@
 "use client";
 
+import type { ShellNotificationItem } from "~/server/shell-data";
+
 import { AppTopBar } from "./app-topbar";
+import { NotificationBell } from "./notification-bell";
 
 // Producer-side wrapper around the shared `AppTopBar`. Owns nothing
 // heavy — just the producer's section label map, the search
@@ -27,18 +30,28 @@ function openProducerPalette() {
 }
 
 interface DashboardTopBarProps {
-  /** Unread notification count for the bell dot. */
+  /** Notification centre state resolved with the producer shell. */
   unreadCount?: number;
+  recentNotifications?: readonly ShellNotificationItem[];
 }
 
-export function DashboardTopBar({ unreadCount = 0 }: DashboardTopBarProps) {
+export function DashboardTopBar({
+  unreadCount = 0,
+  recentNotifications = [],
+}: DashboardTopBarProps) {
+  const notificationControl = (
+    <NotificationBell unreadCount={unreadCount} notifications={recentNotifications} />
+  );
+
   return (
     <AppTopBar
+      variant="producer"
       sections={PRODUCER_SECTIONS}
       fallback={PRODUCER_FALLBACK}
       searchPlaceholder="Search projects, clients, songs…"
       onSearchClick={openProducerPalette}
       unreadCount={unreadCount}
+      notificationControl={notificationControl}
     />
   );
 }

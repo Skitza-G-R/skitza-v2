@@ -52,7 +52,7 @@ function purchaseMigration(): string {
 }
 
 function legacyShareCleanupMigration(): string {
-  const path = join(process.cwd(), "drizzle", "0025_remove_legacy_project_share_token.sql");
+  const path = join(process.cwd(), "drizzle", "0026_remove_legacy_project_share_token.sql");
   expect(existsSync(path)).toBe(true);
   return readFileSync(path, "utf8");
 }

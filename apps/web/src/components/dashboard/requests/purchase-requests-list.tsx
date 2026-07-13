@@ -20,63 +20,72 @@ export function PurchaseRequestsList({
 }) {
   if (requests.length === 0) {
     return (
-      <section className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-5 py-12 text-center">
-        <h2 className="font-display text-xl font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-          No purchase requests waiting
+      <section className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-5 py-10 text-center">
+        <h2 className="font-display text-lg font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+          You&rsquo;re all caught up
         </h2>
         <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
-          New artist requests will appear here with their locked price and agreement details.
+          New purchase requests will appear here with the artist&rsquo;s locked commercial terms.
         </p>
         <Link
           href="/dashboard"
-          className="sk-press mt-5 inline-flex min-h-[44px] items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-4 text-sm font-semibold text-[rgb(var(--brand-primary))]"
+          className="sk-press mt-5 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-default))]"
         >
-          Back to overview
+          Back to dashboard
         </Link>
       </section>
     );
   }
 
   return (
-    <section
-      aria-labelledby="pending-purchase-requests"
-      className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
-    >
-      <div className="flex items-center justify-between gap-4 border-b border-[rgb(var(--border-subtle))] px-4 py-3 sm:px-5">
+    <section aria-labelledby="pending-purchase-requests">
+      <div className="mb-2 flex items-center justify-between gap-3 px-1">
         <h2
           id="pending-purchase-requests"
-          className="font-mono text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]"
+          className="font-mono text-[10px] font-semibold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase"
         >
-          Awaiting your decision
+          Awaiting review
         </h2>
-        <span className="pill pill-brand">{requests.length} pending</span>
+        <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.12)] px-2 py-1 font-mono text-[10px] font-semibold text-[rgb(var(--brand-primary-text))]">
+          {requests.length} {requests.length === 1 ? "request" : "requests"}
+        </span>
       </div>
-      <ul className="divide-y divide-[rgb(var(--border-subtle))]">
+
+      <ul className="space-y-2">
         {requests.map((request) => (
           <li key={request.id}>
             <Link
               href={`/dashboard/requests/${request.id}`}
-              className="sk-press flex min-h-[76px] items-center gap-3 px-4 py-3 sm:px-5"
+              className="sk-press group grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 transition-colors hover:border-[rgb(var(--brand-primary)/0.5)] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
             >
               <Avatar name={request.artistName} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold text-[rgb(var(--fg-default))]">
-                  {request.artistName}
-                </p>
-                <p className="mt-0.5 truncate text-xs text-[rgb(var(--fg-muted))]">
-                  {request.artistEmail}
+
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <p className="min-w-0 truncate text-sm font-bold text-[rgb(var(--fg-default))]">
+                    {request.artistName}
+                  </p>
+                  <p className="font-mono text-[10px] font-medium tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                    {request.refNumber}
+                  </p>
+                </div>
+                <p className="mt-1 truncate text-sm text-[rgb(var(--fg-secondary))]">
+                  {request.productNameSnapshot}
                 </p>
                 <p className="mt-1 truncate text-xs text-[rgb(var(--fg-muted))]">
-                  {request.productNameSnapshot} · {request.refNumber}
+                  {request.artistEmail} · {formatSubmittedDate(request.createdAt)}
                 </p>
               </div>
-              <div className="shrink-0 text-right">
-                <p className="font-mono text-xs font-bold text-[rgb(var(--fg-default))]">
-                  {formatMoney(request.priceCents, request.currency)}
+
+              <div className="col-span-2 flex items-center justify-between gap-3 sm:col-span-1 sm:flex-col sm:items-end">
+                <p className="font-mono text-sm font-bold text-[rgb(var(--fg-default))] tabular-nums">
+                  {formatMoney(request.priceCents, request.currency, {
+                    withCents: request.priceCents % 100 !== 0,
+                  })}
                 </p>
-                <p className="mt-1 font-mono text-[10px] uppercase tracking-wide text-[rgb(var(--brand-primary))]">
-                  Review →
-                </p>
+                <span className="inline-flex h-9 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-3 text-xs font-bold text-[rgb(var(--bg-sidebar))] transition-[filter] group-hover:brightness-105">
+                  Review
+                </span>
               </div>
             </Link>
           </li>
@@ -97,10 +106,18 @@ function Avatar({ name }: { name: string }) {
 
   return (
     <span
-      aria-hidden
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.14)] font-mono text-[11px] font-bold text-[rgb(var(--brand-primary))]"
+      aria-hidden="true"
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.14)] font-mono text-[11px] font-bold text-[rgb(var(--brand-primary-text))]"
     >
       {initials || "A"}
     </span>
   );
+}
+
+function formatSubmittedDate(value: Date): string {
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(value);
 }
