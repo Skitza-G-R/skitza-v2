@@ -11,7 +11,13 @@
 // last 24 hours — surfaces a 6px amber dot top-right of the avatar so
 // the producer can distinguish "old pending" from "fresh inbound".
 
-import { useState, useTransition } from "react";
+import {
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 
 import { useToast } from "~/components/ui/toast";
 
@@ -31,14 +37,23 @@ export type PendingRequest = {
 export function SchedulePendingCard({
   initial,
   autoConfirm,
+  selectedBookingId = null,
 }: {
   initial: readonly PendingRequest[];
   autoConfirm: boolean;
+  selectedBookingId?: string | null;
 }) {
   const [rows, setRows] = useState<readonly PendingRequest[]>(initial);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const { toast } = useToast();
+  const selectedRef = useRef<HTMLLIElement>(null);
+
+  useEffect(() => {
+    if (!selectedBookingId) return;
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+    selectedRef.current?.focus({ preventScroll: true });
+  }, [selectedBookingId]);
 
   function act(row: PendingRequest, kind: "confirm" | "reject") {
     setPendingId(row.id);
@@ -95,6 +110,8 @@ export function SchedulePendingCard({
               key={row.id}
               row={row}
               busy={pendingId === row.id}
+              selected={selectedBookingId === row.id}
+              {...(selectedBookingId === row.id ? { selectedRef } : {})}
               onAccept={() => {
                 act(row, "confirm");
               }}
@@ -112,11 +129,15 @@ export function SchedulePendingCard({
 function PendingRow({
   row,
   busy,
+  selected,
+  selectedRef,
   onAccept,
   onDecline,
 }: {
   row: PendingRequest;
   busy: boolean;
+  selected: boolean;
+  selectedRef?: RefObject<HTMLLIElement | null>;
   onAccept: () => void;
   onDecline: () => void;
 }) {
@@ -136,7 +157,17 @@ function PendingRow({
   });
 
   return (
-    <li className="rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3">
+    <li
+      ref={selectedRef}
+      tabIndex={selected ? -1 : undefined}
+      data-selected={selected ? "true" : "false"}
+      className={[
+        "rounded-[10px] border bg-[rgb(var(--bg-background))] p-3 outline-none",
+        selected
+          ? "border-[rgb(var(--brand-primary))] ring-2 ring-[rgb(var(--brand-primary)/0.22)]"
+          : "border-[rgb(var(--border-subtle))]",
+      ].join(" ")}
+    >
       <div className="flex items-start gap-3">
         <div className="relative">
           <Avatar email={row.artistEmail} name={row.artistName} />

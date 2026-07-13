@@ -35,6 +35,10 @@ import { getSiteUrl } from "~/server/stripe/client";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { calendarPaymentSummary } from "~/lib/payment-plans";
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
+import {
+  emitBookingRequested,
+  emitCommentCreated,
+} from "~/server/notifications/emit";
 
 // ─── Ownership guard ─────────────────────────────────────────────────
 // Resolves the signed-in artist's ownership of a given project. Both
@@ -559,6 +563,22 @@ const musicSubrouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // The bell is the producer's event-notification surface. Keep this
+      // side effect outside the primary insert contract: a notification
+      // failure must not discard the artist's saved comment.
+      try {
+        await emitCommentCreated(ctx.db, {
+          producerId: project.producerId,
+          commentId: row.id,
+          trackVersionId: input.trackVersionId,
+          projectId: project.id,
+          authorName: contact.name,
+          preview: input.body,
+        });
+      } catch (error) {
+        console.warn("[notify] comment-created failed", error);
+      }
 
       const [producerRow] = await ctx.db
         .select({ email: producers.email, displayName: producers.displayName })
@@ -1124,6 +1144,21 @@ const bookSubrouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // The top-right bell is the producer's single notification entry
+      // point. Emit the verified booking event after the primary insert;
+      // a notification failure must never roll back the artist's booking.
+      try {
+        await emitBookingRequested(ctx.db, {
+          producerId: input.producerId,
+          bookingId: row.id,
+          artistName: contact.name,
+          artistEmail: contact.email,
+          when: startsAt,
+        });
+      } catch (error) {
+        console.warn("[notify] booking-requested failed", error);
+      }
 
       return { id: row.id };
     }),

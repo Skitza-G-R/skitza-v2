@@ -5,8 +5,9 @@ import { AppTopBar } from "./app-topbar";
 // Artist-side wrapper around the shared `AppTopBar`. Mirrors the
 // producer wrapper but with the artist's section labels and
 // artist-appropriate search placeholder copy. Click currently a no-op
-// because the artist command palette ships in a separate task — the
-// visual pill is identical to producer so the surfaces stay aligned.
+// because the artist command palette ships in a separate task. The explicit
+// artist variant preserves the compact translucent SK-31 chrome while the
+// producer variant adopts SK-76's opaque 64px control strip.
 
 const ARTIST_SECTIONS = {
   "/artist": "Home",
@@ -27,10 +28,12 @@ interface ArtistTopBarProps {
 export function ArtistTopBar({ unreadCount = 0 }: ArtistTopBarProps) {
   return (
     <AppTopBar
+      variant="artist"
       sections={ARTIST_SECTIONS}
       fallback={ARTIST_FALLBACK}
       searchPlaceholder="Search your music, sessions, store…"
       unreadCount={unreadCount}
+      notificationControl={undefined}
     />
   );
 }

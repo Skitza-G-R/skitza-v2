@@ -26,6 +26,10 @@ describe("DashboardTopBar (producer wrapper)", () => {
     expect(SRC).toMatch(/<AppTopBar/);
   });
 
+  it("selects the opaque producer topbar variant", () => {
+    expect(SRC).toContain('variant="producer"');
+  });
+
   it("maps each producer dashboard section to its label", () => {
     // The label table is the single source of truth for the top-left
     // section name on the producer side. Add a route to the table →
@@ -34,6 +38,7 @@ describe("DashboardTopBar (producer wrapper)", () => {
     expect(SRC).toMatch(/"\/dashboard\/clients-projects":\s*"Clients & Projects"/);
     expect(SRC).toMatch(/"\/dashboard\/music":\s*"Music"/);
     expect(SRC).toMatch(/"\/dashboard\/calendar":\s*"Calendar"/);
+    expect(SRC).toMatch(/"\/dashboard\/requests":\s*"Requests"/);
     expect(SRC).toMatch(/"\/dashboard\/settings":\s*"Settings"/);
   });
 
@@ -51,6 +56,12 @@ describe("DashboardTopBar (producer wrapper)", () => {
 
   it("threads unreadCount through to the shared topbar", () => {
     expect(SRC).toMatch(/unreadCount=\{unreadCount\}/);
+  });
+
+  it("mounts the functional notification centre in the top-right slot", () => {
+    expect(SRC).toContain("NotificationBell");
+    expect(SRC).toMatch(/notificationControl=\{/);
+    expect(SRC).toMatch(/notifications=\{recentNotifications\}/);
   });
 
   it("uses no forbidden Skitza CSS tokens", () => {

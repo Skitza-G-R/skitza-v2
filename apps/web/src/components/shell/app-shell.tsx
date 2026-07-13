@@ -26,7 +26,7 @@ import { TopBarBreadcrumbProvider } from "./topbar-breadcrumb-context";
 // Both are pinned via the source-level test above.
 //
 // Stays a server component so we can `await getShellState()` once per
-// render (slug + unread count + top-10 unread items used by the
+// render (slug + unread count + recent active items used by the
 // notification bell). Per-request memoisation via React.cache() keeps
 // the cost flat as child server components opt into the same data.
 //
@@ -44,8 +44,7 @@ import { TopBarBreadcrumbProvider } from "./topbar-breadcrumb-context";
 // docs/qa/phase-2-handoff.md under "FloatingPlayer slot".
 
 export async function AppShell({ children }: { children: ReactNode }) {
-  const { slug, displayName, plan, unreadCount, unreadItems } =
-    await getShellState();
+  const { slug, displayName, plan, unreadCount, recentNotifications } = await getShellState();
   // Public origin used by the SidebarShareChip to render the
   // /join/<slug> URL. Always the canonical brand origin — share links
   // land in producer bios + socials, so they must always read as
@@ -64,8 +63,6 @@ export async function AppShell({ children }: { children: ReactNode }) {
       <ProducerSidebar
         producerSlug={slug}
         publicBaseUrl={publicBaseUrl}
-        unreadCount={unreadCount}
-        unreadItems={unreadItems}
         displayName={displayName}
         plan={plan}
       />
@@ -93,22 +90,11 @@ export async function AppShell({ children }: { children: ReactNode }) {
             single topbar surface instead of rendering a duplicate
             breadcrumb of their own.
 
-            The wrapping <div> with -mt-[40px] is what makes the iOS-
-            Music frosted-glass effect ACTUALLY visible. Without it,
-            the sticky topbar reserves space in flow and the page hero
-            starts BELOW it — at scroll-top there's nothing behind the
-            topbar to blur, so the bg layer just shows the parent
-            cream. Pulling children up by exactly the topbar height
-            (40px) makes the hero fill from y=0 of <main>, with the
-            topbar overlaying its first 40px. The topbar's
-            backdrop-filter then has real content behind it (the
-            colored hero gradient) and the bleed-through reads
-            immediately, not just after scroll. Heroes already have
-            empty gradient space at the top, so nothing important is
-            hidden under the topbar overlap. */}
+            SK-76 makes this an opaque 64px strip, so content follows it
+            in normal flow with no negative overlap. */}
         <TopBarBreadcrumbProvider>
-          <DashboardTopBar unreadCount={unreadCount} />
-          <div className="-mt-[40px]">{children}</div>
+          <DashboardTopBar unreadCount={unreadCount} recentNotifications={recentNotifications} />
+          {children}
         </TopBarBreadcrumbProvider>
       </main>
 

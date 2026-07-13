@@ -57,7 +57,7 @@ export default async function PortfolioPage() {
   const publicProfileUrl = `/join/${me.slug}`;
 
   return (
-    <div className="sk-page-enter mx-auto mt-10 max-w-[1180px] px-4 pb-24 pt-8 sm:px-6">
+    <div className="sk-page-enter mx-auto max-w-[1180px] px-4 pb-24 pt-8 sm:px-6">
       {/* Mobile: title stacks above the CTA. Desktop: original side-by-side row. */}
       <header className="mb-8 flex flex-col items-start gap-5 sm:mb-10 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <div>

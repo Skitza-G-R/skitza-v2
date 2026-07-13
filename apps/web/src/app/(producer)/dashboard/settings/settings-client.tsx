@@ -178,7 +178,7 @@ export function SettingsClient({
   }
 
   return (
-    <div className="s-layout mt-10">
+    <div className="s-layout">
       {/* Left sub-nav. Eyebrow + H1 hidden on mobile (the nav becomes a
           horizontal chip rail). */}
       <nav className="s-nav" aria-label="Settings sections">
