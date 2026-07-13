@@ -40,6 +40,9 @@ async function loadPendingPurchase(
     // payable. The pay routes use `req` as ownership/source of truth, so the
     // request id is a safe canonical URL placeholder in that legacy case.
     const paymentRouteProductId = current.productId ?? current.id;
+    const bookingHref = current.projectId
+      ? `/artist/book?studio=${current.producerId}&project=${current.projectId}`
+      : undefined;
 
     // BE-2 status → heartbeat stage (handoff S6's five states).
     const stage =
@@ -53,21 +56,26 @@ async function loadPendingPurchase(
               ? ("paid" as const)
               : ("declined" as const);
 
-    // Context CTA: approved → choose the plan. A confirmed deposit opens
-    // sessions, but a remaining balance keeps the next-payment route handy.
+    // Context CTA: approved → choose the plan. A confirmed deposit opens the
+    // exact paid project in booking; any remaining balance stays available as
+    // a secondary payment action.
     const action =
       stage === "awaiting_payment"
         ? {
             actionHref: `/artist/purchase/${paymentRouteProductId}/pay?req=${current.id}`,
             actionLabel: "Choose a payment plan",
           }
-        : stage === "paid" && current.remainingCents > 0
+        : stage === "paid" && bookingHref
           ? {
-              actionHref: `/artist/purchase/${paymentRouteProductId}/pay/instructions?req=${current.id}`,
-              actionLabel: "Make next payment",
+              actionHref: bookingHref,
+              actionLabel: "Book a session",
+              ...(current.remainingCents > 0
+                ? {
+                    secondaryActionHref: `/artist/purchase/${paymentRouteProductId}/pay/instructions?req=${current.id}`,
+                    secondaryActionLabel: "Make next payment",
+                  }
+                : {}),
             }
-          : stage === "paid"
-            ? { actionHref: "/artist/book", actionLabel: "Book a session" }
             : {};
 
     return {

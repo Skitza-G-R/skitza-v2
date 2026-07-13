@@ -62,6 +62,9 @@ export default async function PurchaseProofPage({ params, searchParams }: PagePr
         : latest?.status === "rejected"
           ? "rejected"
           : "empty";
+    const bookingHref = data.projectId
+      ? `/artist/book?studio=${data.producerId}&project=${data.projectId}`
+      : undefined;
 
     return (
       <UploadProofScreen
@@ -72,6 +75,7 @@ export default async function PurchaseProofPage({ params, searchParams }: PagePr
         paidCents={data.paidCents}
         totalCents={data.totalCents}
         thisProofCents={data.amountDueNowCents}
+        bookingHref={bookingHref}
         status={initialStatus}
         rejectionNote={
           latest?.status === "rejected" ? (latest.rejectionNote ?? undefined) : undefined

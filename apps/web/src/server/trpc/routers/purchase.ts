@@ -19,6 +19,7 @@ import {
   paymentProofs,
   producers,
   products,
+  projects,
   purchaseRequests,
   sql,
 } from "@skitza/db";
@@ -30,6 +31,7 @@ import { z } from "zod";
 import { snapshotProductPrice, validatePerSongUnit } from "~/lib/purchase/price-snapshot";
 import { commercialTermsFingerprint } from "~/lib/purchase/commercial-terms-fingerprint";
 import { safeAgreementUrl } from "~/lib/agreement-url";
+import { computeProjectSessionCount } from "~/lib/pricing";
 import { checkRateLimit } from "~/lib/rate-limit/in-memory";
 import {
   generateRefNumber,
@@ -107,7 +109,7 @@ const PROOF_CONTENT_TYPES = [
 const MAX_PROOF_BYTES = 15 * 1024 * 1024;
 
 // Running total confirmed for a purchase = SUM of its paid invoices.
-async function paidTotalCents(db: Db, purchaseRequestId: string): Promise<number> {
+async function paidTotalCents(db: Pick<Db, "select">, purchaseRequestId: string): Promise<number> {
   const rows = await db
     .select({ amountCents: invoices.amountCents })
     .from(invoices)
@@ -126,6 +128,135 @@ async function pendingProofTotalCents(db: Db, purchaseRequestId: string): Promis
       ),
     );
   return rows.reduce((sum, row) => sum + row.amountCents, 0);
+}
+
+/**
+ * Materialize the paid purchase as the single project/credit consumed by the
+ * existing artist booking flow. The caller must hold the request advisory
+ * lock so concurrent proof confirmations cannot create two projects.
+ */
+async function ensurePurchaseProject(
+  db: Pick<Db, "select" | "update" | "insert">,
+  request: PurchaseRequest,
+  paidCents: number,
+): Promise<string | null> {
+  const charges = calculateCharges(request.paymentPlanSnapshot, request.priceCents);
+  const progress = chargesProgress(charges, paidCents);
+  const depositDue = charges[0] ?? request.priceCents;
+  if (paidCents < depositDue) return request.projectId;
+
+  const product =
+    request.sessionCountSnapshot === null && request.productId
+      ? await db
+          .select({
+            id: products.id,
+            pricingModel: products.pricingModel,
+            sessionCount: products.sessionCount,
+          })
+          .from(products)
+          .where(
+            and(eq(products.id, request.productId), eq(products.producerId, request.producerId)),
+          )
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : null;
+  const recoveredSessionCount =
+    request.sessionCountSnapshot ??
+    (product ? computeProjectSessionCount(product, request.songQty) : null);
+  const finalPaid = paidCents >= request.priceCents;
+  const now = new Date();
+  const financialSnapshot = {
+    depositPaid: true,
+    finalPaid,
+    productId: product?.id ?? request.productId,
+    engagementTotalCents: request.priceCents,
+    depositCents: depositDue,
+    songQty: request.songQty,
+    unitPriceCents: request.unitPriceCents,
+    paymentPlanKind: request.paymentPlanSnapshot.kind,
+    installments:
+      request.paymentPlanSnapshot.kind === "monthly"
+        ? request.paymentPlanSnapshot.installments
+        : null,
+    chargesCompleted: progress.chargesCompleted,
+    chargesTotal: charges.length,
+    totalAmountCents: request.priceCents,
+    currency: request.currency,
+    updatedAt: now,
+  } as const;
+
+  let projectId = request.projectId;
+  if (projectId) {
+    const [updated] = await db
+      .update(projects)
+      // Pre-0025 requests can outlive their product. In that legacy case the
+      // attached project's existing credit is better evidence than a guessed
+      // one-session fallback, so leave sessionCount untouched.
+      .set({
+        ...financialSnapshot,
+        ...(recoveredSessionCount === null ? {} : { sessionCount: recoveredSessionCount }),
+      })
+      .where(and(eq(projects.id, projectId), eq(projects.producerId, request.producerId)))
+      .returning({ id: projects.id });
+    if (!updated) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "The paid purchase could not be linked to its project.",
+      });
+    }
+  } else {
+    const [created] = await db
+      .insert(projects)
+      .values({
+        producerId: request.producerId,
+        title: request.productNameSnapshot,
+        stage: "booked",
+        artistName: request.artistName,
+        artistEmail: request.artistEmail.trim().toLowerCase(),
+        clientName: request.artistName,
+        clientEmail: request.artistEmail.trim().toLowerCase(),
+        // A brand-new legacy project has no prior credit to preserve. Keep the
+        // documented one-session fallback only for this creation path.
+        sessionCount: recoveredSessionCount ?? 1,
+        ...financialSnapshot,
+      })
+      .returning({ id: projects.id });
+    if (!created) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "The paid purchase could not create its booking project.",
+      });
+    }
+    projectId = created.id;
+  }
+
+  await db
+    .update(purchaseRequests)
+    .set(
+      request.status === "paid"
+        ? { projectId }
+        : { projectId, status: "paid", statusChangedAt: now },
+    )
+    .where(
+      and(eq(purchaseRequests.id, request.id), eq(purchaseRequests.producerId, request.producerId)),
+    );
+  await db
+    .update(paymentProofs)
+    .set({ projectId })
+    .where(
+      and(
+        eq(paymentProofs.purchaseRequestId, request.id),
+        eq(paymentProofs.producerId, request.producerId),
+      ),
+    );
+  await db
+    .update(invoices)
+    .set({ projectId })
+    .where(
+      and(eq(invoices.purchaseRequestId, request.id), eq(invoices.producerId, request.producerId)),
+    );
+
+  return projectId;
 }
 
 async function markProofNotificationsReadQuietly(
@@ -425,12 +556,15 @@ type LegacyPurchaseRequest = Omit<
   | "paymentPlanChosenAt"
   | "royaltyTermsSnapshot"
   | "agreementTextSnapshot"
+  | "sessionCountSnapshot"
 >;
 
 type PreCommercialTermsPurchaseRequest = Omit<
   PurchaseRequest,
-  "royaltyTermsSnapshot" | "agreementTextSnapshot"
+  "royaltyTermsSnapshot" | "agreementTextSnapshot" | "sessionCountSnapshot"
 >;
+
+type PreSessionCountPurchaseRequest = Omit<PurchaseRequest, "sessionCountSnapshot">;
 
 function legacyPurchaseRequestColumns() {
   return {
@@ -466,6 +600,14 @@ function preCommercialTermsPurchaseRequestColumns() {
   } as const;
 }
 
+function preSessionCountPurchaseRequestColumns() {
+  return {
+    ...preCommercialTermsPurchaseRequestColumns(),
+    royaltyTermsSnapshot: purchaseRequests.royaltyTermsSnapshot,
+    agreementTextSnapshot: purchaseRequests.agreementTextSnapshot,
+  } as const;
+}
+
 async function purchasePlanColumnsAvailable(db: Pick<Db, "execute">): Promise<boolean> {
   const result = await db.execute<{ columnCount: number }>(sql`
     select count(*)::int as "columnCount"
@@ -486,6 +628,19 @@ async function purchaseCommercialTermsColumnsAvailable(db: Pick<Db, "execute">):
       and column_name in ('royalty_terms_snapshot', 'agreement_text_snapshot')
   `);
   return (result.rows[0]?.columnCount ?? 0) === 2;
+}
+
+async function purchaseSessionCountSnapshotColumnAvailable(
+  db: Pick<Db, "execute">,
+): Promise<boolean> {
+  const result = await db.execute<{ columnCount: number }>(sql`
+    select count(*)::int as "columnCount"
+    from information_schema.columns
+    where table_schema = current_schema()
+      and table_name = 'purchase_requests'
+      and column_name = 'session_count_snapshot'
+  `);
+  return (result.rows[0]?.columnCount ?? 0) === 1;
 }
 
 async function paymentProofsTableAvailable(db: Pick<Db, "execute">): Promise<boolean> {
@@ -513,6 +668,7 @@ function withLegacyPlanFields(request: LegacyPurchaseRequest): PurchaseRequest {
     paymentPlanChosenAt: null,
     royaltyTermsSnapshot: null,
     agreementTextSnapshot: null,
+    sessionCountSnapshot: null,
   };
 }
 
@@ -523,10 +679,15 @@ function withLegacyCommercialTermsFields(
     ...request,
     royaltyTermsSnapshot: null,
     agreementTextSnapshot: null,
+    sessionCountSnapshot: null,
   };
 }
 
-async function loadPurchaseRequestRow(
+function withLegacySessionCountField(request: PreSessionCountPurchaseRequest): PurchaseRequest {
+  return { ...request, sessionCountSnapshot: null };
+}
+
+export async function loadPurchaseRequestRow(
   db: Pick<Db, "execute" | "select">,
   id: string,
   knownPlanColumnsAvailable?: boolean,
@@ -535,12 +696,23 @@ async function loadPurchaseRequestRow(
   const hasPlanColumns = knownPlanColumnsAvailable ?? (await purchasePlanColumnsAvailable(db));
   const hasCommercialTermsColumns =
     hasPlanColumns && (await purchaseCommercialTermsColumnsAvailable(db));
+  const hasSessionCountSnapshotColumn =
+    hasCommercialTermsColumns && (await purchaseSessionCountSnapshotColumnAvailable(db));
   const ownerFilter = producerId
     ? and(eq(purchaseRequests.id, id), eq(purchaseRequests.producerId, producerId))
     : eq(purchaseRequests.id, id);
-  if (hasPlanColumns && hasCommercialTermsColumns) {
+  if (hasPlanColumns && hasCommercialTermsColumns && hasSessionCountSnapshotColumn) {
     const [request] = await db.select().from(purchaseRequests).where(ownerFilter).limit(1);
     return request;
+  }
+
+  if (hasPlanColumns && hasCommercialTermsColumns) {
+    const [request] = await db
+      .select(preSessionCountPurchaseRequestColumns())
+      .from(purchaseRequests)
+      .where(ownerFilter)
+      .limit(1);
+    return request ? withLegacySessionCountField(request) : undefined;
   }
 
   if (hasPlanColumns) {
@@ -570,15 +742,101 @@ export async function insertPurchaseRequest(
   const hasPlanColumns = await purchasePlanColumnsAvailable(db);
   const hasCommercialTermsColumns =
     hasPlanColumns && (await purchaseCommercialTermsColumnsAvailable(db));
+  const hasSessionCountSnapshotColumn =
+    hasCommercialTermsColumns && (await purchaseSessionCountSnapshotColumnAvailable(db));
   for (let attempt = 0; attempt < 5; attempt++) {
     const refNumber = generateRefNumber();
-    if (hasPlanColumns && hasCommercialTermsColumns) {
+    if (hasPlanColumns && hasCommercialTermsColumns && hasSessionCountSnapshotColumn) {
       const [row] = await db
         .insert(purchaseRequests)
         .values({ ...values, refNumber })
         .onConflictDoNothing({ target: purchaseRequests.refNumber })
         .returning();
       if (row) return row;
+    } else if (hasPlanColumns && hasCommercialTermsColumns) {
+      // Migration 0024 can be live briefly before 0025. Use the exact 0024
+      // shape so a rolling code deploy never names session_count_snapshot
+      // before the migration adds it.
+      const result = await db.execute<PreSessionCountPurchaseRequest>(sql`
+        insert into "public"."purchase_requests" (
+          "producer_id",
+          "client_contact_id",
+          "product_id",
+          "project_id",
+          "booking_id",
+          "ref_number",
+          "status",
+          "status_changed_at",
+          "approved_at",
+          "declined_at",
+          "artist_name",
+          "artist_email",
+          "product_name_snapshot",
+          "price_cents",
+          "currency",
+          "payment_plan_snapshot",
+          "song_qty",
+          "unit_price_cents",
+          "contract_url_snapshot",
+          "payment_plan_options_snapshot",
+          "payment_plan_chosen_at",
+          "royalty_terms_snapshot",
+          "agreement_text_snapshot"
+        ) values (
+          ${values.producerId},
+          ${values.clientContactId},
+          ${values.productId ?? null},
+          ${values.projectId ?? null},
+          ${values.bookingId ?? null},
+          ${refNumber},
+          ${values.status ?? "pending"}::"public"."purchase_request_status",
+          ${values.statusChangedAt ?? null},
+          ${values.approvedAt ?? null},
+          ${values.declinedAt ?? null},
+          ${values.artistName},
+          ${values.artistEmail},
+          ${values.productNameSnapshot},
+          ${values.priceCents},
+          ${values.currency},
+          ${JSON.stringify(values.paymentPlanSnapshot)}::jsonb,
+          ${values.songQty ?? null},
+          ${values.unitPriceCents ?? null},
+          ${values.contractUrlSnapshot ?? null},
+          ${JSON.stringify(values.paymentPlanOptionsSnapshot ?? null)}::jsonb,
+          ${values.paymentPlanChosenAt ?? null},
+          ${JSON.stringify(values.royaltyTermsSnapshot ?? null)}::jsonb,
+          ${values.agreementTextSnapshot ?? null}
+        )
+        on conflict ("ref_number") do nothing
+        returning
+          "id" as "id",
+          "producer_id" as "producerId",
+          "client_contact_id" as "clientContactId",
+          "product_id" as "productId",
+          "project_id" as "projectId",
+          "booking_id" as "bookingId",
+          "ref_number" as "refNumber",
+          "status" as "status",
+          "status_changed_at" as "statusChangedAt",
+          "approved_at" as "approvedAt",
+          "declined_at" as "declinedAt",
+          "artist_name" as "artistName",
+          "artist_email" as "artistEmail",
+          "product_name_snapshot" as "productNameSnapshot",
+          "price_cents" as "priceCents",
+          "currency" as "currency",
+          "payment_plan_snapshot" as "paymentPlanSnapshot",
+          "song_qty" as "songQty",
+          "unit_price_cents" as "unitPriceCents",
+          "contract_url_snapshot" as "contractUrlSnapshot",
+          "payment_plan_options_snapshot" as "paymentPlanOptionsSnapshot",
+          "payment_plan_chosen_at" as "paymentPlanChosenAt",
+          "royalty_terms_snapshot" as "royaltyTermsSnapshot",
+          "agreement_text_snapshot" as "agreementTextSnapshot",
+          "created_at" as "createdAt"
+      `);
+      const row = result.rows[0];
+      if (row) return withLegacySessionCountField(row);
     } else if (hasPlanColumns) {
       // Migration 0023 can exist briefly before 0024. Keep the insert on the
       // exact 0023 shape so the current Drizzle schema never names 0024's
@@ -1001,6 +1259,7 @@ export const artistPurchaseRouter = router({
           currency: prod.currency,
           paymentPlanSnapshot: snapshotPlan,
           paymentPlanOptionsSnapshot,
+          sessionCountSnapshot: computeProjectSessionCount(prod, songQty),
           songQty,
           unitPriceCents,
           contractUrlSnapshot,
@@ -1171,8 +1430,10 @@ export const artistPurchaseRouter = router({
       const rows = await ctx.db
         .select({
           id: purchaseRequests.id,
+          producerId: purchaseRequests.producerId,
           refNumber: purchaseRequests.refNumber,
           productId: purchaseRequests.productId,
+          projectId: purchaseRequests.projectId,
           status: purchaseRequests.status,
           priceCents: purchaseRequests.priceCents,
           createdAt: purchaseRequests.createdAt,
@@ -1218,8 +1479,10 @@ export const artistPurchaseRouter = router({
       const [row] = await ctx.db
         .select({
           id: purchaseRequests.id,
+          producerId: purchaseRequests.producerId,
           refNumber: purchaseRequests.refNumber,
           productId: purchaseRequests.productId,
+          projectId: purchaseRequests.projectId,
           status: purchaseRequests.status,
           productNameSnapshot: purchaseRequests.productNameSnapshot,
           priceCents: purchaseRequests.priceCents,
@@ -1497,7 +1760,9 @@ export const artistPurchaseRouter = router({
         const progress = chargesProgress(charges, paid, reserved);
         return {
           purchaseRequestId: request.id,
+          producerId: request.producerId,
           productId: request.productId,
+          projectId: request.projectId,
           productName: request.productNameSnapshot,
           producerName: producer?.displayName ?? "Your producer",
           proofUploadsAvailable: hasProofTable,
@@ -1807,7 +2072,6 @@ export const artistPurchaseRouter = router({
           productId: request.productId,
         };
       }),
-
   }),
   session: router({
     schedule: artistProcedure
@@ -2109,6 +2373,7 @@ export const producerPurchaseRouter = router({
           productNameSnapshot: request.productNameSnapshot,
           priceCents: request.priceCents,
           currency: request.currency,
+          sessionCountSnapshot: request.sessionCountSnapshot,
           songQty: request.songQty,
           unitPriceCents: request.unitPriceCents,
           paymentPlanSnapshot: request.paymentPlanSnapshot,
@@ -2164,24 +2429,43 @@ export const producerPurchaseRouter = router({
         const loaded = await loadProducerProof(ctx.db, ctx.producerId, input.proofId);
         const { proof, request } = loaded;
         if (proof.status === "confirmed") {
-          await markProofNotificationsReadQuietly(
-            ctx.db,
-            ctx.producerId,
-            proof.id,
-            request.id,
-          );
-          const paid = await paidTotalCents(ctx.db, request.id);
-          const [depositDue = request.priceCents] = calculateCharges(
-            request.paymentPlanSnapshot,
-            request.priceCents,
-          );
+          await markProofNotificationsReadQuietly(ctx.db, ctx.producerId, proof.id, request.id);
+          // Re-read the ledger only after taking the request lock. Otherwise
+          // an idempotent retry of an earlier installment can race a later
+          // confirmation and overwrite the project with stale progress.
+          const retryState = await ctx.db.transaction(async (tx) => {
+            await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${request.id}, 0))`);
+            const lockedRequest = await loadPurchaseRequestRow(
+              tx,
+              request.id,
+              true,
+              ctx.producerId,
+            );
+            if (!lockedRequest) throw new TRPCError({ code: "NOT_FOUND" });
+            const paid = await paidTotalCents(tx, lockedRequest.id);
+            const [depositDue = lockedRequest.priceCents] = calculateCharges(
+              lockedRequest.paymentPlanSnapshot,
+              lockedRequest.priceCents,
+            );
+            const projectId =
+              paid >= depositDue
+                ? await ensurePurchaseProject(tx, lockedRequest, paid)
+                : lockedRequest.projectId;
+            return {
+              paid,
+              depositDue,
+              priceCents: lockedRequest.priceCents,
+              projectId,
+            };
+          });
           return {
             ok: true as const,
             purchaseRequestId: request.id,
+            projectId: retryState.projectId,
             proofStatus: "confirmed" as const,
             invoiceStatus: "paid" as const,
-            depositPaid: paid >= depositDue,
-            finalPaid: paid >= request.priceCents,
+            depositPaid: retryState.paid >= retryState.depositDue,
+            finalPaid: retryState.paid >= retryState.priceCents,
           };
         }
         if (proof.status !== "pending") {
@@ -2280,31 +2564,19 @@ export const producerPurchaseRouter = router({
             lockedRequest.priceCents,
           );
           const depositPaid = paid >= depositDue;
-          if (depositPaid && lockedRequest.status !== "paid") {
-            await tx
-              .update(purchaseRequests)
-              .set({ status: "paid", statusChangedAt: now })
-              .where(
-                and(
-                  eq(purchaseRequests.id, lockedRequest.id),
-                  eq(purchaseRequests.producerId, ctx.producerId),
-                ),
-              );
-          }
+          const projectId = depositPaid
+            ? await ensurePurchaseProject(tx, lockedRequest, paid)
+            : lockedRequest.projectId;
           return {
             paid,
             depositPaid,
             finalPaid: paid >= lockedRequest.priceCents,
             didConfirm,
+            projectId,
           };
         });
 
-        await markProofNotificationsReadQuietly(
-          ctx.db,
-          ctx.producerId,
-          proof.id,
-          request.id,
-        );
+        await markProofNotificationsReadQuietly(ctx.db, ctx.producerId, proof.id, request.id);
 
         if (result.didConfirm) {
           after(async () => {
@@ -2329,6 +2601,7 @@ export const producerPurchaseRouter = router({
         return {
           ok: true as const,
           purchaseRequestId: request.id,
+          projectId: result.projectId,
           proofStatus: "confirmed" as const,
           invoiceStatus: "paid" as const,
           depositPaid: result.depositPaid,
@@ -2351,12 +2624,7 @@ export const producerPurchaseRouter = router({
         const loaded = await loadProducerProof(ctx.db, ctx.producerId, input.proofId);
         const { proof, request } = loaded;
         if (proof.status === "rejected") {
-          await markProofNotificationsReadQuietly(
-            ctx.db,
-            ctx.producerId,
-            proof.id,
-            request.id,
-          );
+          await markProofNotificationsReadQuietly(ctx.db, ctx.producerId, proof.id, request.id);
           return {
             ok: true as const,
             purchaseRequestId: request.id,
@@ -2442,12 +2710,7 @@ export const producerPurchaseRouter = router({
           return true;
         });
 
-        await markProofNotificationsReadQuietly(
-          ctx.db,
-          ctx.producerId,
-          proof.id,
-          request.id,
-        );
+        await markProofNotificationsReadQuietly(ctx.db, ctx.producerId, proof.id, request.id);
 
         if (didReject) {
           after(async () => {

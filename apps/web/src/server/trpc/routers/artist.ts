@@ -15,6 +15,7 @@ import {
   products,
   projects,
   projectTracks,
+  purchaseRequests,
   sql,
   trackComments,
   trackVersions,
@@ -936,12 +937,11 @@ const bookSubrouter = router({
       return { days };
     }),
 
-  // Multi-session credit ledger. For every deposit-paid project the
-  // artist owns with this producer, return how many of the prepaid
-  // sessions have been consumed by confirmed bookings — and surface
-  // only the ones with sessions still remaining. The booking UI uses
-  // this to let the artist book additional sessions from a paid
-  // package without going through Stripe again.
+  // Multi-session credit ledger. A confirmed first payment unlocks the
+  // purchase's project before any session has been booked, so this read
+  // cannot use an existing booking as its eligibility gate. Active
+  // booking requests reserve capacity until they are rejected/cancelled;
+  // otherwise two tabs could both appear to own the final session.
   //
   // Auth: every projects row scoped to (producerId, artistEmail IN
   // myEmails) — same gate as the home/music procedures.
@@ -954,7 +954,7 @@ const bookSubrouter = router({
       // this producer → empty result (NOT_FOUND would over-share the
       // existence of unrelated producers).
       const contacts = await ctx.db
-        .select({ email: clientContacts.email })
+        .select({ id: clientContacts.id, email: clientContacts.email })
         .from(clientContacts)
         .where(
           and(
@@ -965,35 +965,44 @@ const bookSubrouter = router({
         );
       if (contacts.length === 0) return [];
       const myEmails = [...new Set(contacts.map((c) => c.email.toLowerCase()))];
+      const myContactIds = contacts.map((contact) => contact.id);
 
-      // One project per row, with the package label sourced from the
-      // most recent confirmed booking on that project. innerJoin scopes
-      // us to projects that have at least one confirmed booking — the
-      // signal that the artist actually committed to the package.
+      // One project per row. Prefer a historical booking label when one
+      // exists, then fall back to the paid purchase snapshot. The latter
+      // is what makes a just-paid project usable before its first booking.
       const projectRows = await ctx.db
         .select({
           id: projects.id,
           title: projects.title,
           sessionCount: projects.sessionCount,
-          packageName: bookings.packageNameSnapshot,
-          productId: bookings.productId,
+          packageName: sql<string | null>`coalesce(
+            max(${bookings.packageNameSnapshot}),
+            max(${purchaseRequests.productNameSnapshot})
+          )`,
         })
         .from(projects)
-        .innerJoin(
+        .leftJoin(
           bookings,
+          and(eq(bookings.projectId, projects.id), eq(bookings.status, "confirmed")),
+        )
+        .leftJoin(
+          purchaseRequests,
           and(
-            eq(bookings.projectId, projects.id),
-            eq(bookings.status, "confirmed"),
+            eq(purchaseRequests.projectId, projects.id),
+            eq(purchaseRequests.producerId, input.producerId),
+            inArray(purchaseRequests.clientContactId, myContactIds),
+            eq(purchaseRequests.status, "paid"),
           ),
         )
         .where(
           and(
             eq(projects.producerId, input.producerId),
-            inArray(projects.artistEmail, myEmails),
+            inArray(sql<string>`lower(${projects.artistEmail})`, myEmails),
             eq(projects.depositPaid, true),
           ),
         )
-        .groupBy(projects.id, bookings.packageNameSnapshot, bookings.productId);
+        .groupBy(projects.id, projects.title, projects.sessionCount)
+        .having(sql`count(${bookings.id}) > 0 or count(${purchaseRequests.id}) > 0`);
 
       // Per-project session usage. Cheap N+1 — an artist typically has
       // a handful of active packages with a single producer at any time.
@@ -1005,24 +1014,27 @@ const bookSubrouter = router({
             .where(
               and(
                 eq(bookings.projectId, project.id),
-                eq(bookings.status, "confirmed"),
+                inArray(bookings.status, ["pending_approval", "pending_payment", "confirmed"]),
               ),
             );
           const sessionsUsed = rows[0]?.count ?? 0;
-          const sessionsRemaining = (project.sessionCount ?? 1) - sessionsUsed;
+          const sessionCount = project.sessionCount ?? 1;
+          const unlimitedSessions = sessionCount === 0;
+          const sessionsRemaining = unlimitedSessions ? 0 : sessionCount - sessionsUsed;
           return {
             projectId: project.id,
             title: project.title,
             packageName: project.packageName,
-            sessionCount: project.sessionCount ?? 1,
+            sessionCount,
             sessionsUsed,
             sessionsRemaining,
+            unlimitedSessions,
           };
         }),
       );
 
       // Only surface packages with capacity left.
-      return projectsWithUsage.filter((p) => p.sessionsRemaining > 0);
+      return projectsWithUsage.filter((p) => p.unlimitedSessions || p.sessionsRemaining > 0);
     }),
 
   confirm: artistProcedure
@@ -1045,11 +1057,7 @@ const bookSubrouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // 1. Access guard — same as availability.
-      const contact = await resolveClientContact(
-        ctx.db,
-        ctx.clerkUserId,
-        input.producerId,
-      );
+      const contact = await resolveClientContact(ctx.db, ctx.clerkUserId, input.producerId);
 
       // 2. Compute startsAt from date + startMin. Treating the date as
       //    UTC midnight matches the availability query's day math so
@@ -1061,84 +1069,186 @@ const bookSubrouter = router({
       if (!year || !month || !day) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "invalid date" });
       }
-      const startsAt = new Date(
-        Date.UTC(year, month - 1, day, 0, 0) + input.startMin * 60 * 1000,
-      );
+      const startsAt = new Date(Date.UTC(year, month - 1, day, 0, 0) + input.startMin * 60 * 1000);
 
-      // 3. Race-safe overlap check. Pulls every active booking in a
-      //    wide (±24h) window around the requested slot; the SQL-level
-      //    narrower check is harder to express in drizzle and the row
-      //    count is always tiny for a single producer. Then we do the
-      //    precise overlap test in JS: slot and existing overlap iff
-      //    slot.start < existing.end AND existing.start < slot.end.
-      const endsAt = new Date(
-        startsAt.getTime() + input.durationMin * 60 * 1000,
-      );
-      const candidates = await ctx.db
-        .select({
-          startsAt: bookings.startsAt,
-          durationMin: bookings.durationMin,
-        })
-        .from(bookings)
-        .where(
-          and(
-            eq(bookings.producerId, input.producerId),
-            inArray(bookings.status, [
-              "pending_approval",
-              "pending_payment",
-              "confirmed",
-            ]),
-            gte(
-              bookings.startsAt,
-              new Date(startsAt.getTime() - 24 * 60 * 60 * 1000),
+      // 3. Resolve and insert inside one serialized transaction. The
+      // producer lock closes the slot race between two artist tabs; the
+      // project lock independently closes the final-credit race.
+      const endsAt = new Date(startsAt.getTime() + input.durationMin * 60 * 1000);
+      return ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.producerId}, 0))`,
+        );
+
+        let creditProject: {
+          id: string;
+          title: string;
+          producerId: string;
+          artistEmail: string;
+          depositPaid: boolean;
+          sessionCount: number | null;
+          purchaseRequestId: string | null;
+          packageNameSnapshot: string;
+        } | null = null;
+
+        if (input.existingProjectId) {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${input.existingProjectId}, 0))`,
+          );
+          const [ownedProject] = await tx
+            .select({
+              id: projects.id,
+              title: projects.title,
+              producerId: projects.producerId,
+              artistEmail: projects.artistEmail,
+              depositPaid: projects.depositPaid,
+              sessionCount: projects.sessionCount,
+              purchaseRequestId: purchaseRequests.id,
+              packageNameSnapshot: purchaseRequests.productNameSnapshot,
+            })
+            .from(projects)
+            .leftJoin(
+              purchaseRequests,
+              and(
+                eq(purchaseRequests.projectId, projects.id),
+                eq(purchaseRequests.producerId, input.producerId),
+                eq(purchaseRequests.clientContactId, contact.id),
+                eq(purchaseRequests.status, "paid"),
+              ),
+            )
+            .where(
+              and(
+                eq(projects.id, input.existingProjectId),
+                eq(projects.producerId, input.producerId),
+                eq(projects.depositPaid, true),
+                eq(sql<string>`lower(${projects.artistEmail})`, contact.email.toLowerCase()),
+              ),
+            )
+            .limit(1);
+
+          // Keep every ownership/payment miss indistinguishable. Explicit
+          // checks defend the boundary even if this query is refactored.
+          if (
+            !ownedProject ||
+            ownedProject.producerId !== input.producerId ||
+            ownedProject.artistEmail.toLowerCase() !== contact.email.toLowerCase() ||
+            !ownedProject.depositPaid
+          ) {
+            throw new TRPCError({ code: "NOT_FOUND" });
+          }
+
+          let packageNameSnapshot = ownedProject.packageNameSnapshot;
+          if (!ownedProject.purchaseRequestId) {
+            // Legacy prepaid projects predate purchase_requests. Preserve
+            // their existing behavior, but require a confirmed booking as
+            // the credit source instead of trusting any depositPaid project
+            // id the client submits.
+            const [legacyCredit] = await tx
+              .select({ packageNameSnapshot: bookings.packageNameSnapshot })
+              .from(bookings)
+              .where(
+                and(
+                  eq(bookings.projectId, ownedProject.id),
+                  eq(bookings.producerId, input.producerId),
+                  eq(bookings.status, "confirmed"),
+                ),
+              )
+              .limit(1);
+            if (!legacyCredit) {
+              throw new TRPCError({ code: "NOT_FOUND" });
+            }
+            packageNameSnapshot = legacyCredit.packageNameSnapshot;
+          }
+          creditProject = {
+            ...ownedProject,
+            packageNameSnapshot: packageNameSnapshot?.trim() || ownedProject.title,
+          };
+
+          const [usage] = await tx
+            .select({ count: sql<number>`count(*)::int` })
+            .from(bookings)
+            .where(
+              and(
+                eq(bookings.projectId, ownedProject.id),
+                inArray(bookings.status, ["pending_approval", "pending_payment", "confirmed"]),
+              ),
+            );
+          const sessionCount = ownedProject.sessionCount ?? 1;
+          if (sessionCount !== 0 && (usage?.count ?? 0) >= sessionCount) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "No prepaid sessions remain for this package.",
+            });
+          }
+        }
+
+        // Pull every active booking in a wide (±24h) window, then do the
+        // precise overlap test in JS while the producer lock is held.
+        const candidates = await tx
+          .select({
+            startsAt: bookings.startsAt,
+            durationMin: bookings.durationMin,
+          })
+          .from(bookings)
+          .where(
+            and(
+              eq(bookings.producerId, input.producerId),
+              inArray(bookings.status, ["pending_approval", "pending_payment", "confirmed"]),
+              gte(bookings.startsAt, new Date(startsAt.getTime() - 24 * 60 * 60 * 1000)),
+              lte(bookings.startsAt, endsAt),
             ),
-            lte(bookings.startsAt, endsAt),
-          ),
-        );
-      const overlap = candidates.some((bk) => {
-        const bkEnd = new Date(
-          bk.startsAt.getTime() + bk.durationMin * 60 * 1000,
-        );
-        return bk.startsAt < endsAt && startsAt < bkEnd;
-      });
-      if (overlap) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "slot no longer available",
+          );
+        const overlap = candidates.some((bk) => {
+          const bkEnd = new Date(bk.startsAt.getTime() + bk.durationMin * 60 * 1000);
+          return bk.startsAt < endsAt && startsAt < bkEnd;
         });
-      }
+        if (overlap) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "slot no longer available",
+          });
+        }
 
-      // 4. Insert. Bookings created via the artist self-serve flow land
-      //    in `pending_approval` so the producer's Calendar → Meetings →
-      //    Pending approvals queue is the gate; producer-side
-      //    booking.confirm is what flips it to `pending_payment` (when
-      //    payment is still owed) or `confirmed` (returning artist with
-      //    an existing project), and triggers auto-project creation.
-      // Resolve the project link. existingProjectId (multi-session
-      // credit flow) wins over legacy projectId. When linked to an
-      // existing paid project, productId is irrelevant — the artist
-      // is consuming a prepaid session and the producer's approval
-      // path skips pending_payment because projectId is set.
-      const linkedProjectId = input.existingProjectId ?? input.projectId;
-      const linkedProductId = input.existingProjectId ? null : input.productId;
+        const linkedProjectId = input.existingProjectId ?? input.projectId;
+        const linkedProductId = input.existingProjectId ? null : input.productId;
+        const now = new Date();
+        const [row] = await tx
+          .insert(bookings)
+          .values({
+            producerId: input.producerId,
+            artistEmail: contact.email,
+            artistName: contact.name,
+            packageNameSnapshot: creditProject?.packageNameSnapshot ?? null,
+            startsAt,
+            durationMin: input.durationMin,
+            // Preserve the existing artist-booking approval gate. Producer
+            // confirmation owns the confirmed-state email and side effects.
+            status: "pending_approval",
+            statusChangedAt: now,
+            projectId: linkedProjectId,
+            productId: linkedProductId,
+          })
+          .returning();
+        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const [row] = await ctx.db
-        .insert(bookings)
-        .values({
-          producerId: input.producerId,
-          artistEmail: contact.email,
-          artistName: contact.name,
-          startsAt,
-          durationMin: input.durationMin,
-          status: "pending_approval",
-          statusChangedAt: new Date(),
-          projectId: linkedProjectId,
-          productId: linkedProductId,
-        })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        if (creditProject?.purchaseRequestId) {
+          await tx
+            .update(purchaseRequests)
+            .set({ bookingId: row.id })
+            .where(
+              and(
+                eq(purchaseRequests.id, creditProject.purchaseRequestId),
+                eq(purchaseRequests.projectId, creditProject.id),
+                eq(purchaseRequests.producerId, input.producerId),
+                eq(purchaseRequests.clientContactId, contact.id),
+                eq(purchaseRequests.status, "paid"),
+                isNull(purchaseRequests.bookingId),
+              ),
+            );
+        }
 
-      return { id: row.id };
+        return { id: row.id };
+      });
     }),
 
   // Bookings the producer has approved but the artist hasn't paid for

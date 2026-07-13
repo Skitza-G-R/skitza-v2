@@ -31,6 +31,7 @@ const {
   bookingsMarker,
   projectsMarker,
   producersMarker,
+  purchaseRequestsMarker,
   contactsSelectQueue,
   availabilityBlocksSelectQueue,
   bookingsSelectQueue,
@@ -39,8 +40,12 @@ const {
   contactsWhereSpy,
   bookingsWhereSpy,
   projectsWhereSpy,
+  projectsLeftJoinSpy,
   insertValuesSpy,
   insertReturningMock,
+  executeSpy,
+  updateValuesSpy,
+  updateWhereSpy,
   dbMock,
 } = vi.hoisted(() => {
   type Queue = Row[][];
@@ -53,8 +58,12 @@ const {
   const contactsWhereSpy = vi.fn<(arg: unknown) => void>();
   const bookingsWhereSpy = vi.fn<(arg: unknown) => void>();
   const projectsWhereSpy = vi.fn<(arg: unknown) => void>();
+  const projectsLeftJoinSpy = vi.fn<(...args: unknown[]) => void>();
   const insertValuesSpy = vi.fn<(payload: Row) => void>();
   const insertReturningMock = vi.fn<() => Promise<Row[]>>();
+  const executeSpy = vi.fn<() => Promise<{ rows: Row[] }>>();
+  const updateValuesSpy = vi.fn<(payload: Row) => void>();
+  const updateWhereSpy = vi.fn<(arg: unknown) => void>();
 
   const clientContactsMarker = {
     __table: "client_contacts",
@@ -79,6 +88,8 @@ const {
     artistEmail: { __column: "bookings.artist_email" },
     artistName: { __column: "bookings.artist_name" },
     status: { __column: "bookings.status" },
+    packageNameSnapshot: { __column: "bookings.package_name_snapshot" },
+    productId: { __column: "bookings.product_id" },
     startsAt: { __column: "bookings.starts_at" },
     durationMin: { __column: "bookings.duration_min" },
     projectId: { __column: "bookings.project_id" },
@@ -92,19 +103,36 @@ const {
     stage: { __column: "projects.stage" },
     depositPaid: { __column: "projects.deposit_paid" },
     finalPaid: { __column: "projects.final_paid" },
+    sessionCount: { __column: "projects.session_count" },
+    bookingId: { __column: "projects.booking_id" },
   };
   const producersMarker = {
     __table: "producers",
     id: { __column: "producers.id" },
     displayName: { __column: "producers.display_name" },
     timezone: { __column: "producers.timezone" },
+    autoConfirmBookings: { __column: "producers.auto_confirm_bookings" },
+  };
+  const purchaseRequestsMarker = {
+    __table: "purchase_requests",
+    id: { __column: "purchase_requests.id" },
+    producerId: { __column: "purchase_requests.producer_id" },
+    clientContactId: { __column: "purchase_requests.client_contact_id" },
+    projectId: { __column: "purchase_requests.project_id" },
+    bookingId: { __column: "purchase_requests.booking_id" },
+    status: { __column: "purchase_requests.status" },
+    productId: { __column: "purchase_requests.product_id" },
+    productNameSnapshot: {
+      __column: "purchase_requests.product_name_snapshot",
+    },
   };
 
-  const shift = <T,>(q: T[][]): T[] => q.shift() ?? [];
+  const shift = <T>(q: T[][]): T[] => q.shift() ?? [];
 
   const chain = (
     terminal: () => Promise<Row[]>,
     whereSpy?: (arg: unknown) => void,
+    leftJoinSpy?: (...args: unknown[]) => void,
   ) => {
     let resolved: Promise<Row[]> | null = null;
     const get = () => {
@@ -116,7 +144,9 @@ const {
       orderBy: () => Link;
       limit: () => Promise<Row[]>;
       innerJoin: () => Link;
-      leftJoin: () => Link;
+      leftJoin: (...args: unknown[]) => Link;
+      groupBy: () => Link;
+      having: () => Link;
       then: Promise<Row[]>["then"];
     };
     const link: Link = {
@@ -127,7 +157,12 @@ const {
       orderBy: () => link,
       limit: () => get(),
       innerJoin: () => link,
-      leftJoin: () => link,
+      leftJoin: (...args: unknown[]) => {
+        leftJoinSpy?.(...args);
+        return link;
+      },
+      groupBy: () => link,
+      having: () => link,
       get then() {
         const p = get();
         return p.then.bind(p);
@@ -140,24 +175,19 @@ const {
     select: () => ({
       from: (table: unknown) => {
         if (table === clientContactsMarker) {
-          return chain(
-            () => Promise.resolve(shift(contactsSelectQueue)),
-            contactsWhereSpy,
-          );
+          return chain(() => Promise.resolve(shift(contactsSelectQueue)), contactsWhereSpy);
         }
         if (table === availabilityBlocksMarker) {
           return chain(() => Promise.resolve(shift(availabilityBlocksSelectQueue)));
         }
         if (table === bookingsMarker) {
-          return chain(
-            () => Promise.resolve(shift(bookingsSelectQueue)),
-            bookingsWhereSpy,
-          );
+          return chain(() => Promise.resolve(shift(bookingsSelectQueue)), bookingsWhereSpy);
         }
         if (table === projectsMarker) {
           return chain(
             () => Promise.resolve(shift(projectsSelectQueue)),
             projectsWhereSpy,
+            projectsLeftJoinSpy,
           );
         }
         if (table === producersMarker) {
@@ -174,6 +204,19 @@ const {
         };
       },
     }),
+    update: () => ({
+      set: (payload: Row) => {
+        updateValuesSpy(payload);
+        return {
+          where: (arg: unknown) => {
+            updateWhereSpy(arg);
+            return Promise.resolve([]);
+          },
+        };
+      },
+    }),
+    execute: () => executeSpy(),
+    transaction: async <T>(callback: (tx: unknown) => Promise<T>) => callback(dbMock),
   };
 
   return {
@@ -182,6 +225,7 @@ const {
     bookingsMarker,
     projectsMarker,
     producersMarker,
+    purchaseRequestsMarker,
     contactsSelectQueue,
     availabilityBlocksSelectQueue,
     bookingsSelectQueue,
@@ -190,8 +234,12 @@ const {
     contactsWhereSpy,
     bookingsWhereSpy,
     projectsWhereSpy,
+    projectsLeftJoinSpy,
     insertValuesSpy,
     insertReturningMock,
+    executeSpy,
+    updateValuesSpy,
+    updateWhereSpy,
     dbMock,
   };
 });
@@ -207,6 +255,7 @@ vi.mock("@skitza/db", () => ({
   bookings: bookingsMarker,
   projects: projectsMarker,
   producers: producersMarker,
+  purchaseRequests: purchaseRequestsMarker,
   // Other tables referenced by the artist router — opaque markers so
   // the module loads under the test.
   projectTracks: { __table: "project_tracks" },
@@ -235,7 +284,7 @@ vi.mock("@skitza/db", () => ({
 }));
 
 // Re-import the mocked symbols for the auth-boundary identity checks.
-import { clientContacts } from "@skitza/db";
+import { clientContacts, purchaseRequests } from "@skitza/db";
 
 beforeEach(() => {
   contactsSelectQueue.length = 0;
@@ -246,8 +295,12 @@ beforeEach(() => {
   contactsWhereSpy.mockReset();
   bookingsWhereSpy.mockReset();
   projectsWhereSpy.mockReset();
+  projectsLeftJoinSpy.mockReset();
   insertValuesSpy.mockReset();
   insertReturningMock.mockReset().mockResolvedValue([]);
+  executeSpy.mockReset().mockResolvedValue({ rows: [] });
+  updateValuesSpy.mockReset();
+  updateWhereSpy.mockReset();
   process.env.DATABASE_URL = "postgresql://test/test";
   // Freeze time for deterministic 14-day window assertions. 2026-04-19
   // is a Sunday (weekday 0 in JS) — picked to line up with the first
@@ -263,6 +316,7 @@ const buildCaller = async (userId: string | null = "user_test_artist_1") => {
 const PRODUCER_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const OTHER_PRODUCER_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const PROJECT_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+const PURCHASE_REQUEST_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 
 // Walk an arbitrarily nested and(...) tree for a (operator, column)
 // predicate — copied verbatim from artist-music-project.test.ts.
@@ -433,24 +487,112 @@ describe("artist.book.availability (query)", () => {
     const contactsArg = contactsWhereSpy.mock.calls[0]?.[0];
 
     // (a) clerkUserId — the signed-in user's Clerk id.
-    const clerkPred = findPredicate(
-      contactsArg,
-      "eq",
-      clientContacts.clerkUserId,
-    );
+    const clerkPred = findPredicate(contactsArg, "eq", clientContacts.clerkUserId);
     expect(clerkPred).not.toBeNull();
     expect(clerkPred?.[1]).toBe("user_alice");
 
     // (b) producerId — the producer the artist is booking with. A
     // refactor that drops this predicate would let a contact for any
     // OTHER producer satisfy the access guard → cross-producer leak.
-    const producerPred = findPredicate(
-      contactsArg,
-      "eq",
-      clientContacts.producerId,
-    );
+    const producerPred = findPredicate(contactsArg, "eq", clientContacts.producerId);
     expect(producerPred).not.toBeNull();
     expect(producerPred?.[1]).toBe(PRODUCER_ID);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+describe("artist.book.activePackages (query)", () => {
+  it("includes a deposit-paid purchase project before its first booking", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        title: "Mix project",
+        depositPaid: true,
+        sessionCount: 3,
+        packageName: "Three mix sessions",
+      },
+    ]);
+    bookingsSelectQueue.push([{ count: 0 }]);
+
+    const caller = await buildCaller();
+    const result = await caller.artist.book.activePackages({
+      producerId: PRODUCER_ID,
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        projectId: PROJECT_ID,
+        packageName: "Three mix sessions",
+        sessionCount: 3,
+        sessionsUsed: 0,
+        sessionsRemaining: 3,
+        unlimitedSessions: false,
+      }),
+    ]);
+    expect(projectsLeftJoinSpy).toHaveBeenCalledWith(purchaseRequestsMarker, expect.anything());
+  });
+
+  it("keeps sessionCount=0 packages active as unlimited", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        title: "Ongoing production",
+        depositPaid: true,
+        sessionCount: 0,
+        packageName: "Ongoing production",
+      },
+    ]);
+    bookingsSelectQueue.push([{ count: 12 }]);
+
+    const caller = await buildCaller();
+    const result = await caller.artist.book.activePackages({
+      producerId: PRODUCER_ID,
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        projectId: PROJECT_ID,
+        sessionCount: 0,
+        sessionsUsed: 12,
+        sessionsRemaining: 0,
+        unlimitedSessions: true,
+      }),
+    ]);
+  });
+
+  it("counts every active booking as reserved package capacity", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        title: "Two sessions",
+        depositPaid: true,
+        sessionCount: 2,
+        packageName: "Two sessions",
+      },
+    ]);
+    bookingsSelectQueue.push([{ count: 1 }]);
+
+    const caller = await buildCaller();
+    const result = await caller.artist.book.activePackages({
+      producerId: PRODUCER_ID,
+    });
+
+    expect(result[0]?.sessionsRemaining).toBe(1);
+    const usageWhere = bookingsWhereSpy.mock.calls[0]?.[0];
+    expect(findPredicate(usageWhere, "inArray", bookingsMarker.status)?.[1]).toEqual([
+      "pending_approval",
+      "pending_payment",
+      "confirmed",
+    ]);
   });
 });
 
@@ -535,6 +677,240 @@ describe("artist.book.confirm (mutation)", () => {
     expect(payload.projectId).toBe(PROJECT_ID);
   });
 
+  it("reserves a paid owned package credit and stamps its first purchase booking", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        title: "Mix project",
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        depositPaid: true,
+        sessionCount: 2,
+        autoConfirmBookings: false,
+        purchaseRequestId: PURCHASE_REQUEST_ID,
+        packageNameSnapshot: "Two-session mix",
+      },
+    ]);
+    bookingsSelectQueue.push([{ count: 0 }], []);
+    insertReturningMock.mockResolvedValue([{ id: "bk-credit" }]);
+
+    const caller = await buildCaller();
+    const result = await caller.artist.book.confirm({
+      ...validInput,
+      productId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+      existingProjectId: PROJECT_ID,
+    });
+
+    expect(result.id).toBe("bk-credit");
+    expect(executeSpy).toHaveBeenCalledTimes(2);
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: PROJECT_ID,
+        productId: null,
+        packageNameSnapshot: "Two-session mix",
+        status: "pending_approval",
+      }),
+    );
+    expect(updateValuesSpy).toHaveBeenCalledWith({ bookingId: "bk-credit" });
+    const updateWhere = updateWhereSpy.mock.calls[0]?.[0];
+    expect(findPredicate(updateWhere, "eq", purchaseRequests.id)?.[1]).toBe(PURCHASE_REQUEST_ID);
+    expect(findPredicate(updateWhere, "eq", purchaseRequests.projectId)?.[1]).toBe(PROJECT_ID);
+    expect(findPredicate(updateWhere, "eq", purchaseRequests.producerId)?.[1]).toBe(PRODUCER_ID);
+    expect(findPredicate(updateWhere, "eq", purchaseRequests.clientContactId)?.[1]).toBe("c1");
+  });
+
+  it("preserves confirmed legacy package credits without stamping a purchase", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        title: "Legacy mix project",
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        depositPaid: true,
+        sessionCount: 3,
+        autoConfirmBookings: false,
+        purchaseRequestId: null,
+        packageNameSnapshot: null,
+      },
+    ]);
+    bookingsSelectQueue.push(
+      [{ packageNameSnapshot: "Legacy three-session mix" }],
+      [{ count: 1 }],
+      [],
+    );
+    insertReturningMock.mockResolvedValue([{ id: "bk-legacy-credit" }]);
+
+    const caller = await buildCaller();
+    const result = await caller.artist.book.confirm({
+      ...validInput,
+      existingProjectId: PROJECT_ID,
+    });
+
+    expect(result.id).toBe("bk-legacy-credit");
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: PROJECT_ID,
+        packageNameSnapshot: "Legacy three-session mix",
+        status: "pending_approval",
+      }),
+    );
+    expect(updateValuesSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps paid package bookings in the existing producer approval gate", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        title: "Ongoing production",
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        depositPaid: true,
+        sessionCount: 0,
+        autoConfirmBookings: true,
+        purchaseRequestId: PURCHASE_REQUEST_ID,
+        packageNameSnapshot: "Ongoing production",
+      },
+    ]);
+    bookingsSelectQueue.push([{ count: 99 }], []);
+    insertReturningMock.mockResolvedValue([{ id: "bk-unlimited" }]);
+
+    const caller = await buildCaller();
+    await caller.artist.book.confirm({
+      ...validInput,
+      existingProjectId: PROJECT_ID,
+    });
+
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: PROJECT_ID,
+        status: "pending_approval",
+      }),
+    );
+  });
+
+  it("returns NOT_FOUND for a foreign existingProjectId", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([]);
+
+    const caller = await buildCaller();
+    await expect(
+      caller.artist.book.confirm({
+        ...validInput,
+        existingProjectId: PROJECT_ID,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(insertValuesSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns NOT_FOUND when an existing project belongs to another tenant", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        title: "Foreign project",
+        producerId: OTHER_PRODUCER_ID,
+        artistEmail: "someone-else@x.com",
+        depositPaid: true,
+        sessionCount: 2,
+        autoConfirmBookings: false,
+        purchaseRequestId: null,
+        packageNameSnapshot: null,
+      },
+    ]);
+
+    const caller = await buildCaller();
+    await expect(
+      caller.artist.book.confirm({
+        ...validInput,
+        existingProjectId: PROJECT_ID,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(insertValuesSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns NOT_FOUND when the existing project is not deposit-paid", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        title: "Unpaid project",
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        depositPaid: false,
+        sessionCount: 2,
+        autoConfirmBookings: false,
+        purchaseRequestId: null,
+        packageNameSnapshot: null,
+      },
+    ]);
+
+    const caller = await buildCaller();
+    await expect(
+      caller.artist.book.confirm({
+        ...validInput,
+        existingProjectId: PROJECT_ID,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(insertValuesSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns CONFLICT when another active booking reserved the final credit", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        title: "Two sessions",
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        depositPaid: true,
+        sessionCount: 2,
+        autoConfirmBookings: false,
+        purchaseRequestId: PURCHASE_REQUEST_ID,
+        packageNameSnapshot: "Two sessions",
+      },
+    ]);
+    bookingsSelectQueue.push([{ count: 2 }]);
+
+    const caller = await buildCaller();
+    await expect(
+      caller.artist.book.confirm({
+        ...validInput,
+        existingProjectId: PROJECT_ID,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(insertValuesSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a deposit-paid project without an owned paid purchase or legacy credit", async () => {
+    seedValidContact();
+    projectsSelectQueue.push([
+      {
+        id: PROJECT_ID,
+        title: "Unlinked paid project",
+        producerId: PRODUCER_ID,
+        artistEmail: "dan@x.com",
+        depositPaid: true,
+        sessionCount: 2,
+        autoConfirmBookings: false,
+        purchaseRequestId: null,
+        packageNameSnapshot: null,
+      },
+    ]);
+    bookingsSelectQueue.push([]);
+
+    const caller = await buildCaller();
+    await expect(
+      caller.artist.book.confirm({
+        ...validInput,
+        existingProjectId: PROJECT_ID,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(insertValuesSpy).not.toHaveBeenCalled();
+  });
+
   it("clientContacts WHERE is scoped by clerkUserId + producerId (auth boundary)", async () => {
     contactsSelectQueue.push([
       {
@@ -563,19 +939,11 @@ describe("artist.book.confirm (mutation)", () => {
 
     const contactsArg = contactsWhereSpy.mock.calls[0]?.[0];
 
-    const clerkPred = findPredicate(
-      contactsArg,
-      "eq",
-      clientContacts.clerkUserId,
-    );
+    const clerkPred = findPredicate(contactsArg, "eq", clientContacts.clerkUserId);
     expect(clerkPred).not.toBeNull();
     expect(clerkPred?.[1]).toBe("user_alice");
 
-    const producerPred = findPredicate(
-      contactsArg,
-      "eq",
-      clientContacts.producerId,
-    );
+    const producerPred = findPredicate(contactsArg, "eq", clientContacts.producerId);
     expect(producerPred).not.toBeNull();
     expect(producerPred?.[1]).toBe(PRODUCER_ID);
   });

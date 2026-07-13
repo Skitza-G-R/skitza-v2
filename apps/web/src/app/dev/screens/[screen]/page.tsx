@@ -136,11 +136,13 @@ export default async function DevScreenPage({ params }: Params) {
     case "s9":
     case "s9-awaiting":
     case "s9-rejected":
+    case "s9-partial":
     case "s9-paid": {
       const state = screen.slice(3);
       const isPaid = state === "paid";
       const isAwaiting = state === "awaiting";
       const isRejected = state === "rejected";
+      const isPartial = state === "partial";
       return (
         <UploadProofScreen
           productName={MOCK_PRODUCT.name}
@@ -153,11 +155,14 @@ export default async function DevScreenPage({ params }: Params) {
                 ? [{ id: "proof-1", amountCents: 120000, status: "rejected" }]
                 : isPaid
                   ? [{ id: "proof-1", amountCents: 240000, status: "paid" }]
-                  : []
+                  : isPartial
+                    ? [{ id: "proof-1", amountCents: 120000, status: "paid" }]
+                    : []
           }
-          paidCents={isPaid ? 240000 : 0}
+          paidCents={isPaid ? 240000 : isPartial ? 120000 : 0}
           totalCents={240000}
           thisProofCents={isPaid ? 0 : 120000}
+          bookingHref={isPartial ? "/artist/book?studio=dev-studio&project=dev-project" : undefined}
           status={isPaid ? "paid" : isAwaiting ? "awaiting" : isRejected ? "rejected" : "empty"}
           rejectionNote={isRejected ? "The amount is cut off in the screenshot." : undefined}
         />

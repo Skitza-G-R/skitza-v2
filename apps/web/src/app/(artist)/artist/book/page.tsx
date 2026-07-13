@@ -3,7 +3,9 @@ import { auth } from "@clerk/nextjs/server";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { BookingClient } from "./booking-client";
 
-type PageProps = { searchParams: Promise<{ studio?: string }> };
+type PageProps = {
+  searchParams: Promise<{ studio?: string; project?: string }>;
+};
 
 // Server Component. Resolves the artist's studios + the active
 // studio's 14-day availability up front so the client component
@@ -40,6 +42,11 @@ export default async function BookPage({ searchParams }: PageProps) {
     caller.artist.store.products({ producerId: activeStudioId }),
     caller.artist.book.activePackages({ producerId: activeStudioId }),
   ]);
+  const initialPackageProjectId =
+    sp.project &&
+    activePackages.some((pkg) => pkg.projectId === sp.project)
+      ? sp.project
+      : null;
 
   return (
     <div className="reveal-up mx-auto w-full max-w-[480px] space-y-5">
@@ -50,6 +57,7 @@ export default async function BookPage({ searchParams }: PageProps) {
         products={products}
         studios={studios}
         activePackages={activePackages}
+        initialPackageProjectId={initialPackageProjectId}
       />
     </div>
   );

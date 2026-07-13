@@ -114,6 +114,40 @@ describe("upload-proof-screen.tsx (S9) wiring", () => {
     // The picker mirrors the server allow-list, including HEIC + PDF.
     expect(s9Src).toMatch(/accept="[^"]*image\/jpeg[^"]*image\/heic[^"]*"/);
     expect(s9Src).toMatch(/accept="[^"]*application\/pdf[^"]*"/);
+    expect(s9Src).not.toMatch(/capture="environment"/);
+  });
+
+  it("validates a picked file before it can enter the attached state", () => {
+    const onFileChange = s9Src.slice(
+      s9Src.indexOf("function onFileChange"),
+      s9Src.indexOf("function proofContentType"),
+    );
+
+    expect(onFileChange).toMatch(/proofFileError\(picked\)/);
+    expect(onFileChange.indexOf("proofFileError(picked)")).toBeLessThan(
+      onFileChange.indexOf("setFile(picked)"),
+    );
+    expect(s9Src).toMatch(/15 MB/);
+  });
+
+  it("normalizes accepted extensions when a browser omits the MIME type", () => {
+    expect(s9Src).toMatch(/type === "" \|\| type === "application\/octet-stream"/);
+    expect(s9Src).toMatch(/extension === "jpg" \|\| extension === "jpeg"/);
+    expect(s9Src).toMatch(/extension === "png"/);
+    expect(s9Src).toMatch(/extension === "webp"/);
+    expect(s9Src).toMatch(/extension === "heic"/);
+    expect(s9Src).toMatch(/extension === "pdf"/);
+  });
+
+  it("returns focus to the persistent upload tile after choosing a replacement", () => {
+    expect(s9Src).toMatch(/ref=\{uploadButtonRef\}/);
+    expect(s9Src).toMatch(/uploadButtonRef\.current\?\.focus\(\)/);
+  });
+
+  it("previews attached images and releases every temporary object URL", () => {
+    expect(s9Src).toMatch(/URL\.createObjectURL\(picked\)/);
+    expect(s9Src).toMatch(/URL\.revokeObjectURL\(previewUrlRef\.current\)/);
+    expect(s9Src).toMatch(/backgroundImage:/);
   });
 
   it("keeps the programmatic file input out of the tab and accessibility trees", () => {
@@ -166,6 +200,17 @@ describe("upload-proof-screen.tsx (S9) wiring", () => {
     expect(reUpload.indexOf('fileRef.current.value = ""')).toBeLessThan(
       reUpload.indexOf("fileRef.current?.click()"),
     );
+    // Cancelling the native picker must leave the server-owned rejection
+    // banner and producer note intact.
+    expect(reUpload).not.toMatch(/setStatus\(/);
+    expect(reUpload).not.toMatch(/setFile\(/);
+  });
+
+  it("renders awaiting review as a leave-safe state instead of a disabled uploader", () => {
+    expect(s9Src).toMatch(/Proof sent for verification/);
+    expect(s9Src).toMatch(/if \(isAwaiting\) router\.push\("\/artist"\)/);
+    expect(s9Src).toMatch(/Back to Home/);
+    expect(s9Src).toMatch(/!isPaidInFull && !isAwaiting/);
   });
 
   it("uploads to the private presigned URL and then records the proof", () => {
@@ -232,6 +277,15 @@ describe("upload-proof-screen.tsx (S9) wiring", () => {
     expect(pageSrc).toMatch(/purchaseRequestId: req/);
     expect(pageSrc).toMatch(/data\.productId && data\.productId !== productId/);
     expect(pageSrc).not.toMatch(/MOCK_/);
+  });
+
+  it("opens the exact paid project when proof confirmation unlocks booking", () => {
+    expect(pageSrc).toMatch(/data\.projectId/);
+    expect(pageSrc).toMatch(
+      /`\/artist\/book\?studio=\$\{data\.producerId\}&project=\$\{data\.projectId\}`/,
+    );
+    expect(pageSrc).toMatch(/bookingHref=\{bookingHref\}/);
+    expect(s9Src).toMatch(/router\.push\(bookingHref \?\? "\/artist\/book"\)/);
   });
 
   it("returns safely to payment instructions when the private proof ledger is unavailable", () => {

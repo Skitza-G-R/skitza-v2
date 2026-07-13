@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import {
   agreementAcceptances,
+  and,
+  bookings,
   clientContacts,
   createDb,
   eq,
@@ -11,6 +13,7 @@ import {
   paymentProofs,
   producers,
   products,
+  projects,
   purchaseRequests,
 } from "@skitza/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -173,6 +176,13 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       name: "E2E Artist",
       clerkUserId: artistUserId,
     });
+    await db.insert(clientContacts).values({
+      producerId,
+      emailHash: `e2e-stranger-hash-${suffix}`,
+      email: `${strangerArtistUserId}@example.com`,
+      name: "E2E Stranger Artist",
+      clerkUserId: strangerArtistUserId,
+    });
 
     const [product] = await db
       .insert(products)
@@ -181,6 +191,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
         name: "E2E Premium Single",
         description: "Disposable integration-test product",
         durationMin: 120,
+        sessionCount: 1,
         priceCents: 240_000,
         currency: "ILS",
         depositModel: "flat",
@@ -550,6 +561,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       artistName: "E2E Artist",
       productNameSnapshot: "E2E Premium Single",
       priceCents: 240_000,
+      sessionCountSnapshot: 1,
       paymentPlanOptionsSnapshot: [{ kind: "full" }, { kind: "split_50_50" }],
       contractUrlSnapshot: "https://example.com/e2e-agreement.pdf",
     });
@@ -590,6 +602,8 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       purchaseRequestId: created.purchaseRequestId,
       paymentPlan: { kind: "split_50_50" },
     });
+    // The credit belongs to the purchase snapshot, not a later product edit.
+    await db.update(products).set({ sessionCount: 9 }).where(eq(products.id, productId));
     await expect(
       artist.artist.purchase.paymentPlan.choose({
         purchaseRequestId: created.purchaseRequestId,
@@ -735,6 +749,7 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     ]);
     expect(confirmations.every((result) => result.depositPaid)).toBe(true);
     expect(confirmations.every((result) => !result.finalPaid)).toBe(true);
+    expect(new Set(confirmations.map((result) => result.projectId)).size).toBe(1);
 
     const firstProofInvoices = await db
       .select()
@@ -742,6 +757,109 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       .where(eq(invoices.paymentProofId, acceptedFirstProof.proofId));
     expect(firstProofInvoices).toHaveLength(1);
     expect(firstProofInvoices[0]?.status).toBe("paid");
+
+    const [depositRequest] = await db
+      .select()
+      .from(purchaseRequests)
+      .where(eq(purchaseRequests.id, created.purchaseRequestId));
+    expect(depositRequest?.projectId).toEqual(expect.any(String));
+    if (!depositRequest?.projectId) throw new Error("Deposit did not create a project");
+    expect(depositRequest.projectId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const purchaseProjects = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.producerId, producerId),
+          eq(projects.artistEmail, `${artistUserId}@example.com`),
+        ),
+      );
+    expect(purchaseProjects).toEqual([{ id: depositRequest.projectId }]);
+
+    const [depositProject] = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, depositRequest.projectId));
+    expect(depositProject).toMatchObject({
+      producerId,
+      title: "E2E Premium Single",
+      artistEmail: `${artistUserId}@example.com`,
+      depositPaid: true,
+      finalPaid: false,
+      sessionCount: 1,
+      totalAmountCents: 240_000,
+      currency: "ILS",
+    });
+    await db.update(products).set({ sessionCount: 1 }).where(eq(products.id, productId));
+    expect(firstProofInvoices[0]?.projectId).toBe(depositRequest.projectId);
+
+    const availablePackages = await artist.artist.book.activePackages({ producerId });
+    expect(availablePackages).toEqual([
+      expect.objectContaining({
+        projectId: depositRequest.projectId,
+        packageName: "E2E Premium Single",
+        sessionCount: 1,
+        sessionsUsed: 0,
+        sessionsRemaining: 1,
+        unlimitedSessions: false,
+      }),
+    ]);
+
+    await expect(
+      strangerArtist.artist.book.confirm({
+        producerId,
+        date: "2035-01-08",
+        block: "morning",
+        startMin: 540,
+        durationMin: 120,
+        projectId: null,
+        productId: null,
+        existingProjectId: depositRequest.projectId,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    const creditAttempts = await Promise.allSettled([
+      artist.artist.book.confirm({
+        producerId,
+        date: "2035-01-08",
+        block: "morning",
+        startMin: 540,
+        durationMin: 120,
+        projectId: null,
+        productId: null,
+        existingProjectId: depositRequest.projectId,
+      }),
+      artist.artist.book.confirm({
+        producerId,
+        date: "2035-01-09",
+        block: "morning",
+        startMin: 540,
+        durationMin: 120,
+        projectId: null,
+        productId: null,
+        existingProjectId: depositRequest.projectId,
+      }),
+    ]);
+    expect(creditAttempts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(creditAttempts.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(creditAttempts.find((result) => result.status === "rejected")).toMatchObject({
+      reason: { code: "CONFLICT" },
+    });
+
+    const reservedBookings = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.projectId, depositRequest.projectId));
+    expect(reservedBookings).toHaveLength(1);
+    expect(reservedBookings[0]?.status).toBe("pending_approval");
+
+    const [scheduledRequest] = await db
+      .select()
+      .from(purchaseRequests)
+      .where(eq(purchaseRequests.id, created.purchaseRequestId));
+    expect(scheduledRequest?.bookingId).toBe(reservedBookings[0]?.id);
+    await expect(artist.artist.book.activePackages({ producerId })).resolves.toEqual([]);
 
     const halfway = await artist.artist.purchase.proofOfPayment.state({
       purchaseRequestId: created.purchaseRequestId,
@@ -768,10 +886,16 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       .limit(1);
     expect(secondProofNotification).toEqual({ id: secondProof.proofId, readAt: null });
 
-    const finalConfirmation = await producer.producer.purchase.proofOfPayment.confirm({
-      proofId: secondProof.proofId,
-    });
+    const [finalConfirmation, earlierProofRetry] = await Promise.all([
+      producer.producer.purchase.proofOfPayment.confirm({
+        proofId: secondProof.proofId,
+      }),
+      producer.producer.purchase.proofOfPayment.confirm({
+        proofId: acceptedFirstProof.proofId,
+      }),
+    ]);
     expect(finalConfirmation.finalPaid).toBe(true);
+    expect(earlierProofRetry.finalPaid).toBe(true);
 
     const complete = await artist.artist.purchase.proofOfPayment.state({
       purchaseRequestId: created.purchaseRequestId,
@@ -779,6 +903,12 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     expect(complete.paidCents).toBe(240_000);
     expect(complete.remainingCents).toBe(0);
     expect(complete.paidInFull).toBe(true);
+
+    const [completeProject] = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, depositRequest.projectId));
+    expect(completeProject?.finalPaid).toBe(true);
 
     const persistedProofs = await db
       .select()
@@ -791,6 +921,9 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     expect(persistedProofs).toHaveLength(3);
     expect(persistedProofs.filter((proof) => proof.status === "confirmed")).toHaveLength(2);
     expect(persistedProofs.filter((proof) => proof.status === "rejected")).toHaveLength(1);
+    expect(persistedProofs.every((proof) => proof.projectId === depositRequest.projectId)).toBe(
+      true,
+    );
     expect(persistedProofs.every((proof) => proof.objectEtag === '"proof-etag"')).toBe(true);
     expect(
       persistedProofs.every((proof) =>
@@ -800,6 +933,9 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
       ),
     ).toBe(true);
     expect(persistedInvoices).toHaveLength(2);
+    expect(
+      persistedInvoices.every((invoice) => invoice.projectId === depositRequest.projectId),
+    ).toBe(true);
     expect(persistedInvoices.reduce((sum, invoice) => sum + invoice.amountCents, 0)).toBe(240_000);
 
     // A fully-paid request releases the single-active-purchase slot.
@@ -820,5 +956,200 @@ describeWithDatabase("artist purchase flow — real Postgres integration", () =>
     expect(commandNames.filter((name) => name === "CopyObjectCommand")).toHaveLength(3);
     expect(commandNames.filter((name) => name === "DeleteObjectCommand")).toHaveLength(3);
     expect(proofVerifiedEmailMock).toHaveBeenCalledTimes(2);
-  }, 60_000);
+  }, 90_000);
+
+  it("attaches payment to one existing project, applies frozen credit, and keeps paid time stable", async () => {
+    const { userId } = await createArtist("attached-project");
+    const [contact] = await db
+      .select()
+      .from(clientContacts)
+      .where(eq(clientContacts.clerkUserId, userId));
+    if (!contact) throw new Error("Attached-project contact was not seeded");
+
+    const [existingProject] = await db
+      .insert(projects)
+      .values({
+        producerId,
+        title: "Existing attached project",
+        artistName: contact.name,
+        artistEmail: contact.email,
+        clientName: contact.name,
+        clientEmail: contact.email,
+        stage: "booked",
+        sessionCount: 1,
+      })
+      .returning();
+    if (!existingProject) throw new Error("Attached project was not seeded");
+
+    const now = new Date();
+    const [request] = await db
+      .insert(purchaseRequests)
+      .values({
+        producerId,
+        clientContactId: contact.id,
+        productId,
+        projectId: existingProject.id,
+        refNumber: `SK-ATTACHED-${suffix}`,
+        status: "verifying",
+        statusChangedAt: now,
+        approvedAt: now,
+        artistName: contact.name,
+        artistEmail: contact.email,
+        productNameSnapshot: "Four-session attached package",
+        priceCents: 240_000,
+        currency: "ILS",
+        sessionCountSnapshot: 4,
+        paymentPlanSnapshot: { kind: "full" },
+        paymentPlanOptionsSnapshot: [{ kind: "full" }],
+        paymentPlanChosenAt: now,
+      })
+      .returning();
+    if (!request) throw new Error("Attached purchase request was not seeded");
+
+    const [proof] = await db
+      .insert(paymentProofs)
+      .values({
+        purchaseRequestId: request.id,
+        producerId,
+        projectId: existingProject.id,
+        amountCents: 240_000,
+        currency: "ILS",
+        kind: "full",
+        storageBucket: "docs",
+        storageKey: `producers/${producerId}/proofs/${request.id}/final/attached.png`,
+        objectEtag: '"proof-etag"',
+        originalFileName: "attached.png",
+        contentType: "image/png",
+        sizeBytes: 2_048,
+        status: "pending",
+      })
+      .returning();
+    if (!proof) throw new Error("Attached proof was not seeded");
+
+    const producer = appRouter.createCaller({ userId: producerUserId });
+    const confirmed = await producer.producer.purchase.proofOfPayment.confirm({
+      proofId: proof.id,
+    });
+    expect(confirmed.projectId).toBe(existingProject.id);
+
+    const attachedProjects = await db
+      .select()
+      .from(projects)
+      .where(and(eq(projects.producerId, producerId), eq(projects.artistEmail, contact.email)));
+    expect(attachedProjects).toHaveLength(1);
+    expect(attachedProjects[0]).toMatchObject({
+      id: existingProject.id,
+      sessionCount: 4,
+      depositPaid: true,
+      finalPaid: true,
+    });
+
+    const stablePaidAt = new Date("2030-01-02T03:04:05.000Z");
+    await db
+      .update(purchaseRequests)
+      .set({ statusChangedAt: stablePaidAt })
+      .where(eq(purchaseRequests.id, request.id));
+    await producer.producer.purchase.proofOfPayment.confirm({ proofId: proof.id });
+    const [retriedRequest] = await db
+      .select()
+      .from(purchaseRequests)
+      .where(eq(purchaseRequests.id, request.id));
+    expect(retriedRequest?.status).toBe("paid");
+    expect(retriedRequest?.statusChangedAt).toEqual(stablePaidAt);
+  }, 45_000);
+
+  it("preserves attached legacy project credit when the snapshotted product was deleted", async () => {
+    const { userId } = await createArtist("legacy-attached-project");
+    const [contact] = await db
+      .select()
+      .from(clientContacts)
+      .where(eq(clientContacts.clerkUserId, userId));
+    if (!contact) throw new Error("Legacy attached-project contact was not seeded");
+
+    const [legacyProduct] = await db
+      .insert(products)
+      .values({
+        producerId,
+        name: "Deleted legacy package",
+        description: "Disposable legacy package",
+        durationMin: 120,
+        sessionCount: 7,
+        priceCents: 70_000,
+        currency: "ILS",
+        depositModel: "flat",
+        paymentPlans: [{ kind: "full" }],
+      })
+      .returning();
+    if (!legacyProduct) throw new Error("Legacy product was not seeded");
+
+    const [existingProject] = await db
+      .insert(projects)
+      .values({
+        producerId,
+        title: "Legacy seven-session project",
+        artistName: contact.name,
+        artistEmail: contact.email,
+        clientName: contact.name,
+        clientEmail: contact.email,
+        stage: "booked",
+        sessionCount: 7,
+      })
+      .returning();
+    if (!existingProject) throw new Error("Legacy attached project was not seeded");
+
+    const now = new Date();
+    const [request] = await db
+      .insert(purchaseRequests)
+      .values({
+        producerId,
+        clientContactId: contact.id,
+        productId: legacyProduct.id,
+        projectId: existingProject.id,
+        refNumber: `SK-LEGACY-ATTACHED-${suffix}`,
+        status: "verifying",
+        statusChangedAt: now,
+        approvedAt: now,
+        artistName: contact.name,
+        artistEmail: contact.email,
+        productNameSnapshot: "Deleted legacy package",
+        priceCents: 70_000,
+        currency: "ILS",
+        sessionCountSnapshot: null,
+        paymentPlanSnapshot: { kind: "full" },
+        paymentPlanOptionsSnapshot: [{ kind: "full" }],
+        paymentPlanChosenAt: now,
+      })
+      .returning();
+    if (!request) throw new Error("Legacy attached purchase request was not seeded");
+
+    const [proof] = await db
+      .insert(paymentProofs)
+      .values({
+        purchaseRequestId: request.id,
+        producerId,
+        projectId: existingProject.id,
+        amountCents: 70_000,
+        currency: "ILS",
+        kind: "full",
+        storageBucket: "docs",
+        storageKey: `producers/${producerId}/proofs/${request.id}/final/legacy-attached.png`,
+        objectEtag: '"proof-etag"',
+        originalFileName: "legacy-attached.png",
+        contentType: "image/png",
+        sizeBytes: 2_048,
+        status: "pending",
+      })
+      .returning();
+    if (!proof) throw new Error("Legacy attached proof was not seeded");
+
+    await db.delete(products).where(eq(products.id, legacyProduct.id));
+    const producer = appRouter.createCaller({ userId: producerUserId });
+    await producer.producer.purchase.proofOfPayment.confirm({ proofId: proof.id });
+
+    const [preservedProject] = await db
+      .select({ sessionCount: projects.sessionCount, depositPaid: projects.depositPaid })
+      .from(projects)
+      .where(eq(projects.id, existingProject.id));
+    expect(preservedProject).toEqual({ sessionCount: 7, depositPaid: true });
+  }, 45_000);
 });
