@@ -27,7 +27,7 @@ PRD: docs/product/PRD.md (read this for all product decisions — v4, April 2026
 
 ## v1 scope — real vs placeholder
 - Auth (Clerk): real
-- Database (Neon + Drizzle): real — fresh skitza-v3 project, schema not yet migrated (Phase 2)
+- Database (Neon + Drizzle): real — canonical production is `skitza-v3` (`raspy-pine-96654399`), with the live schema managed by repository SQL migrations
 - Audio uploads (Cloudflare R2): real
 - Email (Resend + React Email): real — 8 templates exist, not all wired yet
 - Analytics (Sentry + PostHog): real

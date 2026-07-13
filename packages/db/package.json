@@ -13,6 +13,7 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:consolidate": "node consolidate-neon.mjs",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

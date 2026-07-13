@@ -96,7 +96,7 @@ All producer dashboard pages now work at 390px, desktop unchanged (verified by p
 Known pre-existing (NOT this branch): Overview "Today's session" 36px time overflows its w-14 column and touches the subtitle — flagged separately.
 
 ### Production database — IMPORTANT correction
-Prod Neon project is **`skitza` (quiet-sun-92221754)** — Raz applied migration 0021 there. The `skitza-v3` project (raspy-pine) is stale since 2026-05-26. (CLAUDE.md's "fresh skitza-v3 project" note is outdated.) Migration 0021 is applied; nothing pending from tonight's merges (all tonight's PRs were schema-free).
+**Correction (2026-07-13):** the canonical production Neon project is **`skitza-v3` (`raspy-pine-96654399`)**. Gili explicitly confirmed this after a live application audit. The old **`skitza` (`quiet-sun-92221754`)** project is the read-only consolidation source. This supersedes the earlier conclusion in this dated recap that named `skitza` as production.
 
 ### Deploy state
 SK-50/51/52 (commit `0d2edb5`) were promoted to skitza.app on 2026-06-11 (~18:00, dpl_HoXc1r2 → production). The producer-mobile wave (SK-53..57, head `f14298a`) is merged + built but **NOT promoted** — same drill when Gili says go: `vercel promote <dpl> && vercel alias set <dpl> skitza.app`, matching `githubCommitSha`, then verify in Incognito (service-worker cache).

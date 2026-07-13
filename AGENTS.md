@@ -51,7 +51,8 @@
 
 ## Database safety
 
-- The production Neon project is `skitza` (`quiet-sun-92221754`). The old `skitza-v3` project is stale and is not production.
+- The canonical production Neon project is `skitza-v3` (`raspy-pine-96654399`). Gili explicitly confirmed this after the live application audit on 2026-07-13.
+- The old `skitza` project (`quiet-sun-92221754`) is the read-only consolidation source. Keep it untouched until the consolidation is verified and Gili separately approves archiving or deletion.
 - The Drizzle journal is out of sync with migrations 0019+. Do not run `drizzle-kit migrate` or `pnpm -F db db:migrate`.
 - Use `$skitza-migrate`, which runs `packages/db/apply-migrations.mjs` and requires an explicit target environment.
 - Never print database URLs or credentials. Never migrate production without Gili's explicit approval for that exact run.
