@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
 import { dateKeyInTimeZone } from "~/components/dashboard/overview/overview-time";
+import { ProofQueueRefresh } from "~/components/dashboard/requests/proof-queue-refresh";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
@@ -36,25 +37,26 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const caller = appRouter.createCaller({ userId });
 
   // Fan-out across the independent sources that feed the dashboard's
-  // Needs You queue, project/upload shelves, and compact studio pulse.
+  // Needs You queue, proof review, project/upload shelves, and studio pulse.
   const [
     today,
     me,
     followUpRaw,
     pendingBookings,
     pendingPurchaseRequests,
+    pendingPaymentProofs,
     urgent,
     recentPaid,
-  ] =
-    await Promise.all([
-      caller.producer.today(),
-      caller.producer.me(),
-      caller.booking.needsFollowUp(),
-      caller.booking.list({ status: "pending_approval" }),
-      caller.producer.purchase.list({ status: "pending" }),
-      caller.producer.overview.urgent({ limit: 50 }),
-      caller.booking.recentPaidUnacknowledged(),
-    ]);
+  ] = await Promise.all([
+    caller.producer.today(),
+    caller.producer.me(),
+    caller.booking.needsFollowUp(),
+    caller.booking.list({ status: "pending_approval" }),
+    caller.producer.purchase.list({ status: "pending" }),
+    caller.producer.purchase.proofOfPayment.pending(),
+    caller.producer.overview.urgent({ limit: 50 }),
+    caller.booking.recentPaidUnacknowledged(),
+  ]);
 
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
@@ -83,32 +85,24 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     };
   })();
 
-  // Reshape pending bookings for the approvals card. Only the fields
-  // the card surfaces — drop the rest so the prop interface is
-  // narrow and easy to follow. The schema column is `notes`; we
-  // expose it as `message` to the screen since that's what the
-  // design language calls it (the artist-side input field is
-  // labelled "Your message").
-  const pendingApprovals = pendingBookings.map((b) => ({
-    id: b.id,
-    artistName: b.artistName,
-    artistEmail: b.artistEmail,
-    startsAt: b.startsAt,
-    durationMin: b.durationMin,
-    packageNameSnapshot: b.packageNameSnapshot,
-    message: b.notes,
+  const pendingApprovals = pendingBookings.map((booking) => ({
+    id: booking.id,
+    artistName: booking.artistName,
+    artistEmail: booking.artistEmail,
+    startsAt: booking.startsAt,
+    durationMin: booking.durationMin,
+    packageNameSnapshot: booking.packageNameSnapshot,
+    message: booking.notes,
   }));
 
-  // Preserve the verified SK-20 payment signal in the same Needs You
-  // queue. Acknowledging its row still stamps producerAcknowledgedAt.
-  const paidBookings = recentPaid.map((p) => ({
-    id: p.id,
-    artistName: p.artistName,
-    packageNameSnapshot: p.packageNameSnapshot,
-    unitPriceCents: p.unitPriceCents,
-    songQty: p.songQty,
-    projectId: p.projectId,
-    projectName: p.projectName,
+  const paidBookings = recentPaid.map((payment) => ({
+    id: payment.id,
+    artistName: payment.artistName,
+    packageNameSnapshot: payment.packageNameSnapshot,
+    unitPriceCents: payment.unitPriceCents,
+    songQty: payment.songQty,
+    projectId: payment.projectId,
+    projectName: payment.projectName,
   }));
 
   return (
@@ -118,11 +112,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[260px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.08)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
       />
       <div className="mx-auto max-w-[1920px]">
+        <ProofQueueRefresh />
         <OverviewScreen
           displayName={me.displayName}
           slug={me.slug}
           timezone={producerTimezone}
           pulseStats={today.pulseStats}
+          paymentProofs={pendingPaymentProofs.available ? pendingPaymentProofs.proofs : []}
           purchaseRequests={pendingPurchaseRequests.requests}
           pendingApprovals={pendingApprovals}
           followUps={followUpRaw.map((session) => ({

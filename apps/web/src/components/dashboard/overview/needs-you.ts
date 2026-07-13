@@ -27,9 +27,17 @@ export type PaymentSource = {
   projectName: string;
 };
 
+export type PaymentProofSource = {
+  proofId: string;
+  purchaseRequestId: string;
+  artistName: string;
+  productNameSnapshot: string;
+};
+
 export type NeedsYouItem = {
   id: string;
   kind:
+    | "payment_proof"
     | "purchase_request"
     | "session_approval"
     | "follow_up"
@@ -47,6 +55,7 @@ export type NeedsYouItem = {
 };
 
 export type NeedsYouSources = {
+  paymentProofs: readonly PaymentProofSource[];
   purchaseRequests: readonly {
     id: string;
     artistName: string;
@@ -107,6 +116,18 @@ export function groupFollowUps(
  */
 export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
   const items: NeedsYouItem[] = [];
+
+  for (const proof of sources.paymentProofs) {
+    items.push({
+      id: `payment-proof:${proof.proofId}`,
+      kind: "payment_proof",
+      title: "Payment proof",
+      meta: `${proof.artistName} · ${proof.productNameSnapshot}`,
+      href: `/dashboard/requests/${proof.purchaseRequestId}?proof=${proof.proofId}#payment-proof`,
+      actionLabel: "Review",
+      priority: 5,
+    });
+  }
 
   for (const request of sources.purchaseRequests) {
     items.push({

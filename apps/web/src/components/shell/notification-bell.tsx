@@ -50,6 +50,13 @@ export function filterNotifications(
  * selected; project-backed events go to the project room.
  */
 export function notificationHref(notification: ShellNotificationItem): string {
+  if (notification.kind === "proof_submitted" && notification.purchaseRequestId) {
+    const requestId = encodeURIComponent(notification.purchaseRequestId);
+    if (notification.paymentProofId) {
+      return `/dashboard/requests/${requestId}?proof=${encodeURIComponent(notification.paymentProofId)}#payment-proof`;
+    }
+    return `/dashboard/requests/${requestId}#payment-proof`;
+  }
   if (notification.purchaseRequestId) {
     return `/dashboard/requests/${encodeURIComponent(notification.purchaseRequestId)}`;
   }

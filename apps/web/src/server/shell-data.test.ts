@@ -102,4 +102,11 @@ describe("producer shell notification queries", () => {
     expect(SRC).toContain("purchaseRequestId: row.purchaseRequestId");
     expect(SRC).toContain("readAtIso: row.readAt?.toISOString() ?? null");
   });
+
+  it("only gives pending proofs an exact review deep link", () => {
+    expect(SRC).toContain("status: paymentProofs.status");
+    expect(SRC).toMatch(
+      /proof\?\.purchaseRequestId === notification\.purchaseRequestId &&[\s\S]*?proof\.status === "pending"/,
+    );
+  });
 });

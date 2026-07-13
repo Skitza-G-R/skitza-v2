@@ -37,6 +37,8 @@ export type PurchaseStatusCardProps = {
       paid → S10 booking. Omitted for stages without an action. */
   actionHref?: string | undefined;
   actionLabel?: string | undefined;
+  secondaryActionHref?: string | undefined;
+  secondaryActionLabel?: string | undefined;
 };
 
 export type StepState = "done" | "active" | "upcoming";
@@ -140,6 +142,8 @@ export function PurchaseStatusCard({
   producerName,
   actionHref,
   actionLabel,
+  secondaryActionHref,
+  secondaryActionLabel,
 }: PurchaseStatusCardProps) {
   const paidInFull = remainingCents <= 0;
   const pill = pillForStage(stage, paidInFull);
@@ -301,6 +305,14 @@ export function PurchaseStatusCard({
               }}
             >
               {actionLabel} <ArrowRight />
+            </Link>
+          ) : null}
+          {secondaryActionHref && secondaryActionLabel ? (
+            <Link
+              href={secondaryActionHref}
+              className="mt-2 flex min-h-11 w-full items-center justify-center rounded-[var(--radius-lg)] px-4 py-2.5 text-[13.5px] font-semibold text-[rgb(var(--brand-primary-text))]"
+            >
+              {secondaryActionLabel}
             </Link>
           ) : null}
         </div>

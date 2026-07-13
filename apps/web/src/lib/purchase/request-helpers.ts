@@ -15,6 +15,21 @@ export type PaymentPlanChoice =
   | { kind: "monthly"; installments: number }
   | { kind: "milestones" };
 
+// Gate 1 approvals can be reversed for five minutes, provided the
+// artist has not selected a plan. Keep the boundary calculation shared
+// between the producer action and review detail so the UI never offers
+// an undo action that has already expired.
+export const PURCHASE_APPROVAL_UNDO_MS = 5 * 60 * 1000;
+
+export function purchaseApprovalUndoableUntil(
+  approvedAt: Date | null | undefined,
+  now = Date.now(),
+): Date | null {
+  if (!approvedAt) return null;
+  const undoableUntil = new Date(approvedAt.getTime() + PURCHASE_APPROVAL_UNDO_MS);
+  return undoableUntil.getTime() > now ? undoableUntil : null;
+}
+
 // The full set of plans a product offers: its paymentPlans array, plus a
 // virtual milestones plan when the product's deposit model is milestone-
 // based (the schedule lives in products.milestones, not paymentPlans).

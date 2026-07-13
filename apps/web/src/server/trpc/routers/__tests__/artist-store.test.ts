@@ -141,6 +141,7 @@ const {
   };
 
   const dbMock = {
+    execute: () => Promise.resolve({ rows: [{ columnCount: 2 }] }),
     select: () => ({
       from: (table: unknown) => {
         if (table === clientContactsMarker) {

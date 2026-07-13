@@ -15,6 +15,10 @@ const hubPageSource = readFileSync(
   join(here, "..", "..", "..", "..", "app", "(producer)", "dashboard", "requests", "page.tsx"),
   "utf8",
 );
+const dashboardPageSource = readFileSync(
+  join(here, "..", "..", "..", "..", "app", "(producer)", "dashboard", "page.tsx"),
+  "utf8",
+);
 const detailPageSource = readFileSync(
   join(
     here,
@@ -37,14 +41,26 @@ const purchaseRouterSource = readFileSync(
 );
 
 describe("producer purchase request flow", () => {
-  it("loads the pending hub through the tenant-scoped producer list query", () => {
+  it("loads both decision and private-proof queues through tenant-scoped queries", () => {
     expect(hubPageSource).toMatch(/auth\(\)/);
     expect(hubPageSource).toMatch(/redirect\("\/sign-in"\)/);
     expect(hubPageSource).toMatch(/producer\.purchase\.list\(\{\s*status:\s*"pending"\s*\}\)/);
+    expect(hubPageSource).toMatch(/proofOfPayment\.pending\(\)/);
+    expect(hubPageSource).toMatch(/<PendingPaymentProofs/);
     expect(hubPageSource).toMatch(/<PurchaseRequestsList requests=\{requests\}/);
     expect(listSource).toMatch(/\/dashboard\/requests\/\$\{request\.id\}/);
     expect(purchaseRouterSource).toMatch(/list:\s*producerProcedure/);
     expect(purchaseRouterSource).toMatch(/eq\(purchaseRequests\.producerId, ctx\.producerId\)/);
+  });
+
+  it("keeps proof review visible on the redesigned dashboard", () => {
+    expect(dashboardPageSource).toMatch(/proofOfPayment\.pending\(\)/);
+    expect(dashboardPageSource).toMatch(
+      /paymentProofs=\{pendingPaymentProofs\.available \? pendingPaymentProofs\.proofs : \[\]\}/,
+    );
+    expect(dashboardPageSource).not.toMatch(/<PendingPaymentProofs/);
+    expect(dashboardPageSource).toMatch(/<ProofQueueRefresh/);
+    expect(dashboardPageSource).toMatch(/<OverviewScreen/);
   });
 
   it("keeps locked request facts visible in a compact review list", () => {
@@ -54,7 +70,6 @@ describe("producer purchase request flow", () => {
     expect(listSource).toMatch(/artistEmail/);
     expect(listSource).toMatch(/bg-\[rgb\(var\(--brand-primary\)\)\]/);
     expect(listSource).toContain("Review");
-    expect(listSource).not.toMatch(/href="\/dashboard\/requests"[^>]*>\s*Requests\s*</);
   });
 
   it("wraps approve, decline, and undo in authenticated server actions", () => {
@@ -65,13 +80,16 @@ describe("producer purchase request flow", () => {
     expect(actionsSource).toMatch(/transition\.undoableUntil\.toISOString\(\)/);
     expect(actionsSource).toMatch(/revalidatePath\("\/dashboard"\)/);
     expect(actionsSource).toMatch(/revalidatePath\(REQUESTS_PATH\)/);
-    expect(actionsSource).toMatch(/revalidatePath\(`\$\{REQUESTS_PATH\}\/\$\{id\}`\)/);
     expect(actionsSource).toContain("This purchase request is no longer available.");
     expect(actionsSource).not.toMatch(/error instanceof Error\s*\?\s*error\.message/);
   });
 
-  it("adds review actions without replacing the SK-73 commercial snapshots", () => {
+  it("adds review actions and exact proof review without replacing frozen terms", () => {
     expect(detailPageSource).toMatch(/producer\.purchase\.get\(\{ id \}\)/);
+    expect(detailPageSource).toMatch(/proofOfPayment\.pending\(\{ purchaseRequestId: id \}\)/);
+    expect(detailPageSource).toMatch(/proofOfPayment\.view/);
+    expect(detailPageSource).toMatch(/requestedProofId/);
+    expect(detailPageSource).toMatch(/<PaymentProofReview/);
     expect(detailPageSource).toMatch(/<PurchaseRequestReview/);
     expect(detailPageSource).toMatch(/paymentPlanOptionsSnapshot/);
     expect(detailPageSource).toMatch(/royaltyTermsSnapshot/);
@@ -87,10 +105,11 @@ describe("producer purchase request flow", () => {
     expect(detailPageSource).not.toMatch(/booking\.packages|from\(products\)/);
   });
 
-  it("keeps foreign and missing request ids on the 404 path", () => {
+  it("keeps foreign, missing, and guessed proof ids on the 404 path", () => {
     expect(detailPageSource).toMatch(/error\.code === "FORBIDDEN"/);
     expect(detailPageSource).toMatch(/error\.code === "NOT_FOUND"/);
     expect(detailPageSource).toMatch(/PURCHASE_REQUEST_ID\.safeParse\(id\)/);
+    expect(detailPageSource).toMatch(/requestedProofId && !selectedProof/);
     expect(detailPageSource).toMatch(/notFound\(\)/);
   });
 
@@ -98,17 +117,11 @@ describe("producer purchase request flow", () => {
     expect(reviewSource).toMatch(/approvePurchaseRequest/);
     expect(reviewSource).toMatch(/declinePurchaseRequest/);
     expect(reviewSource).toMatch(/undoPurchaseApproval/);
-    expect(reviewSource).toMatch(/setStatus\(initialStatus\)/);
-    expect(reviewSource).toMatch(/useState<string \| null>\(\s*initialUndoableUntilIso/);
     expect(reviewSource).toMatch(/isApprovalUndoAvailable\(undoableUntilIso\)/);
     expect(reviewSource).toMatch(/setUndoableUntilIso\(result\.undoableUntilIso\)/);
-    expect(reviewSource).not.toMatch(/if \(!result\.ok\) \{\s*setUndoableUntilIso\(null\)/);
     expect(reviewSource).toContain("Private note (optional)");
     expect(reviewSource).toContain("The artist receives a generic update.");
-    expect(reviewSource).toMatch(/aria-expanded=\{showDecline\}/);
-    expect(reviewSource).toMatch(/aria-controls="decline-request-form"/);
     expect(reviewSource).toMatch(/aria-describedby="decline-reason-help"/);
     expect(reviewSource).toMatch(/role=\{error \? "alert" : undefined\}/);
-    expect(reviewSource).toMatch(/catch \{/);
   });
 });

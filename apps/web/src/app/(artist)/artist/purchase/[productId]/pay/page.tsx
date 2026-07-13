@@ -33,7 +33,15 @@ export default async function ChoosePlanPage({ params, searchParams }: PageProps
     if (data.productId && data.productId !== productId) notFound();
     if (data.status !== "approved") {
       if (data.status === "verifying" || data.status === "paid") {
-        redirect(`/artist/purchase/${productId}/pay/proof?req=${req}`);
+        const proofState = await caller.artist.purchase.proofOfPayment.state({
+          purchaseRequestId: req,
+        });
+        if (proofState.productId && proofState.productId !== productId) notFound();
+        redirect(
+          proofState.proofUploadsAvailable
+            ? `/artist/purchase/${productId}/pay/proof?req=${req}`
+            : `/artist/purchase/${productId}/pay/instructions?req=${req}`,
+        );
       }
       redirect("/artist");
     }

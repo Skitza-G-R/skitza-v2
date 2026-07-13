@@ -51,6 +51,12 @@ function purchaseMigration(): string {
   return readFileSync(path, "utf8");
 }
 
+function legacyShareCleanupMigration(): string {
+  const path = join(process.cwd(), "drizzle", "0026_remove_legacy_project_share_token.sql");
+  expect(existsSync(path)).toBe(true);
+  return readFileSync(path, "utf8");
+}
+
 describe("purchase flow hardening schema", () => {
   it("has a private payment-proofs table separate from invoices", () => {
     expect("paymentProofs" in schema).toBe(true);
@@ -132,5 +138,27 @@ describe("purchase flow hardening schema", () => {
     expect(benignPattern).not.toMatch(/duplicate key|foreign key|does not exist/);
     expect(errorHandler).toMatch(/if \(!benign\) \{[\s\S]*process\.exit\(1\)/);
     expect(runner).not.toMatch(/hadError/);
+  });
+
+  it("freezes booking credit and removes the obsolete share-token requirement", () => {
+    const migration = legacyShareCleanupMigration();
+    const sqlOnly = migration
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS "session_count_snapshot" integer/);
+    expect(migration).toMatch(/UPDATE "purchase_requests" AS "request"/);
+    expect(migration).toMatch(/FROM "products" AS "product"/);
+    expect(migration).toMatch(/"request"\."product_id" = "product"\."id"/);
+    expect(migration).toMatch(/"request"\."producer_id" = "product"\."producer_id"/);
+    expect(migration).toMatch(/WHEN "product"\."session_count" = 0 THEN 0/);
+    expect(migration).toMatch(/"product"\."pricing_model" = 'per_song'/);
+    expect(migration).toMatch(/CREATE OR REPLACE FUNCTION "freeze_purchase_request_session_count"/);
+    expect(migration).toMatch(/BEFORE INSERT OR UPDATE OF "product_id", "song_qty"/);
+    expect(migration).toMatch(/WHEN \(NEW\."session_count_snapshot" IS NULL\)/);
+    expect(migration).toMatch(/DROP COLUMN IF EXISTS "share_token_hash"/);
+    expect(sqlOnly).not.toMatch(/\bINSERT\s+INTO\b|\bDELETE\s+FROM\b/i);
+    expect(sqlOnly).not.toMatch(/ADD COLUMN IF NOT EXISTS "share_token_hash"/i);
   });
 });

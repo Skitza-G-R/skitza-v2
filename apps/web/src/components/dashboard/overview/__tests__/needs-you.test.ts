@@ -8,6 +8,7 @@ import {
 } from "../needs-you";
 
 const EMPTY: NeedsYouSources = {
+  paymentProofs: [],
   purchaseRequests: [],
   pendingApprovals: [],
   followUps: [],
@@ -54,9 +55,41 @@ describe("groupFollowUps", () => {
 });
 
 describe("buildNeedsYouQueue", () => {
+  it("puts pending payment proofs in the unified queue with their exact review link", () => {
+    const queue = buildNeedsYouQueue({
+      ...EMPTY,
+      paymentProofs: [
+        {
+          proofId: "proof-1",
+          purchaseRequestId: "request-1",
+          artistName: "Maya",
+          productNameSnapshot: "Mix & Master",
+        },
+      ],
+    });
+
+    expect(queue).toEqual([
+      expect.objectContaining({
+        id: "payment-proof:proof-1",
+        kind: "payment_proof",
+        title: "Payment proof",
+        href: "/dashboard/requests/request-1?proof=proof-1#payment-proof",
+        actionLabel: "Review",
+      }),
+    ]);
+  });
+
   it("keeps unresolved work separate from notification read state and orders real decisions first", () => {
     const queue = buildNeedsYouQueue({
       ...EMPTY,
+      paymentProofs: [
+        {
+          proofId: "proof-1",
+          purchaseRequestId: "request-proof-1",
+          artistName: "Ari",
+          productNameSnapshot: "Production",
+        },
+      ],
       purchaseRequests: [
         { id: "r-1", artistName: "Maya", productNameSnapshot: "Mix & Master" },
       ],
@@ -90,6 +123,7 @@ describe("buildNeedsYouQueue", () => {
     });
 
     expect(queue.map((item) => item.kind)).toEqual([
+      "payment_proof",
       "purchase_request",
       "session_approval",
       "follow_up",
@@ -97,8 +131,11 @@ describe("buildNeedsYouQueue", () => {
       "payment_received",
       "setup",
     ]);
-    expect(queue[0]?.href).toBe("/dashboard/requests/r-1");
-    expect(queue[1]?.href).toBe("/dashboard/calendar?booking=b-1");
+    expect(queue[0]?.href).toBe(
+      "/dashboard/requests/request-proof-1?proof=proof-1#payment-proof",
+    );
+    expect(queue[1]?.href).toBe("/dashboard/requests/r-1");
+    expect(queue[2]?.href).toBe("/dashboard/calendar?booking=b-1");
   });
 
   it("deduplicates a generic urgent-project action when a specific unresolved row opens the same project", () => {

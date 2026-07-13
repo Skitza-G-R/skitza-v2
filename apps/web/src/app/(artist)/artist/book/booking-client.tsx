@@ -44,6 +44,7 @@ type ActivePackage = {
   sessionCount: number;
   sessionsUsed: number;
   sessionsRemaining: number;
+  unlimitedSessions: boolean;
 };
 type Props = {
   activeStudioId: string;
@@ -51,6 +52,7 @@ type Props = {
   products: Product[];
   studios: Studio[];
   activePackages: ActivePackage[];
+  initialPackageProjectId: string | null;
 };
 
 const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -191,6 +193,7 @@ export function BookingClient({
   products,
   studios,
   activePackages,
+  initialPackageProjectId,
 }: Props) {
   const router = useRouter();
   const today = todayISO();
@@ -223,7 +226,7 @@ export function BookingClient({
   );
   const [selectedPackageProjectId, setSelectedPackageProjectId] = useState<
     string | null
-  >(null);
+  >(initialPackageProjectId);
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<
     { ok: true } | { ok: false; error: string } | null
@@ -234,6 +237,15 @@ export function BookingClient({
     activePackages.find((p) => p.projectId === selectedPackageProjectId) ??
     null;
   const activeStudio = studios.find((s) => s.producerId === activeStudioId);
+
+  // A successful request can consume the final prepaid session. Server
+  // refreshes then remove that package from activePackages; never leave the
+  // client in a stale credit mode that could hide services or resubmit it.
+  useEffect(() => {
+    if (selectedPackageProjectId && !selectedPackage) {
+      setSelectedPackageProjectId(null);
+    }
+  }, [selectedPackage, selectedPackageProjectId]);
 
   const startsForSelected: StartOption[] = useMemo(() => {
     if (!selectedDate) return [];
@@ -472,7 +484,9 @@ export function BookingClient({
             : result?.ok
               ? "Sent"
               : usingCredit
-                ? `Use credit · ${String(selectedPackage?.sessionsRemaining ?? 0)} left`
+                ? selectedPackage?.unlimitedSessions
+                  ? "Use credit · Ongoing"
+                  : `Use credit · ${String(selectedPackage?.sessionsRemaining ?? 0)} left`
                 : "Request this slot"}
         </PrimaryCta>
       </div>
@@ -1144,6 +1158,7 @@ function CreditsBlock({
   onPick: (projectId: string) => void;
   onClear: () => void;
 }) {
+  const hasUnlimited = packages.some((pkg) => pkg.unlimitedSessions);
   const totalLeft = packages.reduce((n, p) => n + p.sessionsRemaining, 0);
   return (
     <section
@@ -1160,13 +1175,14 @@ function CreditsBlock({
           Use a prepaid session
         </h2>
         <p className="font-amount text-[10.5px] text-[rgb(var(--fg-secondary))]">
-          {totalLeft} left
+          {hasUnlimited ? "Ongoing" : `${String(totalLeft)} left`}
         </p>
       </header>
       <ul className="mt-2.5 space-y-1.5">
         {packages.map((pkg) => {
           const sel = pkg.projectId === selectedProjectId;
-          const exhausted = pkg.sessionsRemaining <= 0;
+          const exhausted =
+            !pkg.unlimitedSessions && pkg.sessionsRemaining <= 0;
           return (
             <li key={pkg.projectId}>
               <button
@@ -1203,7 +1219,9 @@ function CreditsBlock({
                       : "rgb(var(--brand-primary-dark))",
                   }}
                 >
-                  {pkg.sessionsRemaining}/{pkg.sessionCount}
+                  {pkg.unlimitedSessions
+                    ? "Ongoing"
+                    : `${String(pkg.sessionsRemaining)}/${String(pkg.sessionCount)}`}
                 </span>
               </button>
             </li>

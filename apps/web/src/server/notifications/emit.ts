@@ -126,6 +126,7 @@ export async function emitAgreementAccepted(db: Db, input: {
 }
 
 export async function emitProofSubmitted(db: Db, input: {
+  proofId: string;
   producerId: string;
   purchaseRequestId: string;
   artistName: string;
@@ -136,6 +137,9 @@ export async function emitProofSubmitted(db: Db, input: {
 }): Promise<void> {
   const amount = `${input.currency === "ILS" ? "\u20aa" : ""}${(input.amountCents / 100).toLocaleString("en-US")}`;
   await db.insert(notifications).values({
+    // Reuse the globally unique proof UUID so the notification has a durable
+    // exact deep-link without requiring another production migration.
+    id: input.proofId,
     producerId: input.producerId,
     kind: "proof_submitted",
     title: `${input.artistName} uploaded a proof of payment`,

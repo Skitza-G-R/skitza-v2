@@ -13,11 +13,16 @@
 // Funnel chrome: full-screen overlay, back arrow top-left, no tab bar, the
 // primary action pinned low and thumb-reachable.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ClockIcon, DocIcon } from "~/components/artist/funnel/funnel-icons";
-import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import {
+  Eyebrow,
+  FunnelTopBar,
+  PrimaryCta,
+  SecondaryCta,
+} from "~/components/artist/funnel/funnel-ui";
 import {
   presignProofUploadAction,
   submitPaymentProofAction,
@@ -83,6 +88,7 @@ export function UploadProofScreen({
   paidCents,
   totalCents,
   thisProofCents,
+  bookingHref,
   status: initialStatus = "empty",
   rejectionNote,
 }: {
@@ -97,6 +103,8 @@ export function UploadProofScreen({
   totalCents: number;
   /** What THIS proof is expected to cover (the amount due now). */
   thisProofCents: number;
+  /** Exact paid project in the existing booking funnel. */
+  bookingHref?: string | undefined;
   /** Server-side starting state — drives the rejected / paid banners. */
   status?: ProofStatus;
   /** Producer's optional note shown when a prior proof was rejected. */
@@ -104,10 +112,58 @@ export function UploadProofScreen({
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const uploadButtonRef = useRef<HTMLButtonElement>(null);
+  const previewUrlRef = useRef<string | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<ProofStatus>(initialStatus);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  function clearPreview() {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = null;
+    setPreviewUrl(null);
+  }
+
+  function clearFile() {
+    setFile(null);
+    clearPreview();
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  // A router refresh preserves this client instance, so local optimistic state
+  // must explicitly adopt the server's authoritative proof result.
+  useEffect(() => {
+    setStatus(initialStatus);
+    if (
+      initialStatus === "empty" ||
+      initialStatus === "awaiting" ||
+      initialStatus === "rejected" ||
+      initialStatus === "paid"
+    ) {
+      clearFile();
+    }
+  }, [initialStatus]);
+
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    },
+    [],
+  );
+
+  // Gate-2 happens in another account. Refresh at a modest cadence while the
+  // producer is reviewing, and stop as soon as refreshed props change state.
+  useEffect(() => {
+    if (status !== "awaiting") return;
+    const intervalId = window.setInterval(() => {
+      router.refresh();
+    }, 8_000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [router, status]);
 
   const progress = paidProgress(paidCents, totalCents);
   const isUploading = status === "uploading";
@@ -119,14 +175,35 @@ export function UploadProofScreen({
   const canSend = !!file && !isUploading && !isAwaiting && !isPaidInFull;
 
   function pickFile() {
+    if (fileRef.current) fileRef.current.value = "";
     fileRef.current?.click();
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = e.target.files?.[0] ?? null;
+    if (!picked) return;
+    const error = proofFileError(picked);
+    if (error) {
+      setUploadError(error);
+      e.target.value = "";
+      return;
+    }
+
+    clearPreview();
     setUploadError(null);
     setFile(picked);
-    if (picked) setStatus("attached");
+    const contentType = proofContentType(picked);
+    if (
+      contentType === "image/jpeg" ||
+      contentType === "image/png" ||
+      contentType === "image/webp"
+    ) {
+      const url = URL.createObjectURL(picked);
+      previewUrlRef.current = url;
+      setPreviewUrl(url);
+    }
+    setStatus("attached");
+    uploadButtonRef.current?.focus();
   }
 
   function proofContentType(picked: File): ProofContentType | null {
@@ -141,19 +218,37 @@ export function UploadProofScreen({
     ) {
       return type;
     }
-    if (/\.heic$/i.test(picked.name)) return "image/heic";
+
+    // Some mobile and desktop file pickers leave File.type empty. Trust the
+    // accepted extension only for an absent/generic MIME; a conflicting MIME
+    // still fails here and the server performs its own object validation.
+    if (type === "" || type === "application/octet-stream") {
+      const extension = picked.name.toLowerCase().match(/\.([^.]+)$/)?.[1];
+      if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+      if (extension === "png") return "image/png";
+      if (extension === "webp") return "image/webp";
+      if (extension === "heic") return "image/heic";
+      if (extension === "pdf") return "application/pdf";
+    }
+    return null;
+  }
+
+  function proofFileError(picked: File): string | null {
+    if (!proofContentType(picked)) {
+      return "Choose a JPG, PNG, WebP, HEIC, or PDF file.";
+    }
+    if (picked.size > 15 * 1024 * 1024) {
+      return "That file is over 15 MB. Choose a smaller one.";
+    }
     return null;
   }
 
   async function send() {
     if (!file || isUploading || isAwaiting || isPaidInFull) return;
+    const fileError = proofFileError(file);
     const contentType = proofContentType(file);
-    if (!contentType) {
-      setUploadError("Choose a JPG, PNG, WebP, HEIC, or PDF file.");
-      return;
-    }
-    if (file.size > 15 * 1024 * 1024) {
-      setUploadError("That file is over 15 MB. Choose a smaller one.");
+    if (fileError || !contentType) {
+      setUploadError(fileError ?? "Choose another file and try again.");
       return;
     }
     setUploadError(null);
@@ -179,11 +274,11 @@ export function UploadProofScreen({
       const submitted = await submitPaymentProofAction({
         purchaseRequestId,
         amountCents: thisProofCents,
-        storageKey: presigned.storageKey,
         originalFileName: file.name,
       });
       if (!submitted.ok) throw new Error(submitted.error);
 
+      clearFile();
       setStatus("awaiting");
       router.refresh();
     } catch (error) {
@@ -195,10 +290,10 @@ export function UploadProofScreen({
   }
 
   function reUpload() {
-    setFile(null);
-    setStatus("empty");
     setUploadError(null);
-    // open the picker so re-uploading is one tap from the rejected banner
+    // Preserve the server-owned rejection state if the native picker is
+    // cancelled. We only move to `attached` after a valid replacement exists.
+    if (fileRef.current) fileRef.current.value = "";
     fileRef.current?.click();
   }
 
@@ -214,25 +309,69 @@ export function UploadProofScreen({
           title="Upload proof"
           sub={isPaidInFull ? "PROOF OF PAYMENT" : `OF ${formatShekels(thisProofCents)}`}
           onBack={() => {
-            router.back();
+            if (isAwaiting) router.push("/artist");
+            else router.back();
           }}
         />
 
         <div className="flex-1 px-5 pt-3.5 pb-[184px]">
           {/* heading — sized to hold one line at 390px */}
           <h1 className="reveal-up font-syne text-[23px] leading-[1.1] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-            {isPaidInFull ? "All paid up" : "Upload your proof"}
+            {isPaidInFull
+              ? "All paid up"
+              : isAwaiting
+                ? "Proof sent"
+                : isRejected
+                  ? "Upload a clearer proof"
+                  : "Upload your proof"}
           </h1>
           <p className="reveal-up reveal-up-delay-1 mt-2 text-[14px] leading-relaxed text-pretty text-[rgb(var(--fg-muted))]">
             {isPaidInFull
               ? `${producerName} confirmed every payment — your sessions are unlocked.`
-              : `Add a screenshot or PDF of your transfer. ${producerName} checks it and unlocks your sessions.`}
+              : isAwaiting
+                ? `Sent to ${producerName} for review. We'll let you know as soon as they confirm it.`
+                : bookingHref
+                  ? `Add a screenshot or PDF to keep your payment record current. Your sessions are already unlocked.`
+                  : `Add a screenshot or PDF of your transfer. ${producerName} checks it and unlocks your sessions.`}
           </p>
+
+          {isAwaiting && !isPaidInFull ? (
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="reveal-up reveal-up-delay-1 rounded-card mt-4 flex items-start gap-3 px-4 py-3.5"
+              style={{
+                background: "rgb(var(--brand-primary) / 0.1)",
+                border: "1px solid rgb(var(--brand-primary) / 0.3)",
+              }}
+            >
+              <span
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                style={{
+                  background: "rgb(var(--brand-primary) / 0.18)",
+                  color: "rgb(var(--brand-primary-text))",
+                }}
+              >
+                <ClockIcon width={17} height={17} />
+              </span>
+              <div className="min-w-0 pt-0.5">
+                <div className="text-[14px] font-semibold text-[rgb(var(--fg-default))]">
+                  Proof sent for verification
+                </div>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">
+                  {`You can leave this screen. We'll update your booking as soon as ${producerName} reviews it.`}
+                </p>
+              </div>
+            </div>
+          ) : null}
 
           {/* paid-in-full banner (green) — the happy end of the Pay step */}
           {isPaidInFull ? (
             <div
               role="status"
+              aria-live="polite"
+              aria-atomic="true"
               className="reveal-up reveal-up-delay-1 rounded-card mt-4 flex items-center gap-3 px-4 py-3.5"
               style={{
                 background: "rgb(var(--fg-success) / 0.12)",
@@ -287,7 +426,7 @@ export function UploadProofScreen({
           ) : null}
 
           {/* the amount THIS proof covers */}
-          {!isPaidInFull ? (
+          {!isPaidInFull && !isAwaiting ? (
             <div
               className="reveal-up reveal-up-delay-2 rounded-card mt-4 flex items-center justify-between px-4 py-3.5"
               style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-onsidebar))" }}
@@ -305,17 +444,17 @@ export function UploadProofScreen({
           ) : null}
 
           {/* upload tile — a real <input> styled as a big tap target */}
-          {!isPaidInFull ? (
+          {!isPaidInFull && !isAwaiting ? (
             <div className="reveal-up reveal-up-delay-2 mt-4">
               <input
                 ref={fileRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/heic,.heic,application/pdf"
-                capture="environment"
                 onChange={onFileChange}
                 hidden
               />
               <button
+                ref={uploadButtonRef}
                 type="button"
                 onClick={pickFile}
                 disabled={isUploading || isAwaiting}
@@ -331,15 +470,26 @@ export function UploadProofScreen({
               >
                 {file ? (
                   <>
-                    <span
-                      className="flex h-11 w-11 items-center justify-center rounded-[12px]"
-                      style={{
-                        background: "rgb(var(--brand-primary) / 0.14)",
-                        color: "rgb(var(--brand-primary-text))",
-                      }}
-                    >
-                      <DocIcon width={22} height={22} />
-                    </span>
+                    {previewUrl ? (
+                      <span
+                        aria-hidden="true"
+                        className="h-[76px] w-[76px] rounded-[var(--radius-md)] bg-cover bg-center shadow-sm"
+                        style={{
+                          backgroundImage: `url(${JSON.stringify(previewUrl)})`,
+                          border: "1px solid rgb(var(--border-subtle))",
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="flex h-12 w-12 items-center justify-center rounded-[var(--radius-md)]"
+                        style={{
+                          background: "rgb(var(--brand-primary) / 0.14)",
+                          color: "rgb(var(--brand-primary-text))",
+                        }}
+                      >
+                        <DocIcon width={22} height={22} />
+                      </span>
+                    )}
                     <span className="max-w-[260px] truncate text-[14px] font-semibold">
                       {file.name}
                     </span>
@@ -360,7 +510,7 @@ export function UploadProofScreen({
                     </span>
                     <span className="text-[15px] font-semibold">Take a photo or choose a file</span>
                     <span className="font-mono text-[10.5px] tracking-[0.04em] text-[rgb(var(--fg-muted))]">
-                      JPG · PNG · HEIC · PDF
+                      JPG · PNG · WEBP · HEIC · PDF · MAX 15 MB
                     </span>
                   </>
                 )}
@@ -393,8 +543,6 @@ export function UploadProofScreen({
                       borderTopColor: "rgb(var(--brand-primary-text))",
                     }}
                   />
-                ) : isAwaiting ? (
-                  <ClockIcon />
                 ) : null}
                 <span>{headline.headline}</span>
               </div>
@@ -457,11 +605,13 @@ export function UploadProofScreen({
                           {formatShekels(proof.amountCents)}
                         </div>
                         <div className="mt-px text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                          {copy.headline}
+                          {proof.status === "paid"
+                            ? `${producerName} verified this payment`
+                            : copy.headline}
                         </div>
                       </div>
                       <span
-                        className="shrink-0 rounded-full px-2.5 py-1 font-mono text-[9.5px] font-bold tracking-[0.08em] uppercase"
+                        className="shrink-0 rounded-[var(--radius-sm)] px-2.5 py-1 font-mono text-[9.5px] font-bold tracking-[0.08em] uppercase"
                         style={chipStyle(copy.tone)}
                       >
                         {proof.status === "awaiting"
@@ -526,14 +676,30 @@ export function UploadProofScreen({
         </div>
 
         {/* pinned action */}
-        {!isPaidInFull ? (
+        {!isPaidInFull && !isAwaiting ? (
           <div
-            className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5"
+            className="sticky bottom-0 z-10 px-[18px] pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))]"
             style={{
               background:
                 "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
             }}
           >
+            {bookingHref ? (
+              <button
+                type="button"
+                onClick={() => {
+                  router.push(bookingHref);
+                }}
+                className="mb-2.5 flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border px-4 py-3 text-[14px] font-bold"
+                style={{
+                  borderColor: "rgb(var(--brand-primary) / 0.5)",
+                  background: "rgb(var(--bg-elevated))",
+                  color: "rgb(var(--brand-primary-text))",
+                }}
+              >
+                Book a session <ArrowRight />
+              </button>
+            ) : null}
             <PrimaryCta
               onClick={() => {
                 void send();
@@ -542,11 +708,9 @@ export function UploadProofScreen({
               glow={canSend}
               ariaBusy={isUploading}
               sub={
-                isAwaiting
-                  ? "We'll ping you when " + producerName + " confirms"
-                  : file
-                    ? "Sends to " + producerName + " to verify"
-                    : "Attach a file to continue"
+                file
+                  ? "Sends to " + producerName + " to verify"
+                  : "Attach a file to continue"
               }
             >
               {isUploading ? (
@@ -561,10 +725,6 @@ export function UploadProofScreen({
                   />
                   Uploading…
                 </>
-              ) : isAwaiting ? (
-                <>
-                  <ClockIcon /> Awaiting verification
-                </>
               ) : (
                 <>
                   Send proof <ArrowRight />
@@ -573,15 +733,31 @@ export function UploadProofScreen({
             </PrimaryCta>
           </div>
         ) : (
-          <div className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5">
+          <div
+            className="sticky bottom-0 z-10 px-[18px] pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))]"
+            style={{
+              background:
+                "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
+            }}
+          >
+            {isAwaiting && !bookingHref ? (
+              <SecondaryCta
+                onClick={() => {
+                  router.push("/artist");
+                }}
+              >
+                Back to Home
+              </SecondaryCta>
+            ) : (
             <PrimaryCta
               glow={false}
               onClick={() => {
-                router.push("/artist/book");
+                router.push(bookingHref ?? "/artist/book");
               }}
             >
               Book a session <ArrowRight />
             </PrimaryCta>
+            )}
           </div>
         )}
       </div>

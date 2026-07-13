@@ -5,7 +5,7 @@
 function Block({ className }: { className: string }) {
   return (
     <div
-      className={`animate-pulse ${className}`}
+      className={`animate-pulse motion-reduce:animate-none ${className}`}
       style={{ background: "rgb(var(--bg-sunken))" }}
     />
   );
@@ -19,7 +19,7 @@ export default function Loading() {
     >
       <div className="mx-auto w-full max-w-[440px]">
         {/* top-bar ghost */}
-        <div className="flex h-[52px] items-center px-[14px]">
+        <div className="sk-safe-top flex min-h-[52px] items-center px-[14px]">
           <Block className="h-[38px] w-[38px] shrink-0 rounded-full" />
           <div className="flex flex-1 justify-center">
             <Block className="h-4 w-36 rounded-[6px]" />
@@ -37,7 +37,7 @@ export default function Loading() {
       </div>
 
       {/* pinned CTA ghost */}
-      <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-[440px] px-[18px] pb-6">
+      <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-[440px] px-[18px] pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]">
         <Block className="h-[58px] w-full rounded-[var(--radius-lg)]" />
       </div>
     </div>

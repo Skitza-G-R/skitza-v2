@@ -37,6 +37,14 @@ describe("book/page.tsx server wiring", () => {
     expect(pageSrc).toMatch(/sp\.studio \?\? studios\[0\]\?\.producerId/);
   });
 
+  it("passes a requested project only when it is an owned active package", () => {
+    expect(pageSrc).toMatch(/sp\.project/);
+    expect(pageSrc).toMatch(
+      /activePackages\.some\(\(pkg\) => pkg\.projectId === sp\.project\)/,
+    );
+    expect(pageSrc).toMatch(/initialPackageProjectId=\{initialPackageProjectId\}/);
+  });
+
   it("renders the BookingClient", () => {
     expect(pageSrc).toMatch(/<BookingClient/);
   });
@@ -115,7 +123,30 @@ describe("booking-client.tsx — progressive gating", () => {
 
 describe("booking-client.tsx — prepaid credits path", () => {
   it("disables a depleted package", () => {
-    expect(clientSrc).toMatch(/sessionsRemaining <= 0/);
+    expect(clientSrc).toMatch(
+      /!pkg\.unlimitedSessions && pkg\.sessionsRemaining <= 0/,
+    );
+  });
+
+  it("preselects the server-validated project from the payment flow", () => {
+    expect(clientSrc).toMatch(/initialPackageProjectId: string \| null/);
+    expect(clientSrc).toMatch(
+      /setSelectedPackageProjectId\] = useState<[\s\S]*?>\(initialPackageProjectId\)/,
+    );
+  });
+
+  it("clears a selected credit when a refresh removes the exhausted package", () => {
+    expect(clientSrc).toMatch(
+      /if \(selectedPackageProjectId && !selectedPackage\) \{\s*setSelectedPackageProjectId\(null\)/,
+    );
+  });
+
+  it("shows unlimited credit as ongoing instead of zero remaining", () => {
+    expect(clientSrc).toMatch(/unlimitedSessions: boolean/);
+    expect(clientSrc).toMatch(/pkg\.unlimitedSessions\s*\?\s*"Ongoing"/);
+    expect(clientSrc).toMatch(
+      /selectedPackage\?\.unlimitedSessions\s*\?\s*"Use credit · Ongoing"/,
+    );
   });
 
   it("offers the 'pay for a new session instead' toggle", () => {

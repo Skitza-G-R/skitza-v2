@@ -1105,6 +1105,11 @@ export const purchaseRequests = pgTable(
     // per_song → songQty × unitPriceCents; hourly → the locked rate.
     priceCents: integer("price_cents").notNull(),
     currency: text("currency").notNull(),
+    // Total booking credit bought at request time. This is already expanded
+    // for per-song products, so proof confirmation never needs to read the
+    // mutable (or later deleted) product to decide how many sessions unlock.
+    // Nullable only for requests created before migration 0025.
+    sessionCountSnapshot: integer("session_count_snapshot"),
     // The single chosen plan from products.paymentPlans — reuses the
     // exported PaymentPlan union verbatim (no new shape).
     paymentPlanSnapshot: jsonb("payment_plan_snapshot").$type<PaymentPlan>().notNull(),

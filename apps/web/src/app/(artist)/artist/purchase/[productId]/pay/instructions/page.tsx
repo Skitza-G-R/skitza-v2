@@ -31,10 +31,16 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
       purchaseRequestId: req,
     });
     if (data.productId && data.productId !== productId) notFound();
-    if (data.pendingProofCents > 0 || data.remainingCents <= 0) {
-      redirect(`/artist/purchase/${productId}/pay/proof?req=${req}`);
-    }
     if (!data.amountDueNowCents) {
+      if (data.proofUploadsAvailable) {
+        redirect(`/artist/purchase/${productId}/pay/proof?req=${req}`);
+      }
+      redirect("/artist");
+    }
+    if (
+      data.proofUploadsAvailable &&
+      (data.pendingProofCents > 0 || data.remainingCents <= 0)
+    ) {
       redirect(`/artist/purchase/${productId}/pay/proof?req=${req}`);
     }
 
@@ -55,6 +61,7 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
         paymentDetails={paymentDetails}
         productName={data.productName}
         planLabel={paymentPlanLabel(data.planKind, data.planInstallments)}
+        proofUploadsAvailable={data.proofUploadsAvailable}
       />
     );
   } catch (error) {

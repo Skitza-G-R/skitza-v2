@@ -7,6 +7,7 @@ import {
   FileText,
   FolderClock,
   MessageSquareText,
+  ReceiptText,
   Settings2,
 } from "lucide-react";
 import Link from "next/link";
@@ -19,6 +20,7 @@ import {
   buildNeedsYouQueue,
   capNeedsYouQueue,
   type NeedsYouItem,
+  type PaymentProofSource,
   type PaymentSource,
 } from "./needs-you";
 import { NeedsYouPaymentRow } from "./needs-you-payment-row";
@@ -39,6 +41,7 @@ export interface OverviewScreenProps {
     currency: string;
     activeProjects: number;
   };
+  paymentProofs: PaymentProofSource[];
   purchaseRequests: Array<{
     id: string;
     artistName: string;
@@ -105,6 +108,7 @@ export function OverviewScreen({
   slug,
   timezone,
   pulseStats,
+  paymentProofs,
   purchaseRequests,
   pendingApprovals,
   followUps,
@@ -119,6 +123,7 @@ export function OverviewScreen({
 }: OverviewScreenProps) {
   const firstName = (displayName ?? "").trim().split(/\s+/)[0] || "there";
   const needsYouItems = buildNeedsYouQueue({
+    paymentProofs,
     purchaseRequests,
     pendingApprovals,
     followUps,
@@ -268,6 +273,7 @@ function NeedsYouRow({ item }: { item: NeedsYouItem }) {
 
 function ActionIcon({ kind }: { kind: NeedsYouItem["kind"] }) {
   const icon = (() => {
+    if (kind === "payment_proof") return <ReceiptText aria-hidden size={19} />;
     if (kind === "purchase_request") return <FileText aria-hidden size={19} />;
     if (kind === "session_approval") return <CalendarDays aria-hidden size={19} />;
     if (kind === "follow_up") return <CheckCircle2 aria-hidden size={19} />;

@@ -95,6 +95,15 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
     expect(HOME_SRC).toMatch(/pay\/instructions\?req=\$\{current\.id\}/);
   });
 
+  it("opens the exact paid project for booking while keeping later payments available", () => {
+    expect(HOME_SRC).toMatch(/current\.projectId/);
+    expect(HOME_SRC).toMatch(
+      /`\/artist\/book\?studio=\$\{current\.producerId\}&project=\$\{current\.projectId\}`/,
+    );
+    expect(HOME_SRC).toMatch(/actionLabel: "Book a session"/);
+    expect(SRC).toMatch(/secondaryActionHref && secondaryActionLabel/);
+  });
+
   it("has no messaging row or fake buttons (v1 has no messaging)", () => {
     expect(SRC).not.toMatch(/Message/);
     expect(SRC).not.toMatch(/<button/);
