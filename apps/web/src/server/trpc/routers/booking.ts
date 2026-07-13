@@ -28,6 +28,7 @@ import { z } from "zod";
 import { publicProcedure, router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
+import { normalizePersistedBookingStatus } from "./booking-status-compat";
 import {
   sendBookingCancelledOrRescheduledEmail,
   sendBookingConfirmedEmail,
@@ -1193,14 +1194,27 @@ export const bookingRouter = router({
         .optional(),
     )
     .query(async ({ ctx, input }) => {
-      const filter = input?.status
-        ? and(eq(bookings.producerId, ctx.producerId), eq(bookings.status, input.status))
+      // Compare as text until SK-79 is applied. Binding `pending_approval`
+      // directly as the old enum type makes PostgreSQL reject the whole
+      // dashboard request before it can return any data.
+      const statusFilter =
+        input?.status === "pending_approval"
+          ? sql`${bookings.status}::text IN ('pending', 'pending_approval')`
+          : input?.status
+            ? sql`${bookings.status}::text = ${input.status}`
+            : null;
+      const filter = statusFilter
+        ? and(eq(bookings.producerId, ctx.producerId), statusFilter)
         : eq(bookings.producerId, ctx.producerId);
-      return ctx.db
+      const rows = await ctx.db
         .select()
         .from(bookings)
         .where(filter)
         .orderBy(asc(bookings.startsAt));
+      return rows.map((row) => ({
+        ...row,
+        status: normalizePersistedBookingStatus(row.status),
+      }));
     }),
 
   confirm: producerProcedure
