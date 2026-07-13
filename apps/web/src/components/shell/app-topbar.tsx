@@ -131,8 +131,8 @@ export function AppTopBar({
       data-scrolled={scrolled ? "true" : "false"}
       className={
         isProducer
-          ? "sticky top-0 z-40 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-shadow duration-200 ease-out"
-          : "sticky top-0 z-30 backdrop-blur-[60px] transition-[box-shadow,border-color] duration-200 ease-out"
+          ? "sticky top-0 z-40 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-shadow duration-200 ease-out motion-reduce:transition-none"
+          : "sticky top-0 z-30 backdrop-blur-[60px] transition-[box-shadow,border-color] duration-200 ease-out motion-reduce:transition-none"
       }
       style={
         isProducer
@@ -177,8 +177,8 @@ export function AppTopBar({
             data-testid="topbar-search-trigger"
             className={
               isProducer
-                ? "hidden h-9 w-[260px] max-w-[420px] items-center gap-2 rounded-[var(--radius-md)] border pr-2 pl-3 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.985] sm:w-[320px] lg:inline-flex lg:w-[400px]"
-                : "hidden w-[260px] max-w-[420px] items-center gap-2 rounded-full border py-1.5 pr-2 pl-3 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.985] sm:w-[320px] lg:inline-flex lg:w-[400px]"
+                ? "hidden h-9 w-[260px] max-w-[420px] items-center gap-2 rounded-[var(--radius-md)] border pr-2 pl-3 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100 sm:w-[320px] lg:inline-flex lg:w-[400px]"
+                : "hidden w-[260px] max-w-[420px] items-center gap-2 rounded-full border py-1.5 pr-2 pl-3 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100 sm:w-[320px] lg:inline-flex lg:w-[400px]"
             }
             style={{
               background: "rgb(var(--bg-elevated))",
@@ -209,8 +209,8 @@ export function AppTopBar({
               type="button"
               className={
                 isProducer
-                  ? "relative inline-flex h-10 w-10 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.94]"
-                  : "relative inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(17_16_9/0.05)] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.94]"
+                  ? "relative inline-flex h-10 w-10 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
+                  : "relative inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(17_16_9/0.05)] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
               }
               aria-label={
                 unreadCount > 0 ? `Notifications (${String(unreadCount)} unread)` : "Notifications"

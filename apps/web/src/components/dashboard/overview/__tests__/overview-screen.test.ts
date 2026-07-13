@@ -33,6 +33,11 @@ describe("Calm Control overview", () => {
     expect(OVERVIEW).toMatch(/grid-cols-2[\s\S]*lg:grid-cols-3/);
   });
 
+  it("uses upload iconography without implying that navigation starts playback", () => {
+    expect(OVERVIEW).toContain("AudioLines");
+    expect(OVERVIEW).not.toContain("<Play");
+  });
+
   it("does not reintroduce the removed Activity card", () => {
     expect(OVERVIEW).not.toContain('id="activity-heading"');
     expect(OVERVIEW).not.toContain(">Activity<");
@@ -57,6 +62,8 @@ describe("public link CTA", () => {
     expect(PUBLIC_LINK).toContain("Copy public link");
     expect(PUBLIC_LINK).toContain("bg-[rgb(var(--brand-primary))]");
     expect(PUBLIC_LINK).toContain("text-[rgb(var(--fg-on-brand))]");
+    expect(PUBLIC_LINK).toContain("await copyPublicLink");
+    expect(PUBLIC_LINK).toContain("Try copy again");
   });
 
   it("is desktop-only in the compact greeting row", () => {
@@ -70,5 +77,12 @@ describe("payment signal preservation", () => {
     expect(PAYMENT_ROW).toContain("setHidden(false)");
     expect(PAYMENT_ROW).toMatch(/catch \{/);
     expect(PAYMENT_ROW).toContain('role="alert"');
+  });
+
+  it("formats the real producer currency and exposes contextual control names", () => {
+    expect(PAYMENT_ROW).toContain("formatMoney(cents, currency)");
+    expect(PAYMENT_ROW).toContain("Open project: ${payment.projectName}");
+    expect(PAYMENT_ROW).toContain("Dismiss payment received from ${payment.artistName}");
+    expect(OVERVIEW).toContain("${item.actionLabel}: ${item.title}");
   });
 });

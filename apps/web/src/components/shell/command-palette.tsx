@@ -1,5 +1,6 @@
 "use client";
 
+import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -185,6 +186,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       label="Command palette"
       className="fixed inset-0 z-[60] grid place-items-start pt-[10vh]"
     >
+      <Dialog.Title className="sr-only">Command palette</Dialog.Title>
       {/* Backdrop — button so Esc/click both close and it's keyboard-reachable. */}
       <button
         type="button"

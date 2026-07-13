@@ -33,6 +33,18 @@ function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotifica
 }
 
 describe("notificationHref", () => {
+  it("routes proof notifications to the real request detail until proof review lands", () => {
+    expect(
+      notificationHref(
+        makeItem({
+          id: "proof-1",
+          kind: "proof_submitted",
+          purchaseRequestId: "request-1",
+        }),
+      ),
+    ).toBe("/dashboard/requests/request-1");
+  });
+
   it("routes purchase notifications to the dedicated request detail", () => {
     expect(
       notificationHref(
@@ -57,13 +69,24 @@ describe("notificationHref", () => {
     ).toBe("/dashboard/calendar?booking=booking-1");
   });
 
-  it("routes project-backed notifications into their project room", () => {
+  it("routes comment notifications to the real track conversation", () => {
     expect(
       notificationHref(
         makeItem({
           projectId: "project-1",
           commentId: "comment-1",
           trackVersionId: "version-1",
+        }),
+      ),
+    ).toBe("/dashboard/music/version-1");
+  });
+
+  it("routes other project-backed notifications into their project room", () => {
+    expect(
+      notificationHref(
+        makeItem({
+          kind: "project_updated",
+          projectId: "project-1",
         }),
       ),
     ).toBe("/dashboard/clients-projects/project-1");
@@ -125,24 +148,31 @@ describe("NotificationBell interaction contract", () => {
     expect(notificationTabForKey("Enter")).toBeNull();
   });
 
-  it("closes desktop on Escape/outside press and returns focus", () => {
+  it("returns focus on Escape without stealing focus from an outside click", () => {
     expect(SRC).toContain('event.key === "Escape"');
     expect(SRC).toContain('addEventListener("pointerdown"');
     expect(SRC).toContain("buttonRef.current?.focus()");
+    expect(SRC).toMatch(/handlePointerDown[\s\S]*?setOpen\(false\)/);
+    expect(SRC).toMatch(/handleKeyDown[\s\S]*?closeWithFocusReturn\(\)/);
     expect(SRC).toContain("onCloseAutoFocus");
     expect(SRC).toContain('aria-haspopup="dialog"');
   });
 
-  it("keeps failures visible in the open panel", () => {
+  it("keeps mark-all failures visible and lets item navigation proceed", () => {
     expect(SRC).toContain('role="alert"');
     expect(SRC).toContain('data-testid="notification-error"');
-    expect(SRC).toMatch(/if \(!result\.ok\)[\s\S]*?setError/);
     expect(SRC).toMatch(/catch \{[\s\S]*?setError\(FALLBACK_ERROR\)/);
+    expect(SRC).toMatch(/handleItemClick[\s\S]*?finally \{[\s\S]*?router\.push/);
   });
 
   it("uses a numeric amber badge rather than an unread-only dot", () => {
     expect(SRC).toContain("badgeLabel");
     expect(SRC).toContain("99+");
     expect(SRC).toContain("{badgeLabel}");
+  });
+
+  it("disables transform motion when reduced motion is requested", () => {
+    expect(SRC).toContain("motion-reduce:transition-none");
+    expect(SRC).toContain("motion-reduce:active:scale-100");
   });
 });

@@ -134,6 +134,11 @@ describe("AppTopBar (shared)", () => {
     expect(SRC).toMatch(/active:scale-\[/);
   });
 
+  it("removes shell transitions and press transforms for reduced motion", () => {
+    expect(SRC).toContain("motion-reduce:transition-none");
+    expect(SRC).toContain("motion-reduce:active:scale-100");
+  });
+
   it("accepts a producer notification control while preserving the artist fallback", () => {
     expect(SRC).toMatch(/notificationControl\?:\s*ReactNode/);
     expect(SRC).toContain("notificationControl ??");

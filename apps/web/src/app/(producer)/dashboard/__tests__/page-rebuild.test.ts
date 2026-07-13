@@ -37,6 +37,7 @@ const TODAY_DIR = join(here, "..", "..", "..", "..", "components", "dashboard", 
 const REVENUE_DIR = join(here, "..", "..", "..", "..", "components", "dashboard", "revenue");
 const OVERVIEW_DIR = join(here, "..", "..", "..", "..", "components", "dashboard", "overview");
 const pageSource = readFileSync(PAGE_PATH, "utf8");
+const overviewSource = readFileSync(join(OVERVIEW_DIR, "overview-screen.tsx"), "utf8");
 
 // ─── Pure helpers ──────────────────────────────────────────────────
 
@@ -174,8 +175,9 @@ describe("Today page — preserved page chrome (auth-fix territory)", () => {
     expect(pageSource).toContain("max-w-[1920px]");
   });
 
-  it("keeps the sk-page-enter mount animation", () => {
-    expect(pageSource).toContain("sk-page-enter");
+  it("keeps one sk-page-enter animation on the rendered screen root", () => {
+    expect(pageSource).not.toContain("sk-page-enter");
+    expect(overviewSource.match(/sk-page-enter/g)).toHaveLength(1);
   });
 
   it("threads the skipper setup nudge into the unified Needs You queue", () => {

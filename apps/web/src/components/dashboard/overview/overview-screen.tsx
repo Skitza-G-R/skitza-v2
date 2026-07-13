@@ -1,4 +1,5 @@
 import {
+  AudioLines,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
@@ -6,7 +7,6 @@ import {
   FileText,
   FolderClock,
   MessageSquareText,
-  Play,
   Settings2,
 } from "lucide-react";
 import Link from "next/link";
@@ -23,10 +23,16 @@ import {
 } from "./needs-you";
 import { NeedsYouPaymentRow } from "./needs-you-payment-row";
 import { PublicLinkStrip } from "./public-link-strip";
+import {
+  formatDashboardDate,
+  formatDashboardTime,
+  greetingFor,
+} from "./overview-time";
 
 export interface OverviewScreenProps {
   displayName: string | null;
   slug: string | null;
+  timezone: string;
   pulseStats: {
     thisMonthCents: number;
     outstandingCents: number;
@@ -97,6 +103,7 @@ export interface OverviewScreenProps {
 export function OverviewScreen({
   displayName,
   slug,
+  timezone,
   pulseStats,
   purchaseRequests,
   pendingApprovals,
@@ -125,8 +132,8 @@ export function OverviewScreen({
     <div className="sk-page-enter mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 pb-10 pt-5 sm:px-6 lg:gap-5 lg:px-8 lg:pb-8 lg:pt-8">
       <header className="reveal-up flex min-w-0 items-end justify-between gap-6">
         <div className="min-w-0">
-          <h1 className="font-syne text-[32px] font-extrabold leading-[0.98] tracking-[-0.03em] text-[rgb(var(--fg-default))] lg:text-[38px]">
-            {greetingFor(now)}, {firstName}.
+          <h1 className="font-syne break-words text-[32px] font-extrabold leading-[0.98] tracking-[-0.03em] text-[rgb(var(--fg-default))] [overflow-wrap:anywhere] lg:text-[38px]">
+            {greetingFor(now, timezone)}, {firstName}.
           </h1>
           <p className="mt-2 text-[15px] text-[rgb(var(--fg-muted))] lg:text-sm">
             {needsYouItems.length > 0
@@ -140,18 +147,19 @@ export function OverviewScreen({
       <NeedsYouPanel
         items={needsYouItems}
         showAll={showAllNeedsYou}
+        currency={pulseStats.currency}
       />
 
-      {todaySession ? <MobileTodayCard session={todaySession} /> : null}
+      {todaySession ? <MobileTodayCard session={todaySession} timezone={timezone} /> : null}
 
       <div className="hidden grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-5 lg:grid">
         <UrgentProjectsCard projects={urgentProjects} />
-        <LatestUploadsCard uploads={recentUploads.slice(0, 2)} />
+        <LatestUploadsCard uploads={recentUploads.slice(0, 2)} timezone={timezone} />
       </div>
 
       <StudioPulse pulseStats={pulseStats} />
 
-      <MobileLatestUpload upload={recentUploads[0] ?? null} />
+      <MobileLatestUpload upload={recentUploads[0] ?? null} timezone={timezone} />
     </div>
   );
 }
@@ -159,9 +167,11 @@ export function OverviewScreen({
 function NeedsYouPanel({
   items,
   showAll,
+  currency,
 }: {
   items: readonly NeedsYouItem[];
   showAll: boolean;
+  currency: string;
 }) {
   const { visible, hiddenCount } = capNeedsYouQueue(items, showAll);
   return (
@@ -194,7 +204,7 @@ function NeedsYouPanel({
         <ul className="border-t border-[rgb(var(--fg-onsidebar)/0.16)] lg:border-[rgb(var(--border-subtle))]">
           {visible.map((item) =>
             item.kind === "payment_received" && item.payment ? (
-              <NeedsYouPaymentRow key={item.id} payment={item.payment} />
+              <NeedsYouPaymentRow key={item.id} payment={item.payment} currency={currency} />
             ) : (
               <NeedsYouRow key={item.id} item={item} />
             ),
@@ -204,14 +214,14 @@ function NeedsYouPanel({
       {hiddenCount > 0 ? (
         <Link
           href="/dashboard?view=all#needs-you"
-          className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--fg-onsidebar)/0.16)] font-mono text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))] lg:border-[rgb(var(--border-subtle))]"
+          className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--fg-onsidebar)/0.16)] font-mono text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset lg:border-[rgb(var(--border-subtle))] lg:text-[rgb(var(--brand-primary-text))]"
         >
           View all {items.length} actions
         </Link>
       ) : showAll && items.length > 3 ? (
         <Link
           href="/dashboard#needs-you"
-          className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--fg-onsidebar)/0.16)] font-mono text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))] lg:border-[rgb(var(--border-subtle))]"
+          className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--fg-onsidebar)/0.16)] font-mono text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset lg:border-[rgb(var(--border-subtle))] lg:text-[rgb(var(--brand-primary-text))]"
         >
           Show top 3
         </Link>
@@ -226,14 +236,14 @@ function NeedsYouRow({ item }: { item: NeedsYouItem }) {
   return (
     <li className="flex min-h-[72px] min-w-0 items-center gap-3 border-b border-[rgb(var(--fg-onsidebar)/0.16)] py-3 last:border-b-0 lg:min-h-[68px] lg:border-[rgb(var(--border-subtle))] lg:py-2.5">
       <ActionIcon kind={item.kind} />
-      <Link href={item.href} className="min-w-0 flex-1 focus-visible:outline-none">
+      <div className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-bold text-[rgb(var(--fg-onsidebar))] lg:text-[rgb(var(--fg-default))]">
           {item.title}
         </span>
         <span className="mt-0.5 block truncate text-[12.5px] text-[rgb(var(--fg-onsidebar)/0.62)] lg:text-[rgb(var(--fg-muted))]">
           {item.meta}
         </span>
-      </Link>
+      </div>
       <ChevronRight
         aria-hidden
         size={17}
@@ -241,8 +251,9 @@ function NeedsYouRow({ item }: { item: NeedsYouItem }) {
       />
       <Link
         href={item.href}
+        aria-label={`${item.actionLabel}: ${item.title} — ${item.meta}`}
         className={[
-          "sk-press inline-flex h-11 min-w-[76px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] px-3 text-sm font-semibold lg:h-10 lg:min-w-[112px] lg:rounded-[var(--radius-md)]",
+          "sk-press inline-flex h-11 min-w-[76px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] px-3 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none lg:h-10 lg:min-w-[112px] lg:rounded-[var(--radius-md)]",
           primary
             ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
             : "border border-[rgb(var(--fg-onsidebar)/0.34)] text-[rgb(var(--fg-onsidebar))] lg:border-[rgb(var(--border-strong))] lg:text-[rgb(var(--fg-default))]",
@@ -266,7 +277,7 @@ function ActionIcon({ kind }: { kind: NeedsYouItem["kind"] }) {
     return <CircleAlert aria-hidden size={19} />;
   })();
   return (
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--brand-primary)/0.45)] text-[rgb(var(--brand-primary))] lg:h-9 lg:w-9">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--brand-primary)/0.45)] text-[rgb(var(--brand-primary))] lg:h-9 lg:w-9 lg:border-[rgb(var(--brand-primary-text)/0.5)] lg:text-[rgb(var(--brand-primary-text))]">
       {icon}
     </span>
   );
@@ -274,13 +285,15 @@ function ActionIcon({ kind }: { kind: NeedsYouItem["kind"] }) {
 
 function MobileTodayCard({
   session,
+  timezone,
 }: {
   session: NonNullable<OverviewScreenProps["todaySession"]>;
+  timezone: string;
 }) {
   return (
     <Link
       href={session.href}
-      className="reveal-up reveal-up-delay-2 flex min-h-[96px] items-center gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[var(--shadow-sm)] lg:hidden"
+      className="reveal-up reveal-up-delay-2 flex min-h-[96px] items-center gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[var(--shadow-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none lg:hidden"
     >
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--bg-sunken))] text-[rgb(var(--fg-default))]">
         <CalendarDays aria-hidden size={21} />
@@ -289,8 +302,8 @@ function MobileTodayCard({
         <span className="block font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-default))]">
           Today
         </span>
-        <span className="mt-1 block font-mono text-[13px] font-semibold uppercase tracking-[0.08em] text-[rgb(var(--brand-primary))]">
-          {formatTime(session.occurredAt)}
+        <span className="mt-1 block font-mono text-[13px] font-semibold uppercase tracking-[0.08em] text-[rgb(var(--brand-primary-text))]">
+          {formatDashboardTime(session.occurredAt, timezone)}
         </span>
         <span className="mt-0.5 block truncate text-[17px] font-bold text-[rgb(var(--fg-default))]">
           {session.title}
@@ -309,7 +322,7 @@ function UrgentProjectsCard({
   return (
     <section
       aria-labelledby="urgent-projects-heading"
-      className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-5 pt-4 shadow-[var(--shadow-sm)]"
+      className="flex h-full flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-5 pt-4 shadow-[var(--shadow-sm)]"
     >
       <h2
         id="urgent-projects-heading"
@@ -317,7 +330,7 @@ function UrgentProjectsCard({
       >
         Urgent projects
       </h2>
-      <ul className="border-t border-[rgb(var(--border-subtle))]">
+      <ul className="flex-1 border-t border-[rgb(var(--border-subtle))]">
         {projects.length === 0 ? (
           <li className="flex min-h-[64px] items-center text-sm text-[rgb(var(--fg-muted))]">
             Nothing urgent — your projects are moving.
@@ -327,7 +340,7 @@ function UrgentProjectsCard({
             <li key={project.id} className="border-b border-[rgb(var(--border-subtle))] last:border-b-0">
               <Link
                 href={`/dashboard/clients-projects/${project.id}`}
-                className="flex min-h-[72px] items-center gap-3 py-2.5"
+                className="flex min-h-[72px] items-center gap-3 rounded-[var(--radius-sm)] py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
               >
                 <span
                   aria-hidden
@@ -353,7 +366,7 @@ function UrgentProjectsCard({
       </ul>
       <Link
         href="/dashboard/clients-projects"
-        className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--border-subtle))] font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))]"
+        className="mt-auto flex min-h-11 items-center justify-center border-t border-[rgb(var(--border-subtle))] font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-text))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
       >
         View all projects
       </Link>
@@ -363,13 +376,15 @@ function UrgentProjectsCard({
 
 function LatestUploadsCard({
   uploads,
+  timezone,
 }: {
   uploads: OverviewScreenProps["recentUploads"];
+  timezone: string;
 }) {
   return (
     <section
       aria-labelledby="latest-uploads-heading"
-      className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-5 pt-4 shadow-[var(--shadow-sm)]"
+      className="flex h-full flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-5 pt-4 shadow-[var(--shadow-sm)]"
     >
       <h2
         id="latest-uploads-heading"
@@ -377,7 +392,7 @@ function LatestUploadsCard({
       >
         Latest uploads
       </h2>
-      <ul className="border-t border-[rgb(var(--border-subtle))]">
+      <ul className="flex-1 border-t border-[rgb(var(--border-subtle))]">
         {uploads.length === 0 ? (
           <li className="flex min-h-[64px] items-center text-sm text-[rgb(var(--fg-muted))]">
             Uploads will appear here.
@@ -387,15 +402,18 @@ function LatestUploadsCard({
             <li key={upload.versionId} className="border-b border-[rgb(var(--border-subtle))] last:border-b-0">
               <Link
                 href={`/dashboard/music/${upload.versionId}`}
-                className="flex min-h-[72px] items-center gap-3 py-2.5"
+                className="flex min-h-[72px] items-center gap-3 rounded-[var(--radius-sm)] py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--brand-primary))] text-[rgb(var(--brand-primary))]">
-                  <Play aria-hidden size={15} fill="currentColor" />
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--brand-primary-text))] text-[rgb(var(--brand-primary-text))]">
+                  <AudioLines aria-hidden size={17} />
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm font-bold text-[rgb(var(--fg-default))]">
                   {upload.title}
                 </span>
-                <UploadMeta label="Uploaded" value={formatUploadDate(upload.uploadedAt)} />
+                <UploadMeta
+                  label="Uploaded"
+                  value={formatDashboardDate(upload.uploadedAt, timezone)}
+                />
                 <UploadMeta label="Duration" value={formatDuration(upload.durationMs)} mono />
                 <ChevronRight aria-hidden size={17} />
               </Link>
@@ -405,7 +423,7 @@ function LatestUploadsCard({
       </ul>
       <Link
         href="/dashboard/music"
-        className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--border-subtle))] font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))]"
+        className="mt-auto flex min-h-11 items-center justify-center border-t border-[rgb(var(--border-subtle))] font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-text))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
       >
         View all uploads
       </Link>
@@ -489,17 +507,19 @@ function PulseStat({
 
 function MobileLatestUpload({
   upload,
+  timezone,
 }: {
   upload: OverviewScreenProps["recentUploads"][number] | null;
+  timezone: string;
 }) {
   if (!upload) return null;
   return (
     <Link
       href={`/dashboard/music/${upload.versionId}`}
-      className="reveal-up reveal-up-delay-3 flex min-h-[94px] items-center gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[var(--shadow-sm)] lg:hidden"
+      className="reveal-up reveal-up-delay-3 flex min-h-[94px] items-center gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 shadow-[var(--shadow-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none lg:hidden"
     >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--brand-primary))] text-[rgb(var(--brand-primary))]">
-        <Play aria-hidden size={17} fill="currentColor" />
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--brand-primary-text))] text-[rgb(var(--brand-primary-text))]">
+        <AudioLines aria-hidden size={19} />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-default))]">
@@ -509,7 +529,7 @@ function MobileLatestUpload({
           {upload.title}
         </span>
         <span className="mt-0.5 block font-mono text-xs text-[rgb(var(--fg-muted))]">
-          {formatUploadDate(upload.uploadedAt)} · {formatDuration(upload.durationMs)}
+          {formatDashboardDate(upload.uploadedAt, timezone)} · {formatDuration(upload.durationMs)}
         </span>
       </span>
       <ChevronRight aria-hidden size={20} />
@@ -529,31 +549,10 @@ function UrgencyBadge({
         ? "Deposit due"
         : "Stuck";
   return (
-    <span className="shrink-0 rounded-[var(--radius-sm)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-1 font-mono text-[8.5px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--fg-danger))]">
+    <span className="shrink-0 rounded-[var(--radius-sm)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-1 font-mono text-[8.5px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--fg-danger-text))]">
       {label}
     </span>
   );
-}
-
-function greetingFor(now: Date): "Good morning" | "Good afternoon" | "Good evening" {
-  const hour = now.getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-}
-
-function formatTime(date: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatUploadDate(date: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(date);
 }
 
 function formatDuration(ms: number | null): string {

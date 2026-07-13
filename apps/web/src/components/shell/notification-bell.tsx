@@ -56,6 +56,9 @@ export function notificationHref(notification: ShellNotificationItem): string {
   if (notification.bookingId) {
     return `/dashboard/calendar?booking=${encodeURIComponent(notification.bookingId)}`;
   }
+  if (notification.kind === "comment_created" && notification.trackVersionId) {
+    return `/dashboard/music/${encodeURIComponent(notification.trackVersionId)}`;
+  }
   if (notification.projectId) {
     return `/dashboard/clients-projects/${encodeURIComponent(notification.projectId)}`;
   }
@@ -121,6 +124,8 @@ export function NotificationBell({
 
     const handlePointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
+        // Preserve the outside target's normal pointer focus. Escape and
+        // the mobile Sheet still return focus to the bell explicitly.
         setOpen(false);
       }
     };
@@ -173,23 +178,21 @@ export function NotificationBell({
       try {
         if (isUnread(item)) {
           const result = await markNotificationRead(item.id);
-          if (!result.ok) {
-            setError(result.error || FALLBACK_ERROR);
-            return;
+          if (result.ok) {
+            setReadOverrides((current) => {
+              const next = new Set(current);
+              next.add(item.id);
+              return next;
+            });
           }
-          setReadOverrides((current) => {
-            const next = new Set(current);
-            next.add(item.id);
-            return next;
-          });
         }
-
-        setOpen(false);
-        router.push(notificationHref(item));
       } catch {
-        setError(FALLBACK_ERROR);
+        // Reading state is best-effort. A transient update failure must
+        // never turn a real notification destination into a dead button.
       } finally {
+        setOpen(false);
         setPendingId(null);
+        router.push(notificationHref(item));
       }
     },
     [isUnread, markingAll, pendingId, router],
@@ -247,7 +250,7 @@ export function NotificationBell({
           setError(null);
           setOpen((value) => !value);
         }}
-        className="relative inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none active:scale-[0.94]"
+        className="relative inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
       >
         <Bell size={19} strokeWidth={2} aria-hidden />
         {currentUnreadCount > 0 ? (
@@ -364,7 +367,7 @@ function NotificationPanel({
             void onMarkAll();
           }}
           disabled={markingAll || pendingId !== null || currentUnreadCount === 0}
-          className="min-h-8 rounded-[var(--radius-sm)] px-2.5 text-xs font-semibold text-[rgb(var(--brand-primary-text))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.09)] disabled:cursor-not-allowed disabled:text-[rgb(var(--fg-faint))]"
+          className="min-h-8 rounded-[var(--radius-sm)] px-2.5 text-xs font-semibold text-[rgb(var(--brand-primary-text))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.09)] disabled:cursor-not-allowed disabled:text-[rgb(var(--fg-faint))] motion-reduce:transition-none"
         >
           {markingAll ? "Marking…" : "Mark all read"}
         </button>
@@ -454,7 +457,7 @@ function NotificationPanel({
                     }}
                     disabled={pendingId !== null || markingAll}
                     aria-label={`${item.title}${unread ? ", unread" : ""}`}
-                    className="group flex min-h-[72px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset disabled:cursor-wait disabled:opacity-60 sm:px-5"
+                    className="group flex min-h-[72px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none sm:px-5"
                   >
                     <NotificationKindIcon kind={item.kind} />
                     <span className="min-w-0 flex-1">
@@ -517,7 +520,7 @@ function NotificationTabButton({
       aria-controls={controls}
       tabIndex={selected ? 0 : -1}
       onClick={onClick}
-      className={`relative min-h-10 rounded-t-[var(--radius-sm)] px-2.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset ${
+      className={`relative min-h-10 rounded-t-[var(--radius-sm)] px-2.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset motion-reduce:transition-none ${
         selected
           ? "text-[rgb(var(--fg-default))] after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-[rgb(var(--brand-primary))]"
           : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"

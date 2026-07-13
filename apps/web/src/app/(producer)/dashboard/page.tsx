@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
+import { dateKeyInTimeZone } from "~/components/dashboard/overview/overview-time";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
@@ -67,11 +68,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // soonest one. We re-check the date to avoid surfacing a session
   // that's actually "tomorrow at 12:01am" as today's.
   const now = new Date();
+  const producerTimezone = me.timezone || "UTC";
   const todaySession = (() => {
     const sessionItem = today.items.find((it) => it.kind === "session");
     if (!sessionItem) return null;
-    const sessionDay = sessionItem.occurredAt.toDateString();
-    if (sessionDay !== now.toDateString()) return null;
+    const sessionDay = dateKeyInTimeZone(sessionItem.occurredAt, producerTimezone);
+    if (sessionDay !== dateKeyInTimeZone(now, producerTimezone)) return null;
     return {
       id: sessionItem.id,
       title: sessionItem.title,
@@ -115,10 +117,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[260px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.08)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
       />
-      <div className="sk-page-enter mx-auto max-w-[1920px]">
+      <div className="mx-auto max-w-[1920px]">
         <OverviewScreen
           displayName={me.displayName}
           slug={me.slug}
+          timezone={producerTimezone}
           pulseStats={today.pulseStats}
           purchaseRequests={pendingPurchaseRequests.requests}
           pendingApprovals={pendingApprovals}
