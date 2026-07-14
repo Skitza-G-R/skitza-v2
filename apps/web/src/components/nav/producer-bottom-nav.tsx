@@ -53,14 +53,12 @@ const PROD_TABS: readonly ProducerMobileTab[] = [
   { id: "profile", label: "Store", href: "/dashboard/store", icon: "store" },
 ] as const;
 
-// WebKit can delay or misreport `visualViewport.height` while its bottom
-// browser toolbar expands/collapses. Anchor the dock to CSS's dynamic
-// viewport edge instead: 100dvh tracks that toolbar, then the transform
-// lifts the dock by its own complete height (including the safe-area inset).
+// Chrome keeps bottom-anchored controls on its compositor fast path when
+// the live and maximum safe-area insets are combined in `bottom`. Reserve
+// the maximum inset inside the dock so its dark surface extends behind the
+// browser controls while the tab targets remain in the safe area.
 export const producerBottomNavViewportStyle = {
-  bottom: "auto",
-  top: "100dvh",
-  transform: "translateY(-100%)",
+  bottom: "calc(env(safe-area-inset-bottom, 0px) - env(safe-area-max-inset-bottom, 36px))",
 } satisfies CSSProperties;
 
 export function ProducerBottomNav(): ReactNode {
@@ -80,7 +78,7 @@ export function ProducerBottomNav(): ReactNode {
         background: "rgb(var(--bg-sidebar))",
         borderTop: "1px solid rgb(var(--border-sidebar))",
         padding:
-          "6px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))",
+          "6px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-max-inset-bottom, 36px) calc(4px + env(safe-area-inset-left, 0px))",
         boxShadow: "0 -4px 20px rgba(0,0,0,0.3)",
       }}
     >

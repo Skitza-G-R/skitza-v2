@@ -50,16 +50,17 @@ describe("producer nav: Portfolio in sidebar only", () => {
 });
 
 describe("producer mobile nav viewport anchoring", () => {
-  it("pins the dock bottom to the CSS dynamic viewport edge", () => {
+  it("pins the dock to Chrome's live bottom safe area", () => {
     expect(producerBottomNavViewportStyle).toEqual({
-      bottom: "auto",
-      top: "100dvh",
-      transform: "translateY(-100%)",
+      bottom: "calc(env(safe-area-inset-bottom, 0px) - env(safe-area-max-inset-bottom, 36px))",
     });
   });
 
-  it("does not depend on WebKit's delayed visualViewport measurements", () => {
+  it("reserves the maximum safe area without dynamic padding or viewport measurements", () => {
+    expect(BOTTOM).toContain("env(safe-area-max-inset-bottom, 36px)");
     expect(BOTTOM).not.toContain("window.visualViewport");
     expect(BOTTOM).not.toContain("ResizeObserver");
+    expect(BOTTOM).not.toContain('top: "100dvh"');
+    expect(BOTTOM).not.toContain('transform: "translateY(-100%)"');
   });
 });
