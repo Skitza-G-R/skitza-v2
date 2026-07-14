@@ -4,6 +4,7 @@ import {
   asc,
   bookings,
   clientContacts,
+  invoices,
   producers,
   products,
   projectTracks,
@@ -23,6 +24,7 @@ import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { emailHashFor } from "~/server/artist/identity";
 import { SITE_URL, sendClientInviteEmail } from "~/server/email/send";
+import { summarizeProjectMoney, type ProjectInvoiceLedgerRow } from "~/lib/payments/project-ledger";
 
 // Producer-scoped client CRM.
 //
@@ -40,6 +42,21 @@ function emailMatchesProject(email: string) {
 function hashEmail(raw: string): { lower: string; hash: string } {
   const lower = raw.trim().toLowerCase();
   return { lower, hash: emailHashFor(raw) };
+}
+
+type ProjectInvoiceRow = ProjectInvoiceLedgerRow & { projectId: string | null };
+
+function groupProjectInvoices(
+  rows: readonly ProjectInvoiceRow[],
+): Map<string, ProjectInvoiceLedgerRow[]> {
+  const grouped = new Map<string, ProjectInvoiceLedgerRow[]>();
+  for (const row of rows) {
+    if (!row.projectId) continue;
+    const current = grouped.get(row.projectId) ?? [];
+    current.push(row);
+    grouped.set(row.projectId, current);
+  }
+  return grouped;
 }
 
 export const clientContactsRouter = router({
@@ -69,12 +86,10 @@ export const clientContactsRouter = router({
   //   view = "by-client"     → one row per contact with aggregate stats
   //   view = "all-projects"  → one row per project, with its client
   //
-  // Both modes share the same per-project-package-price join so the
-  // outstanding balance + lifetime value numbers stay consistent across
-  // views. Outstanding = sum(priceCents) for projects where the package
-  // price is known AND the final hasn't been paid AND stage isn't
-  // archived. Lifetime = sum(priceCents) for projects where finalPaid
-  // is true. Projects with no booking/package contribute 0.
+  // Both modes share the same project + invoice ledger fold so the
+  // outstanding balance, lifetime value, and current-month earnings stay
+  // consistent with the project Payments tab. Legacy projects without a
+  // ledger retain the old finalPaid/price fallback.
   listWithProjects: producerProcedure
     .input(
       z
@@ -101,8 +116,11 @@ export const clientContactsRouter = router({
           artistEmail: sql<string>`lower(${projects.artistEmail})`,
           depositPaid: projects.depositPaid,
           finalPaid: projects.finalPaid,
-          priceCents: sql<number | null>`max(${products.priceCents})`,
-          currency: sql<string | null>`max(${products.currency})`,
+          paidAt: projects.paidAt,
+          priceCents: sql<
+            number | null
+          >`coalesce(${projects.totalAmountCents}, ${projects.engagementTotalCents}, max(${products.priceCents}))`,
+          currency: sql<string | null>`coalesce(${projects.currency}, max(${products.currency}))`,
           nextSessionAt: sql<
             Date | string | null
           >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
@@ -116,6 +134,28 @@ export const clientContactsRouter = router({
         // For un-dragged rows (all default to position=0), fall back
         // to most-recently-updated so existing behavior is preserved.
         .orderBy(asc(projects.position), desc(projects.updatedAt));
+
+      const projectIds = projectRows.map((project) => project.id);
+      const invoiceRows: ProjectInvoiceRow[] =
+        projectIds.length === 0
+          ? []
+          : await ctx.db
+              .select({
+                projectId: invoices.projectId,
+                amountCents: invoices.amountCents,
+                currency: invoices.currency,
+                status: invoices.status,
+                paidAt: invoices.paidAt,
+                createdAt: invoices.createdAt,
+              })
+              .from(invoices)
+              .where(
+                and(
+                  eq(invoices.producerId, ctx.producerId),
+                  inArray(invoices.projectId, projectIds),
+                ),
+              );
+      const invoicesByProject = groupProjectInvoices(invoiceRows);
 
       // Pre-compute last-comment timestamp + unresolved count per
       // project email (artistEmail/clientEmail) via a single aggregate.
@@ -160,9 +200,16 @@ export const clientContactsRouter = router({
               ? p.nextSessionAt
               : new Date(p.nextSessionAt);
         const price = p.priceCents ?? 0;
+        const currency = p.currency ?? "USD";
         const isActive = p.stage !== "paid" && p.stage !== "archived";
-        const outstanding = p.finalPaid || p.stage === "archived" ? 0 : price;
-        const lifetime = p.finalPaid ? price : 0;
+        const money = summarizeProjectMoney({
+          currency,
+          expectedTotalCents: price,
+          finalPaid: p.finalPaid,
+          isArchived: p.stage === "archived",
+          legacyPaidAt: p.paidAt,
+          invoices: invoicesByProject.get(p.id) ?? [],
+        });
         return {
           id: p.id,
           title: p.title,
@@ -176,9 +223,10 @@ export const clientContactsRouter = router({
           depositPaid: p.depositPaid,
           finalPaid: p.finalPaid,
           priceCents: price,
-          currency: p.currency ?? "USD",
-          outstandingCents: outstanding,
-          lifetimeCents: lifetime,
+          currency,
+          outstandingCents: money.outstandingCents,
+          lifetimeCents: money.lifetimeCents,
+          paidThisMonthCents: money.paidThisMonthCents,
           nextSessionAt,
           lastActivity,
           unresolvedComments: cm.unresolved,
@@ -899,8 +947,11 @@ export const clientContactsRouter = router({
           updatedAt: projects.updatedAt,
           depositPaid: projects.depositPaid,
           finalPaid: projects.finalPaid,
-          priceCents: sql<number | null>`max(${products.priceCents})`,
-          currency: sql<string | null>`max(${products.currency})`,
+          paidAt: projects.paidAt,
+          priceCents: sql<
+            number | null
+          >`coalesce(${projects.totalAmountCents}, ${projects.engagementTotalCents}, max(${products.priceCents}))`,
+          currency: sql<string | null>`coalesce(${projects.currency}, max(${products.currency}))`,
           nextSessionAt: sql<
             Date | string | null
           >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
@@ -913,6 +964,27 @@ export const clientContactsRouter = router({
         .orderBy(desc(projects.updatedAt));
 
       const projectIds = projectRows.map((d) => d.id);
+
+      const invoiceRows: ProjectInvoiceRow[] =
+        projectIds.length === 0
+          ? []
+          : await ctx.db
+              .select({
+                projectId: invoices.projectId,
+                amountCents: invoices.amountCents,
+                currency: invoices.currency,
+                status: invoices.status,
+                paidAt: invoices.paidAt,
+                createdAt: invoices.createdAt,
+              })
+              .from(invoices)
+              .where(
+                and(
+                  eq(invoices.producerId, ctx.producerId),
+                  inArray(invoices.projectId, projectIds),
+                ),
+              );
+      const invoicesByProject = groupProjectInvoices(invoiceRows);
 
       let trackCount = 0;
       if (projectIds.length > 0) {
@@ -955,26 +1027,30 @@ export const clientContactsRouter = router({
       ).length;
       const lastActivity = projectRows[0]?.updatedAt ?? contact.lastSeenAt;
 
-      // Aggregate outstanding / lifetime across this contact's
-      // projects. Same rule as listWithProjects:
-      //   outstanding = sum(priceCents) for projects not yet paid +
-      //                 not archived (if known)
-      //   lifetime    = sum(priceCents) for projects where final is paid
+      // Aggregate outstanding / lifetime across this contact's projects
+      // using the same invoice-ledger rule as listWithProjects.
       let outstandingCents = 0;
       let lifetimeCents = 0;
       const enrichedProjects = projectRows.map((p) => {
         const price = p.priceCents ?? 0;
-        const isArchived = p.stage === "archived";
-        const isPaid = p.finalPaid;
-        const outstanding = isPaid || isArchived ? 0 : price;
-        const lifetime = isPaid ? price : 0;
-        outstandingCents += outstanding;
-        lifetimeCents += lifetime;
+        const currency = p.currency ?? "USD";
+        const money = summarizeProjectMoney({
+          currency,
+          expectedTotalCents: price,
+          finalPaid: p.finalPaid,
+          isArchived: p.stage === "archived",
+          legacyPaidAt: p.paidAt,
+          invoices: invoicesByProject.get(p.id) ?? [],
+        });
+        outstandingCents += money.outstandingCents;
+        lifetimeCents += money.lifetimeCents;
         return {
           ...p,
           priceCents: price,
-          outstandingCents: outstanding,
-          lifetimeCents: lifetime,
+          currency,
+          outstandingCents: money.outstandingCents,
+          lifetimeCents: money.lifetimeCents,
+          paidThisMonthCents: money.paidThisMonthCents,
         };
       });
 

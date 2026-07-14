@@ -15,10 +15,7 @@ import {
 } from "react";
 
 import { useToast } from "~/components/ui/toast";
-import {
-  WORKFLOW_STAGES,
-  type WorkflowStage,
-} from "~/lib/clients/workflow-stage";
+import { WORKFLOW_STAGES, type WorkflowStage } from "~/lib/clients/workflow-stage";
 import {
   abortMultipartAction,
   addTrackAction,
@@ -112,16 +109,11 @@ export function UploadTrackModal({
   // ─── Form state ────────────────────────────────────────────────────
   // Song picker: in new-song mode, default to NEW_SONG_VALUE; in
   // new-version mode, the trackId locks the picker (no dropdown).
-  const initialPick =
-    mode === "new-version" && trackId
-      ? trackId
-      : NEW_SONG_VALUE;
+  const initialPick = mode === "new-version" && trackId ? trackId : NEW_SONG_VALUE;
   const [selectedTrackId, setSelectedTrackId] = useState<string>(initialPick);
   const [newSongName, setNewSongName] = useState("");
   const [label, setLabel] = useState(defaultLabel ?? "v1");
-  const [stage, setStage] = useState<"no-change" | WorkflowStage>(
-    "no-change",
-  );
+  const [stage, setStage] = useState<"no-change" | WorkflowStage>("no-change");
   const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -131,16 +123,13 @@ export function UploadTrackModal({
   // freshest value even if the user closes mid-upload before React
   // commits a re-render. The ref also lets us detect "in flight" for
   // the Cancel button's destructive label.
-  const activeUploadRef = useRef<{ key: string; uploadId: string } | null>(
-    null,
-  );
+  const activeUploadRef = useRef<{ key: string; uploadId: string } | null>(null);
 
   // Reset every time the modal opens. Carrying state across open/close
   // is confusing — same precedent as new-client-modal.
   useEffect(() => {
     if (!open) return;
-    const startPick =
-      mode === "new-version" && trackId ? trackId : NEW_SONG_VALUE;
+    const startPick = mode === "new-version" && trackId ? trackId : NEW_SONG_VALUE;
     setSelectedTrackId(startPick);
     setNewSongName("");
     setLabel(defaultLabel ?? deriveNextLabel(tracks, startPick));
@@ -254,9 +243,7 @@ export function UploadTrackModal({
           trackId: resolvedTrackId,
           label: label.trim(),
           audioUrl: null,
-          ...(trimmedDescription.length > 0
-            ? { description: trimmedDescription }
-            : {}),
+          ...(trimmedDescription.length > 0 ? { description: trimmedDescription } : {}),
         });
         if (!vres.ok) throw new Error(vres.error);
         const versionId = vres.data.id;
@@ -277,10 +264,7 @@ export function UploadTrackModal({
         //    rather than parallel so the progress bar tracks honestly
         //    and a network blip aborts cleanly without orphaning N
         //    parallel signed URLs.
-        const partCount = Math.max(
-          1,
-          Math.ceil(submittedFile.size / CHUNK_SIZE),
-        );
+        const partCount = Math.max(1, Math.ceil(submittedFile.size / CHUNK_SIZE));
         const parts: { partNumber: number; eTag: string }[] = [];
         for (let i = 0; i < partCount; i++) {
           const partNumber = i + 1;
@@ -299,9 +283,7 @@ export function UploadTrackModal({
             // Cleanup before bubbling up — leaves R2 in a tidy state.
             await abortMultipartAction({ key, uploadId });
             activeUploadRef.current = null;
-            throw new Error(
-              `Part ${String(partNumber)} upload failed: ${String(putRes.status)}`,
-            );
+            throw new Error(`Part ${String(partNumber)} upload failed: ${String(putRes.status)}`);
           }
           const eTag = (putRes.headers.get("ETag") ?? "").replaceAll('"', "");
           parts.push({ partNumber, eTag });
@@ -339,10 +321,7 @@ export function UploadTrackModal({
             workflowStage: stage,
           });
           if (!stres.ok) {
-            toast(
-              `Uploaded — but stage didn't update: ${stres.error}`,
-              "error",
-            );
+            toast(`Uploaded — but stage didn't update: ${stres.error}`, "error");
           }
         }
 
@@ -361,8 +340,7 @@ export function UploadTrackModal({
           void deleteVersionAction({ id: createdVersionId });
           createdVersionId = null;
         }
-        const msg =
-          err instanceof Error ? err.message : "Upload failed. Please retry.";
+        const msg = err instanceof Error ? err.message : "Upload failed. Please retry.";
         toast(msg, "error");
         setProgress(0);
         activeUploadRef.current = null;
@@ -387,7 +365,7 @@ export function UploadTrackModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="upload-track-modal-body"
-          className="sk-sheet-mobile fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[520px] rounded-[18px] bg-[rgb(var(--bg-background))] p-6 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
+          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[520px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -403,24 +381,25 @@ export function UploadTrackModal({
                   : "Upload an audio file and we'll notify the artist."}
               </DialogPrimitive.Description>
             </div>
-            <DialogPrimitive.Close asChild>
-              <button
-                type="button"
-                aria-label="Close"
-                className="sk-press -mr-2 -mt-2 inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
-              >
-                <X size={16} strokeWidth={2.2} />
-              </button>
-            </DialogPrimitive.Close>
+            <button
+              type="button"
+              aria-label="Close"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                handleClose();
+              }}
+              onClick={handleClose}
+              className="-mt-2 -mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
+            >
+              <X size={16} strokeWidth={2.2} />
+            </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-4">
+          <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
             {/* ─── Song picker ─────────────────────────────────── */}
             {mode === "new-version" && trackId ? (
               <div>
-                <FieldLabel htmlFor="upload-track-song-locked">
-                  Song
-                </FieldLabel>
+                <FieldLabel htmlFor="upload-track-song-locked">Song</FieldLabel>
                 <p
                   id="upload-track-song-locked"
                   className="mt-1 truncate rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))]"
@@ -439,7 +418,7 @@ export function UploadTrackModal({
                     setSelectedTrackId(e.target.value);
                     setLabelTouched(false);
                   }}
-                  className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                  className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                   style={{ borderColor: "rgb(var(--border-subtle))" }}
                 >
                   {tracks.map((t) => (
@@ -461,7 +440,7 @@ export function UploadTrackModal({
                       setNewSongName(e.target.value);
                     }}
                     placeholder="New song title"
-                    className="mt-2 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                    className="mt-2 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                     style={{ borderColor: "rgb(var(--border-subtle))" }}
                   />
                 ) : null}
@@ -484,54 +463,52 @@ export function UploadTrackModal({
                   setLabelTouched(true);
                 }}
                 placeholder="v2 / Mix / Master"
-                className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                 style={{ borderColor: "rgb(var(--border-subtle))" }}
               />
             </div>
 
-            {/* ─── Stage selector ─────────────────────────────── */}
-            <div>
-              <FieldLabel htmlFor="upload-track-stage">
-                Advance to stage{" "}
-                <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
-              </FieldLabel>
-              <select
-                id="upload-track-stage"
-                value={stage}
-                onChange={(e) => {
-                  setStage(e.target.value as "no-change" | WorkflowStage);
-                }}
-                className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
-                style={{ borderColor: "rgb(var(--border-subtle))" }}
-              >
-                <option value="no-change">No change</option>
-                {WORKFLOW_STAGES.map((s) => (
-                  <option key={s.key} value={s.key}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* ─── Description ────────────────────────────────── */}
-            <div>
-              <FieldLabel htmlFor="upload-track-description">
-                Description{" "}
-                <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
-              </FieldLabel>
-              <textarea
-                id="upload-track-description"
-                value={description}
-                rows={2}
-                maxLength={500}
-                onChange={(e) => {
-                  setDescription(e.target.value);
-                }}
-                placeholder="Notes for the artist about this version"
-                className="mt-1 w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
-                style={{ borderColor: "rgb(var(--border-subtle))" }}
-              />
-            </div>
+            <details className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
+              <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.6)] focus-visible:outline-none focus-visible:ring-inset">
+                Stage and notes (optional)
+              </summary>
+              <div className="grid gap-3 border-t border-[rgb(var(--border-subtle))] p-3">
+                <div>
+                  <FieldLabel htmlFor="upload-track-stage">Advance to stage</FieldLabel>
+                  <select
+                    id="upload-track-stage"
+                    value={stage}
+                    onChange={(e) => {
+                      setStage(e.target.value as "no-change" | WorkflowStage);
+                    }}
+                    className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                    style={{ borderColor: "rgb(var(--border-subtle))" }}
+                  >
+                    <option value="no-change">No change</option>
+                    {WORKFLOW_STAGES.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel htmlFor="upload-track-description">Notes for artist</FieldLabel>
+                  <textarea
+                    id="upload-track-description"
+                    value={description}
+                    rows={2}
+                    maxLength={500}
+                    onChange={(e) => {
+                      setDescription(e.target.value);
+                    }}
+                    placeholder="What changed in this version?"
+                    className="mt-1 w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                    style={{ borderColor: "rgb(var(--border-subtle))" }}
+                  />
+                </div>
+              </div>
+            </details>
 
             {/* ─── File drop zone ─────────────────────────────── */}
             <div>
@@ -556,7 +533,7 @@ export function UploadTrackModal({
                   setIsDragging(false);
                 }}
                 onDrop={handleDrop}
-                className="mt-1 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed px-4 py-6 text-center transition-colors hover:bg-[rgb(17_16_9/0.04)]"
+                className="mt-1 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed px-4 py-4 text-center transition-colors hover:bg-[rgb(17_16_9/0.04)]"
                 style={{
                   borderColor: isDragging
                     ? "rgb(var(--brand-primary))"
@@ -628,18 +605,18 @@ export function UploadTrackModal({
             ) : null}
 
             {/* ─── Action row ─────────────────────────────────── */}
-            <div className="mt-2 flex flex-col-reverse gap-2 md:flex-row md:items-center md:justify-end">
+            <div className="sticky bottom-0 -mx-5 mt-1 -mb-5 flex flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
               <button
                 type="button"
                 onClick={handleClose}
-                className="sk-press inline-flex items-center justify-center rounded-[10px] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:min-h-0"
               >
                 {pending ? "Stop uploading" : "Cancel"}
               </button>
               <button
                 type="submit"
                 disabled={submitDisabled}
-                className="sk-press inline-flex items-center justify-center gap-1.5 rounded-[10px] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none"
+                className="sk-press inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none sm:min-h-0"
                 style={{ background: "rgb(var(--brand-primary))" }}
               >
                 {pending ? "Uploading…" : "Upload"}
@@ -664,7 +641,7 @@ function FieldLabel({
   return (
     <label
       htmlFor={htmlFor}
-      className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+      className="text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
     >
       {children}
       {required ? (
@@ -679,10 +656,7 @@ function FieldLabel({
 // Derive the next sensible version label for a given track id. For a
 // new song we suggest "v1"; otherwise v{N+1} based on the upstream
 // versionCount. The producer can always overwrite.
-function deriveNextLabel(
-  tracks: UploadTrackModalTrack[],
-  trackIdOrNew: string,
-): string {
+function deriveNextLabel(tracks: UploadTrackModalTrack[], trackIdOrNew: string): string {
   if (trackIdOrNew === NEW_SONG_VALUE) return "v1";
   const t = tracks.find((row) => row.id === trackIdOrNew);
   const next = (t?.versionCount ?? 0) + 1;

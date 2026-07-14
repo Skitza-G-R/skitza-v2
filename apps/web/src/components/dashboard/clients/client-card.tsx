@@ -3,10 +3,7 @@
 import Link from "next/link";
 import type { DragEvent } from "react";
 
-import {
-  producerGradient,
-  producerInitials,
-} from "~/lib/_phase4-stubs/producer-color";
+import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { LinkPill, type LinkPillState } from "./link-pill";
 
 export interface ClientCardData {
@@ -50,23 +47,8 @@ function formatMoney(cents: number, currency: string): string {
   }
 }
 
-export function ClientCard({
-  client,
-  onInvite,
-  onDragStart,
-  onDragOver,
-  onDrop,
-}: ClientCardProps) {
-  const {
-    id,
-    name,
-    email,
-    linkState,
-    projects,
-    lifetime,
-    owed,
-    currency = "USD",
-  } = client;
+export function ClientCard({ client, onInvite, onDragStart, onDragOver, onDrop }: ClientCardProps) {
+  const { id, name, email, linkState, projects, lifetime, owed, currency = "USD" } = client;
   const initials = producerInitials(name);
   const avatarBg = producerGradient(name);
 
@@ -74,10 +56,28 @@ export function ClientCard({
     <div
       draggable="true"
       data-id={id}
-      onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
-      onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
-      onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
-      className="group relative flex flex-col gap-3.5 rounded-[var(--radius-md)] border p-4 transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-0.5 hover:border-[rgb(var(--border-strong))] hover:shadow-[0_10px_24px_-12px_rgb(17_16_9/0.18),0_3px_8px_-3px_rgb(17_16_9/0.10)] active:translate-y-0 active:scale-[0.995] motion-reduce:hover:translate-y-0 motion-reduce:hover:shadow-none"
+      onDragStart={
+        onDragStart
+          ? (e) => {
+              onDragStart(e, id);
+            }
+          : undefined
+      }
+      onDragOver={
+        onDragOver
+          ? (e) => {
+              onDragOver(e, id);
+            }
+          : undefined
+      }
+      onDrop={
+        onDrop
+          ? (e) => {
+              onDrop(e, id);
+            }
+          : undefined
+      }
+      className="group relative flex flex-col gap-3 rounded-[var(--radius-md)] border p-3.5 transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-0.5 hover:border-[rgb(var(--border-strong))] hover:shadow-[0_10px_24px_-12px_rgb(17_16_9/0.18),0_3px_8px_-3px_rgb(17_16_9/0.10)] active:translate-y-0 active:scale-[0.995] motion-reduce:hover:translate-y-0 motion-reduce:hover:shadow-none"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
@@ -85,7 +85,7 @@ export function ClientCard({
     >
       <Link
         href={`/dashboard/clients-projects/clients/${id}`}
-        className="absolute inset-0 z-10 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+        className="absolute inset-0 z-10 rounded-[var(--radius-md)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         draggable={false}
         aria-label={`Open ${name}`}
       />
@@ -96,7 +96,7 @@ export function ClientCard({
           // workspace grid (matches the HTML's .clicard avatar). The
           // larger 112px hero avatar elsewhere stays square — the small
           // tile reads better as a circle in a 3-up grid.
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[14px] font-bold text-white"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white"
           style={{ background: avatarBg }}
           aria-hidden
         >
@@ -112,19 +112,18 @@ export function ClientCard({
             </p>
           </div>
           {email ? (
-            <p
-              className="truncate text-[12px]"
-              style={{ color: "rgb(var(--fg-muted))" }}
-            >
+            <p className="truncate text-[12px]" style={{ color: "rgb(var(--fg-muted))" }}>
               {email}
             </p>
           ) : null}
         </div>
-        <div className="relative z-20 pointer-events-auto">
+        <div className="pointer-events-auto relative z-20">
           {onInvite ? (
             <LinkPill
               state={linkState}
-              onInvite={() => { onInvite(client); }}
+              onInvite={() => {
+                onInvite(client);
+              }}
             />
           ) : (
             <LinkPill state={linkState} />
@@ -133,7 +132,7 @@ export function ClientCard({
       </div>
 
       <div
-        className="grid grid-cols-3 gap-2 rounded-[var(--radius-sm)] border px-3 py-2.5"
+        className="grid grid-cols-3 gap-2 rounded-[var(--radius-sm)] border px-3 py-2"
         style={{
           background: "rgb(var(--bg-background))",
           borderColor: "rgb(var(--border-subtle))",
@@ -141,7 +140,7 @@ export function ClientCard({
       >
         <div className="flex flex-col gap-0.5">
           <span
-            className="text-[9px] font-bold uppercase tracking-widest"
+            className="text-[9px] font-bold tracking-widest uppercase"
             style={{ color: "rgb(var(--fg-muted))" }}
           >
             Projects
@@ -155,7 +154,7 @@ export function ClientCard({
         </div>
         <div className="flex flex-col gap-0.5">
           <span
-            className="text-[9px] font-bold uppercase tracking-widest"
+            className="text-[9px] font-bold tracking-widest uppercase"
             style={{ color: "rgb(var(--fg-muted))" }}
           >
             Lifetime
@@ -169,7 +168,7 @@ export function ClientCard({
         </div>
         <div className="flex flex-col gap-0.5">
           <span
-            className="text-[9px] font-bold uppercase tracking-widest"
+            className="text-[9px] font-bold tracking-widest uppercase"
             style={{ color: "rgb(var(--fg-muted))" }}
           >
             Owed
@@ -177,10 +176,7 @@ export function ClientCard({
           <span
             className="font-mono text-[14px] font-bold tabular-nums"
             style={{
-              color:
-                owed > 0
-                  ? "rgb(var(--fg-danger))"
-                  : "rgb(var(--fg-muted))",
+              color: owed > 0 ? "rgb(var(--fg-danger))" : "rgb(var(--fg-muted))",
             }}
           >
             {owed > 0 ? formatMoney(owed, currency) : "—"}

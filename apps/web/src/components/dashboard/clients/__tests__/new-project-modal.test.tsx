@@ -65,9 +65,7 @@ describe("NewProjectModal", () => {
   it("has a Deadline date input (optional)", () => {
     expect(SRC).toMatch(/id="new-project-deadline"/);
     // type="date" — browser date picker.
-    expect(SRC).toMatch(
-      /<input[\s\S]*?id="new-project-deadline"[\s\S]*?type="date"/,
-    );
+    expect(SRC).toMatch(/<input[\s\S]*?id="new-project-deadline"[\s\S]*?type="date"/);
   });
 
   it("has a Total fee numeric input (auto-fills from product priceCents)", () => {
@@ -143,12 +141,12 @@ describe("NewProjectModal", () => {
     expect(SRC).toMatch(/onClose\(\)/);
   });
 
-  it("renders the amber 'Stage starts at Brief' info banner (mockup-match)", () => {
-    // HTML mockup carries an amber explainer above the form telling
-    // the producer that stage progression is upload-driven (and now
-    // also manually editable from the song page).
-    expect(SRC).toContain("Stage starts at Brief");
-    // 'song&rsquo;s page' in source → tolerate the HTML-entity apostrophe.
-    expect(SRC).toMatch(/from any song(?:&rsquo;|')?s\s+page/);
+  it("keeps deadline and payment fields in optional details", () => {
+    expect(SRC).toMatch(/<details[\s\S]*?Edit deadline and payment amounts/);
+  });
+
+  it("keeps the close button usable when the focused field blurs", () => {
+    expect(SRC).toMatch(/aria-label="Close"[\s\S]*?onPointerDown/);
+    expect(SRC).toMatch(/event\.preventDefault\(\)[\s\S]*?onClose\(\)/);
   });
 });

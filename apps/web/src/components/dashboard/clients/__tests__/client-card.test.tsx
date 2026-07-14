@@ -115,9 +115,7 @@ describe("ClientCard source — avatar / link pill / stats / whole-card link", (
     // grid — the locked design's family of "round small profile, big
     // square hero" stays intact. Pinning so a future cleanup doesn't
     // quietly flip this back to rounded-[var(--radius-md)].
-    expect(SRC).toMatch(
-      /h-12\s+w-12[\s\S]{0,80}rounded-full|rounded-full[\s\S]{0,80}h-12\s+w-12/,
-    );
-    expect(SRC).not.toMatch(/h-12\s+w-12[\s\S]{0,40}rounded-\[var\(--radius-md\)\]/);
+    expect(SRC).toMatch(/h-11\s+w-11[\s\S]{0,80}rounded-full|rounded-full[\s\S]{0,80}h-11\s+w-11/);
+    expect(SRC).not.toMatch(/h-11\s+w-11[\s\S]{0,40}rounded-\[var\(--radius-md\)\]/);
   });
 });

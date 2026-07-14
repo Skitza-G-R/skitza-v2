@@ -30,6 +30,8 @@ interface StatTileProps {
    * default so other StatTile surfaces are unaffected.
    */
   mobileCompact?: boolean;
+  /** Tighter desktop spacing for information-dense dashboard strips. */
+  dense?: boolean;
 }
 
 function valueColor(variant: StatTileVariant): string {
@@ -58,11 +60,12 @@ export function StatTile({
   sub,
   glow = "none",
   mobileCompact = false,
+  dense = false,
 }: StatTileProps) {
   const glowBg = glowGradient(glow);
   const boxCls = mobileCompact
-    ? "relative flex flex-col gap-1 overflow-hidden rounded-none border-0 px-3.5 py-3 md:gap-1.5 md:rounded-[var(--radius-md)] md:border md:px-5 md:py-4"
-    : "relative flex flex-col gap-1.5 overflow-hidden rounded-[var(--radius-md)] border px-5 py-4";
+    ? `relative flex flex-col gap-1 overflow-hidden rounded-none border-0 px-3.5 py-3 md:rounded-[var(--radius-md)] md:border ${dense ? "md:gap-1 md:px-4 md:py-3" : "md:gap-1.5 md:px-5 md:py-4"}`
+    : `relative flex flex-col overflow-hidden rounded-[var(--radius-md)] border ${dense ? "gap-1 px-4 py-3" : "gap-1.5 px-5 py-4"}`;
   return (
     <div
       className={boxCls}
@@ -79,7 +82,7 @@ export function StatTile({
         />
       ) : null}
       <span
-        className="relative text-[10px] font-bold uppercase tracking-widest"
+        className="relative text-[10px] font-bold tracking-widest uppercase"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
         {label}
@@ -93,8 +96,8 @@ export function StatTile({
         // datum" feel.
         className={
           mobileCompact
-            ? "relative font-syne text-[16px] font-extrabold leading-none tracking-[-0.02em] tabular-nums md:text-[22px]"
-            : "relative font-syne text-[22px] font-extrabold leading-none tracking-[-0.02em] tabular-nums"
+            ? `font-syne relative text-[16px] leading-none font-extrabold tracking-[-0.02em] tabular-nums ${dense ? "md:text-[20px]" : "md:text-[22px]"}`
+            : `font-syne relative leading-none font-extrabold tracking-[-0.02em] tabular-nums ${dense ? "text-[20px]" : "text-[22px]"}`
         }
         style={{ color: valueColor(variant) }}
       >
@@ -102,7 +105,7 @@ export function StatTile({
       </span>
       {sub ? (
         <span
-          className="relative text-[12px]"
+          className={`relative ${dense ? "text-[11px]" : "text-[12px]"}`}
           style={{ color: "rgb(var(--fg-muted))" }}
         >
           {sub}

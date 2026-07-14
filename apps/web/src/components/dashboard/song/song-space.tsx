@@ -12,14 +12,8 @@ import { SongSpaceStatStrip } from "./song-space-stat-strip";
 import { SongTabs, type SongTab } from "./song-tabs";
 import { OverviewTab } from "./song-tabs/overview-tab";
 import { VersionsTab } from "./song-tabs/versions-tab";
-import {
-  SessionsTab,
-  type SessionsTabSession,
-} from "./song-tabs/sessions-tab";
-import {
-  PaymentsTab,
-  type PaymentMilestone,
-} from "./song-tabs/payments-tab";
+import { SessionsTab, type SessionsTabSession } from "./song-tabs/sessions-tab";
+import { PaymentsTab, type PaymentMilestone } from "./song-tabs/payments-tab";
 import { UploadTrackModal } from "./upload-track-modal";
 import type { VersionRowVersionData } from "./version-row";
 
@@ -129,7 +123,7 @@ export function SongSpace({
   const defaultLabel = `v${String(song.revisionCount + 1)}`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-5">
       <SongSpaceHero
         mode={mode}
         song={song}
@@ -155,12 +149,7 @@ export function SongSpace({
         trackId={song.id}
       />
 
-      <SongTabs
-        mode={mode}
-        active={active}
-        onChange={setActive}
-        versionsCount={versions.length}
-      />
+      <SongTabs mode={mode} active={active} onChange={setActive} versionsCount={versions.length} />
 
       {active === "overview" ? (
         <OverviewTab

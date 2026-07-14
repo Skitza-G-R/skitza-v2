@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const globalsSrc = readFileSync(join(here, "..", "globals.css"), "utf8");
+const skipLinkSrc = readFileSync(
+  join(here, "..", "..", "components", "a11y", "skip-to-content.tsx"),
+  "utf8",
+);
 
 describe("global accessibility contract", () => {
   it("keeps the keyboard skip link at least 44px tall when it appears", () => {
@@ -20,5 +24,10 @@ describe("global accessibility contract", () => {
 
     expect(skipLinkRule).toBeDefined();
     expect(skipLinkRule).toMatch(/color:\s*rgb\(var\(--fg-on-brand\)\)/);
+  });
+
+  it("moves focus into the main content after activation", () => {
+    expect(skipLinkSrc).toContain('getElementById("main-content")');
+    expect(skipLinkSrc).toMatch(/\.focus\(/);
   });
 });

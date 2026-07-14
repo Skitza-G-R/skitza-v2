@@ -12,10 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import {
-  producerGradient,
-  producerInitials,
-} from "~/lib/_phase4-stubs/producer-color";
+import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { heroBg } from "~/lib/clients/hero-bg";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
@@ -26,14 +23,11 @@ import { sendClientInviteAction } from "~/app/(producer)/dashboard/clients-proje
 import { EditClientModal } from "./edit-client-modal";
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
-import {
-  NewProjectModal,
-  type NewProjectModalProductOption,
-} from "./new-project-modal";
+import { NewProjectModal, type NewProjectModalProductOption } from "./new-project-modal";
 import { RemoveClientConfirmModal } from "./remove-client-confirm-modal";
 
 // The Client Space hero replaces the old 4-tab header. One big dark
-// gradient band: 112px avatar tile, eyebrow CLIENT, name + LinkPill
+// gradient band: compact avatar tile, eyebrow CLIENT, name + LinkPill
 // inline, meta strip (email · phone · projects · joined date), then a
 // 4-tile stats row (Lifetime · Outstanding · Active projects · Joined).
 // Right-side "+ New project" pill links to the new-project form.
@@ -206,7 +200,7 @@ export function ClientSpaceHero({
       // hairline bottom border separates it from the projects list.
       // <md: tighter band padding + stacked layout (the desktop row
       // crushed "Noa Kirel" to "No…" at 390px). md+: original values.
-      className="relative -mx-4 overflow-hidden border-b px-5 py-6 pb-6 text-white sm:-mx-6 md:px-[34px] md:py-9 md:pb-7"
+      className="relative -mx-4 overflow-hidden border-b px-5 py-5 text-white sm:-mx-6 md:px-8 md:py-7"
       style={{
         background: heroBg(token),
         borderBottomColor: "rgb(var(--border-strong))",
@@ -215,14 +209,13 @@ export function ClientSpaceHero({
     >
       <HeroGlowOrbs />
 
-      <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-4 md:gap-6">
-        <div className="flex min-w-0 items-center gap-3.5 md:items-end md:gap-[22px]">
+      <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-4 md:gap-5">
+        <div className="flex min-w-0 items-center gap-3.5 md:gap-5">
           <span
-            className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-[18px] font-syne text-[26px] font-extrabold text-white md:h-28 md:w-28 md:rounded-[24px] md:text-[42px]"
+            className="font-syne flex h-[68px] w-[68px] shrink-0 items-center justify-center rounded-[18px] text-[24px] font-extrabold text-white md:h-24 md:w-24 md:rounded-[22px] md:text-[36px]"
             style={{
               background: avatarBg,
-              boxShadow:
-                "0 18px 40px rgba(0,0,0,0.36), inset 0 0 0 1px rgba(255,255,255,0.16)",
+              boxShadow: "0 18px 40px rgba(0,0,0,0.36), inset 0 0 0 1px rgba(255,255,255,0.16)",
             }}
             aria-hidden
           >
@@ -230,14 +223,14 @@ export function ClientSpaceHero({
           </span>
 
           <div className="min-w-0 flex-1">
-            <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-white/78">
+            <p className="text-[10.5px] font-bold tracking-[0.18em] text-white/78 uppercase">
               CLIENT
             </p>
             <div className="my-1 flex flex-wrap items-center gap-2 md:gap-3">
               <h1
                 // <md the name wraps up to 2 lines instead of
                 // truncating. md+ keeps the one-line 54px crop.
-                className="line-clamp-2 font-syne text-[26px] font-extrabold leading-[1.06] tracking-[-0.035em] text-white md:line-clamp-none md:truncate md:text-[54px] md:leading-[0.95]"
+                className="font-syne line-clamp-2 text-[26px] leading-[1.06] font-extrabold tracking-[-0.035em] text-white md:line-clamp-none md:truncate md:text-[44px] md:leading-[0.98]"
                 style={{ textShadow: "0 2px 20px rgba(0,0,0,0.25)" }}
               >
                 {name}
@@ -271,8 +264,7 @@ export function ClientSpaceHero({
               <li className="hidden items-center gap-1.5 md:inline-flex">
                 <FolderOpen size={12} aria-hidden />
                 <span>
-                  {activeProjects} active{" "}
-                  {activeProjects === 1 ? "project" : "projects"}
+                  {activeProjects} active {activeProjects === 1 ? "project" : "projects"}
                 </span>
               </li>
               <li className="hidden items-center gap-1.5 md:inline-flex">
@@ -291,15 +283,16 @@ export function ClientSpaceHero({
               <p className="mt-2 inline-flex items-center gap-2 text-[12px] text-white/78">
                 <span
                   aria-hidden
-                  className="h-1.5 w-1.5 rounded-full animate-pulse"
+                  className="h-1.5 w-1.5 animate-pulse rounded-full"
                   style={{ background: "rgb(var(--brand-primary))" }}
                 />
-                <span>Invitation sent &middot;{" "}
+                <span>
+                  Invitation sent &middot;{" "}
                   <button
                     type="button"
                     onClick={handleResend}
                     disabled={resendPending}
-                    className="font-semibold text-white underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-50"
+                    className="font-semibold text-white underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none disabled:opacity-50"
                   >
                     {resendPending ? "Resending…" : "Resend invite link"}
                   </button>
@@ -321,18 +314,18 @@ export function ClientSpaceHero({
         <div className="flex w-full items-center gap-2 md:w-auto md:shrink-0 md:self-end">
           <button
             type="button"
-            onClick={() => { setNewProjectOpen(true); }}
+            onClick={() => {
+              setNewProjectOpen(true);
+            }}
             disabled={!email}
             title={
-              email
-                ? undefined
-                : "Add an email to this client before creating a project for them."
+              email ? undefined : "Add an email to this client before creating a project for them."
             }
             // Solid-white primary pill — G14: the client hero's only
             // primary CTA should match the design's `btn-light`
             // (background:#fff; color:#111009) for max prominence.
             // <md it stretches full-width at a 44px touch height.
-            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white md:min-h-0 md:flex-none md:justify-start"
+            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white md:min-h-0 md:flex-none md:justify-start"
             style={{ color: "rgb(var(--bg-sidebar))" }}
           >
             <Plus size={14} />
@@ -345,11 +338,13 @@ export function ClientSpaceHero({
           <div ref={menuRef} className="relative">
             <button
               type="button"
-              onClick={() => { setMenuOpen((v) => !v); }}
+              onClick={() => {
+                setMenuOpen((v) => !v);
+              }}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               aria-label="Client actions"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 md:h-9 md:w-9"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none md:h-9 md:w-9"
             >
               <MoreVertical size={16} strokeWidth={2.2} />
             </button>
@@ -357,7 +352,7 @@ export function ClientSpaceHero({
               <div
                 role="menu"
                 aria-label="Client actions menu"
-                className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[180px] overflow-hidden rounded-[10px] border bg-[rgb(var(--bg-background))] py-1 text-[13px] shadow-[0_18px_40px_-12px_rgba(17,16,9,0.32)]"
+                className="absolute top-[calc(100%+6px)] right-0 z-30 min-w-[180px] overflow-hidden rounded-[10px] border bg-[rgb(var(--bg-background))] py-1 text-[13px] shadow-[0_18px_40px_-12px_rgba(17,16,9,0.32)]"
                 style={{ borderColor: "rgb(var(--border-subtle))" }}
               >
                 <button
@@ -390,12 +385,10 @@ export function ClientSpaceHero({
         </div>
       </div>
 
-      <div className="relative mx-auto mt-5 max-w-[1100px] md:mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--border-subtle))] md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent">
-        <StatTile mobileCompact
-          label="Lifetime"
-          value={formatMoney(lifetime, currency)}
-        />
-        <StatTile mobileCompact
+      <div className="relative mx-auto mt-5 grid max-w-[1100px] grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--border-subtle))] md:mt-6 md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent">
+        <StatTile mobileCompact label="Lifetime" value={formatMoney(lifetime, currency)} />
+        <StatTile
+          mobileCompact
           label="Outstanding"
           value={outstanding > 0 ? formatMoney(outstanding, currency) : "—"}
           variant={outstanding > 0 ? "danger" : "default"}

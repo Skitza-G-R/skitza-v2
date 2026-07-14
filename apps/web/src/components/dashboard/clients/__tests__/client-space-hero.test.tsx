@@ -18,7 +18,7 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).toContain("~/lib/clients/hero-bg");
   });
 
-  it("imports producerInitials + producerGradient for the 112px avatar tile", () => {
+  it("imports producerInitials + producerGradient for the avatar tile", () => {
     expect(SRC).toContain("producerInitials");
     expect(SRC).toContain("producerGradient");
     expect(SRC).toContain("~/lib/_phase4-stubs/producer-color");
@@ -45,8 +45,8 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).toContain("Joined");
   });
 
-  it("uses the avatar size 112px (h-28 w-28)", () => {
-    expect(SRC).toMatch(/h-28\b.*w-28|w-28\b.*h-28/);
+  it("uses a compact 96px desktop avatar (md:h-24 md:w-24)", () => {
+    expect(SRC).toMatch(/md:h-24\b.*md:w-24|md:w-24\b.*md:h-24/);
   });
 
   it("renders the '+ New project' CTA on the right side", () => {
@@ -147,9 +147,9 @@ describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () =>
     expect(sectionCls).not.toMatch(/\brounded-/);
   });
 
-  it("G4: h1 is 54px Syne with the design's negative tracking", () => {
-    // SK-60: 26px 2-line clamp <md; the design's 54px one-liner at md+.
-    expect(SRC).toMatch(/font-syne[\s\S]*?tracking-\[-0\.035em\][\s\S]*?md:text-\[54px\]/);
+  it("G4: h1 is compact Syne with the design's negative tracking", () => {
+    // 26px 2-line clamp <md; a tighter 44px one-liner at md+.
+    expect(SRC).toMatch(/font-syne[\s\S]*?tracking-\[-0\.035em\][\s\S]*?md:text-\[44px\]/);
     expect(SRC).toMatch(/line-clamp-2[\s\S]*?text-\[26px\]/);
   });
 
@@ -158,8 +158,8 @@ describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () =>
     expect(SRC).toContain("~/components/dashboard/common/hero-glow-orbs");
   });
 
-  it("G23: avatar uses literal 24px radius (not --radius-md)", () => {
-    expect(SRC).toMatch(/rounded-\[24px\]/);
+  it("G23: avatar uses a tighter literal desktop radius (not --radius-md)", () => {
+    expect(SRC).toMatch(/md:rounded-\[22px\]/);
   });
 
   it("G14: '+ New project' CTA is solid white (not frosted glass)", () => {

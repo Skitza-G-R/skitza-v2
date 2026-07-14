@@ -2,23 +2,10 @@
 
 import { useMemo, useState } from "react";
 import type { DragEvent } from "react";
-import {
-  ChevronDown,
-  FolderKanban,
-  LayoutGrid,
-  List,
-  Plus,
-  Users,
-} from "lucide-react";
+import { ChevronDown, FolderKanban, LayoutGrid, List, Plus, Users } from "lucide-react";
 
-import {
-  ProjectRow,
-  type ProjectRowData,
-} from "~/components/dashboard/projects/project-row";
-import {
-  ClientCard,
-  type ClientCardData,
-} from "~/components/dashboard/clients/client-card";
+import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
+import { ClientCard, type ClientCardData } from "~/components/dashboard/clients/client-card";
 import { InviteToAppModal } from "~/components/dashboard/clients/invite-modal";
 import { MobileClientRow } from "~/components/dashboard/clients/mobile-client-row";
 import { NewClientModal } from "~/components/dashboard/clients/new-client-modal";
@@ -132,7 +119,7 @@ export interface WorkspaceListViewProps {
 // makes the hover lift feel intentional, not springy. active:scale
 // gives the "pressed-down" tactile beat per emil-design-eng.
 const HEADER_CTA_CLASS =
-  "inline-flex min-h-[44px] items-center gap-1.5 self-start rounded-full px-5 py-2.5 text-[13px] font-semibold shadow-[0_8px_20px_-6px_rgb(var(--brand-primary)/0.45),0_2px_6px_-2px_rgb(var(--brand-primary)/0.35)] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:scale-[1.02] hover:shadow-[0_12px_26px_-6px_rgb(var(--brand-primary)/0.55),0_3px_8px_-2px_rgb(var(--brand-primary)/0.4)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 sm:min-h-0 sm:self-auto";
+  "inline-flex min-h-[44px] items-center gap-1.5 self-start rounded-[var(--radius-lg)] px-4 py-2.5 text-[13px] font-semibold shadow-[0_8px_20px_-6px_rgb(var(--brand-primary)/0.45),0_2px_6px_-2px_rgb(var(--brand-primary)/0.35)] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:scale-[1.02] hover:shadow-[0_12px_26px_-6px_rgb(var(--brand-primary)/0.55),0_3px_8px_-2px_rgb(var(--brand-primary)/0.4)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 sm:min-h-0 sm:self-auto";
 
 const HEADER_CTA_STYLE = {
   background: "rgb(var(--brand-primary))",
@@ -164,9 +151,7 @@ export function WorkspaceListView({
   // When the page hydrates with `?newProject=1` (the redirect target
   // from the deleted /new route), default to the Projects tab AND
   // open the modal — that's where the legacy route landed the user.
-  const [tab, setTab] = useState<Tab>(
-    initialNewProjectOpen ? "projects" : "clients",
-  );
+  const [tab, setTab] = useState<Tab>(initialNewProjectOpen ? "projects" : "clients");
   const [sort, setSort] = useState<SortValue>("custom");
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>("all");
   const [clientFilter, setClientFilter] = useState<ClientFilter>("all");
@@ -181,9 +166,7 @@ export function WorkspaceListView({
   // Invite-to-App modal state. The modal mounts once at the bottom of
   // the view and opens whenever a LinkPill "Invite to app" button is
   // clicked on any ClientCard. inviteTarget = null hides the modal.
-  const [inviteTarget, setInviteTarget] = useState<ClientCardData | null>(
-    null,
-  );
+  const [inviteTarget, setInviteTarget] = useState<ClientCardData | null>(null);
   const handleInviteClient = (client: ClientCardData) => {
     setInviteTarget(client);
   };
@@ -203,9 +186,7 @@ export function WorkspaceListView({
   // the CTA during QA. DESIGN.md §6.2 / BUILD-NOTES §7.2.
   // Initial state from the page's searchParams (?newProject=1) so the
   // legacy /new redirect lands the producer directly in the modal.
-  const [newProjectOpen, setNewProjectOpen] = useState(
-    initialNewProjectOpen ?? false,
-  );
+  const [newProjectOpen, setNewProjectOpen] = useState(initialNewProjectOpen ?? false);
 
   const currency = kpis.currency ?? "USD";
 
@@ -248,10 +229,7 @@ export function WorkspaceListView({
       case "deadline":
         // Soonest deadline first. Rows without a deadline sink to the
         // bottom (Number.POSITIVE_INFINITY).
-        sorted.sort(
-          (a, b) =>
-            isoMsOrPosInf(a.deadlineAtIso) - isoMsOrPosInf(b.deadlineAtIso),
-        );
+        sorted.sort((a, b) => isoMsOrPosInf(a.deadlineAtIso) - isoMsOrPosInf(b.deadlineAtIso));
         break;
     }
     return sorted;
@@ -306,19 +284,13 @@ export function WorkspaceListView({
     return sorted;
   }, [orderedClients, clientFilter, sort]);
 
-  const handleProjectDragStart = (
-    _e: DragEvent<HTMLDivElement>,
-    id: string,
-  ) => {
+  const handleProjectDragStart = (_e: DragEvent<HTMLDivElement>, id: string) => {
     setDraggingId(id);
   };
   const handleProjectDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
-  const handleProjectDrop = (
-    _e: DragEvent<HTMLDivElement>,
-    targetId: string,
-  ) => {
+  const handleProjectDrop = (_e: DragEvent<HTMLDivElement>, targetId: string) => {
     if (!draggingId || draggingId === targetId) {
       setDraggingId(null);
       return;
@@ -342,19 +314,13 @@ export function WorkspaceListView({
     void onReorderProjects?.(next.map((p) => p.id));
   };
 
-  const handleClientDragStart = (
-    _e: DragEvent<HTMLDivElement>,
-    id: string,
-  ) => {
+  const handleClientDragStart = (_e: DragEvent<HTMLDivElement>, id: string) => {
     setDraggingId(id);
   };
   const handleClientDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
-  const handleClientDrop = (
-    _e: DragEvent<HTMLDivElement>,
-    targetId: string,
-  ) => {
+  const handleClientDrop = (_e: DragEvent<HTMLDivElement>, targetId: string) => {
     if (!draggingId || draggingId === targetId) {
       setDraggingId(null);
       return;
@@ -376,17 +342,17 @@ export function WorkspaceListView({
   };
 
   return (
-    <div className="flex flex-col gap-5">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="flex flex-col gap-4 sm:gap-5">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-col gap-1">
           <span
-            className="text-[10.5px] font-bold uppercase tracking-[0.14em]"
+            className="hidden text-[10.5px] font-bold tracking-[0.14em] uppercase sm:block"
             style={{ color: "rgb(var(--fg-muted))" }}
           >
             Workspace
           </span>
           <h1
-            className="font-syne text-[26px] font-extrabold leading-[0.96] tracking-[-0.035em] sm:text-[46px]"
+            className="font-syne text-[26px] leading-[0.98] font-extrabold tracking-[-0.035em] sm:text-[38px] lg:text-[42px]"
             style={{ color: "rgb(var(--fg-default))" }}
           >
             Clients &amp; Projects
@@ -396,30 +362,23 @@ export function WorkspaceListView({
               $2,250 outstanding". Each datum is dot-separated; the
               outstanding figure flips to danger color when non-zero
               so the producer can scan urgency without reading. */}
-          <p
-            className="mt-1 text-[12.5px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
+          <p className="mt-1 text-[12.5px]" style={{ color: "rgb(var(--fg-muted))" }}>
             <span data-testid="workspace-subline-projects">
-              {orderedProjects.length}{" "}
-              {orderedProjects.length === 1 ? "project" : "projects"}
+              {orderedProjects.length} {orderedProjects.length === 1 ? "project" : "projects"}
             </span>
             <span aria-hidden> &middot; </span>
             <span>
               {
                 orderedProjects.filter(
                   (p) =>
-                    p.statusTone === "warn" ||
-                    p.statusTone === "ok" ||
-                    p.statusTone === "danger",
+                    p.statusTone === "warn" || p.statusTone === "ok" || p.statusTone === "danger",
                 ).length
               }{" "}
               active
             </span>
             <span aria-hidden> &middot; </span>
             <span>
-              {orderedClients.length}{" "}
-              {orderedClients.length === 1 ? "client" : "clients"}
+              {orderedClients.length} {orderedClients.length === 1 ? "client" : "clients"}
             </span>
             {kpis.outstanding > 0 ? (
               <>
@@ -437,7 +396,9 @@ export function WorkspaceListView({
         {tab === "clients" ? (
           <button
             type="button"
-            onClick={() => { setNewClientOpen(true); }}
+            onClick={() => {
+              setNewClientOpen(true);
+            }}
             className={HEADER_CTA_CLASS}
             style={HEADER_CTA_STYLE}
           >
@@ -448,7 +409,9 @@ export function WorkspaceListView({
         {tab === "projects" ? (
           <button
             type="button"
-            onClick={() => { setNewProjectOpen(true); }}
+            onClick={() => {
+              setNewProjectOpen(true);
+            }}
             className={HEADER_CTA_CLASS}
             style={HEADER_CTA_STYLE}
           >
@@ -463,17 +426,10 @@ export function WorkspaceListView({
           2-up on a phone. Compact tiles: label + value only, tight
           padding; the sub-line context lives on desktop. */}
       <div className="grid grid-cols-2 gap-2 md:hidden">
-        <MobileKpiTile
-          label="Earnings"
-          value={formatMoney(kpis.earnings, currency)}
-        />
+        <MobileKpiTile label="Earnings" value={formatMoney(kpis.earnings, currency)} />
         <MobileKpiTile
           label="Outstanding"
-          value={
-            kpis.outstanding > 0
-              ? formatMoney(kpis.outstanding, currency)
-              : "—"
-          }
+          value={kpis.outstanding > 0 ? formatMoney(kpis.outstanding, currency) : "—"}
           tone={kpis.outstanding > 0 ? "danger" : "default"}
         />
         <MobileKpiTile
@@ -491,17 +447,15 @@ export function WorkspaceListView({
           Desktop-only since SK-54 (compact strip above owns <md). */}
       <div className="hidden gap-3 md:grid md:grid-cols-4">
         <StatTile
+          dense
           label="Earnings · this month"
           value={formatMoney(kpis.earnings, currency)}
           sub="Across active projects"
         />
         <StatTile
+          dense
           label="Outstanding"
-          value={
-            kpis.outstanding > 0
-              ? formatMoney(kpis.outstanding, currency)
-              : "—"
-          }
+          value={kpis.outstanding > 0 ? formatMoney(kpis.outstanding, currency) : "—"}
           variant={kpis.outstanding > 0 ? "danger" : "default"}
           glow={kpis.outstanding > 0 ? "danger" : "none"}
           sub={
@@ -511,16 +465,14 @@ export function WorkspaceListView({
           }
         />
         <StatTile
+          dense
           label="Needs your attention"
           value={kpis.needsAttention}
           variant={kpis.needsAttention > 0 ? "danger" : "default"}
-          sub={
-            kpis.needsAttention > 0
-              ? "Overdue or awaiting reply"
-              : "You're all caught up"
-          }
+          sub={kpis.needsAttention > 0 ? "Overdue or awaiting reply" : "You're all caught up"}
         />
         <StatTile
+          dense
           label="Next deadline"
           value={kpis.nextDeadline}
           glow={kpis.nextDeadlineLabel ? "brand" : "none"}
@@ -550,7 +502,7 @@ export function WorkspaceListView({
             seg + right cluster, row 2 = filter chips as a horizontal
             scroller. md+ keeps the mockup's single wrapping row. */}
         <div
-          className="order-1 inline-flex items-center gap-1 rounded-full border p-1 md:order-none"
+          className="order-1 inline-flex items-center gap-1 rounded-[var(--radius-lg)] border p-1 md:order-none"
           style={{
             background: "rgb(var(--bg-background))",
             borderColor: "rgb(var(--border-subtle))",
@@ -562,17 +514,14 @@ export function WorkspaceListView({
             type="button"
             role="tab"
             aria-selected={tab === "clients"}
-            onClick={() => { setTab("clients"); }}
-            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-3.5 py-2.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] sm:min-h-0 sm:py-1.5"
+            onClick={() => {
+              setTab("clients");
+            }}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-2.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] sm:min-h-0 sm:py-1.5"
             style={{
-              background:
-                tab === "clients" ? "rgb(var(--bg-elevated))" : "transparent",
-              color:
-                tab === "clients"
-                  ? "rgb(var(--fg-default))"
-                  : "rgb(var(--fg-muted))",
-              boxShadow:
-                tab === "clients" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
+              background: tab === "clients" ? "rgb(var(--bg-elevated))" : "transparent",
+              color: tab === "clients" ? "rgb(var(--fg-default))" : "rgb(var(--fg-muted))",
+              boxShadow: tab === "clients" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
             }}
           >
             <Users size={12} strokeWidth={2.3} aria-hidden />
@@ -582,17 +531,14 @@ export function WorkspaceListView({
             type="button"
             role="tab"
             aria-selected={tab === "projects"}
-            onClick={() => { setTab("projects"); }}
-            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-3.5 py-2.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] sm:min-h-0 sm:py-1.5"
+            onClick={() => {
+              setTab("projects");
+            }}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-2.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] sm:min-h-0 sm:py-1.5"
             style={{
-              background:
-                tab === "projects" ? "rgb(var(--bg-elevated))" : "transparent",
-              color:
-                tab === "projects"
-                  ? "rgb(var(--fg-default))"
-                  : "rgb(var(--fg-muted))",
-              boxShadow:
-                tab === "projects" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
+              background: tab === "projects" ? "rgb(var(--bg-elevated))" : "transparent",
+              color: tab === "projects" ? "rgb(var(--fg-default))" : "rgb(var(--fg-muted))",
+              boxShadow: tab === "projects" ? "0 1px 2px rgba(17,16,9,0.08)" : "none",
             }}
           >
             <FolderKanban size={12} strokeWidth={2.3} aria-hidden />
@@ -605,7 +551,7 @@ export function WorkspaceListView({
             tabs (mockup-match). On phones the chips become one
             non-wrapping horizontal scroller (Spotify/Maps chip-bar
             pattern) instead of a ragged two-line wrap. */}
-        <div className="order-3 flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:order-none md:w-auto md:flex-wrap md:overflow-visible">
+        <div className="order-3 flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] md:order-none md:w-auto md:flex-wrap md:overflow-visible [&::-webkit-scrollbar]:hidden">
           {tab === "projects"
             ? PROJECT_FILTERS.map((f) => {
                 const active = projectFilter === f.value;
@@ -613,19 +559,15 @@ export function WorkspaceListView({
                   <button
                     key={f.value}
                     type="button"
-                    onClick={() => { setProjectFilter(f.value); }}
+                    onClick={() => {
+                      setProjectFilter(f.value);
+                    }}
                     aria-pressed={active}
-                    className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:py-1.5"
+                    className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-2.5 text-[12px] font-medium whitespace-nowrap transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.97] sm:min-h-0 sm:py-1.5"
                     style={{
-                      background: active
-                        ? "rgb(var(--fg-default))"
-                        : "rgb(var(--bg-elevated))",
-                      borderColor: active
-                        ? "rgb(var(--fg-default))"
-                        : "rgb(var(--border-subtle))",
-                      color: active
-                        ? "rgb(var(--bg-elevated))"
-                        : "rgb(var(--fg-muted))",
+                      background: active ? "rgb(var(--fg-default))" : "rgb(var(--bg-elevated))",
+                      borderColor: active ? "rgb(var(--fg-default))" : "rgb(var(--border-subtle))",
+                      color: active ? "rgb(var(--bg-elevated))" : "rgb(var(--fg-muted))",
                     }}
                   >
                     {f.value === "urgent" ? (
@@ -645,19 +587,15 @@ export function WorkspaceListView({
                   <button
                     key={f.value}
                     type="button"
-                    onClick={() => { setClientFilter(f.value); }}
+                    onClick={() => {
+                      setClientFilter(f.value);
+                    }}
                     aria-pressed={active}
-                    className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2.5 text-[12px] font-medium transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:py-1.5"
+                    className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-2.5 text-[12px] font-medium whitespace-nowrap transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.97] sm:min-h-0 sm:py-1.5"
                     style={{
-                      background: active
-                        ? "rgb(var(--fg-default))"
-                        : "rgb(var(--bg-elevated))",
-                      borderColor: active
-                        ? "rgb(var(--fg-default))"
-                        : "rgb(var(--border-subtle))",
-                      color: active
-                        ? "rgb(var(--bg-elevated))"
-                        : "rgb(var(--fg-muted))",
+                      background: active ? "rgb(var(--fg-default))" : "rgb(var(--bg-elevated))",
+                      borderColor: active ? "rgb(var(--fg-default))" : "rgb(var(--border-subtle))",
+                      color: active ? "rgb(var(--bg-elevated))" : "rgb(var(--fg-muted))",
                     }}
                   >
                     {f.value === "needs-attention" ? (
@@ -690,7 +628,7 @@ export function WorkspaceListView({
             // same compact rows, so the toggle was two buttons doing
             // one thing. Display class branches per element — never
             // stack `hidden` with a base `inline-flex`.
-            className="hidden items-center gap-0.5 rounded-full border p-0.5 md:inline-flex"
+            className="hidden items-center gap-0.5 rounded-[var(--radius-lg)] border p-0.5 md:inline-flex"
             style={{
               background: "rgb(var(--bg-elevated))",
               borderColor: "rgb(var(--border-subtle))",
@@ -700,38 +638,30 @@ export function WorkspaceListView({
           >
             <button
               type="button"
-              onClick={() => { setLayout("cards"); }}
+              onClick={() => {
+                setLayout("cards");
+              }}
               aria-pressed={layout === "cards"}
               aria-label="Card layout"
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:min-w-0"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.92] sm:min-h-0 sm:min-w-0"
               style={{
-                background:
-                  layout === "cards"
-                    ? "rgb(var(--brand-primary)/0.15)"
-                    : "transparent",
-                color:
-                  layout === "cards"
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--fg-muted))",
+                background: layout === "cards" ? "rgb(var(--brand-primary)/0.15)" : "transparent",
+                color: layout === "cards" ? "rgb(var(--brand-primary))" : "rgb(var(--fg-muted))",
               }}
             >
               <LayoutGrid size={14} />
             </button>
             <button
               type="button"
-              onClick={() => { setLayout("table"); }}
+              onClick={() => {
+                setLayout("table");
+              }}
               aria-pressed={layout === "table"}
               aria-label="Table layout"
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] sm:min-h-0 sm:min-w-0"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-1.5 transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.92] sm:min-h-0 sm:min-w-0"
               style={{
-                background:
-                  layout === "table"
-                    ? "rgb(var(--brand-primary)/0.15)"
-                    : "transparent",
-                color:
-                  layout === "table"
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--fg-muted))",
+                background: layout === "table" ? "rgb(var(--brand-primary)/0.15)" : "transparent",
+                color: layout === "table" ? "rgb(var(--brand-primary))" : "rgb(var(--fg-muted))",
               }}
             >
               <List size={14} />
@@ -740,8 +670,10 @@ export function WorkspaceListView({
           <label className="relative inline-flex items-center">
             <select
               value={sort}
-              onChange={(e) => { setSort(e.target.value as SortValue); }}
-              className="min-h-[44px] appearance-none rounded-full border bg-transparent py-2.5 pl-3 pr-7 text-[12px] font-medium focus:outline-none sm:min-h-0 sm:py-1.5"
+              onChange={(e) => {
+                setSort(e.target.value as SortValue);
+              }}
+              className="min-h-[44px] appearance-none rounded-[var(--radius-lg)] border bg-transparent py-2.5 pr-7 pl-3 text-[12px] font-medium focus:outline-none sm:min-h-0 sm:py-1.5"
               style={{
                 background: "rgb(var(--bg-elevated))",
                 borderColor: "rgb(var(--border-subtle))",
@@ -771,7 +703,7 @@ export function WorkspaceListView({
           producer "what list am I scanning" + the count, without
           competing with the KPI tiles for attention. */}
       <p
-        className="-mb-1 mt-2 text-[10.5px] font-bold uppercase tracking-[0.14em]"
+        className="mt-2 -mb-1 text-[10.5px] font-bold tracking-[0.14em] uppercase"
         style={{ color: "rgb(var(--fg-muted))" }}
         data-testid="workspace-list-header"
       >
@@ -783,9 +715,7 @@ export function WorkspaceListView({
       {/* The list — G18 wires layout switching for both tabs */}
       {tab === "projects" ? (
         <div className="flex flex-col gap-2">
-          {layout === "table" ? (
-            <ProjectsTableHeader sort={sort} onSortChange={setSort} />
-          ) : null}
+          {layout === "table" ? <ProjectsTableHeader sort={sort} onSortChange={setSort} /> : null}
           {filteredProjects.map((p) => (
             <ProjectRow
               key={p.id}
@@ -933,18 +863,15 @@ function MobileKpiTile({
       }}
     >
       <span
-        className="block text-[9px] font-bold uppercase tracking-widest"
+        className="block text-[9px] font-bold tracking-widest uppercase"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
         {label}
       </span>
       <span
-        className="font-syne mt-1 block truncate text-[17px] font-extrabold leading-none tracking-[-0.02em] tabular-nums"
+        className="font-syne mt-1 block truncate text-[17px] leading-none font-extrabold tracking-[-0.02em] tabular-nums"
         style={{
-          color:
-            tone === "danger"
-              ? "rgb(var(--fg-danger))"
-              : "rgb(var(--fg-default))",
+          color: tone === "danger" ? "rgb(var(--fg-danger))" : "rgb(var(--fg-default))",
         }}
       >
         {value}

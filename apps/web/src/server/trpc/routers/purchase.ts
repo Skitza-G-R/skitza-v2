@@ -548,6 +548,77 @@ export async function listPendingProducerProofs(
   return { available: true as const, proofs: rows };
 }
 
+export async function listProducerProofHistory(
+  db: Db,
+  producerId: string,
+  input: { purchaseRequestId: string } | { clientContactId: string },
+) {
+  if (!(await paymentProofsTableAvailable(db))) {
+    return { available: false as const, proofs: [] };
+  }
+
+  const filters = [
+    eq(paymentProofs.producerId, producerId),
+    eq(purchaseRequests.producerId, producerId),
+  ];
+
+  if ("purchaseRequestId" in input) {
+    const [ownedRequest] = await db
+      .select({ id: purchaseRequests.id })
+      .from(purchaseRequests)
+      .where(
+        and(
+          eq(purchaseRequests.id, input.purchaseRequestId),
+          eq(purchaseRequests.producerId, producerId),
+        ),
+      )
+      .limit(1);
+    if (!ownedRequest) throw new TRPCError({ code: "NOT_FOUND" });
+    filters.push(eq(paymentProofs.purchaseRequestId, input.purchaseRequestId));
+    filters.push(eq(purchaseRequests.id, input.purchaseRequestId));
+  } else {
+    const [ownedClient] = await db
+      .select({ id: clientContacts.id })
+      .from(clientContacts)
+      .where(
+        and(
+          eq(clientContacts.id, input.clientContactId),
+          eq(clientContacts.producerId, producerId),
+        ),
+      )
+      .limit(1);
+    if (!ownedClient) throw new TRPCError({ code: "NOT_FOUND" });
+    filters.push(eq(purchaseRequests.clientContactId, input.clientContactId));
+  }
+
+  const rows = await db
+    .select({
+      proofId: paymentProofs.id,
+      amountCents: paymentProofs.amountCents,
+      currency: paymentProofs.currency,
+      originalFileName: paymentProofs.originalFileName,
+      contentType: paymentProofs.contentType,
+      sizeBytes: paymentProofs.sizeBytes,
+      proofNote: paymentProofs.note,
+      status: paymentProofs.status,
+      rejectionNote: paymentProofs.rejectionNote,
+      confirmedAt: paymentProofs.confirmedAt,
+      rejectedAt: paymentProofs.rejectedAt,
+      createdAt: paymentProofs.createdAt,
+      purchaseRequestId: purchaseRequests.id,
+      refNumber: purchaseRequests.refNumber,
+      artistName: purchaseRequests.artistName,
+      productNameSnapshot: purchaseRequests.productNameSnapshot,
+      totalCents: purchaseRequests.priceCents,
+    })
+    .from(paymentProofs)
+    .innerJoin(purchaseRequests, eq(purchaseRequests.id, paymentProofs.purchaseRequestId))
+    .where(and(...filters))
+    .orderBy(desc(paymentProofs.createdAt));
+
+  return { available: true as const, proofs: rows };
+}
+
 // Migration 0023 adds the explicit post-approval plan-choice fields. Preview
 // deployments intentionally run against the still-pre-0023 database during
 // the production cutover, so every Gate-1 read must avoid naming those
@@ -2405,6 +2476,15 @@ export const producerPurchaseRouter = router({
       .query(({ ctx, input }) =>
         listPendingProducerProofs(ctx.db, ctx.producerId, input?.purchaseRequestId),
       ),
+
+    history: producerProcedure
+      .input(
+        z.union([
+          z.object({ purchaseRequestId: z.string().uuid() }),
+          z.object({ clientContactId: z.string().uuid() }),
+        ]),
+      )
+      .query(({ ctx, input }) => listProducerProofHistory(ctx.db, ctx.producerId, input)),
 
     view: producerProcedure
       .input(z.object({ proofId: z.string().uuid() }))

@@ -1,8 +1,4 @@
-import {
-  stageColor,
-  stageLabel,
-  type WorkflowStage,
-} from "~/lib/clients/workflow-stage";
+import { stageColor, stageLabel, type WorkflowStage } from "~/lib/clients/workflow-stage";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 
 import { ChangeStageMenu } from "./change-stage-menu";
@@ -60,26 +56,24 @@ export function SongSpaceStatStrip({
     <ChangeStageMenu trackId={trackId} current={workflowStage} />
   ) : (
     <span
-      className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest"
+      className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-1 text-[11px] font-bold tracking-widest uppercase"
       style={{
         color: stageHue,
         borderColor: stageHue,
         background: "transparent",
       }}
     >
-      <span
-        aria-hidden
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ background: stageHue }}
-      />
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: stageHue }} />
       {stageLabel(workflowStage)}
     </span>
   );
 
   return (
     <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--border-subtle))] md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent">
-      <StatTile mobileCompact label="Status" value={statusContent} />
-      <StatTile mobileCompact
+      <StatTile mobileCompact dense label="Status" value={statusContent} />
+      <StatTile
+        mobileCompact
+        dense
         label="Progress"
         value={<span className="tabular-nums">{clampedProgress}%</span>}
         sub={
@@ -98,15 +92,15 @@ export function SongSpaceStatStrip({
         }
       />
       {isOverdue ? (
-        <StatTile mobileCompact label="Deadline" value={deadline} variant="danger" />
+        <StatTile mobileCompact dense label="Deadline" value={deadline} variant="danger" />
       ) : (
-        <StatTile mobileCompact label="Deadline" value={deadline} />
+        <StatTile mobileCompact dense label="Deadline" value={deadline} />
       )}
-      <StatTile mobileCompact
+      <StatTile
+        mobileCompact
+        dense
         label="Versions"
-        value={
-          <span className="font-mono tabular-nums">{currentVersion}</span>
-        }
+        value={<span className="font-mono tabular-nums">{currentVersion}</span>}
         sub={`+ ${String(revisionCount)} ${revisionSuffix}`}
       />
     </div>

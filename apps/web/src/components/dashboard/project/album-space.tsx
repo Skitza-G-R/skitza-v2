@@ -2,18 +2,12 @@
 
 import { useState } from "react";
 
-import {
-  AlbumHero,
-  type AlbumHeroProject,
-} from "./album-hero";
+import { AlbumHero, type AlbumHeroProject } from "./album-hero";
 import { AlbumStatStrip } from "./album-stat-strip";
 import { AlbumTabs, type AlbumTab } from "./album-tabs";
 import { SongsTab } from "./album-tabs/songs-tab";
 import { FilesTab } from "./album-tabs/files-tab";
-import {
-  PaymentsTab,
-  type PaymentMilestone,
-} from "./album-tabs/payments-tab";
+import { PaymentsTab, type PaymentMilestone } from "./album-tabs/payments-tab";
 import {
   StudioLogTab,
   type StudioLogActivity,
@@ -127,7 +121,7 @@ export function AlbumSpace({
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-5">
       <AlbumHero
         project={heroProject}
         {...(handlePlayLatest ? { onPlayLatest: handlePlayLatest } : {})}
@@ -143,18 +137,10 @@ export function AlbumSpace({
         currency={project.currency}
       />
 
-      <AlbumTabs
-        active={active}
-        onChange={setActive}
-        songsCount={project.songsCount}
-      />
+      <AlbumTabs active={active} onChange={setActive} songsCount={project.songsCount} />
 
       {active === "songs" ? (
-        <SongsTab
-          projectId={project.id}
-          tracks={tracks}
-          onAddSong={handleAddSong}
-        />
+        <SongsTab projectId={project.id} tracks={tracks} onAddSong={handleAddSong} />
       ) : null}
       {active === "files" ? <FilesTab projectId={project.id} /> : null}
       {active === "payments" ? (

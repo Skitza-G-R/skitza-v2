@@ -1,6 +1,19 @@
 import { notFound } from "next/navigation";
 
 import {
+  WorkspaceListView,
+  type WorkspaceKPIs,
+} from "~/components/dashboard/clients-projects/workspace-list-view";
+import {
+  ClientSpaceHero,
+  type ClientSpaceHeroData,
+} from "~/components/dashboard/clients/client-space-hero";
+import { ClientPaymentProofs } from "~/components/dashboard/clients/client-payment-proofs";
+import type { ClientCardData } from "~/components/dashboard/clients/client-card";
+import type { NewProjectModalProductOption } from "~/components/dashboard/clients/new-project-modal";
+import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
+import { SongSpace } from "~/components/dashboard/song/song-space";
+import {
   PurchaseStatusCard,
   type PurchaseStage,
 } from "~/components/artist/home/purchase-status-card";
@@ -22,6 +35,8 @@ import {
   MOCK_PRODUCER,
   MOCK_PRODUCT,
 } from "~/components/artist/purchase/pay-data";
+import { deriveGradient } from "~/lib/clients/derive-gradient";
+import { UploadModalDevScreen } from "~/components/dev/upload-modal-dev-screen";
 
 const DEV_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
 const DEV_PROOF_ID = "00000000-0000-4000-8000-000000000002";
@@ -61,6 +76,100 @@ const DEV_PLAN_OPTIONS = livePlanOptions([
     labels: ["Due today", "Month 2", "Month 3"],
   },
 ]);
+
+const DEV_PRODUCTS = [
+  {
+    id: "product-full-production",
+    name: "Full production",
+    description:
+      "---\nrevisions: 3\ncontract_text: standard\n---\nProduction from demo to final master.",
+    deliverables: ["Mixed WAV", "Master WAV"],
+    priceCents: 150_000,
+    currency: "ILS",
+    depositPct: 50,
+  },
+] satisfies NewProjectModalProductOption[];
+
+const DEV_PROJECTS = [
+  {
+    id: "project-lior",
+    title: "Full production",
+    client: "Lior Tansky",
+    clientEmail: "lior@example.com",
+    progress: 62,
+    balance: 0,
+    deadline: "Jul 28",
+    status: "In production",
+    statusTone: "ok",
+    currency: "ILS",
+    updatedAtIso: "2026-07-14T07:00:00.000Z",
+    deadlineAtIso: "2026-07-28T12:00:00.000Z",
+  },
+  {
+    id: "project-maya",
+    title: "Debut single",
+    client: "Maya Cohen",
+    clientEmail: "maya@example.com",
+    progress: 30,
+    balance: 120_000,
+    deadline: "3d",
+    status: "Needs attention",
+    statusTone: "danger",
+    currency: "ILS",
+    updatedAtIso: "2026-07-13T07:00:00.000Z",
+    deadlineAtIso: "2026-07-17T12:00:00.000Z",
+  },
+] satisfies ProjectRowData[];
+
+const DEV_CLIENTS = [
+  {
+    id: "client-lior",
+    name: "Lior Tansky",
+    email: "lior@example.com",
+    linkState: "active",
+    projects: 2,
+    lifetime: 150_000,
+    owed: 0,
+    currency: "ILS",
+    lastActivityIso: "2026-07-14T07:00:00.000Z",
+    joinedAtIso: "2026-05-18T07:00:00.000Z",
+  },
+  {
+    id: "client-maya",
+    name: "Maya Cohen",
+    email: "maya@example.com",
+    linkState: "pending",
+    projects: 1,
+    lifetime: 0,
+    owed: 120_000,
+    currency: "ILS",
+    lastActivityIso: "2026-07-13T07:00:00.000Z",
+    joinedAtIso: "2026-06-05T07:00:00.000Z",
+  },
+] satisfies ClientCardData[];
+
+const DEV_WORKSPACE_KPIS = {
+  earnings: 150_000,
+  outstanding: 120_000,
+  needsAttention: 1,
+  nextDeadline: "3d",
+  nextDeadlineLabel: "Maya — Debut single",
+  currency: "ILS",
+} satisfies WorkspaceKPIs;
+
+const DEV_CLIENT_HERO = {
+  id: "client-lior",
+  name: "Lior Tansky",
+  email: "lior@example.com",
+  phone: "+972 50 123 4567",
+  notes: null,
+  linkState: "active",
+  joinedAtIso: "2026-05-18T07:00:00.000Z",
+  lifetime: 150_000,
+  outstanding: 0,
+  activeProjects: 2,
+  currency: "ILS",
+} satisfies ClientSpaceHeroData;
 
 // Dev-only screen gallery for the handoff-4 wave (2026-07-05). Renders the
 // funnel screens with mock props at /dev/screens/<name> so visual QA can
@@ -168,6 +277,111 @@ export default async function DevScreenPage({ params }: Params) {
         />
       );
     }
+    case "clients-projects":
+      return (
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8"
+        >
+          <WorkspaceListView
+            projects={DEV_PROJECTS}
+            clients={DEV_CLIENTS}
+            kpis={DEV_WORKSPACE_KPIS}
+            producerSlug="gili"
+            products={DEV_PRODUCTS}
+          />
+        </main>
+      );
+    case "client-space":
+      return (
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8"
+        >
+          <ClientSpaceHero client={DEV_CLIENT_HERO} producerSlug="gili" products={DEV_PRODUCTS} />
+          <ClientPaymentProofs
+            proofs={[
+              {
+                proofId: DEV_PROOF_ID,
+                purchaseRequestId: DEV_REQUEST_ID,
+                refNumber: "SK-7F3QK2",
+                productNameSnapshot: "Full production",
+                amountCents: 150_000,
+                currency: "ILS",
+                originalFileName: "bit-payment-lior.png",
+                status: "confirmed",
+                rejectionNote: null,
+                createdAt: new Date("2026-07-14T07:00:00.000Z"),
+              },
+            ]}
+          />
+          <section className="mt-6" aria-labelledby="dev-client-projects-title">
+            <p className="text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+              Work
+            </p>
+            <h2
+              id="dev-client-projects-title"
+              className="font-syne text-xl font-bold text-[rgb(var(--fg-default))]"
+            >
+              Projects
+            </h2>
+            <div className="mt-3 flex flex-col gap-2">
+              {DEV_PROJECTS.filter((project) => project.client === "Lior Tansky").map((project) => (
+                <ProjectRow key={project.id} row={project} hideClient />
+              ))}
+            </div>
+          </section>
+        </main>
+      );
+    case "project-space":
+      return (
+        <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
+          <SongSpace
+            mode="single"
+            song={{
+              id: "song-lior",
+              title: "Midnight Drive",
+              currentVersion: "v3",
+              noteCount: 2,
+              durationMs: 193_000,
+              workflowStage: "mixing",
+              progress: 62,
+              deadline: "Jul 28",
+              isOverdue: false,
+              revisionCount: 2,
+            }}
+            project={{ id: "project-lior", name: "Full production" }}
+            client={{
+              id: "client-lior",
+              name: "Lior Tansky",
+              email: "lior@example.com",
+              linkState: "active",
+            }}
+            versions={[]}
+            sessions={[]}
+            gradientToken={deriveGradient("Midnight Drive")}
+            payments={{
+              paidCents: 150_000,
+              outstandingCents: 0,
+              currency: "ILS",
+              nextChargeAt: null,
+              milestones: [
+                {
+                  id: "milestone-paid",
+                  label: "Engagement total",
+                  amountCents: 150_000,
+                  status: "paid",
+                  date: new Date("2026-07-14T07:00:00.000Z"),
+                },
+              ],
+            }}
+          />
+        </main>
+      );
+    case "add-song":
+      return <UploadModalDevScreen />;
     case "gate2-queue":
       return (
         <main className="mx-auto w-full max-w-[1040px] px-4 py-8 sm:px-6 lg:px-8">
@@ -180,6 +394,10 @@ export default async function DevScreenPage({ params }: Params) {
           <PaymentProofReview
             proof={{
               ...DEV_PENDING_PROOF,
+              status: "pending",
+              rejectionNote: null,
+              confirmedAt: null,
+              rejectedAt: null,
               signedUrl: "/icon",
               expiresInSeconds: 300,
             }}

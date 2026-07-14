@@ -149,9 +149,7 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   });
 
   it("imports Server Actions from the clients-projects upload-actions module", () => {
-    expect(SRC).toMatch(
-      /~\/app\/\(producer\)\/dashboard\/clients-projects\/upload-actions/,
-    );
+    expect(SRC).toMatch(/~\/app\/\(producer\)\/dashboard\/clients-projects\/upload-actions/);
   });
 
   it("does NOT use direct tRPC client mutations (Server Actions only)", () => {
@@ -194,6 +192,11 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   it("aborts mid-flight uploads on modal close (reclaims R2 storage)", () => {
     expect(SRC).toContain("abortMultipartAction");
     expect(SRC).toMatch(/activeUploadRef/);
+  });
+
+  it("keeps the close button usable when the focused field blurs", () => {
+    expect(SRC).toMatch(/aria-label="Close"[\s\S]*?onPointerDown/);
+    expect(SRC).toMatch(/event\.preventDefault\(\)[\s\S]*?handleClose\(\)/);
   });
 
   it("guards getDurationMs with a 3s timeout race so a malformed file can't hang the upload", () => {

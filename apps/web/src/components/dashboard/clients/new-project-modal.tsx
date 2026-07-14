@@ -4,13 +4,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Info, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  type SyntheticEvent,
-  useEffect,
-  useMemo,
-  useState,
-  useTransition,
-} from "react";
+import { type SyntheticEvent, useEffect, useMemo, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
 import {
@@ -20,6 +14,7 @@ import {
   type ValidationState,
 } from "~/components/ui/validation";
 import { createProjectAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
+import { productDescriptionForDisplay } from "~/lib/clients/product-description";
 
 // New Project modal (Clients & Projects v3 redesign, Phase 1 G7).
 // Replaces the legacy /dashboard/clients-projects/new route. The modal
@@ -117,9 +112,7 @@ export function NewProjectModal({
   // Default: pick existing when there are any, otherwise the inline
   // "+ New client" form so a first-time producer doesn't see an empty
   // dropdown.
-  const [clientMode, setClientMode] = useState<ClientMode>(
-    clients.length > 0 ? "existing" : "new",
-  );
+  const [clientMode, setClientMode] = useState<ClientMode>(clients.length > 0 ? "existing" : "new");
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [newClientName, setNewClientName] = useState("");
   const [newClientEmail, setNewClientEmail] = useState("");
@@ -153,11 +146,7 @@ export function NewProjectModal({
     setDeadline("");
     if (firstProduct) {
       setTotalUnits((firstProduct.priceCents / 100).toFixed(2));
-      setDepositUnits(
-        ((firstProduct.priceCents * firstProduct.depositPct) / 10000).toFixed(
-          2,
-        ),
-      );
+      setDepositUnits(((firstProduct.priceCents * firstProduct.depositPct) / 10000).toFixed(2));
     } else {
       setTotalUnits("");
       setDepositUnits("");
@@ -175,20 +164,16 @@ export function NewProjectModal({
     () => products.find((p) => p.id === productId) ?? null,
     [products, productId],
   );
+  const visibleProductDescription = productDescriptionForDisplay(
+    selectedProduct?.description ?? null,
+  );
   useEffect(() => {
     if (!selectedProduct) return;
     setTotalUnits((selectedProduct.priceCents / 100).toFixed(2));
-    setDepositUnits(
-      (
-        (selectedProduct.priceCents * selectedProduct.depositPct) /
-        10000
-      ).toFixed(2),
-    );
+    setDepositUnits(((selectedProduct.priceCents * selectedProduct.depositPct) / 10000).toFixed(2));
   }, [selectedProduct]);
 
-  const titleState: ValidationState = titleTouched
-    ? validateDisplayName(title)
-    : { kind: "idle" };
+  const titleState: ValidationState = titleTouched ? validateDisplayName(title) : { kind: "idle" };
   const newClientNameState: ValidationState =
     clientMode === "new" && newClientNameTouched
       ? validateDisplayName(newClientName)
@@ -307,7 +292,7 @@ export function NewProjectModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="new-project-modal-body"
-          className="sk-sheet-mobile fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[460px] rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)] max-h-[calc(100vh-2rem)] overflow-y-auto"
+          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[460px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -323,15 +308,18 @@ export function NewProjectModal({
                   : "Title, client, and the product they're buying."}
               </DialogPrimitive.Description>
             </div>
-            <DialogPrimitive.Close asChild>
-              <button
-                type="button"
-                aria-label="Close"
-                className="sk-press -mr-2 -mt-2 inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
-              >
-                <X size={16} strokeWidth={2.2} />
-              </button>
-            </DialogPrimitive.Close>
+            <button
+              type="button"
+              aria-label="Close"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                onClose();
+              }}
+              onClick={onClose}
+              className="-mt-2 -mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
+            >
+              <X size={16} strokeWidth={2.2} />
+            </button>
           </div>
 
           {productsEmpty ? (
@@ -360,29 +348,7 @@ export function NewProjectModal({
                 first, then come back to create the project.
               </p>
             </div>
-          ) : (
-            <div
-              className="mt-4 flex items-start gap-2 rounded-[10px] border px-3 py-2 text-[12px]"
-              style={{
-                borderColor: "rgb(var(--brand-primary)/0.40)",
-                background: "rgb(var(--brand-primary)/0.10)",
-              }}
-            >
-              <Info
-                size={13}
-                strokeWidth={2.2}
-                className="mt-0.5 shrink-0 text-[rgb(var(--brand-primary))]"
-                aria-hidden
-              />
-              <p className="leading-snug text-[rgb(var(--fg-muted))]">
-                <span className="font-semibold text-[rgb(var(--fg-default))]">
-                  Stage starts at Brief.
-                </span>{" "}
-                It advances as you upload mixes &mdash; you can also change it
-                manually from any song&rsquo;s page.
-              </p>
-            </div>
-          )}
+          ) : null}
 
           <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
             {/* Project title */}
@@ -403,11 +369,9 @@ export function NewProjectModal({
                 onBlur={() => {
                   setTitleTouched(true);
                 }}
-                aria-invalid={
-                  titleState.kind === "invalid" || titleState.kind === "required"
-                }
+                aria-invalid={titleState.kind === "invalid" || titleState.kind === "required"}
                 placeholder="Marcus T. — Full Production"
-                className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                 style={{ borderColor: "rgb(var(--border-subtle))" }}
               />
               <ValidationHint state={titleState} />
@@ -445,7 +409,7 @@ export function NewProjectModal({
                       onChange={(e) => {
                         setSelectedClientId(e.target.value);
                       }}
-                      className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                      className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                       style={{ borderColor: "rgb(var(--border-subtle))" }}
                     >
                       <option value="">Pick a client…</option>
@@ -484,7 +448,7 @@ export function NewProjectModal({
                           newClientNameState.kind === "required"
                         }
                         placeholder="Artist or band name"
-                        className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                        className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                         style={{ borderColor: "rgb(var(--border-subtle))" }}
                       />
                       <ValidationHint state={newClientNameState} />
@@ -505,7 +469,7 @@ export function NewProjectModal({
                           newClientEmailState.kind === "required"
                         }
                         placeholder="they@example.com"
-                        className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                        className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                         style={{ borderColor: "rgb(var(--border-subtle))" }}
                       />
                       <ValidationHint state={newClientEmailState} />
@@ -538,7 +502,7 @@ export function NewProjectModal({
                 setProductId(e.target.value);
               }}
               disabled={productsEmpty}
-              className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] disabled:opacity-50"
+              className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none disabled:opacity-50"
               style={{ borderColor: "rgb(var(--border-subtle))" }}
             >
               {productsEmpty ? (
@@ -571,13 +535,12 @@ export function NewProjectModal({
                   aria-hidden
                 />
                 <div className="leading-snug text-[rgb(var(--fg-muted))]">
-                  {selectedProduct.description ? (
-                    <p className="text-[rgb(var(--fg-default))]">
-                      {selectedProduct.description}
+                  {visibleProductDescription ? (
+                    <p className="line-clamp-2 text-[rgb(var(--fg-default))]">
+                      {visibleProductDescription}
                     </p>
                   ) : null}
-                  {selectedProduct.deliverables &&
-                  selectedProduct.deliverables.length > 0 ? (
+                  {selectedProduct.deliverables && selectedProduct.deliverables.length > 0 ? (
                     <p className="mt-1">
                       Deliverables:{" "}
                       <span className="font-medium text-[rgb(var(--fg-default))]">
@@ -590,11 +553,7 @@ export function NewProjectModal({
                     <span className="font-medium text-[rgb(var(--fg-default))]">
                       {selectedProduct.depositPct}% (
                       {formatMoney(
-                        Math.round(
-                          (selectedProduct.priceCents *
-                            selectedProduct.depositPct) /
-                            100,
-                        ),
+                        Math.round((selectedProduct.priceCents * selectedProduct.depositPct) / 100),
                         selectedProduct.currency,
                       )}
                       )
@@ -604,73 +563,76 @@ export function NewProjectModal({
               </div>
             ) : null}
 
-            {/* Deadline (optional) */}
-            <FieldLabel htmlFor="new-project-deadline">
-              Deadline{" "}
-              <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
-            </FieldLabel>
-            <input
-              id="new-project-deadline"
-              type="date"
-              value={deadline}
-              onChange={(e) => {
-                setDeadline(e.target.value);
-              }}
-              className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
-              style={{ borderColor: "rgb(var(--border-subtle))" }}
-            />
-
-            {/* Total fee + Deposit — side-by-side on most screens */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="new-project-total">Total fee</FieldLabel>
-                <input
-                  id="new-project-total"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  inputMode="decimal"
-                  value={totalUnits}
-                  onChange={(e) => {
-                    setTotalUnits(e.target.value);
-                  }}
-                  placeholder="0.00"
-                  className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
-                  style={{ borderColor: "rgb(var(--border-subtle))" }}
-                />
+            <details className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
+              <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.6)] focus-visible:outline-none focus-visible:ring-inset">
+                Edit deadline and payment amounts
+              </summary>
+              <div className="grid gap-3 border-t border-[rgb(var(--border-subtle))] p-3">
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="new-project-deadline">Deadline</FieldLabel>
+                  <input
+                    id="new-project-deadline"
+                    type="date"
+                    value={deadline}
+                    onChange={(e) => {
+                      setDeadline(e.target.value);
+                    }}
+                    className="w-full rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                    style={{ borderColor: "rgb(var(--border-subtle))" }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <FieldLabel htmlFor="new-project-total">Total fee</FieldLabel>
+                    <input
+                      id="new-project-total"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      inputMode="decimal"
+                      value={totalUnits}
+                      onChange={(e) => {
+                        setTotalUnits(e.target.value);
+                      }}
+                      placeholder="0.00"
+                      className="w-full min-w-0 rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                      style={{ borderColor: "rgb(var(--border-subtle))" }}
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <FieldLabel htmlFor="new-project-deposit">Deposit</FieldLabel>
+                    <input
+                      id="new-project-deposit"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      inputMode="decimal"
+                      value={depositUnits}
+                      onChange={(e) => {
+                        setDepositUnits(e.target.value);
+                      }}
+                      placeholder="0.00"
+                      className="w-full min-w-0 rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                      style={{ borderColor: "rgb(var(--border-subtle))" }}
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="new-project-deposit">Deposit</FieldLabel>
-                <input
-                  id="new-project-deposit"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  inputMode="decimal"
-                  value={depositUnits}
-                  onChange={(e) => {
-                    setDepositUnits(e.target.value);
-                  }}
-                  placeholder="0.00"
-                  className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
-                  style={{ borderColor: "rgb(var(--border-subtle))" }}
-                />
-              </div>
-            </div>
+            </details>
 
-            <div className="flex flex-col-reverse gap-2 md:flex-row md:items-center md:justify-end">
+            <div className="sticky bottom-0 -mx-5 mt-1 -mb-5 flex flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={pending}
-                className="sk-press inline-flex items-center justify-center rounded-[10px] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50 sm:min-h-0"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={submitDisabled}
-                className="sk-press inline-flex items-center justify-center gap-1.5 rounded-[10px] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none"
+                className="sk-press inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none sm:min-h-0"
                 style={{ background: "rgb(var(--brand-primary))" }}
               >
                 {pending ? "Creating…" : "Create project"}
@@ -695,7 +657,7 @@ function FieldLabel({
   return (
     <label
       htmlFor={htmlFor}
-      className="-mb-2.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+      className="-mb-2.5 text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
     >
       {children}
       {required ? (
