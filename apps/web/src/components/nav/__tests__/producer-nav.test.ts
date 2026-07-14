@@ -50,8 +50,10 @@ describe("producer nav: Portfolio in sidebar only", () => {
 });
 
 describe("producer mobile nav viewport anchoring", () => {
-  it("uses a single dynamic-height app viewport with an internal content scroller", () => {
-    expect(APP_SHELL).toContain("h-dvh overflow-hidden");
+  it("locks the mobile app shell to the viewport with an internal content scroller", () => {
+    expect(APP_SHELL).toContain("fixed inset-0 flex overflow-hidden");
+    expect(APP_SHELL).toContain("lg:static lg:min-h-dvh");
+    expect(APP_SHELL).not.toContain('className="flex h-dvh');
     expect(APP_SHELL).toContain("min-h-0 min-w-0 flex-1 flex-col");
     expect(APP_SHELL).toContain("min-h-0 min-w-0 flex-1 overflow-y-auto");
   });

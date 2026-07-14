@@ -54,7 +54,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className="flex h-dvh overflow-hidden lg:h-auto lg:min-h-dvh lg:overflow-visible"
+      className="fixed inset-0 flex overflow-hidden lg:static lg:min-h-dvh lg:overflow-visible"
       style={{
         background: "rgb(var(--bg-background))",
         color: "rgb(var(--fg-default))",
