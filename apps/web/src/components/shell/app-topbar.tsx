@@ -103,13 +103,20 @@ export function AppTopBar({
   // its prior translucent border + shadow transition after the same 4px.
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
+    const scrollContainer = document.getElementById("main-content");
     const onScroll = () => {
-      setScrolled(window.scrollY > 4);
+      setScrolled(window.scrollY > 4 || (scrollContainer?.scrollTop ?? 0) > 4);
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
+    if (scrollContainer) {
+      scrollContainer.addEventListener("scroll", onScroll, { passive: true });
+    }
     return () => {
       window.removeEventListener("scroll", onScroll);
+      if (scrollContainer) {
+        scrollContainer.removeEventListener("scroll", onScroll);
+      }
     };
   }, []);
 

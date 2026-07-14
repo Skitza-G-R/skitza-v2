@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type CSSProperties, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
 
@@ -53,14 +53,6 @@ const PROD_TABS: readonly ProducerMobileTab[] = [
   { id: "profile", label: "Store", href: "/dashboard/store", icon: "store" },
 ] as const;
 
-// Chrome keeps bottom-anchored controls on its compositor fast path when
-// the live and maximum safe-area insets are combined in `bottom`. Reserve
-// the maximum inset inside the dock so its dark surface extends behind the
-// browser controls while the tab targets remain in the safe area.
-export const producerBottomNavViewportStyle = {
-  bottom: "calc(env(safe-area-inset-bottom, 0px) - env(safe-area-max-inset-bottom, 36px))",
-} satisfies CSSProperties;
-
 export function ProducerBottomNav(): ReactNode {
   const pathname = usePathname();
   const active = getActiveKey(pathname);
@@ -72,13 +64,12 @@ export function ProducerBottomNav(): ReactNode {
       // The padding includes the iOS safe-area insets so labels clear
       // the home indicator and landscape sensor housing.
       // `lg:hidden` — desktop renders the left rail instead.
-      className="fixed inset-x-0 z-30 flex justify-around lg:hidden"
+      className="relative z-30 flex shrink-0 justify-around lg:hidden"
       style={{
-        ...producerBottomNavViewportStyle,
         background: "rgb(var(--bg-sidebar))",
         borderTop: "1px solid rgb(var(--border-sidebar))",
         padding:
-          "6px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-max-inset-bottom, 36px) calc(4px + env(safe-area-inset-left, 0px))",
+          "6px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))",
         boxShadow: "0 -4px 20px rgba(0,0,0,0.3)",
       }}
     >

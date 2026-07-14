@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { producerBottomNavViewportStyle } from "../producer-bottom-nav";
-
 const here = dirname(fileURLToPath(import.meta.url));
 const SIDEBAR = readFileSync(join(here, "..", "producer-sidebar.tsx"), "utf8");
 const BOTTOM = readFileSync(join(here, "..", "producer-bottom-nav.tsx"), "utf8");
+const APP_SHELL = readFileSync(join(here, "..", "..", "shell", "app-shell.tsx"), "utf8");
+const APP_TOPBAR = readFileSync(join(here, "..", "..", "shell", "app-topbar.tsx"), "utf8");
 
 // Nav history:
 //   - 2026-05-15: Portfolio rows removed from both the desktop rail
@@ -50,17 +50,23 @@ describe("producer nav: Portfolio in sidebar only", () => {
 });
 
 describe("producer mobile nav viewport anchoring", () => {
-  it("pins the dock to Chrome's live bottom safe area", () => {
-    expect(producerBottomNavViewportStyle).toEqual({
-      bottom: "calc(env(safe-area-inset-bottom, 0px) - env(safe-area-max-inset-bottom, 36px))",
-    });
+  it("uses a single dynamic-height app viewport with an internal content scroller", () => {
+    expect(APP_SHELL).toContain("h-dvh overflow-hidden");
+    expect(APP_SHELL).toContain("min-h-0 min-w-0 flex-1 flex-col");
+    expect(APP_SHELL).toContain("min-h-0 min-w-0 flex-1 overflow-y-auto");
   });
 
-  it("reserves the maximum safe area without dynamic padding or viewport measurements", () => {
-    expect(BOTTOM).toContain("env(safe-area-max-inset-bottom, 36px)");
-    expect(BOTTOM).not.toContain("window.visualViewport");
-    expect(BOTTOM).not.toContain("ResizeObserver");
-    expect(BOTTOM).not.toContain('top: "100dvh"');
-    expect(BOTTOM).not.toContain('transform: "translateY(-100%)"');
+  it("keeps the mobile nav in the shell footer instead of fixing it to the document viewport", () => {
+    expect(BOTTOM).toContain("relative z-30 flex shrink-0");
+    expect(BOTTOM).toContain("env(safe-area-inset-bottom, 0px)");
+    expect(BOTTOM).not.toContain("safe-area-max-inset-bottom");
+    expect(BOTTOM).not.toMatch(/className="[^"]*\bfixed\b/);
+    expect(BOTTOM).not.toContain("producerBottomNavViewportStyle");
+  });
+
+  it("keeps topbar scroll state connected to the app content scroller", () => {
+    expect(APP_TOPBAR).toContain('document.getElementById("main-content")');
+    expect(APP_TOPBAR).toContain('scrollContainer.addEventListener("scroll"');
+    expect(APP_TOPBAR).toContain('scrollContainer.removeEventListener("scroll"');
   });
 });
