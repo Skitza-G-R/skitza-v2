@@ -9,7 +9,16 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { formatRelativeTime } from "~/lib/time/relative";
@@ -73,7 +82,32 @@ export function notificationHref(notification: ShellNotificationItem): string {
 }
 
 const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)";
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const FALLBACK_ERROR = "Notifications couldn't be updated. Try again.";
+const SHEET_SETTLE_MS = 220;
+
+export function shouldDismissNotificationSheet({
+  distancePx,
+  velocityPxPerMs,
+  sheetHeightPx,
+}: {
+  distancePx: number;
+  velocityPxPerMs: number;
+  sheetHeightPx: number;
+}): boolean {
+  if (distancePx <= 0) return false;
+  const distanceThreshold = Math.min(160, Math.max(80, sheetHeightPx * 0.25));
+  const isFastDownwardFlick = distancePx >= 24 && velocityPxPerMs >= 0.75;
+  return distancePx >= distanceThreshold || isFastDownwardFlick;
+}
+
+type SheetDragState = {
+  pointerId: number;
+  startY: number;
+  lastY: number;
+  lastTime: number;
+  velocityPxPerMs: number;
+};
 
 export function NotificationBell({
   unreadCount,
@@ -93,6 +127,9 @@ export function NotificationBell({
   const [allReadOverride, setAllReadOverride] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const sheetDragRef = useRef<SheetDragState | null>(null);
+  const sheetSettleTimerRef = useRef<number | null>(null);
   const titleId = useId();
   const descriptionId = useId();
   const panelId = useId();
@@ -116,6 +153,15 @@ export function NotificationBell({
     setReadOverrides(new Set<string>());
     setAllReadOverride(false);
   }, [notifications, unreadCount]);
+
+  useEffect(
+    () => () => {
+      if (sheetSettleTimerRef.current !== null) {
+        window.clearTimeout(sheetSettleTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const closeWithFocusReturn = useCallback(() => {
     setOpen(false);
@@ -227,6 +273,113 @@ export function NotificationBell({
     }
   }, [currentUnreadCount, markingAll, notifications, pendingId, router]);
 
+  const settleSheetDrag = useCallback((dismiss: boolean) => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    if (sheetSettleTimerRef.current !== null) {
+      window.clearTimeout(sheetSettleTimerRef.current);
+    }
+
+    const reducedMotion = window.matchMedia(REDUCED_MOTION_QUERY).matches;
+    if (reducedMotion) {
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      sheet.style.removeProperty("transition");
+      sheet.style.removeProperty("will-change");
+      if (dismiss) setOpen(false);
+      return;
+    }
+
+    sheet.style.transition = `transform ${String(SHEET_SETTLE_MS)}ms cubic-bezier(0.32, 0.72, 0, 1)`;
+    sheet.style.transform = dismiss ? "translate3d(0, 100%, 0)" : "translate3d(0, 0, 0)";
+    if (dismiss) sheet.style.pointerEvents = "none";
+
+    sheetSettleTimerRef.current = window.setTimeout(() => {
+      sheetSettleTimerRef.current = null;
+      if (dismiss) {
+        setOpen(false);
+        return;
+      }
+      sheet.style.removeProperty("transition");
+      sheet.style.removeProperty("transform");
+      sheet.style.removeProperty("will-change");
+    }, SHEET_SETTLE_MS);
+  }, []);
+
+  const handleSheetPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    if (sheetSettleTimerRef.current !== null) {
+      window.clearTimeout(sheetSettleTimerRef.current);
+      sheetSettleTimerRef.current = null;
+    }
+    sheetDragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      lastY: event.clientY,
+      lastTime: event.timeStamp,
+      velocityPxPerMs: 0,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sheet.style.animation = "none";
+    sheet.style.transition = "none";
+    sheet.style.willChange = "transform";
+  }, []);
+
+  const handleSheetPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = sheetDragRef.current;
+    const sheet = sheetRef.current;
+    if (!drag || !sheet || drag.pointerId !== event.pointerId) return;
+
+    const elapsed = Math.max(1, event.timeStamp - drag.lastTime);
+    drag.velocityPxPerMs = (event.clientY - drag.lastY) / elapsed;
+    drag.lastY = event.clientY;
+    drag.lastTime = event.timeStamp;
+
+    const distance = Math.max(0, event.clientY - drag.startY);
+    sheet.style.transform = `translate3d(0, ${String(distance)}px, 0)`;
+    event.preventDefault();
+  }, []);
+
+  const finishSheetDrag = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>, canceled: boolean) => {
+      const drag = sheetDragRef.current;
+      const sheet = sheetRef.current;
+      if (!drag || !sheet || drag.pointerId !== event.pointerId) return;
+
+      sheetDragRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      const distance = Math.max(0, event.clientY - drag.startY);
+      settleSheetDrag(
+        !canceled &&
+          shouldDismissNotificationSheet({
+            distancePx: distance,
+            velocityPxPerMs: drag.velocityPxPerMs,
+            sheetHeightPx: sheet.getBoundingClientRect().height,
+          }),
+      );
+    },
+    [settleSheetDrag],
+  );
+
+  const handleSheetPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      finishSheetDrag(event, false);
+    },
+    [finishSheetDrag],
+  );
+
+  const handleSheetPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      finishSheetDrag(event, true);
+    },
+    [finishSheetDrag],
+  );
+
   const panelProps = {
     tab,
     setTab,
@@ -304,24 +457,33 @@ export function NotificationBell({
         }}
       >
         <SheetContent
+          ref={sheetRef}
           side="bottom"
+          showHandle={false}
           id={panelId}
           data-testid="notification-sheet"
-          aria-labelledby={titleId}
-          aria-describedby={descriptionId}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             buttonRef.current?.focus();
           }}
-          className="max-h-[88dvh] w-full gap-0 overflow-hidden p-0 pt-3 pb-[env(safe-area-inset-bottom)] sm:p-0 sm:pt-3"
+          className="max-h-[88dvh] w-full gap-0 overflow-hidden p-0 pb-[env(safe-area-inset-bottom)] sm:p-0"
         >
-          <SheetDescription id={descriptionId} className="sr-only">
-            Recent producer notifications.
-          </SheetDescription>
+          <div
+            aria-hidden
+            data-testid="notification-sheet-handle"
+            onPointerDown={handleSheetPointerDown}
+            onPointerMove={handleSheetPointerMove}
+            onPointerUp={handleSheetPointerUp}
+            onPointerCancel={handleSheetPointerCancel}
+            className="flex h-7 shrink-0 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
+          >
+            <span className="h-1 w-10 rounded-full bg-[rgb(var(--border-subtle))]" />
+          </div>
+          <SheetDescription className="sr-only">Recent producer notifications.</SheetDescription>
           <NotificationPanel
             {...panelProps}
             title={
-              <SheetTitle id={titleId} className="text-xl font-bold tracking-[-0.025em]">
+              <SheetTitle className="text-xl font-bold tracking-[-0.025em]">
                 Notifications
               </SheetTitle>
             }
