@@ -54,7 +54,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className="flex min-h-dvh"
+      className="fixed inset-0 flex overflow-hidden lg:static lg:min-h-dvh lg:overflow-visible"
       style={{
         background: "rgb(var(--bg-background))",
         color: "rgb(var(--fg-default))",
@@ -66,39 +66,40 @@ export async function AppShell({ children }: { children: ReactNode }) {
         displayName={displayName}
         plan={plan}
       />
-      {/* Mobile bottom padding reserves space for the fixed bottom nav:
-          56px tab row + breathing room + the iPhone home-indicator
-          inset (env safe-area). SK-58: the old static pb-20 (80px) was
-          shorter than the real bar (~96px on notched iPhones), so the
-          last list row hid behind the nav — Gili caught it on the
-          clients page. `lg:pb-0` strips it on desktop where the bar
-          isn't rendered. The skip-to-content target lives at the root
-          layout (see app/layout.tsx) so we don't need a second link
-          here. */}
-      <main
-        id="main-content"
-        tabIndex={-1}
-        className="min-w-0 flex-1 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-0"
-      >
-        {/* Sticky topbar from the HTML mockup: breadcrumb · search
-            trigger · notifications bell. Sits at the top of <main> so
-            it spans the content area (not the sidebar), and uses
-            position:sticky so it stays pinned during scroll without
-            stealing focus order from the page below. Wrapped in the
-            TopBarBreadcrumb provider so deep pages can publish their
-            own crumbs (client name, project title, song title) to the
-            single topbar surface instead of rendering a duplicate
-            breadcrumb of their own.
+      {/* Mobile behaves as one native-style viewport: page content is
+          the only scrolling region and the tab bar is a non-scrolling
+          footer. Long nested routes therefore cannot turn html/body into
+          a different scroll viewport and detach the nav from the visible
+          phone edge. Desktop keeps its existing document-scroll layout. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain lg:overflow-visible lg:overscroll-auto"
+        >
+          {/* Sticky topbar from the HTML mockup: breadcrumb · search
+              trigger · notifications bell. Sits at the top of <main> so
+              it spans the content area (not the sidebar), and uses
+              position:sticky so it stays pinned during scroll without
+              stealing focus order from the page below. Wrapped in the
+              TopBarBreadcrumb provider so deep pages can publish their
+              own crumbs (client name, project title, song title) to the
+              single topbar surface instead of rendering a duplicate
+              breadcrumb of their own.
 
-            SK-76 makes this an opaque 64px strip, so content follows it
-            in normal flow with no negative overlap. */}
-        <TopBarBreadcrumbProvider>
-          <DashboardTopBar unreadCount={unreadCount} recentNotifications={recentNotifications} />
-          {children}
-        </TopBarBreadcrumbProvider>
-      </main>
+              SK-76 makes this an opaque 64px strip, so content follows it
+              in normal flow with no negative overlap. */}
+          <TopBarBreadcrumbProvider>
+            <DashboardTopBar
+              unreadCount={unreadCount}
+              recentNotifications={recentNotifications}
+            />
+            {children}
+          </TopBarBreadcrumbProvider>
+        </main>
 
-      <ProducerBottomNav />
+        <ProducerBottomNav />
+      </div>
 
       {/* Phase 2 floating-player slot — the existing PersistentPlayer
           stays mounted so audio playback works across the dashboard.
