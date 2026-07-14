@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { visualViewportDockTop } from "../producer-bottom-nav";
+import { producerBottomNavViewportStyle } from "../producer-bottom-nav";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SIDEBAR = readFileSync(join(here, "..", "producer-sidebar.tsx"), "utf8");
@@ -50,36 +50,17 @@ describe("producer nav: Portfolio in sidebar only", () => {
 });
 
 describe("producer mobile nav viewport anchoring", () => {
-  it("pins the dock to the bottom edge of the live visual viewport", () => {
-    expect(
-      visualViewportDockTop({
-        viewportOffsetTop: 0,
-        viewportHeight: 844,
-        dockHeight: 78,
-      }),
-    ).toBe(766);
+  it("pins the dock to Chrome's live bottom safe area", () => {
+    expect(producerBottomNavViewportStyle).toEqual({
+      bottom: "calc(env(safe-area-inset-bottom, 0px) - env(safe-area-max-inset-bottom, 36px))",
+    });
   });
 
-  it("tracks a shifted visual viewport and never places the dock above zero", () => {
-    expect(
-      visualViewportDockTop({
-        viewportOffsetTop: 120,
-        viewportHeight: 500,
-        dockHeight: 78,
-      }),
-    ).toBe(542);
-    expect(
-      visualViewportDockTop({
-        viewportOffsetTop: 0,
-        viewportHeight: 50,
-        dockHeight: 78,
-      }),
-    ).toBe(0);
-  });
-
-  it("listens to live visual viewport changes instead of relying only on bottom-0", () => {
-    expect(BOTTOM).toContain("window.visualViewport");
-    expect(BOTTOM).toContain('addEventListener("resize"');
-    expect(BOTTOM).toContain('addEventListener("scroll"');
+  it("reserves the maximum safe area without dynamic padding or viewport measurements", () => {
+    expect(BOTTOM).toContain("env(safe-area-max-inset-bottom, 36px)");
+    expect(BOTTOM).not.toContain("window.visualViewport");
+    expect(BOTTOM).not.toContain("ResizeObserver");
+    expect(BOTTOM).not.toContain('top: "100dvh"');
+    expect(BOTTOM).not.toContain('transform: "translateY(-100%)"');
   });
 });
