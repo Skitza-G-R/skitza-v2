@@ -7,6 +7,7 @@ import { AvailabilityPanel } from "./availability-panel";
 
 import { CalendarTabs } from "./calendar-tabs";
 import { resolveCalendarTabForBooking } from "./calendar-tab-key";
+import type { ScheduleAvailabilityBlock } from "./schedule-hours";
 import { weekEyebrow } from "./calendar-week";
 import { SchedulePanel } from "./schedule-panel";
 import type { ScheduleSession } from "./schedule-week-grid";
@@ -54,6 +55,7 @@ export default async function CalendarPage({
 
   // -------- Schedule tab data --------
   let scheduleSessions: ScheduleSession[] = [];
+  let scheduleAvailabilityBlocks: ScheduleAvailabilityBlock[] = [];
   let todaySessions: TodaySession[] = [];
   let pendingRequests: PendingRequest[] = [];
   let scheduleAutoConfirm = false;
@@ -63,13 +65,18 @@ export default async function CalendarPage({
   let scheduleMobileSessions: SessionListItem[] = [];
   const initialNow = new Date();
   if (active === "schedule") {
-    const [pending, upcoming, settings] = await Promise.all([
+    const [pending, upcoming, settings, workingHours] = await Promise.all([
       caller.booking.list({ status: "pending_approval" }),
       caller.booking.upcoming({ days: 21 }),
       caller.booking.availability.getSettings(),
+      caller.booking.availability.list(),
     ]);
 
     scheduleAutoConfirm = settings.autoConfirmBookings;
+    scheduleAvailabilityBlocks = workingHours.map((block) => ({
+      startMin: block.startMin,
+      endMin: block.endMin,
+    }));
 
     pendingRequests = pending.map((b) => ({
       id: b.id,
@@ -314,6 +321,7 @@ export default async function CalendarPage({
               <div className="hidden min-h-0 flex-1 flex-col lg:flex">
                 <SchedulePanel
                   sessions={scheduleSessions}
+                  availabilityBlocks={scheduleAvailabilityBlocks}
                   todaySessions={todaySessions}
                   pending={pendingRequests}
                   autoConfirm={scheduleAutoConfirm}
