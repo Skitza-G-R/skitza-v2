@@ -17,14 +17,16 @@
 
 ## Issue, branch, and PR workflow
 
-- Use `v3-clean` as the development base and PR target. Never commit to `main`.
+- Treat `v3-clean` as Skitza's canonical active branch — it is the product's effective main branch. Use it as the development base and PR target.
+- The Git branch named `main` is legacy history. Never commit to it, target it with feature or release PRs, merge `v3-clean` into it, or use it for production releases unless Gili explicitly approves a future branch-consolidation plan.
+- Release to production by promoting a verified Vercel deployment built from `v3-clean`; a production release does not require a merge to the legacy `main` branch.
 - Every change under `apps/`, `packages/`, or database schema must have an issue in Linear project `Skitza v3`, team `Skitza` (`SK`). Significant harness or workflow changes should also have an issue.
 - Before coding, read the full issue, move it to `In Progress`, and use Linear's exact generated branch name.
 - Keep work limited to the issue. Do not add unrequested features or opportunistic refactors.
 - Use conventional commit messages such as `feat(scope): ...`, `fix(scope): ...`, `test(scope): ...`, or `docs(scope): ...`.
 - Start PR titles with the issue ID: `SK-N: short imperative description`.
 - Codex may create or update Linear issues, branches, commits, PRs, and PR comments as part of normal work. Always ask Gili before merging.
-- Never promote a deployment or point `skitza.app` at a new deployment without Gili's explicit approval for that deployment.
+- Never promote a deployment or point `skitza.app` at a new deployment without Gili's explicit approval for that exact deployment.
 
 ## Build and verification
 
