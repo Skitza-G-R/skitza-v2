@@ -1,14 +1,15 @@
 "use client";
 
-import { Mail, FileText } from "lucide-react";
+import { CircleCheck, FileText, Mail } from "lucide-react";
 
 // PaymentsTab — Outstanding card + Milestones list for the Album page
 // (BUILD-NOTES §5.3). Replaces the money/milestones portion of the old
 // OverviewSubTab.
 //
 // Two halves:
-//   1. Outstanding card — Total / Paid / Balance + "Send reminder" +
-//      "Send invoice" buttons. Balance turns danger when > 0.
+//   1. Outstanding card — Total / Paid / Balance. Real payment actions
+//      render only when a parent wires them; paid projects show a clear
+//      settled state instead of inactive buttons.
 //   2. Milestones list — chronological. Each row: status pill + label
 //      + amount + date.
 //
@@ -119,13 +120,13 @@ export function PaymentsTab({
         <div className="grid grid-cols-3 gap-3 md:gap-4">
           <div>
             <p
-              className="text-[10px] font-bold uppercase tracking-widest"
+              className="text-[10px] font-bold tracking-widest uppercase"
               style={{ color: "rgb(var(--fg-muted))" }}
             >
               Total
             </p>
             <p
-              className="mt-1 font-syne text-[17px] font-bold tabular-nums md:text-[24px]"
+              className="font-syne mt-1 text-[17px] font-bold tabular-nums md:text-[24px]"
               style={{ color: "rgb(var(--fg-default))" }}
             >
               {formatMoney(totalCents, currency)}
@@ -133,13 +134,13 @@ export function PaymentsTab({
           </div>
           <div>
             <p
-              className="text-[10px] font-bold uppercase tracking-widest"
+              className="text-[10px] font-bold tracking-widest uppercase"
               style={{ color: "rgb(var(--fg-muted))" }}
             >
               Paid
             </p>
             <p
-              className="mt-1 font-syne text-[17px] font-bold tabular-nums md:text-[24px]"
+              className="font-syne mt-1 text-[17px] font-bold tabular-nums md:text-[24px]"
               style={{ color: "rgb(var(--fg-success))" }}
             >
               {formatMoney(paidCents, currency)}
@@ -147,17 +148,15 @@ export function PaymentsTab({
           </div>
           <div>
             <p
-              className="text-[10px] font-bold uppercase tracking-widest"
+              className="text-[10px] font-bold tracking-widest uppercase"
               style={{ color: "rgb(var(--fg-muted))" }}
             >
               Balance
             </p>
             <p
-              className="mt-1 font-syne text-[17px] font-bold tabular-nums md:text-[24px]"
+              className="font-syne mt-1 text-[17px] font-bold tabular-nums md:text-[24px]"
               style={{
-                color: balanceIsDanger
-                  ? "rgb(var(--fg-danger))"
-                  : "rgb(var(--fg-muted))",
+                color: balanceIsDanger ? "rgb(var(--fg-danger))" : "rgb(var(--fg-muted))",
               }}
             >
               {formatMoney(outstandingCents, currency)}
@@ -166,51 +165,54 @@ export function PaymentsTab({
         </div>
 
         {nextChargeAt ? (
-          <p
-            className="mt-3 text-[12px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
+          <p className="mt-3 text-[12px]" style={{ color: "rgb(var(--fg-muted))" }}>
             Next charge {formatDate(nextChargeAt)}
           </p>
         ) : null}
 
-        {/* <md: stacked full-width 48px buttons, primary (Invoice) on
-            top via col-reverse. md+: the original inline pill pair. */}
-        <div className="mt-4 flex flex-col-reverse gap-2 md:flex-row md:flex-wrap md:items-center">
-          <button
-            type="button"
-            onClick={onSendReminder}
-            className="inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors md:min-h-0 md:justify-start"
-            style={{
-              background: "transparent",
-              borderColor: "rgb(var(--border-subtle))",
-              color: "rgb(var(--fg-default))",
-            }}
-          >
-            <Mail size={12} />
-            Send friendly reminder
-          </button>
-          <button
-            type="button"
-            onClick={onSendInvoice}
-            className="inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-semibold transition-colors md:min-h-0 md:justify-start"
-            style={{
-              background: "rgb(var(--brand-primary))",
-              color: "rgb(var(--bg-sidebar))",
-            }}
-          >
-            <FileText size={12} />
-            Invoice
-          </button>
-        </div>
+        {outstandingCents === 0 ? (
+          <p className="mt-4 inline-flex items-center gap-1.5 text-[12px] font-semibold text-[rgb(var(--fg-success))]">
+            <CircleCheck size={14} aria-hidden />
+            Paid in full
+          </p>
+        ) : onSendReminder || onSendInvoice ? (
+          <div className="mt-4 flex flex-col-reverse gap-2 md:flex-row md:flex-wrap md:items-center">
+            {onSendReminder ? (
+              <button
+                type="button"
+                onClick={onSendReminder}
+                className="inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-1.5 text-[12px] font-semibold transition-colors md:min-h-0 md:justify-start"
+                style={{
+                  background: "transparent",
+                  borderColor: "rgb(var(--border-subtle))",
+                  color: "rgb(var(--fg-default))",
+                }}
+              >
+                <Mail size={12} />
+                Send friendly reminder
+              </button>
+            ) : null}
+            {onSendInvoice ? (
+              <button
+                type="button"
+                onClick={onSendInvoice}
+                className="inline-flex min-h-[48px] items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] font-semibold transition-colors md:min-h-0 md:justify-start"
+                style={{
+                  background: "rgb(var(--brand-primary))",
+                  color: "rgb(var(--bg-sidebar))",
+                }}
+              >
+                <FileText size={12} />
+                Invoice
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* Milestones list */}
       <div>
-        <h3
-          className="font-syne text-[18px] font-bold"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
+        <h3 className="font-syne text-[18px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
           Milestones
         </h3>
 
@@ -248,23 +250,20 @@ export function PaymentsTab({
                     {m.label}
                   </p>
                   <span
-                    className="order-2 whitespace-nowrap font-mono text-[14px] tabular-nums md:order-4 md:ml-3 md:text-[13px]"
+                    className="order-2 font-mono text-[14px] whitespace-nowrap tabular-nums md:order-4 md:ml-3 md:text-[13px]"
                     style={{ color: "rgb(var(--fg-default))" }}
                   >
                     {formatMoney(m.amountCents, currency)}
                   </span>
+                  <span aria-hidden className="order-3 basis-full md:hidden" />
                   <span
-                    aria-hidden
-                    className="order-3 basis-full md:hidden"
-                  />
-                  <span
-                    className="order-4 inline-flex items-center rounded-[var(--radius-sm)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest md:order-1"
+                    className="order-4 inline-flex items-center rounded-[var(--radius-sm)] px-2 py-0.5 text-[10px] font-bold tracking-widest uppercase md:order-1"
                     style={{ color: s.color, background: s.bg }}
                   >
                     {s.label}
                   </span>
                   <span
-                    className="order-5 whitespace-nowrap text-[12px] md:order-3"
+                    className="order-5 text-[12px] whitespace-nowrap md:order-3"
                     style={{ color: "rgb(var(--fg-muted))" }}
                   >
                     {formatDate(m.date)}

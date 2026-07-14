@@ -14,6 +14,10 @@ import { formatMoney } from "~/lib/format/money";
 import { type PendingPaymentProof, formatUploadedAt } from "./pending-payment-proofs";
 
 export type PaymentProofReviewData = PendingPaymentProof & {
+  status: "pending" | "confirmed" | "rejected";
+  rejectionNote: string | null;
+  confirmedAt: Date | null;
+  rejectedAt: Date | null;
   signedUrl: string;
   expiresInSeconds: number;
 };
@@ -27,6 +31,18 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
   const [rejectionNote, setRejectionNote] = useState("");
   const confirmTriggerRef = useRef<HTMLButtonElement>(null);
   const rejectTriggerRef = useRef<HTMLButtonElement>(null);
+  const proofTitle =
+    proof.status === "pending"
+      ? "Verify this payment"
+      : proof.status === "confirmed"
+        ? "Confirmed payment proof"
+        : "Rejected payment proof";
+  const proofDescription =
+    proof.status === "pending"
+      ? "Confirm only after the amount and evidence match the transfer you received."
+      : proof.status === "confirmed"
+        ? "This evidence was confirmed and added to the paid invoice ledger."
+        : "This evidence was rejected and kept here as part of the client’s payment history.";
 
   const closeConfirm = () => {
     setShowConfirm(false);
@@ -101,10 +117,10 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
               id="payment-proof-title"
               className="font-display mt-1 text-2xl font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))]"
             >
-              Verify this payment
+              {proofTitle}
             </h2>
             <p className="mt-1 text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
-              Confirm only after the amount and evidence match the transfer you received.
+              {proofDescription}
             </p>
           </div>
           <div className="shrink-0 sm:text-right">
@@ -236,7 +252,32 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
             </div>
           </div>
 
-          {!showConfirm && !showReject ? (
+          {proof.status === "confirmed" ? (
+            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-success)/0.32)] bg-[rgb(var(--fg-success)/0.08)] p-4">
+              <p className="text-sm font-bold text-[rgb(var(--fg-success))]">Payment confirmed</p>
+              <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
+                {proof.confirmedAt
+                  ? `Confirmed ${formatUploadedAt(proof.confirmedAt)}. This proof is read-only.`
+                  : "This proof is confirmed and read-only."}
+              </p>
+            </div>
+          ) : proof.status === "rejected" ? (
+            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.3)] bg-[rgb(var(--fg-danger)/0.06)] p-4">
+              <p className="text-sm font-bold text-[rgb(var(--fg-danger))]">Proof rejected</p>
+              {proof.rejectionNote ? (
+                <p className="mt-2 text-xs leading-relaxed whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
+                  {proof.rejectionNote}
+                </p>
+              ) : null}
+              <p className="mt-2 text-xs text-[rgb(var(--fg-muted))]">
+                {proof.rejectedAt
+                  ? `Rejected ${formatUploadedAt(proof.rejectedAt)}. This proof is read-only.`
+                  : "This proof is rejected and read-only."}
+              </p>
+            </div>
+          ) : null}
+
+          {proof.status === "pending" && !showConfirm && !showReject ? (
             <div className="space-y-2.5">
               <button
                 ref={confirmTriggerRef}
@@ -267,7 +308,7 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
             </div>
           ) : null}
 
-          {showConfirm ? (
+          {proof.status === "pending" && showConfirm ? (
             <div
               id="confirm-payment-proof-panel"
               className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-success)/0.35)] bg-[rgb(var(--fg-success)/0.07)] p-4"
@@ -301,7 +342,7 @@ export function PaymentProofReview({ proof }: { proof: PaymentProofReviewData })
             </div>
           ) : null}
 
-          {showReject ? (
+          {proof.status === "pending" && showReject ? (
             <form
               id="reject-payment-proof-form"
               onSubmit={runReject}

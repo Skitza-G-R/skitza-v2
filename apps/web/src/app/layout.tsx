@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Outfit, Syne, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
+import { SkipToContent } from "~/components/a11y/skip-to-content";
 import { PostHogProvider } from "~/components/observability/posthog-provider";
 import { SwRegister } from "~/components/shell/sw-register";
 import { ToastProvider } from "~/components/ui/toast";
@@ -71,8 +72,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Skitza — Business automation for music producers",
-    description:
-      "Stop chasing payments. Just make music. Skitza is the only link you need.",
+    description: "Stop chasing payments. Just make music. Skitza is the only link you need.",
   },
 };
 
@@ -147,14 +147,12 @@ const clerkAppearance = {
     headerSubtitle: "hidden",
     socialButtonsBlockButton:
       "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-overlay))]",
-    socialButtonsBlockButtonText:
-      "text-[13px] font-semibold text-[rgb(var(--fg-primary))]",
+    socialButtonsBlockButtonText: "text-[13px] font-semibold text-[rgb(var(--fg-primary))]",
     socialButtonsProviderIcon: "h-4 w-4",
     dividerLine: "bg-[rgb(var(--border-subtle))]",
     dividerText:
       "text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]",
-    formFieldLabel:
-      "text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]",
+    formFieldLabel: "text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]",
     formFieldInput:
       "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-primary))] focus:border-[rgb(var(--brand-primary))] focus:ring-[rgb(var(--brand-primary)/0.15)]",
     formFieldErrorText: "text-[12px] text-[rgb(var(--fg-danger))]",
@@ -165,10 +163,8 @@ const clerkAppearance = {
     footerActionLink:
       "text-[12.5px] font-bold text-[rgb(var(--brand-primary))] hover:text-[rgb(var(--brand-primary)/0.85)]",
     identityPreviewText: "text-[13px] text-[rgb(var(--fg-primary))]",
-    identityPreviewEditButton:
-      "text-[12px] font-semibold text-[rgb(var(--brand-primary))]",
-    formResendCodeLink:
-      "text-[12px] font-bold text-[rgb(var(--brand-primary))]",
+    identityPreviewEditButton: "text-[12px] font-semibold text-[rgb(var(--brand-primary))]",
+    formResendCodeLink: "text-[12px] font-bold text-[rgb(var(--brand-primary))]",
     otpCodeFieldInput:
       "font-mono text-[22px] font-extrabold border border-[rgb(var(--border-subtle))] focus:border-[rgb(var(--brand-primary))]",
     alert:
@@ -218,9 +214,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             {/* Skip-to-content link — keyboard-only users hit Tab on page
                 load, see this first, and jump past the shell navigation
                 straight to the main content. */}
-            <a href="#main-content" className="skip-to-content">
-              Skip to content
-            </a>
+            <SkipToContent />
             {/* Registers the app-shell Service Worker — makes the
                 installed Tauri Mac app feel near-native on repeat
                 visits by serving the shell + Next.js chunks from

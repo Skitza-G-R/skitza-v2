@@ -5,10 +5,8 @@ import {
   ClientSpaceHero,
   type ClientSpaceHeroData,
 } from "~/components/dashboard/clients/client-space-hero";
-import {
-  ProjectRow,
-  type ProjectRowData,
-} from "~/components/dashboard/projects/project-row";
+import { ClientPaymentProofs } from "~/components/dashboard/clients/client-payment-proofs";
+import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -43,6 +41,18 @@ export default async function ClientDetailPage({ params }: PageProps) {
     detail = await caller.clientContacts.detail({ id });
   } catch {
     notFound();
+  }
+
+  let proofHistory: Awaited<ReturnType<typeof caller.producer.purchase.proofOfPayment.history>> = {
+    available: false,
+    proofs: [],
+  };
+  try {
+    proofHistory = await caller.producer.purchase.proofOfPayment.history({
+      clientContactId: id,
+    });
+  } catch (err) {
+    console.warn("[clients/detail] payment proof history failed", err);
   }
 
   let producerSlug = "";
@@ -91,8 +101,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   // client_contacts yet). linkState reads invitedAt / clerkUserId off
   // the detail payload — clerkUserId set ⇒ "active" (signed up),
   // else invitedAt set ⇒ "pending" (amber pill), else "none".
-  const heroLinkState: ClientSpaceHeroData["linkState"] = detail.contact
-    .clerkUserId
+  const heroLinkState: ClientSpaceHeroData["linkState"] = detail.contact.clerkUserId
     ? "active"
     : detail.contact.invitedAt
       ? "pending"
@@ -135,55 +144,66 @@ export default async function ClientDetailPage({ params }: PageProps) {
       deadline: formatDeadlineShort(p.nextSessionAt),
       status: STAGE_LABEL[stage],
       statusTone: tone,
-      currency: p.currency ?? producerCurrency,
+      currency: p.currency,
     };
   });
 
   return (
     <main className="sk-page-enter">
-      <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
+      <div className="mx-auto max-w-[1400px] px-4 pt-4 pb-24 sm:px-6 sm:pt-6 lg:px-8 lg:pt-7">
         <SetTopBarBreadcrumb crumbs={[{ label: detail.contact.name }]} />
-        <ClientSpaceHero
-          client={heroData}
-          producerSlug={producerSlug}
-          products={products}
-        />
+        <ClientSpaceHero client={heroData} producerSlug={producerSlug} products={products} />
 
-        {projectRows.length === 0 ? (
-          <div
-            role="status"
-            className="mt-6 rounded-[var(--radius-md)] border border-dashed p-8 text-center text-[13px]"
-            style={{
-              borderColor: "rgb(var(--border-subtle))",
-              background: "rgb(var(--bg-elevated))",
-              color: "rgb(var(--fg-muted))",
-            }}
-          >
-            No projects with this client yet.
-          </div>
-        ) : (
-          <div className="mt-6 flex flex-col gap-2">
-            {projectRows.map((row) => (
-              <ProjectRow key={row.id} row={row} hideClient />
-            ))}
-          </div>
-        )}
+        {proofHistory.available ? <ClientPaymentProofs proofs={proofHistory.proofs} /> : null}
 
-        {/* Next session preview — surfaced under the project list for
-            quick scan rhythm. Kept lightweight; the hero already shows
-            the KPI counts, this is a single-line schedule reminder. */}
-        {nextSession ? (
-          <p
-            className="mt-4 text-[12px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
-            Next session:{" "}
-            <span style={{ color: "rgb(var(--fg-default))" }}>
-              {formatSessionAt(nextSession.startsAt)}
-            </span>{" "}
-            for {nextSession.projectTitle}
-          </p>
-        ) : null}
+        <section className="mt-6" aria-labelledby="client-projects-title">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+                Work
+              </p>
+              <h2
+                id="client-projects-title"
+                className="font-syne text-xl font-bold text-[rgb(var(--fg-default))]"
+              >
+                Projects
+              </h2>
+            </div>
+            <span className="font-mono text-[11px] font-bold text-[rgb(var(--fg-muted))]">
+              {projectRows.length}
+            </span>
+          </div>
+
+          {projectRows.length === 0 ? (
+            <div
+              role="status"
+              className="mt-3 rounded-[var(--radius-md)] border border-dashed p-8 text-center text-[13px]"
+              style={{
+                borderColor: "rgb(var(--border-subtle))",
+                background: "rgb(var(--bg-elevated))",
+                color: "rgb(var(--fg-muted))",
+              }}
+            >
+              No projects with this client yet.
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-col gap-2">
+              {projectRows.map((row) => (
+                <ProjectRow key={row.id} row={row} hideClient />
+              ))}
+            </div>
+          )}
+
+          {nextSession ? (
+            <p className="mt-4 text-[12px]" style={{ color: "rgb(var(--fg-muted))" }}>
+              Next session:{" "}
+              <span style={{ color: "rgb(var(--fg-default))" }}>
+                {formatSessionAt(nextSession.startsAt)}
+              </span>{" "}
+              for {nextSession.projectTitle}
+            </p>
+          ) : null}
+        </section>
       </div>
     </main>
   );
@@ -231,10 +251,7 @@ export function pickNextSession(
   let best: { startsAt: Date; projectTitle: string } | null = null;
   for (const p of projects) {
     if (!p.nextSessionAt) continue;
-    const at =
-      p.nextSessionAt instanceof Date
-        ? p.nextSessionAt
-        : new Date(p.nextSessionAt);
+    const at = p.nextSessionAt instanceof Date ? p.nextSessionAt : new Date(p.nextSessionAt);
     if (Number.isNaN(at.getTime())) continue;
     if (!best || at.getTime() < best.startsAt.getTime()) {
       best = { startsAt: at, projectTitle: p.title };

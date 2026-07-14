@@ -1,8 +1,4 @@
-import {
-  stageColor,
-  stageLabel,
-  type WorkflowStage,
-} from "~/lib/clients/workflow-stage";
+import { stageColor, stageLabel, type WorkflowStage } from "~/lib/clients/workflow-stage";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 
 // AlbumStatStrip — 4 StatTiles sit directly under the AlbumHero
@@ -53,11 +49,13 @@ export function AlbumStatStrip({
 
   return (
     <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--border-subtle))] md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent">
-      <StatTile mobileCompact
+      <StatTile
+        mobileCompact
+        dense
         label="Status"
         value={
           <span
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-1 text-[11px] font-bold tracking-widest uppercase"
             style={{
               color: stageHue,
               borderColor: stageHue,
@@ -73,11 +71,11 @@ export function AlbumStatStrip({
           </span>
         }
       />
-      <StatTile mobileCompact
+      <StatTile
+        mobileCompact
+        dense
         label="Progress"
-        value={
-          <span className="tabular-nums">{clampedProgress}%</span>
-        }
+        value={<span className="tabular-nums">{clampedProgress}%</span>}
         sub={
           <span
             className="block h-1 w-full overflow-hidden rounded-full"
@@ -94,18 +92,20 @@ export function AlbumStatStrip({
         }
       />
       {isOverdue ? (
-        <StatTile mobileCompact label="Deadline" value={deadline} variant="danger" />
+        <StatTile mobileCompact dense label="Deadline" value={deadline} variant="danger" />
       ) : (
-        <StatTile mobileCompact label="Deadline" value={deadline} />
+        <StatTile mobileCompact dense label="Deadline" value={deadline} />
       )}
       {outstandingCents > 0 ? (
-        <StatTile mobileCompact
+        <StatTile
+          mobileCompact
+          dense
           label="Outstanding"
           value={formatMoney(outstandingCents, currency)}
           variant="danger"
         />
       ) : (
-        <StatTile mobileCompact label="Outstanding" value="Paid" variant="ok" />
+        <StatTile mobileCompact dense label="Outstanding" value="Paid" variant="ok" />
       )}
     </div>
   );

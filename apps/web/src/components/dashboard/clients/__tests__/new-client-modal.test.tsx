@@ -51,8 +51,8 @@ describe("NewClientModal", () => {
     expect(SRC).toMatch(/<textarea[\s\S]*?id="new-client-notes"/);
   });
 
-  it("renders the amber 'Invitation will be emailed' hint block", () => {
-    expect(SRC).toContain("Invitation will be emailed");
+  it("explains that adding a client sends an invite", () => {
+    expect(SRC).toMatch(/We(?:&rsquo;|')ll email an invite after you add them\./);
   });
 
   it("renders the 'Add client' primary CTA text", () => {
@@ -118,18 +118,19 @@ describe("NewClientModal", () => {
     expect(SRC).toMatch(/onClose\(\)/);
   });
 
+  it("keeps the close button usable when the focused field blurs", () => {
+    expect(SRC).toMatch(/aria-label="Close"[\s\S]*?onPointerDown/);
+    expect(SRC).toMatch(/event\.preventDefault\(\)[\s\S]*?onClose\(\)/);
+  });
+
   it("handles the inviteEmailFailed soft case with an info toast", () => {
     // Action decoupling: when the client row is created but the
     // invite email fails, the action returns ok:true with
     // inviteEmailFailed:true. The modal must show a softer toast
     // (info, not success) instead of pretending the email went out.
     expect(SRC).toMatch(/inviteEmailFailed/);
-    expect(SRC).toMatch(
-      /invite email couldn't be sent[\s\S]*?Try again from their page/,
-    );
+    expect(SRC).toMatch(/invite email couldn't be sent[\s\S]*?Try again from their page/);
     // The fallback toast is `info`, not `success`.
-    expect(SRC).toMatch(
-      /toast\([\s\S]*?invite email could[\s\S]*?["']info["']/,
-    );
+    expect(SRC).toMatch(/toast\([\s\S]*?invite email could[\s\S]*?["']info["']/);
   });
 });

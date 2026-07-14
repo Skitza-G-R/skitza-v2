@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(
-  join(here, "..", "workspace-list-view.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(here, "..", "workspace-list-view.tsx"), "utf-8");
 
 describe("WorkspaceListView source — composition + tabs + filters + drag", () => {
   it("exports a WorkspaceListView component (function)", () => {
@@ -211,9 +208,7 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
   it("renders a 'New client' CTA as a <button> on the Clients tab (opens modal)", () => {
     expect(SRC).toMatch(/tab\s*===\s*["']clients["'][\s\S]{0,500}New client/);
     // CTA itself is now a <button> with onClick instead of a <Link>.
-    expect(SRC).toMatch(
-      /tab\s*===\s*["']clients["'][\s\S]{0,500}<button[\s\S]{0,500}New client/,
-    );
+    expect(SRC).toMatch(/tab\s*===\s*["']clients["'][\s\S]{0,500}<button[\s\S]{0,500}New client/);
   });
 
   it("does NOT link the 'New client' CTA to /new?clientFirst=1 (route flow was replaced by the modal)", () => {
@@ -232,9 +227,7 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
   });
 
   it("renders the 'New project' CTA as a <button> on the Projects tab (opens modal)", () => {
-    expect(SRC).toMatch(
-      /tab\s*===\s*["']projects["'][\s\S]{0,500}<button[\s\S]{0,500}New project/,
-    );
+    expect(SRC).toMatch(/tab\s*===\s*["']projects["'][\s\S]{0,500}<button[\s\S]{0,500}New project/);
   });
 
   // ── G6: NewClientModal wiring ───────────────────────────────────
@@ -353,8 +346,12 @@ describe("WorkspaceListView — round-3 toolbar match (icons + 4 client filters 
   it("tab seg buttons have lucide icons (Users + FolderKanban) before the label", () => {
     // The HTML mockup carries an icon inside each pill. Adding the
     // icons immediately tightens the at-a-glance read of the tab.
-    expect(SRC).toMatch(/import\s+\{[\s\S]{0,200}Users[\s\S]{0,200}\}\s+from\s+["']lucide-react["']/);
-    expect(SRC).toMatch(/import\s+\{[\s\S]{0,200}FolderKanban[\s\S]{0,200}\}\s+from\s+["']lucide-react["']/);
+    expect(SRC).toMatch(
+      /import\s+\{[\s\S]{0,200}Users[\s\S]{0,200}\}\s+from\s+["']lucide-react["']/,
+    );
+    expect(SRC).toMatch(
+      /import\s+\{[\s\S]{0,200}FolderKanban[\s\S]{0,200}\}\s+from\s+["']lucide-react["']/,
+    );
     expect(SRC).toMatch(/<Users\s+size=\{12\}/);
     expect(SRC).toMatch(/<FolderKanban\s+size=\{12\}/);
   });
@@ -394,7 +391,9 @@ describe("WorkspaceListView — round-3 toolbar match (icons + 4 client filters 
     expect(SRC).toMatch(/order-2 ml-auto flex items-center gap-2 md:order-none/);
     expect(SRC).toMatch(/order-3[\s\S]{0,120}overflow-x-auto[\s\S]{0,200}md:flex-wrap/);
     // Layout toggle group: display branches per element (hidden <md).
-    expect(SRC).toMatch(/hidden items-center gap-0\.5 rounded-full border p-0\.5 md:inline-flex/);
+    expect(SRC).toMatch(
+      /hidden items-center gap-0\.5 rounded-\[var\(--radius-lg\)\] border p-0\.5 md:inline-flex/,
+    );
   });
 
   it("Clients filter predicates branch on 'needs-attention' AND 'done'", () => {

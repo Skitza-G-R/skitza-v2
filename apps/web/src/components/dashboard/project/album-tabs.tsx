@@ -43,7 +43,7 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
       // <md: pills scroll sideways inside the rail (never wrap — a
       // wrapped "Studio Log" pill turned into a 2-line blob and the
       // rail pushed the page to 408px). md+: original inline-flex.
-      className="flex max-w-full items-center gap-1 self-start overflow-x-auto rounded-[var(--radius-sm)] border p-1 shadow-[var(--shadow-sm)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:inline-flex md:max-w-none md:overflow-visible"
+      className="flex w-full max-w-full snap-x snap-mandatory scroll-px-1 items-center gap-1 overflow-x-auto rounded-[var(--radius-lg)] border p-1 shadow-[var(--shadow-sm)] [scrollbar-width:none] md:inline-flex md:w-auto md:snap-none md:overflow-visible [&::-webkit-scrollbar]:hidden"
       style={{
         background: "rgb(var(--bg-elevated))",
         borderColor: "rgb(var(--border-subtle))",
@@ -62,15 +62,13 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
             id={`tab-${t.key}`}
             aria-selected={isActive}
             aria-controls={`panel-${t.key}`}
-            onClick={() => { onChange(t.key); }}
-            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-sm)] px-4 py-1.5 text-[12px] font-semibold transition-colors min-h-[44px] md:min-h-0"
+            onClick={() => {
+              onChange(t.key);
+            }}
+            className="inline-flex min-h-[44px] shrink-0 snap-start items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] font-semibold whitespace-nowrap transition-colors md:min-h-0 md:px-4"
             style={{
-              background: isActive
-                ? "rgb(var(--bg-sidebar))"
-                : "transparent",
-              color: isActive
-                ? "rgb(var(--bg-elevated))"
-                : "rgb(var(--fg-muted))",
+              background: isActive ? "rgb(var(--bg-sidebar))" : "transparent",
+              color: isActive ? "rgb(var(--bg-elevated))" : "rgb(var(--fg-muted))",
             }}
           >
             <Icon size={13} strokeWidth={2.2} aria-hidden />

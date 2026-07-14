@@ -74,9 +74,7 @@ describe("SongSpaceHero — dark hero band for the Song Space", () => {
     expect(SRC).toMatch(
       /HeroCTA[\s\S]*?variant=["']upload["'][\s\S]*?onClick=\{onUploadNewVersion\}/,
     );
-    expect(SRC).toMatch(
-      /HeroCTA[\s\S]*?variant=["']upload["'][\s\S]*?disabled/,
-    );
+    expect(SRC).toMatch(/HeroCTA[\s\S]*?variant=["']upload["'][\s\S]*?disabled/);
   });
 
   it("places the dark hero background via inline style with heroBg(token)", () => {
@@ -104,13 +102,13 @@ describe("SongSpaceHero — dark hero band for the Song Space", () => {
   });
 
   it("renders a music-icon avatar tile on the left of the hero (PR C — match design)", () => {
-    // The design prototype shows a 112px gradient music-icon tile
+    // The design prototype shows a gradient music-icon tile
     // anchoring the song page hero. PR #122 inherited a stale
     // "no avatar on the song page" comment that turned out to be
     // wrong — Gili spotted the gap during QA. The avatar uses the
     // song title to seed a stable gradient, mirroring AlbumHero.
     expect(SRC).toContain("producerGradient");
-    expect(SRC).toMatch(/rounded-\[24px\]/);
+    expect(SRC).toMatch(/md:rounded-\[22px\]/);
     // SK-60: the icon is display-branched per breakpoint — 30px <md,
     // the original 44px at md+.
     expect(SRC).toMatch(/<Music[\s\S]{0,80}size=\{44\}/);

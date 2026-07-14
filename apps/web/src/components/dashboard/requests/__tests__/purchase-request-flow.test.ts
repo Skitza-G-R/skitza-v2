@@ -86,7 +86,7 @@ describe("producer purchase request flow", () => {
 
   it("adds review actions and exact proof review without replacing frozen terms", () => {
     expect(detailPageSource).toMatch(/producer\.purchase\.get\(\{ id \}\)/);
-    expect(detailPageSource).toMatch(/proofOfPayment\.pending\(\{ purchaseRequestId: id \}\)/);
+    expect(detailPageSource).toMatch(/proofOfPayment\.history\(\{ purchaseRequestId: id \}\)/);
     expect(detailPageSource).toMatch(/proofOfPayment\.view/);
     expect(detailPageSource).toMatch(/requestedProofId/);
     expect(detailPageSource).toMatch(/<PaymentProofReview/);

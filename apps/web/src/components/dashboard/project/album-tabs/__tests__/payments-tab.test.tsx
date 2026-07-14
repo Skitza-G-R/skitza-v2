@@ -21,11 +21,16 @@ describe("PaymentsTab — Outstanding card + milestones list (Album page)", () =
     expect(SRC).toMatch(/>\s*Balance\s*</);
   });
 
-  it("renders the 'Send friendly reminder' + 'Invoice' buttons (mockup-match labels)", () => {
-    // HTML mockup uses 'Send friendly reminder' (warmer) and just
-    // 'Invoice' (more action-y than the older 'Send invoice').
+  it("only renders real payment actions when their handlers exist", () => {
+    expect(SRC).toMatch(/onSendReminder\s*\?/);
+    expect(SRC).toMatch(/onSendInvoice\s*\?/);
     expect(SRC).toMatch(/Send\s+friendly\s+reminder/);
     expect(SRC).toMatch(/>\s*Invoice\s*</);
+  });
+
+  it("shows a settled label when no balance remains", () => {
+    expect(SRC).toMatch(/outstandingCents\s*===\s*0/);
+    expect(SRC).toMatch(/Paid in full/);
   });
 
   it("renders a Milestones header above the milestones list", () => {

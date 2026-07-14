@@ -1,14 +1,9 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Mail, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import {
-  type SyntheticEvent,
-  useEffect,
-  useState,
-  useTransition,
-} from "react";
+import { type SyntheticEvent, useEffect, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
 import {
@@ -44,11 +39,7 @@ export interface NewClientModalProps {
   onCreated?: () => void;
 }
 
-export function NewClientModal({
-  open,
-  onClose,
-  onCreated,
-}: NewClientModalProps) {
+export function NewClientModal({ open, onClose, onCreated }: NewClientModalProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -62,12 +53,8 @@ export function NewClientModal({
   const [nameTouched, setNameTouched] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
 
-  const nameState: ValidationState = nameTouched
-    ? validateDisplayName(name)
-    : { kind: "idle" };
-  const emailState: ValidationState = emailTouched
-    ? validateEmail(email)
-    : { kind: "idle" };
+  const nameState: ValidationState = nameTouched ? validateDisplayName(name) : { kind: "idle" };
+  const emailState: ValidationState = emailTouched ? validateEmail(email) : { kind: "idle" };
 
   // Reset form state every time the modal opens. Carrying values across
   // open/close is confusing — the producer expects a blank slate.
@@ -81,10 +68,7 @@ export function NewClientModal({
     setEmailTouched(false);
   }, [open]);
 
-  const submitDisabled =
-    pending ||
-    name.trim().length === 0 ||
-    email.trim().length === 0;
+  const submitDisabled = pending || name.trim().length === 0 || email.trim().length === 0;
 
   const handleSubmit = (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -93,10 +77,7 @@ export function NewClientModal({
     setEmailTouched(true);
     const finalNameState = validateDisplayName(name);
     const finalEmailState = validateEmail(email);
-    if (
-      finalNameState.kind !== "valid" ||
-      finalEmailState.kind !== "valid"
-    ) {
+    if (finalNameState.kind !== "valid" || finalEmailState.kind !== "valid") {
       // Inline hints already explain what's wrong; no duplicate toast.
       return;
     }
@@ -133,10 +114,7 @@ export function NewClientModal({
         // it's saved and they can retry the invite from the client's
         // space. The LinkPill there shows "Invite to app" because the
         // procedure never stamped invited_at.
-        toast(
-          "Client added — invite email couldn't be sent. Try again from their page.",
-          "info",
-        );
+        toast("Client added — invite email couldn't be sent. Try again from their page.", "info");
       } else {
         toast("Client added — invite sent", "success");
       }
@@ -160,7 +138,7 @@ export function NewClientModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="new-client-modal-body"
-          className="sk-sheet-mobile fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[440px] rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
+          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[440px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -171,18 +149,21 @@ export function NewClientModal({
                 id="new-client-modal-body"
                 className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]"
               >
-                Just the basics — you can edit later.
+                Add their details and send an invite.
               </DialogPrimitive.Description>
             </div>
-            <DialogPrimitive.Close asChild>
-              <button
-                type="button"
-                aria-label="Close"
-                className="sk-press -mr-2 -mt-2 inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
-              >
-                <X size={16} strokeWidth={2.2} />
-              </button>
-            </DialogPrimitive.Close>
+            <button
+              type="button"
+              aria-label="Close"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                onClose();
+              }}
+              onClick={onClose}
+              className="-mt-2 -mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
+            >
+              <X size={16} strokeWidth={2.2} />
+            </button>
           </div>
 
           <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
@@ -203,11 +184,9 @@ export function NewClientModal({
                 onBlur={() => {
                   setNameTouched(true);
                 }}
-                aria-invalid={
-                  nameState.kind === "invalid" || nameState.kind === "required"
-                }
+                aria-invalid={nameState.kind === "invalid" || nameState.kind === "required"}
                 placeholder="Artist or band name"
-                className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                 style={{ borderColor: "rgb(var(--border-subtle))" }}
               />
               <ValidationHint state={nameState} />
@@ -240,12 +219,9 @@ export function NewClientModal({
                     onBlur={() => {
                       setEmailTouched(true);
                     }}
-                    aria-invalid={
-                      emailState.kind === "invalid" ||
-                      emailState.kind === "required"
-                    }
+                    aria-invalid={emailState.kind === "invalid" || emailState.kind === "required"}
                     placeholder="they@example.com"
-                    className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                    className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                     style={{ borderColor: "rgb(var(--border-subtle))" }}
                   />
                   <ValidationHint state={emailState} />
@@ -263,7 +239,7 @@ export function NewClientModal({
                     setPhone(e.target.value);
                   }}
                   placeholder="+972 50 ..."
-                  className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                  className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                   style={{ borderColor: "rgb(var(--border-subtle))" }}
                 />
               </div>
@@ -281,45 +257,27 @@ export function NewClientModal({
                 setNotes(e.target.value);
               }}
               placeholder="Genre, references, anything to remember..."
-              className="w-full resize-none rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+              className="w-full resize-none rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
               style={{ borderColor: "rgb(var(--border-subtle))" }}
             />
 
-            <div
-              className="flex items-start gap-2 rounded-[10px] border px-3 py-2 text-[12px]"
-              style={{
-                borderColor: "rgb(var(--brand-primary)/0.40)",
-                background: "rgb(var(--brand-primary)/0.10)",
-              }}
-            >
-              <Mail
-                size={13}
-                strokeWidth={2.2}
-                className="mt-0.5 shrink-0 text-[rgb(var(--brand-primary))]"
-                aria-hidden
-              />
-              <p className="leading-snug text-[rgb(var(--fg-muted))]">
-                <span className="font-semibold text-[rgb(var(--fg-default))]">
-                  Invitation will be emailed.
-                </span>{" "}
-                They&rsquo;ll get the artist app to comment on songs, sign
-                contracts, and pay &mdash; linked to their real Skitza account.
-              </p>
-            </div>
+            <p className="text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
+              We&rsquo;ll email an invite after you add them.
+            </p>
 
-            <div className="flex flex-col-reverse gap-2 md:flex-row md:items-center md:justify-end">
+            <div className="sticky bottom-0 -mx-5 mt-1 -mb-5 flex flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={pending}
-                className="sk-press inline-flex items-center justify-center rounded-[10px] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50 sm:min-h-0"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={submitDisabled}
-                className="sk-press inline-flex items-center justify-center gap-1.5 rounded-[10px] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none"
+                className="sk-press inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none sm:min-h-0"
                 style={{ background: "rgb(var(--brand-primary))" }}
               >
                 {pending ? "Adding…" : "Add client"}
@@ -344,7 +302,7 @@ function FieldLabel({
   return (
     <label
       htmlFor={htmlFor}
-      className="-mb-2.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+      className="-mb-2.5 text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
     >
       {children}
       {required ? (

@@ -58,8 +58,8 @@ describe("producer Gate-2 proof review wiring", () => {
     expect(queue).toMatch(/\?proof=\$\{proof\.proofId\}#payment-proof/);
   });
 
-  it("validates the proof against the owned request before signing a five-minute view", () => {
-    expect(detailPage).toMatch(/proofOfPayment\.pending\(\{\s*purchaseRequestId:\s*id\s*\}\)/);
+  it("validates the proof against owned request history before signing a five-minute view", () => {
+    expect(detailPage).toMatch(/proofOfPayment\.history\(\{\s*purchaseRequestId:\s*id\s*\}\)/);
     expect(detailPage).toMatch(/proof\.proofId === requestedProofId/);
     expect(detailPage).toMatch(/proofOfPayment\.view\(\{\s*proofId:/);
     expect(detailPage).toMatch(/notFound\(\)/);
@@ -76,6 +76,9 @@ describe("producer Gate-2 proof review wiring", () => {
     expect(review).toMatch(/Reject proof/);
     expect(review).toMatch(/Message shown to the artist/);
     expect(review).toMatch(/router\.refresh/);
+    expect(review).toMatch(/proof\.status === "pending"/);
+    expect(review).toMatch(/proof\.status === "confirmed"/);
+    expect(review).toMatch(/proof\.status === "rejected"/);
     expect(review).not.toMatch(/storageKey|storageBucket|publicUrl/);
   });
 
@@ -123,6 +126,8 @@ describe("producer Gate-2 proof review wiring", () => {
     expect(refresh).toMatch(/setInterval/);
     expect(dashboardPage).toMatch(/<ProofQueueRefresh/);
     expect(requestsPage).toMatch(/<ProofQueueRefresh/);
-    expect(detailPage).toMatch(/<ProofQueueRefresh enabled=\{!paymentProof\}/);
+    expect(detailPage).toMatch(
+      /<ProofQueueRefresh enabled=\{paymentProof\?\.status !== "pending"\}/,
+    );
   });
 });

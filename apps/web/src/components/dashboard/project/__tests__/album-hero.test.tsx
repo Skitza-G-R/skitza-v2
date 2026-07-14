@@ -18,7 +18,7 @@ describe("AlbumHero — dark gradient band for the album page", () => {
     expect(SRC).toContain("~/lib/clients/hero-bg");
   });
 
-  it("imports producerInitials + producerGradient for the 112px project avatar", () => {
+  it("imports producerInitials + producerGradient for the project avatar", () => {
     expect(SRC).toContain("producerInitials");
     expect(SRC).toContain("producerGradient");
     expect(SRC).toContain("~/lib/_phase4-stubs/producer-color");
@@ -31,8 +31,8 @@ describe("AlbumHero — dark gradient band for the album page", () => {
     expect(SRC).toMatch(/variant=["']upload["']/);
   });
 
-  it("uses the avatar size 112px (h-28 w-28)", () => {
-    expect(SRC).toMatch(/h-28\b.*w-28|w-28\b.*h-28/);
+  it("uses a compact 96px desktop avatar (md:h-24 md:w-24)", () => {
+    expect(SRC).toMatch(/md:h-24\b.*md:w-24|md:w-24\b.*md:h-24/);
   });
 
   it("renders the eyebrow PROJECT in uppercase", () => {
