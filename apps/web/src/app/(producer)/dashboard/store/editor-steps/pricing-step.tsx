@@ -412,15 +412,15 @@ export function PricingStep({
       ) : null}
 
       {pricingModel === "flat" || !allowPerSong ? (
-        // ── Flat-price panel (unchanged) ──────────────────────────────
+        // ── Flat-price panel ──────────────────────────────────────────
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] sm:gap-4">
             <div className="flex flex-col gap-2">
               <Eyebrow>Price</Eyebrow>
-              <div className="flex h-11 items-center gap-2 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 shadow-[0_1px_2px_rgba(17,16,9,0.03)] focus-within:border-[rgb(var(--brand-primary))] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.25)]">
+              <div className="flex h-[52px] items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[0_1px_2px_rgba(17,16,9,0.03)] transition-[border-color,box-shadow] focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)] sm:h-11">
                 <span
                   aria-hidden
-                  className="font-display text-[20px] font-bold text-[rgb(var(--fg-muted))]"
+                  className="font-display pl-3 text-[18px] font-bold text-[rgb(var(--fg-muted))]"
                 >
                   {curSym}
                 </span>
@@ -433,88 +433,70 @@ export function PricingStep({
                     onChange({ price: Number(e.target.value) || 0 });
                   }}
                   aria-label="Price"
-                  className="font-display h-full min-w-0 flex-1 border-none bg-transparent py-1 text-[20px] font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none placeholder:text-[rgb(var(--fg-faint))]"
+                  className="font-display h-full min-w-0 flex-1 border-none bg-transparent px-2 py-1 text-[19px] font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none placeholder:text-[rgb(var(--fg-faint))]"
                 />
-                <select
-                  value={currency}
-                  onChange={(e) => {
-                    onChange({ currency: e.target.value as Currency });
-                  }}
-                  aria-label="Currency"
-                  className="h-11 w-[78px] rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 text-base font-semibold text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none sm:h-8 sm:w-[70px] sm:rounded-[var(--radius-sm)] sm:text-[11.5px]"
-                >
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GBP">GBP</option>
-                  <option value="ILS">ILS</option>
-                </select>
+                <div className="flex h-7 shrink-0 items-center border-l border-[rgb(var(--border-subtle))] px-2.5">
+                  <select
+                    value={currency}
+                    onChange={(e) => {
+                      onChange({ currency: e.target.value as Currency });
+                    }}
+                    aria-label="Currency"
+                    className="h-full w-[60px] border-none bg-transparent text-[12px] font-bold tracking-[0.02em] text-[rgb(var(--fg-muted))] outline-none"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                    <option value="ILS">ILS</option>
+                  </select>
+                </div>
               </div>
             </div>
 
             <div>
               <Eyebrow>Sessions</Eyebrow>
-              {/* Sessions now lives in a single bracket that mirrors
-                  the Price input's shape exactly — same h-11, same
-                  rounded-[12px], same border + shadow + focus-within
-                  treatment. Stepper buttons + value + divider + the
-                  Unlimited toggle all share one container border, so
-                  the row reads as one cohesive widget like Price,
-                  not as two stacked bordered widgets with a gap. */}
-              <div
-                className={[
-                  "flex min-h-[52px] items-center gap-1 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] px-1 shadow-[0_1px_2px_rgba(17,16,9,0.03)] sm:h-11 sm:min-h-0 sm:rounded-[var(--radius-md)]",
-                  unlimitedSessions
-                    ? "border-[rgb(var(--border-subtle))] opacity-100"
-                    : "border-[rgb(var(--border-subtle))]",
-                ].join(" ")}
-                role="group"
-                aria-label="Sessions"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (sessions > 1 && !unlimitedSessions) {
-                      onChange({ sessions: sessions - 1 });
-                    }
-                  }}
-                  disabled={unlimitedSessions || sessions <= 1}
-                  aria-label="Decrease sessions"
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 sm:h-8 sm:w-8 sm:rounded-[var(--radius-sm)]"
-                  style={{ transitionTimingFunction: "var(--ease-press)" }}
-                >
-                  <Minus size={14} strokeWidth={2.4} aria-hidden />
-                </button>
-                <span
+              <div className="flex h-[52px] min-w-0 gap-2 sm:h-11" role="group" aria-label="Sessions">
+                <div
                   className={[
-                    // 20px matches the Price input's font-display
-                    // size so the "8" and the "2500" share the same
-                    // baseline when the two brackets sit side by
-                    // side. min-w-[2.5ch] keeps the column stable as
-                    // the digit count changes (8 → 12 → 99).
-                    "font-display min-w-[2.5ch] text-center text-[20px] leading-none font-bold tabular-nums transition-colors duration-150",
-                    unlimitedSessions
-                      ? "text-[rgb(var(--fg-faint))]"
-                      : "text-[rgb(var(--fg-default))]",
+                    "grid h-full min-w-[132px] flex-[1.1] grid-cols-[1fr_auto_1fr] items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1 shadow-[0_1px_2px_rgba(17,16,9,0.03)] transition-opacity",
+                    unlimitedSessions ? "opacity-45" : "opacity-100",
                   ].join(" ")}
-                  aria-live="polite"
                 >
-                  {sessions}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (sessions < 99 && !unlimitedSessions) {
-                      onChange({ sessions: sessions + 1 });
-                    }
-                  }}
-                  disabled={unlimitedSessions || sessions >= 99}
-                  aria-label="Increase sessions"
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 sm:h-8 sm:w-8 sm:rounded-[var(--radius-sm)]"
-                  style={{ transitionTimingFunction: "var(--ease-press)" }}
-                >
-                  <Plus size={14} strokeWidth={2.4} aria-hidden />
-                </button>
-                <span aria-hidden className="mx-1 h-6 w-px bg-[rgb(var(--border-subtle))]" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (sessions > 1 && !unlimitedSessions) {
+                        onChange({ sessions: sessions - 1 });
+                      }
+                    }}
+                    disabled={unlimitedSessions || sessions <= 1}
+                    aria-label="Decrease sessions"
+                    className="inline-flex h-10 w-full items-center justify-center rounded-[var(--radius-md)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:active:scale-100 sm:h-8 sm:rounded-[var(--radius-sm)]"
+                    style={{ transitionTimingFunction: "var(--ease-press)" }}
+                  >
+                    <Minus size={14} strokeWidth={2.4} aria-hidden />
+                  </button>
+                  <span
+                    className="font-display min-w-[2.5ch] text-center text-[19px] leading-none font-bold text-[rgb(var(--fg-default))] tabular-nums"
+                    aria-live="polite"
+                  >
+                    {sessions}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (sessions < 99 && !unlimitedSessions) {
+                        onChange({ sessions: sessions + 1 });
+                      }
+                    }}
+                    disabled={unlimitedSessions || sessions >= 99}
+                    aria-label="Increase sessions"
+                    className="inline-flex h-10 w-full items-center justify-center rounded-[var(--radius-md)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:active:scale-100 sm:h-8 sm:rounded-[var(--radius-sm)]"
+                    style={{ transitionTimingFunction: "var(--ease-press)" }}
+                  >
+                    <Plus size={14} strokeWidth={2.4} aria-hidden />
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -523,10 +505,10 @@ export function PricingStep({
                   aria-pressed={unlimitedSessions}
                   aria-label="Unlimited sessions"
                   className={[
-                    "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold transition-colors duration-150 sm:h-8 sm:rounded-[var(--radius-sm)]",
+                    "sk-press inline-flex h-full min-w-0 flex-1 items-center justify-center rounded-[var(--radius-lg)] border px-3 text-[12px] font-semibold transition-[background-color,border-color,color,transform] duration-150",
                     unlimitedSessions
-                      ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
-                      : "text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]",
+                      ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.18)]"
+                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] shadow-[0_1px_2px_rgba(17,16,9,0.03)] hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-default))]",
                   ].join(" ")}
                 >
                   Unlimited
