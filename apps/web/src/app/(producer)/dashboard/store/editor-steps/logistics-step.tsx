@@ -53,7 +53,7 @@ export function customMinutesFromDuration(duration: string): string {
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1.5 font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+    <div className="mb-1.5 text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
       {children}
     </div>
   );
@@ -70,7 +70,7 @@ function DurationChip({ label, value, active, onChange }: DurationChipProps) {
   return (
     <label
       className={[
-        "sk-press inline-flex h-11 cursor-pointer items-center justify-center rounded-[var(--radius-lg)] border px-4 text-[13px] font-semibold transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.45)] focus-within:ring-offset-1 focus-within:ring-offset-[rgb(var(--bg-base))] sm:h-9 sm:rounded-[var(--radius-md)]",
+        "sk-press inline-flex h-11 cursor-pointer items-center justify-center rounded-[var(--radius-lg)] border px-4 text-[13px] font-semibold transition-colors focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.45)] focus-within:ring-offset-1 focus-within:ring-offset-[rgb(var(--bg-base))] focus-within:outline-none sm:h-9 sm:rounded-[var(--radius-md)]",
         active
           ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
           : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
@@ -129,7 +129,7 @@ function Stepper({
       >
         <Minus size={14} strokeWidth={2.4} aria-hidden />
       </button>
-      <span className="min-w-[2.5ch] text-center font-display text-[16px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))]">
+      <span className="font-display min-w-[2.5ch] text-center text-[16px] leading-none font-bold text-[rgb(var(--fg-default))] tabular-nums">
         {display ?? value}
       </span>
       <button
@@ -157,10 +157,10 @@ export function LogisticsStep({
   const customMinutes = customMinutesFromDuration(duration);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
       {/* Duration */}
       <fieldset className="flex min-w-0 flex-col gap-2 border-0 p-0">
-        <legend className="mb-1.5 font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+        <legend className="mb-1.5 text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
           Duration
         </legend>
         <div className="flex flex-wrap gap-2">
@@ -223,7 +223,7 @@ export function LogisticsStep({
               }}
               placeholder="e.g. 45"
               aria-label="Custom session length in minutes"
-              className="h-11 w-32 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
+              className="h-11 w-32 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] focus:outline-none sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
             />
             <div className="text-[11.5px] text-[rgb(var(--fg-faint))]">
               Custom session length in minutes.

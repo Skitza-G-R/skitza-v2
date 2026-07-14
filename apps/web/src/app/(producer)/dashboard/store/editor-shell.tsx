@@ -30,7 +30,7 @@
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 
 import { StepBar } from "./step-bar";
 
@@ -71,15 +71,18 @@ export function EditorShell({
   children,
   pending = false,
 }: EditorShellProps) {
+  const bodyRef = useRef<HTMLDivElement>(null);
   const currentIdx = Math.max(0, steps.indexOf(current));
   const currentNum = String(currentIdx + 1);
   const totalNum = String(steps.length);
   const stepLabel =
     mode === "new"
       ? `Step ${currentNum} of ${totalNum} · NEW PRODUCT`
-      : `Step ${currentNum} of ${totalNum} · EDITING · ${
-          productName ?? "product"
-        }`;
+      : `Step ${currentNum} of ${totalNum} · EDITING · ${productName ?? "product"}`;
+
+  useLayoutEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [current, open]);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -87,14 +90,13 @@ export function EditorShell({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
         <DialogPrimitive.Content
           aria-label={mode === "new" ? "New product" : `Edit ${productName ?? "product"}`}
-          className="fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[640px] -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] shadow-2xl
-            max-sm:bottom-0 max-sm:left-0 max-sm:right-0 max-sm:top-auto max-sm:h-[92dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-[var(--radius-xl)]"
+          className="fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] shadow-2xl max-sm:top-auto max-sm:right-0 max-sm:bottom-0 max-sm:left-0 max-sm:h-auto max-sm:max-h-[92dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-[var(--radius-xl)] max-sm:rounded-b-none"
         >
           {/* Inline keyframe — see file-level comment for rationale. The
               animation runs on this inner div so its transform stays
               isolated from Dialog.Content's centering transform. */}
           <div
-            className="sk-editor-shell-motion flex h-full min-h-0 max-h-[inherit] flex-col overflow-hidden"
+            className="sk-editor-shell-motion flex max-h-[inherit] min-h-0 flex-col overflow-hidden"
             style={{ animation: "popIn 240ms cubic-bezier(.16,1,.3,1)" }}
           >
             <style>{`@keyframes popIn {
@@ -105,46 +107,46 @@ export function EditorShell({
               .sk-editor-shell-motion { animation: none !important; }
             }`}</style>
 
-            {/* Header — X on LEFT, title block to its right (vertically
-                centered with X). SK-57: tighter insets below sm so the
-                bottom sheet reads phone-native, not scaled desktop. */}
-            <div className="shrink-0 border-b border-[rgb(var(--border-subtle))] px-5 pb-3.5 pt-4 sm:px-6 sm:pb-[18px] sm:pt-[20px]">
-              <div className="flex items-center gap-3">
-                <DialogPrimitive.Close
-                  aria-label="Close"
-                  className="sk-press inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:h-8 sm:w-8"
+            <div className="relative shrink-0 border-b border-[rgb(var(--border-subtle))] px-5 pt-4 pb-3.5 sm:px-6 sm:pt-[20px] sm:pb-[18px]">
+              <DialogPrimitive.Close
+                aria-label="Close"
+                className="sk-press absolute top-3 right-3 inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:top-4 sm:right-4 sm:h-10 sm:w-10"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </DialogPrimitive.Close>
+              <div className="min-w-0 pr-12 sm:pr-14">
+                <span
+                  // truncate — edit mode appends the product name
+                  // ("· EDITING · Full production day") which
+                  // overflows a 390px sheet header otherwise.
+                  className="block text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] break-words whitespace-normal text-[rgb(var(--fg-muted))] uppercase"
                 >
-                  <X className="h-4 w-4" aria-hidden />
-                </DialogPrimitive.Close>
-                <div className="min-w-0 flex-1">
-                  <span
-                    // truncate — edit mode appends the product name
-                    // ("· EDITING · Full production day") which
-                    // overflows a 390px sheet header otherwise.
-                    className="block whitespace-normal break-words font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
-                  >
-                    {stepLabel}
-                  </span>
-                  <DialogPrimitive.Title
-                    className="mt-1 font-[var(--font-syne)] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--fg-default))]"
-                    style={{ fontSize: "clamp(22px, 4vw, 28px)" }}
-                  >
-                    {title}
-                  </DialogPrimitive.Title>
-                  {subtitle ? (
-                    <DialogPrimitive.Description className="mt-1.5 whitespace-normal text-pretty text-[13px] leading-snug text-[rgb(var(--fg-muted))]">
-                      {subtitle}
-                    </DialogPrimitive.Description>
-                  ) : null}
-                </div>
+                  {stepLabel}
+                </span>
+                <DialogPrimitive.Title
+                  className="mt-1 leading-none font-[var(--font-syne)] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
+                  style={{ fontSize: "clamp(22px, 4vw, 28px)" }}
+                >
+                  {title}
+                </DialogPrimitive.Title>
+                {subtitle ? (
+                  <DialogPrimitive.Description className="mt-1.5 text-[13px] leading-snug text-pretty whitespace-normal text-[rgb(var(--fg-muted))]">
+                    {subtitle}
+                  </DialogPrimitive.Description>
+                ) : null}
               </div>
-              <div className="mt-[18px]">
+              <div className="mt-4">
                 <StepBar steps={steps} current={current} />
               </div>
             </div>
 
             {/* Body */}
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">{children}</div>
+            <div
+              ref={bodyRef}
+              className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5"
+            >
+              {children}
+            </div>
 
             {/* Footer — Back on left, Continue/Save on right. Cancel
                 removed: Close X handles it. Bottom padding clears the
@@ -155,7 +157,7 @@ export function EditorShell({
                   <button
                     type="button"
                     onClick={onBack}
-                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] px-3 text-[13px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:h-9 sm:rounded-[var(--radius-md)]"
+                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] px-3 text-[13px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:h-10 sm:rounded-[var(--radius-md)]"
                   >
                     ← Back
                   </button>
@@ -167,7 +169,7 @@ export function EditorShell({
                     type="button"
                     onClick={onSave}
                     disabled={!canContinue || pending}
-                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:rounded-[var(--radius-md)]"
+                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:rounded-[var(--radius-md)]"
                   >
                     {pending ? "Saving…" : mode === "new" ? "Create product" : "Save changes"}
                   </button>
@@ -176,7 +178,7 @@ export function EditorShell({
                     type="button"
                     onClick={onContinue}
                     disabled={!canContinue}
-                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:rounded-[var(--radius-md)]"
+                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:rounded-[var(--radius-md)]"
                   >
                     Continue →
                   </button>

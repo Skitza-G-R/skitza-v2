@@ -6,13 +6,7 @@ import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 import type { VolumeTier } from "~/lib/pricing";
 import type { AgreementMode } from "../product-editor-draft";
 
-export type ReviewEditStep =
-  | "type"
-  | "details"
-  | "price"
-  | "payment"
-  | "delivery"
-  | "rights";
+export type ReviewEditStep = "type" | "details" | "price" | "payment" | "delivery" | "rights";
 
 interface ReviewStepProps {
   name: string;
@@ -49,11 +43,7 @@ function formatAmount(cents: number, currency: string): string {
   }).format(cents / 100);
 }
 
-function paymentPlanSummary(
-  plan: PaymentPlan,
-  totalCents: number,
-  currency: string,
-): string {
+function paymentPlanSummary(plan: PaymentPlan, totalCents: number, currency: string): string {
   if (plan.kind === "full") {
     return `Pay in full · ${formatAmount(totalCents, currency)}`;
   }
@@ -82,7 +72,7 @@ function ReviewSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border-t border-[rgb(var(--border-subtle))] py-5 first:border-t-0 first:pt-0">
+    <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
       <div className="flex items-center justify-between gap-3">
         <h3 className="font-display text-[15px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
           {title}
@@ -98,9 +88,7 @@ function ReviewSection({
           Edit
         </button>
       </div>
-      <div className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
-        {children}
-      </div>
+      <div className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">{children}</div>
     </section>
   );
 }
@@ -137,22 +125,20 @@ export function ReviewStep({
     !paymentPlans.some((plan) => plan.kind === "milestones");
 
   return (
-    <div className="flex flex-col">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       {showTypeEdit ? (
         <ReviewSection title="Product type" step="type" onEdit={onEdit}>
-          <div className="font-semibold text-[rgb(var(--fg-default))]">
-            {typeLabel}
-          </div>
+          <div className="font-semibold text-[rgb(var(--fg-default))]">{typeLabel}</div>
         </ReviewSection>
       ) : null}
 
       <ReviewSection title="Product details" step="details" onEdit={onEdit}>
-        <div className="break-words font-semibold text-[rgb(var(--fg-default))] [overflow-wrap:anywhere]">
+        <div className="font-semibold [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))]">
           {name}
         </div>
         {!showTypeEdit ? <div className="mt-0.5">{typeLabel}</div> : null}
         {includes.length > 0 ? (
-          <ul className="mt-2 list-disc space-y-1 break-words pl-5 [overflow-wrap:anywhere]">
+          <ul className="mt-2 list-disc space-y-1 pl-5 [overflow-wrap:anywhere] break-words">
             {includes.map((item) => (
               <li key={item}>{item}</li>
             ))}
@@ -163,13 +149,13 @@ export function ReviewStep({
       </ReviewSection>
 
       <ReviewSection title="Price" step="price" onEdit={onEdit}>
-        <div className="font-semibold tabular-nums text-[rgb(var(--fg-default))]">
+        <div className="font-semibold text-[rgb(var(--fg-default))] tabular-nums">
           {formatAmount(priceCents, currency)}
           {pricingModel === "per_song" ? " / song starting rate" : ""}
         </div>
         {taxNote ? <div className="mt-1 text-[rgb(var(--fg-faint))]">{taxNote}</div> : null}
         {artistPaysCents !== undefined && artistPaysCents !== priceCents ? (
-          <div className="mt-1 font-medium tabular-nums text-[rgb(var(--fg-secondary))]">
+          <div className="mt-1 font-medium text-[rgb(var(--fg-secondary))] tabular-nums">
             Artist pays {formatAmount(artistPaysCents, currency)} at checkout
             {pricingModel === "per_song" ? " for one song" : ""}.
           </div>
@@ -187,7 +173,7 @@ export function ReviewStep({
                 className="flex min-h-10 items-center justify-between gap-3 py-1.5"
               >
                 <span>{index === 0 ? "1 song" : `${String(tier.minQty)}+ songs`}</span>
-                <span className="font-semibold tabular-nums text-[rgb(var(--fg-default))]">
+                <span className="font-semibold text-[rgb(var(--fg-default))] tabular-nums">
                   {formatAmount(tier.pricePerUnitCents, currency)} / song
                 </span>
               </li>
@@ -200,11 +186,7 @@ export function ReviewStep({
         <ul className="space-y-1.5">
           {paymentPlans.map((plan, index) => (
             <li key={`${plan.kind}-${String(index)}`}>
-              {paymentPlanSummary(
-                plan,
-                artistPaysCents ?? priceCents,
-                currency,
-              )}
+              {paymentPlanSummary(plan, artistPaysCents ?? priceCents, currency)}
             </li>
           ))}
           {hasVirtualMilestones ? (
@@ -225,42 +207,36 @@ export function ReviewStep({
       <ReviewSection title="Rights & agreement" step="rights" onEdit={onEdit}>
         <dl className="space-y-2">
           <div>
-            <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-faint))]">
+            <dt className="text-[11px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
               Master
             </dt>
-            <dd className="min-w-0 break-words [overflow-wrap:anywhere]">
-              {royalty.master}
-            </dd>
+            <dd className="min-w-0 [overflow-wrap:anywhere] break-words">{royalty.master}</dd>
           </div>
           <div>
-            <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-faint))]">
+            <dt className="text-[11px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
               Composition
             </dt>
-            <dd className="min-w-0 break-words [overflow-wrap:anywhere]">
-              {royalty.composition}
-            </dd>
+            <dd className="min-w-0 [overflow-wrap:anywhere] break-words">{royalty.composition}</dd>
           </div>
         </dl>
         {royaltyTerms?.notes ? (
-          <p className="mt-2 whitespace-pre-wrap break-words">{royaltyTerms.notes}</p>
+          <p className="mt-2 break-words whitespace-pre-wrap">{royaltyTerms.notes}</p>
         ) : null}
         {agreementMode === "text" && agreementText.trim() ? (
           <div className="mt-3 border-t border-[rgb(var(--border-subtle))] pt-3">
-            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-faint))]">
+            <div className="text-[11px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
               Agreement text
             </div>
-            <p className="mt-1 whitespace-pre-wrap break-words text-[rgb(var(--fg-default))]">
+            <p className="mt-1 break-words whitespace-pre-wrap text-[rgb(var(--fg-default))]">
               {agreementText.trim()}
             </p>
           </div>
         ) : agreementMode === "link" && contractUrl.trim() ? (
           <div className="mt-3 border-t border-[rgb(var(--border-subtle))] pt-3">
-            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-faint))]">
+            <div className="text-[11px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
               Agreement link
             </div>
-            <p className="mt-1 break-all text-[rgb(var(--fg-default))]">
-              {contractUrl.trim()}
-            </p>
+            <p className="mt-1 break-all text-[rgb(var(--fg-default))]">{contractUrl.trim()}</p>
           </div>
         ) : (
           <p className="mt-3 text-[rgb(var(--fg-faint))]">No agreement added</p>

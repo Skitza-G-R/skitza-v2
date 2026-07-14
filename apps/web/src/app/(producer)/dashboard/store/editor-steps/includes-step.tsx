@@ -29,10 +29,7 @@ interface IncludesStepProps {
 export const MAX_INCLUSIONS = 10;
 export const MAX_INCLUSION_LENGTH = 100;
 
-export function appendInclusion(
-  includes: readonly string[],
-  label: string,
-): string[] {
+export function appendInclusion(includes: readonly string[], label: string): string[] {
   const trimmed = label.trim();
   if (
     !trimmed ||
@@ -85,12 +82,12 @@ export function IncludesStep({
   const trimmedCustom = custom.trim();
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {/* Product name */}
       <div className="flex flex-col gap-2">
         <label
           htmlFor="includes-step-name"
-          className="font-[var(--font-outfit)] text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+          className="text-[10px] font-[var(--font-outfit)] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
         >
           Product name <span className="text-[rgb(var(--brand-primary))]">*</span>
         </label>
@@ -104,25 +101,23 @@ export function IncludesStep({
             onNameChange(e.target.value);
           }}
           placeholder={picked?.defaultName || "Name your product"}
-          className="h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
+          className="h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] focus:outline-none sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
         />
       </div>
 
       {/* What's included — dropzone */}
       <div>
-        <div className="mb-2.5 flex items-baseline justify-between">
-          <span className="font-[var(--font-outfit)] text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+        <div className="mb-2 flex items-baseline justify-between">
+          <span className="text-[10px] font-[var(--font-outfit)] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
             What&apos;s included
           </span>
           <span className="text-[10.5px] text-[rgb(var(--fg-faint))]">
             {includes.length}/{MAX_INCLUSIONS} selected
           </span>
         </div>
-        <div
-          className="flex min-h-[56px] flex-wrap content-start gap-2 rounded-[12px] border border-dashed border-[rgb(var(--brand-primary)/0.30)] bg-[rgb(var(--brand-primary)/0.06)] p-3"
-        >
+        <div className="flex min-h-[52px] flex-wrap content-start gap-1.5 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--brand-primary)/0.30)] bg-[rgb(var(--brand-primary)/0.06)] p-2.5">
           {includes.length === 0 ? (
-            <div className="px-1 py-2 text-[12.5px] italic text-[rgb(var(--fg-faint))]">
+            <div className="px-1 py-2 text-[12.5px] text-[rgb(var(--fg-faint))] italic">
               Pick items below to add them →
             </div>
           ) : (
@@ -134,7 +129,7 @@ export function IncludesStep({
                   remove(s);
                 }}
                 aria-label={`Remove ${s}`}
-                className="group inline-flex min-h-11 max-w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-white py-1.5 pl-3 pr-1.5 text-left text-[12.5px] font-semibold text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgba(17,16,9,0.04)] transition-colors hover:border-[rgb(var(--danger,220_56_56))] hover:bg-red-50 sm:min-h-8 sm:rounded-[var(--radius-sm)]"
+                className="group inline-flex min-h-11 max-w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-white py-1.5 pr-1.5 pl-3 text-left text-[12.5px] font-semibold text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgba(17,16,9,0.04)] transition-colors hover:border-[rgb(var(--danger,220_56_56))] hover:bg-red-50 sm:min-h-8 sm:rounded-[var(--radius-sm)]"
               >
                 <span className="min-w-0 break-words">{s}</span>
                 <span
@@ -152,10 +147,10 @@ export function IncludesStep({
       {/* Suggested extras */}
       {picked && available.length > 0 ? (
         <div>
-          <div className="mb-2.5 font-[var(--font-outfit)] text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+          <div className="mb-2 text-[10px] font-[var(--font-outfit)] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
             Suggested for {picked.label}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {available.map((ex) => (
               <button
                 key={ex.label}
@@ -165,7 +160,7 @@ export function IncludesStep({
                 onClick={() => {
                   add(ex.label);
                 }}
-                className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] py-1.5 pl-2 pr-3.5 text-left text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.08)] disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-8 sm:rounded-[var(--radius-sm)]"
+                className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] py-1.5 pr-3.5 pl-2 text-left text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.08)] disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-8 sm:rounded-[var(--radius-sm)]"
               >
                 <span
                   aria-hidden
@@ -182,7 +177,7 @@ export function IncludesStep({
 
       {/* Add your own */}
       <div>
-        <div className="mb-2.5 font-[var(--font-outfit)] text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]">
+        <div className="mb-2 text-[10px] font-[var(--font-outfit)] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
           Add your own
         </div>
         <form
@@ -202,7 +197,7 @@ export function IncludesStep({
               setCustom(e.target.value);
             }}
             placeholder="e.g. Sound design pass"
-            className="h-11 min-w-0 flex-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[13px]"
+            className="h-11 min-w-0 flex-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] focus:outline-none sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[13px]"
           />
           <button
             type="submit"
@@ -216,9 +211,7 @@ export function IncludesStep({
         <p
           id="includes-limit-help"
           className={`mt-2 text-[11.5px] leading-snug ${
-            atLimit
-              ? "font-medium text-[rgb(var(--fg-danger))]"
-              : "text-[rgb(var(--fg-faint))]"
+            atLimit ? "font-medium text-[rgb(var(--fg-danger))]" : "text-[rgb(var(--fg-faint))]"
           }`}
         >
           {atLimit

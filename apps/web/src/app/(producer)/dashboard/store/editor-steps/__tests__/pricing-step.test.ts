@@ -139,10 +139,10 @@ describe("pricing-step.tsx source", () => {
 
   it("keeps per-song price and tax controls at least 44px tall on mobile", () => {
     expect(source).toMatch(
-      /aria-label="Base price per song"[\s\S]*?className="h-11[^"]*sm:h-full/,
+      /aria-label="Base price per song"[\s\S]*?className="[^"]*h-11[^"]*sm:h-full/,
     );
     expect(source).toMatch(
-      /aria-label=\{`Discount tier[\s\S]*?price per song`\}[\s\S]*?className="h-11[^"]*sm:h-full/,
+      /aria-label=\{`Discount tier[\s\S]*?price per song`\}[\s\S]*?className="[^"]*h-11[^"]*sm:h-full/,
     );
     expect(source).toContain("[&>button]:min-h-11");
   });
