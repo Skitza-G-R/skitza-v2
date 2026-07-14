@@ -10,6 +10,7 @@ import {
   notificationHref,
   notificationIsUnread,
   notificationTabForKey,
+  shouldDismissNotificationSheet,
 } from "../notification-bell";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -144,7 +145,8 @@ describe("NotificationBell interaction contract", () => {
     expect(SRC).toContain('data-testid="notification-popover"');
     expect(SRC).toContain('data-testid="notification-sheet"');
     expect(SRC).toMatch(/<SheetContent[\s\S]*?side="bottom"/);
-    expect(SRC).toMatch(/<SheetContent[\s\S]*?aria-labelledby=\{titleId\}/);
+    expect(SRC).toMatch(/<SheetTitle[\s\S]*?>[\s\S]*?Notifications/);
+    expect(SRC).toMatch(/<SheetDescription[\s\S]*?>[\s\S]*?Recent producer notifications/);
     expect(SRC).toContain("w-full");
     expect(SRC).toContain("DESKTOP_MEDIA_QUERY");
   });
@@ -187,5 +189,51 @@ describe("NotificationBell interaction contract", () => {
   it("disables transform motion when reduced motion is requested", () => {
     expect(SRC).toContain("motion-reduce:transition-none");
     expect(SRC).toContain("motion-reduce:active:scale-100");
+  });
+
+  it("lets the mobile sheet handle track a downward pointer drag", () => {
+    expect(SRC).toContain('data-testid="notification-sheet-handle"');
+    expect(SRC).toContain("onPointerDown={handleSheetPointerDown}");
+    expect(SRC).toContain("onPointerMove={handleSheetPointerMove}");
+    expect(SRC).toContain("translate3d(0,");
+  });
+});
+
+describe("notification sheet drag dismissal", () => {
+  it("dismisses after a deliberate drag past the distance threshold", () => {
+    expect(
+      shouldDismissNotificationSheet({
+        distancePx: 170,
+        velocityPxPerMs: 0.2,
+        sheetHeightPx: 600,
+      }),
+    ).toBe(true);
+  });
+
+  it("dismisses a short but intentional fast downward flick", () => {
+    expect(
+      shouldDismissNotificationSheet({
+        distancePx: 36,
+        velocityPxPerMs: 0.9,
+        sheetHeightPx: 600,
+      }),
+    ).toBe(true);
+  });
+
+  it("springs back after a short slow drag or an upward gesture", () => {
+    expect(
+      shouldDismissNotificationSheet({
+        distancePx: 40,
+        velocityPxPerMs: 0.2,
+        sheetHeightPx: 600,
+      }),
+    ).toBe(false);
+    expect(
+      shouldDismissNotificationSheet({
+        distancePx: -80,
+        velocityPxPerMs: -0.6,
+        sheetHeightPx: 600,
+      }),
+    ).toBe(false);
   });
 });

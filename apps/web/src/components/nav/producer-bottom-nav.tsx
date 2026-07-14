@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
 
@@ -53,22 +53,75 @@ const PROD_TABS: readonly ProducerMobileTab[] = [
   { id: "profile", label: "Store", href: "/dashboard/store", icon: "store" },
 ] as const;
 
+export function visualViewportDockTop({
+  viewportOffsetTop,
+  viewportHeight,
+  dockHeight,
+}: {
+  viewportOffsetTop: number;
+  viewportHeight: number;
+  dockHeight: number;
+}): number {
+  return Math.max(0, viewportOffsetTop + viewportHeight - dockHeight);
+}
+
 export function ProducerBottomNav(): ReactNode {
   const pathname = usePathname();
   const active = getActiveKey(pathname);
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    const viewport = window.visualViewport;
+    if (!nav || !viewport) return;
+
+    let frame = 0;
+    const updatePosition = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        nav.style.bottom = "auto";
+        nav.style.top = `${String(
+          visualViewportDockTop({
+            viewportOffsetTop: viewport.offsetTop,
+            viewportHeight: viewport.height,
+            dockHeight: nav.offsetHeight,
+          }),
+        )}px`;
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(updatePosition);
+    resizeObserver.observe(nav);
+    viewport.addEventListener("resize", updatePosition);
+    viewport.addEventListener("scroll", updatePosition);
+    window.addEventListener("orientationchange", updatePosition);
+    updatePosition();
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      viewport.removeEventListener("resize", updatePosition);
+      viewport.removeEventListener("scroll", updatePosition);
+      window.removeEventListener("orientationchange", updatePosition);
+      nav.style.removeProperty("bottom");
+      nav.style.removeProperty("top");
+    };
+  }, []);
 
   return (
     <nav
+      ref={navRef}
       role="navigation"
       aria-label="Producer tabs"
-      // `sk-safe-bottom` pads the iOS home-indicator inset inside the
-      // bar so labels clear the gesture strip on iPhone PWAs.
+      // The padding includes the iOS safe-area insets so labels clear
+      // the home indicator and landscape sensor housing.
       // `lg:hidden` — desktop renders the left rail instead.
-      className="sk-safe-bottom sk-safe-x fixed inset-x-0 bottom-0 z-30 flex justify-around lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 flex justify-around lg:hidden"
       style={{
         background: "rgb(var(--bg-sidebar))",
         borderTop: "1px solid rgb(var(--border-sidebar))",
-        padding: "6px 4px 0",
+        padding:
+          "6px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))",
         boxShadow: "0 -4px 20px rgba(0,0,0,0.3)",
       }}
     >
@@ -79,20 +132,14 @@ export function ProducerBottomNav(): ReactNode {
             key={tab.id}
             href={tab.href}
             {...(isActive ? { "aria-current": "page" as const } : {})}
-            className="sk-press relative flex flex-col items-center gap-0.5 rounded-md py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+            className="sk-press relative flex flex-col items-center gap-0.5 rounded-md py-2 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
             style={{
               flex: 1,
               minHeight: 56,
-              color: isActive
-                ? "rgb(var(--brand-primary))"
-                : "rgb(var(--fg-onsidebar) / 0.55)",
+              color: isActive ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.55)",
             }}
           >
-            <Icon
-              name={tab.icon}
-              size={20}
-              strokeWidth={isActive ? 2.4 : 2}
-            />
+            <Icon name={tab.icon} size={20} strokeWidth={isActive ? 2.4 : 2} />
             <span
               style={{
                 fontSize: 9.5,
