@@ -5,7 +5,7 @@
 // Composes:
 //   - ScheduleWeekNav  (top control strip — prev/Today/next + GCal)
 //   - ScheduleWeekGrid (left, the redesigned week grid)
-//   - ScheduleTodayAgenda + SchedulePendingCard (right rail, 300px)
+//   - ScheduleSessionsCard + SchedulePendingCard (right rail, 260px)
 //
 // Owns `weekOffset` client-side; navigation slides the visible week
 // without a server round-trip. The full session set for ±2 weeks
@@ -14,27 +14,26 @@
 import { useMemo, useState } from "react";
 
 import { buildWeek, isSameDay, todayIndex } from "./calendar-week";
+import { EditSessionModal } from "./edit-session-modal";
 import type { ScheduleAvailabilityBlock } from "./schedule-hours";
+import { ScheduleSessionsCard } from "./schedule-sessions-card";
 import {
   ScheduleWeekGrid,
   type ScheduleSession,
 } from "./schedule-week-grid";
 import { ScheduleWeekNav } from "./schedule-week-nav";
 import {
-  ScheduleTodayAgenda,
-  type TodaySession,
-} from "./schedule-today-agenda";
-import {
   SchedulePendingCard,
   type PendingRequest,
 } from "./schedule-pending-card";
+import type { SessionListItem } from "./session-row";
 
 export type ScheduleData = {
   // All sessions in a wide window so we can flip weeks client-side.
   sessions: readonly ScheduleSession[];
+  // Full booking history for the compact desktop Sessions rail.
+  desktopSessions: readonly SessionListItem[];
   availabilityBlocks: readonly ScheduleAvailabilityBlock[];
-  // Pre-filtered today's sessions (server already knows producer's date).
-  todaySessions: readonly TodaySession[];
   pending: readonly PendingRequest[];
   autoConfirm: boolean;
   selectedBookingId?: string | null;
@@ -42,8 +41,8 @@ export type ScheduleData = {
 
 export function SchedulePanel({
   sessions,
+  desktopSessions,
   availabilityBlocks,
-  todaySessions,
   pending,
   autoConfirm,
   selectedBookingId = null,
@@ -52,6 +51,8 @@ export function SchedulePanel({
   initialNow,
 }: ScheduleData & { initialNow: string }) {
   const [weekOffset, setWeekOffset] = useState(0);
+  const [editingSession, setEditingSession] =
+    useState<SessionListItem | null>(null);
   const reference = useMemo(() => new Date(initialNow), [initialNow]);
 
   const week = useMemo(
@@ -74,6 +75,12 @@ export function SchedulePanel({
     Math.round(
       (visible.reduce((acc, s) => acc + s.durationMin, 0) / 60) * 10,
     ) / 10;
+  const selectedSession = desktopSessions.find(
+    (session) => session.id === selectedBookingId,
+  );
+  const selectedPendingId =
+    selectedSession?.status === "pending_approval" ? selectedBookingId : null;
+  const selectedSessionId = selectedPendingId ? null : selectedBookingId;
 
   return (
     // Flex column with min-h-0 so the grid+rail row below grows to
@@ -103,23 +110,38 @@ export function SchedulePanel({
           availabilityBlocks={availabilityBlocks}
           todayIdx={tIdx}
           showNowLine={weekOffset === 0}
+          onEditSession={(session) => {
+            setEditingSession(session);
+          }}
         />
         {/* Right rail mirrors the grid's height (same grid row).
             min-h-0 + overflow-hidden keeps content inside the rail
             without a visible scrollbar — cards are sized for the
             typical case (a few sessions, a few pending). */}
         <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
-          <ScheduleTodayAgenda
-            sessions={todaySessions}
-            weekOffset={weekOffset}
+          <ScheduleSessionsCard
+            sessions={desktopSessions}
+            initialNow={initialNow}
+            selectedBookingId={selectedSessionId}
+            onEditSession={setEditingSession}
           />
           <SchedulePendingCard
             initial={pending}
             autoConfirm={autoConfirm}
-            selectedBookingId={selectedBookingId}
+            selectedBookingId={selectedPendingId}
           />
         </div>
       </div>
+
+      {editingSession ? (
+        <EditSessionModal
+          open
+          session={editingSession}
+          onOpenChange={(next) => {
+            if (!next) setEditingSession(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

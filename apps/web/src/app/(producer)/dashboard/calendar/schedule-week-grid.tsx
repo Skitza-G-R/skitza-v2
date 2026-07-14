@@ -24,6 +24,7 @@ export type ScheduleSession = {
   startsAt: string; // ISO — serializable across server/client boundary
   durationMin: number;
   artistName: string;
+  artistEmail: string;
   packageName: string | null;
   status: "pending_approval" | "pending_payment" | "confirmed";
 };
@@ -42,12 +43,14 @@ export function ScheduleWeekGrid({
   availabilityBlocks,
   todayIdx,
   showNowLine,
+  onEditSession,
 }: {
   week: readonly Date[];
   sessions: readonly ScheduleSession[];
   availabilityBlocks: readonly ScheduleAvailabilityBlock[];
   todayIdx: number;
   showNowLine: boolean;
+  onEditSession: (session: ScheduleSession) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const { startHour, endHour } = deriveScheduleHourRange(
@@ -162,6 +165,7 @@ export function ScheduleWeekGrid({
             hourIdx={hourIdx}
             todayIdx={todayIdx}
             cellsPerDay={perDay}
+            onEditSession={onEditSession}
           />
         ))}
 
@@ -187,11 +191,13 @@ function HourRow({
   hourIdx,
   todayIdx,
   cellsPerDay,
+  onEditSession,
 }: {
   hour: number;
   hourIdx: number;
   todayIdx: number;
   cellsPerDay: readonly ScheduleSession[][];
+  onEditSession: (session: ScheduleSession) => void;
 }) {
   return (
     <>
@@ -229,7 +235,11 @@ function HourRow({
                 return dt.getHours() === hour;
               })
               .map((s) => (
-                <SessionBlock key={s.id} session={s} />
+                <SessionBlock
+                  key={s.id}
+                  session={s}
+                  onEditSession={onEditSession}
+                />
               ))}
           </div>
         );
@@ -238,7 +248,13 @@ function HourRow({
   );
 }
 
-function SessionBlock({ session }: { session: ScheduleSession }) {
+function SessionBlock({
+  session,
+  onEditSession,
+}: {
+  session: ScheduleSession;
+  onEditSession: (session: ScheduleSession) => void;
+}) {
   const dt = new Date(session.startsAt);
   const minute = dt.getMinutes();
   const lenHours = session.durationMin / 60;
@@ -292,6 +308,14 @@ function SessionBlock({ session }: { session: ScheduleSession }) {
         isPending ? " · Pending" : ""
       }`}
     >
+      <button
+        type="button"
+        onClick={() => {
+          onEditSession(session);
+        }}
+        aria-label={`Edit ${serviceLabel} with ${session.artistName}, ${timeRangeLabel}`}
+        className="absolute inset-0 z-20 cursor-pointer rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--fg-default))]"
+      />
       {/* Warm inset edge keeps the block legible over the grid lines. */}
       <span
         aria-hidden

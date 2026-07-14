@@ -4,8 +4,9 @@ import Link from "next/link";
 
 import { CALENDAR_TAB_KEYS, type CalendarTabKey } from "./calendar-tab-key";
 
-// Three-tab segmented control matching the locked Producer Calendar
-// design spec § 3 "Header":
+// Responsive segmented control matching the Producer Calendar design:
+// mobile keeps Sessions + Availability, while desktop uses the merged
+// Schedule + Availability surface.
 //   - 4px-padded pill track on warm-grey (`--bg-sunken`)
 //   - Active button → white surface, 700-weight, soft shadow
 //   - Inactive button → muted text, hover lifts to default
@@ -42,11 +43,19 @@ export function CalendarTabs({ active }: { active: CalendarTabKey }) {
           // the active look below lg to match what's on screen.
           const isMobileProxyActive =
             tab.id === "sessions" && active === "schedule";
+          // SK-85: Sessions is folded into Schedule on desktop. A
+          // desktop hit to the retained ?tab=sessions mobile URL still
+          // renders the merged schedule, so Schedule takes the active
+          // treatment at lg+.
+          const isDesktopProxyActive =
+            tab.id === "schedule" && active === "sessions";
           return (
             <Link
               key={tab.id}
               href={`/dashboard/calendar?tab=${tab.id}`}
-              aria-current={isActive ? "page" : undefined}
+              aria-current={
+                isActive || isDesktopProxyActive ? "page" : undefined
+              }
               id={`calendar-tab-${tab.id}`}
               aria-controls={`calendar-panel-${tab.id}`}
               scroll={false}
@@ -59,12 +68,18 @@ export function CalendarTabs({ active }: { active: CalendarTabKey }) {
                 // so stacking them is stylesheet-order roulette.
                 "sk-press min-h-[44px] shrink-0 items-center justify-center whitespace-nowrap rounded-[var(--radius-lg)] px-4 text-[0.78rem] tracking-tight transition-colors sm:min-h-0 sm:py-1.5",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-sunken))]",
-                tab.id === "schedule" ? "hidden lg:inline-flex" : "inline-flex",
+                tab.id === "schedule"
+                  ? "hidden lg:inline-flex"
+                  : tab.id === "sessions"
+                    ? "inline-flex lg:hidden"
+                    : "inline-flex",
                 isActive
                   ? "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9_/_0.08)]"
                   : isMobileProxyActive
-                    ? "max-lg:bg-[rgb(var(--bg-elevated))] max-lg:text-[rgb(var(--fg-default))] max-lg:shadow-[0_1px_2px_rgb(17_16_9_/_0.08)] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
-                    : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+                    ? "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] max-lg:bg-[rgb(var(--bg-elevated))] max-lg:text-[rgb(var(--fg-default))] max-lg:shadow-[0_1px_2px_rgb(17_16_9_/_0.08)]"
+                    : isDesktopProxyActive
+                      ? "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] lg:bg-[rgb(var(--bg-elevated))] lg:text-[rgb(var(--fg-default))] lg:shadow-[0_1px_2px_rgb(17_16_9_/_0.08)]"
+                      : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
               ].join(" ")}
               style={{ fontWeight: 700 }}
             >

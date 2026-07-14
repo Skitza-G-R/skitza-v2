@@ -11,7 +11,6 @@ import type { ScheduleAvailabilityBlock } from "./schedule-hours";
 import { weekEyebrow } from "./calendar-week";
 import { SchedulePanel } from "./schedule-panel";
 import type { ScheduleSession } from "./schedule-week-grid";
-import type { TodaySession } from "./schedule-today-agenda";
 import {
   SchedulePendingCard,
   type PendingRequest,
@@ -56,21 +55,22 @@ export default async function CalendarPage({
   // -------- Schedule tab data --------
   let scheduleSessions: ScheduleSession[] = [];
   let scheduleAvailabilityBlocks: ScheduleAvailabilityBlock[] = [];
-  let todaySessions: TodaySession[] = [];
   let pendingRequests: PendingRequest[] = [];
   let scheduleAutoConfirm = false;
+  let allSessions: SessionListItem[] = [];
   // SK-56 — sessions-first mobile view for the schedule tab (the week
   // grid is desktop-only). Pending + the 21-day upcoming window mapped
   // into the SessionsPanel's row shape.
   let scheduleMobileSessions: SessionListItem[] = [];
   const initialNow = new Date();
-  if (active === "schedule") {
-    const [pending, upcoming, settings, workingHours] = await Promise.all([
-      caller.booking.list({ status: "pending_approval" }),
+  if (active === "schedule" || active === "sessions") {
+    const [list, upcoming, settings, workingHours] = await Promise.all([
+      selectedBookingRows ?? caller.booking.list(),
       caller.booking.upcoming({ days: 21 }),
       caller.booking.availability.getSettings(),
       caller.booking.availability.list(),
     ]);
+    const pending = list.filter((b) => b.status === "pending_approval");
 
     scheduleAutoConfirm = settings.autoConfirmBookings;
     scheduleAvailabilityBlocks = workingHours.map((block) => ({
@@ -95,6 +95,7 @@ export default async function CalendarPage({
         startsAt: b.startsAt.toISOString(),
         durationMin: b.durationMin,
         artistName: b.artistName,
+        artistEmail: b.artistEmail,
         packageName: b.packageNameSnapshot,
         status: "pending_approval",
       })),
@@ -103,6 +104,7 @@ export default async function CalendarPage({
         startsAt: b.startsAt.toISOString(),
         durationMin: b.durationMin,
         artistName: b.artistName,
+        artistEmail: b.artistEmail,
         packageName: b.packageName,
         status: "confirmed",
       })),
@@ -128,37 +130,6 @@ export default async function CalendarPage({
         status: "confirmed",
       })),
     ];
-
-    // Today's agenda — confirmed sessions whose date matches "today".
-    const startOfToday = new Date(initialNow);
-    startOfToday.setHours(0, 0, 0, 0);
-    const startOfTomorrow = new Date(startOfToday);
-    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
-    todaySessions = upcoming
-      .filter(
-        (b) => b.startsAt >= startOfToday && b.startsAt < startOfTomorrow,
-      )
-      .map((b) => ({
-        id: b.id,
-        artistName: b.artistName,
-        startsAt: b.startsAt.toISOString(),
-        durationMin: b.durationMin,
-        packageName: b.packageName,
-      }));
-  }
-
-  // -------- Sessions tab data --------
-  let allSessions: SessionListItem[] = [];
-  if (active === "sessions") {
-    // SK-56: settings ride along so the mobile view can render the
-    // Pending-requests card (with its auto-confirm empty state) above
-    // the sessions list — on phones the Schedule tab is hidden and
-    // Sessions absorbs pending approvals.
-    const [list, settings] = await Promise.all([
-      selectedBookingRows ?? caller.booking.list(),
-      caller.booking.availability.getSettings(),
-    ]);
-    scheduleAutoConfirm = settings.autoConfirmBookings;
     allSessions = list.map((b) => ({
       id: b.id,
       artistName: b.artistName,
@@ -168,18 +139,6 @@ export default async function CalendarPage({
       packageName: b.packageNameSnapshot,
       status: b.status,
     }));
-    pendingRequests = list
-      .filter((b) => b.status === "pending_approval")
-      .map((b) => ({
-        id: b.id,
-        artistName: b.artistName,
-        artistEmail: b.artistEmail,
-        startsAt: b.startsAt.toISOString(),
-        durationMin: b.durationMin,
-        packageName: b.packageNameSnapshot,
-        message: b.notes,
-        receivedAtIso: b.createdAt.toISOString(),
-      }));
   }
 
   // -------- Availability tab data --------
@@ -230,12 +189,13 @@ export default async function CalendarPage({
   // shows weekly hours open. The eyebrow stays static across client-
   // side week navigation — the WeekNav inside SchedulePanel surfaces
   // the navigated week's range readout instead.
+  const sunday = new Date(initialNow);
+  sunday.setDate(sunday.getDate() - sunday.getDay());
+  sunday.setHours(0, 0, 0, 0);
+  const scheduleEyebrow = weekEyebrow(sunday);
   let eyebrow = "PRODUCER CALENDAR";
   if (active === "schedule") {
-    const sun = new Date(initialNow);
-    sun.setDate(sun.getDate() - sun.getDay());
-    sun.setHours(0, 0, 0, 0);
-    eyebrow = weekEyebrow(sun);
+    eyebrow = scheduleEyebrow;
   } else if (active === "sessions") {
     const total = allSessions.length;
     const upcomingCount = allSessions.filter((s) => {
@@ -298,11 +258,22 @@ export default async function CalendarPage({
               </h1>
               <p
                 key={`eyebrow-${active}`}
-                className="reveal-up truncate font-mono text-[10px] tracking-[0.16em] text-[rgb(var(--fg-muted))]"
+                className={[
+                  "reveal-up truncate font-mono text-[10px] tracking-[0.16em] text-[rgb(var(--fg-muted))]",
+                  active === "sessions" ? "lg:hidden" : "",
+                ].join(" ")}
                 style={{ fontWeight: 700 }}
               >
                 {eyebrow}
               </p>
+              {active === "sessions" ? (
+                <p
+                  className="reveal-up hidden truncate font-mono text-[10px] tracking-[0.16em] text-[rgb(var(--fg-muted))] lg:block"
+                  style={{ fontWeight: 700 }}
+                >
+                  {scheduleEyebrow}
+                </p>
+              ) : null}
             </div>
             <CalendarTabs active={active} />
           </div>
@@ -321,8 +292,8 @@ export default async function CalendarPage({
               <div className="hidden min-h-0 flex-1 flex-col lg:flex">
                 <SchedulePanel
                   sessions={scheduleSessions}
+                  desktopSessions={allSessions}
                   availabilityBlocks={scheduleAvailabilityBlocks}
-                  todaySessions={todaySessions}
                   pending={pendingRequests}
                   autoConfirm={scheduleAutoConfirm}
                   initialNow={initialNow.toISOString()}
@@ -358,24 +329,40 @@ export default async function CalendarPage({
           )}
           {active === "sessions" && (
             <>
+              {/* SK-85 — desktop folds Sessions into the schedule rail.
+                  The retained ?tab=sessions URL remains the mobile
+                  entry point and renders the existing list below lg. */}
+              <div className="hidden min-h-0 flex-1 flex-col lg:flex">
+                <SchedulePanel
+                  sessions={scheduleSessions}
+                  desktopSessions={allSessions}
+                  availabilityBlocks={scheduleAvailabilityBlocks}
+                  pending={pendingRequests}
+                  autoConfirm={scheduleAutoConfirm}
+                  initialNow={initialNow.toISOString()}
+                  selectedBookingId={selectedBookingId}
+                />
+              </div>
               {/* SK-56 — pending requests live here on phones (the
                   Schedule tab that used to own them is desktop-only). */}
-              <div className="shrink-0 pb-3 lg:hidden">
-                <SchedulePendingCard
-                  initial={pendingRequests}
-                  autoConfirm={scheduleAutoConfirm}
+              <div className="flex min-h-0 flex-1 flex-col lg:hidden">
+                <div className="shrink-0 pb-3">
+                  <SchedulePendingCard
+                    initial={pendingRequests}
+                    autoConfirm={scheduleAutoConfirm}
+                    selectedBookingId={
+                      selectedBookingIsPending ? selectedBookingId : null
+                    }
+                  />
+                </div>
+                <SessionsPanel
+                  sessions={allSessions}
+                  initialNow={initialNow.toISOString()}
                   selectedBookingId={
-                    selectedBookingIsPending ? selectedBookingId : null
+                    selectedBookingIsPending ? null : selectedBookingId
                   }
                 />
               </div>
-              <SessionsPanel
-                sessions={allSessions}
-                initialNow={initialNow.toISOString()}
-                selectedBookingId={
-                  selectedBookingIsPending ? null : selectedBookingId
-                }
-              />
             </>
           )}
           {active === "availability" && (
