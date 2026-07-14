@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { visualViewportDockTop } from "../producer-bottom-nav";
+import { producerBottomNavViewportStyle } from "../producer-bottom-nav";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SIDEBAR = readFileSync(join(here, "..", "producer-sidebar.tsx"), "utf8");
@@ -50,36 +50,16 @@ describe("producer nav: Portfolio in sidebar only", () => {
 });
 
 describe("producer mobile nav viewport anchoring", () => {
-  it("pins the dock to the bottom edge of the live visual viewport", () => {
-    expect(
-      visualViewportDockTop({
-        viewportOffsetTop: 0,
-        viewportHeight: 844,
-        dockHeight: 78,
-      }),
-    ).toBe(766);
+  it("pins the dock bottom to the CSS dynamic viewport edge", () => {
+    expect(producerBottomNavViewportStyle).toEqual({
+      bottom: "auto",
+      top: "100dvh",
+      transform: "translateY(-100%)",
+    });
   });
 
-  it("tracks a shifted visual viewport and never places the dock above zero", () => {
-    expect(
-      visualViewportDockTop({
-        viewportOffsetTop: 120,
-        viewportHeight: 500,
-        dockHeight: 78,
-      }),
-    ).toBe(542);
-    expect(
-      visualViewportDockTop({
-        viewportOffsetTop: 0,
-        viewportHeight: 50,
-        dockHeight: 78,
-      }),
-    ).toBe(0);
-  });
-
-  it("listens to live visual viewport changes instead of relying only on bottom-0", () => {
-    expect(BOTTOM).toContain("window.visualViewport");
-    expect(BOTTOM).toContain('addEventListener("resize"');
-    expect(BOTTOM).toContain('addEventListener("scroll"');
+  it("does not depend on WebKit's delayed visualViewport measurements", () => {
+    expect(BOTTOM).not.toContain("window.visualViewport");
+    expect(BOTTOM).not.toContain("ResizeObserver");
   });
 });
