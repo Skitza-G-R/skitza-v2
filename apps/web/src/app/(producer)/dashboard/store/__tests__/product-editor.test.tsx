@@ -6,10 +6,7 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "product-editor.tsx"), "utf8");
-const PAYLOAD_SRC = readFileSync(
-  join(here, "..", "build-package-payload.ts"),
-  "utf8",
-);
+const PAYLOAD_SRC = readFileSync(join(here, "..", "build-package-payload.ts"), "utf8");
 
 describe("ProductEditor orchestrator", () => {
   it("declares both NEW_STEPS and EDIT_STEPS arrays", () => {
@@ -18,11 +15,15 @@ describe("ProductEditor orchestrator", () => {
   });
 
   it("NEW_STEPS follows Type through required Review", () => {
-    expect(SRC).toMatch(/NEW_STEPS[\s\S]*?"type"[\s\S]*?"details"[\s\S]*?"price"[\s\S]*?"payment"[\s\S]*?"delivery"[\s\S]*?"rights"[\s\S]*?"review"/);
+    expect(SRC).toMatch(
+      /NEW_STEPS[\s\S]*?"type"[\s\S]*?"details"[\s\S]*?"price"[\s\S]*?"payment"[\s\S]*?"delivery"[\s\S]*?"rights"[\s\S]*?"review"/,
+    );
   });
 
   it("EDIT_STEPS uses the same flow without Type", () => {
-    expect(SRC).toMatch(/EDIT_STEPS[\s\S]*?"details"[\s\S]*?"price"[\s\S]*?"payment"[\s\S]*?"delivery"[\s\S]*?"rights"[\s\S]*?"review"/);
+    expect(SRC).toMatch(
+      /EDIT_STEPS[\s\S]*?"details"[\s\S]*?"price"[\s\S]*?"payment"[\s\S]*?"delivery"[\s\S]*?"rights"[\s\S]*?"review"/,
+    );
   });
 
   it("renders all seven step components", () => {
@@ -69,6 +70,21 @@ describe("ProductEditor orchestrator", () => {
 
   it("hides the legacy payment panel from Price", () => {
     expect(SRC).toMatch(/showPaymentPlans=\{false\}/);
+  });
+
+  it("keeps the producer on Type after choosing a preset", () => {
+    const start = SRC.indexOf("function onPickPreset");
+    const end = SRC.indexOf("const currentStepIndex", start);
+    const handler = SRC.slice(start, end);
+
+    expect(handler).toContain("setDraft");
+    expect(handler).not.toContain('setCurrentStep("details")');
+  });
+
+  it("does not show rights validation errors before that section is touched", () => {
+    expect(SRC).toContain("visibleRoyaltyErrors");
+    expect(SRC).toMatch(/rightsTouched\.master\s*&&\s*royaltyErrors\.master/);
+    expect(SRC).toMatch(/rightsTouched\.agreement\s*\?\s*agreementError/);
   });
 
   it("allows save only from the Review step", () => {

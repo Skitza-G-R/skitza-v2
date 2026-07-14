@@ -66,7 +66,7 @@ function RoyaltyModePicker({
             }}
             className="h-4 w-4 shrink-0 accent-[rgb(var(--brand-primary))]"
           />
-          <span className="text-[12.5px] font-medium leading-snug text-[rgb(var(--fg-default))]">
+          <span className="text-[12.5px] leading-snug font-medium text-[rgb(var(--fg-default))]">
             {option.label}
           </span>
         </label>
@@ -92,7 +92,7 @@ function PercentageInput({
     <div className="flex flex-col gap-2">
       <label
         htmlFor={id}
-        className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]"
+        className="text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase"
       >
         {label}
       </label>
@@ -107,7 +107,7 @@ function PercentageInput({
           onChange={(event) => {
             onChange(event.target.value);
           }}
-          className="h-11 min-w-0 flex-1 border-0 bg-transparent text-base tabular-nums text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))] sm:h-full sm:text-[14px]"
+          className="h-11 min-w-0 flex-1 border-0 bg-transparent text-base text-[rgb(var(--fg-default))] tabular-nums outline-none placeholder:text-[rgb(var(--fg-faint))] sm:h-full sm:text-[14px]"
         />
         <span aria-hidden className="text-[13px] font-semibold text-[rgb(var(--fg-muted))]">
           %
@@ -132,10 +132,11 @@ export function RightsAgreementStep({
   onAgreementChange,
 }: RightsAgreementStepProps) {
   return (
-    <div className="flex flex-col gap-7">
+    <div className="flex flex-col gap-5">
       {legacyUnspecified ? (
         <p className="text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          Rights were not specified on this existing product. You can leave them unchanged or define them now.
+          Rights were not specified on this existing product. You can leave them unchanged or define
+          them now.
         </p>
       ) : null}
 
@@ -176,7 +177,7 @@ export function RightsAgreementStep({
         ) : null}
       </fieldset>
 
-      <fieldset className="flex flex-col gap-3 border-t border-[rgb(var(--border-subtle))] pt-6">
+      <fieldset className="flex flex-col gap-3 border-t border-[rgb(var(--border-subtle))] pt-5">
         <legend className="font-display text-[16px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
           Composition rights
         </legend>
@@ -186,9 +187,7 @@ export function RightsAgreementStep({
         <RoyaltyModePicker
           name="composition-royalty-mode"
           value={royalty.compositionMode}
-          {...(errors.composition
-            ? { describedBy: "composition-royalty-error" }
-            : {})}
+          {...(errors.composition ? { describedBy: "composition-royalty-error" } : {})}
           onChange={(compositionMode) => {
             onRoyaltyChange({ ...royalty, compositionMode });
           }}
@@ -199,9 +198,7 @@ export function RightsAgreementStep({
               id="composition-royalty-percentage"
               label="Composition percentage"
               value={royalty.compositionPercentage}
-              {...(errors.composition
-                ? { errorId: "composition-royalty-error" }
-                : {})}
+              {...(errors.composition ? { errorId: "composition-royalty-error" } : {})}
               onChange={(compositionPercentage) => {
                 onRoyaltyChange({ ...royalty, compositionPercentage });
               }}
@@ -210,7 +207,7 @@ export function RightsAgreementStep({
               <div className="flex flex-col gap-2">
                 <label
                   htmlFor="composition-role"
-                  className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]"
+                  className="text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase"
                 >
                   Contribution role
                 </label>
@@ -236,7 +233,7 @@ export function RightsAgreementStep({
               <div className="flex flex-col gap-2">
                 <label
                   htmlFor="collecting-society"
-                  className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]"
+                  className="text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase"
                 >
                   Collecting society
                 </label>
@@ -272,7 +269,7 @@ export function RightsAgreementStep({
         ) : null}
       </fieldset>
 
-      <div className="flex flex-col gap-2 border-t border-[rgb(var(--border-subtle))] pt-6">
+      <div className="flex flex-col gap-2 border-t border-[rgb(var(--border-subtle))] pt-5">
         <label
           htmlFor="royalty-notes"
           className="font-display text-[16px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]"
@@ -304,7 +301,7 @@ export function RightsAgreementStep({
       </div>
 
       <fieldset
-        className="flex flex-col gap-3 border-t border-[rgb(var(--border-subtle))] pt-6"
+        className="flex flex-col gap-3 border-t border-[rgb(var(--border-subtle))] pt-5"
         {...(agreementError ? { "aria-describedby": "agreement-error" } : {})}
       >
         <legend className="font-display text-[16px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
@@ -338,7 +335,7 @@ export function RightsAgreementStep({
           <div className="flex flex-col gap-2">
             <label
               htmlFor="agreement-link"
-              className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]"
+              className="text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase"
             >
               Public agreement link
             </label>
@@ -363,7 +360,7 @@ export function RightsAgreementStep({
           <div className="flex flex-col gap-2">
             <label
               htmlFor="agreement-text"
-              className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]"
+              className="text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase"
             >
               Agreement text
             </label>
@@ -380,7 +377,7 @@ export function RightsAgreementStep({
               }}
               className="resize-y rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3 text-base leading-relaxed text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none sm:rounded-[var(--radius-md)] sm:text-[13px]"
             />
-            <div className="text-right text-[11px] tabular-nums text-[rgb(var(--fg-faint))]">
+            <div className="text-right text-[11px] text-[rgb(var(--fg-faint))] tabular-nums">
               {agreementText.length} characters
             </div>
           </div>

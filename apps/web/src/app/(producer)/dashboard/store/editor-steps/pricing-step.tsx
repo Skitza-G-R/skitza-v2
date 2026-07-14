@@ -16,11 +16,7 @@
 import { Minus, Plus, X } from "lucide-react";
 
 import { fromPrice, type VolumeTier } from "~/lib/pricing";
-import {
-  applyTaxToCents,
-  type TaxMode,
-  taxModePricingNote,
-} from "~/lib/tax-mode";
+import { applyTaxToCents, type TaxMode, taxModePricingNote } from "~/lib/tax-mode";
 import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
@@ -101,16 +97,18 @@ interface PricingStepProps {
   // service wizard, which intentionally stays simple. Default true
   // matches the producer Store wizard's full surface.
   allowPerSong?: boolean;
-  onChange: (patch: Partial<{
-    price: number;
-    currency: Currency;
-    sessions: number;
-    unlimitedSessions: boolean;
-    paymentPlan: PaymentPlan;
-    installmentsCount: number;
-    pricingModel: PricingModel;
-    volumeTiers: VolumeTier[];
-  }>) => void;
+  onChange: (
+    patch: Partial<{
+      price: number;
+      currency: Currency;
+      sessions: number;
+      unlimitedSessions: boolean;
+      paymentPlan: PaymentPlan;
+      installmentsCount: number;
+      pricingModel: PricingModel;
+      volumeTiers: VolumeTier[];
+    }>,
+  ) => void;
 }
 
 function Stepper({
@@ -167,9 +165,7 @@ function Stepper({
       >
         <Minus size={14} strokeWidth={2.4} aria-hidden />
       </button>
-      <span
-        className="min-w-[2.5ch] text-center font-display text-[16px] font-bold tabular-nums leading-none text-[rgb(var(--fg-default))]"
-      >
+      <span className="font-display min-w-[2.5ch] text-center text-[16px] leading-none font-bold text-[rgb(var(--fg-default))] tabular-nums">
         {value}
       </span>
       <button
@@ -190,7 +186,7 @@ function Stepper({
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1.5 font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+    <div className="mb-1.5 text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
       {children}
     </div>
   );
@@ -231,26 +227,29 @@ function ProductTaxSection({
 }) {
   return (
     <section className="border-t border-[rgb(var(--border-subtle))] pt-4" aria-label="Tax settings">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-end">
         <div>
           <Eyebrow>Tax</Eyebrow>
-          <p className="text-[11.5px] text-[rgb(var(--fg-faint))]">
-            Applies to all products
-          </p>
+          <p className="text-[11.5px] text-[rgb(var(--fg-faint))]">Applies to all products</p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div
+          className={
+            taxMode === "tax_free"
+              ? "min-w-0"
+              : "grid min-w-0 grid-cols-[minmax(0,1fr)_72px] items-center gap-2"
+          }
+        >
           <TaxModeSegmented
             value={taxMode}
             onChange={(next) => {
               onChange({ taxMode: next });
             }}
             size="lg"
-            inline
-            className="!h-[52px] [&>button]:min-h-11 sm:!h-11 sm:[&>button]:min-h-0"
+            className="!h-[52px] min-w-0 sm:!h-11 [&>button]:min-h-11 [&>button]:min-w-0 [&>button]:px-2 sm:[&>button]:min-h-0 sm:[&>button]:px-3"
             ariaLabel="Tax disclosure mode"
           />
           {taxMode !== "tax_free" ? (
-            <div className="flex h-11 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pl-2 pr-1 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)] sm:h-9 sm:rounded-[var(--radius-md)]">
+            <div className="flex h-[52px] items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pr-1 pl-2 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)] sm:h-11 sm:rounded-[var(--radius-md)]">
               <input
                 type="number"
                 min={0}
@@ -266,9 +265,12 @@ function ProductTaxSection({
                   });
                 }}
                 aria-label="Tax rate percentage"
-                className="h-full w-10 border-none bg-transparent text-right font-display text-base font-bold tabular-nums leading-none text-[rgb(var(--fg-default))] outline-none sm:text-[14px]"
+                className="font-display h-full w-10 border-none bg-transparent text-right text-base leading-none font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none sm:text-[14px]"
               />
-              <span aria-hidden className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]">
+              <span
+                aria-hidden
+                className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
+              >
                 %
               </span>
             </div>
@@ -315,16 +317,11 @@ export function PricingStep({
   // doesn't see a `typeof` guard through the JSX boundary).
   const taxChange = onTaxChange;
   const curSym = CURRENCY_SYMBOL[currency];
-  const installmentAmt =
-    installmentsCount > 0 ? Math.round(price / installmentsCount) : 0;
+  const installmentAmt = installmentsCount > 0 ? Math.round(price / installmentsCount) : 0;
   // Live tax preview — formats the same currency the price input uses
   // so the post-tax amount reads as a direct comparison to whatever
   // the producer just typed. Skipped when tax_free (no math, no point).
-  const postTaxCents = applyTaxToCents(
-    Math.round(price * 100),
-    taxMode,
-    taxRatePct,
-  );
+  const postTaxCents = applyTaxToCents(Math.round(price * 100), taxMode, taxRatePct);
   const taxPricingNote = taxModePricingNote(
     taxMode,
     taxRatePct,
@@ -336,8 +333,7 @@ export function PricingStep({
     if (next === pricingModel) return;
     if (next === "per_song") {
       const basePriceCents = Math.round(price * 100);
-      const seeded =
-        volumeTiers.length > 0 ? volumeTiers : seedPerSongTiers(basePriceCents);
+      const seeded = volumeTiers.length > 0 ? volumeTiers : seedPerSongTiers(basePriceCents);
       onChange({ pricingModel: "per_song", volumeTiers: seeded });
     } else {
       onChange({ pricingModel: "flat", volumeTiers: [] });
@@ -371,8 +367,7 @@ export function PricingStep({
 
   const baseCents = volumeTiers[0]?.pricePerUnitCents ?? Math.round(price * 100);
   const discountTiers = volumeTiers.slice(1);
-  const previewFromCents =
-    volumeTiers.length > 0 ? fromPrice(volumeTiers) : baseCents;
+  const previewFromCents = volumeTiers.length > 0 ? fromPrice(volumeTiers) : baseCents;
   const hasDiscounts = discountTiers.length > 0;
 
   return (
@@ -382,7 +377,7 @@ export function PricingStep({
           mode-switch pattern (Linear / Figma / Apple Settings). */}
       {allowPerSong ? (
         <fieldset className="min-w-0 border-0 p-0">
-          <legend className="mb-1.5 font-[var(--font-outfit)] text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+          <legend className="mb-1.5 text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
             How do you want to charge?
           </legend>
           <div className="inline-flex w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 sm:w-auto">
@@ -392,7 +387,7 @@ export function PricingStep({
                 <label
                   key={m.id}
                   className={[
-                    "sk-press min-h-11 flex-1 cursor-pointer rounded-[var(--radius-lg)] px-3 py-2 text-center text-[13px] font-semibold leading-snug transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.45)] focus-within:ring-offset-1 focus-within:ring-offset-[rgb(var(--bg-elevated))] sm:min-h-0 sm:flex-initial sm:rounded-[var(--radius-sm)] sm:px-4 sm:py-1.5",
+                    "sk-press min-h-11 flex-1 cursor-pointer rounded-[var(--radius-lg)] px-3 py-2 text-center text-[13px] leading-snug font-semibold transition-colors focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.45)] focus-within:ring-offset-1 focus-within:ring-offset-[rgb(var(--bg-elevated))] focus-within:outline-none sm:min-h-0 sm:flex-initial sm:rounded-[var(--radius-sm)] sm:px-4 sm:py-1.5",
                     picked
                       ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
                       : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -417,15 +412,15 @@ export function PricingStep({
       ) : null}
 
       {pricingModel === "flat" || !allowPerSong ? (
-        // ── Flat-price panel (unchanged) ──────────────────────────────
+        // ── Flat-price panel ──────────────────────────────────────────
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] sm:gap-4">
             <div className="flex flex-col gap-2">
               <Eyebrow>Price</Eyebrow>
-              <div className="flex h-11 items-center gap-2 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 shadow-[0_1px_2px_rgba(17,16,9,0.03)] focus-within:border-[rgb(var(--brand-primary))] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.25)]">
+              <div className="flex h-[52px] items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[0_1px_2px_rgba(17,16,9,0.03)] transition-[border-color,box-shadow] focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)] sm:h-11">
                 <span
                   aria-hidden
-                  className="font-display text-[20px] font-bold text-[rgb(var(--fg-muted))]"
+                  className="font-display pl-3 text-[18px] font-bold text-[rgb(var(--fg-muted))]"
                 >
                   {curSym}
                 </span>
@@ -438,91 +433,70 @@ export function PricingStep({
                     onChange({ price: Number(e.target.value) || 0 });
                   }}
                   aria-label="Price"
-                  className="h-full min-w-0 flex-1 border-none bg-transparent py-1 font-display text-[20px] font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none placeholder:text-[rgb(var(--fg-faint))]"
+                  className="font-display h-full min-w-0 flex-1 border-none bg-transparent px-2 py-1 text-[19px] font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none placeholder:text-[rgb(var(--fg-faint))]"
                 />
-                <select
-                  value={currency}
-                  onChange={(e) => {
-                    onChange({ currency: e.target.value as Currency });
-                  }}
-                  aria-label="Currency"
-                  className="h-11 w-[78px] rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 text-base font-semibold text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none sm:h-8 sm:w-[70px] sm:rounded-[var(--radius-sm)] sm:text-[11.5px]"
-                >
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GBP">GBP</option>
-                  <option value="ILS">ILS</option>
-                </select>
+                <div className="flex h-7 shrink-0 items-center border-l border-[rgb(var(--border-subtle))] px-2.5">
+                  <select
+                    value={currency}
+                    onChange={(e) => {
+                      onChange({ currency: e.target.value as Currency });
+                    }}
+                    aria-label="Currency"
+                    className="h-full w-[60px] border-none bg-transparent text-[12px] font-bold tracking-[0.02em] text-[rgb(var(--fg-muted))] outline-none"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                    <option value="ILS">ILS</option>
+                  </select>
+                </div>
               </div>
             </div>
 
             <div>
               <Eyebrow>Sessions</Eyebrow>
-              {/* Sessions now lives in a single bracket that mirrors
-                  the Price input's shape exactly — same h-11, same
-                  rounded-[12px], same border + shadow + focus-within
-                  treatment. Stepper buttons + value + divider + the
-                  Unlimited toggle all share one container border, so
-                  the row reads as one cohesive widget like Price,
-                  not as two stacked bordered widgets with a gap. */}
-              <div
-                className={[
-                  "flex min-h-[52px] items-center gap-1 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] px-1 shadow-[0_1px_2px_rgba(17,16,9,0.03)] sm:min-h-0 sm:h-11 sm:rounded-[var(--radius-md)]",
-                  unlimitedSessions
-                    ? "border-[rgb(var(--border-subtle))] opacity-100"
-                    : "border-[rgb(var(--border-subtle))]",
-                ].join(" ")}
-                role="group"
-                aria-label="Sessions"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (sessions > 1 && !unlimitedSessions) {
-                      onChange({ sessions: sessions - 1 });
-                    }
-                  }}
-                  disabled={unlimitedSessions || sessions <= 1}
-                  aria-label="Decrease sessions"
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 sm:h-8 sm:w-8 sm:rounded-[var(--radius-sm)]"
-                  style={{ transitionTimingFunction: "var(--ease-press)" }}
-                >
-                  <Minus size={14} strokeWidth={2.4} aria-hidden />
-                </button>
-                <span
+              <div className="flex h-[52px] min-w-0 gap-2 sm:h-11" role="group" aria-label="Sessions">
+                <div
                   className={[
-                    // 20px matches the Price input's font-display
-                    // size so the "8" and the "2500" share the same
-                    // baseline when the two brackets sit side by
-                    // side. min-w-[2.5ch] keeps the column stable as
-                    // the digit count changes (8 → 12 → 99).
-                    "min-w-[2.5ch] text-center font-display text-[20px] font-bold tabular-nums leading-none transition-colors duration-150",
-                    unlimitedSessions
-                      ? "text-[rgb(var(--fg-faint))]"
-                      : "text-[rgb(var(--fg-default))]",
+                    "grid h-full min-w-[132px] flex-[1.1] grid-cols-[1fr_auto_1fr] items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1 shadow-[0_1px_2px_rgba(17,16,9,0.03)] transition-opacity",
+                    unlimitedSessions ? "opacity-45" : "opacity-100",
                   ].join(" ")}
-                  aria-live="polite"
                 >
-                  {sessions}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (sessions < 99 && !unlimitedSessions) {
-                      onChange({ sessions: sessions + 1 });
-                    }
-                  }}
-                  disabled={unlimitedSessions || sessions >= 99}
-                  aria-label="Increase sessions"
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 sm:h-8 sm:w-8 sm:rounded-[var(--radius-sm)]"
-                  style={{ transitionTimingFunction: "var(--ease-press)" }}
-                >
-                  <Plus size={14} strokeWidth={2.4} aria-hidden />
-                </button>
-                <span
-                  aria-hidden
-                  className="mx-1 h-6 w-px bg-[rgb(var(--border-subtle))]"
-                />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (sessions > 1 && !unlimitedSessions) {
+                        onChange({ sessions: sessions - 1 });
+                      }
+                    }}
+                    disabled={unlimitedSessions || sessions <= 1}
+                    aria-label="Decrease sessions"
+                    className="inline-flex h-10 w-full items-center justify-center rounded-[var(--radius-md)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:active:scale-100 sm:h-8 sm:rounded-[var(--radius-sm)]"
+                    style={{ transitionTimingFunction: "var(--ease-press)" }}
+                  >
+                    <Minus size={14} strokeWidth={2.4} aria-hidden />
+                  </button>
+                  <span
+                    className="font-display min-w-[2.5ch] text-center text-[19px] leading-none font-bold text-[rgb(var(--fg-default))] tabular-nums"
+                    aria-live="polite"
+                  >
+                    {sessions}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (sessions < 99 && !unlimitedSessions) {
+                        onChange({ sessions: sessions + 1 });
+                      }
+                    }}
+                    disabled={unlimitedSessions || sessions >= 99}
+                    aria-label="Increase sessions"
+                    className="inline-flex h-10 w-full items-center justify-center rounded-[var(--radius-md)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:active:scale-100 sm:h-8 sm:rounded-[var(--radius-sm)]"
+                    style={{ transitionTimingFunction: "var(--ease-press)" }}
+                  >
+                    <Plus size={14} strokeWidth={2.4} aria-hidden />
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -531,10 +505,10 @@ export function PricingStep({
                   aria-pressed={unlimitedSessions}
                   aria-label="Unlimited sessions"
                   className={[
-                    "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold transition-colors duration-150 sm:h-8 sm:rounded-[var(--radius-sm)]",
+                    "sk-press inline-flex h-full min-w-0 flex-1 items-center justify-center rounded-[var(--radius-lg)] border px-3 text-[12px] font-semibold transition-[background-color,border-color,color,transform] duration-150",
                     unlimitedSessions
-                      ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
-                      : "text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]",
+                      ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.18)]"
+                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] shadow-[0_1px_2px_rgba(17,16,9,0.03)] hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-default))]",
                   ].join(" ")}
                 >
                   Unlimited
@@ -554,94 +528,96 @@ export function PricingStep({
             />
           ) : null}
 
-          {showPaymentPlans ? <div>
-            <Eyebrow>How artists pay</Eyebrow>
-            <div className="flex flex-col gap-2">
-              {PLAN_OPTIONS.map((opt) => {
-                const picked = paymentPlan === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => {
-                      onChange({ paymentPlan: opt.id });
-                    }}
-                    role="radio"
-                    aria-checked={picked}
-                    className={[
-                      "sk-press flex items-center gap-3 rounded-[12px] border p-[14px] text-left transition-colors",
-                      picked
-                        ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.06)]"
-                        : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] hover:border-[rgb(var(--border-strong))]",
-                    ].join(" ")}
-                  >
-                    <span
-                      aria-hidden
+          {showPaymentPlans ? (
+            <div>
+              <Eyebrow>How artists pay</Eyebrow>
+              <div className="flex flex-col gap-2">
+                {PLAN_OPTIONS.map((opt) => {
+                  const picked = paymentPlan === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        onChange({ paymentPlan: opt.id });
+                      }}
+                      role="radio"
+                      aria-checked={picked}
                       className={[
-                        "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                        "sk-press flex items-center gap-3 rounded-[12px] border p-[14px] text-left transition-colors",
                         picked
-                          ? "border-[rgb(var(--brand-primary))]"
-                          : "border-[rgb(var(--border-strong))]",
+                          ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.06)]"
+                          : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] hover:border-[rgb(var(--border-strong))]",
                       ].join(" ")}
                     >
-                      {picked ? (
-                        <span className="block h-2.5 w-2.5 rounded-full bg-[rgb(var(--brand-primary))]" />
-                      ) : null}
-                    </span>
-
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="font-display text-[15px] font-bold leading-tight tracking-[-0.01em] text-[rgb(var(--fg-default))]">
-                        {opt.title}
+                      <span
+                        aria-hidden
+                        className={[
+                          "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                          picked
+                            ? "border-[rgb(var(--brand-primary))]"
+                            : "border-[rgb(var(--border-strong))]",
+                        ].join(" ")}
+                      >
+                        {picked ? (
+                          <span className="block h-2.5 w-2.5 rounded-full bg-[rgb(var(--brand-primary))]" />
+                        ) : null}
                       </span>
-                      <span className="text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
-                        {opt.subtitle}
-                      </span>
-                    </span>
 
-                    <span className="shrink-0 text-right">
-                      {opt.id === "full" ? (
-                        <span className="font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
-                          {formatCurrency(curSym, price)}
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="font-display text-[15px] leading-tight font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+                          {opt.title}
                         </span>
-                      ) : null}
-                      {opt.id === "split" ? (
-                        <span className="font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
-                          {formatCurrency(curSym, price / 2)} × 2
+                        <span className="text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
+                          {opt.subtitle}
                         </span>
-                      ) : null}
-                      {opt.id === "installments" ? (
-                        picked ? (
-                          <span
-                            className="flex flex-col items-end gap-1"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                            }}
-                          >
-                            <Stepper
-                              value={installmentsCount}
-                              min={2}
-                              max={12}
-                              onChange={(next) => {
-                                onChange({ installmentsCount: next });
+                      </span>
+
+                      <span className="shrink-0 text-right">
+                        {opt.id === "full" ? (
+                          <span className="font-display text-[14px] font-bold text-[rgb(var(--fg-default))] tabular-nums">
+                            {formatCurrency(curSym, price)}
+                          </span>
+                        ) : null}
+                        {opt.id === "split" ? (
+                          <span className="font-display text-[14px] font-bold text-[rgb(var(--fg-default))] tabular-nums">
+                            {formatCurrency(curSym, price / 2)} × 2
+                          </span>
+                        ) : null}
+                        {opt.id === "installments" ? (
+                          picked ? (
+                            <span
+                              className="flex flex-col items-end gap-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
                               }}
-                              ariaLabel="Installments count"
-                            />
-                            <span className="text-[11px] text-[rgb(var(--fg-muted))] tabular-nums">
+                            >
+                              <Stepper
+                                value={installmentsCount}
+                                min={2}
+                                max={12}
+                                onChange={(next) => {
+                                  onChange({ installmentsCount: next });
+                                }}
+                                ariaLabel="Installments count"
+                              />
+                              <span className="text-[11px] text-[rgb(var(--fg-muted))] tabular-nums">
+                                {formatCurrency(curSym, installmentAmt)} × {installmentsCount}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="font-display text-[14px] font-bold text-[rgb(var(--fg-default))] tabular-nums">
                               {formatCurrency(curSym, installmentAmt)} × {installmentsCount}
                             </span>
-                          </span>
-                        ) : (
-                          <span className="font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))]">
-                            {formatCurrency(curSym, installmentAmt)} × {installmentsCount}
-                          </span>
-                        )
-                      ) : null}
-                    </span>
-                  </button>
-                );
-              })}
+                          )
+                        ) : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div> : null}
+          ) : null}
         </>
       ) : (
         // ── Per-song rate card ────────────────────────────────────────
@@ -702,7 +678,7 @@ export function PricingStep({
             <div className="overflow-hidden rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
               {/* Card header — currency picker + eyebrow */}
               <div className="flex items-center justify-between gap-2 border-b border-[rgb(var(--border-subtle))] bg-[rgb(17_16_9/0.02)] px-3 py-1.5">
-                <span className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+                <span className="text-[10.5px] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
                   Edit your rate
                 </span>
                 <select
@@ -729,7 +705,10 @@ export function PricingStep({
                   </span>
                 </span>
                 <div className="flex min-h-11 w-full min-w-0 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 focus-within:border-[rgb(var(--brand-primary))] sm:min-h-0 sm:w-auto sm:rounded-[var(--radius-sm)] sm:py-1">
-                  <span aria-hidden className="text-[13px] font-semibold text-[rgb(var(--fg-muted))]">
+                  <span
+                    aria-hidden
+                    className="text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
+                  >
                     {curSym}
                   </span>
                   <input
@@ -741,13 +720,11 @@ export function PricingStep({
                       updateBaseTier(Number(e.target.value) || 0);
                     }}
                     aria-label="Base price per song"
-                    className="h-11 min-w-0 flex-1 border-none bg-transparent text-right font-display text-base font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none sm:h-full sm:w-16 sm:flex-none sm:text-[14px]"
+                    className="font-display h-11 min-w-0 flex-1 border-none bg-transparent text-right text-base font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none sm:h-full sm:w-16 sm:flex-none sm:text-[14px]"
                   />
-                  <span className="text-[12px] text-[rgb(var(--fg-muted))]">
-                    /song
-                  </span>
+                  <span className="text-[12px] text-[rgb(var(--fg-muted))]">/song</span>
                 </div>
-                <span className="hidden w-20 text-right font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))] sm:block">
+                <span className="font-display hidden w-20 text-right text-[14px] font-bold text-[rgb(var(--fg-default))] tabular-nums sm:block">
                   {formatCurrency(curSym, baseCents / 100)}
                 </span>
               </div>
@@ -771,7 +748,7 @@ export function PricingStep({
                             updateDiscountTier(i, { minQty: next });
                           }}
                           aria-label={`Discount tier ${String(i + 1)} minimum songs`}
-                          className="h-11 w-14 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-1.5 text-center font-display text-base font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))] sm:h-8 sm:w-12 sm:rounded-[var(--radius-sm)] sm:text-[14px]"
+                          className="font-display h-11 w-14 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-1.5 text-center text-base font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none focus:border-[rgb(var(--brand-primary))] sm:h-8 sm:w-12 sm:rounded-[var(--radius-sm)] sm:text-[14px]"
                         />
                         <span className="min-w-0 text-[13px] leading-tight text-[rgb(var(--fg-muted))] sm:text-[14px]">
                           or more songs
@@ -789,29 +766,30 @@ export function PricingStep({
                       </button>
                     </div>
                     <div className="flex min-w-0 items-center justify-between gap-2 sm:contents">
-                    <div className="flex min-h-11 min-w-0 max-w-[190px] flex-1 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 focus-within:border-[rgb(var(--brand-primary))] sm:min-h-0 sm:w-auto sm:flex-none sm:rounded-[var(--radius-sm)] sm:py-1">
-                      <span aria-hidden className="text-[13px] font-semibold text-[rgb(var(--fg-muted))]">
-                        {curSym}
+                      <div className="flex min-h-11 max-w-[190px] min-w-0 flex-1 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-2 focus-within:border-[rgb(var(--brand-primary))] sm:min-h-0 sm:w-auto sm:flex-none sm:rounded-[var(--radius-sm)] sm:py-1">
+                        <span
+                          aria-hidden
+                          className="text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
+                        >
+                          {curSym}
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={Math.round(tier.pricePerUnitCents) / 100}
+                          onChange={(e) => {
+                            const cents = Math.round((Number(e.target.value) || 0) * 100);
+                            updateDiscountTier(i, { pricePerUnitCents: cents });
+                          }}
+                          aria-label={`Discount tier ${String(i + 1)} price per song`}
+                          className="font-display h-11 min-w-0 flex-1 border-none bg-transparent text-right text-base font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none sm:h-full sm:w-16 sm:flex-none sm:text-[14px]"
+                        />
+                        <span className="text-[12px] text-[rgb(var(--fg-muted))]">/song</span>
+                      </div>
+                      <span className="font-display shrink-0 text-right text-[14px] font-bold text-[rgb(var(--fg-default))] tabular-nums sm:w-20">
+                        {formatCurrency(curSym, total)}
+                        <span className="ml-0.5 text-[rgb(var(--fg-muted))]">+</span>
                       </span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={Math.round(tier.pricePerUnitCents) / 100}
-                        onChange={(e) => {
-                          const cents = Math.round((Number(e.target.value) || 0) * 100);
-                          updateDiscountTier(i, { pricePerUnitCents: cents });
-                        }}
-                        aria-label={`Discount tier ${String(i + 1)} price per song`}
-                        className="h-11 min-w-0 flex-1 border-none bg-transparent text-right font-display text-base font-bold tabular-nums text-[rgb(var(--fg-default))] outline-none sm:h-full sm:w-16 sm:flex-none sm:text-[14px]"
-                      />
-                      <span className="text-[12px] text-[rgb(var(--fg-muted))]">
-                        /song
-                      </span>
-                    </div>
-                    <span className="shrink-0 text-right font-display text-[14px] font-bold tabular-nums text-[rgb(var(--fg-default))] sm:w-20">
-                      {formatCurrency(curSym, total)}
-                      <span className="ml-0.5 text-[rgb(var(--fg-muted))]">+</span>
-                    </span>
                     </div>
                   </div>
                 );

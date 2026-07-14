@@ -4,10 +4,7 @@ import type { PaymentPlan } from "@skitza/db";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import {
-  createPackage,
-  updatePackage,
-} from "~/app/(producer)/dashboard/booking/actions";
+import { createPackage, updatePackage } from "~/app/(producer)/dashboard/booking/actions";
 import { useToast } from "~/components/ui/toast";
 import { applyTaxToCents, taxModeFootnote } from "~/lib/tax-mode";
 
@@ -21,10 +18,7 @@ import { IncludesStep } from "./editor-steps/includes-step";
 import { LogisticsStep } from "./editor-steps/logistics-step";
 import { PaymentStep } from "./editor-steps/payment-step";
 import { PricingStep } from "./editor-steps/pricing-step";
-import {
-  ReviewStep,
-  type ReviewEditStep,
-} from "./editor-steps/review-step";
+import { ReviewStep, type ReviewEditStep } from "./editor-steps/review-step";
 import { RightsAgreementStep } from "./editor-steps/rights-agreement-step";
 import { TypeStep } from "./editor-steps/type-step";
 import { EditorShell } from "./editor-shell";
@@ -39,22 +33,10 @@ import {
   validateRoyaltyDraft,
 } from "./product-editor-draft";
 import type { StoreProduct } from "./store-screen";
-import {
-  getPreset,
-  type PaymentPlanChoice,
-  type PresetId,
-  type PresetType,
-} from "./type-presets";
+import { getPreset, type PaymentPlanChoice, type PresetId, type PresetType } from "./type-presets";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
-type StepId =
-  | "type"
-  | "details"
-  | "price"
-  | "payment"
-  | "delivery"
-  | "rights"
-  | "review";
+type StepId = "type" | "details" | "price" | "payment" | "delivery" | "rights" | "review";
 
 const NEW_STEPS: readonly StepId[] = [
   "type",
@@ -148,24 +130,14 @@ function kindToPresetType(kind: string): PresetType {
   return kindToTile(kind);
 }
 
-function seedDraftFromProduct(
-  product: StoreProduct,
-  defaultCurrency: Currency,
-): Draft {
+function seedDraftFromProduct(product: StoreProduct, defaultCurrency: Currency): Draft {
   const decoded = decodeDescription(product.description);
-  const currency = (VALID_CURRENCIES as readonly string[]).includes(
-    product.currency,
-  )
+  const currency = (VALID_CURRENCIES as readonly string[]).includes(product.currency)
     ? (product.currency as Currency)
     : defaultCurrency;
   const dedicatedAgreement = product.agreementText ?? decoded.contractText;
-  const agreementMode = dedicatedAgreement.trim()
-    ? "text"
-    : product.contractUrl
-      ? "link"
-      : "none";
-  const pricingModel =
-    product.pricingModel === "per_song" ? "per_song" : "flat";
+  const agreementMode = dedicatedAgreement.trim() ? "text" : product.contractUrl ? "link" : "none";
+  const pricingModel = product.pricingModel === "per_song" ? "per_song" : "flat";
   const firstTier = product.volumeTiers?.[0];
 
   return {
@@ -225,14 +197,16 @@ export function ProductEditor({
   const [taxRateLocal, setTaxRateLocal] = useState(taxRatePct);
   const [taxError, setTaxError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(() =>
-    product
-      ? seedDraftFromProduct(product, defaultCurrency)
-      : emptyDraft(defaultCurrency),
+    product ? seedDraftFromProduct(product, defaultCurrency) : emptyDraft(defaultCurrency),
   );
-  const [currentStep, setCurrentStep] = useState<StepId>(
-    product ? "details" : "type",
-  );
+  const [currentStep, setCurrentStep] = useState<StepId>(product ? "details" : "type");
   const [returnToReview, setReturnToReview] = useState(false);
+  const [rightsTouched, setRightsTouched] = useState({
+    master: false,
+    composition: false,
+    notes: false,
+    agreement: false,
+  });
 
   useEffect(() => {
     setTaxModeLocal(taxMode);
@@ -242,18 +216,19 @@ export function ProductEditor({
   useEffect(() => {
     if (!open) return;
     setDraft(
-      product
-        ? seedDraftFromProduct(product, defaultCurrency)
-        : emptyDraft(defaultCurrency),
+      product ? seedDraftFromProduct(product, defaultCurrency) : emptyDraft(defaultCurrency),
     );
     setCurrentStep(product ? "details" : "type");
     setReturnToReview(false);
+    setRightsTouched({
+      master: false,
+      composition: false,
+      notes: false,
+      agreement: false,
+    });
   }, [open, product, defaultCurrency]);
 
-  function onTaxChange(patch: {
-    taxMode?: import("~/lib/tax-mode").TaxMode;
-    taxRatePct?: number;
-  }) {
+  function onTaxChange(patch: { taxMode?: import("~/lib/tax-mode").TaxMode; taxRatePct?: number }) {
     const previousMode = taxModeLocal;
     const previousRate = taxRateLocal;
     if (patch.taxMode !== undefined) setTaxModeLocal(patch.taxMode);
@@ -262,9 +237,7 @@ export function ProductEditor({
 
     void (async () => {
       try {
-        const { updateProducer } = await import(
-          "~/app/(producer)/dashboard/settings/actions"
-        );
+        const { updateProducer } = await import("~/app/(producer)/dashboard/settings/actions");
         const result = await updateProducer(patch);
         if (result.ok) {
           router.refresh();
@@ -277,8 +250,7 @@ export function ProductEditor({
       } catch (error) {
         setTaxModeLocal(previousMode);
         setTaxRateLocal(previousRate);
-        const message =
-          error instanceof Error ? error.message : "Couldn't save tax settings.";
+        const message = error instanceof Error ? error.message : "Couldn't save tax settings.";
         setTaxError(message);
         toast(message, "error");
       }
@@ -296,17 +268,11 @@ export function ProductEditor({
       price: preset.preset.price,
       sessions: preset.preset.sessions,
       unlimitedSessions: preset.preset.unlimitedSessions,
-      payment: seedPaymentSelection(
-        plansForPreset(preset.preset.paymentPlan),
-      ),
+      payment: seedPaymentSelection(plansForPreset(preset.preset.paymentPlan)),
       includes: [...preset.baseline],
-      duration:
-        preset.preset.duration === "multi-session"
-          ? "60 min"
-          : preset.preset.duration,
+      duration: preset.preset.duration === "multi-session" ? "60 min" : preset.preset.duration,
       revisions: preset.preset.revisions,
     }));
-    setCurrentStep("details");
   }
 
   const currentStepIndex = Math.max(0, steps.indexOf(currentStep));
@@ -315,25 +281,15 @@ export function ProductEditor({
   const validPrice =
     draft.price >= 0 &&
     (draft.pricingModel !== "per_song" ||
-      (draft.volumeTiers.length > 0 &&
-        draft.volumeTiers.some((tier) => tier.minQty === 1)));
+      (draft.volumeTiers.length > 0 && draft.volumeTiers.some((tier) => tier.minQty === 1)));
   const validMonthly =
     !draft.payment.monthly ||
     (Number.isInteger(draft.payment.monthlyInstallments) &&
       draft.payment.monthlyInstallments >= 2 &&
       draft.payment.monthlyInstallments <= 12);
   const validPayment =
-    validMonthly &&
-    hasPaymentOption(
-      draft.payment,
-      draft.depositModel,
-      draft.milestones,
-    );
-  const paymentError = !hasPaymentOption(
-    draft.payment,
-    draft.depositModel,
-    draft.milestones,
-  )
+    validMonthly && hasPaymentOption(draft.payment, draft.depositModel, draft.milestones);
+  const paymentError = !hasPaymentOption(draft.payment, draft.depositModel, draft.milestones)
     ? "Choose at least one payment option."
     : !validMonthly
       ? "Monthly payments must be between 2 and 12."
@@ -344,24 +300,24 @@ export function ProductEditor({
     draft.contractUrl,
     draft.agreementText,
   );
-  const validRights =
-    Object.keys(royaltyErrors).length === 0 && agreementError === null;
+  const visibleRoyaltyErrors = {
+    ...(rightsTouched.master && royaltyErrors.master ? { master: royaltyErrors.master } : {}),
+    ...(rightsTouched.composition && royaltyErrors.composition
+      ? { composition: royaltyErrors.composition }
+      : {}),
+    ...(rightsTouched.notes && royaltyErrors.notes ? { notes: royaltyErrors.notes } : {}),
+  };
+  const visibleAgreementError = rightsTouched.agreement ? agreementError : null;
+  const validRights = Object.keys(royaltyErrors).length === 0 && agreementError === null;
   const validDelivery = /^\d+\s*min$/i.test(draft.duration);
   const validDetails =
     draft.name.trim().length > 0 &&
     draft.name.trim().length <= 200 &&
     draft.includes.length <= 10 &&
-    draft.includes.every(
-      (item) => item.trim().length > 0 && item.trim().length <= 100,
-    );
+    draft.includes.every((item) => item.trim().length > 0 && item.trim().length <= 100);
   const validType = mode === "edit" || draft._picked !== null;
   const allValid =
-    validType &&
-    validDetails &&
-    validPrice &&
-    validPayment &&
-    validDelivery &&
-    validRights;
+    validType && validDetails && validPrice && validPayment && validDelivery && validRights;
 
   const canContinue = (() => {
     if (currentStep === "type") return validType;
@@ -429,11 +385,7 @@ export function ProductEditor({
   }
 
   const basePriceCents = Math.round(draft.price * 100);
-  const previewPriceCents = applyTaxToCents(
-    basePriceCents,
-    taxModeLocal,
-    taxRateLocal,
-  );
+  const previewPriceCents = applyTaxToCents(basePriceCents, taxModeLocal, taxRateLocal);
   const reviewPlans = validMonthly
     ? buildPaymentPlans(draft.payment)
     : draft.payment.preservedPlans;
@@ -458,9 +410,7 @@ export function ProductEditor({
       pending={pending}
     >
       <div key={currentStep} className="sk-step-enter">
-        {currentStep === "type" ? (
-          <TypeStep picked={draft._picked} onPick={onPickPreset} />
-        ) : null}
+        {currentStep === "type" ? <TypeStep picked={draft._picked} onPick={onPickPreset} /> : null}
 
         {currentStep === "details" ? (
           <IncludesStep
@@ -527,15 +477,31 @@ export function ProductEditor({
             agreementMode={draft.agreementMode}
             contractUrl={draft.contractUrl}
             agreementText={draft.agreementText}
-            errors={royaltyErrors}
-            {...(agreementError ? { agreementError } : {})}
-            legacyUnspecified={
-              mode === "edit" && product?.royaltyTerms == null
-            }
+            errors={visibleRoyaltyErrors}
+            {...(visibleAgreementError ? { agreementError: visibleAgreementError } : {})}
+            legacyUnspecified={mode === "edit" && product?.royaltyTerms == null}
             onRoyaltyChange={(royalty) => {
+              setRightsTouched((current) => ({
+                master:
+                  current.master ||
+                  royalty.masterMode !== draft.royalty.masterMode ||
+                  royalty.masterPercentage !== draft.royalty.masterPercentage,
+                composition:
+                  current.composition ||
+                  royalty.compositionMode !== draft.royalty.compositionMode ||
+                  royalty.compositionPercentage !== draft.royalty.compositionPercentage ||
+                  royalty.compositionRole !== draft.royalty.compositionRole ||
+                  royalty.collectingSociety !== draft.royalty.collectingSociety,
+                notes: current.notes || royalty.notes !== draft.royalty.notes,
+                agreement: current.agreement,
+              }));
               setDraft((current) => ({ ...current, royalty }));
             }}
             onAgreementChange={(patch) => {
+              setRightsTouched((current) => ({
+                ...current,
+                agreement: true,
+              }));
               setDraft((current) => ({ ...current, ...patch }));
             }}
           />

@@ -54,9 +54,7 @@ export function PaymentStep({
   error,
   onChange,
 }: PaymentStepProps) {
-  const preservedMilestones = selection.preservedPlans.find(
-    (plan) => plan.kind === "milestones",
-  );
+  const preservedMilestones = selection.preservedPlans.find((plan) => plan.kind === "milestones");
   const milestoneRows =
     depositModel === "milestones" && milestones?.length
       ? milestones
@@ -64,34 +62,29 @@ export function PaymentStep({
         ? preservedMilestones.milestones
         : [];
   const describedBy = error
-    ? "payment-step-help payment-step-error"
-    : "payment-step-help";
-  const previewInstallments = Math.max(
-    2,
-    Math.min(12, selection.monthlyInstallments),
-  );
+    ? "payment-step-error"
+    : pricingModel === "per_song"
+      ? "payment-step-rate-help"
+      : undefined;
+  const previewInstallments = Math.max(2, Math.min(12, selection.monthlyInstallments));
 
   function patch(next: Partial<PaymentSelectionDraft>) {
     onChange({ ...selection, ...next });
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <div>
+    <div className="flex flex-col gap-4">
+      {pricingModel === "per_song" ? (
         <p
-          id="payment-step-help"
-          className="text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]"
+          id="payment-step-rate-help"
+          className="text-[11.5px] leading-relaxed text-[rgb(var(--fg-faint))]"
         >
-          Choose one or more. The artist picks after approval.
+          Amounts below use one song at your starting rate. The final schedule follows the
+          artist&apos;s song count.
         </p>
-        {pricingModel === "per_song" ? (
-          <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-faint))]">
-            Amounts below use one song at your starting rate. The final schedule follows the artist&apos;s song count.
-          </p>
-        ) : null}
-      </div>
+      ) : null}
 
-      <fieldset aria-describedby={describedBy}>
+      <fieldset {...(describedBy ? { "aria-describedby": describedBy } : {})}>
         <legend className="sr-only">Payment options offered</legend>
         <div className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
           <label
@@ -110,14 +103,14 @@ export function PaymentStep({
               className="h-5 w-5 accent-[rgb(var(--brand-primary))]"
             />
             <span className="min-w-0">
-              <span className="block font-display text-[15px] font-bold text-[rgb(var(--fg-default))]">
+              <span className="font-display block text-[15px] font-bold text-[rgb(var(--fg-default))]">
                 Pay in full
               </span>
               <span className="mt-0.5 block text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
                 One payment after approval.
               </span>
             </span>
-            <span className="col-start-2 mt-1 text-[12.5px] font-semibold tabular-nums text-[rgb(var(--fg-default))] sm:col-start-3 sm:mt-0 sm:text-right">
+            <span className="col-start-2 mt-1 text-[12px] font-medium text-[rgb(var(--fg-muted))] tabular-nums sm:col-start-3 sm:mt-0 sm:text-right">
               {paymentPreview("full", previewTotalCents, currency, previewInstallments)}
             </span>
           </label>
@@ -138,14 +131,14 @@ export function PaymentStep({
               className="h-5 w-5 accent-[rgb(var(--brand-primary))]"
             />
             <span className="min-w-0">
-              <span className="block font-display text-[15px] font-bold text-[rgb(var(--fg-default))]">
+              <span className="font-display block text-[15px] font-bold text-[rgb(var(--fg-default))]">
                 50% / 50%
               </span>
               <span className="mt-0.5 block text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
                 Half after approval. Half on delivery.
               </span>
             </span>
-            <span className="col-start-2 mt-1 text-[12.5px] font-semibold tabular-nums text-[rgb(var(--fg-default))] sm:col-start-3 sm:mt-0 sm:text-right">
+            <span className="col-start-2 mt-1 text-[12px] font-medium text-[rgb(var(--fg-muted))] tabular-nums sm:col-start-3 sm:mt-0 sm:text-right">
               {paymentPreview("split", previewTotalCents, currency, previewInstallments)}
             </span>
           </label>
@@ -167,25 +160,20 @@ export function PaymentStep({
                 className="h-5 w-5 accent-[rgb(var(--brand-primary))]"
               />
               <span className="min-w-0">
-                <span className="block font-display text-[15px] font-bold text-[rgb(var(--fg-default))]">
+                <span className="font-display block text-[15px] font-bold text-[rgb(var(--fg-default))]">
                   Monthly installments
                 </span>
                 <span className="mt-0.5 block text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
                   One schedule with 2–12 total payments.
                 </span>
               </span>
-              <span className="col-start-2 mt-1 text-[12.5px] font-semibold tabular-nums text-[rgb(var(--fg-default))] sm:col-start-3 sm:mt-0 sm:text-right">
-                {paymentPreview(
-                  "monthly",
-                  previewTotalCents,
-                  currency,
-                  previewInstallments,
-                )}
+              <span className="col-start-2 mt-1 text-[12px] font-medium text-[rgb(var(--fg-muted))] tabular-nums sm:col-start-3 sm:mt-0 sm:text-right">
+                {paymentPreview("monthly", previewTotalCents, currency, previewInstallments)}
               </span>
             </label>
 
             {selection.monthly ? (
-              <div className="ml-9 mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[rgb(var(--border-subtle))] pt-3">
+              <div className="mt-3 ml-9 flex flex-wrap items-center justify-between gap-3 border-t border-[rgb(var(--border-subtle))] pt-3">
                 <span className="text-[12.5px] font-medium text-[rgb(var(--fg-muted))]">
                   Total payments
                 </span>
@@ -200,10 +188,7 @@ export function PaymentStep({
                     disabled={selection.monthlyInstallments <= 2}
                     onClick={() => {
                       patch({
-                        monthlyInstallments: Math.max(
-                          2,
-                          selection.monthlyInstallments - 1,
-                        ),
+                        monthlyInstallments: Math.max(2, selection.monthlyInstallments - 1),
                       });
                     }}
                     className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] hover:bg-[rgb(17_16_9/0.05)] disabled:opacity-30 sm:h-9 sm:w-9 sm:rounded-[var(--radius-md)]"
@@ -212,7 +197,7 @@ export function PaymentStep({
                   </button>
                   <output
                     aria-live="polite"
-                    className="min-w-10 text-center font-display text-[16px] font-bold tabular-nums text-[rgb(var(--fg-default))]"
+                    className="font-display min-w-10 text-center text-[16px] font-bold text-[rgb(var(--fg-default))] tabular-nums"
                   >
                     {selection.monthlyInstallments}
                   </output>
@@ -222,10 +207,7 @@ export function PaymentStep({
                     disabled={selection.monthlyInstallments >= 12}
                     onClick={() => {
                       patch({
-                        monthlyInstallments: Math.min(
-                          12,
-                          selection.monthlyInstallments + 1,
-                        ),
+                        monthlyInstallments: Math.min(12, selection.monthlyInstallments + 1),
                       });
                     }}
                     className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] hover:bg-[rgb(17_16_9/0.05)] disabled:opacity-30 sm:h-9 sm:w-9 sm:rounded-[var(--radius-md)]"
@@ -244,7 +226,7 @@ export function PaymentStep({
           aria-label="Existing milestone schedule"
           className="border-t border-[rgb(var(--border-subtle))] pt-4"
         >
-          <div className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+          <div className="text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
             Existing milestone schedule
           </div>
           <p className="mt-1 text-[12px] leading-relaxed text-[rgb(var(--fg-faint))]">
@@ -257,7 +239,7 @@ export function PaymentStep({
                 className="flex min-h-10 items-center justify-between gap-3"
               >
                 <span className="text-[rgb(var(--fg-default))]">{milestone.label}</span>
-                <span className="font-semibold tabular-nums text-[rgb(var(--fg-muted))]">
+                <span className="font-semibold text-[rgb(var(--fg-muted))] tabular-nums">
                   {milestone.pct}%
                 </span>
               </li>

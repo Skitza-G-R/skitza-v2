@@ -40,8 +40,9 @@ describe("EditorShell shell", () => {
     expect(SRC).toMatch(/popIn|scale\(0\.97\)|translateY\(12/);
   });
 
-  it("uses the 640px desktop width and dynamic mobile viewport units", () => {
-    expect(SRC).toContain("max-w-[640px]");
+  it("uses the wider desktop width and a content-fit mobile sheet", () => {
+    expect(SRC).toContain("max-w-[680px]");
+    expect(SRC).toContain("max-sm:h-auto");
     expect(SRC).toMatch(/dvh/);
   });
 
@@ -49,5 +50,11 @@ describe("EditorShell shell", () => {
     expect(SRC.match(/overflow-y-auto/g)).toHaveLength(1);
     expect(SRC).toMatch(/whitespace-normal/);
     expect(SRC).not.toMatch(/DialogPrimitive\.Description[^>]*truncate/);
+  });
+
+  it("resets the body scroll position when the active step changes", () => {
+    expect(SRC).toMatch(/useLayoutEffect/);
+    expect(SRC).toMatch(/bodyRef\.current\.scrollTop\s*=\s*0/);
+    expect(SRC).toMatch(/\[current, open\]/);
   });
 });

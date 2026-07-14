@@ -28,7 +28,7 @@ describe("PaymentStep", () => {
     expect(html).toContain("<fieldset");
     expect(html.match(/type="checkbox"/g)).toHaveLength(3);
     expect(html).not.toContain('role="radio"');
-    expect(html).toContain("Choose one or more. The artist picks after approval.");
+    expect(html).not.toContain("Choose one or more. The artist picks after approval.");
   });
 
   it("renders cent-accurate previews and the monthly control only when enabled", () => {
