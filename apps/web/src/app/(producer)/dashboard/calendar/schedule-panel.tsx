@@ -14,6 +14,7 @@
 import { useMemo, useState } from "react";
 
 import { buildWeek, isSameDay, todayIndex } from "./calendar-week";
+import type { ScheduleAvailabilityBlock } from "./schedule-hours";
 import {
   ScheduleWeekGrid,
   type ScheduleSession,
@@ -31,6 +32,7 @@ import {
 export type ScheduleData = {
   // All sessions in a wide window so we can flip weeks client-side.
   sessions: readonly ScheduleSession[];
+  availabilityBlocks: readonly ScheduleAvailabilityBlock[];
   // Pre-filtered today's sessions (server already knows producer's date).
   todaySessions: readonly TodaySession[];
   pending: readonly PendingRequest[];
@@ -40,6 +42,7 @@ export type ScheduleData = {
 
 export function SchedulePanel({
   sessions,
+  availabilityBlocks,
   todaySessions,
   pending,
   autoConfirm,
@@ -97,6 +100,7 @@ export function SchedulePanel({
         <ScheduleWeekGrid
           week={week}
           sessions={visible}
+          availabilityBlocks={availabilityBlocks}
           todayIdx={tIdx}
           showNowLine={weekOffset === 0}
         />
