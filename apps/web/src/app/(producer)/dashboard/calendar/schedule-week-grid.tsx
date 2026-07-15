@@ -13,6 +13,7 @@
 
 import { useEffect, useRef } from "react";
 
+import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { isSameDay } from "./calendar-week";
 import {
   deriveScheduleHourRange,
@@ -43,6 +44,8 @@ export function ScheduleWeekGrid({
   availabilityBlocks,
   todayIdx,
   showNowLine,
+  initialNow,
+  timeZone,
   onEditSession,
 }: {
   week: readonly Date[];
@@ -50,12 +53,15 @@ export function ScheduleWeekGrid({
   availabilityBlocks: readonly ScheduleAvailabilityBlock[];
   todayIdx: number;
   showNowLine: boolean;
+  initialNow: string;
+  timeZone: string;
   onEditSession: (session: ScheduleSession) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const { startHour, endHour } = deriveScheduleHourRange(
     availabilityBlocks,
     sessions,
+    timeZone,
   );
   const hoursVisible = endHour - startHour;
 
@@ -91,7 +97,7 @@ export function ScheduleWeekGrid({
   const perDay: ScheduleSession[][] = week.map(() => []);
   for (const s of sessions) {
     const dt = new Date(s.startsAt);
-    const idx = week.findIndex((d) => isSameDay(d, dt));
+    const idx = week.findIndex((d) => isSameDay(d, dt, timeZone));
     if (idx < 0) continue;
     perDay[idx]?.push(s);
   }
@@ -151,7 +157,7 @@ export function ScheduleWeekGrid({
                 style={{ fontWeight: 700 }}
                 aria-current={isToday ? "date" : undefined}
               >
-                {day.getDate()}
+                {day.getUTCDate()}
               </div>
             </div>
           );
@@ -165,6 +171,7 @@ export function ScheduleWeekGrid({
             hourIdx={hourIdx}
             todayIdx={todayIdx}
             cellsPerDay={perDay}
+            timeZone={timeZone}
             onEditSession={onEditSession}
           />
         ))}
@@ -179,6 +186,8 @@ export function ScheduleWeekGrid({
             todayIdx={todayIdx}
             firstHour={startHour}
             endHour={endHour}
+            initialNow={initialNow}
+            timeZone={timeZone}
           />
         ) : null}
       </div>
@@ -191,12 +200,14 @@ function HourRow({
   hourIdx,
   todayIdx,
   cellsPerDay,
+  timeZone,
   onEditSession,
 }: {
   hour: number;
   hourIdx: number;
   todayIdx: number;
   cellsPerDay: readonly ScheduleSession[][];
+  timeZone: string;
   onEditSession: (session: ScheduleSession) => void;
 }) {
   return (
@@ -232,12 +243,13 @@ function HourRow({
             {daySessions
               .filter((s) => {
                 const dt = new Date(s.startsAt);
-                return dt.getHours() === hour;
+                return calendarDateTimeParts(dt, timeZone).hour === hour;
               })
               .map((s) => (
                 <SessionBlock
                   key={s.id}
                   session={s}
+                  timeZone={timeZone}
                   onEditSession={onEditSession}
                 />
               ))}
@@ -250,29 +262,24 @@ function HourRow({
 
 function SessionBlock({
   session,
+  timeZone,
   onEditSession,
 }: {
   session: ScheduleSession;
+  timeZone: string;
   onEditSession: (session: ScheduleSession) => void;
 }) {
   const dt = new Date(session.startsAt);
-  const minute = dt.getMinutes();
+  const minute = calendarDateTimeParts(dt, timeZone).minute;
   const lenHours = session.durationMin / 60;
   const isPending = session.status !== "confirmed";
   const isCompact = session.durationMin < 90;
 
-  const timeLabel = dt.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const endTimeLabel = new Date(
-    dt.getTime() + session.durationMin * 60_000,
-  ).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  const timeLabel = formatCalendarTime(dt, timeZone);
+  const endTimeLabel = formatCalendarTime(
+    new Date(dt.getTime() + session.durationMin * 60_000),
+    timeZone,
+  );
   const timeRangeLabel = `${timeLabel}–${endTimeLabel}`;
   const serviceLabel = session.packageName ?? "Session";
 
@@ -381,14 +388,17 @@ function NowLineOverlay({
   todayIdx,
   firstHour,
   endHour,
+  initialNow,
+  timeZone,
 }: {
   todayIdx: number;
   firstHour: number;
   endHour: number;
+  initialNow: string;
+  timeZone: string;
 }) {
-  const now = new Date();
-  const hour = now.getHours();
-  const min = now.getMinutes();
+  const now = new Date(initialNow);
+  const { hour, minute: min } = calendarDateTimeParts(now, timeZone);
   const offsetHours = hour + min / 60 - firstHour;
   if (offsetHours < 0 || offsetHours > endHour - firstHour) return null;
   // Top math expressed in CSS calc so the now-line stays glued to the
@@ -415,8 +425,7 @@ function NowLineOverlay({
           className="absolute -right-1 -top-2.5 inline-flex items-center rounded-[4px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1.5 py-0.5 font-mono text-[9px] text-[rgb(var(--fg-default))] shadow-sm"
           style={{ fontWeight: 700 }}
         >
-          {String(now.getHours()).padStart(2, "0")}:
-          {String(now.getMinutes()).padStart(2, "0")}
+          {formatCalendarTime(now, timeZone)}
         </span>
       </div>
     </div>

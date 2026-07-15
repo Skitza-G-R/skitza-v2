@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { deriveScheduleHourRange } from "../schedule-hours";
 
+const TIME_ZONE = "Asia/Jerusalem";
+
 describe("deriveScheduleHourRange", () => {
   it("uses the existing 09:00–19:00 range when no working hours are configured", () => {
     expect(deriveScheduleHourRange([], [])).toEqual({
@@ -23,23 +25,25 @@ describe("deriveScheduleHourRange", () => {
   });
 
   it("extends through the full end time of a visible session", () => {
-    const startsAt = new Date(2026, 6, 15, 18, 0).toISOString();
+    const startsAt = "2026-07-15T15:00:00.000Z";
 
     expect(
       deriveScheduleHourRange(
         [{ startMin: 540, endMin: 1140 }],
         [{ startsAt, durationMin: 120 }],
+        TIME_ZONE,
       ),
     ).toEqual({ startHour: 9, endHour: 20 });
   });
 
   it("expands before working hours for an earlier visible session", () => {
-    const startsAt = new Date(2026, 6, 15, 8, 30).toISOString();
+    const startsAt = "2026-07-15T05:30:00.000Z";
 
     expect(
       deriveScheduleHourRange(
         [{ startMin: 600, endMin: 1080 }],
         [{ startsAt, durationMin: 60 }],
+        TIME_ZONE,
       ),
     ).toEqual({ startHour: 8, endHour: 18 });
   });

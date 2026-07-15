@@ -7,6 +7,7 @@
 // is hidden on already-cancelled / rejected rows. Action handlers are
 // passed in so the parent panel owns modal state and `pendingId` etc.
 
+import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
 
 export type RawBookingStatus =
@@ -37,12 +38,14 @@ type DerivedStatus =
 export function SessionRow({
   session,
   now,
+  timeZone,
   onChangeTime,
   onSendReminder,
   onCancel,
 }: {
   session: SessionListItem;
   now: Date;
+  timeZone: string;
   onChangeTime: (s: SessionListItem) => void;
   onSendReminder: (s: SessionListItem) => void;
   onCancel: (s: SessionListItem) => void;
@@ -69,8 +72,14 @@ export function SessionRow({
         opacity: dimmed ? 0.6 : 1,
       }}
     >
-      <DateColumn date={start} kindToken={kindToken} />
-      <BodyColumn session={session} start={start} end={end} status={derived} />
+      <DateColumn date={start} kindToken={kindToken} timeZone={timeZone} />
+      <BodyColumn
+        session={session}
+        start={start}
+        end={end}
+        status={derived}
+        timeZone={timeZone}
+      />
       <Actions
         cancellable={cancellable}
         onChangeTime={() => {
@@ -87,16 +96,19 @@ export function SessionRow({
   );
 }
 
-function DateColumn({ date, kindToken }: { date: Date; kindToken: string }) {
-  const weekday = date
-    .toLocaleDateString("en-US", { weekday: "short" })
-    .toUpperCase();
-  const day = String(date.getDate());
-  const time = date.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+function DateColumn({
+  date,
+  kindToken,
+  timeZone,
+}: {
+  date: Date;
+  kindToken: string;
+  timeZone: string;
+}) {
+  const parts = calendarDateTimeParts(date, timeZone);
+  const weekday = parts.weekday.toUpperCase();
+  const day = String(parts.day);
+  const time = formatCalendarTime(date, timeZone);
   return (
     <div className="relative flex flex-col items-center justify-center pl-1.5 pr-1">
       <span
@@ -128,18 +140,14 @@ function BodyColumn({
   start,
   end,
   status,
+  timeZone,
 }: {
   session: SessionListItem;
   start: Date;
   end: Date;
   status: DerivedStatus;
+  timeZone: string;
 }) {
-  const fmt = (d: Date) =>
-    d.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-2">
@@ -160,7 +168,8 @@ function BodyColumn({
           {session.artistName}
         </span>
         <span className="font-mono text-[10.5px] text-[rgb(var(--fg-muted))]">
-          {fmt(start)} – {fmt(end)}
+          {formatCalendarTime(start, timeZone)} –{" "}
+          {formatCalendarTime(end, timeZone)}
         </span>
       </div>
     </div>

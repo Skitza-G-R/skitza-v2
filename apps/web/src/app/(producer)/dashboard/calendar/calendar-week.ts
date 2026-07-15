@@ -5,32 +5,75 @@
 // Without this, each component re-derives the week from `new Date()`
 // and a DST transition or a stale render could put them out of sync.
 //
-// All operations work in the producer's local timezone — the calendar
-// UI is local-time everywhere. Sunday-based week per the design spec.
+// Calendar days are stored as UTC date markers. Session instants are
+// compared against those markers in the producer's saved timezone, so
+// server and browser timezone differences cannot move a session.
 
-export function buildWeek(reference: Date, weekOffset = 0): Date[] {
-  // Find Sunday at 00:00 local for the reference date, then shift by
-  // weekOffset weeks. setDate handles month/year roll-over.
-  const sunday = new Date(reference);
-  sunday.setDate(reference.getDate() - reference.getDay() + weekOffset * 7);
-  sunday.setHours(0, 0, 0, 0);
-  return Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(sunday);
-    day.setDate(sunday.getDate() + i);
-    return day;
-  });
+import { calendarDateTimeParts } from "./calendar-time";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MONTHS_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+const MONTHS_LONG = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
+export function buildWeek(
+  reference: Date,
+  weekOffset = 0,
+  timeZone = "UTC",
+): Date[] {
+  const { year, month, day } = calendarDateTimeParts(reference, timeZone);
+  const referenceMarker = new Date(Date.UTC(year, month - 1, day));
+  const sundayMs =
+    referenceMarker.getTime() -
+    referenceMarker.getUTCDay() * DAY_MS +
+    weekOffset * 7 * DAY_MS;
+  return Array.from({ length: 7 }, (_, i) => new Date(sundayMs + i * DAY_MS));
 }
 
-export function isSameDay(a: Date, b: Date): boolean {
+export function isSameDay(
+  dayMarker: Date,
+  instant: Date,
+  timeZone = "UTC",
+): boolean {
+  const parts = calendarDateTimeParts(instant, timeZone);
   return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
+    dayMarker.getUTCFullYear() === parts.year &&
+    dayMarker.getUTCMonth() + 1 === parts.month &&
+    dayMarker.getUTCDate() === parts.day
   );
 }
 
-export function todayIndex(week: readonly Date[], now: Date = new Date()): number {
-  return week.findIndex((d) => isSameDay(d, now));
+export function todayIndex(
+  week: readonly Date[],
+  now: Date,
+  timeZone = "UTC",
+): number {
+  return week.findIndex((day) => isSameDay(day, now, timeZone));
 }
 
 // Spec § 4.1: range readout, e.g. "May 3 – 9, 2026" or
@@ -39,23 +82,18 @@ export function weekRangeLabel(week: readonly Date[]): string {
   const first = week[0];
   const last = week[6];
   if (!first || !last) return "";
-  const monthFmt = (d: Date) =>
-    d.toLocaleDateString("en-US", { month: "short" });
-  const sameMonth = first.getMonth() === last.getMonth();
-  const left = sameMonth
-    ? `${monthFmt(first)} ${String(first.getDate())}`
-    : `${monthFmt(first)} ${String(first.getDate())}`;
+  const monthFmt = (date: Date) => MONTHS_SHORT[date.getUTCMonth()] ?? "Jan";
+  const sameMonth = first.getUTCMonth() === last.getUTCMonth();
+  const left = `${monthFmt(first)} ${String(first.getUTCDate())}`;
   const right = sameMonth
-    ? `${String(last.getDate())}, ${String(last.getFullYear())}`
-    : `${monthFmt(last)} ${String(last.getDate())}, ${String(last.getFullYear())}`;
+    ? `${String(last.getUTCDate())}, ${String(last.getUTCFullYear())}`
+    : `${monthFmt(last)} ${String(last.getUTCDate())}, ${String(last.getUTCFullYear())}`;
   return `${left} – ${right}`;
 }
 
 // Spec § 3 eyebrow: "WEEK OF MAY 3, 2026". Always derived off the
 // Sunday start so navigation arrows update it in one step.
 export function weekEyebrow(weekStart: Date): string {
-  const month = weekStart
-    .toLocaleDateString("en-US", { month: "long" })
-    .toUpperCase();
-  return `WEEK OF ${month} ${String(weekStart.getDate())}, ${String(weekStart.getFullYear())}`;
+  const month = (MONTHS_LONG[weekStart.getUTCMonth()] ?? "January").toUpperCase();
+  return `WEEK OF ${month} ${String(weekStart.getUTCDate())}, ${String(weekStart.getUTCFullYear())}`;
 }

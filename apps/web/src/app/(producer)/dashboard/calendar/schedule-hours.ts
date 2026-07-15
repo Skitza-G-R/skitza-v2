@@ -27,6 +27,7 @@ function clampHour(hour: number): number {
 export function deriveScheduleHourRange(
   availabilityBlocks: readonly ScheduleAvailabilityBlock[],
   sessions: readonly ScheduleRangeSession[],
+  timeZone = "UTC",
 ): ScheduleHourRange {
   const validBlocks = availabilityBlocks.filter(
     (block) => block.endMin > block.startMin,
@@ -54,8 +55,9 @@ export function deriveScheduleHourRange(
     const startsAt = new Date(session.startsAt);
     if (Number.isNaN(startsAt.getTime()) || session.durationMin <= 0) continue;
 
+    const sessionTime = calendarDateTimeParts(startsAt, timeZone);
     const sessionStartMin =
-      startsAt.getHours() * MINUTES_PER_HOUR + startsAt.getMinutes();
+      sessionTime.hour * MINUTES_PER_HOUR + sessionTime.minute;
     const sessionStartHour = clampHour(
       Math.floor(sessionStartMin / MINUTES_PER_HOUR),
     );
@@ -73,3 +75,4 @@ export function deriveScheduleHourRange(
     ? { startHour, endHour }
     : { startHour: DEFAULT_START_HOUR, endHour: DEFAULT_END_HOUR };
 }
+import { calendarDateTimeParts } from "./calendar-time";

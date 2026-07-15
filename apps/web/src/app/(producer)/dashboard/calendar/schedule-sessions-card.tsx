@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
 import type { RawBookingStatus, SessionListItem } from "./session-row";
 
@@ -17,11 +18,13 @@ type DisplayStatus =
 export function ScheduleSessionsCard({
   sessions,
   initialNow,
+  timeZone,
   selectedBookingId = null,
   onEditSession,
 }: {
   sessions: readonly SessionListItem[];
   initialNow: string;
+  timeZone: string;
   selectedBookingId?: string | null;
   onEditSession: (session: SessionListItem) => void;
 }) {
@@ -111,6 +114,7 @@ export function ScheduleSessionsCard({
                 <CompactSessionRow
                   session={session}
                   now={now}
+                  timeZone={timeZone}
                   onEdit={() => {
                     onEditSession(session);
                   }}
@@ -127,10 +131,12 @@ export function ScheduleSessionsCard({
 function CompactSessionRow({
   session,
   now,
+  timeZone,
   onEdit,
 }: {
   session: SessionListItem;
   now: Date;
+  timeZone: string;
   onEdit: () => void;
 }) {
   const start = new Date(session.startsAt);
@@ -145,7 +151,7 @@ function CompactSessionRow({
       className="grid min-h-[68px] grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 transition-colors hover:border-[rgb(var(--border-strong))]"
       style={{ opacity: dimmed ? 0.62 : 1 }}
     >
-      <CompactDate date={start} kindToken={kindToken} />
+      <CompactDate date={start} kindToken={kindToken} timeZone={timeZone} />
       <div className="min-w-0 self-stretch py-0.5">
         <p
           className="truncate text-[11.5px] leading-tight text-[rgb(var(--fg-default))]"
@@ -161,7 +167,8 @@ function CompactSessionRow({
             {session.artistName}
           </span>
           <span className="shrink-0 font-mono text-[8.5px] text-[rgb(var(--fg-muted))]">
-            {formatTime(start)}–{formatTime(end)}
+            {formatCalendarTime(start, timeZone)}–
+            {formatCalendarTime(end, timeZone)}
           </span>
         </div>
         <div className="mt-1.5">
@@ -182,8 +189,16 @@ function CompactSessionRow({
   );
 }
 
-function CompactDate({ date, kindToken }: { date: Date; kindToken: string }) {
-  const weekday = date.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+function CompactDate({
+  date,
+  kindToken,
+  timeZone,
+}: {
+  date: Date;
+  kindToken: string;
+  timeZone: string;
+}) {
+  const { weekday, day } = calendarDateTimeParts(date, timeZone);
   return (
     <div className="relative flex h-full flex-col items-center justify-center pl-1.5">
       <span
@@ -192,13 +207,13 @@ function CompactDate({ date, kindToken }: { date: Date; kindToken: string }) {
         style={{ background: `rgb(var(${kindToken}))` }}
       />
       <span className="font-mono text-[8px] tracking-[0.08em] text-[rgb(var(--brand-primary-dark))]">
-        {weekday}
+        {weekday.toUpperCase()}
       </span>
       <span
         className="font-display text-[20px] leading-none text-[rgb(var(--fg-default))]"
         style={{ fontWeight: 800 }}
       >
-        {String(date.getDate())}
+        {String(day)}
       </span>
     </div>
   );
@@ -254,14 +269,6 @@ function bucketSessions(
     (a, b) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime(),
   );
   return { upcoming, past, all };
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
 }
 
 function PencilIcon() {
