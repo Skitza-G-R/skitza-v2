@@ -17,9 +17,18 @@ describe("producer mobile account + public-link controls", () => {
 
   it("mounts Clerk's account menu in mobile-only dashboard chrome", () => {
     expect(ACTIONS_SRC).toContain("UserButton");
+    expect(ACTIONS_SRC).toContain("UserAvatar");
     expect(ACTIONS_SRC).toContain('data-testid="topbar-account"');
     expect(ACTIONS_SRC).toContain("lg:hidden");
-    expect(ACTIONS_SRC).toContain("userButtonTrigger");
+    expect(ACTIONS_SRC).toContain('aria-label="Open account menu"');
+  });
+
+  it("opens the Clerk account menu in the same mobile bottom-sheet pattern as notifications", () => {
+    expect(ACTIONS_SRC).toContain("Sheet");
+    expect(ACTIONS_SRC).toContain('side="bottom"');
+    expect(ACTIONS_SRC).toContain("__experimental_asProvider");
+    expect(ACTIONS_SRC).toContain("UserButton.__experimental_Outlet");
+    expect(ACTIONS_SRC).toContain('data-testid="account-sheet"');
   });
 
   it("provides a 40px mobile copy target using the existing clipboard behavior", () => {
