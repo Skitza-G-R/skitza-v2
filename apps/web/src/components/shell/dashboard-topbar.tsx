@@ -4,6 +4,7 @@ import type { ShellNotificationItem } from "~/server/shell-data";
 
 import { AppTopBar } from "./app-topbar";
 import { NotificationBell } from "./notification-bell";
+import { ProducerMobileActions } from "./producer-mobile-actions";
 
 // Producer-side wrapper around the shared `AppTopBar`. Owns nothing
 // heavy — just the producer's section label map, the search
@@ -30,17 +31,23 @@ function openProducerPalette() {
 }
 
 interface DashboardTopBarProps {
+  /** Producer slug used by the mobile public-link copy action. */
+  producerSlug?: string | null;
   /** Notification centre state resolved with the producer shell. */
   unreadCount?: number;
   recentNotifications?: readonly ShellNotificationItem[];
 }
 
 export function DashboardTopBar({
+  producerSlug = null,
   unreadCount = 0,
   recentNotifications = [],
 }: DashboardTopBarProps) {
   const notificationControl = (
-    <NotificationBell unreadCount={unreadCount} notifications={recentNotifications} />
+    <div className="flex items-center gap-0.5">
+      <NotificationBell unreadCount={unreadCount} notifications={recentNotifications} />
+      <ProducerMobileActions producerSlug={producerSlug} />
+    </div>
   );
 
   return (

@@ -91,6 +91,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
               in normal flow with no negative overlap. */}
           <TopBarBreadcrumbProvider>
             <DashboardTopBar
+              producerSlug={slug}
               unreadCount={unreadCount}
               recentNotifications={recentNotifications}
             />
