@@ -21,6 +21,7 @@ import {
 
 import { useToast } from "~/components/ui/toast";
 
+import { formatCalendarDate, formatCalendarTime } from "./calendar-time";
 import { confirmBooking, rejectBooking } from "./calendar-actions";
 
 export type PendingRequest = {
@@ -37,10 +38,14 @@ export type PendingRequest = {
 export function SchedulePendingCard({
   initial,
   autoConfirm,
+  initialNow,
+  timeZone,
   selectedBookingId = null,
 }: {
   initial: readonly PendingRequest[];
   autoConfirm: boolean;
+  initialNow: string;
+  timeZone: string;
   selectedBookingId?: string | null;
 }) {
   const [rows, setRows] = useState<readonly PendingRequest[]>(initial);
@@ -109,6 +114,8 @@ export function SchedulePendingCard({
             <PendingRow
               key={row.id}
               row={row}
+              initialNow={initialNow}
+              timeZone={timeZone}
               busy={pendingId === row.id}
               selected={selectedBookingId === row.id}
               {...(selectedBookingId === row.id ? { selectedRef } : {})}
@@ -128,6 +135,8 @@ export function SchedulePendingCard({
 
 function PendingRow({
   row,
+  initialNow,
+  timeZone,
   busy,
   selected,
   selectedRef,
@@ -135,6 +144,8 @@ function PendingRow({
   onDecline,
 }: {
   row: PendingRequest;
+  initialNow: string;
+  timeZone: string;
   busy: boolean;
   selected: boolean;
   selectedRef?: RefObject<HTMLLIElement | null>;
@@ -142,19 +153,12 @@ function PendingRow({
   onDecline: () => void;
 }) {
   const isNew = row.receivedAtIso
-    ? Date.now() - new Date(row.receivedAtIso).getTime() < 24 * 60 * 60 * 1000
+    ? new Date(initialNow).getTime() - new Date(row.receivedAtIso).getTime() <
+      24 * 60 * 60 * 1000
     : false;
   const dt = new Date(row.startsAt);
-  const dateLabel = dt.toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-  const timeLabel = dt.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  const dateLabel = formatCalendarDate(dt, timeZone);
+  const timeLabel = formatCalendarTime(dt, timeZone);
 
   return (
     <li

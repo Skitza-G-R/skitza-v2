@@ -46,28 +46,28 @@ export function SchedulePanel({
   pending,
   autoConfirm,
   selectedBookingId = null,
-  // Server-rendered "now" so first-paint is consistent. Hydration
-  // re-derives from the client clock — slight drift is fine.
+  // Server-rendered "now" keeps the first client render identical.
   initialNow,
-}: ScheduleData & { initialNow: string }) {
+  timeZone,
+}: ScheduleData & { initialNow: string; timeZone: string }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [editingSession, setEditingSession] =
     useState<SessionListItem | null>(null);
   const reference = useMemo(() => new Date(initialNow), [initialNow]);
 
   const week = useMemo(
-    () => buildWeek(reference, weekOffset),
-    [reference, weekOffset],
+    () => buildWeek(reference, weekOffset, timeZone),
+    [reference, timeZone, weekOffset],
   );
-  const tIdx = todayIndex(week);
+  const tIdx = todayIndex(week, reference, timeZone);
 
   // Filter sessions visible in the current week.
   const visible = useMemo(() => {
     return sessions.filter((s) => {
       const dt = new Date(s.startsAt);
-      return week.some((d) => isSameDay(d, dt));
+      return week.some((d) => isSameDay(d, dt, timeZone));
     });
-  }, [sessions, week]);
+  }, [sessions, timeZone, week]);
 
   // Stats for the readout — counts confirmed + pending; sums duration.
   const totalSessions = visible.length;
@@ -110,6 +110,8 @@ export function SchedulePanel({
           availabilityBlocks={availabilityBlocks}
           todayIdx={tIdx}
           showNowLine={weekOffset === 0}
+          initialNow={initialNow}
+          timeZone={timeZone}
           onEditSession={(session) => {
             setEditingSession(session);
           }}
@@ -122,12 +124,15 @@ export function SchedulePanel({
           <ScheduleSessionsCard
             sessions={desktopSessions}
             initialNow={initialNow}
+            timeZone={timeZone}
             selectedBookingId={selectedSessionId}
             onEditSession={setEditingSession}
           />
           <SchedulePendingCard
             initial={pending}
             autoConfirm={autoConfirm}
+            initialNow={initialNow}
+            timeZone={timeZone}
             selectedBookingId={selectedPendingId}
           />
         </div>

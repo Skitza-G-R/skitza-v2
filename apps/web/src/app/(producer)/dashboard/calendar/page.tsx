@@ -7,8 +7,9 @@ import { AvailabilityPanel } from "./availability-panel";
 
 import { CalendarTabs } from "./calendar-tabs";
 import { resolveCalendarTabForBooking } from "./calendar-tab-key";
+import { normalizeCalendarTimeZone } from "./calendar-time";
 import type { ScheduleAvailabilityBlock } from "./schedule-hours";
-import { weekEyebrow } from "./calendar-week";
+import { buildWeek, weekEyebrow } from "./calendar-week";
 import { SchedulePanel } from "./schedule-panel";
 import type { ScheduleSession } from "./schedule-week-grid";
 import {
@@ -62,17 +63,20 @@ export default async function CalendarPage({
   // grid is desktop-only). Pending + the 21-day upcoming window mapped
   // into the SessionsPanel's row shape.
   let scheduleMobileSessions: SessionListItem[] = [];
+  let calendarTimeZone = "UTC";
   const initialNow = new Date();
   if (active === "schedule" || active === "sessions") {
-    const [list, upcoming, settings, workingHours] = await Promise.all([
+    const [list, upcoming, settings, workingHours, profile] = await Promise.all([
       selectedBookingRows ?? caller.booking.list(),
       caller.booking.upcoming({ days: 21 }),
       caller.booking.availability.getSettings(),
       caller.booking.availability.list(),
+      caller.producer.me(),
     ]);
     const pending = list.filter((b) => b.status === "pending_approval");
 
     scheduleAutoConfirm = settings.autoConfirmBookings;
+    calendarTimeZone = normalizeCalendarTimeZone(profile.timezone);
     scheduleAvailabilityBlocks = workingHours.map((block) => ({
       startMin: block.startMin,
       endMin: block.endMin,
@@ -189,10 +193,8 @@ export default async function CalendarPage({
   // shows weekly hours open. The eyebrow stays static across client-
   // side week navigation — the WeekNav inside SchedulePanel surfaces
   // the navigated week's range readout instead.
-  const sunday = new Date(initialNow);
-  sunday.setDate(sunday.getDate() - sunday.getDay());
-  sunday.setHours(0, 0, 0, 0);
-  const scheduleEyebrow = weekEyebrow(sunday);
+  const scheduleWeek = buildWeek(initialNow, 0, calendarTimeZone);
+  const scheduleEyebrow = weekEyebrow(scheduleWeek[0] ?? initialNow);
   let eyebrow = "PRODUCER CALENDAR";
   if (active === "schedule") {
     eyebrow = scheduleEyebrow;
@@ -297,6 +299,7 @@ export default async function CalendarPage({
                   pending={pendingRequests}
                   autoConfirm={scheduleAutoConfirm}
                   initialNow={initialNow.toISOString()}
+                  timeZone={calendarTimeZone}
                   selectedBookingId={
                     selectedBookingIsPending ? selectedBookingId : null
                   }
@@ -312,6 +315,8 @@ export default async function CalendarPage({
                   <SchedulePendingCard
                     initial={pendingRequests}
                     autoConfirm={scheduleAutoConfirm}
+                    initialNow={initialNow.toISOString()}
+                    timeZone={calendarTimeZone}
                     selectedBookingId={
                       selectedBookingIsPending ? selectedBookingId : null
                     }
@@ -320,6 +325,7 @@ export default async function CalendarPage({
                 <SessionsPanel
                   sessions={scheduleMobileSessions}
                   initialNow={initialNow.toISOString()}
+                  timeZone={calendarTimeZone}
                   selectedBookingId={
                     selectedBookingIsPending ? null : selectedBookingId
                   }
@@ -340,6 +346,7 @@ export default async function CalendarPage({
                   pending={pendingRequests}
                   autoConfirm={scheduleAutoConfirm}
                   initialNow={initialNow.toISOString()}
+                  timeZone={calendarTimeZone}
                   selectedBookingId={selectedBookingId}
                 />
               </div>
@@ -350,6 +357,8 @@ export default async function CalendarPage({
                   <SchedulePendingCard
                     initial={pendingRequests}
                     autoConfirm={scheduleAutoConfirm}
+                    initialNow={initialNow.toISOString()}
+                    timeZone={calendarTimeZone}
                     selectedBookingId={
                       selectedBookingIsPending ? selectedBookingId : null
                     }
@@ -358,6 +367,7 @@ export default async function CalendarPage({
                 <SessionsPanel
                   sessions={allSessions}
                   initialNow={initialNow.toISOString()}
+                  timeZone={calendarTimeZone}
                   selectedBookingId={
                     selectedBookingIsPending ? null : selectedBookingId
                   }

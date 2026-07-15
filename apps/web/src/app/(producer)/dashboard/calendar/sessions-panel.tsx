@@ -30,10 +30,12 @@ type Filter = "upcoming" | "past" | "all";
 export function SessionsPanel({
   sessions,
   initialNow,
+  timeZone,
   selectedBookingId = null,
 }: {
   sessions: readonly SessionListItem[];
   initialNow: string;
+  timeZone: string;
   selectedBookingId?: string | null;
 }) {
   const now = useMemo(() => new Date(initialNow), [initialNow]);
@@ -108,6 +110,7 @@ export function SessionsPanel({
               <SessionRow
                 session={s}
                 now={now}
+                timeZone={timeZone}
                 onChangeTime={(sess) => {
                   setActiveModal({ kind: "change", session: sess });
                 }}
