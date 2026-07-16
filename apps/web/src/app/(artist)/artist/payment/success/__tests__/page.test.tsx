@@ -5,15 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  auth: vi.fn(),
   buildTranzilaRedirectUrl: vi.fn(),
   confirmAfterPayment: vi.fn(),
   createCaller: vi.fn(),
   recentConfirmedBooking: vi.fn(),
-}));
-
-vi.mock("@clerk/nextjs/server", () => ({
-  auth: mocks.auth,
 }));
 
 vi.mock("~/lib/tranzila", () => ({
@@ -44,7 +39,6 @@ async function renderSuccessPage(): Promise<string> {
 }
 
 beforeEach(() => {
-  mocks.auth.mockReset();
   mocks.buildTranzilaRedirectUrl.mockReset();
   mocks.confirmAfterPayment.mockReset();
   mocks.createCaller.mockReset();
@@ -57,17 +51,16 @@ beforeEach(() => {
 });
 
 describe("legacy Tranzila success return containment", () => {
-  it("does not claim payment or booking confirmation for a direct unauthenticated visit", async () => {
-    mocks.auth.mockResolvedValue({ userId: null });
-
+  // This invokes the page module directly. The real route remains protected by
+  // the existing artist layout before this module renders.
+  it("renders fail-closed output when the page module is invoked directly", async () => {
     const html = await renderSuccessPage();
 
     expectFailClosedCopy(html);
     expect(mocks.createCaller).not.toHaveBeenCalled();
   });
 
-  it("does not infer a card confirmation from an authenticated recent booking", async () => {
-    mocks.auth.mockResolvedValue({ userId: "user_artist" });
+  it("does not infer a card confirmation from available recent-booking metadata", async () => {
     mocks.recentConfirmedBooking.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",
       startsAt: new Date("2026-07-20T12:00:00.000Z"),
@@ -85,8 +78,7 @@ describe("legacy Tranzila success return containment", () => {
     expect(mocks.createCaller).not.toHaveBeenCalled();
   });
 
-  it("does not claim success for an authenticated visitor without a recent booking", async () => {
-    mocks.auth.mockResolvedValue({ userId: "user_artist" });
+  it("does not claim success without recent-booking metadata", async () => {
     mocks.recentConfirmedBooking.mockResolvedValue(null);
 
     const html = await renderSuccessPage();
@@ -95,8 +87,7 @@ describe("legacy Tranzila success return containment", () => {
     expect(mocks.createCaller).not.toHaveBeenCalled();
   });
 
-  it("stays read-only and inert across concurrent direct visits", async () => {
-    mocks.auth.mockResolvedValue({ userId: "user_artist" });
+  it("stays read-only and inert across concurrent page-module renders", async () => {
     mocks.recentConfirmedBooking.mockResolvedValue(null);
 
     const pages = await Promise.all(Array.from({ length: 8 }, () => renderSuccessPage()));

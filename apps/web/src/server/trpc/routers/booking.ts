@@ -22,10 +22,9 @@ import {
   type Product,
   type ProductRoyaltyTerms,
 } from "@skitza/db";
-import { createDb } from "@skitza/db";
 import { z } from "zod";
 
-import { publicProcedure, router } from "../init";
+import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { normalizePersistedBookingStatus } from "./booking-status-compat";
@@ -1409,39 +1408,6 @@ export const bookingRouter = router({
       }
 
       return { ok: true as const };
-    }),
-
-  // Legacy public read of a confirmed booking by id. The hosted-card return
-  // does not call this procedure, and a confirmed scheduling status is not
-  // evidence that a payment occurred.
-  getConfirmedBooking: publicProcedure
-    .input(z.object({ bookingId: z.string().uuid() }))
-    .query(async ({ input }) => {
-      const dbUrl = process.env.DATABASE_URL;
-      if (!dbUrl) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "missing DATABASE_URL",
-        });
-      }
-      const db = createDb(dbUrl);
-      const [row] = await db
-        .select({
-          id: bookings.id,
-          status: bookings.status,
-          startsAt: bookings.startsAt,
-          durationMin: bookings.durationMin,
-          artistName: bookings.artistName,
-          packageNameSnapshot: bookings.packageNameSnapshot,
-          tranzilaConfirmationCode: bookings.tranzilaConfirmationCode,
-          producerName: producers.displayName,
-        })
-        .from(bookings)
-        .leftJoin(producers, eq(producers.id, bookings.producerId))
-        .where(eq(bookings.id, input.bookingId))
-        .limit(1);
-      if (!row || row.status !== "confirmed") return null;
-      return row;
     }),
 
   reject: producerProcedure
