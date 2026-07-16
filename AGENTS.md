@@ -51,10 +51,10 @@
 
 ## Database safety
 
-- The production Neon project is `skitza` (`quiet-sun-92221754`). The old `skitza-v3` project is stale and is not production.
-- The Drizzle journal is out of sync with migrations 0019+. Do not run `drizzle-kit migrate` or `pnpm -F db db:migrate`.
+- The canonical live Neon project is `skitza-v3`. The project labeled `OLD — DO NOT USE.` is frozen: do not write to it, repoint production to it, or merge/backfill data from it. The confirmed SK-80 boundary and reset gate are recorded in `docs/runbooks/canonical-database-gate.md`.
+- The Drizzle journal and live migration ledgers are not aligned with the SQL migration set. Do not run `drizzle-kit migrate` or `pnpm -F db db:migrate`.
 - Use `$skitza-migrate`, which runs `packages/db/apply-migrations.mjs` and requires an explicit target environment.
-- Never print database URLs or credentials. Never migrate production without Gili's explicit approval for that exact run.
+- Never print database URLs, credentials, raw Neon project/branch/endpoint identifiers, or storage object keys. Never migrate production without Gili's explicit approval for that exact run.
 
 ## Removed systems
 
