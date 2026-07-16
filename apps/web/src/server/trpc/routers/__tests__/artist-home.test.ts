@@ -11,11 +11,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //
 // `artist.home` is intentionally chunky — one tRPC call fans out via
 // Promise.all into:
-//   1. clientContacts  — figure out my studios (always first)
-//   2. bookings ⨝ producers   — next confirmed session
-//   3. trackVersions ⨝ project_tracks ⨝ projects ⨝ producers — most recent mix
-//   4. invoices         — outstanding (unpaid) balance
-//   5. activity         — last 10 events across all 3 sources
+//   1. bookings ⨝ producers ⨝ clientContacts — confirmed sessions
+//   2. trackVersions ⨝ projects ⨝ clientContacts — most recent mix
+//   3. invoices ⨝ clientContacts — outstanding balance
+//   4. activity — last 10 events across all 3 sources
 //
 // Tests target BEHAVIOR (right shape returned given specific inputs),
 // not the SQL. The auth-boundary test is the only one that pries open
@@ -45,6 +44,8 @@ const {
   activityTracksWhereSpy,
   activityBookingsWhereSpy,
   activityInvoicesWhereSpy,
+  exactPairJoinSpy,
+  clientContactLeftJoinSpy,
   resetCallCounts,
   dbMock,
 } = vi.hoisted(() => {
@@ -69,6 +70,8 @@ const {
   const activityTracksWhereSpy = vi.fn<(arg: unknown) => void>();
   const activityBookingsWhereSpy = vi.fn<(arg: unknown) => void>();
   const activityInvoicesWhereSpy = vi.fn<(arg: unknown) => void>();
+  const exactPairJoinSpy = vi.fn<(arg: unknown) => void>();
+  const clientContactLeftJoinSpy = vi.fn<(arg: unknown) => void>();
 
   const clientContactsMarker = {
     __table: "client_contacts",
@@ -159,8 +162,8 @@ const {
       where: (arg: unknown) => Link;
       orderBy: () => Link;
       limit: () => Promise<Record<string, unknown>[]>;
-      innerJoin: () => Link;
-      leftJoin: () => Link;
+      innerJoin: (table: unknown, on?: unknown) => Link;
+      leftJoin: (table: unknown, on?: unknown) => Link;
       then: Promise<Record<string, unknown>[]>["then"];
     };
     const link: Link = {
@@ -170,14 +173,14 @@ const {
       },
       orderBy: () => link,
       limit: () => get(),
-      innerJoin: () => link,
-      // SK-33: latestMix now leftJoin's clientContacts to derive
-      // `unread` from lastSeenAt vs uploadedAt. Transparent passthrough
-      // — the mock's select-shape ignores fields entirely, so the
-      // joined `lastSeenAt` simply doesn't appear in result rows; the
-      // shaping block's `!mixRow.lastSeenAt` clause then defaults
-      // `unread` to true, which the relevant test asserts.
-      leftJoin: () => link,
+      innerJoin: (table: unknown, on?: unknown) => {
+        if (table === clientContactsMarker) exactPairJoinSpy(on);
+        return link;
+      },
+      leftJoin: (table: unknown, on?: unknown) => {
+        if (table === clientContactsMarker) clientContactLeftJoinSpy(on);
+        return link;
+      },
       // Terminal-as-promise so the router can `await` the chain at any
       // point (e.g. after .where() with no orderBy/limit).
       get then() {
@@ -263,6 +266,8 @@ const {
     activityTracksWhereSpy,
     activityBookingsWhereSpy,
     activityInvoicesWhereSpy,
+    exactPairJoinSpy,
+    clientContactLeftJoinSpy,
     resetCallCounts,
     dbMock,
   };
@@ -301,7 +306,9 @@ vi.mock("@skitza/db", () => ({
   isNull: (col: unknown) => ({ isNull: col }),
   isNotNull: (col: unknown) => ({ isNotNull: col }),
   ilike: (col: unknown, val: unknown) => ({ ilike: [col, val] }),
-  sql: () => ({ sql: true }),
+  sql: (_strings: TemplateStringsArray, ...values: unknown[]) => ({
+    sqlValues: values,
+  }),
 }));
 
 // Re-import the mocked symbols so the auth-boundary tests assert the
@@ -332,6 +339,8 @@ beforeEach(() => {
   activityTracksWhereSpy.mockReset();
   activityBookingsWhereSpy.mockReset();
   activityInvoicesWhereSpy.mockReset();
+  exactPairJoinSpy.mockReset();
+  clientContactLeftJoinSpy.mockReset();
   resetCallCounts();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
@@ -405,6 +414,7 @@ describe("artist.home", () => {
         projectId: "proj1",
         uploadedAt: new Date("2026-04-17T12:00:00Z"),
         audioUrl: "https://r2/summer-v2.mp3",
+        lastSeenAt: new Date("2026-04-16T12:00:00Z"),
       },
     ]);
 
@@ -420,7 +430,7 @@ describe("artist.home", () => {
       projectId: "proj1",
       uploadedAt: new Date("2026-04-17T12:00:00Z"),
       audioUrl: "https://r2/summer-v2.mp3",
-      // SK-33: no `lastSeenAt` seeded → !lastSeenAt → unread = true.
+      // SK-33: the upload is newer than the relationship's lastSeenAt.
       unread: true,
     });
   });
@@ -499,151 +509,47 @@ describe("artist.home", () => {
     }
   });
 
-  it("scopes ALL queries to the artist's clerkUserId (auth boundary)", async () => {
-    // The single most important invariant: every fan-out query is
-    // gated through the clientContacts SELECT at the top, which MUST
-    // filter by clerkUserId = ctx.userId. If the router ever swaps in
-    // a hardcoded id (or queries the wrong column), the artist sees
-    // someone else's data — silent and disastrous.
-    contactsSelectMock.mockResolvedValueOnce([]);
-    const caller = await buildCaller("user_alice");
-    await caller.artist.home();
-
-    const whereArg = contactsWhereSpy.mock.calls[0]?.[0];
-    expect(whereArg).toEqual({
-      and: [
-        { eq: [clientContacts.clerkUserId, "user_alice"] },
-        { isNull: clientContacts.archivedAt },
-      ],
-    });
-  });
 });
 
 // ─── Sub-query auth boundary ─────────────────────────────────────────
-// The contacts gating SELECT is necessary but not sufficient: a
-// regression that drops the inArray(producerId, myProducerIds) or
-// inArray(<email-col>, myEmails) predicate from any of the six
-// downstream sub-queries would silently leak cross-producer data into
-// the Home tab. These tests crawl the captured WHERE arg of each
-// sub-query and assert both scoping predicates by column-marker
-// identity, so a column rename or a swap-out is also caught.
-//
-// The mocked drizzle helpers in this file return marker objects:
-//   eq(col, val)        → { eq: [col, val] }
-//   inArray(col, vals)  → { inArray: [col, vals] }
-//   and(...preds)       → { and: [pred, ...] }
-// findPredicate walks an arbitrarily nested and(...) tree to find a
-// (operator, column) pair, asserting strict-equal column identity.
-function findPredicate(
-  where: unknown,
-  operator: "eq" | "inArray",
-  columnMarker: unknown,
-): unknown[] | null {
-  if (!where || typeof where !== "object") return null;
-  // and: [...preds] — recurse into each child predicate.
-  if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
-    for (const p of (where as { and: unknown[] }).and) {
-      const found = findPredicate(p, operator, columnMarker);
-      if (found) return found;
-    }
-    return null;
-  }
-  // eq: [col, val] or inArray: [col, arr] — check column identity.
-  if (operator in where) {
-    const args = (where as Record<string, unknown[]>)[operator];
-    if (Array.isArray(args) && args[0] === columnMarker) return args;
-  }
-  return null;
+// Each Home query must join one active client-contact row to the exact
+// resource producer/email pair. Independent producer and email arrays
+// create a Cartesian product and authorize the wrong studio/client.
+function exactPairJoin(
+  clerkUserId: string,
+  producerColumn: unknown,
+  emailColumn: unknown,
+): unknown {
+  return {
+    and: [
+      { eq: [clientContacts.clerkUserId, clerkUserId] },
+      { eq: [clientContacts.producerId, producerColumn] },
+      {
+        eq: [
+          { sqlValues: [clientContacts.email] },
+          { sqlValues: [emailColumn] },
+        ],
+      },
+      { isNull: clientContacts.archivedAt },
+    ],
+  };
 }
 
 describe("artist.home auth boundary (sub-queries)", () => {
-  // 2-producer / 2-email artist so the inArray() arg arrays are
-  // non-trivial and the assertion proves the WHERE got the *right*
-  // ids/emails (not just any ids/emails).
-  const seedTwoStudios = () => {
-    contactsSelectMock.mockResolvedValueOnce([
-      { id: "c1", producerId: "p1", email: "dan@x.com" },
-      { id: "c2", producerId: "p2", email: "DAN+studio@x.com" },
+  it("correlates every booking, project, and invoice to one exact active relationship", async () => {
+    const caller = await buildCaller("user_alice");
+    await caller.artist.home();
+
+    expect(exactPairJoinSpy.mock.calls.map((call) => call[0])).toEqual([
+      exactPairJoin("user_alice", bookings.producerId, bookings.artistEmail),
+      exactPairJoin("user_alice", bookings.producerId, bookings.artistEmail),
+      exactPairJoin("user_alice", projects.producerId, projects.artistEmail),
+      exactPairJoin("user_alice", invoices.producerId, invoices.customerEmail),
+      exactPairJoin("user_alice", projects.producerId, projects.artistEmail),
+      exactPairJoin("user_alice", bookings.producerId, bookings.artistEmail),
+      exactPairJoin("user_alice", invoices.producerId, invoices.customerEmail),
     ]);
-  };
-
-  it("bookings sub-query scopes by myProducerIds + myEmails", async () => {
-    seedTwoStudios();
-    const caller = await buildCaller();
-    await caller.artist.home();
-
-    // Main bookings sub-query (next session).
-    const whereArg = bookingsWhereSpy.mock.calls[0]?.[0];
-    const producerPred = findPredicate(whereArg, "inArray", bookings.producerId);
-    const emailPred = findPredicate(whereArg, "inArray", bookings.artistEmail);
-
-    expect(producerPred).not.toBeNull();
-    expect(emailPred).not.toBeNull();
-    expect(producerPred?.[1]).toEqual(["p1", "p2"]);
-    // Emails are lowercased inside the router before the inArray.
-    expect(emailPred?.[1]).toEqual(["dan@x.com", "dan+studio@x.com"]);
-
-    // Activity bookings sub-query — same scoping must apply.
-    const activityWhereArg = activityBookingsWhereSpy.mock.calls[0]?.[0];
-    expect(
-      findPredicate(activityWhereArg, "inArray", bookings.producerId),
-    ).not.toBeNull();
-    expect(
-      findPredicate(activityWhereArg, "inArray", bookings.artistEmail),
-    ).not.toBeNull();
-  });
-
-  it("track_versions sub-query scopes by myProducerIds + myEmails (via projects)", async () => {
-    seedTwoStudios();
-    const caller = await buildCaller();
-    await caller.artist.home();
-
-    // Track-versions joins through project_tracks → projects, so the
-    // scoping predicates live on the projects table (not track_versions).
-    const whereArg = trackVersionsWhereSpy.mock.calls[0]?.[0];
-    const producerPred = findPredicate(whereArg, "inArray", projects.producerId);
-    const emailPred = findPredicate(whereArg, "inArray", projects.artistEmail);
-
-    expect(producerPred).not.toBeNull();
-    expect(emailPred).not.toBeNull();
-    expect(producerPred?.[1]).toEqual(["p1", "p2"]);
-    expect(emailPred?.[1]).toEqual(["dan@x.com", "dan+studio@x.com"]);
-
-    // Activity track-uploads sub-query — same scoping must apply.
-    const activityWhereArg = activityTracksWhereSpy.mock.calls[0]?.[0];
-    expect(
-      findPredicate(activityWhereArg, "inArray", projects.producerId),
-    ).not.toBeNull();
-    expect(
-      findPredicate(activityWhereArg, "inArray", projects.artistEmail),
-    ).not.toBeNull();
-  });
-
-  it("invoices sub-query scopes by myProducerIds + my customerEmail candidates", async () => {
-    seedTwoStudios();
-    const caller = await buildCaller();
-    await caller.artist.home();
-
-    // Invoices uses customerEmail (not artistEmail) — the column name
-    // diverges from bookings/projects, which is exactly the kind of
-    // accidental swap this test guards against.
-    const whereArg = invoicesWhereSpy.mock.calls[0]?.[0];
-    const producerPred = findPredicate(whereArg, "inArray", invoices.producerId);
-    const emailPred = findPredicate(whereArg, "inArray", invoices.customerEmail);
-
-    expect(producerPred).not.toBeNull();
-    expect(emailPred).not.toBeNull();
-    expect(producerPred?.[1]).toEqual(["p1", "p2"]);
-    expect(emailPred?.[1]).toEqual(["dan@x.com", "dan+studio@x.com"]);
-
-    // Activity invoices sub-query — same scoping must apply.
-    const activityWhereArg = activityInvoicesWhereSpy.mock.calls[0]?.[0];
-    expect(
-      findPredicate(activityWhereArg, "inArray", invoices.producerId),
-    ).not.toBeNull();
-    expect(
-      findPredicate(activityWhereArg, "inArray", invoices.customerEmail),
-    ).not.toBeNull();
+    expect(clientContactLeftJoinSpy).not.toHaveBeenCalled();
   });
 });
 

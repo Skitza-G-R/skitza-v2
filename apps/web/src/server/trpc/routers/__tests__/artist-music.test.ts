@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Test doubles ────────────────────────────────────────────────────
-// Same hoisted-mock pattern as artist-home.test.ts. Three SELECTs fan
+// Same hoisted-mock pattern as artist-home.test.ts. Two SELECTs fan
 // out for `artist.music.projects`:
-//   1. clientContacts          — figure out my (producerIds × emails)
-//   2. projects ⨝ producers    — list projects scoped by step 1
-//   3. trackVersions ⨝ project_tracks — latest upload + count per project
+//   1. projects ⨝ producers ⨝ clientContacts — exact relationship pairs
+//   2. trackVersions ⨝ project_tracks ⨝ clientContacts — per-project stats
 //
 // Test BEHAVIOR (right shape returned), with a single auth-boundary
 // test crawling each WHERE clause for column-marker identity.
@@ -22,6 +21,8 @@ const {
   contactsWhereSpy,
   projectsWhereSpy,
   trackStatsWhereSpy,
+  exactPairJoinSpy,
+  clientContactLeftJoinSpy,
   resetCallCounts,
   dbMock,
 } = vi.hoisted(() => {
@@ -32,6 +33,8 @@ const {
   const contactsWhereSpy = vi.fn<(arg: unknown) => void>();
   const projectsWhereSpy = vi.fn<(arg: unknown) => void>();
   const trackStatsWhereSpy = vi.fn<(arg: unknown) => void>();
+  const exactPairJoinSpy = vi.fn<(arg: unknown) => void>();
+  const clientContactLeftJoinSpy = vi.fn<(arg: unknown) => void>();
 
   const clientContactsMarker = {
     __table: "client_contacts",
@@ -90,8 +93,8 @@ const {
       orderBy: () => Link;
       limit: () => Promise<Record<string, unknown>[]>;
       groupBy: () => Link;
-      innerJoin: () => Link;
-      leftJoin: () => Link;
+      innerJoin: (table: unknown, on?: unknown) => Link;
+      leftJoin: (table: unknown, on?: unknown) => Link;
       then: Promise<Record<string, unknown>[]>["then"];
     };
     const link: Link = {
@@ -102,8 +105,14 @@ const {
       orderBy: () => link,
       limit: () => get(),
       groupBy: () => link,
-      innerJoin: () => link,
-      leftJoin: () => link,
+      innerJoin: (table: unknown, on?: unknown) => {
+        if (table === clientContactsMarker) exactPairJoinSpy(on);
+        return link;
+      },
+      leftJoin: (table: unknown, on?: unknown) => {
+        if (table === clientContactsMarker) clientContactLeftJoinSpy(on);
+        return link;
+      },
       get then() {
         const p = get();
         return p.then.bind(p);
@@ -147,6 +156,8 @@ const {
     contactsWhereSpy,
     projectsWhereSpy,
     trackStatsWhereSpy,
+    exactPairJoinSpy,
+    clientContactLeftJoinSpy,
     resetCallCounts,
     dbMock,
   };
@@ -185,7 +196,9 @@ vi.mock("@skitza/db", () => ({
   isNull: (col: unknown) => ({ isNull: col }),
   isNotNull: (col: unknown) => ({ isNotNull: col }),
   ilike: (col: unknown, val: unknown) => ({ ilike: [col, val] }),
-  sql: () => ({ sql: true }),
+  sql: (_strings: TemplateStringsArray, ...values: unknown[]) => ({
+    sqlValues: values,
+  }),
 }));
 
 // Re-import the mocked symbols so the auth-boundary tests assert the
@@ -201,6 +214,8 @@ beforeEach(() => {
   contactsWhereSpy.mockReset();
   projectsWhereSpy.mockReset();
   trackStatsWhereSpy.mockReset();
+  exactPairJoinSpy.mockReset();
+  clientContactLeftJoinSpy.mockReset();
   resetCallCounts();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
@@ -419,10 +434,7 @@ describe("artist.music.projects", () => {
     expect(result.projects[2]?.latestTrackTitle).toBeNull();
   });
 
-  it("scopes by clerkUserId + myProducerIds + myEmails (auth boundary)", async () => {
-    // Two-studio artist with mixed-case emails so the assertion proves
-    // both the producer-id list and the lowercased email list are
-    // forwarded to the projects sub-query.
+  it("correlates each project query to one exact active relationship", async () => {
     contactsSelectMock.mockResolvedValueOnce([
       { id: "c1", producerId: "p1", email: "dan@x.com" },
       { id: "c2", producerId: "p2", email: "DAN+studio@x.com" },
@@ -430,57 +442,24 @@ describe("artist.music.projects", () => {
     const caller = await buildCaller("user_alice");
     await caller.artist.music.projects();
 
-    // 1. The gating contacts SELECT is filtered by clerkUserId AND
-    //    archivedAt IS NULL (so a disconnected studio doesn't leak in).
-    const contactsArg = contactsWhereSpy.mock.calls[0]?.[0];
-    expect(contactsArg).toEqual({
+    const exactRelationship = {
       and: [
         { eq: [clientContacts.clerkUserId, "user_alice"] },
+        { eq: [clientContacts.producerId, projects.producerId] },
+        {
+          eq: [
+            { sqlValues: [clientContacts.email] },
+            { sqlValues: [projects.artistEmail] },
+          ],
+        },
         { isNull: clientContacts.archivedAt },
       ],
-    });
+    };
 
-    // 2. The projects sub-query scopes by both producerId AND artistEmail.
-    const projectsArg = projectsWhereSpy.mock.calls[0]?.[0];
-    const producerPred = findPredicate(
-      projectsArg,
-      "inArray",
-      projects.producerId,
-    );
-    const emailPred = findPredicate(
-      projectsArg,
-      "inArray",
-      projects.artistEmail,
-    );
-
-    expect(producerPred).not.toBeNull();
-    expect(emailPred).not.toBeNull();
-    expect(producerPred?.[1]).toEqual(["p1", "p2"]);
-    // Emails are lowercased before the inArray (matches artist-home).
-    expect(emailPred?.[1]).toEqual(["dan@x.com", "dan+studio@x.com"]);
+    expect(exactPairJoinSpy.mock.calls.map((call) => call[0])).toEqual([
+      exactRelationship,
+      exactRelationship,
+    ]);
+    expect(clientContactLeftJoinSpy).not.toHaveBeenCalled();
   });
 });
-
-// findPredicate copied from artist-home.test.ts — walks an
-// arbitrarily nested and(...) tree to find a (operator, column) pair
-// by strict-equal column identity. Returns the [col, val] tuple so the
-// caller can also assert the value side.
-function findPredicate(
-  where: unknown,
-  operator: "eq" | "inArray",
-  columnMarker: unknown,
-): unknown[] | null {
-  if (!where || typeof where !== "object") return null;
-  if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
-    for (const p of (where as { and: unknown[] }).and) {
-      const found = findPredicate(p, operator, columnMarker);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (operator in where) {
-    const args = (where as Record<string, unknown[]>)[operator];
-    if (Array.isArray(args) && args[0] === columnMarker) return args;
-  }
-  return null;
-}
