@@ -34,7 +34,6 @@ export const paymentRouter = router({
           productId: bookings.productId,
           packageNameSnapshot: bookings.packageNameSnapshot,
           producerName: producers.displayName,
-          producerTranzilaTerminalName: producers.tranzilaTerminalName,
         })
         .from(bookings)
         .innerJoin(producers, eq(producers.id, bookings.producerId))
@@ -104,7 +103,6 @@ export const paymentRouter = router({
         amountCents,
         currency: product.currency,
         producerName: row.producerName ?? "Producer",
-        producerTranzilaTerminalName: row.producerTranzilaTerminalName,
         planKind,
         planLabel,
       };
