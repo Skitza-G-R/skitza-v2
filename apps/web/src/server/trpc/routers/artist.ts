@@ -29,6 +29,10 @@ import { artistProcedure } from "../artist-procedure";
 import { artistPurchaseRouter } from "./purchase";
 import { groupStudiosForArtist } from "~/server/artist/identity";
 import {
+  activeArtistClientPair,
+  resolveProjectOwnership,
+} from "~/server/artist/access";
+import {
   SITE_URL,
   sendNewCommentFromArtistEmail,
 } from "~/server/email/send";
@@ -54,55 +58,6 @@ async function productCommercialTermsColumnsAvailable(
   return (result.rows[0]?.columnCount ?? 0) === 2;
 }
 
-// ─── Ownership guard ─────────────────────────────────────────────────
-// Resolves the signed-in artist's ownership of a given project. Both
-// the `music.project` read and the `music.addComment` write route
-// through this helper: the WHERE clause scopes clientContacts by
-// (clerkUserId, producerId, email) triplet so someone who shares a
-// producer with the project owner but has a different artistEmail can
-// NOT see / comment on that project.
-//
-// Deliberately throws NOT_FOUND (not UNAUTHORIZED / FORBIDDEN) in every
-// rejection path so an attacker can't tell "project doesn't exist"
-// from "project exists but isn't yours" — both look identical on the
-// wire.
-async function resolveProjectOwnership(
-  db: Db,
-  clerkUserId: string,
-  projectId: string,
-): Promise<{
-  project: typeof projects.$inferSelect;
-  contact: typeof clientContacts.$inferSelect;
-}> {
-  // 1. Load the project. If it doesn't exist at all, NOT_FOUND.
-  const [project] = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1);
-  if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-
-  // 2. Find the clientContacts row that (a) belongs to this Clerk
-  //    user, (b) is under this project's producer, AND (c) has the
-  //    exact email the project was shared with (case-insensitive).
-  //    Any miss → NOT_FOUND.
-  const [contact] = await db
-    .select()
-    .from(clientContacts)
-    .where(
-      and(
-        eq(clientContacts.clerkUserId, clerkUserId),
-        eq(clientContacts.producerId, project.producerId),
-        eq(clientContacts.email, project.artistEmail.toLowerCase()),
-        isNull(clientContacts.archivedAt),
-      ),
-    )
-    .limit(1);
-  if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
-
-  return { project, contact };
-}
-
 // ─── artist.music sub-router ─────────────────────────────────────────
 // Lives inside the parent artist router. Sibling procedures (project
 // detail, addComment, etc.) land here in Task 9, so we set up the
@@ -119,32 +74,8 @@ const musicSubrouter = router({
   // window-function query because Drizzle's window helpers are awkward
   // and the two-query path is far easier to read + test.
   projects: artistProcedure.query(async ({ ctx }) => {
-    // 1. Auth boundary — same gating SELECT as artist.home. Empty
-    //    short-circuits so we don't fan out to two empty SELECTs.
-    const myContacts = await ctx.db
-      .select({
-        id: clientContacts.id,
-        producerId: clientContacts.producerId,
-        email: clientContacts.email,
-      })
-      .from(clientContacts)
-      .where(
-        and(
-          eq(clientContacts.clerkUserId, ctx.clerkUserId),
-          isNull(clientContacts.archivedAt),
-        ),
-      );
-
-    if (myContacts.length === 0) {
-      return { projects: [] as MusicProjectRow[] };
-    }
-
-    const myEmails = [
-      ...new Set(myContacts.map((c) => c.email.toLowerCase())),
-    ];
-    const myProducerIds = [...new Set(myContacts.map((c) => c.producerId))];
-
-    // 2. Fan out: project metadata + per-project track stats.
+    // Fan out: project metadata + per-project track stats. Each query
+    // joins the signed-in artist's exact active producer/email pair.
     //    The track-stats SELECT joins project_tracks → track_versions
     //    so we get count(distinct project_tracks.id) AND the latest
     //    track_version per project (label + parent track title +
@@ -163,11 +94,12 @@ const musicSubrouter = router({
         })
         .from(projects)
         .innerJoin(producers, eq(producers.id, projects.producerId))
-        .where(
-          and(
-            inArray(projects.producerId, myProducerIds),
-            inArray(projects.artistEmail, myEmails),
-          ),
+        .innerJoin(
+          clientContacts,
+          activeArtistClientPair(ctx.clerkUserId, {
+            producerId: projects.producerId,
+            email: projects.artistEmail,
+          }),
         ),
 
       // Pull every (project_id, track title, version label, uploaded_at)
@@ -183,13 +115,14 @@ const musicSubrouter = router({
         })
         .from(projectTracks)
         .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-        .leftJoin(trackVersions, eq(trackVersions.trackId, projectTracks.id))
-        .where(
-          and(
-            inArray(projects.producerId, myProducerIds),
-            inArray(projects.artistEmail, myEmails),
-          ),
-        ),
+        .innerJoin(
+          clientContacts,
+          activeArtistClientPair(ctx.clerkUserId, {
+            producerId: projects.producerId,
+            email: projects.artistEmail,
+          }),
+        )
+        .leftJoin(trackVersions, eq(trackVersions.trackId, projectTracks.id)),
     ]);
 
     // 3. Reduce stats rows → per-project (trackCount, latest version).
@@ -269,11 +202,8 @@ const musicSubrouter = router({
   // the artist side. One row per TRACK — the latest version per track
   // — with the upload timestamp used to sort newest-first.
   //
-  // Auth boundary: same gating SELECT as `projects` above — we resolve
-  // the (clerkUserId → email + producerId) tuples via clientContacts,
-  // then scope every downstream query by `(projects.producerId IN,
-  // projects.artistEmail IN)`. Identical fan-out shape to the producer
-  // procedure: one rows query + one comments count query.
+  // Auth boundary: join each project to the signed-in artist's exact
+  // active producer/email relationship.
   //
   // `clientName` on the wire is overloaded: on the producer side it's
   // the artist's name (the project's `clientName` column). On the
@@ -281,22 +211,6 @@ const musicSubrouter = router({
   // producer's display name. The shared component reads it as a
   // generic "partner label" and renders it identically.
   list: artistProcedure.query(async ({ ctx }) => {
-    const myContacts = await ctx.db
-      .select({
-        producerId: clientContacts.producerId,
-        email: clientContacts.email,
-      })
-      .from(clientContacts)
-      .where(
-        and(
-          eq(clientContacts.clerkUserId, ctx.clerkUserId),
-          isNull(clientContacts.archivedAt),
-        ),
-      );
-    if (myContacts.length === 0) return { tracks: [] };
-    const myEmails = [...new Set(myContacts.map((c) => c.email.toLowerCase()))];
-    const myProducerIds = [...new Set(myContacts.map((c) => c.producerId))];
-
     const rows = await ctx.db
       .select({
         versionId: trackVersions.id,
@@ -314,13 +228,14 @@ const musicSubrouter = router({
       .from(trackVersions)
       .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
       .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-      .innerJoin(producers, eq(producers.id, projects.producerId))
-      .where(
-        and(
-          inArray(projects.producerId, myProducerIds),
-          inArray(projects.artistEmail, myEmails),
-        ),
+      .innerJoin(
+        clientContacts,
+        activeArtistClientPair(ctx.clerkUserId, {
+          producerId: projects.producerId,
+          email: projects.artistEmail,
+        }),
       )
+      .innerJoin(producers, eq(producers.id, projects.producerId))
       .orderBy(desc(trackVersions.uploadedAt));
 
     // Collapse versions → tracks, keeping the newest per track.
@@ -1327,21 +1242,6 @@ const bookSubrouter = router({
   // Amount + copy share the calendar flow's one explicit fallback:
   // pay in full when offered, otherwise the first supported plan.
   myPendingPayments: artistProcedure.query(async ({ ctx }) => {
-    const myContacts = await ctx.db
-      .select({ email: clientContacts.email })
-      .from(clientContacts)
-      .where(
-        and(
-          eq(clientContacts.clerkUserId, ctx.clerkUserId),
-          isNull(clientContacts.archivedAt),
-        ),
-      );
-    if (myContacts.length === 0) return { bookings: [] };
-
-    const myEmails = [
-      ...new Set(myContacts.map((c) => c.email.toLowerCase())),
-    ];
-
     const rows = await ctx.db
       .select({
         id: bookings.id,
@@ -1354,13 +1254,21 @@ const bookSubrouter = router({
       })
       .from(bookings)
       .innerJoin(producers, eq(producers.id, bookings.producerId))
-      .leftJoin(products, eq(products.id, bookings.productId))
-      .where(
+      .innerJoin(
+        clientContacts,
+        activeArtistClientPair(ctx.clerkUserId, {
+          producerId: bookings.producerId,
+          email: bookings.artistEmail,
+        }),
+      )
+      .leftJoin(
+        products,
         and(
-          eq(bookings.status, "pending_payment"),
-          inArray(bookings.artistEmail, myEmails),
+          eq(products.id, bookings.productId),
+          eq(products.producerId, bookings.producerId),
         ),
       )
+      .where(eq(bookings.status, "pending_payment"))
       .orderBy(asc(bookings.startsAt));
 
     const out = rows.map((r) => {
@@ -1938,45 +1846,9 @@ export const artistRouter = router({
   //
   // The query fans out via Promise.all across the artist's studios so a
   // signed-in user with three studios pays the same wall-time as one
-  // with one. Each sub-query independently scopes to (myProducerIds, my
-  // emails) — the auth boundary is the very first SELECT against
-  // client_contacts, which gates every downstream filter on
-  // clerkUserId = ctx.userId.
+  // with one. Each sub-query independently joins the exact active
+  // producer/email relationship for the signed-in artist.
   home: artistProcedure.query(async ({ ctx }) => {
-    // 1. Find all my client_contacts rows (producer ids + emails).
-    //    This is the auth boundary — every other query below is scoped
-    //    to (myProducerIds × myEmails). Empty result short-circuits to
-    //    a fully-empty payload so we don't waste a fan-out on someone
-    //    with zero studio relationships.
-    const myContacts = await ctx.db
-      .select({
-        id: clientContacts.id,
-        producerId: clientContacts.producerId,
-        email: clientContacts.email,
-      })
-      .from(clientContacts)
-      .where(
-        and(
-          eq(clientContacts.clerkUserId, ctx.clerkUserId),
-          isNull(clientContacts.archivedAt),
-        ),
-      );
-
-    if (myContacts.length === 0) {
-      return {
-        nextSession: null,
-        upcomingSessions: [],
-        latestMix: null,
-        outstandingBalance: null,
-        activity: [] as ActivityItem[],
-      };
-    }
-
-    const myEmails = [
-      ...new Set(myContacts.map((c) => c.email.toLowerCase())),
-    ];
-    const myProducerIds = [...new Set(myContacts.map((c) => c.producerId))];
-
     const now = new Date();
 
     // 2-5. Parallelize the four data needs. Each sub-query is its own
@@ -2006,10 +1878,15 @@ export const artistRouter = router({
         })
         .from(bookings)
         .innerJoin(producers, eq(producers.id, bookings.producerId))
+        .innerJoin(
+          clientContacts,
+          activeArtistClientPair(ctx.clerkUserId, {
+            producerId: bookings.producerId,
+            email: bookings.artistEmail,
+          }),
+        )
         .where(
           and(
-            inArray(bookings.producerId, myProducerIds),
-            inArray(bookings.artistEmail, myEmails),
             eq(bookings.status, "confirmed"),
             gte(bookings.startsAt, now),
           ),
@@ -2030,10 +1907,15 @@ export const artistRouter = router({
         })
         .from(bookings)
         .innerJoin(producers, eq(producers.id, bookings.producerId))
+        .innerJoin(
+          clientContacts,
+          activeArtistClientPair(ctx.clerkUserId, {
+            producerId: bookings.producerId,
+            email: bookings.artistEmail,
+          }),
+        )
         .where(
           and(
-            inArray(bookings.producerId, myProducerIds),
-            inArray(bookings.artistEmail, myEmails),
             eq(bookings.status, "confirmed"),
             gte(bookings.startsAt, now),
           ),
@@ -2046,11 +1928,8 @@ export const artistRouter = router({
       // project_tracks → projects chain because track_versions only
       // know their parent track, not the project's owner.
       //
-      // SK-33: leftJoin clientContacts so we can pull the artist's
-      // lastSeenAt for THIS producer and derive `unread` below. Scoped
-      // by clerkUserId + active so we get exactly one contact row per
-      // producer (or zero if the row never existed — defensive only,
-      // since the outer WHERE already filtered by myProducerIds).
+      // SK-33: the exact relationship join also supplies lastSeenAt so
+      // we can derive `unread` below.
       ctx.db
         .select({
           id: trackVersions.id,
@@ -2067,19 +1946,12 @@ export const artistRouter = router({
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
         .innerJoin(projects, eq(projects.id, projectTracks.projectId))
         .innerJoin(producers, eq(producers.id, projects.producerId))
-        .leftJoin(
+        .innerJoin(
           clientContacts,
-          and(
-            eq(clientContacts.producerId, projects.producerId),
-            eq(clientContacts.clerkUserId, ctx.clerkUserId),
-            isNull(clientContacts.archivedAt),
-          ),
-        )
-        .where(
-          and(
-            inArray(projects.producerId, myProducerIds),
-            inArray(projects.artistEmail, myEmails),
-          ),
+          activeArtistClientPair(ctx.clerkUserId, {
+            producerId: projects.producerId,
+            email: projects.artistEmail,
+          }),
         )
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(1),
@@ -2094,13 +1966,14 @@ export const artistRouter = router({
           currency: invoices.currency,
         })
         .from(invoices)
-        .where(
-          and(
-            inArray(invoices.producerId, myProducerIds),
-            inArray(invoices.customerEmail, myEmails),
-            inArray(invoices.status, ["draft", "sent", "uncollectible"]),
-          ),
-        ),
+        .innerJoin(
+          clientContacts,
+          activeArtistClientPair(ctx.clerkUserId, {
+            producerId: invoices.producerId,
+            email: invoices.customerEmail,
+          }),
+        )
+        .where(inArray(invoices.status, ["draft", "sent", "uncollectible"])),
 
       // (5a) Activity — recent track uploads (cap at 10 from this
       // source, then merge + cap at 10 across all sources below).
@@ -2118,11 +1991,12 @@ export const artistRouter = router({
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
         .innerJoin(projects, eq(projects.id, projectTracks.projectId))
         .innerJoin(producers, eq(producers.id, projects.producerId))
-        .where(
-          and(
-            inArray(projects.producerId, myProducerIds),
-            inArray(projects.artistEmail, myEmails),
-          ),
+        .innerJoin(
+          clientContacts,
+          activeArtistClientPair(ctx.clerkUserId, {
+            producerId: projects.producerId,
+            email: projects.artistEmail,
+          }),
         )
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(10),
@@ -2138,13 +2012,14 @@ export const artistRouter = router({
         })
         .from(bookings)
         .innerJoin(producers, eq(producers.id, bookings.producerId))
-        .where(
-          and(
-            inArray(bookings.producerId, myProducerIds),
-            inArray(bookings.artistEmail, myEmails),
-            eq(bookings.status, "confirmed"),
-          ),
+        .innerJoin(
+          clientContacts,
+          activeArtistClientPair(ctx.clerkUserId, {
+            producerId: bookings.producerId,
+            email: bookings.artistEmail,
+          }),
         )
+        .where(eq(bookings.status, "confirmed"))
         .orderBy(desc(bookings.statusChangedAt))
         .limit(10),
 
@@ -2161,13 +2036,14 @@ export const artistRouter = router({
         })
         .from(invoices)
         .innerJoin(producers, eq(producers.id, invoices.producerId))
-        .where(
-          and(
-            inArray(invoices.producerId, myProducerIds),
-            inArray(invoices.customerEmail, myEmails),
-            eq(invoices.status, "paid"),
-          ),
+        .innerJoin(
+          clientContacts,
+          activeArtistClientPair(ctx.clerkUserId, {
+            producerId: invoices.producerId,
+            email: invoices.customerEmail,
+          }),
         )
+        .where(eq(invoices.status, "paid"))
         .orderBy(desc(invoices.paidAt))
         .limit(10),
     ]);
@@ -2198,13 +2074,9 @@ export const artistRouter = router({
           uploadedAt: mixRow.uploadedAt,
           audioUrl: mixRow.audioUrl,
           // SK-33: derive `unread` for the NEW badge on the Last
-          // Upload hero. True when the artist hasn't acknowledged
-          // this track yet — either no lastSeenAt at all (leftJoin
-          // miss, shouldn't happen in practice but defensive) or the
-          // seen-at predates the upload.
-          unread:
-            !mixRow.lastSeenAt ||
-            mixRow.lastSeenAt.getTime() < mixRow.uploadedAt.getTime(),
+          // Upload hero. True when the relationship's seen-at predates
+          // the upload.
+          unread: mixRow.lastSeenAt.getTime() < mixRow.uploadedAt.getTime(),
         }
       : null;
 
@@ -2286,60 +2158,6 @@ export const artistRouter = router({
       outstandingBalance,
       activity: cappedActivity,
     };
-  }),
-
-  // Tranzila success page lookup. Returns the artist's most recently
-  // confirmed booking within the last 10 minutes — the success page has
-  // no querystring to identify the booking (Tranzila strips arbitrary
-  // params), so we infer it from the freshly-confirmed booking attached
-  // to one of this artist's emails. Returns null if nothing recent;
-  // the success page renders a generic celebration in that case.
-  //
-  // Auth boundary: `clientContacts.clerkUserId = ctx.clerkUserId` is the
-  // gate — we only consider bookings whose artistEmail matches one of
-  // this user's contact emails. Cross-tenant leakage is impossible
-  // because both producerId and email filters live on the same row.
-  //
-  // 10-minute window keeps an old confirmed booking from accidentally
-  // re-rendering if the artist navigates to /artist/payment/success
-  // long after the fact.
-  recentConfirmedBooking: artistProcedure.query(async ({ ctx }) => {
-    const myContacts = await ctx.db
-      .select({ email: clientContacts.email })
-      .from(clientContacts)
-      .where(
-        and(
-          eq(clientContacts.clerkUserId, ctx.clerkUserId),
-          isNull(clientContacts.archivedAt),
-        ),
-      );
-    if (myContacts.length === 0) return null;
-    const myEmails = [
-      ...new Set(myContacts.map((c) => c.email.toLowerCase())),
-    ];
-
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-    const rows = await ctx.db
-      .select({
-        id: bookings.id,
-        startsAt: bookings.startsAt,
-        durationMin: bookings.durationMin,
-        packageNameSnapshot: bookings.packageNameSnapshot,
-        tranzilaConfirmationCode: bookings.tranzilaConfirmationCode,
-        producerName: producers.displayName,
-      })
-      .from(bookings)
-      .innerJoin(producers, eq(producers.id, bookings.producerId))
-      .where(
-        and(
-          eq(bookings.status, "confirmed"),
-          inArray(bookings.artistEmail, myEmails),
-          gte(bookings.statusChangedAt, tenMinutesAgo),
-        ),
-      )
-      .orderBy(desc(bookings.statusChangedAt))
-      .limit(1);
-    return rows[0] ?? null;
   }),
 
   // Soft-disconnect the signed-in artist from one of their studios.

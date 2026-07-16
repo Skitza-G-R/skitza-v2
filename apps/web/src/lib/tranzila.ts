@@ -2,18 +2,16 @@
 // when no per-producer terminal is passed in. Don't import this from a
 // client component.
 //
-// Builds the URL for Tranzila's `iframenew.php` hosted page. The
-// payment page redirects the browser directly to this URL — the artist
-// pays on Tranzila's own page, then Tranzila redirects them back to:
-//   - on success → /artist/payment/success (server page confirms the booking)
-//   - on failure → /artist/payment/{bookingId}?error=payment_failed
-// notify_url_address is the server-to-server confirmation, posted to
-// /api/tranzila/callback by Tranzila independently.
+// Legacy-only URL builder retained until the separately scoped full Tranzila
+// removal. No production app route should call it. Both hosted-card return
+// paths and the notify callback now fail closed: none can confirm payment or
+// change a booking. Already-issued hosted URLs remain outside app control and
+// may still charge at Tranzila until handled operationally.
 //
 // `terminalName` is the per-producer Tranzila terminal (producers.tranzila_terminal_name).
 // When provided, payments route to that terminal so funds flow directly
 // to the producer; when null/undefined, we fall back to the master
-// sandbox terminal in env so the flow keeps working pre-onboarding.
+// sandbox terminal in env for legacy compatibility.
 
 export function buildTranzilaRedirectUrl(params: {
   amountCents: number;
@@ -66,9 +64,8 @@ export function buildTranzilaRedirectUrl(params: {
     nologo: "1",
     contact: params.artistName ?? "Artist",
     email: params.artistEmail ?? "",
-    // Pass the bookingId via pdesc — Tranzila echoes pdesc back on the
-    // success redirect, so the success page can recover the bookingId
-    // even if the success_url query string gets mangled.
+    // Retain the legacy pdesc shape for compatibility with already-issued
+    // hosted URLs. The fail-closed return page deliberately ignores it.
     pdesc: params.bookingId,
     // Use the legacy `*_url` parameter names — the newer `*_url_address`
     // variants mangle `https://` into `https:/` in Tranzila's redirect.

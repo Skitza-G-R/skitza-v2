@@ -3,9 +3,7 @@ import { TRPCError } from "@trpc/server";
 import {
   asc,
   createDb,
-  desc,
   eq,
-  portfolioTracks,
   producerExternalLinks,
   producers,
   type Db,
@@ -14,6 +12,7 @@ import {
 import { headers } from "next/headers";
 import { z } from "zod";
 import { publicProcedure, router } from "../init";
+import { listPublicPortfolioTracks } from "~/server/portfolio/public-portfolio";
 
 // `/join/<slug>` is the Instagram-bio-friendly public surface a stranger
 // hits before they sign up. The payload we return is deliberately
@@ -99,27 +98,8 @@ export const publicProfileRouter = router({
       // leave accent / font unused for Wave 1.
       const brand = producerRow.brand ?? {};
 
-      // Step 2: fetch the 3 most-recent portfolio tracks. The original
-      // shape filtered by `is_public_sample = true` (per-track opt-in
-      // for unsigned-in visitors), but the producer surface no longer
-      // exposes that toggle — every track in the portfolio is the
-      // public profile, full stop. We left the column on the schema
-      // (migration cost vs. rollback safety) but stopped reading it.
-      // Order by `created_at desc` so the producer's newest portfolio
-      // additions surface at the top of the teaser.
-      const sampleRows = await db
-        .select({
-          id: portfolioTracks.id,
-          title: portfolioTracks.title,
-          artist: portfolioTracks.artist,
-          audioUrl: portfolioTracks.audioUrl,
-          durationMs: portfolioTracks.durationMs,
-          peaksR2Key: portfolioTracks.peaksR2Key,
-        })
-        .from(portfolioTracks)
-        .where(eq(portfolioTracks.producerId, producerRow.id))
-        .orderBy(desc(portfolioTracks.createdAt))
-        .limit(3);
+      // Step 2: fetch only tracks the producer explicitly marked public.
+      const sampleRows = await listPublicPortfolioTracks(db, producerRow.id);
 
       // Step 3: fetch external streaming links (Wave 2, PRD §6.2
       // Section B). Ordered by the producer-curated `position` field

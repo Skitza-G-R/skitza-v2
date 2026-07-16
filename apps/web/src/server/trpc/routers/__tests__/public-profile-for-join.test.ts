@@ -322,12 +322,7 @@ describe("publicProfile.forJoin — 404", () => {
 });
 
 describe("publicProfile.forJoin — portfolio scope", () => {
-  // Behavior change (post-F9 iteration): the producer surface dropped
-  // the per-track "Public sample" toggle. The public profile IS the
-  // public surface — every portfolio track shows on /join/<slug>, no
-  // opt-in step. Consequence: no isPublicSample filter in the WHERE
-  // clause, scope only by producerId.
-  it("scopes by producerId and does NOT filter by isPublicSample", async () => {
+  it("scopes by producerId and returns only explicitly public tracks", async () => {
     producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
     trackSelectMock.mockResolvedValueOnce([]);
     const caller = await buildCaller();
@@ -339,7 +334,7 @@ describe("publicProfile.forJoin — portfolio scope", () => {
     ).toBe(true);
     expect(
       containsEq(lastTrackWhereArgs, portfolioTracks.isPublicSample, true),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

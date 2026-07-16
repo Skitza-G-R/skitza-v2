@@ -2,11 +2,12 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { TRPCError } from "@trpc/server";
 
-import { createDb, eq, portfolioTracks } from "@skitza/db";
+import { createDb } from "@skitza/db";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { JoinNav } from "~/components/join/join-nav";
 import { JoinBento } from "~/components/join/join-bento";
 import { JoinMiniPlayer } from "~/components/join/join-mini-player";
+import { countPublicPortfolioTracks } from "~/server/portfolio/public-portfolio";
 
 // SK-25: compacted to a single-viewport layout. The old hero +
 // meta-strip + samples-section + dark-CTA scroll-stack was replaced by
@@ -62,16 +63,15 @@ export default async function JoinPage({ params }: PageProps) {
   // `forJoin` tRPC contract to keep that payload minimal + stable.
   // Render-only, no persistence or client-state.
   const dbUrl = process.env.DATABASE_URL;
-  let totalCount = 0;
+  let publicTrackCount = 0;
   if (dbUrl) {
     const db = createDb(dbUrl);
-    const rows = await db
-      .select({ id: portfolioTracks.id })
-      .from(portfolioTracks)
-      .where(eq(portfolioTracks.producerId, data.producer.id));
-    totalCount = rows.length;
+    publicTrackCount = await countPublicPortfolioTracks(db, data.producer.id);
   }
-  const lockedCount = Math.max(0, totalCount - data.publicSamples.length);
+  const lockedCount = Math.max(
+    0,
+    publicTrackCount - data.publicSamples.length,
+  );
 
   return (
     <div className="relative flex min-h-dvh flex-col">
