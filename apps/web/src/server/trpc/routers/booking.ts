@@ -1411,11 +1411,9 @@ export const bookingRouter = router({
       return { ok: true as const };
     }),
 
-  // Public read of a confirmed booking by id. Used by surfaces that
-  // can't rely on a Clerk session (Tranzila's success redirect, future
-  // share links) — returns null for any booking that isn't yet
-  // confirmed, so a guessed UUID can't leak booking metadata before
-  // the artist actually paid.
+  // Legacy public read of a confirmed booking by id. The hosted-card return
+  // does not call this procedure, and a confirmed scheduling status is not
+  // evidence that a payment occurred.
   getConfirmedBooking: publicProcedure
     .input(z.object({ bookingId: z.string().uuid() }))
     .query(async ({ input }) => {

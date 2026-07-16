@@ -2160,52 +2160,6 @@ export const artistRouter = router({
     };
   }),
 
-  // Tranzila success page lookup. Returns the artist's most recently
-  // confirmed booking within the last 10 minutes — the success page has
-  // no querystring to identify the booking (Tranzila strips arbitrary
-  // params), so we infer it from the freshly-confirmed booking attached
-  // to one of this artist's emails. Returns null if nothing recent;
-  // the success page renders a generic celebration in that case.
-  //
-  // Auth boundary: `clientContacts.clerkUserId = ctx.clerkUserId` is the
-  // gate — we only consider bookings whose artistEmail matches one of
-  // this user's contact emails. Cross-tenant leakage is impossible
-  // because both producerId and email filters live on the same row.
-  //
-  // 10-minute window keeps an old confirmed booking from accidentally
-  // re-rendering if the artist navigates to /artist/payment/success
-  // long after the fact.
-  recentConfirmedBooking: artistProcedure.query(async ({ ctx }) => {
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-    const rows = await ctx.db
-      .select({
-        id: bookings.id,
-        startsAt: bookings.startsAt,
-        durationMin: bookings.durationMin,
-        packageNameSnapshot: bookings.packageNameSnapshot,
-        tranzilaConfirmationCode: bookings.tranzilaConfirmationCode,
-        producerName: producers.displayName,
-      })
-      .from(bookings)
-      .innerJoin(producers, eq(producers.id, bookings.producerId))
-      .innerJoin(
-        clientContacts,
-        activeArtistClientPair(ctx.clerkUserId, {
-          producerId: bookings.producerId,
-          email: bookings.artistEmail,
-        }),
-      )
-      .where(
-        and(
-          eq(bookings.status, "confirmed"),
-          gte(bookings.statusChangedAt, tenMinutesAgo),
-        ),
-      )
-      .orderBy(desc(bookings.statusChangedAt))
-      .limit(1);
-    return rows[0] ?? null;
-  }),
-
   // Soft-disconnect the signed-in artist from one of their studios.
   // Sets clientContacts.archivedAt so every artist-side read filters
   // the row out (the row itself stays for the producer's CRM history).

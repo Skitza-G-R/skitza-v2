@@ -47,12 +47,7 @@ describe("artist exact relationship wiring", () => {
     expect(block).toContain("eq(products.producerId, bookings.producerId)");
   });
 
-  it("scopes recent confirmed bookings by the exact booking relationship", () => {
-    const block = procedureBlock(
-      "  recentConfirmedBooking: artistProcedure.query",
-      "  // Soft-disconnect the signed-in artist",
-    );
-
-    expectExactRelationshipJoin(block, "bookings");
+  it("does not expose the removed recent-booking confirmation inference", () => {
+    expect(source).not.toContain("recentConfirmedBooking");
   });
 });
