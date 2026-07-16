@@ -1,639 +1,928 @@
 # Skitza — Product Requirements Document
 
-**Version:** 4.0  
-**Date:** April 2026  
-**Status:** Source of truth. All build decisions defer to this document.
+**Version:** 5.0
+**Date:** 16 July 2026
+**Status:** Durable product source of truth
 
----
+## 1. Authority and scope
 
-## §1 — Vision
+This PRD incorporates Gili's approved Linear master plan, **Approved complete plan — Clients, Projects, Music, Store & Payments**, approved on 16 July 2026.
 
-Skitza is the one app a solo music producer opens in the morning.
+When sources conflict, use this order:
 
-It replaces the Calendly + Samply + Notion + Stripe + WhatsApp stack with a single product. The producer's job is to make music with artists. Skitza's job is to handle everything else — scheduling, payments, file review, project tracking, portfolio, CRM — automatically where possible, one tap where not.
+1. Gili's latest explicit decision.
+2. The approved complete Linear master plan.
+3. Current code.
+4. This PRD.
+5. Older plans and backlog behavior.
 
-**Core product promise:**  
-> "One permanent link in your Instagram bio. Artists click, listen, sign up, and book — with zero manual client entry on your end."
+The approved master plan replaces older behavior for Clients, Projects, Music, Store, sessions, sharing, agreements, Payments, payment proofs, and downloads.
 
-Everything downstream — project tracking, deliverables, payment — materialises automatically from that first booking. The producer configures once and runs on autopilot.
+It does not authorize a production reset, migration, merge, deployment, or promotion. Those actions require separate exact approval from Gili.
 
----
+## 2. Product vision
 
-## §2 — Personas
+Skitza is a SaaS product for solo music producers. One producer link lets artists listen, sign up, book, and pay externally while Skitza keeps the work, agreement, payment, and delivery history in one place.
 
-### 2.1 Producer (primary)
+The approved workflow is:
 
-Independent solo music producer. Makes a living from 5–20 active projects at a time. Works across multiple artists — mixing, mastering, production. Currently juggles 5+ apps. Lives on Instagram/TikTok for discovery.
+**Store product or private offer → project and purchase → exact agreement and payment plan → payment proof → active project → songs and sessions → exact-version artist approval → full payment → download → completion or cancellation**
 
-**Job-to-be-done:** "Replace my admin toolchain so I can spend all my time making music."
+For a true ₪0 private offer, acceptance makes the purchase fully paid and activates the project without a payment proof.
 
-### 2.2 Artist (secondary — "the client")
+### Personas
 
-The producer's customer. Vocalist, rapper, band, label A&R, or indie artist looking for production services. Discovers producers via Instagram, TikTok, Spotify credits, word of mouth.
+**Producer:** an independent music producer managing clients, projects, songs, sessions, agreements, and external payments.
 
-**Job-to-be-done:** "Work with this producer without needing a 12-message DM negotiation."
+**Artist:** the producer's client, who signs in to review work, accept terms, upload payment proof, book sessions, approve exact versions, and download entitled files.
 
----
+### Guiding principles
 
-## §3 — Guiding Principles
+- One clear job per surface.
+- Shared product rules, not parallel commercial paths.
+- Immutable accepted terms.
+- Stable ownership and strict producer/artist isolation.
+- Smart defaults and simple choices.
+- English-only for v1.
+- Web-only for v1.
+- No AI dependency.
+- No custom domains; the producer's permanent acquisition link remains under Skitza.
+- Mobile layouts must be complete at true 390px and 360px, with desktop behavior preserved.
 
-- **Share-first, not create-first.** Producers share ONE link; everything else cascades automatically.
-- **Autopilot over configuration.** Smart defaults + named toggle switches over rule builders.
-- **One screen per job.** 6 producer pages, never more. Each page owns one clear job.
-- **Progressive onboarding.** Artists browse a teaser without signup; sign up to unlock full access.
-- **English default.** Only English in v1. next-intl is wired for future Hebrew/Arabic but only `en.json` is populated.
-- **No AI dependency.** No LLM API keys required to run Skitza.
-- **Skitza subdomains only.** No custom-domain feature. `/join/[slug]` is the permanent format.
-- **Desktop-first for producers.** Producer dashboard is desktop-only in v1. Artist song page has a dedicated mobile UI.
+## 3. Core product model
 
----
+### 3.1 Client
 
-## §4 — Producer Platform
+A client is the producer's stable relationship with one artist.
 
-The producer's authenticated dashboard. Six pages, each accessible from main navigation.
+- Projects and access use a stable client ID, not an email snapshot.
+- Changing a contact email must not transfer ownership or break access to old work.
+- Producer-side archive must not disconnect the artist.
+- A producer can never change the client on an existing project.
 
-### Routes
+### 3.2 Project
 
-| Page | Route |
-|---|---|
-| Overview | `/dashboard` |
-| Clients & Projects | `/dashboard/clients-projects` |
-| Music Library | `/dashboard/music` |
-| Calendar | `/dashboard/calendar` |
-| Storefront (Profile) | `/dashboard/profile` |
-| Settings | `/dashboard/settings` |
+A project is the main container for one client's music work.
 
----
+A project may contain:
 
-### 4.1 — Overview `/dashboard`
+- one song or an album;
+- many song versions;
+- many purchases, including several unpaid purchases;
+- session allowance and individual bookings;
+- agreements, payments, proofs, and comments.
 
-The producer's daily home screen. A glanceable dashboard that surfaces the most actionable information the moment you land. Every element is a shortcut into a deeper page — no editing or mutations happen here. The page auto-loads fresh data on every visit; no manual refresh or date filter.
+A song is not a mini-project.
 
-**Layout: 4 independent blocks of equal hierarchy.**
+Project lifecycle states are:
 
-#### Block 1 — 3 Most Urgent Projects
+- Waiting for payment;
+- Active;
+- Paused;
+- Archived / Completed;
+- Archived / Canceled.
 
-A panel showing exactly three projects ranked by urgency, determined automatically by a combination of deadline proximity, overdue payment status, or stalled project state.
+Completed and Canceled are different states.
 
-What it shows per project: project name, client name, current status, urgency signal.
+### 3.3 Song
 
-- Clicking a project card → navigates into that project's room inside Clients/Projects.
-- Read-only at overview level — no editing here.
+A song is music inside exactly one project.
 
-#### Block 2 — Recent Music Uploads
+The app must never allow a song or audio version to exist without a project. A song has versions, comments, workflow state, artist approval, public-sharing state, portfolio state, and purchase-owned download entitlement.
 
-A feed of the most recently uploaded audio files across all projects.
+### 3.4 Version
 
-What it shows: track name, project it belongs to, upload timestamp, mini inline player or waveform indicator.
+A version is one uploaded audio version of a song.
 
-- Clicking a track → navigates to that song's detail view inside the Music Library.
-- Clicking the project name → navigates to that project room.
+A producer may mark an exact version final or ready. The artist may separately approve that exact version. Stored audio may later be permanently deleted under the Released rules while lightweight history and comments remain.
 
-#### Block 3 — Money / KPI Block
+### 3.5 Purchase
 
-A financial summary widget — a status snapshot, not a full ledger.
+A Purchase, sometimes called an Order in engineering, is one accepted:
 
-Three data points:
-- How much the producer has earned (total revenue to date or current period).
-- How much is owed to them (outstanding balances across all clients).
-- Who is not meeting their payment deadline (overdue clients flagged by name).
+- Store purchase;
+- private offer;
+- session product;
+- paid add-on;
+- ₪0 No charge add-on.
 
-- Clicking an overdue item or client name → navigates to Clients page filtered to that client.
+A project may have several purchases, including several unpaid purchases at the same time. Only an exact accidental duplicate request or checkout is blocked.
 
-#### Block 4 — The Link
+Each purchase owns immutable commercial history:
 
-The producer's shareable booking and onboarding URL. Displayed with a copy button directly on the dashboard.
+- product or offer snapshot;
+- subtotal, tax, total, currency, and price breakdown;
+- exact agreement and acceptance record;
+- selected payment plan;
+- installment schedule;
+- payment and proof history;
+- corrections, waivers, overpayment, and cancellation history;
+- paid amount and remaining balance;
+- included song spaces or session allowance;
+- download entitlement and override history.
 
-- Copy button → copies the link to clipboard.
-- Optional share action (WhatsApp, email, direct copy).
+A later purchase must never overwrite an earlier purchase.
 
-> The link is the producer's primary acquisition tool. It needs to be instantly accessible from the home screen so it can be dropped into a conversation without navigating elsewhere.
+### 3.6 Store product
 
----
+A Store product is a reusable template shown only inside the signed-in artist Store.
 
-### 4.2 — Clients & Projects `/dashboard/clients-projects`
+Editing changes future purchases only. It never changes an old price, agreement, schedule, tax record, or entitlement.
 
-The producer's core relationship and project management page. One combined page with a tab navigation at the top switching between two views: Clients and Projects. Also contains the full artist onboarding flow and bulk CSV import.
+### 3.7 Private offer
 
-**Page entry point — Main table:**  
-Visible before selecting a tab. Shows clients and projects combined. Columns: contact details, number of projects, active/inactive status, balance, total money to date.
+A private offer is a one-recipient deal. It may contain:
 
-#### Tab 1 — Clients
+- a positive cash price;
+- royalty or master terms;
+- both cash and a split;
+- a true ₪0 or royalty-only deal.
 
-Client list displayed as an accordion — client names expand to show their projects underneath.
+Only the account whose verified email matches the invited address may view and act on it.
 
-Each client row shows: contact details (name, phone, email), number of projects, active/inactive status, balance.
+### 3.8 Session allowance
 
-**Drilling into a client exposes three sections:**
+A session purchase owns one allowance with either:
 
-- **Edit Contact Details** — update name, phone, email, and other contact fields.
-- **Client-Project Junction** — which projects are associated with this client; ability to link or unlink.
-- **Project Details** — full project detail from the client's perspective.
+- a fixed limit; or
+- Unlimited sessions.
 
-#### Tab 2 — Projects
+Each use is tracked separately. A session purchase must not depend on one booking ID.
 
-Full project list. Each project drills into a project room with four branches.
+## 4. Unified purchase and project workflow
 
-**Project Room — Dashboard branch:**
-- Real-time status widget showing project completion as a percentage.
-- Progress bar and current status label.
+All Store products, private offers, session products, paid extra songs, and no-charge extra songs use the same commercial model.
 
-**Project Room — Songs branch:**
+1. The signed-in artist chooses a product or opens a private offer.
+2. Start a new project is the default.
+3. Add to existing project is a deliberate same-client choice.
+4. Reopening an archived project may be offered when allowed; new work still receives a new purchase.
+5. Existing-project choices show project name, date, songs, and balance.
+6. Before acceptance, the producer may correct the purchase target within the same client.
+7. The artist chooses only a payment plan enabled by the producer.
+8. The app shows the final agreement with exact quantity, prices, discount, tax, total, schedule, rights, royalties, and revision rule.
+9. The artist accepts the exact agreement and selected plan together.
+10. For a paid purchase, the artist follows the producer's external payment instructions and uploads proof.
+11. The project remains Waiting for payment until the complete required first installment is confirmed.
+12. A partial first installment is recorded, but the project remains Waiting for payment.
+13. Confirmation activates the project, purchased song spaces, and eligible session booking.
+14. A true ₪0 purchase becomes fully paid and active at acceptance.
 
-Full track management for this project. Per-track features:
-- File upload.
-- Edit/delete track details.
-- Timestamped comments — SoundCloud/Samply-style, same system as Music Library.
-- Version updates — upload a new version; system auto-increments the version number.
-- Google Drive link field for distribution channels.
-- Project folder setup.
+Skitza records off-app money. It does not take, hold, route, split, or process card payments.
 
-The song page within the project room uses the same desktop/mobile dual design as the Music Library song page.
+## 5. Clients
 
-**Project Room — Payments & Agreements branch:**
-- Payment tracking: what has been paid, what is outstanding, payment schedule.
-- Inline agreement tied to this project (agreedAt timestamp, checkbox-style, not PDF).
+### 5.1 Edit
 
-**Project Room — Status Widget branch:**
-- Real-time percentage progress of the project.
-- Status updates flow up to the Overview page Block 1.
+Expose Edit on both the client list row and client detail page.
 
-#### Artist Onboarding Flows
+Editable fields:
 
-Two methods for adding an artist, both accessible from this page:
+- Name
+- Email
+- Phone
+- Private producer notes
+- Tags
 
-**Manual addition (existing artist):**
-- Producer manually creates the artist record.
-- Selects which projects or products the artist gets access to.
-- A link is generated and sent to the artist for account connection.
+Block duplicate client email addresses for the same producer.
 
-**Via link (new artist):**
-- Producer sends the join link → artist goes through onboarding → connects to platform.
-- During onboarding, the producer's store and sessions are shown to the artist.
+### 5.2 Archive and restore
 
-**Bulk add:**
-- CSV import for adding many clients at once. Errors flagged before import is finalised.
+A client cannot be archived while they have an Active or Waiting-for-payment project. Active work must first be completed or canceled.
 
-> Product clarifications: (1) Existing clients/projects can be imported via CSV. (2) A producer can manually add any project or client from within the relevant page. (3) When a client pays for an intro session and wants to open a new project, every project has a share link — the client signs up and pays through it. (4) An intro session is its own standalone project.
+Archiving:
 
----
+- removes the client from the active list;
+- places the client under Clients → Archived;
+- does not disconnect the artist;
+- does not remove artist access;
+- does not archive projects or songs;
+- does not change public song links;
+- does not erase purchases, offers, agreements, payments, proofs, sessions, versions, or comments.
 
-### 4.3 — Music Library `/dashboard/music`
+Archived clients can be restored.
 
-The producer's central audio management hub. Organises all uploaded tracks across all projects in one place, with tools to upload, version, play, and collect feedback. Modelled after Samply's library flow.
+### 5.3 Permanent deletion
 
-**Three-level structure:** Library entry point → Project-Focused Library → Song Page.
+Permanently delete only an empty draft client with no project, purchase, offer, agreement, payment, proof, song, session, or other history.
 
-#### Level 1 — Library Entry Point
+The server and database must prevent hard deletion of a historical client.
 
-The landing screen. Shows all projects the producer has uploaded music to.
+### 5.4 Client UX and money
 
-Display options: grid view (cards/tiles) or table view (rows).  
-Filter controls: upload time, artist name.
+- Put Edit and Archive on rows and detail pages.
+- Make Find client fast and obvious.
+- Show Active and Archived filters clearly.
+- Never combine currencies.
+- Show all purchases, payments, and proofs grouped by project.
+- Do not hide every common action in a three-dot menu.
 
-- Toggling grid/table → re-renders in selected layout, no navigation.
-- Clicking a project → drills into the Project-Focused Library for that project.
-- Clicking "+ Add New Song" → opens the Add Song workflow.
+## 6. Projects
 
-#### Level 2 — Project-Focused Library
+### 6.1 Creation and ownership
 
-A drill-down view for a single project, showing all its tracks.
+New paid work creates a new project by default. The producer may deliberately add a purchase to an existing project for the same client.
 
-What it shows per song: name, duration, version (v1/v2/v3), last upload date, listen count.
+The client on a project can never change.
 
-Additional controls: download button, favorites button.
+If the wrong client was chosen:
 
-- Clicking a song row → opens the Song Page for that track.
-- Download button → triggers file download.
-- Favorites button → toggles favorite state, persists on the track record.
+- empty project: delete it and create it again;
+- project with history: cancel it and create a new project.
 
-#### Level 3 — Song Page
+Before artist acceptance, the producer may correct which same-client project a purchase or offer targets. After acceptance, proof submission, or payment, the target is locked. A wrong accepted target must be canceled and recreated. Money never moves automatically.
 
-**Desktop version:**
-- Waveform display — full visual representation of the audio.
-- Prominent comment panel — SoundCloud/Samply-style timestamp commenting. Clicking a waveform point opens an inline comment input tied to that exact timestamp.
-- Floating bottom player — opens when the song plays, stays visible while navigating elsewhere.
-- Version switcher — easy toggle between v1/v2/v3 for A/B mix comparison.
+### 6.2 Edit
 
-**Mobile version:**
-- Spotify-style player UI — album art, play/pause/next controls, progress bar.
-- Prominent comment button — tapping pauses music at current timestamp, opens comment input, resumes on submit.
-- Minimisable player — collapses to a persistent floating player at the bottom of the screen.
+Expose Edit on project rows and project pages.
 
-**Song Page triggers:**
-- Playing → activates floating bottom player.
-- Clicking waveform timestamp (desktop) → opens inline comment input.
-- Tapping comment button (mobile) → pauses, opens input, resumes on submit.
-- Submitting a comment → saves timestamp comment, appears in the thread.
-- Switching version → reloads with the selected version's audio.
-- Minimising (mobile) → floating player persists.
+Editable fields:
 
-#### Feature — Add New Song
+- Project name
+- Deadline
+- Workflow stage
 
-- Click "+" → opens add-song flow.
-- Assign to a project → producer selects which project the track belongs to.
-- Versioning assigned automatically (v1/v2/v3) based on last modified date — system determines version number, no manual input needed.
-- Completing upload → new track appears in Project-Focused Library with auto-assigned version.
+Accepted commercial terms are not normal project-edit fields.
 
-#### Feature — Custom Playlists
+### 6.3 Default names
 
-Create personal playlists from tracks across projects. Includes per-track listen tracking. Lets the producer curate listening sessions (e.g. "tracks ready for review", "mixes in progress") without affecting project structure.
+Do not force the artist to invent a name before work exists.
 
-#### Cross-Screen Comment Behaviour
+Examples:
 
-> Comments made on a song surface in three places: the Song Page (primary), the Music Library screen at the project level, and the Project screen inside Clients/Projects. A comment left by an artist on mobile appears for the producer in any context they are viewing that track.
+- Mixing · 16 Jul 2026
+- Production · 16 Jul 2026
+- Untitled · 16 Jul 2026
+- Song 1, Song 2, Song 3 for a multi-song purchase
 
----
+Names remain editable. Add a number when the same generated name already exists on that date.
 
-### 4.4 — Calendar `/dashboard/calendar`
+### 6.4 Singles, albums, and paid song spaces
 
-The producer's scheduling control centre. Two branches: Meetings (all session-facing interactions) and Availability (all configuration settings).
+- A project with one song behaves like a single.
+- Add Another Song changes it into an album.
+- A multi-song purchase creates the purchased number of empty song spaces.
+- Paid projects and paid empty song spaces remain visible before audio exists.
+- A later extra song uses a separate purchase.
+- A paid extra song becomes available only after its complete first installment is confirmed.
+- A free extra song receives a ₪0 No charge purchase.
 
-#### Branch 1 — Meetings
+### 6.5 Lifecycle
 
-**Upcoming Sessions:**  
-All upcoming booked sessions sorted by date. Each entry shows session date/time, the artist or client, and which project or product it's connected to.
-- Clicking a session → opens session detail view for viewing or editing.
+There is no separate Archive project action.
 
-**Intro Session Approvals:**  
-A dedicated queue for pending intro session requests. When an artist books through the producer's link, the request lands here.
-- Approve → session confirmed, automatic email invitation sent to the artist.
-- Reject → session request declined.
+**Complete → Archived / Completed**
 
-**Edit / Modify Session Details:**  
-Edit any booked session's details — date, time, participants, linked project.
+- Work is finished.
+- Unpaid balances remain due.
+- Purchase and installment history remains.
+- Songs remain playable.
+- Old comments remain readable.
+- New comments and uploads stop until reopen.
+- Public links remain live until disabled.
+- Unused session allowance closes without warning.
+- Reopen does not restore closed allowance.
 
-> Two-way sync with the phone calendar — changes made here reflect in the producer's phone calendar and vice versa. *(GCal OAuth is a placeholder in v1 — UI shows "Coming soon". Two-way sync is fully described here as the target behaviour for when it ships.)*
+**Cancel → Archived / Canceled**
 
-- Saving edits → updates the record, syncs to phone calendar (when connected).
+- Work stops.
+- Future installments are canceled.
+- Amounts already due or overdue remain owed unless explicitly waived.
+- Paid money remains in history.
+- No automatic refund or credit occurs.
+- Existing comments remain readable; new comments/uploads stop.
+- Listening remains available.
+- Public links remain live until disabled.
+- One purchase may be canceled without canceling the project.
 
-**Create Session:**  
-Manually create a new session. Three required elements:
-- Must connect to an existing project or product — sessions cannot float freely.
-- Add external people — invite participants who may not be on the platform.
-- Automatic email invitation sent — all participants receive an invite on session creation.
-- Completing → session appears in Upcoming Sessions, email invites fire, syncs to phone calendar (when connected).
+**Reopen → Active**
 
-#### Branch 2 — Availability Settings
+- Old payments and accepted agreements remain unchanged.
+- Canceled purchases and schedules do not return.
+- Closed session allowance does not return.
+- New work requires a new purchase or private offer.
+- New comments and uploads become available again.
 
-**Active Days:**  
-Which days of the week the producer is available. Toggle per day. Saving → booking system only shows these days to artists.
+### 6.6 Permanent deletion
 
-**Activity Time Windows:**  
-The hours within active days during which sessions can be booked.
+Permanently delete only an empty draft project with no purchase, agreement, payment, proof, song space, version, comment, session, or public-link history.
 
-> Time windows can be capped — the producer sets a maximum number of sessions per day. Validation logic enforces this cap even if time slots technically exist.
+Never hard-delete a historical project or orphan its records.
 
-**Specific Hours for Specific Days:**  
-Per-day overrides for the general time windows. These take precedence when the booking system calculates availability.
+## 7. Songs, versions, Library, and Artist Music
 
-**Automatic Reminders:**  
-Automated messages sent before sessions. Includes both a reminder and an arrival confirmation — an active check asking the participant to confirm attendance, not just a passive reminder.
+### 7.1 Add Song and purchase assignment
 
-**Automatic Approval:**  
-A toggle. When on → all new session requests skip the Approvals queue and go directly to Upcoming Sessions. When off → all requests require manual approval first.
+Library → Add Song must:
 
-**Cancellation Policy:**  
-How far in advance a session can be cancelled, defined in hours. The system enforces this window and surfaces the policy to artists during booking.
+1. Ask the producer to choose an active project.
+2. Open New Project if no active project exists.
+3. Use an unused purchased song space when available.
+4. Otherwise offer a paid extra-song purchase/private offer or Add for no extra charge.
 
----
+The selected purchase controls download access for that song's versions. Do not use the project's total balance.
 
-### 4.5 — Storefront (Profile) `/dashboard/profile`
+Do not expose Move to another project as a normal edit.
 
-The producer's public-facing commercial surface and identity hub. This is the page clients see when they receive the producer's link — they listen to the portfolio, see prices, and convert.
+### 7.2 Song and version actions
 
-> End-user flow: Client receives link → listens to portfolio → sees prices → selects a product → signs in → books a session → pays → lands on the artist platform → goes through short onboarding.
+Expose on Library rows and song pages:
 
-**Two branches: Store and Portfolio.**
+- Rename song
+- Edit artist credit
+- Archive song
+- Restore song
 
-#### Branch 1 — Store
+New versions default to V1, V2, V3, and so on. A producer can rename a version independently.
 
-**Add Products — two creation paths:**
+All Add Song, upload, row, and empty-state actions must work.
 
-*Path A — Manual (Custom):*  
-Producer fills in everything from scratch: product name, price, mix/master toggle, session duration, number of sessions, payment terms, contract.
+### 7.3 Final versions and artist approval
 
-*Path B — Template-Based:*  
-Producer picks a template and updates: price, VAT, mix/master, session duration, number of sessions, payment terms, contract.
+- Producer final/ready state and artist approval are different.
+- Artist approval belongs to one exact version.
+- Existing producer-set approvals become Marked final by producer only.
+- Existing producer-set approvals must never become artist approval or trigger payment.
+- For one-song 50/50, the final 50% becomes due after the artist approves the exact ready final version.
+- For multi-song 50/50, every included song must have an exact ready final version and every exact version must be approved.
+- Artist approval locks new uploads for that song.
+- Reopen song keeps approval history, unlocks new work, and requires approval of the corrected final version.
 
-> Everything that can be a toggle should be a toggle — the UI favours toggles over free-text fields wherever possible.
+### 7.4 Released songs and permanent audio deletion
 
-Both paths end at a **Preview Screen**. Approving → product goes live. Editing → returns to creation form.
+Before Released, current or final audio cannot be deleted until another version is selected.
 
-**Delete / Update Products:**  
-Each product has a pencil icon for inline editing and a visibility toggle (show/hide) to remove from the public storefront without deleting from the system.
-- Saving edits → changes immediately live on public storefront.
-- Deleting → removes the product entirely.
+After Released, a producer may permanently delete any stored audio, including the final or last remaining audio. No Spotify or Apple Music link is required.
 
-**Store Preview:**  
-A full read-only preview of the storefront exactly as a client sees it. No edits happen here — a sanity-check view before sharing the link.
+Deletion must:
 
-#### Branch 2 — Portfolio
+- show a strong warning;
+- remove the real stored object;
+- keep lightweight version name, upload date, and comment history;
+- keep resolved comments visible in gray;
+- remove playback and download access;
+- remove the version from the public switcher.
 
-- **Social & Streaming Links:** Spotify playlists, SoundCloud, Instagram, and other platforms. Adding/editing → immediately updates the public storefront.
-- **Profile Image:** Upload, crop, replace. Uploading → replaces current image on the public storefront immediately.
-- **Songs (imported from Music Library):** Producer selects which tracks to feature publicly as a listening showcase. Removing a song from the portfolio → disappears from storefront, remains in Music Library untouched.
+If versions remain, public playback and portfolio use the newest remaining version.
 
----
+Deleting the last stored audio removes the song from portfolio and disables the public link.
 
-### 4.6 — Settings `/dashboard/settings`
+### 7.5 Song archive
 
-The producer's account management and integrations hub. Platform-level settings only — no commercial content, no portfolio, no services, no availability. Intentionally minimal.
+Song archive:
 
-**Two branches: Profile and Integrations.**
+- removes it from active Library;
+- places it under Library → Archived Songs;
+- allows restore;
+- keeps artist listening and public link available;
+- blocks new uploads and comments until restore.
 
-#### Branch 1 — Profile
+Client/project archive never archives songs.
 
-- **Name:** Display name used throughout the dashboard. Saving → updates across the platform.
-- **Email:** Login email. Changing requires verification of the new address before login credentials update.
-- **Currency:** Default currency for all monetary values. Does not retroactively reformat past records.
-- **Image:** Account avatar shown inside the platform interface. Distinct from the storefront profile image managed on the Storefront page.
-- **Delete Profile:** Permanent account deletion. Requires a confirmation step. On confirmation — all producer data, products, projects, clients, and sessions are permanently deleted and cannot be recovered.
+### 7.6 Artist Music
 
-#### Branch 2 — Integrations
+Artist Music stays simple and is not a producer-style project room.
 
-**Google Calendar:**  
-Target: two-way sync between Skitza sessions and the producer's Google Calendar.  
-**v1 status: UI placeholder — "Connect Google Calendar (coming soon)" button. OAuth not yet implemented.**
+- Music → Projects shows project or album folders.
+- Waiting-for-payment projects stay in Payments and do not appear as active work.
+- Paid projects and empty paid song spaces remain visible before audio exists.
+- A single may open directly to its song.
+- An album lists songs, empty purchased spaces, and included sessions.
+- Completed/Canceled projects appear under Music → Projects → Archived.
+- All Songs includes every song the artist may hear, including archived work.
+- Listening and commenting happen on private song pages.
+- Completed/Canceled projects allow listening but block new comments/uploads until reopen.
+- Archived songs allow listening but block new comments/uploads until restore.
+- Paused projects keep listening and comments available.
 
-**Payment Clearing System:**  
-Target: connection to a payment processor for client payments through the platform. Includes a clearing company and Green Invoice for Israeli tax compliance.  
-**v1 status: UI placeholder — "Connect payment provider (coming soon)" button. Provider TBD — to be discussed with Grow. Exact integration flow is TBD.**
+## 8. Store, private offers, and invitations
 
-**CSV Import / Bulk Client Add:**  
-Tool for importing existing clients in bulk from a spreadsheet.
-- Uploading a valid CSV → creates client records in Clients/Projects for each row.
-- Errors or malformed rows are flagged for review before import is finalised.
+### 8.1 Store visibility
 
----
+- Store products appear only after artist sign-in.
+- Public producer portfolio never shows Store products or prices.
+- Public song sharing remains separate.
 
-## §5 — Producer Onboarding
+### 8.2 Product pricing and song spaces
 
-An 8-step linear pipeline from account creation through to the producer platform. Each step is a distinct screen. The producer cannot access the platform until onboarding is complete, with the exception of the payment connection step which can be skipped.
+- Every purchased song has a price.
+- Artist may change song quantity before acceptance.
+- Keep volume discounts.
+- Save quantity, unit prices, discount, subtotal, tax, and final total.
+- A multi-song purchase creates that number of empty song spaces.
+- Later extra songs are a new purchase.
 
-| Step | Screen & Content |
-|---|---|
-| 1 | **Sign Up** — Email and password. Account creation entry point. |
-| 2 | **Personal Details** — Studio name, full name, and additional personal information. |
-| 3 | **Services** — Multi-select checkbox UI. Producer taps all service types that apply (Producer, Mixing Engineer, Recording Artist, Mastering Engineer, etc.). Selections determine which templates are shown in Step 4. |
-| 4 | **Service Templates** — Based on Step 3 selections, matching pre-built templates are presented for editing. Producer adjusts price, VAT, session duration, number of sessions, payment terms. Templates adapt to the producer's service type. |
-| 5 | **Working Hours + Google Calendar** — Producer sets weekly availability (active days and hours). Includes GCal connection prompt. *(GCal is a placeholder in v1 — prompt explains it's coming soon.)* |
-| 6 | **Payment Connection (skippable)** — Producer connects their payment processing system. Can be skipped and configured later in Settings → Integrations. *(Placeholder in v1 — UI only.)* |
-| 7 | **Portfolio** — Producer sets up their public portfolio: social/streaming links, featured songs from the music library. |
-| 8 | **Onboarding Complete** — Summary/welcome confirmation. Completing → drops the producer into the Producer Platform dashboard. |
+### 8.3 Product editor
 
-### Sign In Flow — Returning Users
+- A normal published Store product requires a positive cash price.
+- Positive-price products may include royalty terms.
+- ₪0 and royalty-only deals use private offers.
+- A product may offer a fixed session limit or Unlimited.
+- Unlimited revisions remain supported and must appear in the accepted agreement.
+- Tagline is editable.
+- Capture every immutable snapshot field.
+- Preview the exact real artist card and detail page before publishing.
+- Permanently delete a product only when it has no purchase history.
+- A product with history can only be archived.
+- Editing affects future purchases only.
+- Remove Store table view and unrelated unfinished controls.
+- Every remaining editor action must work.
 
-- Step 1: Sign In — Email and password.
-- Step 2: Artist or Producer? — Role routing screen. Selecting Producer → Producer Platform. Selecting Artist → Artist Platform.
+### 8.4 Private offers
 
----
+Producer can Send custom offer from a client page or Store manager.
 
-## §6 — Artist Platform
+The producer sets:
 
-The platform artists access after onboarding via a producer's link. Five sections.
+- recipient email;
+- new or existing same-client project target;
+- service and deliverables;
+- included song spaces or session allowance;
+- cash price, including zero;
+- currency and tax treatment;
+- royalty or master terms;
+- enabled payment plans;
+- rights and revision rule;
+- exact agreement;
+- expiry, default 14 days.
 
-### 6.1 — Dashboard
+Email is notification only. The offer is viewed and handled inside the signed-in app.
 
-The artist's home screen. Three widgets:
+Only the verified invited email may view or act. New recipients use artist/client verification and create a draft client.
 
-- **Upcoming Sessions:** List of next booked sessions — date, time, producer name, project. Clicking a session → opens session detail.
-- **Recently Uploaded Files:** Feed of most recently uploaded tracks across the artist's projects. Clicking a file → opens that track in the player.
-- **Balances:** Current account balance — what has been paid, what is outstanding, any credits held.
+Offers appear in Artist Home, Store → Offers for you, and a private detail page.
 
-### 6.2 — Store
+Expired offers disappear for the artist and remain in producer history.
 
-The full end-to-end purchase flow. Linear sequence from browsing to confirmation:
+After acceptance, product/offer snapshot, project, price, currency, tax, rights, royalties, revisions, payment plan, schedule, and agreement are locked.
 
-Producer Catalog → Product Description → Agreement → Book Session → Payment → Confirmation Screen.
+### 8.5 True ₪0 or royalty-only offer
 
-- Payment gates download access in Music — downloads are blocked until payment is confirmed.
-- On payment success → session appears in Dashboard upcoming sessions. Artist gains access to the relevant project in Music.
+- Artist accepts exact rights and royalty terms.
+- No payment plan or proof is required.
+- Purchase is fully paid immediately.
+- Project activates at acceptance.
+- Stored audio downloads owned by that purchase are unlocked.
+- Accepted terms remain in history.
 
-### 6.3 — Book Sessions
+Royalty accounting, collection, reporting, and payout are outside scope.
 
-Standalone session booking — used when the artist books an additional session independently of a store purchase.
+### 8.6 Normal invitation
 
-Flow: Which producer? → Which project? → Session Booking Screen (days then hours) → Calendar Sync.
+Normal Invite client remains separate from private offers. Fix its route. Do not replace it with the offer flow.
 
-> Two-way calendar sync — only relevant, available days are shown. Days blocked on the producer's side do not appear as options.
+## 9. Sessions
 
-Completing booking → session appears in Dashboard upcoming sessions, syncs to artist's calendar, producer receives notification.
+A session product uses the unified purchase workflow.
 
-### 6.4 — Music
+- It creates a new project by default or may deliberately join an existing same-client project.
+- A purchase stores fixed or Unlimited allowance, duration, location, booking buffer, and lead time.
+- Each session use is separate.
+- Paid booking opens only after the complete first installment is confirmed.
+- Free offer booking opens after acceptance.
+- Paused project blocks new booking.
+- On-time artist cancellation returns the use.
+- Producer cancellation returns the use.
+- Late cancellation and no-show consume the use.
+- Automatic confirmation confirms eligible times when enabled.
+- Otherwise producer approval is required.
+- Artist Cancel and Reschedule are real actions.
+- Project completion closes unused allowance without warning.
+- Reopen does not restore closed allowance.
+- More sessions require a new purchase.
 
-The artist's music access hub. Three levels of depth:
+Producer inline session editing from Calendar remains a separate backlog responsibility.
 
-- **Producer-Focused Library:** View filtered to a specific producer's uploads across all shared projects.
-- **All Music Library:** Full music library across all producers and projects the artist is part of.
-- **Project Screen:** All tracks for a specific project — song list, versions, upload dates.
-- **Player with Timestamped Comments:** Same design as the producer platform — desktop waveform with timestamp comments, mobile Spotify-style player. Comments pause music at the timestamp on mobile, resume on submit.
+## 10. Agreements, tax, and immutable snapshots
 
-> Download button is blocked until payment has been received. The artist can listen freely but cannot download until the producer confirms payment.
+The only payment plans are:
 
-### 6.5 — Settings
+- Full
+- 50/50
+- Monthly
 
-**Profile:**  
-Name and Photo — display name and profile picture used within the platform.
+Milestone plans do not exist.
 
-**Integrations:**
-- **Google Calendar:** Two-way sync so session bookings appear in the artist's personal calendar. *(Placeholder in v1.)*
-- **Payment method:** For store purchases and session bookings. *(Placeholder in v1 — provider TBD.)*
+The artist chooses an enabled plan and accepts it together with the final agreement.
 
----
+Every accepted purchase saves relevant:
 
-## §7 — Landing Page `/`
+- product or offer name and tagline;
+- service and deliverables;
+- song quantity and unit prices;
+- volume discount and subtotal;
+- currency;
+- tax type, rate, and final total;
+- song spaces;
+- session limit or Unlimited rule;
+- session duration, location, buffer, and lead time;
+- revision rule, including Unlimited;
+- royalty/master terms and rights;
+- selected plan;
+- installment amounts and dates/triggers;
+- exact agreement text.
 
-The marketing landing at `/` is the front door for cold visitors. Signed-in producers redirect to `/dashboard`. Signed-in artists redirect to `/artist`.
+Tax choices are:
 
-### Aesthetic baseline (locked)
+- No tax
+- Tax included
+- Tax added
 
-- Typography: Outfit (body) + Syne (headings) via Google Fonts.
-- Palette: warm off-white `#F2EDE6` (light sections) ↔ deep brown-black `#111009` (dark sections) with amber `#D4960A` + copper `#B06830` accents.
-- Tactile SVG noise overlay at 0.02 opacity (full-viewport fixed layer).
-- Custom CSS-only animations: scroll-reveal via IntersectionObserver, word-by-word hero fade, hover lifts. No framer-motion, no animation libraries.
-- The landing has its **own scoped CSS tokens** — does NOT use the authenticated app's design system. The two surfaces have intentionally different visual identities. This separation is locked.
+Monthly dates are based on the first confirmed payment date and stay fixed. For 50/50, the agreement records the exact artist-approval trigger.
 
-### Section order (17 sections, top to bottom)
+Acceptance saves the exact content, verified accepting account/client, time, purchase, project, plan, and commercial snapshot.
 
-| # | Section |
-|---|---|
-| 1 | LandingNav — Features / How It Works / Pricing + Sign In (text link) + Sign Up (amber button) |
-| 2 | Hero — "Stop chasing payments. Just make music." + dual CTA + word-by-word fade-in |
-| 3 | TrustBar — social-proof logos / press strip |
-| 4 | PainGrid — what's broken today (Calendly + Samply + Notion + DocuSign + Stripe + WhatsApp) |
-| 5 | SolutionFlow — how Skitza unifies it |
-| 6 | FeaturesTabs — 7 tabs: Storefront & Booking / Payments / Files & Feedback / Client History / Follow-up / Lead Management / Contracts & Protection |
-| 7 | Compare — head-to-head against the unbundled stack |
-| 8 | HowItWorks — 3-step user journey |
-| 9 | Consolidation — "everything in one place" |
-| 10 | Security — privacy, storage (R2), auth (Clerk) |
-| 11 | Testimonials |
-| 12 | Pricing — 2 tiers, 14-day free trial, no credit card required |
-| 13 | FAQ — accordion |
-| 14 | Founder — personal pitch |
-| 15 | Download — PWA mobile install prompt |
-| 16 | FinalCTA — last conversion surface before the footer |
-| 17 | SiteFooter |
+A changeable external contract link is not an immutable agreement. Skitza must store the exact accepted terms.
 
-### CTA decisions
+## 11. Payments
 
-- Primary CTA copy: "Sign up now"
-- Primary destination: `/sign-up` (Clerk) → on success, auto-redirects to `/dashboard/onboarding`
-- Secondary CTA: "Sign in" → `/sign-in` (text link in nav only)
-- No lead-capture modal. No email gate, no early-access form, no waitlist.
+### 11.1 External payments only
 
----
+Remove:
 
-## §8 — Booking Flow
+- Stripe checkout and Connect requirements;
+- per-song direct Stripe;
+- Stripe schedules and saved charges;
+- Tranzila;
+- replacement direct-card flows;
+- dead Invoice actions.
 
-- **Timezone:** Artist picks their timezone during booking; availability displayed in both producer's and artist's timezones.
-- **Single-day only:** Individual bookings are single-day. Multi-day engagements happen as multiple bookings under one project.
-- **Reschedule:** Either party can initiate. Artist request → producer approves (or auto-approves if Automatic Approval is on). Producer can reschedule unilaterally with a notice email.
-- **Buffer:** Producer-configurable in Availability settings (default 15 min between sessions).
-- **Multi-participant:** Single booker, but can add session participants — name + email. Participants receive the calendar invite (.ics) but don't get Skitza accounts.
-- **Intro sessions:** Treated as standalone projects. When an artist books an intro session, a new project is created for it.
+Official tax invoices and invoice uploads are outside scope.
 
-### Artist booking experience
+### 11.2 Waiting for first payment
 
-1. Picks service → sees availability filtered by producer's Calendar settings.
-2. Picks slot → confirms terms inline (cancellation policy surfaced here).
-3. Pays deposit *(placeholder in v1 — "Reserve session, payment coming soon" button)*.
-4. Project auto-created, artist-accessible immediately in the artist platform.
+After an approved request or accepted offer:
 
-### Payment placeholder (v1)
+- create or keep the project and purchase references;
+- show Waiting for payment to producer;
+- show the purchase under Artist Payments;
+- keep it out of active Artist Music;
+- send proof to Payments → Needs review, never Requests.
 
-In v1, payment is not integrated. The booking flow creates a project with `invoice.status = 'pending'`. The producer manually marks invoices as paid from the Payments & Agreements branch of the project room. The payment provider will be connected in a future sprint after the provider decision is made.
+A partial first installment does not activate the project. A later downward correction does not deactivate a project that already activated.
 
----
+### 11.3 Payment locations
 
-## §9 — Project Model
+**Project page:** every purchase, agreement, installment, payment, correction, proof, waiver, cancellation, and download override for that project.
 
-**One project, many bookings.**
+**Client page:** all purchases, payments, and proofs grouped by project.
 
-- Single-session services: 1 booking → 1 project.
-- Production services (multi-session): 1 project, many bookings. Artist books once → project created. Each subsequent session is a new booking rolled under the same project.
+**Producer Payments:**
 
-The Songs branch in the Project Room shows all tracks associated with the project. The Payments & Agreements branch tracks all financial activity across bookings.
+- Needs review
+- Due and overdue
+- Upcoming
+- History
 
----
+**Dashboard / Home:** separate actions for purchase approval, proof review/overdue money, and sessions.
 
-## §10 — Services Catalog
+Requests is for new work. Proof review belongs in Payments.
 
-Services are created and managed via the Storefront page (`/dashboard/profile` → Store branch). The onboarding wizard (§5 Steps 3–4) bootstraps the first service using the same product-creation components.
+### 11.4 Ledger structure
 
-### Structure
+Group money by project, then purchase.
 
-3 fixed categories + 1 custom type:
-- Production
-- Mixing & Mastering
-- Consulting
-- Custom / one-time session — free-form, producer-defined title, no category
+Show Due now and Total remaining separately for every currency. Never combine USD, EUR, GBP, ILS, or any other currencies.
 
-### Service template quickstart (5 built-in)
+Use Active and History. Fully paid and canceled purchases move to History without hiding agreements, proofs, corrections, or amounts.
 
-| Template | Default details |
-|---|---|
-| 3-hour mixing session | $150 · 180 min · single-session |
-| Album production package | $4,500 · multi-session · 50/50 split |
-| Weekend intensive | $600 · 480 min · flat |
-| Remote feedback round | $75 · 60 min · async |
-| Mastering pass | $200 · 90 min · single-session |
+Each purchase shows:
 
-### Visibility
+- product/offer;
+- frozen subtotal, tax, total, and currency;
+- agreement and acceptance date;
+- plan and schedule;
+- paid and remaining amounts;
+- next amount/date/trigger;
+- current producer payment instructions;
+- proof history/status;
+- Pay next payment;
+- cancellation, waiver, correction, and override history.
 
-Each product has a Public / Unlisted flag. Unlisted products are only accessible via direct URL — useful for VIP quotes.
+Old unpaid purchases use current payment instructions while their accepted terms remain unchanged.
 
----
+Archived projects never hide unpaid balances.
 
-## §11 — Notifications & Email
+### 11.5 Payment plans
 
-### Artist emails — default ON
+**Full**
 
-- Booking confirmed
-- Final payment due
-- Track version uploaded
-- Producer replied to your comment
+- 100% is the required first installment.
+- Work activates after the complete amount is confirmed.
+- Full payment unlocks downloads.
 
-### Producer emails — default ON
+**50/50**
 
-- New booking request
-- Payment received
-- New comment from artist
-- Booking cancelled or rescheduled
+- Complete first 50% is required before activation.
+- Final 50% is due only after exact artist approval of every required ready version.
+- Producer final state is not artist approval.
+- Downloads remain locked until fully paid unless an explicit version override is active.
 
-### Email branding
+**Monthly**
 
-"Producer X via Skitza" — producer's name/logo in the email header, subtle Skitza footer.
+- Producer chooses installment count.
+- Complete first installment is required before activation.
+- Later installments use the same calendar day as the first confirmed payment.
+- If absent in a month, use that month's last day.
+- Dates do not change based on delivery.
+- Downloads remain locked until fully paid unless overridden.
 
----
+### 11.6 Proofs
 
-## §12 — Audio Pipeline
+Every installment has private proof history linked to the correct client, project, purchase, and installment.
 
-- **Max file size:** 100 MB per file.
-- **Supported formats:** WAV, FLAC, MP3, AAC.
-- **Waveform generation:** audiowaveform + ffmpeg pipeline; peaks JSON cached on R2.
-- **Multipart uploads:** R2 presigned URLs for files > 20 MB; resumable via tus protocol shim.
-- **Stems:** Uploaded as a single zip file, presented as "Download stems" on the finished version.
-- **Track versions:** Stack under each track (Samply-style). Active version gets the hero waveform. Inactive versions show 64px inline waveforms.
-- **Auto-versioning:** Version number (v1/v2/v3) is assigned automatically based on last modified date — no manual input needed.
-- **Comments:** Timestamped per-version. Artist + producer only. Resolved-state synced across sessions via tRPC.
+Only artist and producer can view proof files. Use private storage and short-lived authorized viewing.
 
----
+Installment/payment states include:
 
-## §13 — Internationalisation
+- Not paid
+- Awaiting review
+- Partially paid
+- Confirmed
+- Overdue
+- Waived
+- Canceled
 
-- **v1 scope:** English only. `next-intl` is wired and `en.json` is populated. `he.json` and `ar.json` exist as stubs for future use.
-- **Default locale:** English for everyone. No IP-based auto-detection.
-- **Hebrew / Arabic:** Deferred. Will be added when beta producers in those markets explicitly request it.
-- **Landing page:** English-only, always. No translation on public-facing routes.
+Proof evidence states include:
 
----
+- Awaiting review
+- Confirmed
+- Rejected
 
-## §14 — Tech Stack
+A rejected proof stays in history, shows the reason, and permits replacement.
 
-Locked. No swaps without a PRD update.
+Artist records the real represented amount. Producer may accept or decline a partial amount.
 
-| Layer | Technology |
-|---|---|
-| Framework | Next.js 15 App Router |
-| API | tRPC v11 |
-| ORM + DB | Drizzle ORM + Neon Postgres |
-| Auth | Clerk v7 |
-| Payments | Stripe Connect Express *(wired, UI placeholder in v1)* |
-| Media storage | Cloudflare R2 |
-| Styling | Tailwind v4 + CSS vars + shadcn/ui |
-| i18n | next-intl (English only in v1) |
-| Testing | Vitest |
-| Audio | wavesurfer.js v7 |
-| Error tracking | Sentry |
-| Product analytics | PostHog |
-| Email | Resend + React Email |
+Confirmation creates one immutable payment record. Rejecting/replacing never rewrites history.
 
-**Removed from stack:**
-- Tauri desktop app — deleted in v3-clean D1+D2. Desktop app is not part of the product.
-- Documenso — deleted in v3-clean D5+D6. Contracts replaced by inline checkbox agreement (agreedAt timestamp).
+### 11.7 Partial, extra, and manual payments
 
----
+- Accepted partial payment saves the real amount and leaves the rest due.
+- Confirmed money stays inside the same purchase.
+- Overpayment marks that purchase Overpaid.
+- Excess never moves automatically.
+- Return/correction is recorded on the same purchase.
+- Producer may record external cash/manual payment with amount, date, and optional private proof.
 
-## §15 — Non-Goals
+### 11.8 Corrections and waivers
 
-Hard constraints. These are not deferred — they are explicitly out of scope.
+Never silently edit/delete confirmed history.
 
-| Feature | Why not |
-|---|---|
-| AI Copilot / LLM calls | No API-key dependency at launch |
-| Custom domains | Skitza subdomains only — `/join/[slug]` is permanent format |
-| framer-motion or JS animation libraries | CSS-only — zero bundle cost |
-| Native iOS/Android app | Not in scope — web-only for v1 |
-| Multi-engineer / team mode | Revisit when first paying user asks for team access |
-| Beat licensing | Different business model entirely |
-| DAW integrations (Ableton, Logic, Pro Tools) | Too fragmented — not Skitza's moat |
-| Webhooks out / Zapier / n8n | Deferred — email covers automation needs at launch |
-| Magic links (per-recipient trackable share links) | Deleted in v3-clean D7 — replaced by `/join/[slug]` |
-| PDF contract generation and signing | Deleted in v3-clean D5+D6 — replaced by inline checkbox agreement |
-| Lead-capture modal / email gate / waitlist | Friction kills conversion for an unknown brand |
+A correction records old amount, new amount, reason, actor, and time.
 
----
+Reducing confirmed payment:
 
-*Skitza PRD v4.0 · April 2026 · Source of truth for all build decisions*
+- does not deactivate an active project;
+- relocks downloads if no longer fully paid.
+
+Waiving debt:
+
+- is explicit and audited;
+- removes debt from amount owed;
+- is not payment;
+- does not unlock downloads.
+
+### 11.9 Late payments and reminders
+
+When late:
+
+- mark Overdue;
+- keep listening/comments;
+- keep downloads locked;
+- allow manual pause;
+- block new session booking while paused;
+- never delete, complete, cancel, or archive automatically.
+
+Automatic reminders default on and may be disabled globally or per payment.
+
+Schedule:
+
+- 3 days before due;
+- due date;
+- 3 days late;
+- weekly until paid, waived, or canceled.
+
+Manual Send reminder may remain only when it sends and logs.
+
+## 12. Downloads and extra deliverables
+
+Download authorization is purchase- and version-aware.
+
+When a purchase is fully paid:
+
+- every still-stored audio version owned by that purchase becomes downloadable;
+- old drafts are included;
+- later unpaid work in the same project does not relock those versions.
+
+A ₪0 purchase is fully paid immediately. Deleted audio is never playable/downloadable.
+
+Before full payment, producer may Allow download now for one selected song version.
+
+The override:
+
+- warns with unpaid amount;
+- unlocks only the selected version;
+- keeps debt owed;
+- records enable/disable actor and time;
+- may be disabled until full payment;
+- keeps full history.
+
+Canceling or waiving money is separate from download access.
+
+Stems and extra deliverables use Google Drive links only. Show them only after the related purchase is fully paid. Early audio override does not reveal them.
+
+Artist downloads use a separate authorized route checking exact purchase, version, full-payment state, and active override.
+
+## 13. Public song links and portfolio
+
+### 13.1 Public song link
+
+There is one public link per song.
+
+Producer alone controls publishing, copying, resetting, and disabling. Artist may copy an already-live link only.
+
+Reset invalidates the old page URL immediately and creates a new URL.
+
+Newest available version opens first. Visitors may switch between available stored versions.
+
+For a published song, new versions appear publicly after a producer warning. Deleted audio disappears.
+
+Completed/Canceled project and song archive do not disable a link.
+
+The link stops only when producer disables it or last stored audio is deleted.
+
+Public pages:
+
+- are noindex;
+- allow guest listening without an account;
+- do not allow guest comments;
+- never show Download;
+- never show private comments;
+- carry Skitza and producer branding;
+- never show Store products/prices.
+
+Do not restore magic-link sharing or Project Share.
+
+### 13.2 Portfolio
+
+- Only producer-marked-public songs appear.
+- Private/disabled songs never appear.
+- Portfolio plays newest available audio.
+- Portfolio has no version switcher.
+- New versions become portfolio playback after warning.
+- Completed/Canceled project and song archive do not remove a public song.
+- Deleting last audio removes it.
+- Portfolio follows song/audio state and never serves stale copied audio.
+
+## 14. Audio and file protection
+
+- Do not expose permanent public storage URLs for private or publicly shared music.
+- Listening uses protected streaming or short-lived delivery.
+- Artist downloads use a separate authorized route.
+- Public pages never receive download permission.
+- Reset/disable stops access through that page URL.
+- Deleting audio removes the real storage object.
+
+No browser can completely prevent recording playable audio. The goal is to block normal download and permanent direct-file access.
+
+Audio formats remain WAV, FLAC, MP3, and AAC, with a 100 MB per-file limit. Version comments remain timestamped and private to artist/producer.
+
+## 15. Navigation, archives, and action surfaces
+
+### Artist mobile
+
+- Home
+- Music
+- Book
+- Store
+- Payments
+
+Settings stays in profile. Artist desktop/main navigation also includes Payments.
+
+### Producer mobile
+
+- Today
+- Clients
+- Music
+- Calendar
+- Payments
+
+Store and Settings stay in profile.
+
+### Producer desktop
+
+Keep Store and add global Payments.
+
+### Archive locations
+
+Producer:
+
+- Clients → Archived
+- Projects → Archived with Completed/Canceled labels
+- Library → Archived Songs
+
+Artist:
+
+- Music → Projects → Archived
+- All Songs includes every song the artist may hear
+- Payments → History contains paid and canceled purchases
+
+Projects are reopened. Songs and clients are restored. Client/project archive never archives songs.
+
+### Visible-control rules
+
+Make every remaining button, link, tab, menu, row action, empty-state action, filter, and warning work, or remove it.
+
+Remove without replacement:
+
+- Favorites
+- fake play counts and sorting
+- Project Share
+- Store table view
+- unrelated Coming soon controls
+- Invoice
+- card checkout controls
+- automatic project archive controls
+- artist public-sharing permission controls
+
+Keep and make real:
+
+- Library Add Song
+- artist session Cancel and Reschedule
+- automatic session confirmation according to setting
+- normal Invite client and its route
+- Store editor actions
+- logged manual Send reminder
+
+## 16. Existing data and reset decision
+
+There are no real users. Current commercial, project, payment, proof, and Milestone data is mock data.
+
+Therefore:
+
+- remove Milestone plans completely;
+- do not grandfather Milestone products/requests;
+- remove Stripe, schedules, Tranzila, and other card paths;
+- reset mock project and commercial history instead of legacy backfill;
+- do not create synthetic purchases;
+- do not infer Completed/Canceled states for old mock archived projects;
+- do not migrate mock invoices/payments into the new ledger.
+
+The reset inventory must include dependent mock records and storage objects so no broken references or orphaned files remain.
+
+Do not reset producer accounts, settings, clients, or unrelated data unless a separately approved inventory names them.
+
+Before any production reset:
+
+- prepare dry-run counts;
+- verify again that there are no real users or external payments;
+- verify no live card schedules/charges;
+- stop if false;
+- test on a non-production database;
+- never print credentials or database URLs.
+
+This PRD does not authorize running a reset or migration.
+
+## 17. Durable engineering boundaries
+
+- Fetch server data through the established tRPC server caller pattern.
+- Scope every producer query by producer identity and preserve producer/artist guards.
+- New business rules belong in focused domain services with focused tests.
+- Routers, server actions, cron routes, and React components stay limited to authentication, validation, authorization, orchestration, and response mapping.
+- When replacing old business logic, migrate only that responsibility and remove the replaced path after all callers use the domain service.
+- Preserve security and behavior tests for approved behavior.
+- Replace tests that enforce removed behavior.
+- Add focused regression and concurrency tests.
+- Use private R2 presigned upload/delivery patterns.
+- Use the approved migration runner and never migrate/reset production without exact approval.
+
+## 18. Unchanged platform decisions
+
+- Framework: Next.js App Router, React, tRPC, Drizzle, Neon, Clerk, Tailwind, Vitest.
+- Storage: Cloudflare R2.
+- Email: Resend + React Email.
+- English-only v1; no IP locale detection.
+- Web-only; no native iOS/Android app.
+- No AI/LLM requirement.
+- No custom domains.
+- No Framer Motion or new animation library.
+- No Tauri, Documenso/PDF signing, waitlist, or removed magic-link share flow.
+- The public producer acquisition route remains under Skitza.
+
+## 19. Explicit non-goals
+
+- In-app card processing or a replacement processor.
+- Holding, routing, or splitting money.
+- Automatic financial refunds or account credits.
+- Official tax invoice generation/upload.
+- Royalty calculation, statements, collection, or payout.
+- Guest comments or public downloads.
+- Producer-style project management for artists.
+- Store products/prices on public portfolio or before sign-in.
+- Normal song moves across projects with financial history.
+- Permanent deletion of historical clients, projects, purchases, agreements, payments, or proofs.
+- Restoring magic-link sharing or Project Share.
+- Requiring Spotify/Apple Music links before Released-audio deletion.
+- Complete prevention of technical audio recording.
+- Legacy commercial backfill, synthetic purchases, Milestone grandfathering, or old archive classification.
+- Production reset/migration, merge, deployment, or promotion without separate exact approval.
